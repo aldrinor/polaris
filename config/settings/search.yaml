@@ -1,0 +1,93 @@
+# P1.2 FIX: Domain Blocklist Configuration
+# See deployment_plan_20260126.md
+# Entertainment/social sites pollute research results with irrelevant content
+
+# Domains to block - entertainment, social media, shopping
+blocked_domains:
+  - fandom.com
+  - wikia.com
+  - primevideo.com
+  - youtube.com
+  - imdb.com
+  - pinterest.com
+  - facebook.com
+  - twitter.com
+  - instagram.com
+  - tiktok.com
+  - reddit.com  # Too noisy for academic research
+  - amazon.com  # Shopping results
+  - ebay.com
+  - aliexpress.com
+  - etsy.com
+  - netflix.com
+  - hulu.com
+  - disneyplus.com
+  - tumblr.com
+  - quora.com  # Often low-quality answers
+
+# Domains to prefer - authoritative sources
+preferred_domains:
+  # Government
+  - .gov
+  - .gov.uk
+  - .gov.au
+  - .gov.ca
+  - who.int
+  - cdc.gov
+  - epa.gov
+  - fda.gov
+  - nih.gov
+  - ncbi.nlm.nih.gov
+  - pubmed.ncbi.nlm.nih.gov
+
+  # Academic
+  - .edu
+  - .ac.uk
+  - sciencedirect.com
+  - nature.com
+  - springer.com
+  - wiley.com
+  - tandfonline.com
+  - jstor.org
+  - arxiv.org
+  - researchgate.net
+  - semanticscholar.org
+
+  # Standards organizations
+  - iso.org
+  - astm.org
+  - ansi.org
+  - nsf.org
+
+  # Industry authoritative
+  - ieee.org
+  - acm.org
+
+# =============================================================================
+# SOTA COMPLIANCE: Domain Diversity Enforcement
+# W1.2 Task: Prevent single domain dominance (was 38% from one domain)
+# =============================================================================
+domain_diversity:
+  # Maximum results from any single domain
+  max_results_per_domain: 10
+  # Minimum number of unique domains required
+  min_unique_domains: 15
+  # Enable diversity enforcement
+  enabled: true
+  # Log warnings when diversity is low
+  warn_on_low_diversity: true
+  # Threshold for low diversity warning (single domain percentage)
+  low_diversity_threshold: 0.25
+
+# Rate limiting configuration
+rate_limiting:
+  semantic_scholar:
+    max_retries: 3
+    base_delay_seconds: 1.0
+    max_delay_seconds: 10.0
+    jitter_range: 1.0
+  serper:
+    max_retries: 3
+    base_delay_seconds: 0.5
+    max_delay_seconds: 5.0
+    jitter_range: 0.5

@@ -1,0 +1,170 @@
+# POLARIS Retry Policy Configuration
+# Retry and backoff settings for resilient execution
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# GENERAL RETRY SETTINGS
+# =============================================================================
+
+general:
+  # Default retry policy
+  max_retries: 3                       # Maximum retry attempts
+  base_delay_seconds: 2                # Initial delay before retry
+  max_delay_seconds: 60                # Maximum delay cap
+  backoff_multiplier: 2.0              # Exponential backoff multiplier
+  jitter: true                         # Add random jitter to delays
+  jitter_factor: 0.25                  # Jitter range (+/- 25%)
+
+# =============================================================================
+# API-SPECIFIC RETRY POLICIES
+# =============================================================================
+
+apis:
+  gemini:
+    max_retries: 5
+    base_delay_seconds: 2
+    max_delay_seconds: 120
+    backoff_multiplier: 2.0
+    retry_on_status_codes:
+      - 429                            # Rate limit
+      - 500                            # Server error
+      - 502                            # Bad gateway
+      - 503                            # Service unavailable
+      - 504                            # Gateway timeout
+    retry_on_exceptions:
+      - "ResourceExhausted"
+      - "DeadlineExceeded"
+      - "Unavailable"
+
+  openai:
+    max_retries: 5
+    base_delay_seconds: 2
+    max_delay_seconds: 120
+    backoff_multiplier: 2.0
+    retry_on_status_codes:
+      - 429
+      - 500
+      - 502
+      - 503
+    retry_on_exceptions:
+      - "RateLimitError"
+      - "APIConnectionError"
+      - "Timeout"
+
+  search_engines:
+    google_cse:
+      max_retries: 3
+      base_delay_seconds: 5
+      max_delay_seconds: 60
+      daily_limit: 100                 # Free tier limit
+
+    serper:
+      max_retries: 3
+      base_delay_seconds: 2
+      max_delay_seconds: 30
+      monthly_limit: 2500
+
+    pubmed:
+      max_retries: 3
+      base_delay_seconds: 1
+      max_delay_seconds: 30
+      rate_limit_per_second: 3
+
+    semantic_scholar:
+      max_retries: 3
+      base_delay_seconds: 2
+      max_delay_seconds: 30
+      rate_limit_per_5min: 100
+
+# =============================================================================
+# URL FETCH RETRY POLICY
+# =============================================================================
+
+url_fetch:
+  max_retries: 3
+  base_delay_seconds: 1
+  max_delay_seconds: 15
+  timeout_seconds: 30
+
+  retry_on_status_codes:
+    - 429
+    - 500
+    - 502
+    - 503
+    - 504
+    - 520                              # Cloudflare
+    - 521
+    - 522
+    - 523
+    - 524
+
+  retry_on_exceptions:
+    - "TimeoutError"
+    - "ConnectionError"
+    - "SSLError"
+
+  # Fallback chain
+  fallback_methods:
+    - "requests"                       # Try requests first
+    - "playwright"                     # Then headless browser
+    - "archive_org"                    # Then archive.org
+
+# =============================================================================
+# EMBEDDING/NLI RETRY POLICY
+# =============================================================================
+
+models:
+  embedding:
+    max_retries: 3
+    base_delay_seconds: 1
+    max_delay_seconds: 30
+    batch_retry: true                  # Retry failed items in batch
+
+  nli:
+    max_retries: 3
+    base_delay_seconds: 1
+    max_delay_seconds: 30
+    batch_retry: true
+
+  cross_encoder:
+    max_retries: 3
+    base_delay_seconds: 1
+    max_delay_seconds: 30
+
+# =============================================================================
+# CHROMADB RETRY POLICY
+# =============================================================================
+
+chromadb:
+  max_retries: 5
+  base_delay_seconds: 1
+  max_delay_seconds: 30
+  retry_on_exceptions:
+    - "CollectionNotFoundError"
+    - "ConnectionError"
+
+# =============================================================================
+# CIRCUIT BREAKER SETTINGS
+# =============================================================================
+
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5                 # Open after 5 failures
+  recovery_timeout_seconds: 60         # Try again after 60s
+  half_open_requests: 3                # Test requests in half-open
+
+# =============================================================================
+# GRACEFUL DEGRADATION
+# =============================================================================
+
+degradation:
+  # When to degrade instead of fail
+  degrade_on_timeout: true
+  degrade_on_rate_limit: true
+
+  # Degradation strategies
+  strategies:
+    search_engine_unavailable: "use_cached_results"
+    llm_unavailable: "use_fallback_model"
+    embedding_unavailable: "use_cached_embeddings"

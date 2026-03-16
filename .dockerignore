@@ -1,0 +1,50 @@
+# Version control
+.git
+.gitignore
+
+# Environment and secrets
+.env
+*.env.local
+*.env.production
+
+# Development artifacts
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Archives and historical data
+archive/
+*.bak
+
+# Large data files
+outputs/
+logs/
+state/
+data/
+
+# Documentation (not needed in container)
+docs/
+*.md
+!architecture.md
+!ground_rules.md
+
+# Tests (not needed in production container)
+tests/
+
+# Claude/AI config
+.claude/
+
+# Memory and project notes
+memory/
+POLARIS_APEX/
+models/

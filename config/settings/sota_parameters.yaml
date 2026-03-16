@@ -1,0 +1,202 @@
+# POLARIS SOTA Parameters Configuration
+# Aligned with Gemini 2.5 Pro Deep Research and OpenAI o3 Deep Research
+#
+# References:
+# - https://gemini.google/overview/deep-research/
+# - https://blog.google/products/gemini/deep-research-gemini-2-5-pro-experimental/
+# - https://platform.openai.com/docs/models/o3-deep-research
+# - https://openai.com/index/introducing-deep-research/
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# ITERATION AND SEARCH PARAMETERS
+# =============================================================================
+# Gemini Deep Research: "hundreds of searches", many model calls over several minutes
+# OpenAI o3: "hundreds of sources", "tens of minutes"
+
+iteration:
+  # Dynamic iteration control (replaces fixed MAX_ITERATIONS=3)
+  min_iterations: 5                    # Minimum P7-P9 cycles
+  max_iterations: 30                   # Maximum P7-P9 cycles
+  default_iterations: 10               # Default if no saturation signal
+
+  # Knowledge saturation detection
+  saturation_threshold: 0.85           # Stop when knowledge coverage >= 85%
+  novelty_decay_threshold: 0.10        # Stop when novelty per iteration < 10%
+  consecutive_low_novelty: 3           # Stop after 3 consecutive low-novelty iterations
+
+  # Time-based limits
+  max_execution_time_minutes: 30       # Hard stop after 30 minutes per vector
+  min_execution_time_minutes: 5        # Minimum research time
+
+search:
+  # Search volume (Gemini: hundreds of searches)
+  min_searches_per_vector: 100         # Minimum total searches
+  max_searches_per_vector: 500         # Maximum total searches
+  searches_per_iteration: 20           # Searches per P7-P9 cycle
+
+  # Query diversity
+  min_unique_queries: 50               # Minimum unique search queries
+  query_expansion_factor: 3            # Generate 3x queries, dedupe to target
+
+  # Search engine distribution
+  engine_distribution:
+    academic: 0.30                     # Peer-reviewed sources (PubMed, S2, OpenAlex)
+    government: 0.20                   # Regulatory/official (site:*.gov)
+    industry: 0.25                     # Trade publications
+    news: 0.15                         # Recent developments
+    general: 0.10                      # Broad web search
+
+# =============================================================================
+# CONTENT AND SOURCE PARAMETERS
+# =============================================================================
+# Gemini: "100+ pages", "111+ citations per task"
+# OpenAI: "hundreds of online sources"
+
+content:
+  # Source volume
+  min_sources_per_vector: 100          # Minimum unique sources
+  min_pages_content: 100               # Minimum pages of content analyzed
+  max_sources_per_vector: 300          # Maximum sources to prevent noise
+
+  # Content quality
+  min_content_words: 50000             # Minimum total words in evidence base
+  min_content_chars: 250000            # Minimum total characters
+  fetch_success_rate_threshold: 0.60   # Minimum fetch success rate
+
+  # URL handling
+  max_urls_per_search: 20              # URLs to fetch per search query
+  url_timeout_seconds: 30              # Timeout per URL fetch
+  max_retries_per_url: 3               # Retries for failed fetches
+
+# =============================================================================
+# CITATION AND VERIFICATION PARAMETERS
+# =============================================================================
+# Gemini: "111+ effective citations per task", "factual, citation-grounded"
+# Target: <5% hallucination, >95% citation accuracy
+
+citation:
+  # Citation volume
+  min_citations_per_report: 30         # Minimum citations in final report
+  target_citations_per_report: 50      # Target citations
+  max_citations_per_report: 100        # Maximum to maintain readability
+
+  # Citation density
+  min_citations_per_1000_words: 10     # ~1 citation per 100 words
+  max_uncited_sentences: 2             # Max consecutive uncited factual sentences
+
+verification:
+  # NLI verification thresholds (architecture.md B.5)
+  supported_threshold: 0.60            # entailment score for SUPPORTED
+  partial_threshold: 0.40              # entailment score for PARTIAL
+  contradiction_threshold: 0.20        # max contradiction for PARTIAL
+
+  # Hallucination targets
+  max_hallucination_rate: 0.05         # <5% hallucination rate
+  min_faithfulness: 0.80               # >80% faithfulness
+  min_citation_accuracy: 0.95          # >95% citation accuracy
+
+  # Claim verification
+  min_verified_claims: 30              # Minimum verified claims
+  verification_batch_size: 10          # Claims per NLI batch
+
+# =============================================================================
+# OUTPUT QUALITY PARAMETERS
+# =============================================================================
+# SOTA research reports are comprehensive, well-structured
+
+output:
+  # Report length
+  min_word_count: 2000                 # Minimum words in report
+  target_word_count: 3000              # Target words
+  max_word_count: 5000                 # Maximum words
+
+  # Structure requirements
+  min_sections: 4                      # Minimum report sections
+  min_subsections: 8                   # Minimum subsections
+  require_introduction: true
+  require_conclusion: true
+  require_bibliography: true
+
+  # Content coverage
+  min_constraint_coverage: 0.80        # 80% of constraints addressed
+  min_geographic_accuracy: 0.95        # 95% geographic relevance
+
+# =============================================================================
+# THINKING AND REASONING PARAMETERS
+# =============================================================================
+# Gemini: "32K token thinking budget", "chain-of-thought, tree-of-thought"
+
+reasoning:
+  # Thinking budget (Gemini 2.5 Pro configurable)
+  thinking_budget_tokens: 32000        # 32K token thinking budget
+
+  # Reasoning depth
+  max_reasoning_depth: 5               # Max recursive reasoning levels
+  min_reasoning_steps: 3               # Min steps per decision
+
+  # Adaptive planning
+  enable_adaptive_replanning: true     # Re-plan when gaps detected
+  replan_threshold: 0.30               # Replan if coverage < 30%
+
+# =============================================================================
+# CONTEXT AND MEMORY PARAMETERS
+# =============================================================================
+# Gemini: "1M token context"
+
+context:
+  # Context window
+  max_context_tokens: 128000           # Conservative context limit
+  target_context_utilization: 0.80     # Use 80% of context budget
+
+  # Chunk management
+  max_chunks_in_context: 50            # Maximum chunks per RAG call
+  chunk_overlap_ratio: 0.15            # 15% overlap between chunks
+
+memory:
+  # VWM (per-vector working memory)
+  max_vwm_chunks: 500                  # Maximum chunks in VWM
+  vwm_pruning_threshold: 0.40          # Remove chunks below this relevance
+
+  # LTM utilization
+  enable_ltm_stage: true               # Use stage-level LTM
+  enable_ltm_global: true              # Use global LTM
+  ltm_query_limit: 20                  # Max LTM results per query
+
+# =============================================================================
+# CONCURRENCY AND PERFORMANCE PARAMETERS
+# =============================================================================
+
+concurrency:
+  # Parallel execution
+  max_concurrent_fetches: 20           # Parallel URL fetches
+  max_concurrent_searches: 5           # Parallel search engine queries
+  max_concurrent_embeddings: 10        # Parallel embedding computations
+
+  # Rate limiting
+  requests_per_second: 10              # Max API requests per second
+  backoff_base_seconds: 2              # Exponential backoff base
+  max_backoff_seconds: 60              # Maximum backoff
+
+# =============================================================================
+# QUALITY GATES (PASS/FAIL THRESHOLDS)
+# =============================================================================
+
+quality_gates:
+  # Per-phase gates
+  p3_min_fetch_success_rate: 0.60
+  p4_min_gold_chunks: 10
+  p4_min_total_chunks: 30
+  p6_min_integrity_score: 0.70
+  p7_min_citations: 15
+  p8_min_resolution_rate: 0.60
+  p9_case1_sufficiency: 0.80
+  p9_case1_confidence: 0.70
+  p11_min_word_count: 2000
+
+  # Final quality gates
+  final_min_faithfulness: 0.80
+  final_max_hallucination: 0.05
+  final_min_citation_accuracy: 0.95
+  final_min_source_diversity: 10

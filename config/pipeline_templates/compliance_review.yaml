@@ -1,0 +1,100 @@
+pipeline_id: tpl_compliance_review
+name: Compliance Review
+description: >-
+  Pipeline for regulatory and compliance research. Focuses on legal sources,
+  regulatory documents, standards, and policy analysis. Higher verification
+  thresholds, mandatory source authority scoring, and conflict detection.
+  Ideal for contract review, regulatory compliance, and policy analysis.
+version: "1.0.0"
+author: system
+is_template: true
+tags: [compliance, regulatory, legal, policy, contracts]
+config_overrides:
+  PG_MAX_ITERATIONS: "4"
+  PG_MAX_EXECUTION_MINUTES: "120"
+  PG_MIN_FAITHFULNESS: "0.85"
+  PG_TARGET_TOTAL_WORDS: "12000"
+  PG_MIN_TOTAL_WORDS: "8000"
+  PG_CONFLICT_DETECTION_ENABLED: "1"
+
+macro_stages:
+  - macro_id: planning
+    label: Compliance Planning
+    description: Generate queries targeting regulatory and legal sources
+    color: "#6C5CE7"
+    estimated_minutes: 2.0
+    stages:
+      - stage_id: plan_queries
+        stage_type: plan
+        label: Regulatory Query Planning
+        config:
+          queries_per_vector: 50
+          regulatory_focus: true
+
+  - macro_id: collection
+    label: Source Collection
+    description: Search regulatory databases and legal sources
+    color: "#00B894"
+    estimated_minutes: 12.0
+    depends_on_macros: [planning]
+    stages:
+      - stage_id: regulatory_search
+        stage_type: search
+        label: Regulatory Search
+        config:
+          authority_scoring: true
+      - stage_id: storm_review
+        stage_type: storm_interviews
+        label: Expert Review
+        description: Multi-perspective regulatory expert interviews
+        depends_on: [regulatory_search]
+
+  - macro_id: analysis
+    label: Compliance Analysis
+    description: Extract regulatory requirements and obligations
+    color: "#FDCB6E"
+    estimated_minutes: 15.0
+    depends_on_macros: [collection]
+    stages:
+      - stage_id: content_analysis
+        stage_type: analyze
+        label: Requirement Extraction
+        config:
+          extract_obligations: true
+
+  - macro_id: verification
+    label: Strict Verification
+    description: High-threshold verification with conflict detection
+    color: "#E17055"
+    estimated_minutes: 15.0
+    depends_on_macros: [analysis]
+    stages:
+      - stage_id: nli_verify
+        stage_type: verify
+        label: NLI Verification
+        config:
+          min_faithfulness: 0.85
+      - stage_id: conflict_detect
+        stage_type: evaluate
+        label: Conflict Detection
+        description: Detect contradictions between regulatory sources
+        depends_on: [nli_verify]
+        config:
+          conflict_detection: true
+
+  - macro_id: synthesis
+    label: Compliance Report
+    description: Generate structured compliance report with obligation tracking
+    color: "#0984E3"
+    estimated_minutes: 20.0
+    depends_on_macros: [verification]
+    stages:
+      - stage_id: report_synthesis
+        stage_type: synthesize
+        label: Report Generation
+        config:
+          compliance_format: true
+      - stage_id: gap_search
+        stage_type: search_gaps
+        label: Regulatory Gap Search
+        depends_on: [report_synthesis]

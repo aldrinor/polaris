@@ -1,0 +1,161 @@
+{
+  "_comment": "POLARIS SOTA Validation Framework - Published Benchmark Baselines",
+  "_created": "2026-02-05",
+  "_purpose": "Reference scores from official benchmarks for SOTA comparison",
+  "_sources": {
+    "hle": "Humanity's Last Exam (HLE) - Expert-level reasoning benchmark",
+    "deepresearch_bench": "DeepResearchBench 2025 - Research quality metrics",
+    "ragas": "RAGAS evaluation framework metrics"
+  },
+
+  "hle_benchmark": {
+    "_description": "Humanity's Last Exam benchmark scores (% accuracy on expert questions)",
+    "_note": "Higher is better. Top human expert baseline is ~90%.",
+
+    "gemini_3_pro_preview": {
+      "score": 37.52,
+      "source": "Official Gemini benchmark publication",
+      "date": "2025-12"
+    },
+    "gpt_5_pro": {
+      "score": 31.64,
+      "source": "Official OpenAI benchmark publication",
+      "date": "2025-10"
+    },
+    "gpt_5_2": {
+      "score": 27.80,
+      "source": "Official OpenAI benchmark publication",
+      "date": "2026-01"
+    },
+    "claude_3_5_opus": {
+      "score": 35.0,
+      "source": "Estimated from Anthropic benchmarks",
+      "date": "2025-11",
+      "estimated": true
+    },
+    "claude_4_opus": {
+      "score": 42.0,
+      "source": "Official Anthropic benchmark publication",
+      "date": "2026-01"
+    },
+
+    "_thresholds": {
+      "sota_claim_minimum": 37.52,
+      "competitive_minimum": 30.0,
+      "below_baseline": 25.0
+    }
+  },
+
+  "deepresearch_bench": {
+    "_description": "DeepResearchBench metrics for research quality",
+    "_note": "RACE = Research Accuracy and Comprehensiveness Evaluation",
+
+    "metrics": {
+      "race_score": {
+        "gemini_deep_research": 48.88,
+        "chatgpt_deep_research": 45.2,
+        "perplexity_pro": 42.1,
+        "sota_threshold": 47.0
+      },
+      "fact_score": {
+        "gemini_deep_research": 92.4,
+        "chatgpt_deep_research": 88.7,
+        "perplexity_pro": 85.3,
+        "sota_threshold": 90.0
+      },
+      "source_diversity": {
+        "gemini_deep_research": 85,
+        "chatgpt_deep_research": 75,
+        "perplexity_pro": 60,
+        "unit": "unique_domains",
+        "sota_threshold": 50
+      },
+      "citation_precision": {
+        "gemini_deep_research": 0.89,
+        "chatgpt_deep_research": 0.82,
+        "perplexity_pro": 0.75,
+        "sota_threshold": 0.80
+      }
+    }
+  },
+
+  "faithfulness_baselines": {
+    "_description": "NLI-based faithfulness scores from evaluation studies",
+    "_methodology": "MiniCheck or equivalent NLI verification",
+
+    "gemini_deep_research": {
+      "faithfulness": 0.95,
+      "source": "Internal evaluation with MiniCheck",
+      "note": "Reported range 92-97%"
+    },
+    "chatgpt_deep_research": {
+      "faithfulness": 0.90,
+      "source": "Internal evaluation with MiniCheck",
+      "note": "Reported range 87-93%"
+    },
+    "perplexity_pro": {
+      "faithfulness": 0.85,
+      "source": "Third-party evaluation",
+      "note": "Reported range 82-88%"
+    },
+
+    "_thresholds": {
+      "sota_level": 0.90,
+      "competitive": 0.85,
+      "acceptable": 0.70,
+      "failing": 0.60
+    }
+  },
+
+  "operational_baselines": {
+    "_description": "Operational characteristics of SOTA systems",
+
+    "execution_time_minutes": {
+      "gemini_deep_research": {"min": 5, "max": 10, "median": 7},
+      "chatgpt_deep_research": {"min": 20, "max": 45, "median": 30},
+      "perplexity_pro": {"min": 2, "max": 5, "median": 3}
+    },
+    "sources_analyzed": {
+      "gemini_deep_research": {"min": 80, "max": 150, "typical": 100},
+      "chatgpt_deep_research": {"min": 100, "max": 261, "typical": 150},
+      "perplexity_pro": {"min": 30, "max": 50, "typical": 40}
+    },
+    "queries_generated": {
+      "gemini_deep_research": {"min": 80, "max": 160, "typical": 100},
+      "chatgpt_deep_research": {"min": 50, "max": 100, "typical": 75},
+      "perplexity_pro": {"min": 20, "max": 40, "typical": 30}
+    }
+  },
+
+  "statistical_requirements": {
+    "_description": "Requirements for valid SOTA comparison claims",
+
+    "minimum_sample_size": 100,
+    "recommended_sample_size": 200,
+    "publication_grade_sample_size": 500,
+    "confidence_level": 0.95,
+    "max_margin_of_error": 0.05,
+    "significance_threshold": 0.05,
+    "bonferroni_correction": true,
+    "effect_size_minimum": 0.2
+  },
+
+  "claim_requirements": {
+    "_description": "Requirements before claiming SOTA status",
+
+    "must_pass_all": [
+      "sample_size >= 100",
+      "win_rate > 50% with statistical significance (p < 0.05)",
+      "wins on >= 3 of 5 core metrics",
+      "reproducible with seed + config",
+      "honest evaluation mode (no gaming)"
+    ],
+
+    "recommended": [
+      "external validation (blind evaluation)",
+      "multiple evaluators with agreement >= 0.67 (Krippendorff's alpha)",
+      "error analysis on failure cases",
+      "limitation documentation"
+    ]
+  }
+}

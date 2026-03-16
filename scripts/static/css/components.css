@@ -1,0 +1,473 @@
+/* =========================================================================
+   POLARIS Observatory — components.css
+   Buttons, badges, tier badges, cards, modals, tooltips, toasts,
+   popovers, depth selector, input fields, dropdowns, toggle switches,
+   quality gates, filter chips, expandable cards, strength meter,
+   verdict bars, anomaly chips, metric cards, segmented controls,
+   export buttons, model info badge, sort dropdown, error fallback,
+   time estimate, bookmark, counter pulse, user-only visibility
+   ========================================================================= */
+
+/* =======================================================================
+   Toast
+   ======================================================================= */
+.toast-container {
+  position: fixed;
+  bottom: var(--lg);
+  right: var(--lg);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+}
+.toast {
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-active);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  animation: slideInRight var(--duration-slow) var(--ease);
+  max-width: 400px;
+}
+.toast.show { opacity: 1; }
+.toast.toast-info { border-color: var(--accent); }
+.toast.toast-warning { border-color: var(--warning); }
+.toast.toast-error { border-color: var(--error); }
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: var(--error); }
+:root[data-theme="light"] .toast { color: #f1f5f9; }
+
+/* =======================================================================
+   Tier Badges
+   ======================================================================= */
+.tier-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-3xs);
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.tier-badge.gold { background: var(--gold-dim); color: var(--gold); }
+.tier-badge.silver { background: var(--silver-dim); color: var(--silver); }
+.tier-badge.bronze { background: var(--bronze-dim); color: var(--bronze); }
+
+/* =======================================================================
+   Filter Chips
+   ======================================================================= */
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: var(--sm);
+}
+.filter-chip {
+  padding: 6px 12px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-tertiary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  min-height: var(--touch-min);              /* 44px total (border-box) */
+  min-width: var(--control-height-sm);       /* 32px icon-only chip */
+  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.filter-chip:hover { color: var(--text-primary); border-color: var(--border-active); }
+.filter-chip.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+/* =======================================================================
+   Expandable Cards (Trace)
+   ======================================================================= */
+.trace-stream { display: flex; flex-direction: column; gap: 2px; }
+.expandable-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.expandable-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+.expandable-header:hover { background: var(--bg-hover); }
+.expand-arrow {
+  font-size: var(--text-3xs);
+  color: var(--text-tertiary);
+  transition: transform var(--duration-fast) var(--ease);
+  flex-shrink: 0;
+}
+.expandable-card.open .expand-arrow { transform: rotate(90deg); }
+.expandable-body {
+  display: none;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  max-height: 500px;
+  overflow-y: auto;
+}
+.expandable-card.open .expandable-body { display: block; }
+
+/* =======================================================================
+   Export Buttons
+   ======================================================================= */
+.export-toolbar {
+  display: flex;
+  gap: var(--gap-cards);
+}
+.export-btn {
+  padding: 8px 20px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  letter-spacing: normal;
+  min-height: var(--control-height-md);      /* 36px SECONDARY ACTION family */
+  min-width: 64px;
+  display: inline-flex;
+  align-items: center;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.export-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); transform: translateY(-1px); box-shadow: var(--shadow-glow); }
+
+/* Audit Export Button */
+.export-btn-audit {
+  padding: 8px 20px;
+  min-height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--warning);
+  background: var(--warning-dim);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  letter-spacing: normal;
+}
+.export-btn-audit:hover {
+  border-color: var(--warning);
+  background: rgba(245, 158, 11, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.15);
+}
+
+/* =======================================================================
+   Segmented Control
+   ======================================================================= */
+.seg-control {
+  display: flex;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-btn {
+  padding: 4px 14px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  white-space: nowrap;
+  min-height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+}
+.seg-btn:hover { color: var(--text-primary); }
+.seg-btn.active { color: var(--accent); font-weight: 600; border-bottom: 2px solid var(--accent); }
+
+/* =======================================================================
+   Metric Cards
+   ======================================================================= */
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-cards);
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--pad-card);
+  position: relative;
+}
+/* Remove accent gradient bar — too decorative */
+.metric-card::before { display: none; }
+/* Remove hover lift — metrics are read-only, not clickable */
+.metric-card:hover { transform: none; box-shadow: none; }
+
+.metric-card .label {
+  font-size: var(--text-3xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 4px;
+}
+
+.metric-card .value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.metric-card .value.good { color: var(--success); }
+.metric-card .value.warn { color: var(--warning); }
+.metric-card .value.bad { color: var(--error); }
+
+/* =======================================================================
+   Quality Gate Dots
+   ======================================================================= */
+.gate-dots {
+  display: flex;
+  gap: var(--sm);
+  flex-wrap: wrap;
+}
+
+.gate-dot-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
+.gate-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.gate-dot.pass { background: var(--success); }
+.gate-dot.fail { background: var(--error); }
+
+/* =======================================================================
+   Gate Grid
+   ======================================================================= */
+.gate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sm); }
+.gate-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.gate-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.gate-card-name { font-size: var(--text-2xs); color: var(--text-tertiary); }
+.gate-badge { font-size: var(--text-3xs); font-weight: 700; padding: 1px 6px; border-radius: var(--radius-badge); }
+.gate-pass { background: var(--success-dim); color: var(--success); }
+.gate-fail { background: var(--error-dim); color: var(--error); }
+.gate-value { font-size: var(--text-2xl); font-weight: 700; font-family: inherit; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.gate-bar-track { height: 6px; background: var(--border); border-radius: 3px; position: relative; margin-bottom: 4px; }
+.gate-bar-fill { height: 100%; border-radius: 2px; }
+.gate-threshold { position: absolute; top: -2px; width: 2px; height: 8px; background: var(--text-tertiary); }
+.gate-delta { font-size: var(--text-3xs); }
+.gate-delta.positive { color: var(--success); }
+.gate-delta.negative { color: var(--error); }
+
+/* =======================================================================
+   Strength Meter
+   ======================================================================= */
+.strength-bar { display: flex; height: 10px; border-radius: var(--radius-bar); overflow: hidden; gap: 1px; background: var(--border); }
+.strength-segment { transition: width var(--duration-slow) var(--ease); font-size: 0; }
+.strength-gold { background: var(--gold); }
+.strength-silver { background: var(--silver); }
+.strength-bronze { background: var(--bronze); }
+.strength-labels { display: flex; justify-content: space-between; font-size: var(--text-3xs); color: var(--text-tertiary); margin-top: 4px; }
+
+/* Faith gauge */
+.faith-gauge-circle { display: flex; justify-content: center; }
+
+/* Verdict bar */
+.verdict-bar-container { display: flex; height: 10px; border-radius: var(--radius-bar); overflow: hidden; gap: 1px; margin-bottom: 6px; }
+.verdict-seg { transition: width var(--duration-slow) var(--ease); font-size: var(--text-3xs); color: white; display: flex; align-items: center; justify-content: center; }
+.verdict-supported { background: var(--success); }
+.verdict-partial { background: var(--warning); }
+.verdict-not-supported { background: var(--error); }
+.verdict-no-verdict { background: var(--border); }
+.verdict-legend { display: flex; gap: var(--md); font-size: var(--text-3xs); color: var(--text-tertiary); flex-wrap: wrap; }
+.verdict-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+
+/* Verdict badges */
+.verdict-badge { padding: 1px 5px; border-radius: 3px; font-size: var(--text-3xs); font-weight: 700; }
+.verdict-badge.supported { background: var(--success-dim); color: var(--success); }
+.verdict-badge.partial { background: var(--warning-dim); color: var(--warning); }
+.verdict-badge.not-supported { background: var(--error-dim); color: var(--error); }
+
+/* Anomaly chips */
+.anomaly-bar { padding: var(--xs) var(--md); display: flex; gap: var(--xs); flex-wrap: wrap; }
+.anomaly-chip { padding: 2px 8px; border-radius: var(--radius-sm); font-size: var(--text-3xs); }
+.anomaly-chip.CRITICAL { background: var(--error-dim); color: var(--error); }
+.anomaly-chip.WARNING { background: var(--warning-dim); color: var(--warning); }
+.anomaly-chip.INFO { background: var(--info-dim); color: var(--info); }
+
+/* =======================================================================
+   Model Info Badge
+   ======================================================================= */
+.model-info-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-info-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* =======================================================================
+   Section Faithfulness Badge
+   ======================================================================= */
+.section-faith-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75em;
+  font-weight: 600;
+  font-family: inherit;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* =======================================================================
+   Evidence Sort Dropdown
+   ======================================================================= */
+.evidence-sort-select {
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: var(--text-2xs);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease);
+  min-height: 36px;
+}
+.evidence-sort-select:hover { border-color: var(--border-active); }
+.evidence-sort-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); outline: none; }
+
+/* =======================================================================
+   Render Error Fallback
+   ======================================================================= */
+.render-error {
+  padding: 20px;
+  color: var(--error);
+  border: 1px solid var(--error);
+  border-radius: var(--radius);
+  margin: var(--md);
+  background: var(--error-dim);
+}
+.render-error strong { display: block; margin-bottom: var(--xs); }
+
+/* =======================================================================
+   Estimated Time Remaining
+   ======================================================================= */
+.time-estimate {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  margin-top: var(--xs);
+  font-family: inherit;
+}
+
+/* =======================================================================
+   Counter Animation Pulse
+   ======================================================================= */
+.counter-pulse {
+  animation: count-pulse 0.3s var(--ease);
+}
+
+/* =======================================================================
+   User-only Visibility Class
+   ======================================================================= */
+body:not(.user-mode) .user-only { /* shown in all modes by default */ }
+body.user-mode .user-only { display: block; }
+
+/* =======================================================================
+   Bookmark / Saved Research
+   ======================================================================= */
+.bookmark-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);               /* 44px total (border-box) */
+  min-height: var(--touch-min);              /* 44px total (border-box) */
+  padding: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 18px;                           /* 18px icon per ICON BUTTON spec */
+  color: var(--text-tertiary);
+  transition: all var(--duration-fast) var(--ease);
+  flex-shrink: 0;
+  line-height: 1;
+}
+.bookmark-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-dim);
+  transform: translateY(-1px);
+}
+.bookmark-btn.bookmarked {
+  color: var(--gold);
+  border-color: rgba(252, 211, 77, 0.4);
+  background: var(--gold-dim);
+  text-shadow: 0 0 8px rgba(252, 211, 77, 0.4);
+}
+.bookmark-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

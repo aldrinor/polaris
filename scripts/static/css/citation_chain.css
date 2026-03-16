@@ -1,0 +1,515 @@
+/* =========================================================================
+   POLARIS Observatory — citation_chain.css
+   Chain of Custody citation modal — 4-tab deep traceability view.
+   Tab 1: Summary (source card + evidence cards)
+   Tab 2: Source Preview (sandboxed iframe + mark.js highlighting)
+   Tab 3: Reasoning Chain (A->B->C->D traceability)
+   Tab 4: Metadata (source + evidence detail tables)
+   ========================================================================= */
+
+/* =======================================================================
+   Modal Overlay
+   ======================================================================= */
+.chain-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+  padding: var(--lg);
+}
+.chain-modal-overlay.visible {
+  display: flex;
+  animation: chainFadeIn 0.2s ease-out;
+}
+
+@keyframes chainFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* =======================================================================
+   Modal Container
+   ======================================================================= */
+.chain-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  width: 100%;
+  max-width: 780px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: chainSlideUp var(--duration-normal) ease-out;
+}
+
+@keyframes chainSlideUp {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* =======================================================================
+   Modal Header
+   ======================================================================= */
+.chain-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
+.chain-modal-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  letter-spacing: -0.2px;
+}
+
+.chain-modal-close {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  line-height: 1;
+}
+.chain-modal-close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-active);
+  background: var(--bg-hover);
+}
+
+/* =======================================================================
+   Tabs
+   ======================================================================= */
+.chain-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.chain-tab {
+  padding: 8px 16px;
+  min-height: var(--control-height-md);      /* 36px NAV TAB family */
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  white-space: nowrap;
+}
+.chain-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.chain-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* =======================================================================
+   Tab Body / Panes
+   ======================================================================= */
+.chain-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chain-pane {
+  display: none;
+  padding: 16px 20px;
+}
+.chain-pane.active {
+  display: block;
+}
+
+/* =======================================================================
+   Section headers inside panes
+   ======================================================================= */
+.chain-section-header {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* =======================================================================
+   Tab 1: Summary — Source Card
+   ======================================================================= */
+.chain-source-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.chain-source-title {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.chain-source-url {
+  display: block;
+  font-size: var(--text-2xs);
+  color: var(--accent);
+  text-decoration: none;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.chain-source-url:hover {
+  text-decoration: underline;
+}
+
+.chain-source-type {
+  display: inline-block;
+  font-size: var(--text-3xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: normal;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+/* =======================================================================
+   Tab 1: Summary — Evidence Cards
+   ======================================================================= */
+.chain-evidence-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  transition: border-color var(--duration-fast) var(--ease);
+}
+.chain-evidence-card:hover {
+  border-color: var(--border-active);
+}
+
+.chain-ev-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+/* Tier badges (reuse in chain context) */
+.chain-tier-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-3xs);
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.chain-tier-badge.tier-gold { background: var(--gold-dim); color: var(--gold); }
+.chain-tier-badge.tier-silver { background: var(--silver-dim); color: var(--silver); }
+.chain-tier-badge.tier-bronze { background: var(--bronze-dim); color: var(--bronze); }
+
+.chain-ver-badge {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.chain-relevance {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  margin-left: auto;
+}
+
+.chain-ev-quote {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.chain-ev-sections {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.chain-section-chip {
+  display: inline-block;
+  font-size: var(--text-3xs);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+}
+
+/* =======================================================================
+   Tab 2: Source Preview — Iframe + Fallback
+   ======================================================================= */
+.chain-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.chain-preview-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chain-preview-link {
+  font-size: var(--text-xs);
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.chain-preview-link:hover {
+  text-decoration: underline;
+}
+
+.chain-preview-iframe {
+  width: 100%;
+  height: 400px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.chain-preview-quote-label {
+  font-size: var(--text-3xs);
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  text-align: center;
+}
+
+.chain-fallback-notice {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+
+.chain-fallback-quote {
+  background: var(--bg-card);
+  border-left: 3px solid var(--accent);
+  padding: 12px 16px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  font-style: italic;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* =======================================================================
+   Tab 3: Reasoning Chain (A->B->C->D)
+   ======================================================================= */
+.chain-reasoning-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.chain-step {
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.chain-step-label {
+  font-size: var(--text-3xs);
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 4px;
+}
+
+.chain-step-content {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.chain-step-quote {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.chain-arrow {
+  text-align: center;
+  font-size: var(--text-lg);
+  color: var(--text-tertiary);
+  padding: 4px 0;
+  line-height: 1;
+}
+
+.chain-verdict {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.chain-verdict:last-child {
+  border-bottom: none;
+}
+
+.chain-verdict-badge {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+.chain-nli-score {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-family: inherit;
+}
+
+.chain-verdict-reason {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.chain-conclusion {
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.chain-separator {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 12px 0;
+}
+
+/* =======================================================================
+   Tab 4: Metadata Tables
+   ======================================================================= */
+.chain-meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  margin-bottom: 8px;
+}
+
+.chain-meta-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.chain-meta-table td:first-child {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  white-space: nowrap;
+  width: 140px;
+}
+.chain-meta-table td:last-child {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.chain-meta-table code {
+  font-family: inherit;
+  font-size: var(--text-2xs);
+  background: var(--bg-inset);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.chain-meta-ev {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+.chain-meta-ev-header {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* =======================================================================
+   Responsive: Mobile
+   ======================================================================= */
+@media (max-width: 640px) {
+  .chain-modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .chain-modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation: chainSlideUpMobile 0.3s ease-out;
+  }
+  @keyframes chainSlideUpMobile {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .chain-tab {
+    padding: 10px 12px;
+    font-size: var(--text-2xs);
+  }
+  .chain-preview-iframe {
+    height: 300px;
+  }
+  .chain-meta-table td:first-child {
+    width: 100px;
+  }
+}

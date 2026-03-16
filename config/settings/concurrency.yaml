@@ -1,0 +1,154 @@
+# POLARIS Concurrency Configuration
+# Parallel execution and resource management settings
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# GLOBAL CONCURRENCY LIMITS
+# =============================================================================
+
+global:
+  # Maximum concurrent operations
+  max_concurrent_vectors: 3            # Vectors processed in parallel
+  max_concurrent_phases: 1             # Phases per vector (sequential)
+  max_workers: 20                      # Global worker pool size
+
+  # Resource limits
+  max_memory_gb: 16                    # Memory limit for process
+  max_gpu_memory_gb: 8                 # GPU memory limit
+
+# =============================================================================
+# NETWORK CONCURRENCY
+# =============================================================================
+
+network:
+  # URL fetching
+  max_concurrent_fetches: 20           # Parallel URL fetches
+  fetch_semaphore_size: 20             # Semaphore for fetch control
+  connection_pool_size: 100            # HTTP connection pool
+
+  # Search engine queries
+  max_concurrent_searches: 5           # Parallel search engine queries
+  search_semaphore_size: 5
+
+  # Rate limiting
+  global_requests_per_second: 50       # Overall rate limit
+  per_domain_requests_per_second: 5    # Per-domain rate limit
+  domain_cooldown_seconds: 1           # Delay between same-domain requests
+
+# =============================================================================
+# API CONCURRENCY
+# =============================================================================
+
+apis:
+  gemini:
+    max_concurrent_requests: 5
+    requests_per_minute: 60
+    tokens_per_minute: 1000000
+
+  openai:
+    max_concurrent_requests: 5
+    requests_per_minute: 60
+    tokens_per_minute: 150000
+
+  embedding_api:
+    max_concurrent_requests: 10
+    batch_size: 100
+
+# =============================================================================
+# MODEL CONCURRENCY
+# =============================================================================
+
+models:
+  # Embedding model
+  embedding:
+    max_concurrent_batches: 3
+    batch_size: 32
+    queue_size: 1000
+
+  # NLI model
+  nli:
+    max_concurrent_batches: 2
+    batch_size: 16
+    queue_size: 500
+
+  # Cross-encoder
+  cross_encoder:
+    max_concurrent_batches: 2
+    batch_size: 32
+    queue_size: 500
+
+# =============================================================================
+# CHROMADB CONCURRENCY
+# =============================================================================
+
+chromadb:
+  max_concurrent_operations: 5
+  batch_insert_size: 100
+  batch_query_size: 50
+
+# =============================================================================
+# PHASE-SPECIFIC CONCURRENCY
+# =============================================================================
+
+phases:
+  p3_search:
+    max_concurrent_queries: 10
+    max_concurrent_fetches: 20
+
+  p4_relevance:
+    max_concurrent_embeddings: 10
+    max_concurrent_reranking: 5
+
+  p5_indexing:
+    max_concurrent_chunks: 20
+    batch_size: 50
+
+  p6_nli:
+    max_concurrent_pairs: 10
+    batch_size: 16
+
+  p7_rag:
+    max_concurrent_retrievals: 5
+
+# =============================================================================
+# QUEUE MANAGEMENT
+# =============================================================================
+
+queues:
+  # Work queue for vectors
+  vector_queue:
+    max_size: 175                      # All vectors
+    priority_levels: 3                 # High, medium, low
+    timeout_seconds: 3600              # 1 hour timeout
+
+  # Phase execution queue
+  phase_queue:
+    max_size: 50
+    timeout_seconds: 600               # 10 minute timeout
+
+  # Retry queue
+  retry_queue:
+    max_size: 100
+    max_retries: 3
+
+# =============================================================================
+# ORCHESTRATOR SETTINGS
+# =============================================================================
+
+orchestrator:
+  # Scheduling
+  scheduling_strategy: "priority"      # priority, fifo, round_robin
+  priority_boost_on_retry: true        # Boost priority on retry
+
+  # Health monitoring
+  health_check_interval_seconds: 30
+  stale_task_threshold_seconds: 300    # Mark task stale after 5 min
+
+  # Checkpointing
+  checkpoint_interval_seconds: 60      # Checkpoint every minute
+  checkpoint_on_phase_complete: true
+
+  # Graceful shutdown
+  shutdown_timeout_seconds: 120        # Wait 2 min for graceful shutdown
+  drain_on_shutdown: true              # Drain queues on shutdown

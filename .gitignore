@@ -1,0 +1,79 @@
+# ============================================================
+# POLARIS .gitignore
+# ============================================================
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Test / Lint caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- Runtime / transient state ---
+logs/
+outputs/
+state/
+
+# --- Large trace files ---
+*.jsonl
+
+# --- ML models (multi-GB) ---
+models/
+
+# --- Archive (historical snapshots, 36 GB+) ---
+archive/
+
+# --- ChromaDB vector store ---
+memory/chroma_db/
+
+# --- Claude config ---
+.claude/
+
+# --- Node ---
+node_modules/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+nul
+
+# --- Docker (local overrides only) ---
+docker-compose.override.yml
+
+# --- Transient screenshots at repo root ---
+current_ui*.png
+
+# --- Nested legacy copies ---
+POLARIS_APEX/
+
+# --- Data (benchmarks, documents — reproducible) ---
+data/

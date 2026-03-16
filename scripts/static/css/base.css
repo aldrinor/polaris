@@ -1,0 +1,570 @@
+/* =========================================================================
+   POLARIS Observatory — base.css
+   CSS Variables (dark + light themes), Theme Toggle, Reset, Base
+   Typography, Scrollbar, Links, Shared Card/Section Styles,
+   Form Controls, Focus States, Skip Link, Keyboard Accessibility
+   ========================================================================= */
+
+/* =======================================================================
+   CSS Variables — POLARIS Observatory SOTA Theme
+   ======================================================================= */
+:root {
+  /* Base — Cool Zinc palette (neutral with subtle cool undertone) */
+  --bg-primary: #0c0c0f;    /* near-black with hint of blue */
+  --bg-secondary: #111114;  /* nav bars, column backgrounds */
+  --bg-card: #19191d;       /* cards float */
+  --bg-elevated: #1f1f24;   /* modals, popovers, active cards */
+  --bg-hover: #27272c;      /* hover states */
+  --bg-inset: #060608;      /* recessed areas, input wells */
+
+  /* Text — warmer white, neutral grays */
+  --text-primary: #fafaf9;   /* warm white */
+  --text-secondary: #a0a0ab; /* neutral-400 */
+  --text-tertiary: #6e6e7a;  /* neutral-500 */
+
+  /* Accent — sky-400 (pops on navy) */
+  --accent: #38bdf8;
+  --accent-dim: rgba(56, 189, 248, 0.12);
+  --accent-glow: rgba(56, 189, 248, 0.25);
+
+  /* Semantic — WCAG 4.5:1 on bg-card AND bg-elevated */
+  --success: #34d399;      /* emerald-400, ≥6:1 on bg-elevated */
+  --warning: #F59E0B;
+  --error: #fb7185;        /* rose-400, ≥5:1 on error-dim */
+  --info: #60a5fa;         /* blue-400, ≥4.5:1 on bg-elevated */
+  --success-dim: rgba(52, 211, 153, 0.15);
+  --warning-dim: rgba(245, 158, 11, 0.15);
+  --error-dim: rgba(251, 113, 133, 0.12);
+  --info-dim: rgba(96, 165, 250, 0.12);
+
+  /* Evidence tiers (warmer on navy) */
+  --gold: #FCD34D;
+  --gold-dim: rgba(252, 211, 77, 0.15);
+  --silver: #CBD5E1;
+  --silver-dim: rgba(203, 213, 225, 0.15);
+  --bronze: #fbbf24;         /* amber-400, ≥5:1 on bg-card */
+  --bronze-dim: rgba(251, 191, 36, 0.15);
+
+  /* Border — subtler on dark zinc */
+  --border: #2a2a30;
+  --border-active: #3e3e46;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Type Scale — modest bump for headings */
+  --text-2xl: 1.75rem;   /* 28px — hero numbers */
+  --text-xl: 1.375rem;   /* 22px — section headings */
+  --text-lg: 1rem;       /* 16px — card titles */
+  --text-base: 0.875rem; /* 14px — body */
+  --text-sm: 0.8125rem;  /* 13px — secondary */
+  --text-xs: 0.75rem;    /* 12px — labels */
+  --text-2xs: 0.6875rem; /* 11px — badges */
+  --text-3xs: 0.625rem;  /* 10px — annotations */
+
+  /* Spacing (4px grid, 12px standard gap) */
+  --xs: 4px;
+  --sm: 8px;
+  --md: 16px;
+  --lg: 24px;
+  --xl: 32px;
+  --xxl: 48px;
+  --gap-40: 40px;
+  --xxxl: 64px;
+  --gap-page: 80px;
+  --gap-cards: 12px;       /* card-to-card gap */
+  --gap-sections: 20px;    /* section-to-section gap */
+  --pad-card: 16px;        /* standard card padding */
+  --pad-card-lg: 20px;     /* larger card padding */
+
+  /* Radius — tighter */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Shadows — clean, no inset glow */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow: 0 2px 8px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-lg: 0 8px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-glow: 0 0 16px rgba(56,189,248,0.06);
+  --shadow-success-glow: 0 0 8px rgba(16,185,129,0.6);
+  --shadow-error-glow: 0 0 6px rgba(244,63,94,0.4);
+
+  /* Card padding variants */
+  --pad-card-sm: 12px;
+  --pad-card-xs: 8px;
+  --pad-compact: 10px;
+  --gap-tight: 6px;
+
+  /* Dark Mode depth: elevation tiers (subtle borders, not heavy shadows) */
+  --shadow-panel: 0 4px 12px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-modal: 0 16px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);
+  --border-subtle: 1px solid rgba(255,255,255,0.08);
+
+  /* Additional radii */
+  --radius-pill: 20px;
+  --radius-badge: 8px;
+  --radius-bar: 5px;
+
+  /* Touch target */
+  --touch-min: 44px;
+
+  /* Control height tokens (A.1) */
+  --control-height-lg: 40px;    /* primary action */
+  --control-height-md: 36px;    /* standard / nav tab / icon button */
+  --control-height-sm: 32px;    /* chip / toggle */
+  --control-height-xs: 24px;    /* dense-mode micro */
+
+  /* Additional type sizes */
+  --text-4xs: 0.5rem;       /* 8px — wizard progress */
+  --text-3xl: 1.625rem;     /* 26px — report h1 */
+  --text-display: 1.75rem;  /* 28px — user-mode h1 */
+  --text-display-lg: 3rem;  /* 48px — landing display */
+  --text-display-xl: 3.5rem;/* 56px — landing hero */
+
+  /* Layout containers */
+  --content-max-width: min(100%, 100rem);  /* 1600px — generous container cap */
+
+  /* Reading ergonomics (research engine specific) */
+  --reading-max-width: 65ch;  /* typographic reading measure for prose */
+  --reading-line-height: 1.75;    /* prose-specific, reduces eye strain */
+  --ui-line-height: 1.4;          /* tighter for UI cards/badges */
+  --header-height: 48px;          /* for scroll-margin-top calculations */
+
+  /* Accent variants */
+  --accent-hover: #5cc8fa;
+  --text-on-accent: #0f172a;
+
+  /* Z-Index scale (prevents overlay collisions) */
+  --z-base: 0;
+  --z-fab: 50;            /* mobile FAB (below sticky) */
+  --z-sticky: 100;        /* sticky headers, TOC */
+  --z-compose: 250;       /* compose drawer (above dropdown) */
+  --z-dropdown: 200;      /* dropdowns, popovers */
+  --z-overlay: 300;       /* modal overlays */
+  --z-modal: 400;         /* modal content */
+  --z-confirmation: 450;  /* interruption confirmation dialog */
+  --z-toast: 500;         /* toast notifications */
+  --z-tooltip: 600;       /* tooltips (always on top) */
+  --z-skip-link: 10000;   /* skip navigation (above everything) */
+
+  /* Animation */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 350ms;
+}
+
+/* =======================================================================
+   Light Mode Theme
+   Single source of truth: data-theme="light" on <html>.
+   JS sets this from localStorage or prefers-color-scheme on load.
+   No CSS media query duplication — JS handles the detection.
+   ======================================================================= */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f4f4f5;
+  --bg-inset: #f4f4f5;
+
+  --text-primary: #0c0c0f;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+
+  --accent-dim: rgba(2, 132, 199, 0.08);
+  --accent-glow: rgba(2, 132, 199, 0.15);
+
+  --success: #047857;        /* emerald-700, 5.4:1 on white */
+  --warning: #b45309;        /* amber-700, 4.6:1 on warning-dim */
+  --error: #c62222;          /* red-700ish, ≥4.5:1 on error-dim */
+  --info: #2563eb;
+  --success-dim: rgba(4, 120, 87, 0.05);
+  --warning-dim: rgba(180, 83, 9, 0.05);
+  --error-dim: rgba(198, 34, 34, 0.05);
+  --info-dim: rgba(37, 99, 235, 0.08);
+
+  --gold: #92400e;           /* amber-800, ≥6:1 on gold-dim */
+  --gold-dim: rgba(146, 64, 14, 0.08);
+  --silver: #475569;
+  --silver-dim: rgba(71, 85, 105, 0.08);
+  --bronze: #92400e;
+  --bronze-dim: rgba(146, 64, 14, 0.08);
+
+  --border: #e4e4e7;
+  --border-active: #d4d4d8;
+
+  /* Light mode: blue-600 for white bg contrast */
+  --accent: #2563eb;
+  --accent-hover: #0284c7;
+  --text-on-accent: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-lg: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+  --shadow-glow: 0 1px 3px rgba(0,0,0,0.1);
+  --shadow-panel: 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-modal: 0 8px 24px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.06);
+  --shadow-success-glow: 0 0 6px rgba(5,150,105,0.4);
+  --shadow-error-glow: 0 0 4px rgba(239,68,68,0.3);
+  --border-subtle: 1px solid rgba(0,0,0,0.06);
+}
+
+/* Light mode element overrides — only under explicit data-theme="light" */
+:root[data-theme="light"] .app-header {
+  background: var(--bg-secondary);
+  border-bottom-color: var(--border);
+}
+:root[data-theme="light"] .app-logo { text-shadow: none; }
+:root[data-theme="light"] .view-mode-btn.active { color: #ffffff; }
+:root[data-theme="light"] .status-dot.connected { box-shadow: 0 0 6px rgba(5, 150, 105, 0.4); }
+:root[data-theme="light"] .nav-bar { background: var(--bg-secondary); }
+:root[data-theme="light"] .nav-btn.active { box-shadow: none; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+
+/* Theme toggle button */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-min);       /* 44px total (border-box) */
+  min-height: var(--touch-min);      /* 44px total (border-box) */
+  padding: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 18px;                   /* icon size per ICON BUTTON spec */
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease);
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-active);
+}
+
+/* =======================================================================
+   Reset & Base
+   ======================================================================= */
+html { color-scheme: dark; scroll-behavior: smooth; overflow-x: hidden; }
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.57;
+  font-size: var(--text-base);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--accent); text-decoration: none; transition: opacity var(--duration-fast) var(--ease); }
+a:hover { text-decoration: underline; opacity: 0.85; }
+
+/* Premium thin scrollbars (Apple/Anthropic standard) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-active); background-clip: content-box; }
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+/* =======================================================================
+   Shared Card / Section Styles
+   ======================================================================= */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--md);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--duration-normal) var(--ease);
+}
+
+.section-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: var(--sm);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.stats-row {
+  display: flex;
+  gap: var(--md);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.stats-row b { color: var(--text-primary); }
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--xxl) var(--xl);
+  color: var(--text-tertiary);
+  font-size: var(--text-base);
+  letter-spacing: normal;
+  text-align: center;
+}
+
+/* =======================================================================
+   Form Controls + Focus States
+   ======================================================================= */
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+/* Focus-visible accessibility for keyboard navigation */
+.nav-btn:focus-visible, .seg-btn:focus-visible, .adv-tab-btn:focus-visible,
+.filter-chip:focus-visible, .trace-chip:focus-visible, .export-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Hide focus rings on mouse click for scrollable regions, keep for keyboard (TRAP 5) */
+[role="region"][tabindex="0"]:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* =======================================================================
+   Accessibility: Skip Navigation Link (I.3)
+   ======================================================================= */
+.skip-link {
+  position: absolute;
+  top: -44px;
+  left: 0;
+  min-height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--success);
+  color: #fff;
+  z-index: var(--z-skip-link, 10000);
+  font-size: var(--text-base);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.2s var(--ease);
+  border-radius: 0 0 var(--radius-sm) 0;
+}
+.skip-link:focus { top: 0; }
+
+/* Auto-nav checkbox touch target (WCAG 2.5.5: 44x44px) */
+input[type="checkbox"]#chk-autotab {
+  width: 24px;
+  height: 24px;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+/* Keyboard focus styles for interactive cards */
+.ev-card:focus-visible,
+.example-card:focus-visible,
+.depth-chip:focus-visible,
+.view-mode-btn:focus-visible,
+.detail-panel-close:focus-visible,
+.compose-submit:focus-visible,
+.compose-cancel:focus-visible,
+.compose-trigger:focus-visible,
+.user-progress-cancel:focus-visible,
+.chain-tab:focus-visible,
+.pipeline-tpl-card:focus-visible,
+.pipe-tool-btn:focus-visible,
+.wizard-chip:focus-visible,
+.wizard-send-btn:focus-visible,
+.conflict-nav-btn:focus-visible,
+.storm-toggle:focus-visible,
+.campaign-card:focus-visible,
+.config-panel-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* =======================================================================
+   Defensive CSS Utilities (for unpredictable AI content)
+   ======================================================================= */
+
+/* Text truncation utilities */
+.truncate-1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.truncate-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.break-word { word-break: break-word; overflow-wrap: anywhere; }
+
+/* Scroll anchoring for AI streaming (prevents CLS) */
+.stream-container { overflow-anchor: auto; }
+.stream-anchor, .anchor { height: 1px; width: 100%; flex-shrink: 0; overflow-anchor: none; }
+
+/* Stable min-heights to prevent layout shift during streaming */
+.min-h-card { min-height: 80px; }
+.min-h-panel { min-height: 200px; }
+
+/* Scrollbar gutter: prevents 15px layout jolt when scrollbar appears */
+.scroll-stable { scrollbar-gutter: stable; }
+
+/* DOM virtualization for heavy UI cards only.
+   NOTE: Do NOT apply to text content — breaks Ctrl+F and causes scroll jumps */
+.ev-card, .history-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}
+.bibliography-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 500px;
+}
+
+/* Copy-paste UX: prevent copying UI chrome when selecting report text */
+.app-header, .nav-bar, .toc-sidebar, .storm-sidebar,
+.pipeline-column, .export-toolbar, .quality-banner,
+.jump-btn, .filter-bar, .metric-card, button, .bookmark-btn {
+  user-select: none;
+}
+.report-body, .report-rendered, .evidence-text,
+.ev-card .quote-snippet, .chain-evidence-text {
+  user-select: text;
+}
+
+/* =======================================================================
+   Reduced Motion (OS accessibility)
+   ======================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .report-gate-card:hover,
+  .pipeline-node:hover,
+  .nav-btn:hover,
+  .nav-btn.active:hover { transform: none !important; }
+}
+
+/* Forced colors mode (Windows High Contrast) */
+@media (forced-colors: active) {
+  .phase-block-status-dot { forced-color-adjust: none; }
+  .filter-chip, .trace-chip, .depth-chip, .missing-chip {
+    border: 1px solid ButtonText;
+  }
+  .report-quality-banner { border: 2px solid CanvasText; }
+  .token-pill { border: 1px solid ButtonText; }
+}
+
+/* =======================================================================
+   Skeleton Loading Animation
+   ======================================================================= */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-elevated) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* =======================================================================
+   Research-Specific State Patterns (Phase 5.4)
+   ======================================================================= */
+
+/* Error state: red left-border + plain message + retry */
+.state-error {
+  border-left: 3px solid var(--error);
+  background: var(--error-dim);
+  padding: var(--pad-card-sm) var(--pad-card);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+}
+.state-error .state-message { font-size: var(--text-sm); margin-bottom: var(--sm); }
+.state-error .state-details {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--sm);
+}
+.state-error .state-retry {
+  margin-top: var(--sm);
+  padding: var(--xs) var(--md);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--error);
+  background: transparent;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+}
+.state-error .state-retry:hover {
+  background: var(--error);
+  color: var(--text-on-accent);
+}
+
+/* Partial success state: yellow left-border + progress ring */
+.state-partial {
+  border-left: 3px solid var(--warning);
+  background: var(--warning-dim);
+  padding: var(--pad-card-sm) var(--pad-card);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+}
+.state-partial .state-message { font-size: var(--text-sm); }
+.state-partial .state-continue {
+  margin-top: var(--sm);
+  padding: var(--xs) var(--md);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--warning);
+  background: transparent;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+}
+.state-partial .state-continue:hover {
+  background: var(--warning);
+  color: var(--text-on-accent);
+}
+
+/* Streaming state: pulsing accent dot */
+.state-streaming {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.state-streaming::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: streaming-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes streaming-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* Screen-reader only (visually hidden, available to assistive tech) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

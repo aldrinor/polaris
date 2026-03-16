@@ -1,0 +1,67 @@
+pipeline_id: tpl_quick_scan
+name: Quick Scan
+description: >-
+  Fast research pipeline for quick overviews. Reduced query count,
+  no STORM interviews, no iteration. Single-pass search-analyze-synthesize.
+  Ideal for initial topic exploration or time-sensitive research.
+version: "1.0.0"
+author: system
+is_template: true
+tags: [quick, overview, fast]
+config_overrides:
+  PG_MAX_ITERATIONS: "1"
+  PG_MAX_EXECUTION_MINUTES: "15"
+  PG_QUERIES_PER_VECTOR: "15"
+  PG_STORM_ENABLED: "0"
+  PG_TARGET_TOTAL_WORDS: "4000"
+  PG_MIN_TOTAL_WORDS: "2000"
+
+macro_stages:
+  - macro_id: planning
+    label: Quick Planning
+    description: Generate focused set of 15 sub-queries
+    color: "#6C5CE7"
+    estimated_minutes: 1.0
+    stages:
+      - stage_id: plan_queries
+        stage_type: plan
+        label: Query Planning
+        config:
+          queries_per_vector: 15
+
+  - macro_id: collection
+    label: Quick Search
+    description: Single-pass web search with limited depth
+    color: "#00B894"
+    estimated_minutes: 3.0
+    depends_on_macros: [planning]
+    stages:
+      - stage_id: web_search
+        stage_type: search
+        label: Web Search
+        config:
+          web_concurrency: 10
+
+  - macro_id: analysis
+    label: Quick Analysis
+    description: Extract evidence from top sources
+    color: "#FDCB6E"
+    estimated_minutes: 5.0
+    depends_on_macros: [collection]
+    stages:
+      - stage_id: content_analysis
+        stage_type: analyze
+        label: Evidence Extraction
+        config:
+          max_sources_to_analyze: 50
+
+  - macro_id: synthesis
+    label: Quick Synthesis
+    description: Generate concise 2000-4000 word report
+    color: "#0984E3"
+    estimated_minutes: 5.0
+    depends_on_macros: [analysis]
+    stages:
+      - stage_id: report_synthesis
+        stage_type: synthesize
+        label: Report Generation

@@ -1,0 +1,55 @@
+# P3.1 FIX: Extraction Configuration
+# See deployment_plan_20260126.md
+#
+# Original issue: Requesting 36K output tokens but only 13,952 available (16K - 2K thinking)
+# Solution: Reduce extraction targets AND increase max_tokens (see models.yaml)
+
+# Per-source extraction limits
+# Reduced from original aggressive targets to fit within token budget
+extraction:
+  # BEFORE (too aggressive):
+  #   entities_per_source: 20
+  #   facts_per_source: 30
+  #   claims_per_source: 10
+  #   = ~60 items per source at ~100 tokens each = 6000 tokens/source
+  #   = 60,000 tokens for 10 sources (exceeds 16K budget)
+
+  # AFTER (reasonable):
+  entities_per_source: 5   # Reduced from 20
+  facts_per_source: 10     # Reduced from 30
+  claims_per_source: 5     # Reduced from 10
+  # = ~20 items per source at ~100 tokens each = 2000 tokens/source
+  # = 20,000 tokens for 10 sources (fits in 32K budget with room for thinking)
+
+# Content limits
+content:
+  # Maximum content per source to send to LLM (characters)
+  max_content_per_source: 8000
+
+  # Maximum snippet length for search results
+  max_snippet_length: 500
+
+  # Maximum total content per batch (characters)
+  max_batch_content: 50000
+
+# Quality thresholds for extracted items
+quality:
+  # Minimum confidence for entities
+  min_entity_confidence: 0.6
+
+  # Minimum confidence for facts
+  min_fact_confidence: 0.5
+
+  # Skip entities with less than this many characters
+  min_entity_length: 2
+
+  # Skip facts with less than this many words
+  min_fact_words: 5
+
+# Deduplication settings
+deduplication:
+  # Use content hash to detect duplicate facts
+  use_content_hash: true
+
+  # Minimum Jaccard similarity to consider duplicate
+  similarity_threshold: 0.85

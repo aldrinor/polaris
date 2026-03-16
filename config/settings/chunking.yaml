@@ -1,0 +1,91 @@
+# POLARIS Chunking Configuration
+# Semantic chunking parameters for document segmentation
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# SEMANTIC CHUNKING PARAMETERS
+# =============================================================================
+
+chunking:
+  # Chunk size limits
+  min_chunk_size: 200                  # Minimum words per chunk
+  max_chunk_size: 1500                 # Maximum words per chunk
+  target_chunk_size: 800               # Target words per chunk
+
+  # Character limits (fallback)
+  min_chunk_chars: 500                 # Minimum characters
+  max_chunk_chars: 6000                # Maximum characters
+  target_chunk_chars: 3200             # Target characters
+
+  # Overlap settings
+  overlap_words: 50                    # Word overlap between chunks
+  overlap_ratio: 0.10                  # 10% overlap as ratio
+
+  # Semantic boundaries
+  respect_paragraph_boundaries: true
+  respect_sentence_boundaries: true
+  respect_section_headers: true
+
+  # Splitting strategy
+  split_by_semantic_similarity: true
+  similarity_threshold: 0.75           # Split when similarity drops below
+  embedding_model: "BAAI/bge-base-en-v1.5"
+
+# =============================================================================
+# DOCUMENT TYPE SPECIFIC SETTINGS
+# =============================================================================
+
+document_types:
+  academic:
+    min_chunk_size: 300
+    max_chunk_size: 1200
+    respect_citations: true
+    preserve_tables: true
+
+  web:
+    min_chunk_size: 150
+    max_chunk_size: 1000
+    strip_navigation: true
+    strip_advertisements: true
+
+  pdf:
+    min_chunk_size: 250
+    max_chunk_size: 1500
+    ocr_fallback: true
+    preserve_layout: false
+
+  regulatory:
+    min_chunk_size: 200
+    max_chunk_size: 1000
+    preserve_section_numbers: true
+    preserve_definitions: true
+
+# =============================================================================
+# METADATA EXTRACTION
+# =============================================================================
+
+metadata:
+  extract_title: true
+  extract_author: true
+  extract_date: true
+  extract_doi: true
+  extract_keywords: true
+  extract_abstract: true
+  extract_geographic_mentions: true
+
+# =============================================================================
+# QUALITY CONTROLS
+# =============================================================================
+
+quality:
+  # Remove low-quality chunks
+  min_words_threshold: 20              # Discard chunks with fewer words
+  max_boilerplate_ratio: 0.50          # Discard if >50% boilerplate
+  max_duplicate_ratio: 0.80            # Flag as duplicate if >80% similar
+
+  # Content filters
+  filter_navigation_text: true
+  filter_advertisement_text: true
+  filter_cookie_banners: true
+  filter_social_media_widgets: true

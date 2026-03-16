@@ -1,0 +1,10 @@
+PFAS Water Filtration Contract - Municipal Treatment Facility
+
+Section 1: Scope of Work
+The contractor shall design and install a granular activated carbon (GAC) filtration system capable of reducing PFAS concentrations to below 4 ppt for PFOA and PFOS combined, per EPA interim health advisory levels.
+
+Section 2: Performance Requirements
+The system shall process a minimum of 2 million gallons per day (MGD) with empty bed contact time (EBCT) of 10-20 minutes. Breakthrough monitoring via LC-MS/MS shall occur monthly.
+
+Section 3: Quality Assurance
+All GAC media shall meet ANSI/NSF 61 certification. Ion exchange resin regeneration frequency shall not exceed 18 months.

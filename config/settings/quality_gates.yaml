@@ -1,0 +1,200 @@
+# POLARIS Quality Gates Configuration
+# Phase-by-phase quality thresholds for pipeline validation
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# PHASE 0: INITIALIZATION
+# =============================================================================
+
+phase_0:
+  name: "Initialization"
+  gates:
+    vwm_created: true                  # VWM collection must be created
+    fingerprint_stored: true           # Content fingerprint must be stored
+    no_duplicate_detection: true       # Must detect duplicates if present
+
+# =============================================================================
+# PHASE 1: CONTEXTUALIZATION
+# =============================================================================
+
+phase_1:
+  name: "Contextualization"
+  gates:
+    strategic_plan_generated: true
+    min_knowledge_gaps: 1              # At least 1 gap identified
+    min_focus_areas: 2                 # At least 2 focus areas
+
+# =============================================================================
+# PHASE 2: QUERY GENERATION
+# =============================================================================
+
+phase_2:
+  name: "Query Generation"
+  gates:
+    min_queries: 20                    # Minimum 20 queries
+    max_queries: 100                   # Maximum 100 queries
+    all_buckets_populated: true        # All query buckets must have queries
+    min_bucket_queries: 2              # Minimum 2 queries per bucket
+    no_hardcoded_queries: true         # No hardcoded query strings
+
+# =============================================================================
+# PHASE 3: SEARCH EXECUTION
+# =============================================================================
+
+phase_3:
+  name: "Search Execution"
+  gates:
+    min_fetch_success_rate: 0.60       # 60% URL fetch success
+    min_urls_attempted: 50             # Attempt at least 50 URLs
+    min_unique_domains: 10             # At least 10 unique domains
+    multiple_engines_used: true        # Use more than 1 search engine
+    min_content_chars: 100000          # At least 100K chars fetched
+
+# =============================================================================
+# PHASE 4: RELEVANCE FILTERING
+# =============================================================================
+
+phase_4:
+  name: "Relevance Filtering"
+  gates:
+    two_stage_filtering: true          # Must use hard + soft gate
+    min_gold_chunks: 10                # At least 10 gold tier chunks
+    min_silver_chunks: 15              # At least 15 silver tier chunks
+    min_total_passed: 30               # At least 30 chunks pass filter
+    max_rejection_rate: 0.80           # Don't reject more than 80%
+
+# =============================================================================
+# PHASE 5: VWM INDEXING
+# =============================================================================
+
+phase_5:
+  name: "VWM Indexing"
+  gates:
+    chunks_indexed: true               # All chunks must be indexed
+    embeddings_computed: true          # All embeddings must exist
+    min_chunks_indexed: 30             # At least 30 chunks in VWM
+    max_chunk_size_exceeded: false     # No chunk exceeds max size
+
+# =============================================================================
+# PHASE 6: NLI INTEGRITY
+# =============================================================================
+
+phase_6:
+  name: "NLI Integrity"
+  gates:
+    min_integrity_score: 0.70          # Integrity >= 70%
+    max_contradictions: 50             # No more than 50 contradictions
+    contradiction_ratio_max: 0.10      # <10% contradiction rate
+    numeric_consistency_checked: true  # Numbers verified
+
+# =============================================================================
+# PHASE 7: DUAL RAG
+# =============================================================================
+
+phase_7:
+  name: "Dual RAG Analysis"
+  gates:
+    analysis_generated: true           # Analysis text must exist
+    min_citations: 15                  # At least 15 citations
+    min_words: 1000                    # At least 1000 words
+    citation_tokens_present: true      # [CITE:x] markers present
+    no_prompt_overflow: true           # Context budget respected
+
+# =============================================================================
+# PHASE 7.5: CLAIM VERIFICATION (NEW)
+# =============================================================================
+
+phase_7_5:
+  name: "Claim Verification"
+  gates:
+    claims_extracted: true             # Claims must be extracted
+    nli_verification_run: true         # NLI must run on each claim
+    min_verified_claims: 10            # At least 10 verified claims
+    max_hallucination_rate: 0.20       # <20% hallucination at this stage
+    blocked_citations_tracked: true    # Blocked citations recorded
+
+# =============================================================================
+# PHASE 8: ADVERSARIAL QA
+# =============================================================================
+
+phase_8:
+  name: "Adversarial QA"
+  gates:
+    questions_generated: true          # Adversarial questions generated
+    min_questions: 3                   # At least 3 questions
+    max_questions: 10                  # No more than 10 questions
+    min_resolution_rate: 0.60          # 60% questions resolved
+    signal_novelty_computed: true      # Novelty metric computed
+
+# =============================================================================
+# PHASE 9: GATING LOGIC
+# =============================================================================
+
+phase_9:
+  name: "Gating Logic"
+  gates:
+    decision_made: true                # CASE must be assigned
+    justification_provided: true       # Justification must exist
+    scores_computed: true              # All scores computed
+    case1_thresholds:
+      sufficiency: 0.80
+      confidence: 0.70
+      integrity: 0.70
+    case2_thresholds:
+      sufficiency: 0.50
+      integrity: 0.70
+    case4_threshold:
+      integrity: 0.70                  # Below this = CASE_4
+
+# =============================================================================
+# PHASE 10: KNOWLEDGE INTEGRATION
+# =============================================================================
+
+phase_10:
+  name: "Knowledge Integration"
+  gates:
+    claims_persisted: true             # Claims archived
+    ltm_updated_if_case1: true         # LTM updated for CASE_1
+    cross_references_found: true       # Cross-references checked
+
+# =============================================================================
+# PHASE 11: RESEARCH PACKAGING
+# =============================================================================
+
+phase_11:
+  name: "Research Packaging"
+  gates:
+    report_generated: true             # Report must exist
+    min_word_count: 2000               # At least 2000 words
+    min_citations: 20                  # At least 20 citations
+    bibliography_complete: true        # All citations in bibliography
+    no_orphan_citations: true          # No [x] without bibliography entry
+    no_unreplaced_tokens: true         # No [CITE:x] in final output
+    success_only_case1: true           # success=true only for CASE_1
+
+# =============================================================================
+# PHASE 12: NARRATIVE SYNTHESIS
+# =============================================================================
+
+phase_12:
+  name: "Narrative Synthesis"
+  gates:
+    synthesis_generated: true          # Synthesis must exist
+    cross_vector_patterns: true        # Patterns identified
+    key_themes_extracted: true         # Themes extracted
+
+# =============================================================================
+# FINAL QUALITY GATES (SOTA ALIGNMENT)
+# =============================================================================
+
+final:
+  name: "Final SOTA Quality"
+  gates:
+    max_hallucination_rate: 0.05       # <5% hallucination
+    min_faithfulness: 0.80             # >80% faithfulness
+    min_citation_accuracy: 0.95        # >95% citation accuracy
+    min_source_diversity: 10           # 10+ unique source domains
+    min_content_coverage: 0.80         # >80% constraint coverage
+    min_word_count: 2000               # 2000+ words
+    min_verified_claims: 30            # 30+ verified claims

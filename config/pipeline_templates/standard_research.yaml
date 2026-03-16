@@ -1,0 +1,101 @@
+pipeline_id: tpl_standard_research
+name: Standard Research
+description: >-
+  Default 8-node research pipeline. Web + academic search, STORM multi-perspective
+  interviews, evidence extraction, NLI verification, quality evaluation with
+  iterative improvement, and cite-first synthesis.
+version: "1.0.0"
+author: system
+is_template: true
+tags: [general, web, academic, verified]
+config_overrides:
+  PG_MAX_ITERATIONS: "3"
+  PG_MAX_EXECUTION_MINUTES: "60"
+
+macro_stages:
+  - macro_id: planning
+    label: Planning
+    description: Generate comprehensive sub-queries covering all STORM perspectives
+    color: "#6C5CE7"
+    estimated_minutes: 2.0
+    stages:
+      - stage_id: plan_queries
+        stage_type: plan
+        label: Query Planning
+        description: Generate 50+ sub-queries from 9 STORM perspectives
+        config:
+          queries_per_vector: 50
+          queries_per_perspective: 6
+
+  - macro_id: collection
+    label: Evidence Collection
+    description: Execute searches and STORM interviews to gather raw sources
+    color: "#00B894"
+    estimated_minutes: 10.0
+    depends_on_macros: [planning]
+    stages:
+      - stage_id: web_search
+        stage_type: search
+        label: Web + Academic Search
+        description: Execute Serper, Semantic Scholar, Exa, and Tavily searches
+        config:
+          web_concurrency: 20
+          academic_concurrency: 1
+      - stage_id: storm_research
+        stage_type: storm_interviews
+        label: STORM Interviews
+        description: Multi-perspective research conversations (8 personas)
+        depends_on: [web_search]
+        config:
+          max_conversations: 8
+
+  - macro_id: analysis
+    label: Analysis
+    description: Fetch content and extract atomic evidence pieces
+    color: "#FDCB6E"
+    estimated_minutes: 15.0
+    depends_on_macros: [collection]
+    stages:
+      - stage_id: content_analysis
+        stage_type: analyze
+        label: Evidence Extraction
+        description: Fetch sources, extract facts, score quality tiers
+        config:
+          analysis_concurrency: 12
+          content_per_source: 10000
+
+  - macro_id: verification
+    label: Verification
+    description: Verify all claims against source evidence using NLI
+    color: "#E17055"
+    estimated_minutes: 10.0
+    depends_on_macros: [analysis]
+    stages:
+      - stage_id: nli_verify
+        stage_type: verify
+        label: NLI Verification
+        description: MiniCheck flan-t5-large + LLM cascade verification
+        config:
+          verify_batch_size: 10
+      - stage_id: quality_eval
+        stage_type: evaluate
+        label: Quality Evaluation
+        description: Gap analysis, decide whether to iterate
+        depends_on: [nli_verify]
+
+  - macro_id: synthesis
+    label: Synthesis
+    description: Cluster evidence, outline sections, write report with citations
+    color: "#0984E3"
+    estimated_minutes: 20.0
+    depends_on_macros: [verification]
+    stages:
+      - stage_id: report_synthesis
+        stage_type: synthesize
+        label: Report Generation
+        description: Map-reduce clustering, outline, section writing, citation mapping
+      - stage_id: gap_search
+        stage_type: search_gaps
+        label: Gap Search
+        description: Targeted search for missing evidence after synthesis
+        depends_on: [report_synthesis]

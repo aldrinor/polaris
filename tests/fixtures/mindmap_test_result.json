@@ -1,0 +1,116 @@
+{
+  "original_query": "PFAS water filtration methods for municipal treatment",
+  "vector_id": "TEST_MM_001",
+  "sections": [
+    {
+      "section_id": "sec_1",
+      "title": "Granular Activated Carbon (GAC) Filtration",
+      "content": "Granular activated carbon is one of the most effective and widely deployed technologies for PFAS removal in municipal water systems.",
+      "evidence_ids": ["ev_001", "ev_002", "ev_003"]
+    },
+    {
+      "section_id": "sec_2",
+      "title": "Ion Exchange Resin Technology",
+      "content": "Ion exchange resins, particularly single-use variants, show high selectivity for short-chain PFAS compounds.",
+      "evidence_ids": ["ev_004", "ev_005"]
+    },
+    {
+      "section_id": "sec_3",
+      "title": "Nanofiltration and Reverse Osmosis",
+      "content": "Membrane-based approaches provide near-complete PFAS removal but at higher operational cost.",
+      "evidence_ids": ["ev_006", "ev_007", "ev_008"]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev_001",
+      "statement": "GAC removes greater than 90% of long-chain PFAS compounds including PFOA and PFOS at empty bed contact times of 10-20 minutes.",
+      "source": "https://epa.gov/pfas/treatment-technologies",
+      "quality_tier": "GOLD",
+      "faithfulness": 0.95,
+      "relevance_score": 0.92
+    },
+    {
+      "evidence_id": "ev_002",
+      "statement": "Bituminous coal-based GAC outperforms coconut shell GAC for PFAS adsorption due to larger pore structure.",
+      "source": "https://epa.gov/pfas/treatment-technologies",
+      "quality_tier": "GOLD",
+      "faithfulness": 0.91,
+      "relevance_score": 0.88
+    },
+    {
+      "evidence_id": "ev_003",
+      "statement": "GAC bed life for PFAS treatment ranges from 6 to 18 months depending on influent concentration and co-contaminants.",
+      "source": "https://awwa.org/pfas-treatment",
+      "quality_tier": "SILVER",
+      "faithfulness": 0.85,
+      "relevance_score": 0.80
+    },
+    {
+      "evidence_id": "ev_004",
+      "statement": "Single-use ion exchange resins achieve 95% removal of short-chain PFAS that breakthrough GAC systems.",
+      "source": "https://waterresearch.org/ix-pfas",
+      "quality_tier": "GOLD",
+      "faithfulness": 0.93,
+      "relevance_score": 0.90
+    },
+    {
+      "evidence_id": "ev_005",
+      "statement": "Regenerable ion exchange resins reduce waste volume by 90% compared to single-use but have 10-15% lower removal efficiency.",
+      "source": "https://waterresearch.org/ix-pfas",
+      "quality_tier": "SILVER",
+      "faithfulness": 0.80,
+      "relevance_score": 0.75
+    },
+    {
+      "evidence_id": "ev_006",
+      "statement": "Nanofiltration membranes with molecular weight cutoff below 300 Da reject 95-99% of all PFAS compounds.",
+      "source": "https://sciencedirect.com/pfas-membrane",
+      "quality_tier": "GOLD",
+      "faithfulness": 0.94,
+      "relevance_score": 0.87
+    },
+    {
+      "evidence_id": "ev_007",
+      "statement": "Reverse osmosis achieves near-complete PFAS removal but generates concentrated brine requiring further treatment.",
+      "source": "https://sciencedirect.com/pfas-membrane",
+      "quality_tier": "SILVER",
+      "faithfulness": 0.88,
+      "relevance_score": 0.82
+    },
+    {
+      "evidence_id": "ev_008",
+      "statement": "Combined GAC-nanofiltration treatment trains reduce total cost of ownership by 30% compared to RO-only systems.",
+      "source": "https://awwa.org/pfas-treatment",
+      "quality_tier": "SILVER",
+      "faithfulness": 0.82,
+      "relevance_score": 0.78
+    }
+  ],
+  "bibliography": [
+    {
+      "citation_number": 1,
+      "title": "EPA PFAS Treatment Technologies Guide",
+      "url": "https://epa.gov/pfas/treatment-technologies",
+      "quality_tier": "GOLD"
+    },
+    {
+      "citation_number": 2,
+      "title": "AWWA PFAS Treatment Best Practices",
+      "url": "https://awwa.org/pfas-treatment",
+      "quality_tier": "SILVER"
+    },
+    {
+      "citation_number": 3,
+      "title": "Water Research Foundation: IX for PFAS",
+      "url": "https://waterresearch.org/ix-pfas",
+      "quality_tier": "GOLD"
+    },
+    {
+      "citation_number": 4,
+      "title": "Membrane Technologies for PFAS Removal",
+      "url": "https://sciencedirect.com/pfas-membrane",
+      "quality_tier": "GOLD"
+    }
+  ]
+}

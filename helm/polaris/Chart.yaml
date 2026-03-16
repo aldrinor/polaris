@@ -1,0 +1,13 @@
+apiVersion: v2
+name: polaris
+description: POLARIS Sovereign Deep Research Platform
+type: application
+version: 0.9.0
+appVersion: "0.9.0"
+keywords:
+  - research
+  - ai
+  - sovereign
+  - deep-research
+maintainers:
+  - name: POLARIS Team

@@ -1,0 +1,277 @@
+/* =========================================================================
+   POLARIS Observatory — compose.css
+   Compose bar (header-inline), compose drawer (slide-down), FAB (mobile),
+   active query state, error/loading states, responsive breakpoints.
+   Uses control spec tokens throughout.
+   ========================================================================= */
+
+/* =======================================================================
+   Compose Bar — sits below nav-bar, always visible
+   ======================================================================= */
+.compose-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--lg);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  height: var(--touch-min);
+}
+
+.compose-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sm);
+  min-height: var(--touch-min);              /* 44px total (border-box) */
+  padding: 4px 16px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  white-space: nowrap;
+  flex: 1;
+  max-width: 480px;
+  text-align: left;
+}
+.compose-trigger:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.compose-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.compose-trigger-icon {
+  font-size: var(--text-base);
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.compose-trigger-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compose-kbd {
+  font-size: var(--text-3xs);
+  font-family: inherit;
+  color: var(--text-tertiary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+/* Active query display (replaces trigger text when run is active) */
+.compose-bar.has-active-query .compose-trigger-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* =======================================================================
+   Compose Drawer — slides down below compose bar
+   ======================================================================= */
+.compose-drawer {
+  display: none;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: var(--md) var(--lg);
+  flex-shrink: 0;
+  z-index: var(--z-compose);
+  animation: composeSlideDown 0.15s ease-out;
+}
+.compose-drawer.visible {
+  display: block;
+}
+
+@keyframes composeSlideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.compose-drawer-inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.compose-query {
+  width: 100%;
+  min-height: 56px;
+  padding: var(--sm) var(--md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  resize: vertical;
+  transition: border-color var(--duration-fast) var(--ease), box-shadow var(--duration-fast) var(--ease);
+  box-sizing: border-box;
+}
+.compose-query::placeholder { color: var(--text-tertiary); }
+.compose-query:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.compose-query.error {
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error-dim);
+}
+
+.compose-error-msg {
+  font-size: var(--text-2xs);
+  color: var(--error);
+  margin-top: 4px;
+  display: none;
+}
+.compose-error-msg.visible {
+  display: block;
+}
+
+.compose-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--sm);
+  gap: var(--md);
+  flex-wrap: wrap;
+}
+
+.compose-depth {
+  display: flex;
+  gap: var(--xs);
+}
+
+.compose-actions {
+  display: flex;
+  gap: var(--sm);
+  margin-left: auto;
+}
+
+.compose-cancel {
+  padding: 8px 12px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  min-height: var(--control-height-md);
+  min-width: 64px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.compose-cancel:hover { border-color: var(--text-tertiary); color: var(--text-primary); }
+
+.compose-submit {
+  padding: 8px 20px;
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  min-height: var(--control-height-lg);
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.compose-submit:hover { background: var(--accent-hover); box-shadow: 0 2px 8px rgba(56,189,248,0.3); }
+.compose-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Submit spinner */
+.compose-submit.loading::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 6px;
+  display: inline-block;
+}
+
+/* =======================================================================
+   Mobile FAB — fixed bottom-right, visible at <=480px
+   ======================================================================= */
+.compose-fab {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: var(--z-fab);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease), box-shadow var(--duration-fast) var(--ease);
+}
+.compose-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+}
+.compose-fab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.compose-fab.hidden { display: none !important; }
+
+/* Pulse when run is active */
+.compose-fab.pulse {
+  animation: fabPulse 2s ease-in-out infinite;
+}
+@keyframes fabPulse {
+  0%, 100% { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  50% { box-shadow: 0 4px 12px rgba(0,0,0,0.3), 0 0 0 8px rgba(56,189,248,0.15); }
+}
+
+@media (max-width: 480px) {
+  .compose-bar { display: none !important; }
+  .compose-fab { display: flex; }
+  .compose-drawer {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    z-index: var(--z-compose);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+}
+
+/* =======================================================================
+   Responsive — Tablet
+   ======================================================================= */
+@media (max-width: 768px) {
+  .compose-trigger {
+    max-width: 320px;
+  }
+  .compose-kbd {
+    display: none;
+  }
+}

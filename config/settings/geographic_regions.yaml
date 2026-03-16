@@ -1,0 +1,357 @@
+# POLARIS Geographic Regions Configuration
+# Regional targeting and geographic filtering parameters
+#
+# Last Updated: 2026-01-17
+
+# =============================================================================
+# REGIONAL DEFINITIONS
+# =============================================================================
+
+regions:
+  NORTH_AMERICA:
+    name: "North America"
+    countries:
+      - "United States"
+      - "Canada"
+      - "Mexico"
+    country_codes:
+      - "US"
+      - "CA"
+      - "MX"
+    tlds:
+      - ".us"
+      - ".ca"
+      - ".mx"
+      - ".gov"
+      - ".edu"
+    site_filters:
+      - "site:*.gov"
+      - "site:*.edu"
+      - "site:*.ca"
+    keywords:
+      - "United States"
+      - "USA"
+      - "American"
+      - "Canada"
+      - "Canadian"
+      - "North America"
+      - "North American"
+    regulatory_bodies:
+      - "FDA"
+      - "EPA"
+      - "CDC"
+      - "Health Canada"
+      - "USDA"
+
+  EUROPE:
+    name: "Europe"
+    countries:
+      - "United Kingdom"
+      - "Germany"
+      - "France"
+      - "Italy"
+      - "Spain"
+      - "Netherlands"
+      - "Belgium"
+      - "Switzerland"
+      - "Austria"
+      - "Sweden"
+      - "Norway"
+      - "Denmark"
+      - "Finland"
+      - "Ireland"
+      - "Portugal"
+      - "Poland"
+    country_codes:
+      - "GB"
+      - "UK"
+      - "DE"
+      - "FR"
+      - "IT"
+      - "ES"
+      - "NL"
+      - "BE"
+      - "CH"
+      - "AT"
+      - "SE"
+      - "NO"
+      - "DK"
+      - "FI"
+      - "IE"
+      - "PT"
+      - "PL"
+    tlds:
+      - ".eu"
+      - ".uk"
+      - ".de"
+      - ".fr"
+      - ".it"
+      - ".es"
+    site_filters:
+      - "site:*.eu"
+      - "site:*.uk"
+      - "site:*.de"
+    keywords:
+      - "Europe"
+      - "European"
+      - "European Union"
+      - "EU"
+      - "UK"
+      - "United Kingdom"
+      - "Britain"
+      - "British"
+    regulatory_bodies:
+      - "EMA"
+      - "EFSA"
+      - "ECHA"
+      - "European Commission"
+      - "MHRA"
+      - "BfR"
+
+  ASIA_PACIFIC:
+    name: "Asia Pacific"
+    countries:
+      - "China"
+      - "Japan"
+      - "South Korea"
+      - "India"
+      - "Australia"
+      - "New Zealand"
+      - "Singapore"
+      - "Hong Kong"
+      - "Taiwan"
+      - "Thailand"
+      - "Malaysia"
+      - "Indonesia"
+      - "Vietnam"
+      - "Philippines"
+    country_codes:
+      - "CN"
+      - "JP"
+      - "KR"
+      - "IN"
+      - "AU"
+      - "NZ"
+      - "SG"
+      - "HK"
+      - "TW"
+      - "TH"
+      - "MY"
+      - "ID"
+      - "VN"
+      - "PH"
+    tlds:
+      - ".cn"
+      - ".jp"
+      - ".kr"
+      - ".in"
+      - ".au"
+      - ".nz"
+      - ".sg"
+    site_filters:
+      - "site:*.jp"
+      - "site:*.au"
+      - "site:*.in"
+    keywords:
+      - "Asia"
+      - "Asian"
+      - "Asia Pacific"
+      - "APAC"
+      - "China"
+      - "Chinese"
+      - "Japan"
+      - "Japanese"
+      - "India"
+      - "Indian"
+      - "Australia"
+      - "Australian"
+    regulatory_bodies:
+      - "NMPA"
+      - "PMDA"
+      - "MFDS"
+      - "CDSCO"
+      - "TGA"
+      - "HSA"
+
+  GLOBAL:
+    name: "Global"
+    description: "Worldwide scope, no regional filtering"
+    countries: []
+    country_codes: []
+    tlds: []
+    site_filters: []
+    keywords:
+      - "global"
+      - "worldwide"
+      - "international"
+    regulatory_bodies:
+      - "WHO"
+      - "OECD"
+      - "UN"
+      - "ISO"
+
+# =============================================================================
+# GEOGRAPHIC FILTERING SETTINGS
+# =============================================================================
+
+filtering:
+  # Strictness levels
+  strict: true                         # Require explicit regional match
+  fuzzy_matching: true                 # Allow fuzzy geographic matching
+  fuzzy_threshold: 0.80                # Similarity threshold for fuzzy
+
+  # Content validation
+  validate_geographic_claims: true     # Validate claims against region
+  max_geographic_mismatch: 0.10        # Allow 10% geographic mismatch
+
+  # Query modification
+  add_regional_keywords: true          # Add region keywords to queries
+  add_site_filters: true               # Add site: filters for region
+  regional_query_boost: 1.5            # Boost regional results
+
+# =============================================================================
+# CROSS-REGIONAL HANDLING
+# =============================================================================
+
+cross_regional:
+  # Allow cross-regional citations
+  allow_global_sources: true           # Always allow GLOBAL sources
+  allow_authoritative_sources: true    # Allow WHO, peer-reviewed regardless
+
+  # Authority sources (always allowed)
+  authority_domains:
+    - "who.int"
+    - "nih.gov"
+    - "pubmed.ncbi.nlm.nih.gov"
+    - "nature.com"
+    - "sciencedirect.com"
+    - "springer.com"
+    - "wiley.com"
+
+# =============================================================================
+# EXCLUSION REGIONS (BUG-008 FIX)
+# Used for geographic filtering - content from these regions should be
+# excluded when target is a different region (e.g., Africa excluded for NA)
+# =============================================================================
+
+exclusion_regions:
+  AFRICA:
+    name: "Africa"
+    keywords:
+      - "africa"
+      - "african"
+      - "nigeria"
+      - "kenya"
+      - "ethiopia"
+      - "ghana"
+      - "south africa"
+      - "tanzania"
+      - "uganda"
+      - "egypt"
+      - "morocco"
+      - "algeria"
+      - "sudan"
+      - "congo"
+      - "cameroon"
+      - "zambia"
+      - "kitwe"
+      - "lusaka"
+      - "zimbabwe"
+      - "harare"
+      - "botswana"
+      - "namibia"
+      - "angola"
+      - "mozambique"
+      - "malawi"
+      - "rwanda"
+      - "burundi"
+      - "senegal"
+      - "mali"
+      - "niger"
+      - "chad"
+      - "ivory coast"
+      - "burkina faso"
+      - "benin"
+      - "togo"
+      - "gabon"
+      - "liberia"
+      - "sierra leone"
+      - "gambia"
+      - "guinea"
+      - "mauritania"
+      - "eritrea"
+      - "somalia"
+      - "djibouti"
+      - "sub-saharan"
+      - "west africa"
+      - "east africa"
+      - "southern africa"
+      - "central africa"
+
+  MIDDLE_EAST:
+    name: "Middle East"
+    keywords:
+      - "qatar"
+      - "doha"
+      - "dubai"
+      - "saudi"
+      - "uae"
+      - "kuwait"
+      - "bahrain"
+      - "oman"
+      - "middle east"
+      - "iran"
+      - "iraq"
+      - "jordan"
+      - "lebanon"
+      - "yemen"
+      - "abu dhabi"
+      - "riyadh"
+      - "jeddah"
+      - "persian gulf"
+      - "arabian"
+      - "gulf state"
+      - "emirate"
+      - "muscat"
+      - "manama"
+      - "tehran"
+
+  SOUTH_AMERICA:
+    name: "South America"
+    keywords:
+      - "brazil"
+      - "argentina"
+      - "colombia"
+      - "chile"
+      - "peru"
+      - "venezuela"
+      - "ecuador"
+      - "bolivia"
+      - "paraguay"
+      - "uruguay"
+      - "south america"
+      - "latin america"
+
+  DEVELOPING:
+    name: "Developing Regions"
+    keywords:
+      - "developing countr"
+      - "low-income countr"
+      - "third world"
+      - "rural africa"
+      - "rural asia"
+      - "underdeveloped"
+      - "least developed"
+
+# =============================================================================
+# DOMAIN NORMALIZATION (BUG-008 FIX)
+# Maps mirror/archive domains to canonical domains
+# =============================================================================
+
+domain_normalization:
+  # Mirror sites -> canonical
+  "restoredcdc.org": "cdc.gov"
+  "restored.cdc.gov": "cdc.gov"
+  # Archive sites -> null (extract original URL)
+  "web.archive.org": null
+  "archive.org": null

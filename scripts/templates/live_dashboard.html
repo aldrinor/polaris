@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POLARIS Research Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<link rel="stylesheet" href="/static/css/base.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/layout.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/components.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/report.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/evidence.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/operator.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/citation_chain.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/compose.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/workspace.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/pipelines.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/css/campaigns.css?v={{ asset_v }}">
+</head>
+<body>
+<div id="polaris-status" role="status" aria-live="polite" class="sr-only"></div>
+<div id="polaris-alert" role="alert" aria-live="assertive" class="sr-only"></div>
+<a href="#main-content" class="skip-link" onfocus="this.style.top='0'" onblur="this.style.top='-40px'">Skip to content</a>
+
+<!-- ===================================================================
+     HEADER
+     =================================================================== -->
+<header class="app-header">
+  <!-- NEW: User-mode left group (brand + mode dropdown + depth dropdown) -->
+  <div class="ws-header-left" id="ws-header-left">
+    <span class="ws-header-brand">POLARIS</span>
+    <span class="ws-header-sep">/</span>
+    <div class="ws-header-dropdown" id="ws-mode-dropdown">
+      <button type="button" class="ws-header-dd-trigger" onclick="toggleHeaderDropdown('ws-mode-menu')">
+        <span id="ws-mode-label">Research</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="ws-header-dd-menu" id="ws-mode-menu">
+        <button type="button" class="active" data-mode="user" onclick="selectHeaderMode('user')">Research</button>
+        <button type="button" data-mode="operator" onclick="selectHeaderMode('operator')">Console</button>
+      </div>
+    </div>
+    <div class="ws-header-dropdown" id="ws-header-depth">
+      <button type="button" class="ws-header-dd-trigger" onclick="toggleHeaderDropdown('ws-header-depth-menu')">
+        <span id="ws-header-depth-label">Standard</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="ws-header-dd-menu" id="ws-header-depth-menu">
+        <button type="button" data-depth="quick" onclick="selectHeaderDepth('quick')">Fast</button>
+        <button type="button" class="active" data-depth="standard" onclick="selectHeaderDepth('standard')">Standard</button>
+        <button type="button" data-depth="deep" onclick="selectHeaderDepth('deep')">Extended</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW: User-mode right group (avatar only, everything in dropdown) -->
+  <div class="ws-header-right" id="ws-header-right">
+    <div class="ws-header-dropdown" id="ws-account-dropdown">
+      <button type="button" class="ws-header-avatar-trigger" onclick="toggleHeaderDropdown('ws-account-menu')">
+        <div class="ws-header-avatar" id="ws-header-avatar">P</div>
+      </button>
+      <div class="ws-header-dd-menu ws-header-account-menu" id="ws-account-menu">
+        <div class="ws-account-info" id="ws-account-info">Not signed in</div>
+        <div class="ws-header-dd-sep"></div>
+        <button type="button" onclick="toggleTheme(); closeAllHeaderDropdowns()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          Theme
+        </button>
+        <button type="button" onclick="toggleSettingsPanel(); closeAllHeaderDropdowns()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+        <div class="ws-header-dd-sep"></div>
+        <button type="button" id="ws-account-auth-btn" onclick="handleHeaderAuth()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Sign in
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- KEPT: Legacy elements (visible in operator-mode, hidden in user-mode) -->
+  <span class="app-logo">POLARIS</span>
+  <nav class="ws-breadcrumb" id="ws-breadcrumb">
+    <span class="ws-breadcrumb-home">POLARIS</span>
+    <span class="ws-breadcrumb-sep">/</span>
+    <span class="ws-breadcrumb-active" id="ws-breadcrumb-active">Research</span>
+  </nav>
+  <div class="ws-depth-dropdown" id="ws-depth-dropdown">
+    <button type="button" class="ws-depth-trigger" id="ws-depth-trigger" onclick="toggleDepthMenu()">
+      <span id="ws-depth-label">Standard</span>
+      <svg class="ws-depth-caret" width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="ws-depth-menu" id="ws-depth-menu">
+      <button type="button" class="ws-depth-option" data-depth="quick" onclick="selectDepth('quick')">
+        <span class="ws-depth-option-name">Quick</span>
+        <span class="ws-depth-option-desc">Fast overview, fewer sources</span>
+      </button>
+      <button type="button" class="ws-depth-option active" data-depth="standard" onclick="selectDepth('standard')">
+        <span class="ws-depth-option-name">Standard</span>
+        <span class="ws-depth-option-desc">Balanced depth and speed</span>
+      </button>
+      <button type="button" class="ws-depth-option" data-depth="deep" onclick="selectDepth('deep')">
+        <span class="ws-depth-option-name">Deep</span>
+        <span class="ws-depth-option-desc">Thorough analysis, more sources</span>
+      </button>
+    </div>
+  </div>
+  <div class="ws-dynamic-island" id="ws-dynamic-island" onclick="_toggleIslandTaskList()">
+    <div class="ws-island-dot"></div>
+    <span class="ws-island-text" id="ws-island-text">Researching...</span>
+    <div class="ws-island-dropdown" id="ws-island-dropdown"></div>
+  </div>
+  <div class="view-mode-toggle" id="view-mode-toggle" role="radiogroup" aria-label="View mode">
+    <button class="view-mode-btn active" data-mode="user" onclick="setViewMode('user')" aria-label="Switch to Researcher view">Researcher</button>
+    <button class="view-mode-btn" data-mode="operator" onclick="setViewMode('operator')" aria-label="Switch to Pipeline Console view">Pipeline Console</button>
+  </div>
+  <nav class="nav-bar" id="main-nav-bar" aria-label="Dashboard navigation">
+    <div role="tablist" class="nav-tabs">
+      <button class="nav-btn active" data-view="campaigns" role="tab" id="tab-campaigns" aria-selected="true" aria-controls="view-campaigns" aria-label="Campaigns view">Campaigns<span class="nav-badge" id="badge-campaigns"></span></button>
+      <button class="nav-btn" data-view="research" role="tab" id="tab-research" aria-selected="false" aria-controls="view-research" aria-label="Research view">Research</button>
+      <button class="nav-btn" data-view="evidence" role="tab" id="tab-evidence" aria-selected="false" aria-controls="view-evidence" aria-label="Evidence view">Evidence<span class="nav-badge" id="badge-evidence">0</span></button>
+      <button class="nav-btn" data-view="report" role="tab" id="tab-report" aria-selected="false" aria-controls="view-report" aria-label="Report view">Report</button>
+      <button class="nav-btn" data-view="memory" role="tab" id="tab-memory" aria-selected="false" aria-controls="view-memory" aria-label="Memory view">Memory</button>
+      <button class="nav-btn" data-view="pipelines" role="tab" id="tab-pipelines" aria-selected="false" aria-controls="view-pipelines" aria-label="Pipelines view">Pipelines</button>
+      <button class="nav-btn operator-only" data-view="advanced" id="nav-btn-advanced" role="tab" aria-selected="false" aria-controls="view-advanced" aria-label="Advanced view">Advanced</button>
+    </div>
+  </nav>
+  <span class="header-spacer"></span>
+  <span class="vector-id operator-only" id="vector-id">--</span>
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle light/dark mode" title="Toggle theme">&#9788;</button>
+  <button class="auth-button" id="auth-button" style="display:none" onclick="toggleAuthModal()" aria-label="Sign in or view account">Sign In</button>
+  <div class="header-meta">
+    <span class="operator-only"><span class="status-dot disconnected" id="status-dot"></span><span id="conn-text">Ready</span></span>
+    <span class="header-stat operator-only" id="elapsed-time">00:00:00</span>
+    <span class="header-stat operator-only"><b id="event-counter">0</b> events</span>
+    <span class="header-stat operator-only" id="total-cost">$0.00</span>
+    <span class="model-info-badge operator-only" id="model-info-badge"><span class="model-info-dot"></span><span id="model-info-text">--</span></span>
+    <span class="header-stat operator-only" id="sse-reconnect-stat" title="Number of SSE reconnection attempts">Reconnects: <b id="sse-reconnect-count">0</b></span>
+    <span class="header-stat operator-only" id="sse-tabs-stat" title="Number of tabs connected via BroadcastChannel">SSE Tabs: <b id="sse-tab-count">1</b></span>
+    <span class="ws-memory-dot" id="ws-memory-dot"></span>
+    <span class="header-stat" id="memory-indicator" title="Long-term memory status">Memory: <b id="memory-count">--</b></span>
+  </div>
+</header>
+
+<!-- Compose bar — always-visible research trigger -->
+<div class="compose-bar" id="compose-bar">
+  <button type="button" class="compose-trigger" id="compose-trigger"
+          aria-expanded="false" aria-controls="compose-drawer"
+          aria-label="Start new research">
+    <span class="compose-trigger-icon">&#x1F50D;</span>
+    <span class="compose-trigger-label" id="compose-trigger-label">New research...</span>
+    <kbd class="compose-kbd">Ctrl K</kbd>
+  </button>
+</div>
+
+<!-- Compose drawer — slide-down research form -->
+<div class="compose-drawer" id="compose-drawer" role="dialog" aria-modal="true" aria-label="New research">
+  <div class="compose-drawer-inner">
+    <textarea class="compose-query" id="compose-query" rows="2"
+              placeholder="Enter your research question..."
+              aria-label="Research question"></textarea>
+    <div class="compose-error-msg" id="compose-error-msg">Please enter at least 5 characters</div>
+    <div class="compose-controls">
+      <div class="compose-depth" id="compose-depth">
+        <button class="depth-chip" data-depth="quick">Quick (~60 min)</button>
+        <button class="depth-chip active" data-depth="standard">Standard (~2 hrs)</button>
+        <button class="depth-chip" data-depth="deep">Deep (~3 hrs)</button>
+      </div>
+      <div class="compose-actions">
+        <button class="compose-cancel" id="compose-cancel">Cancel</button>
+        <button class="compose-submit" id="compose-submit">Research</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Single run-context bar replaces query-banner + operator-toolbar -->
+<div class="run-context-bar operator-only" id="run-context-bar">
+  <span class="run-query-text" id="research-query-text" title=""></span>
+  <span class="run-context-sep"></span>
+  <span class="run-region" id="research-app-region"></span>
+  <span class="run-context-spacer"></span>
+  <button role="switch" aria-checked="true" id="chk-autotab" class="auto-nav-switch"
+    aria-label="Auto-navigate to active view">
+    <span class="switch-track"><span class="switch-thumb"></span></span> Auto-nav
+  </button>
+  <span class="run-context-sep"></span>
+  <div class="density-toggle">
+    <button class="density-btn active" data-density="default">Default</button>
+    <button class="density-btn" data-density="dense">Dense</button>
+  </div>
+</div>
+
+<!-- ===================================================================
+     LANDING PAGE — shown when no research is active
+     =================================================================== -->
+<div class="landing-page visible" id="landing-page">
+  <div class="landing-brand">POLARIS</div>
+  <div class="landing-tagline">Sovereign Deep Research. Every claim verified. Every source traced. Deploy on your infrastructure.</div>
+
+  <div class="landing-examples" id="landing-examples"></div>
+
+
+  <div class="history-panel" id="history-panel">
+    <div class="history-panel-title">Recent Research</div>
+    <div class="history-list" id="history-list"></div>
+  </div>
+
+  <div class="bookmarks-panel" id="bookmarks-panel">
+    <div class="bookmarks-panel-title"><span class="bookmark-star">&#9733;</span> Saved Research</div>
+    <div class="bookmarks-list" id="bookmarks-list"></div>
+  </div>
+
+  <div class="campaign-panel operator-only" id="campaign-panel">
+    <div class="campaign-panel-header">
+      <div class="campaign-panel-title">Campaigns</div>
+      <button class="campaign-new-btn" id="campaign-new-btn" onclick="toggleCampaignForm()" aria-label="Create new campaign">+ New Campaign</button>
+    </div>
+
+    <div class="campaign-form" id="campaign-form">
+      <div class="campaign-form-title">Create Campaign</div>
+      <div class="campaign-field">
+        <label for="campaign-name-input">Campaign Name</label>
+        <input type="text" id="campaign-name-input" placeholder="Campaign name" maxlength="200" autocomplete="off">
+      </div>
+      <div class="campaign-field">
+        <label for="campaign-desc-input">Description (optional)</label>
+        <textarea id="campaign-desc-input" placeholder="Describe the research goals for this campaign..." maxlength="2000"></textarea>
+      </div>
+      <div class="campaign-field">
+        <label for="campaign-queries-input">Research Queries (one per line)</label>
+        <textarea id="campaign-queries-input" class="campaign-queries-textarea" placeholder="Enter your research questions, one per line..."></textarea>
+        <div class="field-hint">Enter one research question per line. Minimum 5 characters each.</div>
+      </div>
+      <div class="campaign-field">
+        <label for="campaign-depth-select">Research Depth</label>
+        <select id="campaign-depth-select">
+          <option value="quick">Quick (2 passes, ~60 min)</option>
+          <option value="standard" selected>Standard (3 passes, ~2 hrs)</option>
+          <option value="deep">Deep (5 passes, ~3 hrs)</option>
+        </select>
+      </div>
+      <div class="campaign-form-actions">
+        <button class="campaign-form-cancel" onclick="toggleCampaignForm()">Cancel</button>
+        <button class="campaign-form-submit" id="campaign-submit-btn" onclick="createCampaign()">Create Campaign</button>
+      </div>
+    </div>
+
+    <div class="campaign-list" id="campaign-list"></div>
+  </div>
+
+
+  <div class="landing-how">
+    <div class="landing-how-title">How it works</div>
+    <div class="pipeline-steps">
+      <div class="pipeline-step"><span class="step-icon">&#x1F50D;</span>Plan</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x1F310;</span>Search</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x1F465;</span>Interview</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x1F9EA;</span>Analyze</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x2705;</span>Verify</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x1F4CA;</span>Evaluate</div>
+      <span class="pipeline-step-arrow">&#x2192;</span>
+      <div class="pipeline-step"><span class="step-icon">&#x1F4DD;</span>Synthesize</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     USER PROGRESS — shown during active research (user mode)
+     =================================================================== -->
+<div class="user-progress" id="user-progress">
+  <div class="user-progress-header">
+    <div class="user-progress-query" id="user-progress-query">Researching...</div>
+    <div class="user-progress-phase" id="user-progress-phase">
+      <div class="spinner"></div>
+      <span id="user-phase-text">Starting research...</span>
+    </div>
+  </div>
+
+  <div class="user-progress-bar-wrap" role="progressbar" aria-label="Research progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="user-progress-bar-wrap">
+    <div class="user-progress-bar" id="user-progress-bar"></div>
+  </div>
+  <div class="time-estimate" id="user-time-estimate"></div>
+
+  <div class="user-progress-steps" id="user-progress-steps">
+    <div class="user-step" data-step="search">
+      <div class="step-check"></div>
+      <span>Searching sources</span>
+    </div>
+    <div class="user-step" data-step="interview">
+      <div class="step-check"></div>
+      <span>Expert interviews</span>
+    </div>
+    <div class="user-step" data-step="verify">
+      <div class="step-check"></div>
+      <span>Verifying claims</span>
+    </div>
+    <div class="user-step" data-step="synthesize">
+      <div class="step-check"></div>
+      <span>Writing report</span>
+    </div>
+  </div>
+
+  <div class="user-progress-stats">
+    <div class="user-stat-card">
+      <div class="user-stat-value" id="user-stat-sources">0</div>
+      <div class="user-stat-label">Sources found</div>
+    </div>
+    <div class="user-stat-card">
+      <div class="user-stat-value" id="user-stat-evidence">0</div>
+      <div class="user-stat-label">Evidence pieces</div>
+    </div>
+    <div class="user-stat-card">
+      <div class="user-stat-value" id="user-stat-faith">--</div>
+      <div class="user-stat-label">Verified claims</div>
+    </div>
+  </div>
+
+  <button class="user-progress-cancel" onclick="cancelResearch()" aria-label="Cancel current research">Cancel research</button>
+</div>
+
+<!-- Nav bar and operator toolbar are now merged into the header and run-context bar above -->
+
+<!-- ===================================================================
+     WORKSPACE — NotebookLM-style unified research interface (user mode)
+     =================================================================== -->
+<div class="workspace" id="workspace" data-phase="idle">
+
+  <!-- LEFT: Sources Panel (NotebookLM-style) -->
+  <aside class="ws-left" id="ws-left">
+    <!-- Campaigns shortcut (top of sidebar) -->
+    <button class="ws-campaigns-btn" id="ws-campaigns-btn" onclick="openCampaignOverlay()" title="Campaign Manager">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span>Campaigns</span>
+      <span class="ws-campaigns-badge" id="ws-campaigns-badge"></span>
+    </button>
+    <div class="ws-left-header">
+      <span class="ws-left-title">Sources</span>
+      <span class="ws-left-count" id="ws-left-count"></span>
+    </div>
+    <!-- "+ Add source" button + type picker popup -->
+    <div class="ws-add-source-wrap" id="ws-add-source-wrap">
+      <button class="ws-add-source-btn" id="ws-add-source-btn" onclick="toggleAddSourcePopup()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Add source</span>
+      </button>
+      <div class="ws-add-source-popup" id="ws-add-source-popup">
+        <button class="ws-add-source-item" onclick="closeAddSourcePopup(); document.getElementById('ws-doc-dropzone-input').click();">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload file
+        </button>
+        <button class="ws-add-source-item" onclick="closeAddSourcePopup(); showUrlImportModal();">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          Paste URL
+        </button>
+        <button class="ws-add-source-item" onclick="closeAddSourcePopup(); showWebSearchInline();">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Web search
+        </button>
+        <button class="ws-add-source-item" onclick="closeAddSourcePopup(); showTextImportModal();">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+          Paste text
+        </button>
+        <div class="ws-add-source-sep"></div>
+        <div class="ws-add-source-cloud" id="ws-add-source-cloud"></div>
+      </div>
+    </div>
+    <!-- Hidden file input for upload -->
+    <input type="file" id="ws-doc-dropzone-input" multiple accept=".pdf,.docx,.doc,.xlsx,.pptx,.txt,.md,.csv,.html,.htm,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.aac,.ogg,.flac" style="display:none">
+    <!-- Old dropzone kept hidden for drag-and-drop support -->
+    <div class="ws-doc-dropzone" id="ws-doc-dropzone" style="display:none"></div>
+    <!-- Web search (hidden until "Web search" selected from popup) -->
+    <div class="ws-source-search" id="ws-source-search" style="display:none">
+      <div class="ws-source-search-bar">
+        <svg class="ws-source-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="ws-source-search-input" id="ws-source-search-input"
+               placeholder="Search the web for new sources"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();searchWebSources();}">
+      </div>
+      <div class="ws-source-search-actions">
+        <div class="ws-source-chip" id="ws-source-type-chip" onclick="toggleSourceTypeMenu()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>Web</span>
+          <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <button class="ws-source-search-go" id="ws-source-search-go" onclick="searchWebSources()" title="Search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Source list -->
+    <div class="ws-doc-list" id="ws-doc-list"></div>
+    <div class="ws-left-footer" id="ws-doc-footer">No documents</div>
+    <!-- Campaigns button moved to top of sidebar -->
+  </aside>
+
+  <!-- CENTER: Infinite Thread -->
+  <main class="ws-center" id="ws-center">
+    <button class="ws-drawer-toggle" id="ws-drawer-toggle" title="Documents">&#9776;</button>
+    <div class="ws-drawer-overlay" id="ws-drawer-overlay"></div>
+
+    <!-- Thread container (scrollable) -->
+    <div class="ws-thread" id="ws-thread" style="display:none">
+      <div class="ws-thread-inner" id="ws-thread-inner"></div>
+    </div>
+
+    <!-- Idle: welcome + example chips (centered) -->
+    <div class="ws-idle" id="ws-idle">
+      <div class="ws-idle-wordmark">POLARIS</div>
+
+      <!-- Source briefing (shown when sources exist, replaces greeting+chips) -->
+      <div class="ws-idle-brief" id="ws-idle-brief" style="display:none">
+        <div class="ws-idle-brief-loading" id="ws-idle-brief-loading">
+          <div class="ws-spin"></div>
+          <span>Analyzing your sources...</span>
+        </div>
+        <div class="ws-idle-brief-content" id="ws-idle-brief-content" style="display:none">
+          <div class="ws-idle-brief-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span class="ws-idle-brief-source-count" id="ws-idle-brief-source-count"></span>
+          </div>
+          <p class="ws-idle-brief-summary" id="ws-idle-brief-summary"></p>
+          <div class="ws-idle-brief-actions" id="ws-idle-brief-actions">
+            <button class="ws-brief-action-btn" id="ws-brief-copy" title="Copy to clipboard" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button class="ws-brief-action-btn" id="ws-brief-thumbsup" title="Helpful" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+            </button>
+            <button class="ws-brief-action-btn" id="ws-brief-thumbsdown" title="Not helpful" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+            </button>
+          </div>
+          <div class="ws-idle-brief-label">Suggested questions</div>
+          <div class="ws-idle-brief-questions" id="ws-idle-brief-questions"></div>
+        </div>
+      </div>
+
+      <!-- Original greeting + chips (shown when NO sources exist) -->
+      <div class="ws-idle-greeting" id="ws-idle-greeting">What would you like to research?</div>
+      <div class="ws-idle-chips" id="ws-idle-chips"></div>
+
+      <div class="ws-idle-history" id="ws-idle-history">
+        <div class="ws-idle-history-title">Recent</div>
+        <div class="ws-idle-history-list" id="ws-idle-history-list"></div>
+      </div>
+    </div>
+
+    <!-- Chat input (pinned at bottom) — floating pill (D2) -->
+    <div class="ws-chat-input" id="ws-chat-input">
+      <form class="ws-chat-form" onsubmit="handleWorkspaceChatSubmit(event); return false;">
+        <div class="ws-chat-textarea-wrap">
+          <textarea class="ws-chat-textarea" id="ws-chat-textarea" rows="1"
+                    placeholder="Enter your research question..."
+                    aria-label="Research question"></textarea>
+          <span class="ws-source-count" id="ws-source-count"></span>
+          <button type="submit" class="ws-chat-submit" id="ws-chat-submit-btn" aria-label="Submit"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 12V4M8 4L4 8M8 4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- RIGHT: Context Sidebar — 3 collapsible sections -->
+  <aside class="ws-right" id="ws-right">
+
+    <!-- Section: Live -->
+    <div class="ws-section expanded" id="ws-section-live">
+      <button class="ws-section-header" onclick="_toggleRightSection('live')">
+        <svg class="ws-section-chevron" width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        <span class="ws-section-label">Live</span>
+      </button>
+      <div class="ws-section-body">
+        <div class="ws-stat-row" id="ws-metrics">
+          <span class="ws-stat"><span class="ws-stat-value" id="ws-metric-evidence">0</span> evidence</span>
+          <span class="ws-stat-dot">&middot;</span>
+          <span class="ws-stat"><span class="ws-stat-value" id="ws-metric-sources">0</span> citations</span>
+          <span class="ws-stat-dot">&middot;</span>
+          <span class="ws-stat"><span class="ws-stat-value" id="ws-metric-faith">--</span> faithful</span>
+          <span class="ws-stat-dot">&middot;</span>
+          <span class="ws-stat"><span class="ws-stat-value" id="ws-metric-cost">$0.00</span></span>
+        </div>
+        <div class="ws-task-feed" id="ws-task-feed"></div>
+        <div class="ws-transport" id="ws-transport">
+          <span class="ws-elapsed" id="ws-metric-time">0m 00s</span>
+          <div class="ws-transport-controls">
+            <button class="ws-transport-btn" id="ws-btn-pause" onclick="_togglePauseResearch()" aria-label="Pause" title="Pause">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="1" width="3.5" height="12" rx="1"/><rect x="8.5" y="1" width="3.5" height="12" rx="1"/></svg>
+            </button>
+            <button class="ws-transport-btn ws-transport-stop" id="ws-btn-stop" onclick="cancelResearch()" aria-label="Stop" title="Stop">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="2" width="10" height="10" rx="1.5"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: Citations -->
+    <div class="ws-section expanded" id="ws-section-citations">
+      <button class="ws-section-header" onclick="_toggleRightSection('citations')">
+        <svg class="ws-section-chevron" width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        <span class="ws-section-label">Citations</span>
+        <span class="ws-section-count" id="ws-citations-count"></span>
+      </button>
+      <div class="ws-section-body">
+        <div id="ws-source-feed"></div>
+        <div id="ws-citation-list"></div>
+      </div>
+    </div>
+
+    <!-- Section: Memory -->
+    <div class="ws-section collapsed" id="ws-section-memory">
+      <button class="ws-section-header" onclick="_toggleRightSection('memory')">
+        <svg class="ws-section-chevron" width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+        <span class="ws-section-label">Memory</span>
+        <span class="ws-section-count" id="ws-memory-count-val">0</span>
+      </button>
+      <div class="ws-section-body">
+        <input type="text" class="ws-memory-search" id="ws-memory-search" placeholder="Search memory..." />
+        <div class="ws-memory-list" id="ws-memory-list"></div>
+      </div>
+    </div>
+
+    <!-- Run summary (shown briefly on transition) -->
+    <div class="ws-run-summary" id="ws-run-summary" style="display:none"></div>
+  </aside>
+
+  <!-- Campaign overlay panel (Researcher mode) -->
+  <div class="ws-campaign-overlay" id="ws-campaign-overlay">
+    <div class="ws-campaign-overlay-header">
+      <span class="ws-campaign-overlay-title">Campaign Manager</span>
+      <button class="ws-campaign-overlay-close" onclick="closeCampaignOverlay()" title="Close">&times;</button>
+    </div>
+    <div class="ws-campaign-overlay-body" id="ws-campaign-overlay-body"></div>
+  </div>
+</div>
+
+<!-- ===================================================================
+     VIEW PANES
+     =================================================================== -->
+<div class="views-container" id="main-content">
+
+  <!-- VIEW 1: RESEARCH (master-detail 3-panel) -->
+  <div class="view-pane" id="view-research" role="tabpanel" aria-labelledby="tab-research">
+    <div class="research-view">
+      <!-- LEFT: Compact phase list -->
+      <div class="phase-list-column">
+        <div class="phase-list-header">
+          <span>Pipeline</span>
+          <span class="phase-list-progress" id="phase-progress">0/8</span>
+        </div>
+        <div class="phase-list" id="phase-list">
+          <!-- JS renders compact phase rows here -->
+        </div>
+      </div>
+
+      <!-- CENTER: Selected phase detail -->
+      <div class="phase-detail-column">
+        <div class="phase-detail-header" id="phase-detail-header">
+          <span class="phase-detail-icon" id="phase-detail-icon"></span>
+          <span class="phase-detail-name" id="phase-detail-name">Select a phase</span>
+          <span class="phase-detail-status" id="phase-detail-status"></span>
+          <span class="phase-detail-meta" id="phase-detail-meta"></span>
+          <span id="reasoning-count" style="font-size:var(--text-3xs);color:var(--text-tertiary)">0 entries</span>
+          <span id="current-status-text" style="margin-left:auto;font-size:var(--text-3xs);color:var(--text-tertiary)">Awaiting pipeline...</span>
+        </div>
+        <div class="phase-detail-stream" id="phase-detail-stream">
+          <div class="empty-state empty-state-enhanced" id="reasoning-empty">
+            <div class="empty-state-icon" aria-hidden="true">&#x2630;</div>
+            <div class="empty-state-text">Select a phase to view reasoning entries</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Stable metrics rail -->
+      <div class="pipeline-column">
+        <!-- 1. Hero metrics -->
+        <div class="metric-grid" id="metric-grid">
+          <div class="metric-card"><div class="label">Evidence</div><div class="value" id="pm-evidence">0</div></div>
+          <div class="metric-card"><div class="label">Faithfulness</div><div class="value" id="pm-faith">--</div></div>
+          <div class="metric-card"><div class="label">Words</div><div class="value" id="pm-words">0</div></div>
+          <div class="metric-card"><div class="label">Cost</div><div class="value" id="pm-cost">$0.00</div></div>
+        </div>
+
+        <!-- 2. Quality gates -->
+        <div class="card">
+          <div class="section-title">Quality Gates</div>
+          <div class="gate-dots">
+            <div class="gate-dot-item"><div class="gate-dot" id="gate-faith"></div><span>Faith</span></div>
+            <div class="gate-dot-item"><div class="gate-dot" id="gate-words"></div><span>Words</span></div>
+            <div class="gate-dot-item"><div class="gate-dot" id="gate-cite"></div><span>Cites</span></div>
+            <div class="gate-dot-item"><div class="gate-dot" id="gate-sources"></div><span>Sources</span></div>
+            <div class="gate-dot-item"><div class="gate-dot" id="gate-synth"></div><span>Synth</span></div>
+          </div>
+        </div>
+
+        <!-- 3. Compact activity log -->
+        <div class="card">
+          <div class="section-title">Activity</div>
+          <div class="activity-log compact" id="activity-log" tabindex="0" role="region" aria-label="Activity log"></div>
+        </div>
+
+        <!-- 4. Collapsible telemetry (below fold) -->
+        <details class="rail-details">
+          <summary class="rail-details-summary">Telemetry</summary>
+          <div class="phase-stepper" id="phase-stepper" style="padding:var(--sm)"></div>
+          <div id="pipeline-gantt"></div>
+          <div id="pipeline-funnel"></div>
+          <div class="operator-only" id="checkpoint-timeline-container"></div>
+        </details>
+
+        <!-- 5. Collapsible operator panels -->
+        <details class="rail-details operator-only">
+          <summary class="rail-details-summary">Operator Panels</summary>
+          <div class="op-panel" id="cost-breakdown-panel" style="border:none;border-radius:0">
+            <div class="op-panel-title"><span class="op-icon">$</span> Cost Breakdown</div>
+            <div id="op-cost-details">
+              <div class="cost-token-row"><span>Awaiting pipeline data...</span></div>
+            </div>
+          </div>
+          <div class="op-panel" id="quality-metrics-panel" style="border:none;border-radius:0">
+            <div class="op-panel-title"><span class="op-icon">%</span> Quality Metrics</div>
+            <div id="op-quality-details">
+              <div class="cost-token-row"><span>Awaiting pipeline data...</span></div>
+            </div>
+          </div>
+          <div class="op-panel" id="metadata-charts-panel" style="border:none;border-radius:0">
+            <div class="op-panel-title"><span class="op-icon">&#9776;</span> Source &amp; Evidence Charts</div>
+            <div id="op-metadata-charts">
+              <div class="cost-token-row"><span>Awaiting pipeline data...</span></div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 2: EVIDENCE -->
+  <div class="view-pane evidence-view-pane" id="view-evidence" role="tabpanel" aria-labelledby="tab-evidence">
+    <div class="evidence-view">
+      <div class="evidence-main">
+        <div class="graph-controls">
+          <div class="seg-control" id="graph-mode-selector">
+            <button class="seg-btn active" data-mode="crossref">Cross-Ref</button>
+            <button class="seg-btn" data-mode="citation">Citation Map</button>
+            <button class="seg-btn" data-mode="source">Source Net</button>
+            <button class="seg-btn" data-mode="mindmap">Mind Map</button>
+          </div>
+          <select id="graph-color-mode" aria-label="Graph color mode" style="background:var(--bg-inset);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 8px;font-size:11px">
+            <option value="tier">Color: Tier</option>
+            <option value="perspective">Color: Perspective</option>
+          </select>
+          <select id="graph-tier-filter" aria-label="Filter graph by tier" style="background:var(--bg-inset);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 8px;font-size:11px">
+            <option value="all">All Tiers</option>
+            <option value="gold">Gold</option>
+            <option value="silver">Silver</option>
+            <option value="bronze">Bronze</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-tertiary)">
+            Agree <input type="range" id="graph-min-agree" min="0" max="100" value="50" style="width:60px"> <span id="graph-agree-val">0.50</span>
+          </label>
+          <button id="graph-reset-btn" style="background:var(--bg-inset);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 8px;font-size:11px;cursor:pointer">Reset</button>
+        </div>
+        <div class="graph-canvas-wrap" id="graph-wrap">
+          <svg id="graph-svg" role="img" aria-label="Evidence relationship graph visualization"></svg>
+          <div class="graph-tooltip" id="graph-tooltip"></div>
+          <div class="graph-empty" id="graph-empty">Evidence graph will populate when cross-reference data arrives...</div>
+        </div>
+        <div class="evidence-cards-area" id="evidence-cards-area" tabindex="0" role="region" aria-label="Evidence cards">
+          <div style="display:flex;align-items:center;gap:var(--sm);flex-wrap:wrap;margin-bottom:var(--sm)">
+            <div class="filter-chips" id="tier-chips" role="radiogroup" aria-label="Filter evidence by tier">
+              <button class="filter-chip active" data-tier="all" role="radio" aria-checked="true" onclick="setTierFilter('all')">All</button>
+              <button class="filter-chip" data-tier="gold" role="radio" aria-checked="false" onclick="setTierFilter('gold')">Gold</button>
+              <button class="filter-chip" data-tier="silver" role="radio" aria-checked="false" onclick="setTierFilter('silver')">Silver</button>
+              <button class="filter-chip" data-tier="bronze" role="radio" aria-checked="false" onclick="setTierFilter('bronze')">Bronze</button>
+            </div>
+            <select class="evidence-sort-select" id="evidence-sort" onchange="sortEvidence(this.value)" aria-label="Sort evidence by">
+              <option value="composite">Relevance (Overall)</option>
+              <option value="authority">Authority</option>
+              <option value="freshness">Freshness</option>
+              <option value="density">Information Density</option>
+              <option value="grounding">Grounding</option>
+            </select>
+          </div>
+          <div id="evidence-card-list"></div>
+        </div>
+      </div>
+      <!-- Slide-in detail panel -->
+      <div class="evidence-detail-panel" id="evidence-detail-panel">
+        <div class="detail-panel-header">
+          <span class="section-title" style="margin:0">Evidence Detail</span>
+          <button class="detail-panel-close" onclick="closeDetailPanel()" aria-label="Close detail panel">&times;</button>
+        </div>
+        <div class="detail-panel-body" id="detail-panel-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 3: REPORT -->
+  <div class="view-pane" id="view-report" role="tabpanel" aria-labelledby="tab-report">
+    <div class="report-view">
+      <div class="report-content">
+        <div class="report-header-grid" id="report-gate-grid"></div>
+        <div class="iteration-timeline" id="report-iter-timeline"></div>
+        <div id="report-verification"></div>
+        <div class="export-toolbar">
+          <button class="export-btn" id="btn-export-md" onclick="exportReport('markdown')" aria-label="Export report as Markdown">Export Markdown</button>
+          <button class="export-btn" id="btn-export-docx" onclick="exportReport('docx')" aria-label="Export report as Word document">Export Word</button>
+          <button class="export-btn" id="btn-export-jsonl" onclick="exportReport('jsonl')" aria-label="Export trace as JSONL">Export JSONL</button>
+        </div>
+        <div class="report-body" id="report-body">
+          <div class="empty-state" id="report-empty">Report will appear when synthesis completes...</div>
+        </div>
+        <div id="report-bibliography"></div>
+        <div id="report-extras"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 5: MEMORY (Sprint 3) -->
+  <div class="view-pane" id="view-memory" role="tabpanel" aria-labelledby="tab-memory">
+    <div id="memory-dashboard-root"></div>
+  </div>
+
+  <!-- VIEW 6: PIPELINES (Sprint 4) -->
+  <div class="view-pane" id="view-pipelines" role="tabpanel" aria-labelledby="tab-pipelines">
+    <div class="pipelines-view">
+      <!-- Left sidebar: template picker + wizard chat -->
+      <div class="pipelines-sidebar" id="pipelines-sidebar">
+        <div class="pipelines-sidebar-section" id="pipeline-template-section">
+          <div class="pipelines-sidebar-title">Pipeline Templates</div>
+          <div class="pipeline-template-list" id="pipeline-template-list"></div>
+          <button class="pipeline-new-btn" id="pipeline-new-btn" onclick="if(typeof startNewPipeline==='function')startNewPipeline()">+ New Pipeline</button>
+        </div>
+        <div class="pipelines-sidebar-section" id="pipeline-wizard-section" style="display:none">
+          <div class="pipelines-sidebar-title">
+            <span>Pipeline Wizard</span>
+            <button class="wizard-close-btn" onclick="if(typeof closeWizard==='function')closeWizard()" title="Close wizard">&times;</button>
+          </div>
+          <div class="wizard-progress" id="wizard-progress"></div>
+          <div class="wizard-chat" id="wizard-chat"></div>
+          <div class="wizard-input-wrap" id="wizard-input-wrap">
+            <div class="wizard-chips" id="wizard-chips"></div>
+            <div class="wizard-input-row">
+              <input type="text" class="wizard-input" id="wizard-input" placeholder="Describe your research needs..." autocomplete="off">
+              <button class="wizard-send-btn" id="wizard-send-btn" onclick="if(typeof sendWizardMessage==='function')sendWizardMessage()">Send</button>
+            </div>
+          </div>
+        </div>
+        <div class="pipelines-sidebar-section" id="pipeline-saved-section">
+          <div class="pipelines-sidebar-title">Saved Pipelines</div>
+          <div class="pipeline-saved-list" id="pipeline-saved-list"></div>
+        </div>
+      </div>
+      <!-- Center: pipeline canvas (DAG editor) -->
+      <div class="pipelines-canvas-wrap" id="pipelines-canvas-wrap">
+        <div class="pipelines-toolbar" id="pipelines-toolbar">
+          <button class="pipe-tool-btn" id="pipe-btn-save" onclick="if(typeof savePipeline==='function')savePipeline()" title="Save pipeline">Save</button>
+          <button class="pipe-tool-btn" id="pipe-btn-validate" onclick="if(typeof validatePipeline==='function')validatePipeline()" title="Validate pipeline">Validate</button>
+          <button class="pipe-tool-btn pipe-tool-primary" id="pipe-btn-run" onclick="if(typeof runPipeline==='function')runPipeline()" title="Run pipeline">Run</button>
+          <span class="pipe-toolbar-spacer"></span>
+          <button class="pipe-tool-btn" id="pipe-btn-wizard" onclick="if(typeof openWizard==='function')openWizard()" title="Open AI wizard">Wizard</button>
+          <button class="pipe-tool-btn" id="pipe-btn-zoom-in" onclick="if(typeof pipelineZoomIn==='function')pipelineZoomIn()" title="Zoom in">+</button>
+          <button class="pipe-tool-btn" id="pipe-btn-zoom-out" onclick="if(typeof pipelineZoomOut==='function')pipelineZoomOut()" title="Zoom out">-</button>
+          <button class="pipe-tool-btn" id="pipe-btn-fit" onclick="if(typeof pipelineFitView==='function')pipelineFitView()" title="Fit to view">Fit</button>
+        </div>
+        <svg id="pipeline-dag-svg" class="pipeline-dag-svg"></svg>
+        <div class="pipeline-empty" id="pipeline-empty">Select a template or create a new pipeline to get started.</div>
+        <div class="pipeline-minimap" id="pipeline-minimap">
+          <svg id="pipeline-minimap-svg" class="pipeline-minimap-svg"></svg>
+        </div>
+      </div>
+      <!-- Right panel: stage config -->
+      <div class="pipelines-config-panel" id="pipelines-config-panel">
+        <div class="config-panel-header">
+          <span class="section-title" style="margin:0" id="config-panel-title">Stage Configuration</span>
+          <button class="config-panel-close" onclick="if(typeof closeConfigPanel==='function')closeConfigPanel()" title="Close">&times;</button>
+        </div>
+        <div class="config-panel-body" id="config-panel-body">
+          <div class="config-empty-state" id="config-empty-state">
+            <div style="text-align:center;padding:40px 20px;color:var(--text-tertiary)">
+              <div style="font-size:32px;margin-bottom:12px;opacity:0.5">&#9881;</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Select a stage to configure</div>
+              <div style="font-size:11px">Click any stage node in the DAG to see and edit its settings</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 4: ADVANCED -->
+  <div class="view-pane" id="view-advanced" role="tabpanel" aria-labelledby="nav-btn-advanced">
+    <div class="advanced-view">
+      <div class="adv-tabs adv-tab-bar" role="tablist" aria-label="Advanced view tabs">
+        <button class="adv-tab-btn active" data-adv="queries" role="tab" id="adv-tab-queries" aria-selected="true" aria-controls="adv-queries" tabindex="0">Queries</button>
+        <button class="adv-tab-btn" data-adv="sources" role="tab" id="adv-tab-sources" aria-selected="false" aria-controls="adv-sources" tabindex="-1">Sources</button>
+        <button class="adv-tab-btn" data-adv="storm" role="tab" id="adv-tab-storm" aria-selected="false" aria-controls="adv-storm" tabindex="-1">STORM</button>
+        <button class="adv-tab-btn" data-adv="trace" role="tab" id="adv-tab-trace" aria-selected="false" aria-controls="adv-trace" tabindex="-1">Trace</button>
+        <button class="adv-tab-btn" data-adv="cost" role="tab" id="adv-tab-cost" aria-selected="false" aria-controls="adv-cost" tabindex="-1">Cost</button>
+      </div>
+      <!-- Queries -->
+      <div class="adv-pane active" id="adv-queries" tabindex="0" role="tabpanel" aria-labelledby="adv-tab-queries">
+        <div id="q-research-plan"></div>
+        <div id="q-agentic-rounds" style="margin-top:var(--md)"></div>
+        <div class="card" style="margin-top:var(--md)">
+          <div class="section-title">Search Engines (<span id="q-total">0</span> queries, <span id="q-results">0</span> results)</div>
+          <div id="engine-bars"></div>
+        </div>
+        <div style="margin-top:var(--md)">
+          <input type="text" id="q-search" placeholder="Filter queries..." style="width:100%;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:12px;font-family:var(--font-sans);margin-bottom:var(--sm)">
+          <div id="query-list" style="max-height:400px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <!-- Sources -->
+      <div class="adv-pane" id="adv-sources" tabindex="0" role="tabpanel" aria-labelledby="adv-tab-sources">
+        <div class="card" style="margin-bottom:var(--md)">
+          <div class="section-title">Fetch Pipeline</div>
+          <div class="stats-row">
+            <span>Attempted: <b id="src-fetched">0</b></span>
+            <span style="color:var(--success)">Success: <b id="src-success">0</b></span>
+            <span style="color:var(--warning)">Snippet: <b id="src-snippet">0</b></span>
+            <span style="color:var(--error)">Failed: <b id="src-failed">0</b></span>
+          </div>
+        </div>
+        <div id="src-fetch-pipeline"></div>
+        <div class="card" style="margin:var(--md) 0"><div class="section-title">Top Domains</div><div id="domain-chart"></div></div>
+        <div id="source-list" style="max-height:400px;overflow-y:auto"></div>
+      </div>
+      <!-- STORM -->
+      <div class="adv-pane" id="adv-storm" tabindex="0" role="tabpanel" aria-labelledby="adv-tab-storm">
+        <div id="storm-empty" style="color:var(--text-tertiary);padding:var(--xl);text-align:center">STORM interviews will appear when the pipeline reaches the interview phase...</div>
+        <div id="storm-entropy"></div>
+        <div class="persona-grid" id="storm-personas"></div>
+        <div id="storm-chat"></div>
+      </div>
+      <!-- Trace -->
+      <div class="adv-pane" id="adv-trace" role="tabpanel" aria-labelledby="adv-tab-trace">
+        <div class="filter-chips" id="trace-filters">
+          <button class="filter-chip active" data-ttype="all">All</button>
+          <button class="filter-chip" data-ttype="node">Nodes</button>
+          <button class="filter-chip" data-ttype="llm_call">LLM</button>
+          <button class="filter-chip" data-ttype="evidence">Evidence</button>
+          <button class="filter-chip" data-ttype="reasoning_capture">Reasoning</button>
+          <button class="filter-chip" data-ttype="llm_detail">LLM Detail</button>
+          <button class="filter-chip" data-ttype="storm_transcript">STORM</button>
+        </div>
+        <div class="trace-stream" id="trace-stream" tabindex="0" role="region" aria-label="Trace events" style="max-height:calc(100vh - 200px);overflow-y:auto"></div>
+      </div>
+      <!-- Cost -->
+      <div class="adv-pane" id="adv-cost" role="tabpanel" aria-labelledby="adv-tab-cost">
+        <div id="cost-breakdown"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campaigns view (NOVA Phase 1) -->
+  <div class="view-pane active" id="view-campaigns" role="tabpanel" aria-labelledby="tab-campaigns">
+  </div>
+
+</div><!-- /views-container -->
+
+
+<!-- ===================================================================
+     AUTH MODAL (2B.1) — Hidden when auth not enabled
+     =================================================================== -->
+<div id="auth-modal" aria-modal="true" role="dialog" aria-labelledby="auth-modal-title">
+  <div class="auth-modal-content" style="position:relative">
+    <button class="auth-modal-close" onclick="closeAuthModal()" aria-label="Close sign-in dialog">&times;</button>
+    <h2 id="auth-modal-title">Sign In</h2>
+    <form onsubmit="handleLogin(event)" novalidate>
+      <label for="auth-username" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Username</label>
+      <input type="text" id="auth-username" class="auth-field" placeholder="Username" required autocomplete="username">
+      <label for="auth-password" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Password</label>
+      <input type="password" id="auth-password" class="auth-field" placeholder="Password" required autocomplete="current-password">
+      <button type="submit" class="auth-submit-btn">Sign In</button>
+    </form>
+    <div class="auth-error" id="auth-error"></div>
+  </div>
+</div>
+
+<!-- Mobile compose FAB -->
+<button class="compose-fab" id="compose-fab" aria-label="New research">+</button>
+
+<!-- Global screen reader announcer (exempt from inert) -->
+<div id="global-announcer" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+
+<!-- ===================================================================
+     JAVASCRIPT -- Modular Script Loading
+     Loading order matters: core.js defines state/constants/utilities,
+     then event processor, view renderers, operator console, SSE
+     connection, and finally advanced_tabs.js which runs initialization.
+     =================================================================== -->
+<script src="/static/js/core.js?v={{ asset_v }}"></script>
+<script src="/static/js/event_processor.js?v={{ asset_v }}"></script>
+<script src="/static/js/research_view.js?v={{ asset_v }}"></script>
+<script src="/static/js/graph_viz.js?v={{ asset_v }}"></script>
+<script src="/static/js/evidence_browser.js?v={{ asset_v }}"></script>
+<script src="/static/js/report_view.js?v={{ asset_v }}"></script>
+<script src="/static/js/operator_console.js?v={{ asset_v }}"></script>
+<script src="/static/js/sse_connection.js?v={{ asset_v }}"></script>
+<script src="/static/js/advanced_tabs.js?v={{ asset_v }}"></script>
+<script src="/static/js/scroll_sync.js?v={{ asset_v }}"></script>
+<script src="/static/js/workspace_manager.js?v={{ asset_v }}"></script>
+<script src="/static/js/document_panel.js?v={{ asset_v }}"></script>
+<script src="/static/js/citation_chain.js?v={{ asset_v }}"></script>
+<script src="/static/js/checkpoint_timeline.js?v={{ asset_v }}"></script>
+<script src="/static/js/document_upload.js?v={{ asset_v }}"></script>
+<script src="/static/js/mind_map.js?v={{ asset_v }}"></script>
+<script src="/static/js/memory_dashboard.js?v={{ asset_v }}"></script>
+<script src="/static/js/pipeline_editor.js?v={{ asset_v }}"></script>
+<script src="/static/js/pipeline_wizard.js?v={{ asset_v }}"></script>
+<script src="/static/js/campaign_manager.js?v={{ asset_v }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  if (typeof mermaid !== 'undefined') {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'default' : 'dark',
+      securityLevel: 'strict'
+    });
+  }
+</script>
+</body>
+</html>

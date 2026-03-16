@@ -1,0 +1,134 @@
+pipeline_id: tpl_multi_vector
+name: Multi-Vector Deep Analysis
+description: >-
+  The full C-POLAR 13-stage pipeline compressed into 5 macro-stages.
+  Maximum depth: 175 sub-questions, all STORM perspectives, citation chasing,
+  cross-reference verification, iterative quality improvement. For enterprise
+  clients requiring exhaustive analysis of complex topics.
+version: "1.0.0"
+author: system
+is_template: true
+tags: [enterprise, deep, multi-vector, exhaustive, cpolar]
+config_overrides:
+  PG_MAX_ITERATIONS: "5"
+  PG_MAX_EXECUTION_MINUTES: "180"
+  PG_QUERIES_PER_VECTOR: "80"
+  PG_MIN_FAITHFULNESS: "0.80"
+  PG_TARGET_TOTAL_WORDS: "20000"
+  PG_MIN_TOTAL_WORDS: "15000"
+  PG_STORM_ENABLED: "1"
+  PG_CITATION_CHASE_ENABLED: "1"
+  PG_CONFLICT_DETECTION_ENABLED: "1"
+
+macro_stages:
+  - macro_id: planning
+    label: Strategic Planning
+    description: Multi-perspective mission decomposition with 175 sub-questions
+    color: "#6C5CE7"
+    estimated_minutes: 3.0
+    stages:
+      - stage_id: mission_parse
+        stage_type: plan
+        label: Mission Parsing
+        description: Decompose research question into sub-problems
+        config:
+          queries_per_vector: 80
+      - stage_id: perspective_assign
+        stage_type: filter
+        label: Perspective Assignment
+        description: Assign STORM perspectives to each sub-question
+        depends_on: [mission_parse]
+
+  - macro_id: collection
+    label: Multi-Source Collection
+    description: Exhaustive search across web, academic, and uploaded documents
+    color: "#00B894"
+    estimated_minutes: 20.0
+    depends_on_macros: [planning]
+    stages:
+      - stage_id: web_search
+        stage_type: search
+        label: Web + Academic Search
+        config:
+          web_concurrency: 20
+          academic_priority: true
+          citation_chase: true
+      - stage_id: storm_interviews
+        stage_type: storm_interviews
+        label: STORM Expert Interviews
+        description: 8+ expert perspective conversations
+        depends_on: [web_search]
+      - stage_id: content_fetch
+        stage_type: analyze
+        label: Content Fetch + Dedup
+        description: Fetch all source content, deduplicate
+        depends_on: [storm_interviews]
+        config:
+          fetch_only: true
+
+  - macro_id: analysis
+    label: Deep Analysis
+    description: Multi-pass evidence extraction with quality scoring
+    color: "#FDCB6E"
+    estimated_minutes: 25.0
+    depends_on_macros: [collection]
+    stages:
+      - stage_id: evidence_extract
+        stage_type: analyze
+        label: Evidence Extraction
+        config:
+          content_per_source: 15000
+          analysis_concurrency: 15
+      - stage_id: quality_score
+        stage_type: filter
+        label: Quality Scoring
+        description: 5-signal tier scoring for all evidence
+        depends_on: [evidence_extract]
+      - stage_id: cluster
+        stage_type: merge
+        label: Evidence Clustering
+        description: Thematic clustering of evidence pieces
+        depends_on: [quality_score]
+
+  - macro_id: verification
+    label: Multi-Layer Verification
+    description: NLI cascade + cross-reference + contradiction detection
+    color: "#E17055"
+    estimated_minutes: 20.0
+    depends_on_macros: [analysis]
+    stages:
+      - stage_id: nli_verify
+        stage_type: verify
+        label: NLI Cascade Verification
+        config:
+          min_faithfulness: 0.80
+      - stage_id: cross_ref
+        stage_type: evaluate
+        label: Cross-Reference Check
+        description: Corroboration across multiple independent sources
+        depends_on: [nli_verify]
+        config:
+          cross_reference: true
+
+  - macro_id: synthesis
+    label: Publication Synthesis
+    description: Publication-quality report with full citation chain of custody
+    color: "#0984E3"
+    estimated_minutes: 30.0
+    depends_on_macros: [verification]
+    stages:
+      - stage_id: outline_gen
+        stage_type: synthesize
+        label: Outline Generation
+      - stage_id: section_write
+        stage_type: synthesize
+        label: Section Writing
+        depends_on: [outline_gen]
+      - stage_id: cite_resolve
+        stage_type: synthesize
+        label: Citation Resolution
+        depends_on: [section_write]
+      - stage_id: gap_search
+        stage_type: search_gaps
+        label: Evidence Gap Search
+        depends_on: [cite_resolve]

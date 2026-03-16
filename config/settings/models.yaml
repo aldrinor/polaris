@@ -1,0 +1,150 @@
+# POLARIS Model Configurations
+# LLM, embedding, and NLI model settings
+
+# =============================================================================
+# PRIMARY LLM (Gemini - Tiered by Task Complexity)
+# Simple tasks: gemini-2.5-flash (fast, cost-effective)
+# Important tasks: gemini-3-pro-preview (best reasoning)
+# Note: gemini-2.0-flash deprecated March 31, 2026
+# =============================================================================
+llm:
+  provider: gemini
+
+  # Tiered model selection for agents
+  # Note: Some models require thinking mode (thinking_budget > 0)
+  # gemini-2.5-flash: works with thinking_budget=0
+  # gemini-3-pro-preview: REQUIRES thinking mode (budget must be > 0)
+  tiers:
+    # Simple tasks: triage, search coordination
+    simple:
+      model: gemini-2.5-flash
+      temperature: 0.0
+      max_tokens: 4096
+      thinking_budget: 0  # Disable thinking for reliable structured output
+
+    # Important tasks: analysis, verification, synthesis, planning, supervision
+    # SPRINT 1 FIX 1.2: Restored gemini-3-pro-preview for best reasoning quality
+    # v3 failed with gemini-2.5-pro (28% faithfulness) - gemini-3-pro needed for SOTA
+    # P3.1 FIX: Increased max_tokens from 16000 to 32000 to handle extraction targets
+    # With thinking_budget=2048, this gives 29,952 tokens for output
+    #
+    important:
+      model: gemini-3-pro-preview
+      temperature: 0.1
+      max_tokens: 32000  # P3.1 FIX: Increased from 16000 (was budget mismatch)
+      thinking_budget: 2048  # Increased for better reasoning (was: 1024)
+
+  # Default (for phases, non-agent code)
+  model: gemini-2.5-flash
+  max_tokens: 65536
+  temperature: 0.7
+  timeout_seconds: 120
+
+  # Fallback (if primary fails - FIX 11)
+  # gemini-2.5-pro is the best available fallback for reasoning-heavy tasks
+  # when gemini-3-pro-preview quota is exhausted (limit: 0 on current plan)
+  fallback_provider: gemini
+  fallback_model: gemini-2.5-pro
+
+# =============================================================================
+# EMBEDDING MODEL
+# =============================================================================
+embedding:
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+
+  # GPU settings
+  device: auto  # auto | cuda | cpu
+  max_seq_length: 512
+
+# =============================================================================
+# CROSS-ENCODER (Reranking)
+# =============================================================================
+cross_encoder:
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  batch_size: 16
+  device: auto
+
+# =============================================================================
+# NLI MODEL (Contradiction Detection)
+# =============================================================================
+nli:
+  model: microsoft/deberta-v3-large-mnli
+  batch_size: 8
+  device: auto
+
+  # Labels
+  entailment_label: ENTAILMENT
+  neutral_label: NEUTRAL
+  contradiction_label: CONTRADICTION
+
+# =============================================================================
+# SOTA: MINICHECK (RAG-Aware Fact Checking)
+# MiniCheck correctly classifies irrelevant chunks as "UNSUPPORTED" not "CONTRADICTION"
+# This eliminates the 100% false positive rate in standard NLI models
+# =============================================================================
+minicheck:
+  # Primary model: CPU-friendly T5-based
+  model: lytang/MiniCheck-Flan-T5-Large
+  # Alternative GPU model: bespokelabs/Bespoke-MiniCheck-7B
+
+  # Relevance gating threshold: Skip NLI if cross-encoder score below this
+  relevance_gate_threshold: 0.10
+
+  # Confidence threshold for flagging contradictions
+  contradiction_confidence: 0.70
+
+  # Device settings
+  device: auto
+  batch_size: 8
+
+# =============================================================================
+# CHUNKING TEMPLATES
+# =============================================================================
+chunking:
+  # Template mapping by stage
+  stage_templates:
+    1: research_paper
+    2: technical_report
+    3: technical_report
+    4: research_paper
+    5: research_paper
+    6: technical_report
+    7: research_paper
+    8: technical_report
+    9: research_paper
+    10: news_article
+    11: research_paper
+    12: research_paper
+    13: news_article
+
+  # Template parameters
+  templates:
+    research_paper:
+      chunk_size: 1000
+      chunk_overlap: 200
+      separators:
+        - "\n\n"
+        - "\n"
+        - ". "
+        - " "
+
+    technical_report:
+      chunk_size: 800
+      chunk_overlap: 150
+      separators:
+        - "\n\n"
+        - "\n"
+        - ". "
+        - " "
+
+    news_article:
+      chunk_size: 600
+      chunk_overlap: 100
+      separators:
+        - "\n\n"
+        - "\n"
+        - ". "
+        - " "

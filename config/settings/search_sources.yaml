@@ -1,0 +1,140 @@
+# POLARIS Search Sources Configuration
+# API endpoints, rate limits, and query distribution
+
+# =============================================================================
+# QUERY DISTRIBUTION BUCKETS
+# =============================================================================
+query_distribution:
+  academic: 0.30      # Peer-reviewed sources
+  government: 0.20    # Regulatory/official
+  industry: 0.25      # Trade publications
+  news: 0.15          # Recent developments
+  general: 0.10       # Broad web search
+
+# =============================================================================
+# SEARCH ENGINES
+# =============================================================================
+engines:
+  serper:
+    enabled: true
+    priority: 1
+    rate_limit: 300       # queries per second
+    daily_limit: 2500     # monthly limit / 30
+    timeout_seconds: 30
+    endpoints:
+      search: https://google.serper.dev/search
+      scholar: https://google.serper.dev/scholar
+    buckets:
+      - general
+      - news
+      - industry
+
+  pubmed:
+    enabled: true
+    priority: 1
+    rate_limit: 3         # queries per second (with API key)
+    daily_limit: null     # unlimited
+    timeout_seconds: 30
+    base_url: https://eutils.ncbi.nlm.nih.gov/entrez/eutils/
+    buckets:
+      - academic
+
+  semantic_scholar:
+    enabled: true
+    priority: 1
+    rate_limit: 1         # 1 request per second
+    daily_limit: 5000
+    timeout_seconds: 30
+    base_url: https://api.semanticscholar.org/graph/v1/
+    buckets:
+      - academic
+
+  openalex:
+    enabled: true
+    priority: 2
+    rate_limit: 10
+    daily_limit: null     # unlimited
+    timeout_seconds: 30
+    base_url: https://api.openalex.org/
+    buckets:
+      - academic
+
+# =============================================================================
+# CONTENT FETCHING
+# =============================================================================
+fetching:
+  # Primary method
+  user_agent: "Mozilla/5.0 (compatible; POLARIS/1.0; Research Bot)"
+
+  # Timeouts
+  connect_timeout: 10
+  read_timeout: 30
+
+  # Retry policy
+  max_retries: 3
+  retry_delay_ms: 1000
+  retry_backoff: 2.0
+
+  # Concurrency
+  max_concurrent_fetches: 10
+
+  # Content limits
+  max_content_size_mb: 10
+  max_pdf_pages: 50
+
+  # Fallback chain
+  fallback_chain:
+    - requests        # Standard HTTP
+    - playwright      # JavaScript rendering
+    - archive_org     # Wayback Machine
+
+# =============================================================================
+# AUTHORITY ANCHORS
+# =============================================================================
+authority_anchors:
+  government:
+    - "site:*.gov"
+    - "site:*.gov.uk"
+    - "site:europa.eu"
+    - "site:who.int"
+
+  academic:
+    - "site:*.edu"
+    - "site:*.ac.uk"
+    - "site:pubmed.ncbi.nlm.nih.gov"
+    - "site:scholar.google.com"
+
+  industry:
+    - "site:*.org"
+
+# =============================================================================
+# GEOGRAPHIC TARGETING
+# =============================================================================
+geographic_keywords:
+  NORTH_AMERICA:
+    - "United States"
+    - "USA"
+    - "Canada"
+    - "North America"
+    - "American"
+
+  EUROPE:
+    - "Europe"
+    - "European Union"
+    - "EU"
+    - "UK"
+    - "Germany"
+    - "France"
+
+  ASIA_PACIFIC:
+    - "Asia"
+    - "Asia Pacific"
+    - "China"
+    - "Japan"
+    - "Australia"
+    - "APAC"
+
+  GLOBAL:
+    - "global"
+    - "worldwide"
+    - "international"

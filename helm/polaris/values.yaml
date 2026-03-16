@@ -1,0 +1,103 @@
+replicaCount: 1
+
+image:
+  repository: polaris
+  pullPolicy: IfNotPresent
+  tag: "0.9.0"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: polaris.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 2Gi
+
+env:
+  POLARIS_DEPLOYMENT_MODE: cloud
+  POLARIS_VERSION: "0.9.0"
+
+envSecrets:
+  - name: OPENROUTER_API_KEY
+    secretName: polaris-secrets
+    secretKey: openrouter-api-key
+  - name: SERPER_API_KEY
+    secretName: polaris-secrets
+    secretKey: serper-api-key
+
+persistence:
+  outputs:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  logs:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  data:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+chromadb:
+  enabled: true
+  image:
+    repository: chromadb/chroma
+    tag: latest
+  persistence:
+    size: 10Gi
+
+vllm:
+  enabled: false
+  image:
+    repository: vllm/vllm-openai
+    tag: latest
+  model: "meta-llama/Llama-3.1-70B-Instruct"
+  gpu:
+    count: 1
+    type: nvidia.com/gpu
+  resources:
+    limits:
+      memory: 80Gi
+    requests:
+      memory: 40Gi
+
+searxng:
+  enabled: false
+  image:
+    repository: searxng/searxng
+    tag: latest
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

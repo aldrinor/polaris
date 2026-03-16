@@ -1,0 +1,188 @@
+/* =========================================================================
+   POLARIS Observatory — evidence.css
+   Evidence view, evidence cards, filters, sorting, detail panel,
+   radar charts, graph container, signal bars
+   ========================================================================= */
+
+/* =======================================================================
+   Evidence View (two-column)
+   ======================================================================= */
+.evidence-view {
+  display: flex;
+  height: 100%;
+}
+
+.evidence-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Container query: parent is the view pane, children respond */
+.evidence-view-pane { container-type: inline-size; container-name: evidence-pane; }
+
+@container evidence-pane (min-width: 800px) {
+  .evidence-main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 0; }
+  .graph-controls { grid-column: 1 / -1; }
+  .graph-canvas-wrap { grid-column: 1; border-right: 1px solid var(--border); min-height: 250px; }
+  .evidence-cards-area { grid-column: 2; border-top: none; }
+}
+
+/* Viewport fallback for browsers without container query support.
+   Container query triggers at 800px; approximate with 900px viewport
+   since evidence pane is narrower than full viewport. */
+@supports not (container-type: inline-size) {
+  @media (min-width: 900px) {
+    .evidence-main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 0; }
+    .graph-controls { grid-column: 1 / -1; }
+    .graph-canvas-wrap { grid-column: 1; border-right: 1px solid var(--border); min-height: 250px; }
+    .evidence-cards-area { grid-column: 2; border-top: none; }
+  }
+}
+
+.evidence-detail-panel {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  transition: width var(--duration-slow) var(--ease), min-width var(--duration-slow) var(--ease);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-panel);
+}
+.evidence-detail-panel.open {
+  width: 400px;
+  min-width: 400px;
+}
+
+.detail-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  padding: var(--sm) var(--md);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.detail-panel-close {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-base);
+  margin-left: auto;
+}
+.detail-panel-close:hover { background: var(--error-dim); color: var(--error); }
+
+.detail-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--md);
+}
+
+/* Graph area */
+.graph-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  padding: 8px var(--lg);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#graph-reset-btn {
+  min-height: var(--touch-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.graph-canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+
+.graph-canvas-wrap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-tooltip {
+  display: none;
+  position: absolute;
+  background: var(--bg-card);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  max-width: 320px;
+  z-index: var(--z-tooltip);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Evidence cards below graph */
+.evidence-cards-area {
+  border-top: 1px solid var(--border);
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: var(--md) var(--lg);
+  contain: layout;
+}
+
+.ev-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--pad-card-sm) var(--pad-card);
+  margin-bottom: var(--sm);
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease);
+  box-shadow: var(--shadow-sm);
+  contain: layout style;
+  min-height: 80px;
+}
+.ev-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-glow); }
+.ev-card.selected { border-color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 16px rgba(56,189,248,0.12); }
+
+/* Signal bars */
+.signal-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 3px;
+  font-size: var(--text-3xs);
+}
+.signal-bar-label { width: 32px; color: var(--text-tertiary); font-family: inherit; }
+.signal-bar-track { flex: 1; height: 4px; background: var(--bg-inset); border-radius: 2px; overflow: hidden; }
+.signal-bar-fill { height: 100%; border-radius: 2px; transition: width var(--duration-normal) var(--ease); }
+
+/* Radar */
+.signal-radar-container { display: flex; justify-content: center; }
+
+.ev-card .ev-quote {
+  border-left: 2px solid var(--accent-dim); padding-left: var(--sm);
+  font-style: italic; color: var(--text-tertiary); font-size: var(--text-xs);
+  margin-top: var(--xs);
+}
+/* Duplicate border-radius removed — defined in components.css */
