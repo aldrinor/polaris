@@ -1,0 +1,40 @@
+{
+  "topic": "effectiveness of biochar for heavy metal removal from wastewater",
+  "application": "water_treatment",
+  "region": "global",
+  "baseline_metrics": {
+    "source": "PG_TEST_039 (v1 best)",
+    "evidence_count": 1011,
+    "word_count": 11583,
+    "citation_count": 191,
+    "sources_used": 18,
+    "faithfulness_pct": 80.5,
+    "cost_usd": 1.31,
+    "duplicate_sentences_pct": 0.0,
+    "comparison_markers": 5,
+    "tables": 0,
+    "key_findings_sections": 1,
+    "filler_phrases": 23,
+    "cross_section_refs": 0
+  },
+  "v3_targets": {
+    "duplicate_sentences_pct": 0.0,
+    "comparison_markers_min": 20,
+    "tables_min": 3,
+    "key_findings_sections_min": 4,
+    "citation_density_per_100w_min": 2.0,
+    "filler_phrases_max": 5,
+    "cross_section_refs_min": 5,
+    "faithfulness_pct_min": 80.0,
+    "cost_usd_max": 2.50,
+    "contradictions_noted_min": 3
+  },
+  "expected_sub_questions": [
+    "What mechanisms drive biochar adsorption of heavy metals?",
+    "How do pyrolysis conditions affect biochar performance?",
+    "What removal efficiencies have been reported?",
+    "How does biochar compare to conventional adsorbents?",
+    "What are the limitations and knowledge gaps?",
+    "What are the cost-effectiveness considerations?"
+  ]
+}
