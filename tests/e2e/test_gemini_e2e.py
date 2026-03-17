@@ -44,7 +44,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 # Feature flag overrides for this test
 # ---------------------------------------------------------------------------
 
-GEMINI_FLAGS = {
+# Default feature flags — only applied if NOT already set in .env
+# To disable a feature, set it in .env (e.g., PG_CLUSTER_VIABILITY_ENABLED=0)
+GEMINI_FLAGS_DEFAULTS = {
     "PG_CLUSTER_VIABILITY_ENABLED": "1",
     "PG_STRUCTURED_DATA_EXTRACTION": "1",
     "PG_CHART_GENERATION_ENABLED": "1",
@@ -63,19 +65,27 @@ async def run_pipeline(query: str, max_minutes: int) -> dict:
 
     vector_id = f"GEMINI_E2E_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    # Override env vars for Gemini features
-    for key, val in GEMINI_FLAGS.items():
-        os.environ[key] = val
+    # Apply default feature flags only if not already set via .env
+    applied_flags = {}
+    for key, default_val in GEMINI_FLAGS_DEFAULTS.items():
+        current = os.environ.get(key)
+        if current is None:
+            os.environ[key] = default_val
+            applied_flags[key] = default_val
+        else:
+            applied_flags[key] = current  # respect .env value
 
     # Override timing
     os.environ["PG_MAX_EXECUTION_MINUTES"] = str(max_minutes)
+
+    configured_iterations = int(os.environ.get("PG_MAX_ITERATIONS", "2"))
 
     result = await build_and_run(
         vector_id=vector_id,
         query=query,
         application="gemini_e2e_test",
         region="global",
-        max_iterations=2,
+        max_iterations=configured_iterations,
         max_execution_minutes=max_minutes,
         enable_dashboard=False,
     )
@@ -297,7 +307,10 @@ def main():
     else:
         print(f"Query: {args.query}")
         print(f"Max minutes: {args.max_minutes}")
-        print(f"Feature flags: {GEMINI_FLAGS}")
+        # Show effective flags (what .env + defaults resolved to)
+        effective = {k: os.environ.get(k, v) for k, v in GEMINI_FLAGS_DEFAULTS.items()}
+        print(f"Feature flags: {effective}")
+        print(f"Max iterations: {os.environ.get('PG_MAX_ITERATIONS', '2')}")
         print()
         result = asyncio.run(run_pipeline(args.query, args.max_minutes))
 

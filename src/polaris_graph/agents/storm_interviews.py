@@ -11,7 +11,7 @@ Architecture:
   Phase 2: Multi-Round Interview Simulation — per-perspective Q&A with live search
   Phase 3: Outline Generation from Conversations — cluster Q&A into sections
 
-All LLM calls use generate_structured() (NOT reason()) per Kimi K2.5 lesson #1.
+All LLM calls use generate_structured() (NOT reason()) per lesson #1.
 All configuration via env vars per LAW VI.
 """
 
@@ -229,6 +229,14 @@ class StormOutlineSection(BaseModel):
 
     title: str = Field(description="Section title")
     description: str = Field(description="What this section covers")
+    search_keywords: str = Field(
+        description=(
+            "Comma-separated domain-specific keywords for routing evidence "
+            "to this section. Include technical terms, units, method names. "
+            "E.g. 'epoxy, MPa, dolly, ASTM D4541, cohesive failure'"
+        ),
+        default="",
+    )
     evidence_summary: str = Field(
         description="Summary of evidence from conversations for this section",
         default="",
@@ -1050,7 +1058,7 @@ async def _generate_outline_from_conversations(
     conversation_digest = "\n".join(digest_lines)
 
     # Truncate digest if too long (stay within context window)
-    max_digest_chars = 80000  # ~25K tokens, safe for Kimi K2.5 128K context
+    max_digest_chars = 80000  # ~25K tokens, safe within context window
     if len(conversation_digest) > max_digest_chars:
         conversation_digest = conversation_digest[:max_digest_chars] + "\n[...truncated]"
 

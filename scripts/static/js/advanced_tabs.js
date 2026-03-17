@@ -537,14 +537,23 @@ function checkResearchStatus() {
 /* =====================================================================
    USER PROGRESS -- Map pipeline events to human-language progress
    ===================================================================== */
+/* Fix R7-#4: USER_PHASE_MAP includes BOTH v1 and v2 node names.
+   v2 nodes map to the same 4 user-facing steps (search → interview → verify → synthesize). */
 var USER_PHASE_MAP = {
   "plan": { step: "search", text: "Planning research strategy...", pct: 5 },
   "search": { step: "search", text: "Searching {n} sources across the web...", pct: 15 },
   "storm_interviews": { step: "interview", text: "Interviewing {n} expert perspectives...", pct: 30 },
+  "fetch_content": { step: "interview", text: "Fetching content from sources...", pct: 35 },
   "analyze": { step: "interview", text: "Analyzing and extracting evidence...", pct: 45 },
+  "crag_analyze": { step: "interview", text: "Analyzing evidence...", pct: 45 },
+  "plan_outline": { step: "verify", text: "Generating report outline...", pct: 50 },
+  "blueprint": { step: "verify", text: "Assigning evidence to sections...", pct: 55 },
   "verify": { step: "verify", text: "Verifying {n} claims against source text...", pct: 60 },
   "evaluate": { step: "verify", text: "Evaluating evidence quality...", pct: 70 },
+  "write_one_section": { step: "synthesize", text: "Writing report sections...", pct: 75 },
+  "verify_one_section": { step: "synthesize", text: "Verifying section accuracy...", pct: 85 },
   "synthesize": { step: "synthesize", text: "Writing and synthesizing report...", pct: 85 },
+  "assemble": { step: "synthesize", text: "Assembling final report...", pct: 95 },
   "search_gaps": { step: "search", text: "Searching for additional evidence...", pct: 50 }
 };
 

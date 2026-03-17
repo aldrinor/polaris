@@ -679,6 +679,98 @@ async def _extract_structured_data(
         return []
 
 
+async def _enrich_evidence_cards(
+    client: OpenRouterClient,
+    evidence: list[dict],
+    source_contents: dict[str, str],
+) -> list[dict]:
+    """RC-1: Post-extraction enrichment -- add methodology, conditions, limitations, comparable metrics.
+
+    Processes evidence in batches of 10 per LLM call for cost efficiency.
+    Merges enrichment fields back into evidence dicts in-place.
+
+    Args:
+        client: OpenRouter LLM client.
+        evidence: List of EvidencePiece dicts to enrich.
+        source_contents: {source_url: content_text} for context.
+
+    Returns:
+        The same evidence list with enrichment fields populated.
+    """
+    if not evidence:
+        return evidence
+
+    from src.polaris_graph.schemas import EvidenceCardBatch
+
+    batch_size = int(os.getenv("PG_V3_CARD_BATCH_SIZE", "10"))
+    enriched_count = 0
+
+    for batch_start in range(0, len(evidence), batch_size):
+        batch = evidence[batch_start:batch_start + batch_size]
+
+        # Build batch prompt
+        evidence_lines = []
+        for ev in batch:
+            url = ev.get("source_url", "")
+            content_snippet = source_contents.get(url, "")[:2000]
+            evidence_lines.append(
+                f"Evidence ID: {ev.get('evidence_id', '?')}\n"
+                f"Statement: {ev.get('statement', '')}\n"
+                f"Quote: {ev.get('direct_quote', '')[:300]}\n"
+                f"Source context: {content_snippet[:500]}"
+            )
+
+        batch_text = "\n---\n".join(evidence_lines)
+
+        system = (
+            "For each evidence finding below, extract:\n"
+            "1. methodology: How this finding was obtained (experimental method, study type)\n"
+            "2. conditions: Key experimental parameters (temperature, pH, concentration, sample size)\n"
+            "3. limitations: Any stated limitations of this finding\n"
+            "4. strength_signals: Quality indicators from this list ONLY: "
+            "peer_reviewed, large_sample, replicated, meta_analysis, rct, longitudinal\n"
+            "5. comparable_metrics: Quantitative values that could be compared across studies.\n"
+            "   Each metric needs: metric_name, value (number), unit, condition, entity\n\n"
+            "Return a JSON object with a 'cards' array containing one enrichment per evidence piece.\n"
+            "If information is not available, use empty strings/lists. Do NOT invent data."
+        )
+
+        try:
+            result = await client.generate_structured(
+                prompt=f"Enrich these {len(batch)} evidence pieces:\n\n{batch_text}",
+                schema=EvidenceCardBatch,
+                system=system,
+                max_tokens=4096,
+                timeout=int(os.getenv("PG_V3_CARD_TIMEOUT", "120")),
+            )
+
+            # Merge enrichments back into evidence dicts
+            card_map = {c.evidence_id: c for c in result.cards}
+            for ev in batch:
+                card = card_map.get(ev.get("evidence_id", ""))
+                if card:
+                    ev["methodology"] = card.methodology or ev.get("methodology")
+                    ev["conditions"] = card.conditions or ev.get("conditions")
+                    ev["limitations"] = card.limitations or ev.get("limitations")
+                    ev["strength_signals"] = card.strength_signals or ev.get("strength_signals")
+                    if card.comparable_metrics:
+                        ev["comparable_metrics"] = [
+                            m.model_dump() for m in card.comparable_metrics
+                        ]
+                    enriched_count += 1
+        except Exception as exc:
+            logger.warning(
+                "[polaris graph] RC-1: Evidence card enrichment failed for batch %d-%d: %s",
+                batch_start, batch_start + len(batch), str(exc)[:200],
+            )
+
+    logger.info(
+        "[polaris graph] RC-1: Enriched %d/%d evidence pieces with cards",
+        enriched_count, len(evidence),
+    )
+    return evidence
+
+
 async def analyze_sources(
     client: OpenRouterClient,
     state: ResearchState,
@@ -777,6 +869,35 @@ async def analyze_sources(
     # similarity BEFORE evidence extraction. Prevents wasting LLM calls on
     # off-topic S2 papers (tick genetics, bat fungus, psychiatry, oncology).
     fetched = await _source_topic_gate(fetched, query)
+
+    # RC-4: Content quality gate (v3 Hybrid) — reject garbled/boilerplate before extraction
+    if os.getenv("PG_V3_CONTENT_QUALITY_GATE", "0") == "1":
+        from src.polaris_graph.retrieval.content_quality_gate import score_content_quality
+        threshold = float(os.getenv("PG_V3_CONTENT_QUALITY_THRESHOLD", "0.3"))
+        pre_gate_count = len(fetched)
+        quality_passed = []
+        for item in fetched:
+            content_text = item.get("content", "")
+            url = item.get("url", "")
+            if not content_text:
+                quality_passed.append(item)  # Can't score empty, let downstream handle
+                continue
+            quality_score, reasons = score_content_quality(content_text, url)
+            if quality_score >= threshold:
+                quality_passed.append(item)
+            else:
+                logger.warning(
+                    "[polaris graph] RC-4: Rejecting %s (quality=%.2f, reasons=%s)",
+                    url[:80], quality_score, reasons,
+                )
+        fetched = quality_passed
+        rejected = pre_gate_count - len(fetched)
+        if rejected > 0:
+            logger.info(
+                "[polaris graph] RC-4: Content quality gate rejected %d/%d sources",
+                rejected, pre_gate_count,
+            )
+
 
     # Batch size from env (LAW VI). Default 1 = one source per LLM call.
     # Concurrency from env (PG_ANALYSIS_CONCURRENCY).
@@ -1248,6 +1369,18 @@ async def analyze_sources(
             "[polaris graph] GEMINI-ARCH: Structured data extraction DISABLED "
             "(PG_STRUCTURED_DATA_EXTRACTION != '1')"
         )
+
+    # RC-1: Evidence card enrichment (v3 Hybrid)
+    if os.getenv("PG_V3_EVIDENCE_CARDS", "0") == "1" and evidence:
+        # Build source_contents map from fetched content
+        _rc1_source_contents: dict[str, str] = {}
+        for _rc1_item in fetched:
+            _rc1_url = _rc1_item.get("url", "")
+            _rc1_content = _rc1_item.get("content", "")
+            if _rc1_url and _rc1_content:
+                _rc1_source_contents[_rc1_url] = _rc1_content[:5000]
+
+        evidence = await _enrich_evidence_cards(client, evidence, _rc1_source_contents)
 
     # FIX-A3: Include failed/total batch counts in return dict
     return {
@@ -1768,7 +1901,7 @@ Sources:
 
     try:
         # Use generate_structured() — reasoning OFF for clean JSON output.
-        # reason() + schema causes Kimi to put JSON in reasoning_content,
+        # reason() + schema causes LLM to put JSON in reasoning_content,
         # which breaks parsing. generate_structured() reliably produces JSON.
         # EXT-3: Keep max_tokens=16384 — with DUR-2 batch_size=3, extraction
         # output for 3 sources × 15 facts × ~150 tokens/fact = ~6750 tokens.

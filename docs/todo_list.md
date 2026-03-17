@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-03-14 (Session 42 — 11 fixes + 3 gap closures, Layer 1 10/10 PASS, 507/518 tests, awaiting credits for Layers 2-3 + E2E)
+**Last Updated**: 2026-03-16 (Session 45 — v2 CRAG pipeline implemented, 7 rounds adversarial review, 30 fixes, STORM wired, Fire Tests 15/15 PASS, live_server v2 routing verified)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Enterprise Plan)
 **Gemini Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Gemini Architecture Redesign)
@@ -8,7 +8,49 @@
 
 ---
 
-## GEMINI-CLASS ARCHITECTURE REDESIGN (Active Priority)
+## V3 HYBRID: 8 ROOT CAUSE FIXES (Active Priority — Session 46)
+
+### Sprint 1: RC-2 + RC-3 — Prompt Rewrite + Question-Driven Planning
+- [x] RC-2: ANALYTICAL_WRITING_RULES in synthesis_prompts.py (replaces EVIDENCE_FIRST_RULES when PG_V3_ANALYTICAL_PROMPT=1)
+- [x] RC-2: SECTION_SYSTEM_PROMPT_V3 in section_writer.py (5 analytical operations: aggregate, compare, explain, tabulate, challenge)
+- [x] RC-2: Analytical user prompt in write_section() (imperative analytical instructions)
+- [x] RC-3: ResearchSubQuestion + QuestionDecomposition schemas (schemas.py)
+- [x] RC-3: _decompose_into_questions() + _summarize_evidence_for_planning() (section_writer.py)
+- [x] RC-3: Question-driven plan_report() entry path (PG_V3_QUESTION_PLANNING=1)
+- [x] RC-3: question_decomposition state key (state.py)
+- [x] RC-3: analytical_focus field on SectionOutlineItem (schemas.py)
+
+### Sprint 2: RC-1 + RC-6 — Evidence Cards + Pre-Formatted Tables
+- [x] RC-1: ComparableMetric + EvidenceCardEnrichment + EvidenceCardBatch schemas (schemas.py)
+- [x] RC-1: EvidencePiece extended with card fields (methodology, conditions, limitations, strength_signals, comparable_metrics)
+- [x] RC-1: _enrich_evidence_cards() in analyzer.py (batch of 10, post-extraction enrichment)
+- [x] RC-6: _build_comparison_tables() in section_writer.py (groups metrics, builds markdown tables)
+- [x] RC-6: Table injection into write_section() prompt (PG_V3_COMPARISON_TABLES=1)
+
+### Sprint 3: RC-5 + RC-8 — Analysis Surfacing + Depth Gate
+- [x] RC-5: Corroboration injection in write_section() (PG_V3_SURFACE_ANALYSIS=1)
+- [x] RC-5: _generate_contradictions_section() in synthesizer.py (conflict + gap synthesis)
+- [x] RC-5: Contradictions section appended before assembly
+- [x] RC-8: _evaluate_analytical_depth() in synthesizer.py (regex heuristics for 5 operations)
+- [x] RC-8: Depth gate integration in quality_gate_check (PG_V3_DEPTH_GATE=1)
+
+### Sprint 4: RC-4 + RC-7 — Content Quality Gate + Source Diversity
+- [x] RC-4: content_quality_gate.py (NEW — heuristic content scoring, $0 cost)
+- [x] RC-4: Quality gate integration in analyzer.py (PG_V3_CONTENT_QUALITY_GATE=1)
+- [x] RC-7: _compute_perspective_distribution() in searcher.py (Shannon entropy)
+- [x] RC-7: _generate_diversity_queries() in planner.py (targeted queries for underrepresented perspectives)
+- [x] RC-7: perspective_entropy state key (state.py)
+- [x] Forensic audit script: scripts/audit_v3_report.py (4 quality layers, A-F grading)
+
+### Verification (Not Started)
+- [ ] Smoke test: pg_smoke_test passes with all v3 flags off (backward compat)
+- [ ] E2E: V3_TEST_001 with Sprint 1 flags (PG_V3_ANALYTICAL_PROMPT=1, PG_V3_QUESTION_PLANNING=1)
+- [ ] E2E: V3_TEST_002 with all flags enabled
+- [ ] Forensic audit comparison vs PG_TEST_039 (v1 best) and V2_E2E_007 (v2 baseline)
+
+---
+
+## GEMINI-CLASS ARCHITECTURE REDESIGN (Completed)
 
 ### Sprint 1: Core Synthesis Rewrite
 - [x] 1A — Evidence-first outline prompt (section_writer.py)
@@ -48,11 +90,48 @@
 - [x] LettuceDetect → NLI post-synthesis audit (hallucination_detector.py rewrite) — Session 42
 - [x] Key Findings code enforcement (section_writer.py) — Session 42
 - [x] Frontend audit: 13/14 features wired, DOCX export chain verified — Session 42
-- [ ] Gemini Gap Phase 2 Layer 2-3: API + integration fire tests (~$0.50) — BLOCKED: credits
-- [ ] Gemini Gap Phase 4: Full E2E pipeline run (~$5-10) — BLOCKED: credits
+- [x] Gemini Gap Phase 2 Layer 2-3: API + integration fire tests — 15/15 PASS ($0.03)
+- [~] Gemini Gap Phase 4: Full E2E pipeline run — live_server routing verified, awaiting live run
 - [ ] Gemini Gap Phase 5: Forensic measurement + iterate (2-3 cycles)
 - [ ] Visual CSS verification with fresh screenshots
 - [ ] Full regression (playwright_fire_test.py + playwright_interaction_audit.py)
+
+---
+
+## v2 CRAG PIPELINE (Active Priority — Session 45)
+
+### Architecture (7 rounds adversarial review, 30 fixes)
+- [x] CRAG retriever: local embedding-based evidence scoring ($0, replaces 126 LLM calls)
+- [x] Source registry: URL-indexed evidence store with topic/domain tracking
+- [x] Pooled embedder: sentence-transformers with inference pooling
+- [x] Section blueprint: evidence-to-section assignment via cosine similarity
+- [x] LLM throttle: CancelledError propagation, semaphore-based concurrency
+- [x] Verify context: evidence window builder for claim verification
+- [x] Verify schemas: VerifyBatch/ClaimVerdict/SectionVerifyResult Pydantic models
+- [x] Citation normalizer: [SRC-NNN] token resolution with grounded bibliography
+- [x] Fetch limiter: concurrent URL fetch with per-domain rate limits
+- [x] Synthesis prompts: evidence-first section writing with anti-hallucination constraints
+
+### v2 Core Modules
+- [x] synthesizer_v2.py: LangGraph Send API parallel section writers with fallback
+- [x] verifier_v2.py: parallel claim scoring + sequential surgical rewrites
+- [x] report_assembler_v2.py: grounded bibliography (2-pass regex), section pruning
+- [x] graph_v2.py: 11-node LangGraph (plan->search->storm->fetch->crag->outline->blueprint->write*N->verify*N->assemble)
+
+### Integration (Round 7 — 5 Tunnels)
+- [x] Tunnel 1: fetch_content_node wired between search and crag_analyze (reuses v1 _fetch_all_content)
+- [x] Tunnel 2: report_assembled trace event with v1-format bibliography (_build_frontend_bibliography)
+- [ ] Tunnel 3: Outline approval API endpoint (future — no endpoint exists)
+- [x] Tunnel 4: Frontend v2 node names in core.js + advanced_tabs.js (NODE_ORDER, USER_PHASE_MAP)
+- [x] Tunnel 5: live_server.py PG_V2_ENABLED conditional import + build_and_run() shim
+
+### Wiring & Verification
+- [x] PG_V2_ENABLED=1 in .env
+- [x] STORM interviews wired into v2 graph (storm_interviews_node)
+- [x] Fire Tests Layers 1-3: 15/15 PASS ($0.03)
+- [x] live_server.py v2 routing verified
+- [ ] Full E2E pipeline run through v2 (plan->search->fetch->crag->write->verify->assemble)
+- [ ] Forensic measurement: compare v2 output to v1 baselines
 
 ---
 

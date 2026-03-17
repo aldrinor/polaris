@@ -701,6 +701,152 @@ Your JSON response MUST include ALL of these fields:
         }
 
 
+
+async def _generate_contradictions_section(
+    client: OpenRouterClient,
+    evidence_conflicts: list[dict],
+    gaps: list[str],
+    evidence: list[dict],
+) -> dict:
+    """RC-5: Generate a 'Contradictions, Limitations, and Open Questions' section.
+
+    Collects unresolved conflicts and identified gaps, uses a single LLM call
+    to synthesize them into a dedicated section.
+
+    Returns a ReportSection-compatible dict.
+    """
+    # Build conflict summary
+    conflict_lines = []
+    for i, conflict in enumerate(evidence_conflicts[:10], 1):
+        conflict_lines.append(
+            f"{i}. {conflict.get('statement_a', '')[:150]} "
+            f"[CITE:{conflict.get('evidence_a_id', '?')}] "
+            f"vs {conflict.get('statement_b', '')[:150]} "
+            f"[CITE:{conflict.get('evidence_b_id', '?')}]"
+        )
+
+    # Build gaps summary
+    gap_lines = [f"- {g}" for g in (gaps or [])[:10]]
+
+    prompt = (
+        "Summarize the key contradictions, limitations, and open questions in this "
+        "research area based on the following:\n\n"
+        f"CONTRADICTIONS ({len(evidence_conflicts)} detected):\n"
+        + "\n".join(conflict_lines) + "\n\n"
+        f"EVIDENCE GAPS:\n"
+        + "\n".join(gap_lines) + "\n\n"
+        "Write a section that:\n"
+        "1. Explains each major contradiction with citations to both sides\n"
+        "2. Notes what evidence is missing or insufficient\n"
+        "3. Suggests what future research would resolve these questions\n"
+        "Keep citations as [CITE:evidence_id] format."
+    )
+
+    system = (
+        "You are writing the final analytical section of a research report. "
+        "Be honest about what is not known or disputed. Cite evidence for both "
+        "sides of each contradiction. This section adds credibility by showing "
+        "intellectual honesty."
+    )
+
+    try:
+        from src.polaris_graph.state import PG_SECTION_WRITER_MAX_TOKENS
+        response = await client.generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
+            temperature=0.7,
+        )
+        content_text = response.content.strip()
+        if not content_text or len(content_text.split()) < 50:
+            content_text = "Insufficient data to generate contradictions analysis."
+    except Exception as exc:
+        logger.warning(
+            "[polaris graph] RC-5: Contradictions section generation failed: %s",
+            str(exc)[:200],
+        )
+        content_text = "Contradictions analysis could not be generated."
+
+    return {
+        "section_id": "s_contradictions",
+        "title": "Contradictions, Limitations, and Open Questions",
+        "content": content_text,
+        "word_count": len(content_text.split()),
+        "citation_ids": [],
+        "evidence_ids": [],
+    }
+
+
+def _evaluate_analytical_depth(
+    report_sections: list[dict],
+) -> dict:
+    """RC-8: Evaluate analytical depth using regex-based heuristics.
+
+    Checks for the 5 analytical operations across all sections.
+    Returns: {"passed": bool, "scores": {...}, "deficient_sections": [...]}
+    """
+    import re
+
+    comparison_markers = re.compile(
+        r'\b(compared to|in contrast|whereas|however|unlike|alternatively|'
+        r'on the other hand|differs from|outperformed|underperformed)\b', re.I
+    )
+    aggregation_markers = re.compile(
+        r'\b(across \d+ studies|multiple sources|ranged from|median of|'
+        r'average of|converging|majority of evidence|consistently)\b', re.I
+    )
+    challenge_markers = re.compile(
+        r'\b(limitation|however contradictory|conflicting|gap in|'
+        r'insufficient evidence|notable absence|remains unclear|'
+        r'further research needed|caveat)\b', re.I
+    )
+    table_pattern = re.compile(r'\|[^|]+\|[^|]+\|')
+    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
+
+    total_comparison = 0
+    total_aggregation = 0
+    total_challenge = 0
+    total_tables = 0
+    total_key_findings = 0
+    deficient = []
+
+    for section in report_sections:
+        content = section.get("content", "")
+        comp = len(comparison_markers.findall(content))
+        agg = len(aggregation_markers.findall(content))
+        chal = len(challenge_markers.findall(content))
+        tables = len(table_pattern.findall(content))
+        kf = len(key_findings_pattern.findall(content))
+
+        total_comparison += comp
+        total_aggregation += agg
+        total_challenge += chal
+        total_tables += tables
+        total_key_findings += kf
+
+        ops_present = sum([comp > 0, agg > 0, chal > 0, tables > 0, kf > 0])
+        if ops_present < 2:
+            deficient.append(section.get("title", "?"))
+
+    passed = (
+        total_comparison >= 10 and
+        total_tables >= 2 and
+        total_key_findings >= 3 and
+        total_challenge >= 3 and
+        len(deficient) <= 2
+    )
+
+    return {
+        "passed": passed,
+        "comparison_markers": total_comparison,
+        "aggregation_patterns": total_aggregation,
+        "challenge_markers": total_challenge,
+        "tables": total_tables,
+        "key_findings": total_key_findings,
+        "deficient_sections": deficient,
+    }
+
+
 async def synthesize_report(
     client: OpenRouterClient,
     state: ResearchState,
@@ -1784,6 +1930,28 @@ async def synthesize_report(
         draft_parts.extend([f"## {sec.title}", "", sec.content, ""])
     draft_report = "\n".join(draft_parts)
 
+    # RC-5: Generate contradictions section (v3 Hybrid)
+    if os.getenv("PG_V3_SURFACE_ANALYSIS", "0") == "1":
+        evidence_conflicts = state.get("evidence_conflicts", [])
+        gaps = state.get("gaps", [])
+        if evidence_conflicts or gaps:
+            contradictions_section = await _generate_contradictions_section(
+                client, evidence_conflicts, gaps, evidence,
+            )
+            # Append as final content section (before assembly resolves citations)
+            from src.polaris_graph.schemas import SectionDraft
+            contradictions_draft = SectionDraft(
+                section_id="s_contradictions",
+                title="Contradictions, Limitations, and Open Questions",
+                content=contradictions_section["content"],
+                evidence_ids=[],
+            )
+            sections.append(contradictions_draft)
+            logger.info(
+                "[polaris graph] RC-5: Added contradictions section (%d words)",
+                contradictions_section["word_count"],
+            )
+
     # Step 5: Assemble final report (resolves [CITE:ev_xxx] → numbered [N])
     final_report, report_sections, bibliography = assemble_report(
         outline=outline,
@@ -1946,7 +2114,23 @@ async def synthesize_report(
         utilization = quality.get("evidence_utilization", 0.0)
         utilization_ok = utilization >= PG_MIN_EVIDENCE_UTILIZATION  # 0.40
 
-        gate_passed = sources_ok and faith_ok and section_citation_ok and utilization_ok
+        # RC-8: Analytical depth gate (v3 Hybrid)
+        depth_ok = True
+        if os.getenv("PG_V3_DEPTH_GATE", "0") == "1":
+            depth_result = _evaluate_analytical_depth(report_sections)
+            depth_ok = depth_result["passed"]
+            if not depth_ok:
+                logger.warning(
+                    "[polaris graph] RC-8: Depth gate FAILED: comp=%d, tables=%d, kf=%d, "
+                    "challenge=%d, deficient=%s",
+                    depth_result["comparison_markers"],
+                    depth_result["tables"],
+                    depth_result["key_findings"],
+                    depth_result["challenge_markers"],
+                    depth_result["deficient_sections"][:3],
+                )
+
+        gate_passed = sources_ok and faith_ok and section_citation_ok and utilization_ok and depth_ok
         if gate_passed:
             break
 
@@ -1964,6 +2148,8 @@ async def synthesize_report(
             failed_metrics.append(f"citation_spread={len(low_sections)} sections below {PG_MIN_CITATIONS_PER_SECTION}")
         if not utilization_ok:
             failed_metrics.append(f"utilization={utilization:.1%}/{PG_MIN_EVIDENCE_UTILIZATION:.1%}")
+        if not depth_ok:
+            failed_metrics.append(f"depth: {depth_result.get('deficient_sections', [])[:3]}")
 
         logger.warning(
             "[polaris graph] FIX-D: Quality gate FAILED (pass %d): %s "

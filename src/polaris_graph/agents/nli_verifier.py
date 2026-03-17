@@ -6,7 +6,7 @@ Uses the minicheck library for fact-checking models:
 
 Default: flan-t5-large (works on Windows via standard transformers).
 
-Benefits vs Kimi K2.5 self-verification (54.2%):
+Benefits vs LLM self-verification (54.2% with Kimi K2.5):
 - Much higher accuracy (75.0% vs 54.2%)
 - Free (local inference vs $3.17/run)
 - 20-50x faster (~5-10 min vs 3h43m for 1300 evidence)

@@ -1,7 +1,7 @@
 """
 OpenRouter LLM Client for polaris graph.
 
-Single gateway to Kimi K2.5 1T. Two call modes:
+Single gateway to Qwen 3.5 Plus via OpenRouter. Two call modes:
 - reason(): reasoning ON, returned separately in reasoning_details
 - generate(): reasoning OFF, clean prose output only
 
@@ -53,7 +53,7 @@ INPUT_COST_PER_M = float(os.getenv("OPENROUTER_INPUT_COST_PER_M", "0.26"))
 OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
 
 # Timeouts — FIX-SCHEMA-5: reduced from 180/300 to 90/180.
-# Kimi K2.5 typically responds in 10-60s. 3+ min means the API is hung.
+# Qwen 3.5 Plus typically responds in 10-60s. 3+ min means the API is hung.
 # asyncio.wait_for adds +30s grace period on top of these.
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
 LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
@@ -204,7 +204,7 @@ def _clean_json(raw: str) -> str:
         text = re.sub(r"\n?```\s*$", "", text)
     # Remove non-printable control characters (not \n, \r, \t)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
-    # FIX-SCHEMA-6: Repair Kimi K2.5 spurious quote before array values.
+    # FIX-SCHEMA-6: Repair spurious quote before array values (legacy Kimi issue, kept for safety).
     # Two patterns observed:
     #   Pattern 1: {"analyses":":[{"source_url"...  (no space, regex works)
     #   Pattern 2: {"analyses": ":[{","source_url"... (valid JSON, leave alone)
@@ -407,7 +407,7 @@ def _escape_control_chars_in_strings(text: str) -> str:
     """Escape raw control characters inside JSON string values.
 
     JSON spec forbids unescaped control chars (U+0000-U+001F) inside strings.
-    Kimi K2.5 frequently emits raw newlines/tabs in string values.
+    LLMs frequently emit raw newlines/tabs in string values.
     This walks the text character by character, tracking whether we're
     inside a JSON string, and escapes any control chars found there.
     """
@@ -446,7 +446,7 @@ class OpenRouterClient:
     """
     Single LLM gateway for polaris graph.
 
-    All calls go through Kimi K2.5 1T via OpenRouter.
+    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
     Two modes:
     - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
     - generate(): Reasoning OFF. Clean output only. For prose generation.
@@ -763,7 +763,7 @@ class OpenRouterClient:
             )
 
         # K2-3: Filter reasoning_content: null from messages to prevent
-        # prompt pollution (literal "null" causes model confusion in Kimi K2.5).
+        # prompt pollution (literal "null" causes model confusion).
         sanitized_messages = []
         for msg in messages:
             clean_msg = {k: v for k, v in msg.items() if v is not None}
@@ -1520,7 +1520,7 @@ class OpenRouterClient:
 
         # FIX-QM1 + FIX-QM11c + FIX-V6: Extract JSON from reasoning when content
         # is empty OR contains stub content. Provider may put CoT + JSON into
-        # reasoning field. FIX-V6: Kimi K2.5 sometimes returns verifications as
+        # reasoning field. FIX-V6: LLM sometimes returns verifications as
         # a 3-char string ':[{' instead of a JSON array — detect this stub
         # pattern and fall back to reasoning extraction.
         json_source = result.content
@@ -1567,7 +1567,7 @@ class OpenRouterClient:
                     )
 
         # FIX-SCHEMA-4: Handle prose-prefix before JSON even with reasoning OFF.
-        # Kimi K2.5 sometimes ignores response_format=json_object and returns
+        # LLM sometimes ignores response_format=json_object and returns
         # prose text before/instead of JSON. Try to extract JSON from content.
         cleaned = _clean_json(json_source)
         if cleaned and not cleaned.lstrip().startswith("{") and not cleaned.lstrip().startswith("["):

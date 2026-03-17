@@ -30,6 +30,48 @@ PG_PLANNER_TIMEOUT = int(os.getenv("PG_PLANNER_TIMEOUT", "180"))
 # FIX-C9: Configurable fallback query count (LAW VI: no hardcoded counts).
 PG_FALLBACK_QUERY_COUNT = int(os.getenv("PG_FALLBACK_QUERY_COUNT", "22"))
 
+_PERSPECTIVE_QUERY_TEMPLATES = {
+    "Regulatory": "{topic} government regulations standards compliance requirements",
+    "Economic": "{topic} cost-effectiveness economic analysis market size investment",
+    "Industry": "{topic} industrial application case study pilot plant scale-up deployment",
+    "Public_Health": "{topic} health impact risk assessment epidemiology safety",
+    "Historical": "{topic} historical development evolution timeline milestones origin",
+    "Regional": "{topic} regional differences geographic variation country comparison",
+    "Emerging_Trends": "{topic} recent advances novel approaches 2024 2025 breakthrough innovation",
+    "Methodological": "{topic} methodology experimental design measurement technique protocol",
+}
+
+
+def _generate_diversity_queries(
+    query: str,
+    underrepresented: list[str],
+) -> list[dict]:
+    """RC-7: Generate targeted queries for underrepresented perspectives.
+
+    Returns list of SubQuery-compatible dicts.
+    """
+    queries = []
+    for perspective in underrepresented[:4]:  # Cap at 4 extra perspectives
+        template = _PERSPECTIVE_QUERY_TEMPLATES.get(perspective)
+        if template:
+            queries.append({
+                "query": template.format(topic=query[:100]),
+                "intent": f"Fill gap in {perspective} perspective",
+                "source_preference": "both",
+                "perspective": perspective,
+            })
+
+    if queries:
+        logger.info(
+            "[polaris graph] RC-7: Generated %d diversity queries for perspectives: %s",
+            len(queries),
+            [q["perspective"] for q in queries],
+        )
+
+    return queries
+
+
+
 # Build perspective description block dynamically from STORM_PERSPECTIVES
 _PERSPECTIVE_DESCRIPTIONS = {
     "Scientific": "mechanisms, dose-response, empirical data, laboratory findings, systematic reviews",
@@ -234,6 +276,26 @@ Ensure every perspective is represented for maximum evidence diversity."""
             queries=[{"query": sq.query, "perspective": sq.perspective,
                       "intent": sq.intent, "source_preference": sq.source_preference}
                      for sq in plan.sub_queries])
+
+    # RC-7: Source diversity — add targeted queries for underrepresented perspectives
+    if os.getenv("PG_V3_SOURCE_DIVERSITY", "0") == "1":
+        try:
+            from src.polaris_graph.agents.searcher import _compute_perspective_distribution
+            current_evidence = state.get("evidence", [])
+            if current_evidence:
+                distribution, underrepresented = _compute_perspective_distribution(current_evidence)
+                if underrepresented:
+                    diversity_queries = _generate_diversity_queries(query, underrepresented)
+                    for dq in diversity_queries:
+                        sub_queries.append(dq["query"])
+                    if diversity_queries:
+                        logger.info(
+                            "[polaris graph] RC-7: Appended %d diversity queries to fill perspective gaps",
+                            len(diversity_queries),
+                        )
+        except Exception as exc:
+            logger.warning("[polaris graph] RC-7: Diversity query generation failed: %s", str(exc)[:200])
+
 
     return {
         "sub_queries": sub_queries,

@@ -428,7 +428,7 @@ Consider: evidence depth, data comparability, and analytical potential."""
         result = await client.generate_structured(
             prompt=prompt,
             system="You are a research report architect assessing evidence clusters.",
-            response_model=ClusterAssessment,
+            schema=ClusterAssessment,
             max_tokens=1024,
         )
 
@@ -467,7 +467,7 @@ Extract each numeric data point with its value, unit, and entity."""
         result = await client.generate_structured(
             prompt=prompt,
             system="You are a data extraction specialist. Extract structured data points.",
-            response_model=StructuredDataExtraction,
+            schema=StructuredDataExtraction,
             max_tokens=2048,
         )
 
@@ -661,7 +661,7 @@ bottles achieved 99.9% pathogen reduction at zero operational cost but required
         result = await client.generate_structured(
             prompt=f"Extract all structured data points from this paragraph:\n\n{real_paragraph}",
             system="Extract numeric data points with value, unit, entity, and context.",
-            response_model=StructuredDataExtraction,
+            schema=StructuredDataExtraction,
             max_tokens=2048,
         )
 

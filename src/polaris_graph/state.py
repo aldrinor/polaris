@@ -213,7 +213,7 @@ PG_AGENTIC_KNOWLEDGE_SATURATION_PAGES = int(os.getenv("PG_AGENTIC_KNOWLEDGE_SATU
 PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND = int(os.getenv("PG_AGENTIC_MIN_NEW_NOTES_PER_ROUND", "1"))
 PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT = int(os.getenv("PG_AGENTIC_CONTENT_PERSPECTIVE_WEIGHT", "3"))
 # FIX-055: Per-call timeout for LLM analysis in agentic loop (prevents hung HTTP).
-# BUG-090: Kimi K2.5 returns prose instead of JSON for AgenticRoundAnalysis.
+# BUG-090: LLM sometimes returns prose instead of JSON for AgenticRoundAnalysis.
 # Increased from 120s to 300s to give structured output more time.
 PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS = int(os.getenv("PG_AGENTIC_ANALYSIS_TIMEOUT_SECONDS", "300"))
 
@@ -273,6 +273,12 @@ class EvidencePiece(TypedDict):
     tier_composite_score: Optional[float]  # FIX-051: K-signal composite score, set by analyzer
     quote_char_start: Optional[int]  # A1.3: Character offset where direct_quote begins in source content
     quote_char_end: Optional[int]  # A1.3: Character offset where direct_quote ends in source content
+    # RC-1 (v3 Hybrid): Evidence card metadata (populated by post-extraction enrichment)
+    methodology: Optional[str]  # How the finding was obtained
+    conditions: Optional[str]  # Experimental/study parameters
+    limitations: Optional[str]  # Known limitations of this finding
+    strength_signals: Optional[list[str]]  # "peer_reviewed", "large_sample", "replicated"
+    comparable_metrics: Optional[list[dict]]  # [{metric_name, value, unit, condition, entity}]
 
 
 class VerifiedClaim(TypedDict):
@@ -301,6 +307,7 @@ class SectionOutline(TypedDict):
     section_id: str
     title: str
     description: str
+    search_keywords: str  # Fix R2-#5: domain-specific routing keywords for blueprint
     evidence_ids: list[str]
     target_words: int
     order: int
@@ -315,6 +322,82 @@ class ReportSection(TypedDict):
     word_count: int
     citation_ids: list[str]
     evidence_ids: list[str]
+
+
+# ---------------------------------------------------------------------------
+# v2 State Reducers (Fix R5-#1 — State Reducer Race Condition)
+# ---------------------------------------------------------------------------
+#
+# When LangGraph runs 15 parallel Section Writer nodes via `Send`, their
+# outputs are aggregated using "reducer" functions. If we use the default
+# list reducer (operator.add) for sections, a downstream verifier rewrite
+# of Section 3 will APPEND a second copy instead of overwriting the original.
+# Result: 16 sections, two Section 3s, self-contradictory report.
+#
+# Fix: Use a dict[str, ReportSection] keyed by section_id with a merge
+# reducer. Verifier rewrites cleanly overwrite the existing entry.
+#
+# Usage in v2 graph StateGraph:
+#     from typing import Annotated
+#     class ResearchStateV2(TypedDict):
+#         completed_sections: Annotated[
+#             dict[str, ReportSection], merge_sections_reducer
+#         ]
+# ---------------------------------------------------------------------------
+
+def merge_sections_reducer(
+    existing: dict[str, "ReportSection"],
+    update: dict[str, "ReportSection"],
+) -> dict[str, "ReportSection"]:
+    """Merge section dicts — updates overwrite existing entries by section_id.
+
+    Fix R5-#1: Safe for both parallel section writers (initial write) and
+    sequential verifier rewrites (overwrite). Never duplicates sections.
+
+    Args:
+        existing: Current sections in state (may be empty on first call).
+        update: New or rewritten sections from a node.
+
+    Returns:
+        Merged dict with all sections.
+    """
+    merged = dict(existing) if existing else {}
+    if update:
+        merged.update(update)
+    return merged
+
+
+def merge_evidence_reducer(
+    existing: list[dict[str, Any]],
+    update: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge evidence lists, deduplicating by evidence_id.
+
+    Prevents duplicate evidence when multiple search iterations add
+    overlapping results.
+    """
+    if not update:
+        return existing or []
+    if not existing:
+        return list(update)
+
+    seen_ids = {e.get("evidence_id") for e in existing}
+    merged = list(existing)
+    for ev in update:
+        ev_id = ev.get("evidence_id")
+        if ev_id not in seen_ids:
+            merged.append(ev)
+            seen_ids.add(ev_id)
+    return merged
+
+
+def replace_reducer(existing: Any, update: Any) -> Any:
+    """Simple replacement reducer — latest value wins.
+
+    Use for fields like final_report, draft_report, quality_metrics
+    where the latest node output completely replaces the previous value.
+    """
+    return update if update is not None else existing
 
 
 class BibliographyEntry(TypedDict):
@@ -388,7 +471,8 @@ class ResearchState(TypedDict):
 
     # Synthesis
     section_outline: list[SectionOutline]
-    sections: list[ReportSection]
+    sections: list[ReportSection]                        # v1: list-based (single synthesize node)
+    completed_sections: dict[str, ReportSection]         # v2 (Fix R5-#1): dict-based for parallel writers
     bibliography: list[BibliographyEntry]
     evidence_chain: list[dict[str, Any]]  # Audit-compatible evidence with perspectives
     draft_report: str  # RAGAS-FIX: Pre-citation-resolution report with [CITE:ev_xxx] tokens
@@ -470,6 +554,12 @@ class ResearchState(TypedDict):
     # Campaign Control Center: domain context injected into planner
     research_brief: str
 
+    # RC-3 (v3 Hybrid): Question-driven report planning
+    question_decomposition: list[dict]
+
+    # RC-7 (v3 Hybrid): Perspective diversity tracking
+    perspective_entropy: float
+
 
 def create_initial_state(
     vector_id: str,
@@ -509,6 +599,7 @@ def create_initial_state(
         # Synthesis
         section_outline=[],
         sections=[],
+        completed_sections={},  # v2 (Fix R5-#1): dict-based for parallel writers
         bibliography=[],
         evidence_chain=[],  # SF-57: Initialize evidence_chain to prevent KeyError
         draft_report="",  # RAGAS-FIX: Pre-citation-resolution report
@@ -571,4 +662,8 @@ def create_initial_state(
         structured_data=[],
         # Campaign Control Center: research brief
         research_brief="",
+        # RC-3 (v3 Hybrid): Question-driven report planning
+        question_decomposition=[],
+        # RC-7 (v3 Hybrid): Perspective diversity tracking
+        perspective_entropy=0.0,
     )

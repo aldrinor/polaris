@@ -7,13 +7,18 @@
 /* =====================================================================
    Constants
    ===================================================================== */
-var NODE_ORDER = ["plan","search","storm_interviews","analyze","verify","evaluate","synthesize","search_gaps"];
-var NODE_LABELS = {plan:"Plan",search:"Search",storm_interviews:"STORM",analyze:"Analyze",verify:"Verify",evaluate:"Evaluate",synthesize:"Synthesize",search_gaps:"Gap Search"};
-var NODE_ICONS = {plan:"\u{1F4CB}",search:"\u{1F50D}",storm_interviews:"\u{1F4AC}",analyze:"\u{1F9EA}",verify:"\u2705",evaluate:"\u{1F4CA}",synthesize:"\u{1F4DD}",search_gaps:"\u{1F504}"};
-var NODE_ICON_BG = {plan:"var(--info-dim)",search:"var(--success-dim)",storm_interviews:"rgba(167,139,250,0.15)",analyze:"var(--warning-dim)",verify:"rgba(244,114,182,0.15)",evaluate:"rgba(34,211,238,0.15)",synthesize:"var(--accent-dim)",search_gaps:"var(--warning-dim)"};
+/* Fix R7-#4: NODE_ORDER includes BOTH v1 and v2 node names for backward compatibility.
+   v1 nodes: plan, search, storm_interviews, analyze, verify, evaluate, synthesize, search_gaps
+   v2 nodes: plan, search, fetch_content, crag_analyze, plan_outline, blueprint,
+             write_one_section, verify_one_section, assemble
+   The UI renders whichever nodes it receives via SSE trace events. */
+var NODE_ORDER = ["plan","search","storm_interviews","fetch_content","analyze","crag_analyze","plan_outline","blueprint","verify","evaluate","write_one_section","verify_one_section","synthesize","assemble","search_gaps"];
+var NODE_LABELS = {plan:"Plan",search:"Search",storm_interviews:"STORM",fetch_content:"Fetch",analyze:"Analyze",crag_analyze:"Analyze",plan_outline:"Outline",blueprint:"Blueprint",verify:"Verify",evaluate:"Evaluate",write_one_section:"Write",verify_one_section:"Verify",synthesize:"Synthesize",assemble:"Assemble",search_gaps:"Gap Search"};
+var NODE_ICONS = {plan:"\u{1F4CB}",search:"\u{1F50D}",storm_interviews:"\u{1F4AC}",fetch_content:"\u{1F310}",analyze:"\u{1F9EA}",crag_analyze:"\u{1F9EA}",plan_outline:"\u{1F4D1}",blueprint:"\u{1F4D0}",verify:"\u2705",evaluate:"\u{1F4CA}",write_one_section:"\u{1F4DD}",verify_one_section:"\u2705",synthesize:"\u{1F4DD}",assemble:"\u{1F4E6}",search_gaps:"\u{1F504}"};
+var NODE_ICON_BG = {plan:"var(--info-dim)",search:"var(--success-dim)",storm_interviews:"rgba(167,139,250,0.15)",fetch_content:"var(--success-dim)",analyze:"var(--warning-dim)",crag_analyze:"var(--warning-dim)",plan_outline:"var(--info-dim)",blueprint:"var(--info-dim)",verify:"rgba(244,114,182,0.15)",evaluate:"rgba(34,211,238,0.15)",write_one_section:"var(--accent-dim)",verify_one_section:"rgba(244,114,182,0.15)",synthesize:"var(--accent-dim)",assemble:"var(--accent-dim)",search_gaps:"var(--warning-dim)"};
 var EVENT_ICONS = {node_start:"\u25B6",node_end:"\u2714",llm_call:"\u2728",fetch:"\u{1F310}",evidence:"\u{1F4CE}",quality_gate:"\u{1F6A7}",reasoning_capture:"\u{1F9E0}",storm_transcript:"\u{1F4AC}",search_result:"\u{1F50D}",query:"\u2753",iteration_decision:"\u{1F504}"};
-var NODE_DESCRIPTIONS = {plan:"Planning research queries...",search:"Searching web and academic databases...",storm_interviews:"Conducting STORM multi-perspective interviews...",analyze:"Fetching content and extracting evidence...",verify:"Verifying claims against sources...",evaluate:"Evaluating quality and identifying gaps...",synthesize:"Synthesizing research report...",search_gaps:"Searching for additional evidence..."};
-var AUTO_TAB_MAP = {plan:"research",search:"research",storm_interviews:"advanced",analyze:"research",verify:"research",evaluate:"research",synthesize:"report",search_gaps:"research"};
+var NODE_DESCRIPTIONS = {plan:"Planning research queries...",search:"Searching web and academic databases...",storm_interviews:"Conducting STORM multi-perspective interviews...",fetch_content:"Fetching content from sources...",analyze:"Fetching content and extracting evidence...",crag_analyze:"Analyzing evidence with CRAG retrieval...",plan_outline:"Generating evidence-informed outline...",blueprint:"Assigning evidence to sections...",verify:"Verifying claims against sources...",evaluate:"Evaluating quality and identifying gaps...",write_one_section:"Writing report sections...",verify_one_section:"Verifying section claims...",synthesize:"Synthesizing research report...",assemble:"Assembling final report...",search_gaps:"Searching for additional evidence..."};
+var AUTO_TAB_MAP = {plan:"research",search:"research",storm_interviews:"advanced",fetch_content:"research",analyze:"research",crag_analyze:"research",plan_outline:"research",blueprint:"research",verify:"research",evaluate:"research",write_one_section:"report",verify_one_section:"report",synthesize:"report",assemble:"report",search_gaps:"research"};
 var hasMarked = typeof marked !== "undefined";
 
 /* =====================================================================
@@ -357,10 +362,17 @@ function getPhaseLabel(phase, stats, isDone) {
     case "plan": label = isDone ? "Planned research strategy" : "Planning research strategy..."; break;
     case "search": label = isDone ? "Searched" + (srcCount ? " " + srcCount + " sources" : " sources") : "Searching" + (srcCount ? " " + srcCount + " sources" : " sources..."); break;
     case "storm_interviews": label = isDone ? "Interviewed" + (perspCount ? " " + perspCount + " expert perspectives" : " experts") : "Interviewing " + (perspCount || "expert") + " expert perspectives"; break;
+    case "fetch_content": label = isDone ? "Fetched content" : "Fetching content from sources..."; break;
     case "analyze": label = isDone ? "Analyzed evidence" : "Analyzing and extracting evidence..."; break;
+    case "crag_analyze": label = isDone ? "Analyzed evidence" : "Analyzing evidence with CRAG..."; break;
+    case "plan_outline": label = isDone ? "Generated outline" : "Generating report outline..."; break;
+    case "blueprint": label = isDone ? "Assigned evidence" : "Assigning evidence to sections..."; break;
     case "verify": label = isDone ? "Verified" + (claimCount ? " " + claimCount + " claims" : " claims") : "Verifying " + (claimCount || "") + " claims against source text"; break;
     case "evaluate": label = isDone ? "Evaluated evidence quality" : "Evaluating evidence quality..."; break;
+    case "write_one_section": label = isDone ? "Wrote sections" : "Writing report sections..."; break;
+    case "verify_one_section": label = isDone ? "Verified sections" : "Verifying section claims..."; break;
     case "synthesize": label = isDone ? "Synthesized report" : "Synthesizing " + (evCount || "") + " evidence pieces into report"; break;
+    case "assemble": label = isDone ? "Assembled report" : "Assembling final report..."; break;
     case "search_gaps": label = isDone ? "Searched for gaps" : "Searching for additional evidence..."; break;
     default: label = phase.replace(/_/g, " "); break;
   }
@@ -373,7 +385,7 @@ function getPhaseLabel(phase, stats, isDone) {
 function estimateTimeRemaining(currentPhase) {
   if (!state.startTime) return "";
   var elapsed = (Date.now() - state.startTime) / 1000 / 60; // minutes
-  var phaseProgress = {plan: 0.05, search: 0.25, storm_interviews: 0.40, analyze: 0.55, verify: 0.75, evaluate: 0.85, synthesize: 0.95, search_gaps: 0.50};
+  var phaseProgress = {plan: 0.05, search: 0.15, storm_interviews: 0.25, fetch_content: 0.35, analyze: 0.45, crag_analyze: 0.45, plan_outline: 0.50, blueprint: 0.55, verify: 0.65, evaluate: 0.70, write_one_section: 0.75, verify_one_section: 0.85, synthesize: 0.90, assemble: 0.95, search_gaps: 0.40};
   var progress = phaseProgress[currentPhase] || 0.5;
   if (progress <= 0.01) return "";
   var remaining = Math.max(0, (elapsed / progress) - elapsed);

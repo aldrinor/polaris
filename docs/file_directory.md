@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-03-13 (Session 39 — FIX-B2 citation chain fix, playwright_interaction_audit.py added)
-**Status**: 362 integration tests passing. 5 deprecated legacy test files deleted (48 failures eliminated). 153 dashboard tests. Live audit 118/120 PASS. PG_TEST_061 launched. 8 CSS + 16 JS modules. 58 interaction checks (IA-IH).
+**Last Updated**: 2026-03-16 (Session 45 — v2 CRAG pipeline, 12 new retrieval modules, 4 new v2 core modules, frontend v2 nodes)
+**Status**: 354 tests passing. v2 CRAG pipeline complete (7 adversarial rounds, 30 fixes). Fire Tests 15/15 PASS. live_server v2 routing verified.
 
 ---
 
@@ -38,7 +38,8 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 | File | Lines | Purpose |
 |------|-------|---------|
 | `__init__.py` | 33 | Module exports |
-| `graph.py` | 1437 | Main LangGraph workflow definition (8-node: plan, search, storm_interviews, analyze, verify, evaluate, synthesize, search_gaps) |
+| `graph.py` | 1437 | v1 LangGraph workflow (8-node: plan, search, storm_interviews, analyze, verify, evaluate, synthesize, search_gaps) |
+| `graph_v2.py` | ~500 | **v2 CRAG pipeline** (11-node: plan->search->storm->fetch_content->crag_analyze->plan_outline->blueprint->write*N->verify*N->assemble). Send API parallel writers/verifiers. PG_V2_ENABLED toggle. |
 | `state.py` | ~525 | Pipeline state TypedDict and env var management. Added memory_ltm_priors, uploaded_documents (Sprint 1), smart_art_diagrams (Sprint 2) |
 | `document_ingester.py` | ~400 | Local document parser: 9 formats (PDF/DOCX/XLSX/PPTX/TXT/MD/CSV/HTML). Zero external API calls (A7.2) |
 | `schemas.py` | 1355 | Pydantic models for pipeline state (EvidencePiece, ClusterPlan, SectionDraft, ReportOutline, etc.) |
@@ -88,6 +89,28 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 | `ionic_rebalancer.py` | 195 | Evidence-section affinity rebalancing (zero LLM cost, M-09) |
 | `section_utils.py` | 36 | Shared evidence_ids sync helper (M-01) |
 | `smart_art_generator.py` | 597 | Smart art generation (A5): LLM-generated Mermaid.js diagrams. 7 types: process_flow, comparison_matrix, causal_chain, hierarchy, timeline, pros_cons, decision_tree |
+| `synthesizer_v2.py` | ~350 | **v2** parallel section writers via LangGraph Send API, fallback to sequential on error |
+| `verifier_v2.py` | ~300 | **v2** parallel claim scoring + sequential surgical rewrites, CancelledError propagation |
+| `report_assembler_v2.py` | ~250 | **v2** grounded bibliography (2-pass regex [SRC-NNN] scan), section pruning |
+
+---
+
+## 4c. src/polaris_graph/retrieval/ -- v2 CRAG Retrieval Pipeline (NEW)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `__init__.py` | ~10 | Module exports |
+| `crag_retriever.py` | ~400 | CRAG retrieval gate: local embedding-based evidence scoring ($0, replaces 126 LLM calls) |
+| `source_registry.py` | ~250 | URL-indexed evidence store: topic/domain tracking, dedup |
+| `pooled_embedder.py` | ~200 | sentence-transformers pooled inference for evidence embeddings |
+| `section_blueprint.py` | ~250 | Evidence-to-section assignment via cosine similarity thresholds |
+| `llm_throttle.py` | ~150 | Semaphore-based LLM concurrency with CancelledError propagation |
+| `verify_context.py` | ~200 | Evidence window builder for claim-level verification |
+| `verify_schemas.py` | ~100 | VerifyBatch, ClaimVerdict, SectionVerifyResult Pydantic models |
+| `citation_normalizer.py` | ~200 | [SRC-NNN] token resolution with grounded bibliography output |
+| `fetch_limiter.py` | ~150 | Concurrent URL fetch with per-domain rate limits |
+| `synthesis_prompts.py` | ~200 | Evidence-first section writing prompts with anti-hallucination constraints |
+| `content_quality_gate.py` | ~115 | RC-4: Post-extraction content quality scoring (heuristic, zero-cost). Rejects garbled/boilerplate/low-info content |
 
 ---
 
@@ -382,6 +405,7 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `full_cycle.py` | 585 | Full cycle pipeline execution |
 | `pg_test_061.py` | -- | PG_TEST_061 test runner script |
 | `run_audit.py` | 127 | Automated deep audit CLI (`python scripts/run_audit.py --result-file <path>`) |
+| `audit_v3_report.py` | 260 | v3 Hybrid forensic audit: 4 quality layers (analytical depth, structure, integrity, surface), A-F grading, JSON+text output. `python scripts/audit_v3_report.py <report.md> [--json]` |
 | `run_s1v1_full.py` | 229 | Run S1V1 full pipeline (legacy) |
 | `playwright_visual_overhaul.py` | ~850 | Closed-loop Playwright visual audit: 40 checks across 9 tabs, 3 breakpoints, screenshots + JSON audit report. Manages inject->server->browser lifecycle. |
 | `deploy.sh` | ~1215 | **Sprint 5**: Production deployment script. Prerequisites check (Python/pip/CUDA/Docker/port), GPU detection (nvidia-smi/CUDA/VRAM), venv setup, .env validation + template generation, directory creation, health check (start server, poll /health, verify /api/system/info), Docker mode (compose build/up, GPU passthrough). CLI flags: --check-only, --docker, --gpu, --no-gpu, --port, --help. Colored output, trap cleanup, cross-platform venv paths. |

@@ -540,7 +540,12 @@ class PipelineRunner:
             self._status.status = "running"
 
             # Import pipeline (deferred to avoid import-time side effects)
-            from src.polaris_graph.graph import build_and_run
+            # Fix R7-#5: Route to v2 CRAG pipeline (local embeddings, $0 retrieval)
+            # Fallback to v1 if PG_V2_ENABLED=0
+            if os.getenv("PG_V2_ENABLED", "1") == "1":
+                from src.polaris_graph.graph_v2 import build_and_run
+            else:
+                from src.polaris_graph.graph import build_and_run
 
             # Point the trace tailer to the new trace file
             new_trace_path = Path(PG_LIVE_TRACE_DIR) / f"pg_trace_{vector_id}.jsonl"

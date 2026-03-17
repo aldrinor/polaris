@@ -253,12 +253,12 @@ class SourceAnalysis(BaseModel):
                 if alt in data and "atomic_facts" not in data:
                     data["atomic_facts"] = data.pop(alt)
             # FIX-SCHEMA-1: Coerce authors from string to list
-            # Kimi K2.5 sometimes returns "Smith J, Jones A" instead of ["Smith J", "Jones A"]
+            # LLM sometimes returns "Smith J, Jones A" instead of ["Smith J", "Jones A"]
             authors_val = data.get("authors")
             if isinstance(authors_val, str):
                 data["authors"] = [a.strip() for a in authors_val.split(",") if a.strip()]
             # FIX-SCHEMA-2: Coerce atomic_facts items from strings to dicts
-            # Kimi K2.5 sometimes simplifies facts to plain strings
+            # LLM sometimes simplifies facts to plain strings
             facts = data.get("atomic_facts")
             if isinstance(facts, list):
                 coerced = []
@@ -275,7 +275,7 @@ class SourceAnalysis(BaseModel):
                         coerced.append(f)
                 data["atomic_facts"] = coerced
             # FIX-SCHEMA-3: Coerce source_quality/overall_relevance from word strings
-            # Kimi K2.5 sometimes returns "high", "moderate", "low" instead of floats
+            # LLM sometimes returns "high", "moderate", "low" instead of floats
             _word_to_score = {
                 "high": 0.8, "very high": 0.9, "excellent": 0.95,
                 "moderate": 0.5, "medium": 0.5, "average": 0.5,
@@ -757,6 +757,16 @@ class SectionOutlineItem(BaseModel):
     description: str = Field(
         description="What this section should cover"
     )
+    search_keywords: str = Field(
+        description=(
+            "Comma-separated domain-specific keywords and units for routing "
+            "evidence to this section. Include technical terms, measurement "
+            "units, method names, and material names that evidence chunks "
+            "would contain. E.g. 'epoxy, MPa, dolly, ASTM D4541, peel strength, "
+            "cohesive failure'. Do NOT repeat the section title."
+        ),
+        default="",
+    )
     evidence_ids: list[str] = Field(
         description="Evidence IDs to cite in this section",
         default_factory=list,
@@ -766,6 +776,11 @@ class SectionOutlineItem(BaseModel):
         default=600,
     )
     order: int = Field(description="Section order in the report", default=0)
+    analytical_focus: Optional[str] = Field(
+        description="RC-3: Primary analytical operation for this section "
+        "(aggregate, compare, explain, tabulate, challenge)",
+        default=None,
+    )
 
     @field_validator("title")
     @classmethod
@@ -917,6 +932,148 @@ class SectionDraft(BaseModel):
         default_factory=list,
         description="Evidence IDs used in this section",
     )
+
+
+# ---------------------------------------------------------------------------
+# RC-3: Question-Driven Report Planning (v3 Hybrid)
+# ---------------------------------------------------------------------------
+
+class ResearchSubQuestion(BaseModel):
+    """A single sub-question decomposed from the research query."""
+
+    question: str = Field(description="The sub-question a reader would ask")
+    rationale: str = Field(
+        description="Why a reader would care about this question",
+        default="",
+    )
+    analytical_focus: str = Field(
+        description="Primary analytical operation: aggregate, compare, explain, tabulate, challenge",
+        default="explain",
+    )
+    expected_depth: str = Field(
+        description="How deep this question should be explored: deep, moderate, brief",
+        default="moderate",
+    )
+
+    @field_validator("analytical_focus", mode="before")
+    @classmethod
+    def validate_analytical_focus(cls, v):
+        valid = {"aggregate", "compare", "explain", "tabulate", "challenge"}
+        if isinstance(v, str) and v.lower().strip() in valid:
+            return v.lower().strip()
+        return "explain"
+
+    @field_validator("expected_depth", mode="before")
+    @classmethod
+    def validate_expected_depth(cls, v):
+        valid = {"deep", "moderate", "brief"}
+        if isinstance(v, str) and v.lower().strip() in valid:
+            return v.lower().strip()
+        return "moderate"
+
+
+class QuestionDecomposition(BaseModel):
+    """Decomposition of a research query into reader sub-questions."""
+
+    questions: list[ResearchSubQuestion] = Field(
+        description="6-10 sub-questions that a reader would want answered",
+        default_factory=list,
+    )
+    narrative_flow: str = Field(
+        description="How the questions build on each other logically",
+        default="",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        if isinstance(data, dict):
+            for alt in ("sub_questions", "research_questions", "decomposition"):
+                if alt in data and "questions" not in data:
+                    data["questions"] = data.pop(alt)
+            if data.get("questions") is None:
+                data["questions"] = []
+        return data
+
+
+# ---------------------------------------------------------------------------
+# RC-1: Structured Evidence Cards (v3 Hybrid)
+# ---------------------------------------------------------------------------
+
+class ComparableMetric(BaseModel):
+    """A single quantitative metric extracted from evidence for cross-study comparison."""
+
+    metric_name: str = Field(
+        description="Name of the metric, e.g. removal_efficiency, cost_per_kg, contact_time",
+    )
+    value: float = Field(description="Numeric value of the metric")
+    unit: str = Field(description="Unit of measurement, e.g. %, mg/L, minutes", default="")
+    condition: str = Field(
+        description="Experimental conditions, e.g. pH 5.5, 25C",
+        default="",
+    )
+    entity: str = Field(
+        description="Entity being measured, e.g. Pb(II), rice husk biochar",
+        default="",
+    )
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def coerce_value(cls, v):
+        if isinstance(v, str):
+            try:
+                return float(v.replace(",", ""))
+            except (ValueError, TypeError):
+                return 0.0
+        if isinstance(v, (int, float)):
+            return float(v)
+        return 0.0
+
+
+class EvidenceCardEnrichment(BaseModel):
+    """Post-extraction enrichment for a single evidence piece."""
+
+    evidence_id: str = Field(description="ID of the evidence piece being enriched")
+    methodology: str = Field(
+        description="How the finding was obtained (experimental method, study design)",
+        default="",
+    )
+    conditions: str = Field(
+        description="Experimental or study parameters (temperature, pH, sample size)",
+        default="",
+    )
+    limitations: str = Field(
+        description="Known limitations of this finding",
+        default="",
+    )
+    strength_signals: list[str] = Field(
+        description="Quality signals: peer_reviewed, large_sample, replicated, meta_analysis",
+        default_factory=list,
+    )
+    comparable_metrics: list[ComparableMetric] = Field(
+        description="Quantitative metrics that can be compared across studies",
+        default_factory=list,
+    )
+
+
+class EvidenceCardBatch(BaseModel):
+    """Batch of evidence card enrichments from a single LLM call."""
+
+    cards: list[EvidenceCardEnrichment] = Field(
+        description="Enrichment data for each evidence piece in the batch",
+        default_factory=list,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        if isinstance(data, dict):
+            for alt in ("enrichments", "evidence_cards", "results"):
+                if alt in data and "cards" not in data:
+                    data["cards"] = data.pop(alt)
+            if data.get("cards") is None:
+                data["cards"] = []
+        return data
 
 
 # ---------------------------------------------------------------------------

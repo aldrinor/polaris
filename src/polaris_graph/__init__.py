@@ -1,7 +1,7 @@
 """
 polaris graph — clean-room research pipeline.
 
-Uses Kimi K2.5 1T via OpenRouter for all LLM calls.
+Uses Qwen 3.5 Plus via OpenRouter for all LLM calls.
 Reuses battle-tested search/fetch infrastructure from src/tools/.
 """
 

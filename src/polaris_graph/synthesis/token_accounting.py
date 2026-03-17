@@ -20,7 +20,7 @@ PG_TOKEN_ACCOUNTING_WARN_THRESHOLD = float(
     os.getenv("PG_TOKEN_ACCOUNTING_WARN_THRESHOLD", "0.85")
 )
 
-# Kimi K2.5 context window (128K tokens input)
+# Qwen 3.5 Plus context window (1M tokens input, conservative default 128K)
 _CONTEXT_WINDOW = int(os.getenv("PG_CONTEXT_WINDOW_TOKENS", "128000"))
 
 

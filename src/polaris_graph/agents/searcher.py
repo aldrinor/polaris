@@ -104,6 +104,49 @@ def reset_exa_budget() -> None:
     _exa_session_searches = 0
 
 
+def _compute_perspective_distribution(
+    evidence: list[dict],
+) -> tuple[dict, list[str]]:
+    """RC-7: Compute Shannon entropy and identify underrepresented perspectives.
+
+    Returns:
+        (distribution_info, underrepresented_perspectives) where:
+        - distribution_info: {"entropy": float, "counts": {perspective: count}}
+        - underrepresented_perspectives: perspectives with < min_pct coverage
+    """
+    import math
+    from collections import Counter
+
+    min_pct = float(os.getenv("PG_V3_MIN_PERSPECTIVE_PCT", "0.10"))
+
+    perspectives = [e.get("perspective", "Unknown") for e in evidence]
+    counts = Counter(perspectives)
+    total = sum(counts.values())
+
+    if total == 0:
+        return {"entropy": 0.0, "counts": {}}, list(STORM_PERSPECTIVES)
+
+    # Shannon entropy
+    entropy = -sum(
+        (c / total) * math.log2(c / total)
+        for c in counts.values() if c > 0
+    )
+    max_entropy = math.log2(len(STORM_PERSPECTIVES)) if STORM_PERSPECTIVES else 1.0
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
+
+    # Underrepresented: below min_pct of total
+    underrepresented = [
+        p for p in STORM_PERSPECTIVES
+        if counts.get(p, 0) / max(total, 1) < min_pct
+    ]
+
+    return {
+        "entropy": round(normalized_entropy, 3),
+        "counts": dict(counts),
+    }, underrepresented
+
+
+
 def _import_search_tools():
     """Import search tools from existing infrastructure."""
     from src.agents.search_agent import web_search, academic_search
@@ -1340,7 +1383,7 @@ async def _summarize_pages(
             f"CONTENT:\n{content}\n"  # Already capped in _fetch_top_pages()
         )
         total_chars += len(block)
-        if total_chars > 120000:  # ~40K tokens (within Kimi K2.5 128K-256K context)
+        if total_chars > 120000:  # ~40K tokens (within model context window)
             break
         page_blocks.append(block)
 
@@ -1841,7 +1884,7 @@ async def _agentic_round_analysis(
         )
 
     # FIX-055: Add timeout to generate_structured and try prose extraction
-    # before falling back to templates. BUG-090: Kimi K2.5 often returns prose.
+    # before falling back to templates. BUG-090: LLM sometimes returns prose.
     try:
         result = await client.generate_structured(
             prompt=prompt,

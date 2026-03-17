@@ -2,7 +2,7 @@
 Section-by-section report writer for polaris graph.
 
 Each section is a separate LLM call, keeping output under 800 words
-to stay within Kimi K2.5's quality sweet spot.
+to stay within the LLM's quality sweet spot.
 
 No single mega-call. No CoT leakage. No post-processing.
 """
@@ -17,6 +17,7 @@ import numpy as np
 
 from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 from src.polaris_graph.schemas import (
+    QuestionDecomposition,
     ReportOutline,
     SectionDraft,
     SectionOutlineItem,
@@ -197,6 +198,57 @@ def _filter_evidence_for_section(
         return evidence
 
 
+def _build_comparison_tables(
+    section_evidence: list[dict],
+) -> str:
+    """RC-6: Build pre-formatted markdown tables from comparable_metrics.
+
+    Groups metrics by metric_name across evidence pieces. For groups with
+    3+ data points, generates markdown tables with [CITE:evidence_id] in
+    the Source column.
+
+    Returns formatted table block string, or empty string if no tables.
+    """
+    from collections import defaultdict
+
+    # Collect all comparable_metrics from evidence cards
+    metric_groups: dict[str, list[tuple[dict, str]]] = defaultdict(list)
+    for ev in section_evidence:
+        metrics = ev.get("comparable_metrics") or []
+        ev_id = ev.get("evidence_id", "?")
+        for m in metrics:
+            if isinstance(m, dict) and m.get("metric_name") and m.get("value") is not None:
+                metric_groups[m["metric_name"]].append((m, ev_id))
+
+    if not metric_groups:
+        return ""
+
+    tables = []
+    for metric_name, entries in sorted(metric_groups.items()):
+        if len(entries) < 3:
+            continue
+
+        # Build markdown table
+        table_lines = [
+            f"\n**Comparison: {metric_name.replace('_', ' ').title()}**\n",
+            "| Source | Entity | Value | Unit | Condition |",
+            "|--------|--------|-------|------|-----------|",
+        ]
+        for m, ev_id in entries[:15]:  # Cap at 15 rows
+            entity = m.get("entity", "")
+            value = m.get("value", "")
+            unit = m.get("unit", "")
+            condition = m.get("condition", "")
+            table_lines.append(f"| [CITE:{ev_id}] | {entity} | {value} | {unit} | {condition} |")
+
+        tables.append("\n".join(table_lines))
+
+    if not tables:
+        return ""
+
+    return "\n\n".join(tables)
+
+
 def _format_conflicts_for_prompt(
     evidence_conflicts: list[dict],
     section_evidence_ids: list[str],
@@ -230,8 +282,10 @@ def _format_conflicts_for_prompt(
 
     lines = [
         f"\nCONFLICTING EVIDENCE ({len(relevant)} conflicts detected in this section's evidence):",
-        "When evidence conflicts, you MUST explicitly acknowledge the disagreement,",
-        "present both sides with citations, and explain which position has stronger support and why.",
+        "You MUST dedicate at least one full paragraph to each conflict listed below.",
+        "Structure: [Position A with citation] vs [Position B with citation].",
+        "Then explain which position has stronger evidence and why.",
+        "Do NOT merely mention the conflict — ANALYZE it with specific reasoning.",
     ]
     for i, conflict in enumerate(relevant[:5], 1):
         lines.append(
@@ -250,6 +304,90 @@ def _format_conflicts_for_prompt(
             )
 
     return "\n".join(lines)
+
+
+def _summarize_evidence_for_planning(
+    clusters: list[dict],
+    evidence: list[EvidencePiece],
+) -> str:
+    """Build a compact evidence summary for question decomposition (RC-3).
+
+    Returns a short text describing what themes and data points are available
+    so the decomposition LLM can generate answerable sub-questions.
+    """
+    lines = [f"Total evidence pieces: {len(evidence)}"]
+    gold = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
+    silver = sum(1 for e in evidence if e.get("quality_tier") == "SILVER")
+    lines.append(f"Quality: {gold} GOLD, {silver} SILVER, {len(evidence) - gold - silver} BRONZE")
+
+    perspectives: dict[str, int] = {}
+    for e in evidence:
+        p = e.get("perspective", "Unknown")
+        perspectives[p] = perspectives.get(p, 0) + 1
+    if perspectives:
+        lines.append("Perspectives: " + ", ".join(
+            f"{k} ({v})" for k, v in sorted(perspectives.items(), key=lambda x: -x[1])[:6]
+        ))
+
+    for i, cl in enumerate(clusters[:12], 1):
+        theme = cl.get("theme", cl.get("label", f"Cluster {i}"))
+        count = len(cl.get("evidence_ids", []))
+        lines.append(f"  Cluster {i}: {theme} ({count} evidence)")
+
+    return "\n".join(lines)
+
+
+_QUESTION_DECOMPOSITION_SYSTEM = """You are a research strategist. Given a research topic and a summary of evidence collected, decompose the topic into 6-10 sub-questions that a knowledgeable reader would want answered.
+
+Requirements:
+- Questions should flow logically: context → mechanisms → effectiveness → comparison → limitations → future
+- Each question must be answerable from the evidence (don't ask about things not in the evidence)
+- Assign each question an analytical_focus: aggregate, compare, explain, tabulate, or challenge
+- Assign depth: 'deep' for the core questions (2-3), 'moderate' for supporting (3-4), 'brief' for peripheral (1-2)
+- The set of questions should cover: what, how, how well, compared to what, and what's missing
+- Generate a narrative_flow description explaining how the questions build on each other""".strip()
+
+
+async def _decompose_into_questions(
+    client: OpenRouterClient,
+    query: str,
+    evidence_summary: str,
+    storm_perspectives: list[str],
+) -> Optional[QuestionDecomposition]:
+    """RC-3: Decompose research query into 6-10 sub-questions a reader would ask.
+
+    Returns None on failure so caller can fall back to cluster-based planning.
+    """
+    perspective_str = ", ".join(storm_perspectives[:8]) if storm_perspectives else "Scientific, Practical"
+    prompt = (
+        f"Research topic: {query}\n\n"
+        f"Evidence available:\n{evidence_summary}\n\n"
+        f"Perspectives represented: {perspective_str}\n\n"
+        "Decompose this topic into 6-10 sub-questions that a knowledgeable reader "
+        "would want answered. Each question should map to a report section."
+    )
+    try:
+        result = await client.generate_structured(
+            prompt=prompt,
+            schema=QuestionDecomposition,
+            system=_QUESTION_DECOMPOSITION_SYSTEM,
+            max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
+            timeout=300,
+        )
+        if result and result.questions:
+            logger.info(
+                "[polaris graph] RC-3: Decomposed query into %d sub-questions",
+                len(result.questions),
+            )
+            return result
+        logger.warning("[polaris graph] RC-3: Decomposition returned 0 questions, falling back")
+        return None
+    except Exception as exc:
+        logger.error(
+            "[polaris graph] RC-3: Question decomposition failed: %s — falling back",
+            str(exc)[:200],
+        )
+        return None
 
 
 async def plan_report(
@@ -276,6 +414,51 @@ async def plan_report(
     conflicting evidence is detected, the outline prompt instructs the planner
     to dedicate sections or subsections to addressing these disagreements.
     """
+    # RC-3: Question-driven planning (when enabled, build outline from sub-questions)
+    if os.getenv("PG_V3_QUESTION_PLANNING", "0") == "1":
+        from src.polaris_graph.state import STORM_PERSPECTIVES
+        evidence_summary = _summarize_evidence_for_planning(clusters, evidence)
+        decomposition = await _decompose_into_questions(
+            client, query, evidence_summary,
+            list(STORM_PERSPECTIVES) if hasattr(STORM_PERSPECTIVES, '__iter__') else [],
+        )
+        if decomposition and decomposition.questions:
+            depth_to_words = {"deep": 1500, "moderate": 800, "brief": 400}
+            sections = []
+            for i, q in enumerate(decomposition.questions):
+                sections.append(SectionOutlineItem(
+                    section_id=f"s{i + 1:02d}",
+                    title=q.question,
+                    description=q.question,
+                    analytical_focus=q.analytical_focus,
+                    target_words=depth_to_words.get(q.expected_depth, 800),
+                    evidence_ids=[],  # Filled by _assign_evidence_to_sections
+                    order=i + 1,
+                ))
+            total_words = sum(s.target_words for s in sections)
+            outline = ReportOutline(
+                title=f"Research Report: {query}",
+                sections=sections,
+                total_target_words=total_words,
+            )
+            # Use existing evidence assignment machinery
+            outline = _assign_evidence_to_sections(outline, clusters, evidence)
+            outline = _validate_outline_evidence(outline)
+            # Trim empty sections (keep at least 3)
+            if len(outline.sections) > 3:
+                non_empty = [s for s in outline.sections if s.evidence_ids]
+                if non_empty and len(non_empty) >= 3:
+                    outline.sections = non_empty
+                    for idx, s in enumerate(outline.sections):
+                        s.order = idx + 1
+                    outline.total_target_words = sum(s.target_words for s in outline.sections)
+            logger.info(
+                "[polaris graph] RC-3: Question-driven outline: %d sections, %d words",
+                len(outline.sections), outline.total_target_words,
+            )
+            return outline
+        logger.warning("[polaris graph] RC-3: Question decomposition failed, falling back to cluster planning")
+
     cluster_detail = _format_cluster_summary(clusters)
 
     # FIX-303C: Build perspective list for diversity gate
@@ -898,6 +1081,24 @@ async def write_section(
             section_evidence_ids=section.evidence_ids,
         )
 
+    # RC-5: Corroboration signals (v3 Hybrid)
+    corroboration_block = ""
+    if os.getenv("PG_V3_SURFACE_ANALYSIS", "0") == "1":
+        high_corroboration = [
+            e for e in section_evidence
+            if e.get("corroborating_sources", 0) >= 3
+        ]
+        if high_corroboration:
+            corroboration_block = "\nWELL-CORROBORATED FINDINGS (supported by 3+ independent sources):\n"
+            for e in high_corroboration[:5]:
+                corroboration_block += (
+                    f"- {e.get('statement', '')[:200]} "
+                    f"({e.get('corroborating_sources', 0)} sources) "
+                    f"[CITE:{e.get('evidence_id', '?')}]\n"
+                )
+            corroboration_block += "Emphasize these findings as particularly well-established.\n"
+
+
     # NRC-2: Build previously covered claims block to prevent recycling
     covered_block = ""
     if previously_covered_claims:
@@ -906,6 +1107,18 @@ async def write_section(
             f"\nPREVIOUSLY COVERED CLAIMS (Do NOT repeat these — each was already stated in an earlier section):\n"
             f"{claims_text}\n"
         )
+
+    # RC-6: Pre-formatted comparison tables (v3 Hybrid)
+    table_block = ""
+    if os.getenv("PG_V3_COMPARISON_TABLES", "0") == "1":
+        tables = _build_comparison_tables(section_evidence)
+        if tables:
+            table_block = (
+                f"\nPRE-FORMATTED COMPARISON TABLES (from structured evidence data):\n"
+                f"{tables}\n\n"
+                "You MUST incorporate these tables into your section text and discuss "
+                "the patterns they reveal.\n"
+            )
 
     prompt = f"""Report title: {report_title}
 {position_block}{outline_block}
@@ -916,8 +1129,9 @@ Research question: {query}
 Available evidence for this section:
 {evidence_text}
 {conflict_block}
+{corroboration_block}
 {covered_block}
-CRITICAL: This section must directly contribute to answering the research question: {query[:200]}. Every paragraph should connect its findings back to this question.
+{table_block}CRITICAL: This section must directly contribute to answering the research question: {query[:200]}. Every paragraph should connect its findings back to this question.
 
 Write this section. If this is not the first section, begin with a 1-sentence bridge that connects to the previous section's topic. Then proceed with unique analysis. Connect findings to the broader report structure.
 Every factual claim MUST include a [CITE:evidence_id] marker referencing the specific evidence piece.
@@ -927,12 +1141,39 @@ CROSS-REFERENCES: When referencing other sections of this report, always use the
 
 Target: approximately {min(200 + len(section_evidence) * 80, 2000)} words."""
 
+    # RC-2 (v3 Hybrid): Inject analytical instructions when enabled
+    if os.getenv("PG_V3_ANALYTICAL_PROMPT", "0") == "1":
+        _analytical_focus = getattr(section, "analytical_focus", "") or ""
+        _focus_line = f"\\nANALYTICAL FOCUS: {_analytical_focus}" if _analytical_focus else ""
+        prompt += f"""
+{_focus_line}
+ANALYTICAL INSTRUCTIONS (MANDATORY):
+Analyze the evidence to answer: {section.description}
+You MUST perform these operations in your writing:
+- AGGREGATE: Combine similar findings from multiple sources into synthesized claims (cite all). NEVER list source findings sequentially.
+- COMPARE: Explicitly compare how different studies, methods, or conditions produced different results. Use "whereas", "in contrast", "compared to".
+- EXPLAIN: For each major finding, explain WHY — what mechanism, what implication.
+- TABULATE: When you have 3+ comparable data points, you MUST present a markdown table with citations in each row.
+- CHALLENGE: Include at least 1 paragraph acknowledging limitations, contradictions, or gaps.
+BANNED: Sequential source summaries ("Study A found... Study B found..."), filler phrases."""
+
     _n_evidence = len(section_evidence)
     _suggested_words = min(200 + _n_evidence * 80, 2000)
-    system = SECTION_SYSTEM_PROMPT.format(
-        n_evidence=_n_evidence,
-        suggested_words=_suggested_words,
-    )
+
+    # RC-2 (v3 Hybrid): Use build_section_writer_prompt when analytical mode enabled
+    if os.getenv("PG_V3_ANALYTICAL_PROMPT", "0") == "1":
+        from src.polaris_graph.retrieval.synthesis_prompts import build_section_writer_prompt
+        _analytical_focus = getattr(section, "analytical_focus", "") or ""
+        system = build_section_writer_prompt(
+            n_evidence=_n_evidence,
+            suggested_words=_suggested_words,
+            analytical_focus=_analytical_focus,
+        )
+    else:
+        system = SECTION_SYSTEM_PROMPT.format(
+            n_evidence=_n_evidence,
+            suggested_words=_suggested_words,
+        )
 
     # TIER-3 Stage 6: Token accounting — track prompt component sizes
     try:
