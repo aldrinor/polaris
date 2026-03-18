@@ -576,7 +576,7 @@ class ReactAnalysisAgent:
             logger.info(
                 "[react] Interpretation complete: %d chars, %d citations "
                 "(%d valid, %d phantom)",
-                len(content), len(cited_ids), len(valid_ids),
+                len(content), len(all_cited), len(valid_ids),
                 len(phantom_ids),
             )
 
