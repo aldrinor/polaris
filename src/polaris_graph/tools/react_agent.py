@@ -54,7 +54,10 @@ _SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "120"))
 _CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
 
 # Learnings extraction env vars
-_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
+# Disabled by default: Qwen 3.5 Plus via OpenRouter is too slow for
+# batched structured extraction (42s per 5 items, 258 evidence = 750s).
+# Enable when using faster models (GPT-4o, Claude).
+_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "0") == "1"
 _LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
 _LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "45"))
 _LEARNINGS_MAX_CONCURRENCY = int(
