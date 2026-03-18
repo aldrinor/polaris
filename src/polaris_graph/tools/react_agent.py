@@ -803,16 +803,16 @@ class ReactAnalysisAgent:
                 "[8phase] Interpretation: %d chars", len(interpretation),
             )
 
-        # FALLBACK: if scaffold or write failed, use legacy interpret
+        # FALLBACK: if scaffold or write failed, ALWAYS use legacy interpret.
+        # No time budget check — producing zero prose is worse than overtime.
         if not interpretation and self._notebook.successful_steps > 0:
-            elapsed = time.monotonic() - start_time
-            if self._client and elapsed < timeout - 30:
+            if self._client:
                 logger.info(
                     "[8phase] Scaffold/write failed, falling back to "
-                    "legacy interpret",
+                    "legacy interpret (elapsed=%.0fs)",
+                    time.monotonic() - start_time,
                 )
                 await self._interpret_results()
-                # Check if legacy produced output
                 for step in self._notebook.steps:
                     if (
                         step.tool_name == "interpret_results"
@@ -964,11 +964,10 @@ class ReactAnalysisAgent:
             "Format: - [ev_xxx] (category) fact. Never copy wording."
         )
 
-        # Scale timeout: ~2s per item, min 60s, max scaffold timeout
-        batch_timeout = min(
-            _SCAFFOLD_TIMEOUT,
-            max(60, len(evidence_batch) * 2),
-        )
+        # Timeout: ~3s per item (observed), min 90s, no cap.
+        # MUST pass to generate() — otherwise DEFAULT_TIMEOUT_SECONDS=90
+        # kills the httpx call internally before asyncio.wait_for fires.
+        batch_timeout = max(90, len(evidence_batch) * 3)
 
         try:
             response = await asyncio.wait_for(
@@ -977,8 +976,9 @@ class ReactAnalysisAgent:
                     system=system,
                     max_tokens=min(4096, len(evidence_batch) * 40),
                     temperature=0.3,
+                    timeout=batch_timeout,
                 ),
-                timeout=batch_timeout + 15,
+                timeout=batch_timeout + 30,
             )
 
             content = response.content.strip()
