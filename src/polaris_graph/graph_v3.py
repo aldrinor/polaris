@@ -292,6 +292,17 @@ def build_v3_graph(
                 tracer.node_end("v3_storm")
             return {}
 
+        # Skip if STORM already ran (prevents re-run on gap search loops)
+        storm_already_ran = any(
+            ev.get("source_type") == "storm_interview"
+            for ev in evidence_store.values()
+        )
+        if storm_already_ran:
+            logger.info("[v3 storm] STORM already ran, skipping (gap search re-entry)")
+            if tracer:
+                tracer.node_end("v3_storm")
+            return {}
+
         from src.polaris_graph.agents.storm_interviews import run_storm_interviews
 
         # Build minimal ResearchState for STORM
@@ -554,6 +565,39 @@ def build_v3_graph(
             except Exception as exc:
                 logger.warning("[v3 analyze] Meta-analysis failed: %s", str(exc)[:200])
 
+        # --- Fallback: Evidence source summary (always runs, even without structured data) ---
+        if not all_data_points and len(all_statements) >= 5:
+            # No structured data — build a markdown summary from evidence counts
+            source_counts: dict[str, int] = {}
+            source_tiers: dict[str, dict] = {}
+            for ev_id in state.get("evidence_ids", []):
+                ev = evidence_store.get(ev_id, {})
+                url = ev.get("source_title", ev.get("source_url", "Unknown"))[:60]
+                source_counts[url] = source_counts.get(url, 0) + 1
+                tier = ev.get("quality_tier", "BRONZE")
+                source_tiers.setdefault(url, {"GOLD": 0, "SILVER": 0, "BRONZE": 0})
+                source_tiers[url][tier] = source_tiers[url].get(tier, 0) + 1
+
+            if source_counts:
+                sorted_sources = sorted(source_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+                table_lines = ["| Source | Evidence | Gold | Silver | Bronze |",
+                               "| --- | --- | --- | --- | --- |"]
+                for src, count in sorted_sources:
+                    tiers = source_tiers.get(src, {})
+                    table_lines.append(
+                        f"| {src} | {count} | {tiers.get('GOLD', 0)} | "
+                        f"{tiers.get('SILVER', 0)} | {tiers.get('BRONZE', 0)} |"
+                    )
+                analysis_results.append({
+                    "type": "source_summary",
+                    "title": "Evidence Source Distribution",
+                    "markdown": "\n".join(table_lines),
+                })
+                logger.info(
+                    "[v3 analyze] Source summary (no structured data): %d sources, %d evidence",
+                    len(source_counts), sum(source_counts.values()),
+                )
+
         # --- Tool 4: Source agreement analysis ---
         if len(all_statements) >= 3:
             try:
@@ -805,13 +849,71 @@ def build_v3_graph(
     # Node: v3_write_section
     # -----------------------------------------------------------------------
     async def synthesize_node(state: V3State) -> dict:
-        """Phase 4: Sequential section writing with critic."""
+        """Phase 4: Sequential section writing with critic.
+
+        Before writing, injects analysis results (from v3_analyze node)
+        into outline sections so they appear in the final report.
+        """
         if tracer:
             tracer.node_start("v3_write_section")
 
         from src.polaris_graph.nodes.synthesize import run_synthesis_phase
 
         outline = LiveOutline.model_validate(state["outline"])
+
+        # --- Inject analysis results into evidence for synthesis ---
+        # Analysis results from v3_analyze are stored in evidence_store
+        # with type="analysis". We need to surface them to the writer.
+        # Strategy: append analysis markdown to the FIRST topical section
+        # and Key Findings section as supplementary context.
+        analysis_items = [
+            (aid, ev) for aid, ev in evidence_store.items()
+            if ev.get("type") == "analysis" and ev.get("markdown")
+        ]
+        if analysis_items:
+            # Find Key Findings section (best home for analysis)
+            key_findings_idx = None
+            first_topical_idx = 0
+            for i, sec in enumerate(outline.sections):
+                if "key findings" in sec.title.lower():
+                    key_findings_idx = i
+                    break
+
+            target_idx = key_findings_idx if key_findings_idx is not None else first_topical_idx
+
+            # Add analysis evidence IDs to target section
+            for aid, _ in analysis_items:
+                if aid not in outline.sections[target_idx].evidence_ids:
+                    outline.sections[target_idx].evidence_ids.append(aid)
+
+            # Also build a pre-formatted analysis block that the writer can use
+            analysis_block = "\n\n---\n**Computational Analysis Results:**\n\n"
+            for aid, ev in analysis_items:
+                if ev.get("markdown"):
+                    analysis_block += f"### {ev.get('title', 'Analysis')}\n\n{ev['markdown']}\n\n"
+                if ev.get("image_base64"):
+                    title = ev.get("title", "Chart")
+                    analysis_block += f"![{title}](data:image/png;base64,{ev['image_base64']})\n\n"
+
+            # Store the combined block as a special evidence piece
+            evidence_store["_analysis_block"] = {
+                "evidence_id": "_analysis_block",
+                "type": "analysis_block",
+                "statement": "Computational analysis results including statistical summaries, comparison tables, and charts.",
+                "source_title": "POLARIS Analysis Toolkit",
+                "source_url": "",
+                "direct_quote": "",
+                "quality_tier": "GOLD",
+                "relevance_score": 1.0,
+                "source_content": analysis_block,
+            }
+            if "_analysis_block" not in outline.sections[target_idx].evidence_ids:
+                outline.sections[target_idx].evidence_ids.append("_analysis_block")
+
+            logger.info(
+                "[v3 synth] Injected %d analysis results into '%s'",
+                len(analysis_items), outline.sections[target_idx].title,
+            )
 
         synth_budget_pct = float(os.getenv("PG_V3_SYNTH_BUDGET_PCT", "40"))
         total_budget = float(os.getenv("PG_V3_TOTAL_BUDGET_SECONDS", "3600"))
