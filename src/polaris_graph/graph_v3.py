@@ -140,6 +140,9 @@ def build_v3_graph(
             scope=scope,
             evidence_store=evidence_store,
             time_budget_seconds=search_budget,
+            searcher=_real_searcher,
+            fetcher=_real_fetcher,
+            extractor=_make_real_extractor(client),
         )
 
         # Merge new evidence IDs with existing
@@ -515,6 +518,175 @@ async def build_and_run_v3(
         pass
 
     return output
+
+
+# ---------------------------------------------------------------------------
+# Real search/fetch/extract adapters (bridge v1 functions to v3 interface)
+# ---------------------------------------------------------------------------
+
+async def _real_searcher(queries: list[dict]) -> list[dict]:
+    """Execute web + academic searches using v1's search infrastructure.
+
+    Takes v3 SearchQuery dicts, returns v1-style search result dicts.
+    """
+    results = []
+    try:
+        from src.agents.search_agent import search_serper, search_s2
+        from concurrent.futures import ThreadPoolExecutor
+        import asyncio
+
+        executor = ThreadPoolExecutor(max_workers=5)
+        loop = asyncio.get_event_loop()
+
+        for q in queries[:20]:  # Cap at 20 queries
+            query_text = q.get("query", "") if isinstance(q, dict) else str(q)
+            pref = q.get("source_preference", "both") if isinstance(q, dict) else "both"
+
+            if pref in ("web", "both"):
+                try:
+                    web_results = await loop.run_in_executor(
+                        executor, search_serper, query_text, 5
+                    )
+                    for r in (web_results or []):
+                        r["search_query"] = query_text
+                        r["sub_question_id"] = q.get("sub_question_id", "")
+                        results.append(r)
+                except Exception as exc:
+                    logger.debug("[v3 searcher] Serper failed for '%s': %s", query_text[:50], str(exc)[:100])
+
+            if pref in ("academic", "both"):
+                try:
+                    from src.polaris_graph.agents.searcher import _search_openalex
+                    academic = await _search_openalex(query_text, max_results=5)
+                    for r in (academic or []):
+                        r["search_query"] = query_text
+                        r["sub_question_id"] = q.get("sub_question_id", "")
+                        results.append(r)
+                except Exception as exc:
+                    logger.debug("[v3 searcher] Academic failed for '%s': %s", query_text[:50], str(exc)[:100])
+
+    except Exception as exc:
+        logger.warning("[v3 searcher] Search adapter failed: %s", str(exc)[:200])
+
+    logger.info("[v3 searcher] %d results from %d queries", len(results), len(queries))
+    return results
+
+
+async def _real_fetcher(search_results: list[dict]) -> list[dict]:
+    """Fetch content from URLs using v1's access_bypass + Jina + trafilatura.
+
+    Takes search result dicts, returns content dicts with 'url' and 'content'.
+    """
+    fetched = []
+    try:
+        import trafilatura
+        import aiohttp
+
+        urls = []
+        for r in search_results[:30]:  # Cap at 30 URLs
+            url = r.get("link") or r.get("url") or r.get("openAccessPdf", {}).get("url", "")
+            if url and url not in urls:
+                urls.append(url)
+
+        # Try Jina Reader first (best for article extraction)
+        jina_key = os.getenv("JINA_API_KEY", "")
+        for url in urls[:20]:
+            try:
+                content = None
+                if jina_key:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            f"https://r.jina.ai/{url}",
+                            headers={"Authorization": f"Bearer {jina_key}", "Accept": "text/markdown"},
+                            timeout=aiohttp.ClientTimeout(total=15),
+                        ) as resp:
+                            if resp.status == 200:
+                                content = await resp.text()
+
+                if not content or len(content) < 200:
+                    # Fallback to trafilatura
+                    downloaded = trafilatura.fetch_url(url)
+                    if downloaded:
+                        content = trafilatura.extract(downloaded) or ""
+
+                if content and len(content) > 200:
+                    # Find matching search result for metadata
+                    meta = next((r for r in search_results if (r.get("link") or r.get("url", "")) == url), {})
+                    fetched.append({
+                        "url": url,
+                        "content": content[:25000],  # Cap at 25K chars
+                        "title": meta.get("title", ""),
+                        "snippet": meta.get("snippet", meta.get("abstract", "")),
+                        "sub_question_id": meta.get("sub_question_id", ""),
+                    })
+            except Exception as exc:
+                logger.debug("[v3 fetcher] Failed for %s: %s", url[:60], str(exc)[:100])
+
+    except Exception as exc:
+        logger.warning("[v3 fetcher] Fetch adapter failed: %s", str(exc)[:200])
+
+    logger.info("[v3 fetcher] Fetched %d of %d URLs", len(fetched), len(search_results))
+    return fetched
+
+
+def _make_real_extractor(client):
+    """Create an extractor closure that uses the LLM client for evidence extraction."""
+
+    async def _real_extractor(fetched_content: list[dict]) -> list[dict]:
+        """Extract evidence from fetched content using LLM.
+
+        Takes content dicts, returns evidence piece dicts.
+        """
+        import uuid
+        evidence = []
+
+        for doc in fetched_content[:20]:  # Cap at 20 documents
+            content = doc.get("content", "")
+            url = doc.get("url", "")
+            title = doc.get("title", "")
+            sq_id = doc.get("sub_question_id", "")
+
+            if len(content) < 200:
+                continue
+
+            try:
+                # Use LLM to extract atomic facts
+                from src.polaris_graph.schemas import SourceAnalysis
+                result = await client.generate_structured(
+                    prompt=(
+                        f"Source: {title}\nURL: {url}\n\n"
+                        f"Content:\n{content[:10000]}\n\n"
+                        "Extract 3-8 key findings as atomic facts. Each fact must include "
+                        "a specific claim, a direct quote from the source, and relevance score."
+                    ),
+                    schema=SourceAnalysis,
+                    system="Extract verifiable facts from this research source. Include exact numbers and measurements.",
+                    max_tokens=4096,
+                    timeout=90,
+                )
+
+                if result and hasattr(result, 'atomic_facts'):
+                    for fact in result.atomic_facts[:8]:
+                        ev_id = f"ev_{uuid.uuid4().hex[:8]}"
+                        evidence.append({
+                            "evidence_id": ev_id,
+                            "statement": getattr(fact, 'statement', str(fact))[:500],
+                            "direct_quote": getattr(fact, 'direct_quote', '')[:500],
+                            "source_url": url,
+                            "source_title": title,
+                            "source_content": content[:10000],
+                            "sub_question_id": sq_id,
+                            "quality_tier": "SILVER",
+                            "relevance_score": getattr(fact, 'relevance_score', 0.5),
+                            "perspective": "Scientific",
+                        })
+            except Exception as exc:
+                logger.debug("[v3 extractor] Failed for %s: %s", url[:60], str(exc)[:100])
+
+        logger.info("[v3 extractor] Extracted %d evidence from %d documents", len(evidence), len(fetched_content))
+        return evidence
+
+    return _real_extractor
 
 
 # Avoid import of MagicMock at module level

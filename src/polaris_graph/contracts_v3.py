@@ -175,9 +175,9 @@ class OutlineGap(BaseModel):
 class OutlineSection(BaseModel):
     """A single section in the living outline."""
 
-    id: str
-    title: str
-    sub_question_id: str = Field(description="Which sub-question this answers")
+    id: str = Field(default="s01")
+    title: str = Field(default="Section")
+    sub_question_id: str = Field(description="Which sub-question this answers", default="")
     description: str = ""
     analytical_focus: str = "explain"
     evidence_ids: list[str] = Field(default_factory=list)
@@ -189,11 +189,30 @@ class OutlineSection(BaseModel):
     )
     order: int = 0
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_section_fields(cls, data):
+        if isinstance(data, dict):
+            # LLM may use "section_id", "section_title", etc.
+            for alt in ("section_id", "section_number"):
+                if alt in data and "id" not in data:
+                    data["id"] = str(data.pop(alt))
+            for alt in ("section_title", "heading", "name"):
+                if alt in data and "title" not in data:
+                    data["title"] = data.pop(alt)
+            for alt in ("question_id", "sq_id", "sub_question"):
+                if alt in data and "sub_question_id" not in data:
+                    data["sub_question_id"] = str(data.pop(alt))
+            # Coerce id to string
+            if "id" in data:
+                data["id"] = str(data["id"])
+        return data
+
 
 class LiveOutline(BaseModel):
     """The living outline — evolves with each search round."""
 
-    title: str
+    title: str = Field(default="Research Report")
     abstract_draft: str = ""
     sections: list[OutlineSection] = Field(default_factory=list)
     version: int = Field(description="Increments on each refinement", default=1)
@@ -202,6 +221,23 @@ class LiveOutline(BaseModel):
         description="How sections connect logically",
         default="",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_outline_fields(cls, data):
+        """Handle LLM field name variations."""
+        if isinstance(data, dict):
+            # LLM may use "report_title", "outline_title", etc.
+            for alt in ("report_title", "outline_title", "name"):
+                if alt in data and "title" not in data:
+                    data["title"] = data.pop(alt)
+            if "title" not in data:
+                data["title"] = "Research Report"
+            # LLM may use "outline_sections", "report_sections"
+            for alt in ("outline_sections", "report_sections", "content_sections"):
+                if alt in data and "sections" not in data:
+                    data["sections"] = data.pop(alt)
+        return data
 
     @model_validator(mode="after")
     def validate_sections(self):
