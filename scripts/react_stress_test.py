@@ -1,13 +1,14 @@
-"""Stress test: ReAct analysis on 5 diverse evidence sets with DRACO-inspired audit.
+"""Stress test: ReAct analysis on 5 diverse evidence sets with 6-axis audit.
 
 Loads REAL evidence from previous pipeline runs, runs the ReAct agent,
-then audits every line of output using a 4-axis evaluation inspired by
-Perplexity's DRACO benchmark:
+then audits every line of output using a 6-axis evaluation:
 
-Axis 1: Factual Accuracy (40 pts) — numerical claim verification
-Axis 2: Breadth/Depth (20 pts) — cross-source insights, trade-offs
-Axis 3: Citation Quality (25 pts) — count, validity, semantic match
-Axis 4: Content Quality (15 pts) — density, units, zero leakage
+Axis 1: Factual Accuracy (25 pts) — numerical claim verification
+Axis 2: Synthesis Quality (25 pts) — parroting, cross-source integration
+Axis 3: Question Answering (20 pts) — multi-criteria integration, ranking
+Axis 4: Evidence Utilization (10 pts) — category coverage
+Axis 5: Citation Quality (10 pts) — count, validity
+Axis 6: Content Quality (10 pts) — density, units, zero leakage
 
 Plus line-by-line verification: full interpretation output printed,
 5 random citations spot-checked per run against source evidence.
@@ -472,6 +473,143 @@ def spot_check_citations(
     return checks
 
 
+def audit_parroting(context: str, evidence_store: dict) -> dict:
+    """Check if synthesis merely parrots source evidence verbatim.
+
+    A sentence is "parroted" if word-level Jaccard similarity > 0.5
+    against any single evidence statement (using 4+ char words only).
+    """
+    sentences = [s.strip() for s in re.split(r'[.!?]\s+', context) if s.strip()]
+    ev_word_sets = {}
+    for eid, ev in evidence_store.items():
+        stmt = ev.get("statement", "")
+        ev_word_sets[eid] = set(re.findall(r'[a-z]{4,}', stmt.lower()))
+
+    parroted_count = 0
+    examples = []
+
+    for sentence in sentences:
+        sent_words = set(re.findall(r'[a-z]{4,}', sentence.lower()))
+        if not sent_words:
+            continue
+        for eid, ev_words in ev_word_sets.items():
+            if not ev_words:
+                continue
+            intersection = sent_words & ev_words
+            union = sent_words | ev_words
+            jaccard = len(intersection) / len(union) if union else 0.0
+            if jaccard > 0.5:
+                parroted_count += 1
+                if len(examples) < 3:
+                    examples.append(sentence)
+                break  # Count each sentence only once
+
+    total = len(sentences) or 1
+    return {
+        "total_sentences": len(sentences),
+        "parroted_count": parroted_count,
+        "parroted_ratio": round(parroted_count / total, 4),
+        "examples": examples,
+    }
+
+
+def audit_integration(context: str, query: str) -> dict:
+    """Measure multi-criteria integration depth in the synthesis.
+
+    Detects whether the query is multi-criteria and checks how many
+    paragraphs integrate 3+ different criteria keywords.
+    """
+    multi_criteria_pattern = re.compile(
+        r'\b(?:and|&|vs\.?|versus|compare)\b', re.IGNORECASE,
+    )
+    is_multi_criteria = bool(multi_criteria_pattern.search(query))
+
+    criteria_words = {
+        "cost", "price", "expensive", "affordable",
+        "effective", "efficiency", "removal", "performance", "treatment",
+    }
+
+    paragraphs = [p.strip() for p in context.split("\n\n") if p.strip()]
+    integrated_count = 0
+
+    for para in paragraphs:
+        para_lower = para.lower()
+        found = {w for w in criteria_words if w in para_lower}
+        if len(found) >= 3:
+            integrated_count += 1
+
+    total_paragraphs = len(paragraphs) or 1
+    integration_ratio = round(integrated_count / total_paragraphs, 4)
+
+    ranking_pattern = re.compile(
+        r'\b(?:rank|best|recommend|prefer|optimal)\b', re.IGNORECASE,
+    )
+    has_ranking = bool(ranking_pattern.search(context))
+
+    integration_score = round(
+        0.6 * integration_ratio + 0.4 * (1.0 if has_ranking else 0.0), 4,
+    )
+
+    return {
+        "is_multi_criteria": is_multi_criteria,
+        "total_paragraphs": len(paragraphs),
+        "integrated_paragraphs": integrated_count,
+        "integration_ratio": integration_ratio,
+        "has_ranking": has_ranking,
+        "integration_score": integration_score,
+    }
+
+
+def audit_evidence_coverage(context: str, evidence_store: dict) -> dict:
+    """Measure how many evidence categories are actually cited.
+
+    Groups evidence by fact_category and checks whether at least one
+    evidence_id from each category appears as [CITE:ev_xxx] in context.
+    """
+    by_category: dict[str, list[str]] = {}
+    for eid, ev in evidence_store.items():
+        cat = ev.get("fact_category", "general") or "general"
+        by_category.setdefault(cat, []).append(eid)
+
+    cited_ids = set(re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', context))
+    categories_cited = 0
+    for cat, eids in by_category.items():
+        if any(eid in cited_ids for eid in eids):
+            categories_cited += 1
+
+    total_evidence = len(evidence_store) or 1
+    evidence_cited = len(cited_ids & set(evidence_store.keys()))
+
+    return {
+        "total_categories": len(by_category),
+        "categories_cited": categories_cited,
+        "category_coverage": round(
+            categories_cited / max(len(by_category), 1), 4,
+        ),
+        "total_evidence": len(evidence_store),
+        "evidence_cited": evidence_cited,
+        "utilization_rate": round(evidence_cited / total_evidence, 4),
+    }
+
+
+def audit_cross_source(context: str) -> dict:
+    """Count sentences that cite 2+ different evidence sources."""
+    sentences = [s.strip() for s in re.split(r'[.!?]\s+', context) if s.strip()]
+    cross_source_count = 0
+
+    for sentence in sentences:
+        cites = set(re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', sentence))
+        if len(cites) >= 2:
+            cross_source_count += 1
+
+    total = len(sentences) or 1
+    return {
+        "total_sentences": len(sentences),
+        "cross_source_sentences": cross_source_count,
+        "cross_source_ratio": round(cross_source_count / total, 4),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main stress test
 # ---------------------------------------------------------------------------
@@ -502,7 +640,8 @@ async def run_one_test(test_set: dict) -> dict:
 
     # Configure agent
     os.environ["PG_REACT_MAX_ITERATIONS"] = "5"
-    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "120"
+    # 8-phase pipeline needs ~200-300s (scaffold+write+critique+rewrite)
+    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "300"
 
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
     from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
@@ -616,96 +755,138 @@ async def run_one_test(test_set: dict) -> dict:
                   f"actual={issue['computed_unit_filtered']}")
 
     # -----------------------------------------------------------------------
-    # DRACO-Inspired 4-Axis Score
+    # 6-Axis Substance Score (100 pts)
     # -----------------------------------------------------------------------
+    parroting_audit = audit_parroting(context, evidence_store)
+    integration_audit = audit_integration(context, query)
+    coverage_audit = audit_evidence_coverage(context, evidence_store)
+    cross_source_audit = audit_cross_source(context)
+
     score = 0
     max_score = 100
     penalties = []
 
-    # Axis 1: Factual Accuracy (40 pts)
+    # Axis 1: Factual Accuracy (25 pts)
     vr = factual_audit['verification_rate']
-    if vr >= 80:
-        score += 25
-    elif vr >= 50:
-        score += int(25 * vr / 80)
-    else:
-        penalties.append(f"Low verification: {vr}%")
-        score += max(0, int(25 * vr / 80))
-
+    score_a1 = min(15, int(15 * min(vr, 80) / 80))
     if not factual_audit['category_mismatches']:
-        score += 15
+        score_a1 += 10
     elif len(factual_audit['category_mismatches']) <= 1:
-        score += 8
-        penalties.append(
-            f"Category mismatch: {len(factual_audit['category_mismatches'])}"
-        )
+        score_a1 += 5
+        penalties.append(f"Category mismatch: {len(factual_audit['category_mismatches'])}")
     else:
-        penalties.append(
-            f"Category mismatches: {len(factual_audit['category_mismatches'])}"
-        )
+        penalties.append(f"Category mismatches: {len(factual_audit['category_mismatches'])}")
+    score += score_a1
 
-    # Axis 2: Breadth/Depth (20 pts)
-    if breadth_audit['unique_technologies'] >= 3:
-        score += 10
-    elif breadth_audit['unique_technologies'] >= 1:
-        score += 5
+    # Axis 2: Synthesis Quality (25 pts)
+    score_a2 = 0
+    pr = parroting_audit['parroted_ratio']
+    if pr <= 0.30:
+        score_a2 += 15
+    elif pr <= 0.50:
+        score_a2 += 8
+        penalties.append(f"Parroting: {pr:.0%}")
     else:
-        penalties.append("No technologies identified")
+        penalties.append(f"High parroting: {pr:.0%}")
 
-    depth_score = (
-        breadth_audit['cross_source_insights']
-        + breadth_audit['tradeoff_identifications']
-    )
-    if depth_score >= 3:
-        score += 10
-    elif depth_score >= 1:
-        score += 5
+    cs = cross_source_audit['cross_source_sentences']
+    if cs >= 3:
+        score_a2 += 10
+    elif cs >= 1:
+        score_a2 += 5
+        penalties.append(f"Low cross-source: {cs}")
     else:
-        penalties.append(f"Low depth: {depth_score} insights+tradeoffs")
+        penalties.append(f"No cross-source sentences")
+    score += score_a2
 
-    # Axis 3: Citation Quality (25 pts)
+    # Axis 3: Question Answering (20 pts)
+    score_a3 = 0
+    ir = integration_audit['integration_ratio']
+    if ir >= 0.50:
+        score_a3 += 12
+    elif ir >= 0.25:
+        score_a3 += 6
+        penalties.append(f"Low integration: {ir:.0%}")
+    else:
+        penalties.append(f"No integration: {ir:.0%}")
+
+    if integration_audit['has_ranking']:
+        score_a3 += 8
+    else:
+        penalties.append("No ranking/recommendation")
+    score += score_a3
+
+    # Axis 4: Evidence Utilization (10 pts)
+    score_a4 = 0
+    cc = coverage_audit['category_coverage']
+    if cc >= 0.60:
+        score_a4 += 10
+    elif cc >= 0.40:
+        score_a4 += 5
+        penalties.append(f"Low category coverage: {cc:.0%}")
+    else:
+        penalties.append(f"Poor category coverage: {cc:.0%}")
+    score += score_a4
+
+    # Axis 5: Citation Quality (10 pts)
+    score_a5 = 0
     if cite_audit['total_cite_tokens'] >= 10:
-        score += 10
+        score_a5 += 5
     elif cite_audit['total_cite_tokens'] >= 5:
-        score += 5
+        score_a5 += 3
     else:
         penalties.append(f"Low citations: {cite_audit['total_cite_tokens']}")
 
     if not cite_audit['phantom_citations']:
-        score += 10
+        score_a5 += 5
     else:
         penalties.append(f"Phantom: {cite_audit['phantom_citations']}")
+    score += score_a5
 
-    if len(cite_audit['mismatched_citations']) <= 2:
-        score += 5
-    else:
-        penalties.append(
-            f"Mismatched: {len(cite_audit['mismatched_citations'])}"
-        )
-
-    # Axis 4: Content Quality (15 pts)
-    if density_audit['content_ratio'] >= 30:
-        score += 5
-    else:
-        penalties.append(f"Low content: {density_audit['content_ratio']}%")
-
-    if density_audit['numbers_with_units'] >= 5:
-        score += 5
-    elif density_audit['numbers_with_units'] >= 2:
-        score += 3
-    else:
-        penalties.append(
-            f"Low data density: {density_audit['numbers_with_units']}"
-        )
-
+    # Axis 6: Content Quality (10 pts)
+    score_a6 = 0
     if leak_audit['leakage_count'] == 0:
-        score += 5
+        score_a6 += 5
     else:
         penalties.append(f"POLARIS leakage: {leak_audit['leakage_count']}")
 
+    if density_audit['numbers_with_units'] >= 5:
+        score_a6 += 5
+    elif density_audit['numbers_with_units'] >= 2:
+        score_a6 += 3
+    else:
+        penalties.append(f"Low data density: {density_audit['numbers_with_units']}")
+    score += score_a6
+
+    # Print new substance audits
+    print(f"\n  ── SUBSTANCE: PARROTING ──")
+    print(f"    Sentences: {parroting_audit['total_sentences']}")
+    print(f"    Parroted: {parroting_audit['parroted_count']} ({parroting_audit['parroted_ratio']:.0%})")
+    if parroting_audit.get('examples'):
+        for ex in parroting_audit['examples'][:2]:
+            print(f"      > \"{ex[:80]}\"")
+
+    print(f"\n  ── SUBSTANCE: INTEGRATION ──")
+    print(f"    Multi-criteria: {integration_audit['is_multi_criteria']}")
+    print(f"    Integrated paragraphs: {integration_audit['integrated_paragraphs']}/{integration_audit['total_paragraphs']}")
+    print(f"    Has ranking: {integration_audit['has_ranking']}")
+    print(f"    Integration score: {integration_audit['integration_score']:.2f}")
+
+    print(f"\n  ── SUBSTANCE: EVIDENCE COVERAGE ──")
+    print(f"    Categories cited: {coverage_audit['categories_cited']}/{coverage_audit['total_categories']}")
+    print(f"    Utilization: {coverage_audit['utilization_rate']:.0%}")
+
+    print(f"\n  ── SUBSTANCE: CROSS-SOURCE ──")
+    print(f"    Cross-source sentences: {cross_source_audit['cross_source_sentences']}")
+    print(f"    Cross-source ratio: {cross_source_audit['cross_source_ratio']:.0%}")
+
     print(f"\n  ── SCORE: {score}/{max_score} ──")
-    print(f"    Axis 1 (Factual):  "
-          f"{min(40, score)}/40")
+    print(f"    Axis 1 (Factual):     {score_a1}/25")
+    print(f"    Axis 2 (Synthesis):   {score_a2}/25")
+    print(f"    Axis 3 (QA):          {score_a3}/20")
+    print(f"    Axis 4 (Evidence):    {score_a4}/10")
+    print(f"    Axis 5 (Citation):    {score_a5}/10")
+    print(f"    Axis 6 (Content):     {score_a6}/10")
     if penalties:
         for p in penalties:
             print(f"    penalty: {p}")
@@ -730,6 +911,10 @@ async def run_one_test(test_set: dict) -> dict:
         "content_ratio": density_audit['content_ratio'],
         "numbers_with_units": density_audit['numbers_with_units'],
         "leakage": leak_audit['leakage_count'],
+        "parroting_ratio": parroting_audit['parroted_ratio'],
+        "integration_score": integration_audit['integration_score'],
+        "category_coverage": coverage_audit['category_coverage'],
+        "cross_source": cross_source_audit['cross_source_sentences'],
         "elapsed": round(elapsed, 1),
         "cost": round(cost, 4),
         "context_chars": len(context),

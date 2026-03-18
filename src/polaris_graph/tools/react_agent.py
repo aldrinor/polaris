@@ -1,11 +1,13 @@
 """ReAct analysis agent — autonomous tool selection for evidence analysis.
 
-Supports two modes:
-- "agentic" (default): Plan->Execute->Interpret->Verify (2 LLM calls, ReWOO pattern)
-- "react" (legacy): Per-step LLM decisions (up to 5+1 LLM calls)
+Supports three pipeline modes (PG_ANALYSIS_PIPELINE env var):
+- "8phase" (default): Plan→Execute→Briefing→Scaffold→Write→Critique→Rewrite→Verify
+- "legacy": Plan→Execute→Interpret→Verify (2 LLM calls, ReWOO pattern)
+- "react": Per-step LLM decisions (up to 5+1 LLM calls)
 
-The agentic mode eliminates Qwen 3.5 Plus timeout issues on sequential
-structured output calls (2/5 timeout rate in ReAct mode).
+The 8-phase pipeline fixes substance deficits (parroting, no integration,
+low evidence utilization) by interposing a learnings gateway + analytical
+scaffold + iterative critique between execution and writing.
 
 The agent enforces citation provenance: every analysis result traces back
 to original evidence IDs, never "POLARIS Analysis Toolkit".
@@ -15,9 +17,13 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 
+import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import pdist
 
 from src.polaris_graph.tools.analysis_notebook import AnalysisNotebook, AnalysisStep
 from src.polaris_graph.tools.tool_registry import (
@@ -25,6 +31,7 @@ from src.polaris_graph.tools.tool_registry import (
     ToolResult,
     build_default_registry,
 )
+from src.utils.embedding_service import embed_text, embed_texts
 
 logger = logging.getLogger("polaris_graph")
 
@@ -32,6 +39,19 @@ _MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
 _TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "300"))
 _TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
 _INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
+
+# 8-phase pipeline env vars
+_ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
+_DOMAIN_RELEVANCE_THRESHOLD = float(
+    os.getenv("PG_DOMAIN_RELEVANCE_THRESHOLD", "0.15"),
+)
+_LEARNINGS_PER_CLUSTER = int(os.getenv("PG_LEARNINGS_PER_CLUSTER", "8"))
+_MAX_CLUSTERS = int(os.getenv("PG_MAX_CLUSTERS", "15"))
+_MAX_INTERPRETATION_REWRITES = int(
+    os.getenv("PG_MAX_INTERPRETATION_REWRITES", "1"),
+)
+_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "120"))
+_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
 
 # Tool names Qwen is allowed to pick (for extraction from malformed JSON)
 _KNOWN_TOOLS = {
@@ -213,6 +233,73 @@ class AnalysisPlan(BaseModel):
         return data
 
 
+# ---------------------------------------------------------------------------
+# 8-phase pipeline schemas
+# ---------------------------------------------------------------------------
+
+class CritiqueDimension(BaseModel):
+    """Single dimension of the interpretation critique."""
+
+    dimension: str = Field(description="Dimension name")
+    passed: bool = Field(description="Whether this dimension passes")
+    issues: list[str] = Field(
+        description="Specific problems found", default_factory=list,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for alt in ("name", "dim", "category"):
+            if alt in data and "dimension" not in data:
+                data["dimension"] = data.pop(alt)
+        for alt in ("pass", "ok", "passed", "status", "result",
+                     "verdict"):
+            if alt in data and "passed" not in data:
+                data["passed"] = data.pop(alt)
+        # Coerce string "PASS"/"FAIL" → bool
+        if isinstance(data.get("passed"), str):
+            data["passed"] = data["passed"].upper() in (
+                "PASS", "TRUE", "YES", "OK", "PASSED",
+            )
+        for alt in ("problems", "findings", "errors"):
+            if alt in data and "issues" not in data:
+                data["issues"] = data.pop(alt)
+        return data
+
+
+class InterpretationCritique(BaseModel):
+    """Structured critique of an interpretation across 5 dimensions."""
+
+    dimensions: list[CritiqueDimension] = Field(
+        description="Critique per dimension",
+    )
+    needs_rewrite: bool = Field(
+        description="Whether the interpretation needs rewriting",
+    )
+    rewrite_instructions: str = Field(
+        description="Specific fix instructions for the rewriter",
+        default="",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for alt in ("dims", "axes", "criteria", "evaluations"):
+            if alt in data and "dimensions" not in data:
+                data["dimensions"] = data.pop(alt)
+        for alt in ("rewrite", "needs_revision", "should_rewrite"):
+            if alt in data and "needs_rewrite" not in data:
+                data["needs_rewrite"] = data.pop(alt)
+        for alt in ("instructions", "fix_instructions", "fixes"):
+            if alt in data and "rewrite_instructions" not in data:
+                data["rewrite_instructions"] = data.pop(alt)
+        return data
+
+
 class ReactAnalysisAgent:
     """ReAct loop that autonomously analyzes evidence using registered tools.
 
@@ -239,18 +326,29 @@ class ReactAnalysisAgent:
         self._registry = registry or build_default_registry()
         self._tracer = tracer
         self._notebook = AnalysisNotebook(query, evidence_ids)
-        # Mode: env var takes precedence, then constructor arg, then default
-        self._mode = os.getenv("PG_REACT_MODE", mode or "agentic")
+        # Mode precedence: PG_REACT_MODE env (legacy compat) > constructor
+        # > PG_ANALYSIS_PIPELINE env (pipeline default) > "8phase"
+        react_mode = os.getenv("PG_REACT_MODE", "")
+        if react_mode:
+            self._mode = react_mode
+        elif mode:
+            self._mode = mode
+        else:
+            self._mode = os.getenv("PG_ANALYSIS_PIPELINE", "") or "8phase"
 
     async def run(self) -> AnalysisNotebook:
         """Execute analysis and return the notebook.
 
-        Dispatches to _run_agentic_analysis() or _run_react() based on
-        the mode parameter / PG_REACT_MODE env var.
+        Dispatches based on pipeline mode:
+        - "8phase": Plan→Execute→Briefing→Scaffold→Write→Critique→Rewrite→Verify
+        - "legacy"/"agentic": Plan→Execute→Interpret→Verify (2 LLM calls)
+        - "react": Per-step LLM decisions
         """
         if self._mode == "react":
             return await self._run_react()
-        return await self._run_agentic_analysis()
+        if self._mode in ("legacy", "agentic"):
+            return await self._run_agentic_analysis()
+        return await self._run_8phase_analysis()
 
     async def _run_react(self) -> AnalysisNotebook:
         """Execute the ReAct loop (legacy mode)."""
@@ -499,6 +597,1127 @@ class ReactAnalysisAgent:
 
         return self._notebook
 
+    # -------------------------------------------------------------------
+    # 8-phase pipeline (Briefing→Scaffold→Write→Critique→Rewrite→Verify)
+    # -------------------------------------------------------------------
+
+    async def _run_8phase_analysis(self) -> AnalysisNotebook:
+        """Execute 8-phase SOTA analysis pipeline.
+
+        Phase 1: PLAN      — 1 generate_structured() call
+        Phase 2: EXECUTE   — deterministic tool execution, 0 LLM calls
+        Phase 3: BRIEFING  — cluster + distill ALL evidence, 0 LLM calls
+        Phase 4: SCAFFOLD  — 1 reason() call: analytical framework
+        Phase 5: WRITE     — 1 generate() call: prose from scaffold
+        Phase 6: CRITIQUE  — 1 reason() call: structured quality check
+        Phase 7: REWRITE   — 0-1 generate() call: fix critique issues
+        Phase 8: VERIFY    — programmatic claim verification
+        """
+        start_time = time.monotonic()
+        timeout = _TIMEOUT_SECONDS
+
+        logger.info(
+            "[8phase] Starting analysis: %d evidence, timeout=%ds",
+            len(self._evidence_ids), timeout,
+        )
+
+        # Phase 1: PLAN (1 LLM call)
+        plan = None
+        try:
+            plan = await self._plan_analysis()
+            logger.info(
+                "[8phase] Plan: %s",
+                [s.tool_name for s in plan.steps],
+            )
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Plan failed: %s: %s, using fallback",
+                type(exc).__name__, str(exc)[:200],
+            )
+
+        if not plan or not plan.steps:
+            plan = AnalysisPlan(steps=[
+                PlannedStep(
+                    tool_name="extract_numeric_data",
+                    reasoning="Always extract first",
+                ),
+                PlannedStep(
+                    tool_name="statistical_summary",
+                    reasoning="Compute statistics on extracted data",
+                ),
+                PlannedStep(
+                    tool_name="query_evidence_sql",
+                    reasoning="Get tier distribution and metadata",
+                ),
+            ])
+
+        # Phase 2: EXECUTE (0 LLM calls)
+        for step_def in plan.steps:
+            elapsed = time.monotonic() - start_time
+            if elapsed >= timeout:
+                logger.info("[8phase] Timeout after %.1fs", elapsed)
+                break
+
+            tool_def = self._registry.get_tool(step_def.tool_name)
+            if not tool_def or not tool_def.execute:
+                continue
+            if tool_def.requires_data and not self._notebook.has_data:
+                continue
+
+            step_start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    tool_def.execute(
+                        evidence_store=self._evidence_store,
+                        data_points=self._notebook.data_points,
+                        client=self._client,
+                        **step_def.parameters,
+                    ),
+                    timeout=_TOOL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                result = ToolResult(
+                    success=False, tool_name=step_def.tool_name,
+                    error=f"Timeout after {_TOOL_TIMEOUT}s",
+                )
+            except Exception as exc:
+                result = ToolResult(
+                    success=False, tool_name=step_def.tool_name,
+                    error=str(exc)[:500],
+                )
+
+            step_elapsed = time.monotonic() - step_start
+            step = AnalysisStep(
+                step_number=self._notebook.step_count + 1,
+                reasoning=step_def.reasoning or f"Planned: {step_def.tool_name}",
+                tool_name=step_def.tool_name,
+                result=result,
+                elapsed_seconds=round(step_elapsed, 3),
+            )
+            self._notebook.add_step(step)
+            logger.info(
+                "[8phase] Step %d: %s [%s] %.1fs",
+                step.step_number, step_def.tool_name,
+                "OK" if result.success else "FAIL", step_elapsed,
+            )
+
+        if self._notebook.successful_steps == 0:
+            await self._run_fallback()
+
+        # Phase 3: BRIEFING (0 LLM calls)
+        briefing = self._build_evidence_briefing()
+        logger.info(
+            "[8phase] Briefing: %d learnings, %d clusters, %d sub-questions",
+            len(briefing.get("learnings", [])),
+            len(briefing.get("clusters", [])),
+            len(briefing.get("sub_questions", [])),
+        )
+
+        # Phase 4: SCAFFOLD (1 reason() call)
+        scaffold = ""
+        if self._notebook.successful_steps > 0 and self._client:
+            scaffold = await self._generate_analytical_scaffold(briefing)
+            logger.info(
+                "[8phase] Scaffold: %d chars", len(scaffold),
+            )
+
+        # Phase 5: WRITE (1 generate() call)
+        interpretation = ""
+        if scaffold and self._client:
+            interpretation = await self._write_interpretation(
+                scaffold, briefing,
+            )
+            logger.info(
+                "[8phase] Interpretation: %d chars", len(interpretation),
+            )
+
+        # Phase 6: CRITIQUE (1 reason() call)
+        critique = None
+        if interpretation and self._client:
+            critique = await self._critique_interpretation(
+                interpretation, briefing,
+            )
+            if critique:
+                logger.info(
+                    "[8phase] Critique: needs_rewrite=%s, %d/%d dims passed",
+                    critique.get("needs_rewrite"),
+                    sum(1 for d in critique.get("dimensions", [])
+                        if d.get("passed")),
+                    len(critique.get("dimensions", [])),
+                )
+
+        # Phase 7: REWRITE (conditional, 0-1 generate() call)
+        if (
+            critique
+            and critique.get("needs_rewrite")
+            and interpretation
+            and self._client
+        ):
+            rewritten = await self._rewrite_interpretation(
+                interpretation, critique, briefing,
+            )
+            if rewritten:
+                interpretation = rewritten
+                logger.info(
+                    "[8phase] Rewrite: %d chars", len(interpretation),
+                )
+
+        # Phase 8: VERIFY (programmatic)
+        verification = self._verify_claims(briefing=briefing)
+        if verification:
+            logger.info(
+                "[8phase] Verification: %d/%d verified, %d mismatches",
+                verification.get("verified", 0),
+                verification.get("total_claims_checked", 0),
+                verification.get("mismatches", 0),
+            )
+
+        total_elapsed = time.monotonic() - start_time
+        logger.info(
+            "[8phase] Complete: %d steps (%d ok), %d data points, %.1fs",
+            self._notebook.step_count,
+            self._notebook.successful_steps,
+            len(self._notebook.data_points),
+            total_elapsed,
+        )
+
+        return self._notebook
+
+    # -------------------------------------------------------------------
+    # Phase 3: BRIEFING — evidence distillation + clustering
+    # -------------------------------------------------------------------
+
+    @staticmethod
+    def _distill_fact(statement: str) -> str:
+        """Distill an evidence statement to a concise fact (~20 words).
+
+        Strips common boilerplate prefixes and truncates to ~20 words.
+        Pure regex, no LLM call.
+        """
+        if not statement:
+            return ""
+
+        text = statement.strip()
+
+        # Strip boilerplate prefixes
+        boilerplate_patterns = [
+            r'^(?:the\s+)?(?:study|research|analysis|report|paper|'
+            r'investigation|review|assessment)\s+'
+            r'(?:found|showed|demonstrated|revealed|indicated|reported|'
+            r'concluded|suggests?|confirms?|determined)\s+that\s+',
+            r'^(?:according\s+to\s+(?:the|a|this)\s+'
+            r'(?:study|research|report|analysis|data|findings)),?\s*',
+            r'^(?:it\s+(?:was|is|has\s+been)\s+'
+            r'(?:found|shown|demonstrated|reported|observed)\s+that\s+)',
+            r'^(?:results?\s+(?:show|indicate|suggest|demonstrate)\s+that\s+)',
+            r'^(?:data\s+(?:shows?|indicates?|suggests?)\s+that\s+)',
+        ]
+        for pattern in boilerplate_patterns:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+        # Truncate to ~20 words
+        words = text.split()
+        if len(words) > 20:
+            text = " ".join(words[:20]) + "..."
+
+        return text.strip()
+
+    def _build_evidence_briefing(self) -> dict:
+        """Build structured evidence briefing from ALL evidence (Phase 3).
+
+        Returns:
+            {
+                "learnings": [{"fact": str, "category": str, "tier": str,
+                              "evidence_ids": [str], "relevance": float}],
+                "clusters": [{"theme": str, "learning_indices": [int],
+                             "evidence_count": int}],
+                "sub_questions": [str],
+                "comparison_matrix": str,
+            }
+        """
+        # Step 1: Distill ALL evidence into compact facts
+        raw_learnings = []
+        for eid in self._evidence_ids:
+            ev = self._evidence_store.get(eid, {})
+            stmt = ev.get("statement", "")
+            if not stmt or len(stmt) < 10:
+                continue
+
+            fact = self._distill_fact(stmt)
+            if not fact:
+                continue
+
+            raw_learnings.append({
+                "fact": fact,
+                "category": ev.get("fact_category", "general"),
+                "tier": ev.get("quality_tier", "BRONZE"),
+                "evidence_ids": [eid],
+                "relevance": float(ev.get("relevance_score", 0.5)),
+                "perspective": ev.get("perspective", ""),
+                "original_statement": stmt,
+            })
+
+        if not raw_learnings:
+            return {
+                "learnings": [],
+                "clusters": [],
+                "sub_questions": self._decompose_query(),
+                "comparison_matrix": "",
+            }
+
+        # Step 2: Domain filter via embedding similarity
+        try:
+            query_embedding = embed_text(self._query)
+            fact_texts = [l["fact"] for l in raw_learnings]
+            fact_embeddings = embed_texts(fact_texts)
+
+            query_vec = np.array(query_embedding)
+            filtered_learnings = []
+            filtered_embeddings = []
+            for i, learning in enumerate(raw_learnings):
+                fact_vec = np.array(fact_embeddings[i])
+                norm_q = np.linalg.norm(query_vec)
+                norm_f = np.linalg.norm(fact_vec)
+                if norm_q > 0 and norm_f > 0:
+                    cos_sim = float(
+                        np.dot(query_vec, fact_vec) / (norm_q * norm_f)
+                    )
+                else:
+                    cos_sim = 0.0
+
+                if cos_sim >= _DOMAIN_RELEVANCE_THRESHOLD:
+                    learning["relevance"] = max(
+                        learning["relevance"], cos_sim,
+                    )
+                    filtered_learnings.append(learning)
+                    filtered_embeddings.append(fact_embeddings[i])
+
+            logger.info(
+                "[8phase] Domain filter: %d/%d learnings passed (threshold=%.2f)",
+                len(filtered_learnings), len(raw_learnings),
+                _DOMAIN_RELEVANCE_THRESHOLD,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Embedding failed, skipping domain filter: %s",
+                str(exc)[:200],
+            )
+            filtered_learnings = raw_learnings
+            filtered_embeddings = []
+
+        if not filtered_learnings:
+            # If filter was too aggressive, keep top 50% by relevance
+            raw_learnings.sort(key=lambda x: x["relevance"], reverse=True)
+            filtered_learnings = raw_learnings[:max(5, len(raw_learnings) // 2)]
+            filtered_embeddings = []
+
+        # Step 3: Cluster by embedding similarity
+        clusters = self._cluster_learnings(
+            filtered_learnings, filtered_embeddings,
+        )
+
+        # Step 4: Decompose query into sub-questions
+        sub_questions = self._decompose_query()
+
+        # Step 5: Build comparison matrix
+        comparison_matrix = self._build_comparison_matrix(
+            filtered_learnings, sub_questions,
+        )
+
+        return {
+            "learnings": filtered_learnings,
+            "clusters": clusters,
+            "sub_questions": sub_questions,
+            "comparison_matrix": comparison_matrix,
+        }
+
+    def _cluster_learnings(
+        self,
+        learnings: list[dict],
+        embeddings: list[list[float]],
+    ) -> list[dict]:
+        """Cluster learnings by embedding similarity.
+
+        Uses scipy agglomerative clustering with cosine distance.
+        Falls back to category-based grouping if embeddings unavailable.
+        """
+        if len(learnings) <= 1:
+            if learnings:
+                return [{
+                    "theme": learnings[0].get("category", "general"),
+                    "learning_indices": [0],
+                    "evidence_count": 1,
+                }]
+            return []
+
+        # Try embedding-based clustering
+        if embeddings and len(embeddings) == len(learnings):
+            try:
+                emb_matrix = np.array(embeddings)
+                # Compute pairwise cosine distances
+                dists = pdist(emb_matrix, metric="cosine")
+                # Replace NaN distances (zero-norm vectors) with 1.0
+                dists = np.nan_to_num(dists, nan=1.0)
+                linkage_matrix = linkage(dists, method="average")
+                labels = fcluster(linkage_matrix, t=0.5, criterion="distance")
+
+                cluster_map: dict[int, list[int]] = {}
+                for idx, label in enumerate(labels):
+                    cluster_map.setdefault(int(label), []).append(idx)
+
+                clusters = []
+                for label in sorted(cluster_map.keys()):
+                    indices = cluster_map[label]
+                    # Label cluster by most common category
+                    cats = [
+                        learnings[i].get("category", "general")
+                        for i in indices
+                    ]
+                    theme = max(set(cats), key=cats.count)
+
+                    # Sort: GOLD first, then by relevance desc
+                    tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
+                    indices.sort(key=lambda i: (
+                        tier_order.get(learnings[i].get("tier", "BRONZE"), 3),
+                        -learnings[i].get("relevance", 0),
+                    ))
+
+                    # Cap per cluster
+                    capped = indices[:_LEARNINGS_PER_CLUSTER]
+                    clusters.append({
+                        "theme": theme,
+                        "learning_indices": capped,
+                        "evidence_count": len(capped),
+                    })
+
+                # Cap total clusters
+                clusters.sort(
+                    key=lambda c: c["evidence_count"], reverse=True,
+                )
+                return clusters[:_MAX_CLUSTERS]
+            except Exception as exc:
+                logger.warning(
+                    "[8phase] Clustering failed: %s, using category groups",
+                    str(exc)[:200],
+                )
+
+        # Fallback: group by category
+        cat_map: dict[str, list[int]] = {}
+        for i, learning in enumerate(learnings):
+            cat = learning.get("category", "general")
+            cat_map.setdefault(cat, []).append(i)
+
+        clusters = []
+        for cat, indices in cat_map.items():
+            # Sort by tier + relevance
+            tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
+            indices.sort(key=lambda i: (
+                tier_order.get(learnings[i].get("tier", "BRONZE"), 3),
+                -learnings[i].get("relevance", 0),
+            ))
+            clusters.append({
+                "theme": cat,
+                "learning_indices": indices[:_LEARNINGS_PER_CLUSTER],
+                "evidence_count": min(len(indices), _LEARNINGS_PER_CLUSTER),
+            })
+
+        clusters.sort(key=lambda c: c["evidence_count"], reverse=True)
+        return clusters[:_MAX_CLUSTERS]
+
+    def _decompose_query(self) -> list[str]:
+        """Decompose query into sub-questions via regex.
+
+        Detects multi-criteria patterns and generates targeted sub-questions.
+        """
+        query = self._query.lower()
+        sub_questions = []
+
+        # Pattern: "effective AND affordable" / "X and Y"
+        and_match = re.findall(
+            r'(\w+)\s+(?:and|&|as well as|plus)\s+(\w+)',
+            query, re.IGNORECASE,
+        )
+        for w1, w2 in and_match:
+            sub_questions.append(f"What is the {w1} of each option?")
+            sub_questions.append(f"What is the {w2} of each option?")
+
+        # Pattern: "compare X vs Y" / "X versus Y"
+        vs_match = re.findall(
+            r'compare\s+(.+?)\s+(?:vs|versus|with|against|to)\s+(.+?)(?:\s|$)',
+            query, re.IGNORECASE,
+        )
+        for entity1, entity2 in vs_match:
+            sub_questions.append(
+                f"What are the strengths of {entity1.strip()}?"
+            )
+            sub_questions.append(
+                f"What are the strengths of {entity2.strip()}?"
+            )
+
+        # Pattern: "most effective" / "best" → ranking question
+        if re.search(r'\b(?:most|best|top|leading|optimal)\b', query):
+            sub_questions.append(
+                "What is the evidence-based ranking of options?"
+            )
+
+        # Pattern: cost-related
+        if re.search(r'\b(?:cost|afford|cheap|expens|price|budget)\b', query):
+            sub_questions.append(
+                "What are the cost considerations for each option?"
+            )
+
+        # Pattern: effectiveness
+        if re.search(
+            r'\b(?:effect|efficien|remov|treat|perform|capab)\b', query,
+        ):
+            sub_questions.append(
+                "What is the effectiveness/performance of each option?"
+            )
+
+        # Always include a gaps question
+        sub_questions.append("What gaps remain in the evidence?")
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for q in sub_questions:
+            q_lower = q.lower()
+            if q_lower not in seen:
+                seen.add(q_lower)
+                unique.append(q)
+
+        return unique
+
+    def _build_comparison_matrix(
+        self,
+        learnings: list[dict],
+        sub_questions: list[str],
+    ) -> str:
+        """Build a markdown comparison matrix for multi-criteria queries.
+
+        Groups learnings by subject entity × criterion.
+        Returns empty string if query is single-criterion.
+        """
+        if len(sub_questions) < 3:
+            return ""
+
+        # Extract entity mentions from learnings
+        entities: dict[str, list[dict]] = {}
+        for learning in learnings:
+            fact = learning["fact"].lower()
+            # Try to extract the subject (first capitalized noun phrase)
+            subject_match = re.search(
+                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+                learning["fact"],
+            )
+            if subject_match:
+                entity = subject_match.group(1)
+            else:
+                # Use category as fallback
+                entity = learning.get("category", "general")
+            entities.setdefault(entity, []).append(learning)
+
+        if len(entities) < 2:
+            return ""
+
+        # Build markdown table
+        # Columns: entity | key findings
+        lines = ["| Entity | Key Finding | Evidence |"]
+        lines.append("|--------|-------------|----------|")
+
+        for entity, entity_learnings in sorted(
+            entities.items(), key=lambda x: -len(x[1]),
+        )[:10]:
+            # Pick highest-relevance learning
+            best = max(entity_learnings, key=lambda l: l["relevance"])
+            ev_ids = ", ".join(best["evidence_ids"][:2])
+            lines.append(
+                f"| {entity} | {best['fact'][:80]} | {ev_ids} |"
+            )
+
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------------
+    # Phase 4: SCAFFOLD — analytical framework generation
+    # -------------------------------------------------------------------
+
+    async def _generate_analytical_scaffold(
+        self, briefing: dict,
+    ) -> str:
+        """Generate analytical scaffold using reasoning model (Phase 4).
+
+        Uses reason() (thinking enabled) to produce a structured framework
+        that the writer will expand into prose.
+
+        Returns: markdown scaffold (300-500 words)
+        """
+        # Format briefing as compact input
+        cluster_text = []
+        learnings = briefing.get("learnings", [])
+        for cluster in briefing.get("clusters", []):
+            theme = cluster["theme"]
+            indices = cluster["learning_indices"]
+            facts = []
+            for idx in indices:
+                if idx < len(learnings):
+                    l = learnings[idx]
+                    tier_tag = f"[{l['tier']}]" if l.get("tier") else ""
+                    ev_ids = ", ".join(l.get("evidence_ids", [])[:2])
+                    facts.append(
+                        f"  - {tier_tag} {l['fact']} [{ev_ids}]"
+                    )
+            cluster_text.append(
+                f"**{theme}** ({len(indices)} learnings):\n"
+                + "\n".join(facts)
+            )
+
+        clustered_learnings = "\n\n".join(cluster_text)
+
+        sub_questions = briefing.get("sub_questions", [])
+        sq_text = "\n".join(
+            f"  {i+1}. {q}" for i, q in enumerate(sub_questions)
+        )
+
+        matrix = briefing.get("comparison_matrix", "")
+        matrix_section = (
+            f"\nCOMPARISON MATRIX:\n{matrix}\n" if matrix else ""
+        )
+
+        prompt = (
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"SUB-QUESTIONS:\n{sq_text}\n\n"
+            f"EVIDENCE BRIEFING ({len(learnings)} learnings across "
+            f"{len(briefing.get('clusters', []))} themes):\n"
+            f"{clustered_learnings}\n"
+            f"{matrix_section}\n"
+            f"PRODUCE AN ANALYTICAL SCAFFOLD:\n"
+            f"1. For each sub-question: what does the evidence say? "
+            f"(cite [CITE:ev_xxx])\n"
+            f"2. Where do sources AGREE? Where do they CONTRADICT?\n"
+            f"3. What TRADE-OFFS exist between the criteria?\n"
+            f"4. What is the EVIDENCE-BASED ranking? (with specific numbers)\n"
+            f"5. What GAPS remain in the evidence?\n\n"
+            f"This scaffold will be expanded into a full analysis. "
+            f"Be specific with numbers and citations. "
+            f"Think carefully about cross-source reasoning."
+        )
+
+        system = (
+            "You are an analytical strategist. Think through the evidence "
+            "and produce a research framework. Use [CITE:ev_xxx] citations."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.reason(
+                    prompt=prompt,
+                    system=system,
+                    effort="high",
+                    max_tokens=4096,
+                    timeout=_SCAFFOLD_TIMEOUT,
+                ),
+                timeout=_SCAFFOLD_TIMEOUT + 15,
+            )
+
+            content = response.content.strip()
+            if content and len(content) > 50:
+                return content
+
+            logger.warning(
+                "[8phase] Scaffold too short (%d chars), using fallback",
+                len(content),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Scaffold generation failed: %s: %s, using fallback",
+                type(exc).__name__, str(exc)[:200],
+            )
+
+        # Fallback: programmatic scaffold from briefing
+        return self._build_fallback_scaffold(briefing)
+
+    def _build_fallback_scaffold(self, briefing: dict) -> str:
+        """Build a programmatic scaffold from briefing data.
+
+        Used when reason() times out or fails.
+        """
+        lines = [f"## Analytical Framework: {self._query}\n"]
+
+        # Sub-question answers from top learnings
+        for sq in briefing.get("sub_questions", []):
+            lines.append(f"### {sq}")
+            # Find relevant learnings
+            relevant = []
+            sq_words = set(sq.lower().split())
+            for l in briefing.get("learnings", [])[:30]:
+                fact_words = set(l["fact"].lower().split())
+                if len(sq_words & fact_words) >= 2:
+                    relevant.append(l)
+            for r in relevant[:3]:
+                ev_ids = ", ".join(
+                    f"[CITE:{eid}]" for eid in r.get("evidence_ids", [])[:1]
+                )
+                lines.append(f"- {r['fact']} {ev_ids}")
+            lines.append("")
+
+        # Top findings from each cluster
+        lines.append("### Key Evidence Clusters")
+        for cluster in briefing.get("clusters", [])[:5]:
+            theme = cluster["theme"]
+            indices = cluster["learning_indices"][:3]
+            learnings = briefing.get("learnings", [])
+            facts = []
+            for idx in indices:
+                if idx < len(learnings):
+                    l = learnings[idx]
+                    ev = ", ".join(
+                        f"[CITE:{eid}]"
+                        for eid in l.get("evidence_ids", [])[:1]
+                    )
+                    facts.append(f"  - {l['fact']} {ev}")
+            lines.append(f"**{theme}**:")
+            lines.extend(facts)
+            lines.append("")
+
+        lines.append("### Gaps")
+        lines.append("- Evidence gaps require further investigation")
+
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------------
+    # Phase 5: WRITE — scaffold-based interpretation
+    # -------------------------------------------------------------------
+
+    async def _write_interpretation(
+        self, scaffold: str, briefing: dict,
+    ) -> str:
+        """Write analytical prose FROM the scaffold (Phase 5).
+
+        The LLM expands the scaffold into full prose. It never sees raw
+        evidence statements, preventing verbatim parroting.
+        """
+        # Build cluster summary for context
+        cluster_summary = ", ".join(
+            f"{c['theme']} ({c['evidence_count']})"
+            for c in briefing.get("clusters", [])[:10]
+        )
+
+        prompt = (
+            f"You are a senior research analyst. Expand this analytical "
+            f"scaffold into publication-quality prose.\n\n"
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+            f"EVIDENCE THEMES: {cluster_summary}\n\n"
+            f"RULES:\n"
+            f"1. EXPAND the scaffold into full analytical paragraphs "
+            f"(800-1500 words)\n"
+            f"2. Preserve ALL citations [CITE:ev_xxx] from the scaffold\n"
+            f"3. For EVERY numerical claim, include the citation\n"
+            f"4. INTEGRATE criteria — discuss effectiveness AND cost in "
+            f"the SAME paragraph per technology\n"
+            f"5. Write CROSS-SOURCE insights "
+            f"('Comparing X and Y reveals...')\n"
+            f"6. Do NOT add claims not in the scaffold (no hallucination)\n"
+            f"7. Include a clear ranking with evidence-backed justification\n"
+            f"8. End with data gaps and limitations\n"
+            f"9. ONLY cite evidence IDs starting with 'ev_'. "
+            f"NEVER cite tool names\n"
+            f"10. Do NOT mention 'scaffold' or 'framework' in the output\n"
+        )
+
+        system = (
+            "Expand the scaffold into analytical prose. Every claim must "
+            "have a [CITE:ev_xxx] citation from the scaffold. "
+            "Do not invent new claims. Be concise and analytical."
+        )
+
+        interpret_timeout = int(
+            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"),
+        )
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=8192,
+                    temperature=0.3,
+                ),
+                timeout=interpret_timeout,
+            )
+
+            content = response.content.strip()
+            if not content or len(content) < 100:
+                logger.warning(
+                    "[8phase] Write produced too little: %d chars",
+                    len(content),
+                )
+                return ""
+
+            # Remove phantom citations
+            all_cited = re.findall(r'\[CITE:([^\]]+)\]', content)
+            phantom_ids = [
+                eid for eid in all_cited
+                if eid not in self._evidence_store
+            ]
+            for pid in set(phantom_ids):
+                content = content.replace(f"[CITE:{pid}]", "")
+
+            valid_ids = [
+                eid for eid in all_cited
+                if eid in self._evidence_store
+            ]
+
+            # Add as notebook step
+            step = AnalysisStep(
+                step_number=self._notebook.step_count + 1,
+                reasoning="8-phase scaffold-based interpretation",
+                tool_name="interpret_results",
+                result=ToolResult(
+                    success=True,
+                    tool_name="interpret_results",
+                    markdown=content,
+                    source_evidence_ids=list(set(valid_ids)),
+                    insights=[
+                        "Scaffold-based analysis with integrated criteria",
+                    ],
+                ),
+                elapsed_seconds=0.0,
+            )
+            self._notebook.add_step(step)
+
+            logger.info(
+                "[8phase] Write complete: %d chars, %d citations "
+                "(%d valid, %d phantom)",
+                len(content), len(all_cited), len(valid_ids),
+                len(phantom_ids),
+            )
+
+            return content
+
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Write failed: %s: %s",
+                type(exc).__name__, str(exc)[:200],
+            )
+            return ""
+
+    # -------------------------------------------------------------------
+    # Phase 6: CRITIQUE — structured quality check
+    # -------------------------------------------------------------------
+
+    async def _critique_interpretation(
+        self, interpretation: str, briefing: dict,
+    ) -> dict | None:
+        """Critique interpretation for analytical quality (Phase 6).
+
+        Uses reason() to evaluate against 5 substance dimensions.
+        Returns structured critique dict with pass/fail per dimension.
+        """
+        sub_questions = briefing.get("sub_questions", [])
+        sq_text = "\n".join(f"  - {q}" for q in sub_questions)
+
+        prompt = (
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"SUB-QUESTIONS THE ANALYSIS SHOULD ADDRESS:\n{sq_text}\n\n"
+            f"ANALYSIS TO CRITIQUE:\n{interpretation}\n\n"
+            f"Evaluate this analysis on 5 dimensions. For each, state "
+            f"whether it PASSES or FAILS and list specific issues:\n\n"
+            f"1. sub_question_coverage: Does it address ALL sub-questions?\n"
+            f"2. cross_source_synthesis: Are there sentences combining "
+            f"2+ sources? (look for multiple [CITE:] in one sentence)\n"
+            f"3. integration: For multi-criteria queries, are criteria "
+            f"discussed TOGETHER (not in separate sections)?\n"
+            f"4. evidence_grounding: Does every numerical claim have a "
+            f"[CITE:ev_xxx]?\n"
+            f"5. analytical_depth: Are there trade-off identifications, "
+            f"conditional recommendations, gap analyses?\n\n"
+            f"Then decide: needs_rewrite = true if <=3 dimensions pass.\n"
+            f"If rewrite needed, provide specific fix instructions."
+        )
+
+        system = (
+            "You are a research quality auditor. Be strict but fair. "
+            "Return valid JSON matching the InterpretationCritique schema."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.reason(
+                    prompt=prompt,
+                    system=system,
+                    schema=InterpretationCritique,
+                    effort="medium",
+                    max_tokens=2048,
+                    timeout=_CRITIQUE_TIMEOUT,
+                ),
+                timeout=_CRITIQUE_TIMEOUT + 15,
+            )
+
+            # Parse the response
+            content = response.content.strip()
+            if hasattr(response, "_parsed") and response._parsed:
+                critique_obj = response._parsed
+            else:
+                # Try to parse JSON from content
+                try:
+                    critique_obj = InterpretationCritique.model_validate_json(
+                        content,
+                    )
+                except Exception:
+                    # Try extracting JSON from content
+                    json_match = re.search(
+                        r'\{[\s\S]*\}', content,
+                    )
+                    if json_match:
+                        critique_obj = InterpretationCritique.model_validate_json(
+                            json_match.group(),
+                        )
+                    else:
+                        logger.warning(
+                            "[8phase] Could not parse critique response",
+                        )
+                        return self._programmatic_critique(
+                            interpretation, briefing,
+                        )
+
+            return critique_obj.model_dump()
+
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Critique failed: %s: %s, using programmatic",
+                type(exc).__name__, str(exc)[:200],
+            )
+            return self._programmatic_critique(interpretation, briefing)
+
+    def _programmatic_critique(
+        self, interpretation: str, briefing: dict,
+    ) -> dict:
+        """Programmatic fallback critique when LLM critique fails.
+
+        Checks the 5 dimensions using regex and counting.
+        """
+        dims = []
+
+        # 1. Sub-question coverage
+        sub_questions = briefing.get("sub_questions", [])
+        covered = 0
+        for sq in sub_questions:
+            sq_words = set(
+                w for w in sq.lower().split() if len(w) > 3
+            )
+            interp_lower = interpretation.lower()
+            overlap = sum(1 for w in sq_words if w in interp_lower)
+            if overlap >= 2:
+                covered += 1
+        coverage_ratio = covered / max(len(sub_questions), 1)
+        dims.append({
+            "dimension": "sub_question_coverage",
+            "passed": coverage_ratio >= 0.6,
+            "issues": (
+                [f"Only {covered}/{len(sub_questions)} sub-questions addressed"]
+                if coverage_ratio < 0.6 else []
+            ),
+        })
+
+        # 2. Cross-source synthesis
+        cross_count = 0
+        for sentence in re.split(r'[.!?]\s+', interpretation):
+            cites = set(re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', sentence))
+            if len(cites) >= 2:
+                cross_count += 1
+        dims.append({
+            "dimension": "cross_source_synthesis",
+            "passed": cross_count >= 3,
+            "issues": (
+                [f"Only {cross_count} cross-source sentences (need >=3)"]
+                if cross_count < 3 else []
+            ),
+        })
+
+        # 3. Integration (multi-criteria in same paragraph)
+        paragraphs = [
+            p.strip() for p in interpretation.split("\n\n") if p.strip()
+        ]
+        criteria_words = {
+            "cost", "price", "expensive", "affordable",
+            "effective", "efficiency", "removal", "performance",
+        }
+        integrated_paragraphs = 0
+        for para in paragraphs:
+            para_lower = para.lower()
+            criteria_found = sum(
+                1 for w in criteria_words if w in para_lower
+            )
+            if criteria_found >= 3:
+                integrated_paragraphs += 1
+        integration_ratio = integrated_paragraphs / max(len(paragraphs), 1)
+        dims.append({
+            "dimension": "integration",
+            "passed": integration_ratio >= 0.2 or len(sub_questions) < 3,
+            "issues": (
+                [f"Only {integrated_paragraphs}/{len(paragraphs)} paragraphs "
+                 f"integrate multiple criteria"]
+                if integration_ratio < 0.2 and len(sub_questions) >= 3 else []
+            ),
+        })
+
+        # 4. Evidence grounding
+        # Count numerical claims without citations
+        num_claims = re.findall(
+            r'\d+\.?\d*\s*(?:%|mg|ng|ppt|ppb|ppm|kWh|\$)',
+            interpretation,
+        )
+        cited_nums = re.findall(
+            r'\d+\.?\d*\s*(?:%|mg|ng|ppt|ppb|ppm|kWh|\$)[^.!?\n]*'
+            r'\[CITE:ev_[a-f0-9]+\]',
+            interpretation,
+        )
+        grounding_ratio = len(cited_nums) / max(len(num_claims), 1)
+        dims.append({
+            "dimension": "evidence_grounding",
+            "passed": grounding_ratio >= 0.6,
+            "issues": (
+                [f"Only {len(cited_nums)}/{len(num_claims)} numerical "
+                 f"claims have citations"]
+                if grounding_ratio < 0.6 else []
+            ),
+        })
+
+        # 5. Analytical depth
+        depth_markers = [
+            r'(?:however|although|while|whereas|despite)',
+            r'(?:trade-?off|limitation|disadvantage|drawback)',
+            r'(?:recommend|ranking|prefer|optimal|best suited)',
+            r'(?:gap|limitation|missing|insufficient|unclear)',
+        ]
+        depth_count = sum(
+            len(re.findall(p, interpretation, re.IGNORECASE))
+            for p in depth_markers
+        )
+        dims.append({
+            "dimension": "analytical_depth",
+            "passed": depth_count >= 3,
+            "issues": (
+                [f"Only {depth_count} depth markers found (need >=3)"]
+                if depth_count < 3 else []
+            ),
+        })
+
+        passed_count = sum(1 for d in dims if d["passed"])
+        needs_rewrite = passed_count <= 3
+
+        all_issues = []
+        for d in dims:
+            all_issues.extend(d["issues"])
+
+        return {
+            "dimensions": dims,
+            "needs_rewrite": needs_rewrite,
+            "rewrite_instructions": (
+                "Fix these issues: " + "; ".join(all_issues)
+                if needs_rewrite else ""
+            ),
+        }
+
+    # -------------------------------------------------------------------
+    # Phase 7: REWRITE — fix critique issues
+    # -------------------------------------------------------------------
+
+    async def _rewrite_interpretation(
+        self, interpretation: str, critique: dict, briefing: dict,
+    ) -> str | None:
+        """Rewrite interpretation to fix critique issues (Phase 7).
+
+        Only called when critique.needs_rewrite == True.
+        Returns rewritten text, or None if rewrite fails/is too short.
+        """
+        all_issues = []
+        for dim in critique.get("dimensions", []):
+            if not dim.get("passed", True):
+                all_issues.extend(dim.get("issues", []))
+
+        instructions = critique.get("rewrite_instructions", "")
+        issue_list = "\n".join(f"- {issue}" for issue in all_issues)
+
+        prompt = (
+            f"ORIGINAL ANALYSIS:\n{interpretation}\n\n"
+            f"CRITIQUE FINDINGS:\n{instructions}\n\n"
+            f"REWRITE the analysis to fix these specific issues:\n"
+            f"{issue_list}\n\n"
+            f"RULES:\n"
+            f"1. Preserve all existing CORRECT claims and citations\n"
+            f"2. Fix ONLY the issues identified above\n"
+            f"3. Do NOT shorten the analysis\n"
+            f"4. Maintain [CITE:ev_xxx] format for all citations\n"
+            f"5. Do NOT add claims without evidence\n"
+            f"6. Target 800-1500 words\n"
+        )
+
+        system = (
+            "Rewrite the analysis to fix the identified issues. "
+            "Preserve correct claims and citations. Do not shorten."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=8192,
+                    temperature=0.3,
+                ),
+                timeout=_SCAFFOLD_TIMEOUT,
+            )
+
+            rewritten = response.content.strip()
+
+            # Safety: accept only if >= 70% of original length
+            if len(rewritten) < 0.7 * len(interpretation):
+                logger.warning(
+                    "[8phase] Rewrite too short: %d vs %d (%.0f%%), keeping original",
+                    len(rewritten), len(interpretation),
+                    len(rewritten) / max(len(interpretation), 1) * 100,
+                )
+                return None
+
+            # Remove phantom citations
+            all_cited = re.findall(r'\[CITE:([^\]]+)\]', rewritten)
+            for pid in set(all_cited):
+                if pid not in self._evidence_store:
+                    rewritten = rewritten.replace(f"[CITE:{pid}]", "")
+
+            # Update the interpretation step in notebook
+            for step in self._notebook.steps:
+                if (
+                    step.tool_name == "interpret_results"
+                    and step.result.success
+                ):
+                    valid_ids = [
+                        eid for eid in re.findall(
+                            r'\[CITE:(ev_[a-f0-9]+)\]', rewritten,
+                        )
+                        if eid in self._evidence_store
+                    ]
+                    step.result = ToolResult(
+                        success=True,
+                        tool_name="interpret_results",
+                        markdown=rewritten,
+                        source_evidence_ids=list(set(valid_ids)),
+                        insights=[
+                            "Scaffold-based analysis (rewritten after critique)",
+                        ],
+                    )
+                    break
+
+            return rewritten
+
+        except Exception as exc:
+            logger.warning(
+                "[8phase] Rewrite failed: %s: %s",
+                type(exc).__name__, str(exc)[:200],
+            )
+            return None
+
     async def _plan_analysis(self) -> AnalysisPlan:
         """Plan analysis in ONE LLM call (ReWOO pattern).
 
@@ -544,20 +1763,17 @@ class ReactAnalysisAgent:
 
         return plan
 
-    def _verify_claims(self) -> dict:
-        """Programmatic post-interpretation claim verification (Phase 4).
+    def _verify_claims(self, briefing: dict | None = None) -> dict:
+        """Programmatic post-interpretation claim verification.
 
-        For each [CITE:ev_xxx] in the interpretation:
-        1. Extract the numerical claim near the citation
-        2. Extract the statement from the cited evidence
-        3. Check: does the claim category match? (via _verify_interpretation_claims)
-        4. Check: does the key number appear in the evidence?
+        Enhanced for 8-phase pipeline with optional briefing for:
+        - Evidence coverage check (what % of clusters cited)
+        - Restatement detection (Jaccard overlap = parroting)
+        - Sub-question coverage
 
         Appends a verification step to the notebook with results.
         Returns a summary dict.
         """
-        import re as _re
-
         # Find the interpretation step
         interp_step = None
         for step in self._notebook.steps:
@@ -574,8 +1790,8 @@ class ReactAnalysisAgent:
         category_mismatches = self._verify_interpretation_claims(content)
 
         # Numerical presence check
-        all_cites = _re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', content)
-        pattern = _re.compile(
+        all_cites = re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', content)
+        pattern = re.compile(
             r'([^.!?\n]{10,120})\[CITE:(ev_[a-f0-9]+)\]'
         )
 
@@ -588,7 +1804,7 @@ class ReactAnalysisAgent:
             if ev_id not in self._evidence_store:
                 continue
 
-            nums_in_claim = _re.findall(r'(\d+\.?\d*)', claim_text)
+            nums_in_claim = re.findall(r'(\d+\.?\d*)', claim_text)
             if not nums_in_claim:
                 continue
 
@@ -610,6 +1826,84 @@ class ReactAnalysisAgent:
             "mismatch_details": category_mismatches[:10],
         }
 
+        # Enhanced metrics when briefing is available
+        if briefing:
+            # Evidence coverage: what % of clusters have citations
+            cited_eids = set(all_cites)
+            clusters = briefing.get("clusters", [])
+            learnings = briefing.get("learnings", [])
+            clusters_cited = 0
+            for cluster in clusters:
+                cluster_eids = set()
+                for idx in cluster.get("learning_indices", []):
+                    if idx < len(learnings):
+                        cluster_eids.update(
+                            learnings[idx].get("evidence_ids", []),
+                        )
+                if cluster_eids & cited_eids:
+                    clusters_cited += 1
+            report["cluster_coverage"] = round(
+                clusters_cited / max(len(clusters), 1), 3,
+            )
+
+            # Category coverage
+            all_categories = set(
+                l.get("category", "general") for l in learnings
+            )
+            cited_categories = set()
+            for eid in cited_eids:
+                ev = self._evidence_store.get(eid, {})
+                cited_categories.add(ev.get("fact_category", "general"))
+            report["category_coverage"] = round(
+                len(cited_categories & all_categories)
+                / max(len(all_categories), 1),
+                3,
+            )
+
+            # Restatement detection (parroting)
+            sentences = re.split(r'[.!?]\s+', content)
+            parroted = 0
+            for sent in sentences:
+                sent_words = set(
+                    w.lower() for w in re.findall(r'[a-z]{4,}', sent.lower())
+                )
+                if not sent_words:
+                    continue
+                for eid in self._evidence_ids[:200]:
+                    ev = self._evidence_store.get(eid, {})
+                    ev_stmt = ev.get("statement", "")
+                    ev_words = set(
+                        w.lower()
+                        for w in re.findall(r'[a-z]{4,}', ev_stmt.lower())
+                    )
+                    if not ev_words:
+                        continue
+                    jaccard = (
+                        len(sent_words & ev_words)
+                        / max(len(sent_words | ev_words), 1)
+                    )
+                    if jaccard > 0.5:
+                        parroted += 1
+                        break
+            report["parroting_ratio"] = round(
+                parroted / max(len(sentences), 1), 3,
+            )
+
+            # Sub-question coverage
+            sub_questions = briefing.get("sub_questions", [])
+            sq_covered = 0
+            for sq in sub_questions:
+                sq_words = set(
+                    w for w in sq.lower().split() if len(w) > 3
+                )
+                interp_lower = content.lower()
+                overlap = sum(1 for w in sq_words if w in interp_lower)
+                if overlap >= 2:
+                    sq_covered += 1
+            report["sub_question_coverage"] = round(
+                sq_covered / max(len(sub_questions), 1), 3,
+            )
+
         # Build verification report markdown
         report_lines = [
             "**Claim Verification Report:**",
@@ -619,6 +1913,15 @@ class ReactAnalysisAgent:
             f"- Numbers verified in source: {verified}/{total_checked}",
             f"- Category mismatches: {len(category_mismatches)}",
         ]
+        if briefing:
+            report_lines.extend([
+                f"- Cluster coverage: "
+                f"{report.get('cluster_coverage', 0):.0%}",
+                f"- Parroting ratio: "
+                f"{report.get('parroting_ratio', 0):.0%}",
+                f"- Sub-question coverage: "
+                f"{report.get('sub_question_coverage', 0):.0%}",
+            ])
         if category_mismatches:
             report_lines.append("\n**Category Mismatches:**")
             for mm in category_mismatches[:5]:
@@ -850,8 +2153,6 @@ class ReactAnalysisAgent:
         Uses generate() (prose mode) — NOT generate_structured() — because
         we want rich markdown with inline citations, not constrained JSON.
         """
-        import re as _re
-
         # Build evidence ID → short label mapping for the prompt
         ev_labels = {}
         for step in self._notebook.steps:
@@ -971,7 +2272,7 @@ class ReactAnalysisAgent:
                 return
 
             # Validate: extract ALL [CITE:xxx] tokens and check they exist
-            all_cited = _re.findall(r'\[CITE:([^\]]+)\]', content)
+            all_cited = re.findall(r'\[CITE:([^\]]+)\]', content)
             valid_ids = [
                 eid for eid in all_cited
                 if eid in self._evidence_store
@@ -1052,12 +2353,10 @@ class ReactAnalysisAgent:
         words don't match. For that we check if the claim sentence and
         evidence share a key descriptor (removal/cost/efficiency/etc).
         """
-        import re as _re
-
         mismatches = []
 
         # Find all citation contexts: text before [CITE:ev_xxx]
-        pattern = _re.compile(
+        pattern = re.compile(
             r'([^.!?\n]{10,120})\[CITE:(ev_[a-f0-9]+)\]'
         )
 
@@ -1072,7 +2371,7 @@ class ReactAnalysisAgent:
             ev_stmt = ev.get("statement", "").lower()
 
             # Extract the key number from the claim (closest to the citation)
-            nums_in_claim = _re.findall(r'(\d+\.?\d*)', claim_text)
+            nums_in_claim = re.findall(r'(\d+\.?\d*)', claim_text)
             if not nums_in_claim:
                 continue
 
