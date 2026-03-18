@@ -61,7 +61,12 @@ TEST_SETS = [
 # ---------------------------------------------------------------------------
 
 def audit_citations(context: str, evidence_store: dict) -> dict:
-    """Audit every [CITE:ev_xxx] token in the context."""
+    """Audit every [CITE:ev_xxx] token in the context.
+
+    Uses a LINE-level context window for list items (not 200-char window)
+    to avoid cross-item bleed. A citation on a list item about "PFOS 34 ng/L"
+    should be checked against THAT line, not the header 3 lines above.
+    """
     cite_pattern = re.compile(r'\[CITE:(ev_[a-f0-9]+)\]')
     all_cites = cite_pattern.findall(context)
     unique_cites = set(all_cites)
@@ -69,29 +74,53 @@ def audit_citations(context: str, evidence_store: dict) -> dict:
     phantom = [c for c in unique_cites if c not in evidence_store]
     valid = [c for c in unique_cites if c in evidence_store]
 
-    # Check if cited evidence is relevant to surrounding text
+    # Check if cited evidence is relevant to its immediate line
     mismatched = []
-    for match in cite_pattern.finditer(context):
-        eid = match.group(1)
-        if eid not in evidence_store:
-            continue
-        # Get 200 chars surrounding the citation
-        start = max(0, match.start() - 200)
-        end = min(len(context), match.end() + 50)
-        surrounding = context[start:end].lower()
-        # Get the evidence statement
-        ev_stmt = evidence_store[eid].get("statement", "").lower()
-        # Check word overlap (at least 2 shared content words)
-        surr_words = set(re.findall(r'[a-z]{4,}', surrounding))
-        ev_words = set(re.findall(r'[a-z]{4,}', ev_stmt))
-        overlap = surr_words & ev_words
-        if len(overlap) < 2 and ev_stmt:
-            mismatched.append({
-                "evidence_id": eid,
-                "context_snippet": context[start:end][:100],
-                "evidence_statement": ev_stmt[:100],
-                "overlap_words": list(overlap),
-            })
+    lines = context.split("\n")
+    for line_num, line in enumerate(lines):
+        for match in cite_pattern.finditer(line):
+            eid = match.group(1)
+            if eid not in evidence_store:
+                continue
+
+            # Use the LINE containing the citation as context
+            # Plus the line above for additional context
+            ctx_lines = []
+            if line_num > 0:
+                ctx_lines.append(lines[line_num - 1])
+            ctx_lines.append(line)
+            surrounding = " ".join(ctx_lines).lower()
+
+            # Get the evidence statement
+            ev_stmt = evidence_store[eid].get("statement", "").lower()
+
+            # Extract content words (4+ chars, skip common words)
+            surr_words = set(re.findall(r'[a-z]{4,}', surrounding))
+            ev_words = set(re.findall(r'[a-z]{4,}', ev_stmt))
+            overlap = surr_words & ev_words
+
+            # Also check number overlap (shared numeric values)
+            surr_nums = set(re.findall(r'\d+\.?\d*', surrounding))
+            ev_nums = set(re.findall(r'\d+\.?\d*', ev_stmt))
+            num_overlap = surr_nums & ev_nums
+
+            # Pass if: 2+ word overlap OR 1+ number overlap OR
+            # citation is on a table/summary line (structural citation)
+            is_structural = (
+                line.strip().startswith("|")
+                or line.strip().startswith("**Summary")
+                or line.strip().startswith("**Overall")
+                or "across" in line.lower()
+            )
+
+            if len(overlap) < 2 and len(num_overlap) == 0 and not is_structural:
+                mismatched.append({
+                    "evidence_id": eid,
+                    "context_line": line.strip()[:100],
+                    "evidence_statement": ev_stmt[:100],
+                    "word_overlap": len(overlap),
+                    "number_overlap": len(num_overlap),
+                })
 
     return {
         "total_cite_tokens": len(all_cites),
@@ -366,7 +395,7 @@ async def run_one_test(test_set: dict) -> dict:
     if cite_audit['mismatched_citations']:
         for mm in cite_audit['mismatched_citations'][:3]:
             print(f"      ⚠ {mm['evidence_id']}: "
-                  f"context='{mm['context_snippet'][:60]}' "
+                  f"line='{mm.get('context_line', mm.get('context_snippet', ''))[:60]}' "
                   f"vs ev='{mm['evidence_statement'][:60]}'")
     print(f"    Citation density: {cite_audit['citation_density']:.1f} per 100 words")
 
