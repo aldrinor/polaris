@@ -665,3 +665,198 @@ class TestQualityMetrics:
         ]
         for field in required_fields:
             assert field in metrics, f"Missing metric: {field}"
+
+
+# ===========================================================================
+# GAP CLOSURE TESTS — 5 capabilities that close the Claude Code gap
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# GAP-1: Dynamic package installation
+# ---------------------------------------------------------------------------
+
+class TestPackageInstaller:
+    """Validates whitelist-based package installation."""
+
+    def test_approved_packages_exist(self):
+        from src.polaris_graph.tools.package_installer import get_approved_packages
+        packages = get_approved_packages()
+        assert len(packages) >= 10, f"Only {len(packages)} approved packages"
+        assert "pdfplumber" in packages
+        assert "networkx" in packages
+        assert "scikit-learn" in packages
+
+    def test_whitelist_rejects_dangerous(self):
+        from src.polaris_graph.tools.package_installer import is_approved
+        assert not is_approved("requests"), "requests should be blocked"
+        assert not is_approved("flask"), "flask should be blocked"
+        assert not is_approved("django"), "django should be blocked"
+
+    def test_whitelist_approves_scientific(self):
+        from src.polaris_graph.tools.package_installer import is_approved
+        assert is_approved("pdfplumber"), "pdfplumber should be approved"
+        assert is_approved("networkx"), "networkx should be approved"
+        assert is_approved("seaborn"), "seaborn should be approved"
+        assert is_approved("statsmodels"), "statsmodels should be approved"
+
+    def test_safe_install_rejects_unapproved(self):
+        from src.polaris_graph.tools.package_installer import safe_install
+        result = safe_install(["requests", "flask"])
+        assert len(result["rejected"]) == 2
+        assert len(result["installed"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# GAP-2: PDF table extraction
+# ---------------------------------------------------------------------------
+
+class TestPdfTableExtractor:
+    """Validates PDF table extraction pipeline."""
+
+    def test_extract_from_nonexistent_file(self):
+        from src.polaris_graph.tools.pdf_table_extractor import extract_tables_from_pdf
+        tables = extract_tables_from_pdf("/nonexistent/path.pdf")
+        assert tables == [], "Should return empty list for missing file"
+
+    def test_tables_to_structured_data(self):
+        from src.polaris_graph.tools.pdf_table_extractor import tables_to_structured_data
+        tables = [{
+            "page": 1, "table_index": 0,
+            "headers": ["Study", "Removal %", "pH"],
+            "rows": [
+                ["Smith 2024", "95.2", "5.0"],
+                ["Jones 2023", "87.6", "6.0"],
+            ],
+            "markdown": "| Study | Removal % | pH |\n|---|---|---|\n| Smith 2024 | 95.2 | 5.0 |",
+            "row_count": 2, "col_count": 3,
+        }]
+        data_points = tables_to_structured_data(tables)
+        assert len(data_points) >= 2, f"Expected >= 2 data points, got {len(data_points)}"
+        # Should extract numeric values
+        values = [dp["value"] for dp in data_points]
+        assert any("95" in v for v in values), "Should extract 95.2"
+
+
+# ---------------------------------------------------------------------------
+# GAP-4: Sandbox file I/O
+# ---------------------------------------------------------------------------
+
+class TestSandboxFileIO:
+    """Validates controlled file system access in sandbox."""
+
+    def test_sandbox_paths_exist(self):
+        from src.polaris_graph.tools.code_executor import get_sandbox_paths
+        paths = get_sandbox_paths()
+        assert "read_dir" in paths
+        assert "write_dir" in paths
+        assert os.path.isabs(paths["read_dir"]), "read_dir should be absolute"
+        assert os.path.isabs(paths["write_dir"]), "write_dir should be absolute"
+
+    @pytest.mark.asyncio
+    async def test_script_can_access_sandbox_dirs(self):
+        """Scripts should see SANDBOX_READ_DIR and SANDBOX_WRITE_DIR env vars."""
+        from src.polaris_graph.tools.code_executor import execute_analysis_script
+
+        script = """
+import json, sys, os
+result = {
+    "read_dir": os.environ.get("SANDBOX_READ_DIR", "NOT_SET"),
+    "write_dir": os.environ.get("SANDBOX_WRITE_DIR", "NOT_SET"),
+    "read_exists": os.path.isdir(os.environ.get("SANDBOX_READ_DIR", "")),
+}
+print(json.dumps(result))
+"""
+        result = await execute_analysis_script(script=script, input_data={}, timeout=10)
+        assert result["success"], f"Script failed: {result.get('error')}"
+        assert result["result"]["read_dir"] != "NOT_SET", "SANDBOX_READ_DIR not passed to sandbox"
+        assert result["result"]["write_dir"] != "NOT_SET", "SANDBOX_WRITE_DIR not passed to sandbox"
+
+
+# ---------------------------------------------------------------------------
+# GAP-5: SQLite evidence database
+# ---------------------------------------------------------------------------
+
+class TestEvidenceDatabase:
+    """Validates SQLite analytical queries on evidence."""
+
+    def test_load_and_query(self):
+        from src.polaris_graph.tools.evidence_database import EvidenceDatabase
+
+        store = _make_realistic_evidence_store(15)
+        db = EvidenceDatabase()
+        loaded = db.load_evidence(store)
+
+        assert loaded == 15, f"Expected 15, loaded {loaded}"
+
+        # Tier distribution query
+        result = db.query(
+            "SELECT quality_tier, COUNT(*) as n FROM evidence "
+            "GROUP BY quality_tier ORDER BY n DESC"
+        )
+        assert result["success"], f"Query failed: {result['error']}"
+        assert result["row_count"] >= 1, "Should have at least 1 tier"
+        assert "|" in result["markdown_table"], "Should produce markdown"
+
+        db.close()
+
+    def test_source_summary_view(self):
+        from src.polaris_graph.tools.evidence_database import EvidenceDatabase
+
+        store = _make_realistic_evidence_store(15)
+        db = EvidenceDatabase()
+        db.load_evidence(store)
+
+        result = db.query(
+            "SELECT source_title, evidence_count, ROUND(avg_relevance, 2) "
+            "FROM source_summary ORDER BY evidence_count DESC"
+        )
+        assert result["success"]
+        assert result["row_count"] >= 3, "Should have multiple sources"
+
+        db.close()
+
+    def test_blocks_dangerous_queries(self):
+        from src.polaris_graph.tools.evidence_database import EvidenceDatabase
+
+        db = EvidenceDatabase()
+        db.load_evidence(_make_realistic_evidence_store(5))
+
+        result = db.query("DROP TABLE evidence")
+        assert not result["success"], "Should block DROP"
+
+        result = db.query("DELETE FROM evidence WHERE 1=1")
+        assert not result["success"], "Should block DELETE"
+
+        result = db.query("INSERT INTO evidence (evidence_id) VALUES ('hack')")
+        assert not result["success"], "Should block INSERT"
+
+        db.close()
+
+    def test_schema_for_llm(self):
+        from src.polaris_graph.tools.evidence_database import EvidenceDatabase
+
+        db = EvidenceDatabase()
+        schema = db.get_schema()
+        assert "evidence" in schema
+        assert "structured_data" in schema
+        assert "source_summary" in schema
+        assert "SELECT" in schema
+        db.close()
+
+    def test_structured_data_queries(self):
+        """Test queries on numeric structured data from evidence."""
+        from src.polaris_graph.tools.evidence_database import EvidenceDatabase
+
+        store = _make_realistic_evidence_store(15)
+        db = EvidenceDatabase()
+        db.load_evidence(store)
+
+        result = db.query(
+            "SELECT label, COUNT(*) as n, AVG(value) as mean "
+            "FROM structured_data GROUP BY label ORDER BY n DESC"
+        )
+        assert result["success"], f"Structured data query failed: {result['error']}"
+        # Should have data points from evidence with structured_data
+        assert result["row_count"] >= 1, "Should have structured data"
+
+        db.close()

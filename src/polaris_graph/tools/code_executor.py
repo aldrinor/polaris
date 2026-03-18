@@ -38,6 +38,10 @@ _MAX_RETRY_ATTEMPTS = int(os.getenv("PG_CODE_EXEC_MAX_RETRIES", "1"))
 _DATA_PREVIEW_ITEMS = int(os.getenv("PG_CODE_EXEC_PREVIEW_ITEMS", "20"))
 _DATA_PREVIEW_MAX_CHARS = int(os.getenv("PG_CODE_EXEC_PREVIEW_CHARS", "8000"))
 
+# GAP-3: Sandbox file I/O directories (LAW VI: from env with defaults)
+_SANDBOX_READ_DIR = os.getenv("PG_SANDBOX_READ_DIR", "outputs/polaris_graph")
+_SANDBOX_WRITE_DIR = os.getenv("PG_SANDBOX_WRITE_DIR", "outputs/analysis")
+
 # ---------------------------------------------------------------------------
 # Security: blocked imports and dangerous patterns
 # ---------------------------------------------------------------------------
@@ -140,6 +144,44 @@ _ALLOWED_IMPORTS = frozenset({
     "csv",
     "pprint",
 })
+
+
+# ---------------------------------------------------------------------------
+# Sandbox directory management
+# ---------------------------------------------------------------------------
+
+def _prepare_sandbox_env() -> dict[str, str]:
+    """Create the sandbox write directory and return absolute paths.
+
+    Returns a dict with SANDBOX_READ_DIR and SANDBOX_WRITE_DIR as absolute
+    paths suitable for injection into the subprocess environment.
+
+    The write directory is created if it does not exist. The read directory
+    is not created (it must already exist with evidence files).
+    """
+    read_abs = str(Path(_SANDBOX_READ_DIR).resolve())
+    write_abs = str(Path(_SANDBOX_WRITE_DIR).resolve())
+
+    # Ensure write directory exists
+    Path(write_abs).mkdir(parents=True, exist_ok=True)
+
+    return {
+        "SANDBOX_READ_DIR": read_abs,
+        "SANDBOX_WRITE_DIR": write_abs,
+    }
+
+
+def get_sandbox_paths() -> dict:
+    """Return sandbox directory paths for script reference.
+
+    Returns:
+        {"read_dir": str, "write_dir": str}
+    """
+    sandbox = _prepare_sandbox_env()
+    return {
+        "read_dir": sandbox["SANDBOX_READ_DIR"],
+        "write_dir": sandbox["SANDBOX_WRITE_DIR"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +288,9 @@ async def execute_analysis_script(
     Data is passed via stdin as JSON. Results are expected as JSON on stdout.
     Matplotlib figures embedded as base64 PNG in the JSON output are extracted
     into the "charts" field.
+
+    The subprocess environment includes SANDBOX_READ_DIR and SANDBOX_WRITE_DIR
+    pointing to controlled directories for evidence file access and result output.
 
     Args:
         script: Python code to execute. Must print JSON to stdout.
@@ -623,7 +668,7 @@ def _run_subprocess(
             capture_output=True,
             timeout=timeout,
             cwd=cwd,
-            # Restrict environment: only pass essential variables
+            # Restrict environment: only pass essential variables + sandbox paths
             env=_build_restricted_env(),
         )
         return {
@@ -650,6 +695,9 @@ def _build_restricted_env() -> dict[str, str]:
 
     Passes only the variables needed for Python and data analysis libraries
     to function. No API keys, no network configuration.
+
+    Includes SANDBOX_READ_DIR and SANDBOX_WRITE_DIR for controlled file
+    access to evidence files and analysis output.
     """
     env = {}
 
@@ -671,6 +719,11 @@ def _build_restricted_env() -> dict[str, str]:
     env["OMP_NUM_THREADS"] = "1"
     env["MKL_NUM_THREADS"] = "1"
     env["OPENBLAS_NUM_THREADS"] = "1"
+
+    # Sandbox file I/O directories for scripts that need evidence access
+    sandbox = _prepare_sandbox_env()
+    env["SANDBOX_READ_DIR"] = sandbox["SANDBOX_READ_DIR"]
+    env["SANDBOX_WRITE_DIR"] = sandbox["SANDBOX_WRITE_DIR"]
 
     return env
 

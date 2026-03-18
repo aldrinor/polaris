@@ -615,6 +615,158 @@ def build_v3_graph(
             except Exception as exc:
                 logger.warning("[v3 analyze] Code executor failed: %s", str(exc)[:200])
 
+        # --- Tool 6: SQLite analytical queries (GAP-5) ---
+        sql_enabled = os.getenv("PG_V3_SQL_ANALYSIS_ENABLED", "1") == "1"
+        if sql_enabled and evidence_store and client:
+            try:
+                from src.polaris_graph.tools.evidence_database import (
+                    EvidenceDatabase,
+                    query_evidence_with_llm,
+                )
+
+                # Pre-built analytical queries (no LLM needed)
+                db = EvidenceDatabase()
+                db.load_evidence(evidence_store)
+
+                # Tier distribution
+                tier_result = db.query(
+                    "SELECT quality_tier, COUNT(*) as n, "
+                    "ROUND(AVG(relevance_score), 3) as avg_rel "
+                    "FROM evidence GROUP BY quality_tier ORDER BY n DESC"
+                )
+                if tier_result["success"] and tier_result["row_count"] > 0:
+                    analysis_results.append({
+                        "type": "sql_analysis",
+                        "title": "Evidence Quality Distribution",
+                        "markdown": tier_result["markdown_table"],
+                    })
+
+                # Top sources by evidence count
+                source_result = db.query(
+                    "SELECT source_title, evidence_count, "
+                    "ROUND(avg_relevance, 3) as avg_rel, "
+                    "gold_count, silver_count, bronze_count "
+                    "FROM source_summary ORDER BY evidence_count DESC LIMIT 10"
+                )
+                if source_result["success"] and source_result["row_count"] > 0:
+                    analysis_results.append({
+                        "type": "sql_analysis",
+                        "title": "Top Sources by Evidence Contribution",
+                        "markdown": source_result["markdown_table"],
+                    })
+
+                db.close()
+
+                # LLM-driven query for deeper patterns
+                llm_sql = await asyncio.wait_for(
+                    query_evidence_with_llm(
+                        client=client,
+                        evidence_store=evidence_store,
+                        question=f"What are the key statistical patterns in this evidence about: {query}?",
+                        research_context=query,
+                    ),
+                    timeout=60,
+                )
+                if llm_sql.get("success") and llm_sql["result"].get("markdown_table"):
+                    analysis_results.append({
+                        "type": "sql_analysis",
+                        "title": "Pattern Analysis (SQL)",
+                        "markdown": (
+                            f"Query: `{llm_sql['query']}`\n\n"
+                            f"{llm_sql['result']['markdown_table']}\n\n"
+                            f"*{llm_sql.get('interpretation', '')}*"
+                        ),
+                    })
+
+                logger.info("[v3 analyze] SQL analysis: %d queries succeeded", 3 if llm_sql.get("success") else 2)
+
+            except Exception as exc:
+                logger.warning("[v3 analyze] SQL analysis failed: %s", str(exc)[:200])
+
+        # --- Tool 7: Interactive analysis iteration (GAP-3) ---
+        # LLM reviews initial results and identifies follow-up analyses
+        max_iterations = int(os.getenv("PG_V3_ANALYSIS_ITERATIONS", "2"))
+        iteration_enabled = os.getenv("PG_V3_ITERATIVE_ANALYSIS", "1") == "1"
+        if iteration_enabled and analysis_results and client and all_data_points:
+            for iteration in range(1, max_iterations):
+                try:
+                    # Build summary of current results for LLM review
+                    results_summary = "\n".join(
+                        f"- {r['type']}: {r.get('title', '')} ({len(r.get('markdown', ''))} chars)"
+                        for r in analysis_results
+                    )
+
+                    from pydantic import BaseModel, Field
+
+                    class FollowUpAnalysis(BaseModel):
+                        has_gap: bool = Field(description="Whether there's a meaningful gap to fill")
+                        gap_description: str = Field(description="What's missing from the analysis", default="")
+                        analysis_question: str = Field(description="Specific question to answer with code", default="")
+                        needs_different_chart: bool = Field(default=False)
+                        chart_type: str = Field(default="")
+
+                    review = await asyncio.wait_for(
+                        client.generate_structured(
+                            prompt=(
+                                f"Research topic: {query}\n\n"
+                                f"Analysis completed so far:\n{results_summary}\n\n"
+                                f"Data points available: {len(all_data_points)}\n\n"
+                                "Review these results. Is there a meaningful gap that a "
+                                "follow-up Python analysis could fill? Consider:\n"
+                                "- Missing comparisons or correlations\n"
+                                "- Trends not yet visualized\n"
+                                "- Statistical tests not yet run\n"
+                                "- Data transformations that would reveal patterns\n"
+                                "Only suggest a follow-up if it adds SIGNIFICANT value."
+                            ),
+                            schema=FollowUpAnalysis,
+                            system="You are a research analyst reviewing analysis results for completeness.",
+                            max_tokens=1024,
+                            timeout=30,
+                        ),
+                        timeout=45,
+                    )
+
+                    if not review.has_gap or not review.analysis_question:
+                        logger.info("[v3 analyze] Iteration %d: no gaps found, stopping", iteration)
+                        break
+
+                    logger.info(
+                        "[v3 analyze] Iteration %d: gap='%s', question='%s'",
+                        iteration, review.gap_description[:50], review.analysis_question[:50],
+                    )
+
+                    # Execute follow-up analysis
+                    followup = await asyncio.wait_for(
+                        generate_and_execute_analysis(
+                            client=client,
+                            evidence_data=all_data_points[:30],
+                            analysis_question=review.analysis_question,
+                            research_context=query,
+                        ),
+                        timeout=90,
+                    )
+
+                    if followup.get("success"):
+                        result_data = followup.get("result", {})
+                        if result_data:
+                            analysis_results.append({
+                                "type": "iterative_analysis",
+                                "title": f"Follow-up Analysis: {review.gap_description[:80]}",
+                                "markdown": result_data.get("summary", str(result_data)[:1000]),
+                            })
+                        for chart in followup.get("charts", []):
+                            charts_generated += 1
+                            analysis_results.append({
+                                "type": "chart",
+                                "title": chart.get("title", f"Analysis Chart (iteration {iteration})"),
+                                "image_base64": chart.get("image_base64", ""),
+                            })
+
+                except Exception as exc:
+                    logger.warning("[v3 analyze] Iteration %d failed: %s", iteration, str(exc)[:200])
+                    break
+
         # Store analysis results in evidence_store for synthesis to find
         if analysis_results:
             import uuid
