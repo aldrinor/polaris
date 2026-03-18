@@ -497,7 +497,7 @@ def build_v3_graph(
         sections = outline.get("sections", []) if isinstance(outline, dict) else []
         query = state["original_query"]
 
-        # Collect ALL structured data points from evidence
+        # Collect structured data points from evidence
         all_data_points = []
         all_statements = []
         for ev_id in state.get("evidence_ids", []):
@@ -515,10 +515,43 @@ def build_v3_graph(
         analysis_results = []
         charts_generated = 0
 
-        # --- Tool 1: Statistical summary across all numeric data ---
-        if all_data_points:
+        # --- Self-driven extraction: extract numbers from raw text if no structured data ---
+        if not all_data_points and evidence_store:
             try:
-                stats = statistical_summary(all_data_points)
+                from src.polaris_graph.tools.evidence_extractor import (
+                    extract_numbers_from_evidence,
+                    summarize_extracted_data,
+                )
+                extracted = extract_numbers_from_evidence(evidence_store)
+                if extracted:
+                    all_data_points = extracted
+                    summary = summarize_extracted_data(extracted)
+                    logger.info(
+                        "[v3 analyze] Self-driven extraction: %d data points from raw text",
+                        len(extracted),
+                    )
+                    analysis_results.append({
+                        "type": "data_extraction",
+                        "title": "Extracted Numeric Data",
+                        "markdown": summary,
+                    })
+            except Exception as exc:
+                logger.warning("[v3 analyze] Self-driven extraction failed: %s", str(exc)[:200])
+
+        # --- Group data by unit for per-unit analysis (prevents mixing ng/L with %) ---
+        by_unit: dict[str, list] = {}
+        for dp in all_data_points:
+            unit = dp.get("unit", "unknown") or "unknown"
+            by_unit.setdefault(unit, []).append(dp)
+
+        # Use the LARGEST unit group for stats/meta-analysis (most meaningful)
+        primary_unit = max(by_unit, key=lambda u: len(by_unit[u])) if by_unit else ""
+        primary_data = by_unit.get(primary_unit, [])
+
+        # --- Tool 1: Statistical summary (per-unit to avoid mixing ng/L with %) ---
+        if primary_data:
+            try:
+                stats = statistical_summary(primary_data)
                 if stats.get("markdown_table"):
                     analysis_results.append({
                         "type": "statistical_summary",
@@ -551,10 +584,10 @@ def build_v3_graph(
             except Exception as exc:
                 logger.warning("[v3 analyze] Comparison table failed: %s", str(exc)[:200])
 
-        # --- Tool 3: Meta-analysis summary ---
-        if all_data_points and len(all_data_points) >= 3:
+        # --- Tool 3: Meta-analysis summary (primary unit group only) ---
+        if primary_data and len(primary_data) >= 3:
             try:
-                meta_md = generate_meta_analysis_summary(all_data_points)
+                meta_md = generate_meta_analysis_summary(primary_data)
                 if meta_md and len(meta_md) > 50:
                     analysis_results.append({
                         "type": "meta_analysis",
@@ -617,7 +650,7 @@ def build_v3_graph(
 
         # --- Tool 5: LLM-driven custom analysis (code executor) ---
         code_exec_enabled = os.getenv("PG_V3_CODE_EXEC_ENABLED", "1") == "1"
-        if code_exec_enabled and all_data_points and client:
+        if code_exec_enabled and (all_data_points or all_statements) and client:
             try:
                 custom_result = await asyncio.wait_for(
                     generate_and_execute_analysis(
