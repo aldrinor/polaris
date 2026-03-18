@@ -157,8 +157,9 @@ def audit_information_density(context: str) -> dict:
 
 
 def audit_statistics(entries: list, data_points: list) -> dict:
-    """Verify statistical claims against raw data."""
+    """Verify statistical claims against raw data using same unit grouping."""
     issues = []
+    verified = 0
 
     for entry_dict in entries:
         stats = entry_dict.get("statistics", {})
@@ -168,31 +169,52 @@ def audit_statistics(entries: list, data_points: list) -> dict:
         claimed_mean = stats.get("mean")
         claimed_n = stats.get("n")
 
-        # Try to verify from data points
-        if data_points and claimed_n:
-            # Get the values from data points matching this unit
-            values = []
-            for dp in data_points:
-                try:
-                    v = float(str(dp.get("value", "")).replace(",", ""))
-                    values.append(v)
-                except (ValueError, TypeError):
-                    pass
+        if not data_points or not claimed_n:
+            continue
 
-            if values:
-                actual_mean = sum(values) / len(values)
-                # Check if claimed mean is within 20% of actual
-                # (they may use different subsets)
-                if claimed_mean != 0 and abs(actual_mean - claimed_mean) / abs(claimed_mean) > 0.5:
-                    issues.append({
-                        "type": "mean_mismatch",
-                        "claimed": claimed_mean,
-                        "computed_from_all": round(actual_mean, 2),
-                        "note": "May use unit-filtered subset (expected)",
-                    })
+        # Group by unit (same logic as _wrap_statistical_summary)
+        by_unit: dict[str, list] = {}
+        for dp in data_points:
+            unit = dp.get("unit", "unknown") or "unknown"
+            try:
+                v = float(str(dp.get("value", "")).replace(",", ""))
+                by_unit.setdefault(unit, []).append(v)
+            except (ValueError, TypeError):
+                pass
+
+        if not by_unit:
+            continue
+
+        # Use the largest unit group (same as the tool does)
+        primary_unit = max(by_unit, key=lambda u: len(by_unit[u]))
+        primary_values = by_unit[primary_unit]
+
+        if not primary_values:
+            continue
+
+        actual_mean = sum(primary_values) / len(primary_values)
+
+        # Verify: claimed mean should match unit-filtered mean
+        if claimed_mean != 0:
+            pct_diff = abs(actual_mean - claimed_mean) / abs(claimed_mean)
+            if pct_diff > 0.01:  # >1% difference
+                issues.append({
+                    "type": "mean_mismatch",
+                    "claimed": round(claimed_mean, 4),
+                    "computed_unit_filtered": round(actual_mean, 4),
+                    "unit": primary_unit,
+                    "n_claimed": claimed_n,
+                    "n_actual": len(primary_values),
+                    "pct_diff": round(pct_diff * 100, 1),
+                })
+            else:
+                verified += 1
+        else:
+            verified += 1
 
     return {
         "entries_with_stats": sum(1 for e in entries if e.get("statistics", {}).get("mean")),
+        "verified": verified,
         "verification_issues": issues,
     }
 

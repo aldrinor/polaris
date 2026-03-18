@@ -257,34 +257,31 @@ class ReactAnalysisAgent:
             for eid in self._evidence_ids[:50]
         )
 
+        # Compact prompt — keep under 800 tokens to avoid Qwen timeouts
+        # (Qwen 3.5 Plus latency spikes on 2nd+ structured calls)
+        tools_short = ", ".join(available)
+        done_tools = ", ".join(
+            s.tool_name for s in self._notebook.steps if s.result.success
+        ) or "none"
+        dp_count = len(self._notebook.data_points)
+
         prompt = (
-            "You are analyzing research evidence to produce statistical "
-            "insights.\n\n"
-            f"RESEARCH QUESTION: {self._query}\n\n"
-            f"EVIDENCE STATE:\n"
-            f"- Total evidence pieces: {evidence_count}\n"
-            f"- Has pre-extracted structured data: {has_structured}\n"
-            f"- Extracted data points so far: "
-            f"{len(self._notebook.data_points)}\n\n"
-            f"AVAILABLE TOOLS:\n{tool_descriptions}\n\n"
-            f"CURRENT STATE:\n{notebook_summary}\n\n"
-            f"RULES:\n"
-            f"1. If no data points exist yet, you MUST run "
-            f"'extract_numeric_data' first\n"
-            f"2. Do NOT repeat a tool that already succeeded "
-            f"unless with different params\n"
-            f"3. Stop when you have: statistics + at least one comparison "
-            f"or meta-analysis\n"
-            f"4. Maximum {_MAX_ITERATIONS} total steps — be efficient\n"
-            f"5. Available tools right now: {', '.join(available)}\n\n"
-            f"What should I do next? Choose a tool or 'stop'."
+            f"Topic: {self._query[:120]}\n"
+            f"Evidence: {evidence_count} pieces | "
+            f"Data points: {dp_count} | "
+            f"Structured data: {has_structured}\n"
+            f"Done: {done_tools}\n"
+            f"Available: {tools_short}\n\n"
+            f"Rules:\n"
+            f"1. extract_numeric_data FIRST if data points = 0\n"
+            f"2. Don't repeat succeeded tools\n"
+            f"3. Need: stats + comparison/meta before stop\n"
+            f"4. Max {_MAX_ITERATIONS} steps\n\n"
+            f"Pick one tool or 'stop'. Give reasoning."
         )
 
         system = (
-            "You are a research data analyst. Choose which analysis tool "
-            "to run next, or 'stop' if analysis is sufficient. Be "
-            "systematic: extract data first, then compute statistics, "
-            "then compare. Give clear reasoning."
+            "Pick the next analysis tool. Respond with reasoning and action."
         )
 
         decision = await asyncio.wait_for(
@@ -292,10 +289,10 @@ class ReactAnalysisAgent:
                 prompt=prompt,
                 schema=ReactDecision,
                 system=system,
-                max_tokens=1024,
-                timeout=30,
+                max_tokens=512,
+                timeout=60,
             ),
-            timeout=45,
+            timeout=75,
         )
 
         # Validate the action is a known tool or "stop"

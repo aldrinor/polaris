@@ -185,10 +185,14 @@ async def _wrap_extract_numeric_data(
     client: Any,
     **kwargs,
 ) -> ToolResult:
-    """Wrapper for evidence_extractor.extract_numbers_from_evidence()."""
+    """Wrapper for evidence_extractor.extract_numbers_from_evidence().
+
+    Builds per-item citations: each data point gets a [CITE:ev_xxx] token
+    from its source evidence, placed on the list item — not dumped on the
+    summary header. This fixes the citation mismatch audit failure.
+    """
     from src.polaris_graph.tools.evidence_extractor import (
         extract_numbers_from_evidence,
-        summarize_extracted_data,
     )
 
     extracted = extract_numbers_from_evidence(evidence_store)
@@ -200,13 +204,38 @@ async def _wrap_extract_numeric_data(
             error="No numeric values could be extracted",
         )
 
-    summary = summarize_extracted_data(extracted)
     ev_ids = _extract_evidence_ids(extracted)
+
+    # Build per-item cited markdown (not generic summary)
+    by_type: dict[str, list] = {}
+    for dp in extracted:
+        dt = dp.get("data_type", "unknown")
+        by_type.setdefault(dt, []).append(dp)
+
+    lines = [f"**Extracted Data:** {len(extracted)} data points "
+             f"from {len(ev_ids)} sources\n"]
+    for dtype, items in sorted(by_type.items()):
+        lines.append(f"- **{dtype}** ({len(items)} values):")
+        for item in items[:5]:
+            eid = item.get("evidence_id", "")
+            cite = f" [CITE:{eid}]" if eid else ""
+            val = item.get("value", "")
+            unit = item.get("unit", "")
+            label = item.get("label", "")[:50]
+            lines.append(f"  - {label}: {val} {unit}{cite}")
+        if len(items) > 5:
+            lines.append(f"  - ... and {len(items) - 5} more")
+
+    units = sorted(set(dp.get("unit", "") for dp in extracted if dp.get("unit")))
+    if units:
+        lines.append(f"\n**Units:** {', '.join(units)}")
+
+    markdown = "\n".join(lines)
 
     return ToolResult(
         success=True,
         tool_name="extract_numeric_data",
-        markdown=_cite_inline(summary, ev_ids),
+        markdown=markdown,
         source_evidence_ids=ev_ids,
         data_points_produced=extracted,
         insights=[
@@ -317,11 +346,27 @@ async def _wrap_statistical_summary(
             error="All values non-numeric",
         )
 
+    # Build cited markdown: table + insight paragraph with inline citations
+    global_stats = stats.get("statistics", {})
+    n = global_stats.get("n", 0)
+    mean = global_stats.get("mean", 0)
+    ci_lo = global_stats.get("ci_95_lower", 0)
+    ci_hi = global_stats.get("ci_95_upper", 0)
+
+    # Insight paragraph carries the citations (not the table header)
+    cite_str = "".join(f"[CITE:{eid}]" for eid in ev_ids[:10])
+    insight_para = (
+        f"\n\n**Summary (unit: {primary_unit}):** "
+        f"Mean {mean:.2f} (95% CI: {ci_lo:.2f}–{ci_hi:.2f}) "
+        f"across {n} data points from {len(set(dp.get('source_url', '') for dp in primary_data))} sources. "
+        f"{cite_str}"
+    )
+
     return ToolResult(
         success=True,
         tool_name="statistical_summary",
-        markdown=_cite_inline(stats["markdown_table"], ev_ids),
-        statistics=stats.get("statistics", {}),
+        markdown=stats["markdown_table"] + insight_para,
+        statistics=global_stats,
         source_evidence_ids=ev_ids,
         insights=stats.get("insights", []),
     )

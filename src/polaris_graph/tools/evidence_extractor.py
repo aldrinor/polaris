@@ -38,18 +38,33 @@ _EXTRACTION_PATTERNS = [
     # Percentages: "95.2%", "67 percent"
     (r'(\d+\.?\d*)\s*(?:%|percent)',
      "percentage", "%"),
+    # Force/pressure: "12.4 N/mm", "3.5 MPa", "0.8 kPa", "25 N/m"
+    (r'(\d+\.?\d*)\s*(N/mm2?|N/m2?|MPa|kPa|GPa|Pa|kN|N/cm2?|psi|bar)',
+     "force", None),
+    # Polymer/materials: "0.85 mol/L", "42 wt%", "94.2 mol%"
+    (r'(\d+\.?\d*)\s*(mol/[Ll]|mol%|wt%|vol%|g/mol|kDa|Da)',
+     "material_property", None),
+    # Angles and geometry: "90 degrees", "180°", "45-degree"
+    (r'(\d+\.?\d*)\s*(?:degrees?|°)\s*(?:C|Celsius|F|Fahrenheit)?',
+     "angle_or_temp", None),
     # Measurements with units: "100 mg/g", "24 months", "1.7 mgd"
-    (r'(\d+\.?\d*)\s*(mg/g|mg/kg|m3|mgd|kWh|MWh|tons?|kg|g/L|months?|years?|hours?|days?)',
+    (r'(\d+\.?\d*)\s*(mg/g|mg/kg|m[23]|mgd|kWh|MWh|tons?|kg|g/[Ll]|months?|years?|hours?|days?|nm|[uμ]m|mm|cm|m/s)',
      "measurement", None),
+    # Area/volume: "342 m2/g", "1.5 cm3/g", "50 mL"
+    (r'(\d+\.?\d*)\s*(m2/g|cm2/g|cm3/g|mL|[Ll]|m2)',
+     "surface_property", None),
     # Plain large numbers: "110 million", "9 billion"
     (r'(\d+[,\d]*\.?\d*)\s*(million|billion|trillion)',
      "quantity", None),
-    # Temperature: "500-700 degrees", "500°C"
-    (r'(\d+\.?\d*)\s*(?:degrees?\s*(?:C|Celsius|F|Fahrenheit)?|°[CF])',
-     "temperature", "°C"),
+    # Temperature: "500°C", "700 K"
+    (r'(\d+\.?\d*)\s*(?:°[CF]|K\b)',
+     "temperature", None),
     # pH values: "pH 5.0", "pH 3.0"
     (r'pH\s*(\d+\.?\d*)',
      "pH", "pH"),
+    # Rates/ratios: "R2=0.998", "k=0.045 min-1"
+    (r'(?:R2?|k|Kd|Ka)\s*[=:]\s*(\d+\.?\d*)\s*(min-1|s-1|h-1|L/g|L/mol)?',
+     "rate_constant", None),
 ]
 
 
