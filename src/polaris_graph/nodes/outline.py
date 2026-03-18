@@ -32,6 +32,7 @@ logger = logging.getLogger("polaris_graph")
 _MAX_GAP_SEARCHES = int(os.getenv("PG_V3_MAX_GAP_SEARCHES", "2"))
 _MIN_EVIDENCE_PER_SECTION = int(os.getenv("PG_V3_MIN_EVIDENCE_PER_SECTION", "3"))
 _MAX_OUTLINE_VERSIONS = int(os.getenv("PG_V3_MAX_OUTLINE_VERSIONS", "4"))
+_MIN_SECTIONS = int(os.getenv("PG_V3_MIN_SECTIONS", "6"))
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +116,12 @@ async def generate_outline(
 
     # Set version 1
     outline.version = 1
+
+    # Enforce structural sections (Fix 6: Key Findings, Contradictions, Conclusions)
+    outline = _ensure_structural_sections(outline, query)
+
+    # Enforce minimum section count
+    outline = _enforce_min_sections(outline, sub_questions)
 
     # Enforce section-to-evidence ratio (F3.1)
     outline = _enforce_section_evidence_ratio(outline, len(evidence_ids))
@@ -200,6 +207,137 @@ async def refine_outline(
         logger.info("[v3 outline] Adopted refinement v%d (score improved)", refined.version)
 
     return best
+
+
+# ---------------------------------------------------------------------------
+# Structural sections enforcement (Fix 6)
+# ---------------------------------------------------------------------------
+
+_STRUCTURAL_SECTIONS = [
+    {
+        "suffix": "key_findings",
+        "title": "Key Findings",
+        "description": "Synthesize the most important discoveries across all evidence sources",
+        "analytical_focus": "aggregate",
+        "target_words": 1200,
+        "position": "early",  # After first topical section
+    },
+    {
+        "suffix": "contradictions",
+        "title": "Contradictions and Limitations",
+        "description": "Identify conflicting evidence, methodological limitations, and knowledge gaps",
+        "analytical_focus": "challenge",
+        "target_words": 800,
+        "position": "late",  # Before conclusions
+    },
+    {
+        "suffix": "conclusions",
+        "title": "Conclusions and Future Directions",
+        "description": "Summarize key takeaways and identify areas requiring further research",
+        "analytical_focus": "explain",
+        "target_words": 600,
+        "position": "last",
+    },
+]
+
+
+def _ensure_structural_sections(
+    outline: LiveOutline,
+    query: str,
+) -> LiveOutline:
+    """Ensure Key Findings, Contradictions, and Conclusions sections exist.
+
+    Only adds sections that are not already present (fuzzy title match).
+    """
+    existing_titles_lower = {s.title.lower().strip() for s in outline.sections}
+
+    for spec in _STRUCTURAL_SECTIONS:
+        # Fuzzy match: check if title keywords exist in any section title
+        keywords = spec["title"].lower().split()
+        already_exists = any(
+            all(kw in title for kw in keywords)
+            for title in existing_titles_lower
+        )
+        if already_exists:
+            continue
+
+        # Determine insertion order
+        max_order = max((s.order for s in outline.sections), default=0)
+        if spec["position"] == "early":
+            order = 2  # After first section
+            # Shift existing sections
+            for s in outline.sections:
+                if s.order >= 2:
+                    s.order += 1
+        elif spec["position"] == "last":
+            order = max_order + 1
+        else:  # "late"
+            order = max_order  # Before last
+            for s in outline.sections:
+                if s.order >= max_order:
+                    s.order += 1
+
+        new_section = OutlineSection(
+            id=f"s_{spec['suffix']}",
+            title=spec["title"],
+            sub_question_id="",
+            description=spec["description"],
+            analytical_focus=spec["analytical_focus"],
+            evidence_ids=[],
+            confidence=0.5,
+            target_words=spec["target_words"],
+            order=order,
+        )
+        outline.sections.append(new_section)
+
+    # Re-sort by order
+    outline.sections.sort(key=lambda s: s.order)
+
+    return outline
+
+
+def _enforce_min_sections(
+    outline: LiveOutline,
+    sub_questions: list[SubQuestion],
+) -> LiveOutline:
+    """Ensure outline has at least _MIN_SECTIONS sections.
+
+    Pads with sub-question-derived sections if needed.
+    """
+    if len(outline.sections) >= _MIN_SECTIONS:
+        return outline
+
+    existing_sq_ids = {s.sub_question_id for s in outline.sections if s.sub_question_id}
+    max_order = max((s.order for s in outline.sections), default=0)
+
+    for sq in sub_questions:
+        if len(outline.sections) >= _MIN_SECTIONS:
+            break
+        if sq.id in existing_sq_ids:
+            continue
+
+        max_order += 1
+        depth_to_words = {"deep": 1200, "moderate": 800, "brief": 400}
+        outline.sections.append(OutlineSection(
+            id=f"s_pad_{sq.id}",
+            title=sq.question[:100],
+            sub_question_id=sq.id,
+            description=sq.question,
+            analytical_focus=sq.analytical_focus,
+            evidence_ids=[],
+            confidence=0.0,
+            target_words=depth_to_words.get(sq.expected_depth, 800),
+            order=max_order,
+        ))
+
+    if len(outline.sections) < _MIN_SECTIONS:
+        logger.warning(
+            "[v3 outline] Only %d sections after padding (min=%d). "
+            "Not enough sub-questions to reach minimum.",
+            len(outline.sections), _MIN_SECTIONS,
+        )
+
+    return outline
 
 
 # ---------------------------------------------------------------------------

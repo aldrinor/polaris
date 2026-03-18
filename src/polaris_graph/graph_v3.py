@@ -13,6 +13,7 @@ This follows v1's proven pattern from graph.py.
 """
 
 import asyncio
+import datetime
 import logging
 import os
 import time
@@ -114,59 +115,147 @@ def build_v3_graph(
         return update
 
     # -----------------------------------------------------------------------
-    # Node: v3_search
+    # Node: v3_search — delegates to v1's execute_searches + analyze_sources
     # -----------------------------------------------------------------------
     async def search_node(state: V3State) -> dict:
-        """Phase 2: Targeted search per sub-question."""
+        """Phase 2: Delegate to v1 search + analysis (13,860 LOC, 37 quality steps).
+
+        Builds a minimal ResearchState, calls v1's execute_searches() for
+        multi-provider parallel search (Serper, S2, OpenAlex, Exa, DDG) with
+        query amplification, then analyze_sources() for content fetch +
+        evidence extraction + structured data + dedup + tier scoring.
+        """
         if tracer:
             tracer.node_start("v3_search")
 
-        from src.polaris_graph.nodes.search import run_search_phase
+        from src.polaris_graph.agents.searcher import execute_searches
+        from src.polaris_graph.agents.analyzer import analyze_sources
 
-        scope = ScopeOutput.model_validate({
-            "sub_questions": state["sub_questions"],
-            "perspectives": state["perspectives"],
-            "search_queries": state.get("search_queries", []),
-            "complexity": state.get("complexity", "moderate"),
-        })
+        # Build sub_queries from v3 search_queries (v1 expects list[str])
+        search_queries = state.get("search_queries", [])
+        sub_queries = []
+        for sq in search_queries:
+            q_text = sq.get("query", "") if isinstance(sq, dict) else str(sq)
+            if q_text and q_text not in sub_queries:
+                sub_queries.append(q_text)
+        # Also include sub-question text as queries for broader coverage
+        for sq in state.get("sub_questions", []):
+            q_text = sq.get("question", "") if isinstance(sq, dict) else str(sq)
+            if q_text and q_text not in sub_queries:
+                sub_queries.append(q_text)
 
-        # Compute time budget (35% of total, configurable)
-        search_budget_pct = float(os.getenv("PG_V3_SEARCH_BUDGET_PCT", "35"))
-        total_budget = float(os.getenv("PG_V3_TOTAL_BUDGET_SECONDS", "3600"))
-        search_budget = total_budget * search_budget_pct / 100
+        # Build minimal ResearchState for v1 functions (TypedDict = duck-typed)
+        v1_state = {
+            "vector_id": state["vector_id"],
+            "original_query": state["original_query"],
+            "application": state.get("application", ""),
+            "region": state.get("region", ""),
+            "stage": 1,
+            "sub_queries": sub_queries,
+            "search_strategy": "broad",
+            "perspective_distribution": {},
+            "web_results": [],
+            "academic_results": [],
+            "fetched_content": [],
+            "evidence": [],
+            "evidence_clusters": [],
+            "claims": [],
+            "faithfulness_score": 0.0,
+            "gaps": [],
+            "gap_queries": [],
+            "section_outline": [],
+            "sections": [],
+            "completed_sections": {},
+            "bibliography": [],
+            "evidence_chain": [],
+            "draft_report": "",
+            "final_report": "",
+            "quality_metrics": None,
+            "iteration_count": 0,
+            "max_iterations": 1,
+            "max_execution_minutes": 60,
+            "needs_iteration": False,
+            "converged": False,
+            "convergence_reason": None,
+            "status": "searching",
+            "error": None,
+            "timestamps": {},
+            "llm_usage": {},
+            "expansion_passes_used": 0,
+            "quality_gate_result": "",
+            "trace_summary": {},
+            "agentic_search_rounds": 0,
+            "agentic_total_queries": 0,
+            "agentic_convergence_scores": [],
+            "agentic_url_accumulator": [],
+            "agentic_perspective_coverage": {},
+        }
 
-        result = await run_search_phase(
-            client=client,
-            scope=scope,
-            evidence_store=evidence_store,
-            time_budget_seconds=search_budget,
-            searcher=_real_searcher,
-            fetcher=_real_fetcher,
-            extractor=_make_real_extractor(client),
-        )
+        # Step 1: Execute searches (all 6 providers, query amplification, etc.)
+        try:
+            search_result = await execute_searches(v1_state, client)
+            v1_state.update(search_result)
+            logger.info(
+                "[v3 search] v1 execute_searches: %d web, %d academic results",
+                len(v1_state.get("web_results", [])),
+                len(v1_state.get("academic_results", [])),
+            )
+        except Exception as exc:
+            logger.error("[v3 search] execute_searches failed: %s", str(exc)[:300])
 
-        # Merge new evidence IDs with existing
-        existing_ids = state.get("evidence_ids", [])
-        new_ids = result.get("evidence_ids", [])
-        all_ids = existing_ids + [eid for eid in new_ids if eid not in set(existing_ids)]
+        # Step 2: Analyze sources (fetch + extract + dedup + tier scoring)
+        try:
+            analyze_result = await analyze_sources(client, v1_state)
+            v1_evidence = analyze_result.get("evidence", [])
+            logger.info(
+                "[v3 search] v1 analyze_sources: %d evidence pieces extracted",
+                len(v1_evidence),
+            )
+        except Exception as exc:
+            logger.error("[v3 search] analyze_sources failed: %s", str(exc)[:300])
+            v1_evidence = []
 
-        # Merge evidence metadata
-        existing_meta = dict(state.get("evidence_meta", {}))
-        for eid in new_ids:
-            if eid in evidence_store and eid not in existing_meta:
-                ev = evidence_store[eid]
-                existing_meta[eid] = {
-                    "tier": ev.get("quality_tier", "BRONZE"),
-                    "score": ev.get("relevance_score", 0.0),
-                    "source_url": ev.get("source_url", ""),
-                }
+        # Step 3: Populate evidence_store and build state update
+        existing_ids = set(state.get("evidence_ids", []))
+        new_ids = []
+        new_meta = dict(state.get("evidence_meta", {}))
+
+        for ev in v1_evidence:
+            ev_id = ev.get("evidence_id", "")
+            if not ev_id or ev_id in existing_ids:
+                continue
+            # Store full evidence in side-channel (NOT in LangGraph state)
+            evidence_store[ev_id] = dict(ev)
+            new_ids.append(ev_id)
+            new_meta[ev_id] = {
+                "tier": ev.get("quality_tier", "BRONZE"),
+                "score": ev.get("relevance_score", 0.0),
+                "source_url": ev.get("source_url", ""),
+                "sub_question_id": ev.get("sub_question_id", ""),
+            }
+
+        all_ids = list(state.get("evidence_ids", [])) + new_ids
+
+        # Build reflections from evidence summaries
+        reflections = list(state.get("reflections", []))
+        by_source: dict[str, list] = {}
+        for ev in v1_evidence[:50]:
+            url = ev.get("source_url", "unknown")
+            by_source.setdefault(url, []).append(ev)
+        for url, evs in list(by_source.items())[:10]:
+            reflections.append({
+                "insight": evs[0].get("statement", "")[:300],
+                "sub_question_id": evs[0].get("sub_question_id", ""),
+                "evidence_ids": [e.get("evidence_id", "") for e in evs[:3]],
+                "confidence": max(e.get("relevance_score", 0.5) for e in evs),
+            })
 
         update = {
             "evidence_ids": all_ids,
-            "evidence_meta": existing_meta,
-            "reflections": state.get("reflections", []) + result.get("reflections", []),
-            "search_rounds_completed": state.get("search_rounds_completed", 0) + result.get("search_rounds_completed", 0),
-            "convergence_score": result.get("convergence_score", 0.0),
+            "evidence_meta": new_meta,
+            "reflections": reflections,
+            "search_rounds_completed": state.get("search_rounds_completed", 0) + 1,
+            "convergence_score": min(0.9, len(all_ids) / max(int(os.getenv("PG_V3_MAX_EVIDENCE", "1000")), 1)),
         }
 
         if tracer:
@@ -174,13 +263,130 @@ def build_v3_graph(
                 "action": "accumulated",
                 "count": len(all_ids),
                 "new": len(new_ids),
-                "gold": sum(1 for m in existing_meta.values() if m.get("tier") == "GOLD"),
-                "silver": sum(1 for m in existing_meta.values() if m.get("tier") == "SILVER"),
-                "bronze": sum(1 for m in existing_meta.values() if m.get("tier") == "BRONZE"),
+                "gold": sum(1 for m in new_meta.values() if m.get("tier") == "GOLD"),
+                "silver": sum(1 for m in new_meta.values() if m.get("tier") == "SILVER"),
+                "bronze": sum(1 for m in new_meta.values() if m.get("tier") == "BRONZE"),
             })
             tracer.node_end("v3_search")
 
         return update
+
+    # -----------------------------------------------------------------------
+    # Node: v3_storm — multi-perspective STORM interviews
+    # -----------------------------------------------------------------------
+    async def storm_node(state: V3State) -> dict:
+        """Phase 2.5: STORM multi-perspective interviews (Stanford arXiv:2402.14207).
+
+        Delegates to v1's run_storm_interviews() which conducts simulated
+        expert interviews with diverse personas, producing enriched evidence
+        and a hierarchical outline for deeper perspective coverage.
+        """
+        if tracer:
+            tracer.node_start("v3_storm")
+
+        storm_enabled = os.getenv("PG_STORM_ENABLED", "0") == "1"
+        if not storm_enabled:
+            logger.info("[v3 storm] STORM disabled (PG_STORM_ENABLED=0)")
+            if tracer:
+                tracer.node_end("v3_storm")
+            return {}
+
+        from src.polaris_graph.agents.storm_interviews import run_storm_interviews
+
+        # Build minimal ResearchState for STORM
+        v1_state = {
+            "vector_id": state["vector_id"],
+            "original_query": state["original_query"],
+            "application": state.get("application", ""),
+            "region": state.get("region", ""),
+            "stage": 1,
+            "sub_queries": [
+                sq.get("question", "") if isinstance(sq, dict) else str(sq)
+                for sq in state.get("sub_questions", [])
+            ],
+            "web_results": [],
+            "academic_results": [],
+            "evidence": [],
+        }
+
+        # Populate web_results from evidence_store for STORM context
+        seen_urls = set()
+        for ev_id in state.get("evidence_ids", [])[:50]:
+            ev = evidence_store.get(ev_id, {})
+            url = ev.get("source_url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                v1_state["web_results"].append({
+                    "link": url,
+                    "title": ev.get("source_title", ""),
+                    "snippet": ev.get("statement", "")[:300],
+                })
+
+        try:
+            storm_result = await run_storm_interviews(client, v1_state)
+
+            # Extract STORM evidence from interview-sourced results
+            storm_web = storm_result.get("web_results", [])
+            new_storm_ids = []
+            new_meta = dict(state.get("evidence_meta", {}))
+
+            import uuid
+            for r in storm_web:
+                if r.get("link") not in seen_urls:
+                    ev_id = f"ev_{uuid.uuid4().hex[:8]}"
+                    evidence_store[ev_id] = {
+                        "evidence_id": ev_id,
+                        "source_url": r.get("link", ""),
+                        "source_title": r.get("title", ""),
+                        "statement": r.get("snippet", "")[:500],
+                        "direct_quote": "",
+                        "quality_tier": "SILVER",
+                        "relevance_score": 0.6,
+                        "perspective": "STORM",
+                        "source_type": "storm_interview",
+                    }
+                    new_storm_ids.append(ev_id)
+                    new_meta[ev_id] = {
+                        "tier": "SILVER",
+                        "score": 0.6,
+                        "source_url": r.get("link", ""),
+                    }
+
+            # Extract STORM perspectives for outline enrichment
+            storm_perspectives = state.get("perspectives", [])
+            storm_outline = storm_result.get("storm_outline", [])
+            for section in storm_outline:
+                title = section.get("title", "") if isinstance(section, dict) else str(section)
+                if title and title not in storm_perspectives:
+                    storm_perspectives.append(title)
+
+            all_ids = list(state.get("evidence_ids", [])) + new_storm_ids
+
+            logger.info(
+                "[v3 storm] STORM: +%d evidence, %d perspectives",
+                len(new_storm_ids), len(storm_perspectives),
+            )
+
+            if tracer:
+                tracer.log_event("evidence", node="v3_storm", data={
+                    "action": "storm_complete",
+                    "new_evidence": len(new_storm_ids),
+                    "perspectives": len(storm_perspectives),
+                    "conversations": len(storm_result.get("storm_conversations", [])),
+                })
+                tracer.node_end("v3_storm")
+
+            return {
+                "evidence_ids": all_ids,
+                "evidence_meta": new_meta,
+                "perspectives": storm_perspectives,
+            }
+
+        except Exception as exc:
+            logger.warning("[v3 storm] STORM failed (non-fatal): %s", str(exc)[:300])
+            if tracer:
+                tracer.node_end("v3_storm")
+            return {}
 
     # -----------------------------------------------------------------------
     # Node: v3_outline
@@ -340,14 +546,16 @@ def build_v3_graph(
 
     graph.add_node("scope", scope_node)
     graph.add_node("v3_search", search_node)
+    graph.add_node("v3_storm", storm_node)
     graph.add_node("v3_outline", outline_node)
     graph.add_node("v3_write_section", synthesize_node)
     graph.add_node("v3_assemble", assemble_node)
 
-    # Edges
+    # Edges: scope → search → storm → outline → [gap_check] → synthesize → assemble
     graph.add_edge(START, "scope")
     graph.add_edge("scope", "v3_search")
-    graph.add_edge("v3_search", "v3_outline")
+    graph.add_edge("v3_search", "v3_storm")
+    graph.add_edge("v3_storm", "v3_outline")
     graph.add_conditional_edges(
         "v3_outline",
         _should_search_gaps,
@@ -394,6 +602,7 @@ async def build_and_run_v3(
 
     # Set total budget
     os.environ["PG_V3_TOTAL_BUDGET_SECONDS"] = str(max_execution_minutes * 60)
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     # Initialize tracer
     tracer = None
@@ -472,8 +681,8 @@ async def build_and_run_v3(
         "claims": [],
         "iteration_count": result_state.get("search_rounds_completed", 0),
         "timestamps": {
-            "started": "",
-            "completed": "",
+            "started": started_at,
+            "completed": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "duration_seconds": round(elapsed, 1),
         },
         "trace_summary": {},
@@ -492,7 +701,7 @@ async def build_and_run_v3(
             "total_words": output.get("quality_metrics", {}).get("word_count", 0),
             "total_citations": output.get("quality_metrics", {}).get("citation_count", 0),
             "faithfulness_score": output.get("quality_metrics", {}).get("faithfulness_pct", 0),
-            "total_cost_usd": getattr(client, '_usage_tracker', MagicMock()).total_cost if hasattr(client, '_usage_tracker') else 0,
+            "total_cost_usd": getattr(getattr(client, '_usage_tracker', None), 'total_cost', 0),
             "elapsed_seconds": round(elapsed, 1),
         })
 
@@ -520,174 +729,6 @@ async def build_and_run_v3(
     return output
 
 
-# ---------------------------------------------------------------------------
-# Real search/fetch/extract adapters (bridge v1 functions to v3 interface)
-# ---------------------------------------------------------------------------
-
-async def _real_searcher(queries: list[dict]) -> list[dict]:
-    """Execute web + academic searches using v1's search infrastructure.
-
-    Takes v3 SearchQuery dicts, returns v1-style search result dicts.
-    """
-    results = []
-    try:
-        from src.agents.search_agent import search_serper, search_s2
-        from concurrent.futures import ThreadPoolExecutor
-        import asyncio
-
-        executor = ThreadPoolExecutor(max_workers=5)
-        loop = asyncio.get_event_loop()
-
-        for q in queries[:20]:  # Cap at 20 queries
-            query_text = q.get("query", "") if isinstance(q, dict) else str(q)
-            pref = q.get("source_preference", "both") if isinstance(q, dict) else "both"
-
-            if pref in ("web", "both"):
-                try:
-                    web_results = await loop.run_in_executor(
-                        executor, search_serper, query_text, 5
-                    )
-                    for r in (web_results or []):
-                        r["search_query"] = query_text
-                        r["sub_question_id"] = q.get("sub_question_id", "")
-                        results.append(r)
-                except Exception as exc:
-                    logger.debug("[v3 searcher] Serper failed for '%s': %s", query_text[:50], str(exc)[:100])
-
-            if pref in ("academic", "both"):
-                try:
-                    from src.polaris_graph.agents.searcher import _search_openalex
-                    academic = await _search_openalex(query_text, max_results=5)
-                    for r in (academic or []):
-                        r["search_query"] = query_text
-                        r["sub_question_id"] = q.get("sub_question_id", "")
-                        results.append(r)
-                except Exception as exc:
-                    logger.debug("[v3 searcher] Academic failed for '%s': %s", query_text[:50], str(exc)[:100])
-
-    except Exception as exc:
-        logger.warning("[v3 searcher] Search adapter failed: %s", str(exc)[:200])
-
-    logger.info("[v3 searcher] %d results from %d queries", len(results), len(queries))
-    return results
-
-
-async def _real_fetcher(search_results: list[dict]) -> list[dict]:
-    """Fetch content from URLs using v1's access_bypass + Jina + trafilatura.
-
-    Takes search result dicts, returns content dicts with 'url' and 'content'.
-    """
-    fetched = []
-    try:
-        import trafilatura
-        import aiohttp
-
-        urls = []
-        for r in search_results[:30]:  # Cap at 30 URLs
-            url = r.get("link") or r.get("url") or r.get("openAccessPdf", {}).get("url", "")
-            if url and url not in urls:
-                urls.append(url)
-
-        # Try Jina Reader first (best for article extraction)
-        jina_key = os.getenv("JINA_API_KEY", "")
-        for url in urls[:20]:
-            try:
-                content = None
-                if jina_key:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(
-                            f"https://r.jina.ai/{url}",
-                            headers={"Authorization": f"Bearer {jina_key}", "Accept": "text/markdown"},
-                            timeout=aiohttp.ClientTimeout(total=15),
-                        ) as resp:
-                            if resp.status == 200:
-                                content = await resp.text()
-
-                if not content or len(content) < 200:
-                    # Fallback to trafilatura
-                    downloaded = trafilatura.fetch_url(url)
-                    if downloaded:
-                        content = trafilatura.extract(downloaded) or ""
-
-                if content and len(content) > 200:
-                    # Find matching search result for metadata
-                    meta = next((r for r in search_results if (r.get("link") or r.get("url", "")) == url), {})
-                    fetched.append({
-                        "url": url,
-                        "content": content[:25000],  # Cap at 25K chars
-                        "title": meta.get("title", ""),
-                        "snippet": meta.get("snippet", meta.get("abstract", "")),
-                        "sub_question_id": meta.get("sub_question_id", ""),
-                    })
-            except Exception as exc:
-                logger.debug("[v3 fetcher] Failed for %s: %s", url[:60], str(exc)[:100])
-
-    except Exception as exc:
-        logger.warning("[v3 fetcher] Fetch adapter failed: %s", str(exc)[:200])
-
-    logger.info("[v3 fetcher] Fetched %d of %d URLs", len(fetched), len(search_results))
-    return fetched
-
-
-def _make_real_extractor(client):
-    """Create an extractor closure that uses the LLM client for evidence extraction."""
-
-    async def _real_extractor(fetched_content: list[dict]) -> list[dict]:
-        """Extract evidence from fetched content using LLM.
-
-        Takes content dicts, returns evidence piece dicts.
-        """
-        import uuid
-        evidence = []
-
-        for doc in fetched_content[:20]:  # Cap at 20 documents
-            content = doc.get("content", "")
-            url = doc.get("url", "")
-            title = doc.get("title", "")
-            sq_id = doc.get("sub_question_id", "")
-
-            if len(content) < 200:
-                continue
-
-            try:
-                # Use LLM to extract atomic facts
-                from src.polaris_graph.schemas import SourceAnalysis
-                result = await client.generate_structured(
-                    prompt=(
-                        f"Source: {title}\nURL: {url}\n\n"
-                        f"Content:\n{content[:10000]}\n\n"
-                        "Extract 3-8 key findings as atomic facts. Each fact must include "
-                        "a specific claim, a direct quote from the source, and relevance score."
-                    ),
-                    schema=SourceAnalysis,
-                    system="Extract verifiable facts from this research source. Include exact numbers and measurements.",
-                    max_tokens=4096,
-                    timeout=90,
-                )
-
-                if result and hasattr(result, 'atomic_facts'):
-                    for fact in result.atomic_facts[:8]:
-                        ev_id = f"ev_{uuid.uuid4().hex[:8]}"
-                        evidence.append({
-                            "evidence_id": ev_id,
-                            "statement": getattr(fact, 'statement', str(fact))[:500],
-                            "direct_quote": getattr(fact, 'direct_quote', '')[:500],
-                            "source_url": url,
-                            "source_title": title,
-                            "source_content": content[:10000],
-                            "sub_question_id": sq_id,
-                            "quality_tier": "SILVER",
-                            "relevance_score": getattr(fact, 'relevance_score', 0.5),
-                            "perspective": "Scientific",
-                        })
-            except Exception as exc:
-                logger.debug("[v3 extractor] Failed for %s: %s", url[:60], str(exc)[:100])
-
-        logger.info("[v3 extractor] Extracted %d evidence from %d documents", len(evidence), len(fetched_content))
-        return evidence
-
-    return _real_extractor
-
-
-# Avoid import of MagicMock at module level
-from unittest.mock import MagicMock
+# Note: Old _real_searcher/_real_fetcher/_make_real_extractor stubs removed.
+# Search now delegates directly to v1's execute_searches + analyze_sources
+# inside the search_node closure (13,860 LOC, 37 quality steps).

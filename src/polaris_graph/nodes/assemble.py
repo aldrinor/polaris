@@ -222,6 +222,37 @@ def _generate_abstract(
 
 
 # ---------------------------------------------------------------------------
+# Table of Contents (Fix 7)
+# ---------------------------------------------------------------------------
+
+def _generate_table_of_contents(
+    sections: list[VerifiedSectionDraft],
+) -> str:
+    """Generate a markdown Table of Contents from resolved sections.
+
+    Format: numbered list with section titles.
+    """
+    if not sections:
+        return ""
+
+    toc_lines = []
+    for i, section in enumerate(sections, 1):
+        toc_lines.append(f"{i}. [{section.title}](#{_slugify(section.title)})")
+
+    toc_lines.append(f"{len(sections) + 1}. [References](#references)")
+
+    return "\n".join(toc_lines)
+
+
+def _slugify(text: str) -> str:
+    """Convert section title to URL-safe anchor."""
+    slug = text.lower().strip()
+    slug = re.sub(r'[^\w\s-]', '', slug)
+    slug = re.sub(r'[\s-]+', '-', slug)
+    return slug
+
+
+# ---------------------------------------------------------------------------
 # Quality metrics
 # ---------------------------------------------------------------------------
 
@@ -246,6 +277,13 @@ def _compute_quality_metrics(
     ))
     table_blocks = len(re.findall(r'\|[^|]+\|[^|]+\|', report_text))
 
+    # Chart count (Fix 3 — embedded base64 PNGs)
+    chart_count = len(re.findall(r'!\[.*?\]\(data:image/png;base64,', report_text))
+
+    # NLI verification stats (Fix 4)
+    nli_verified = sum(s.claims_verified for s in sections)
+    nli_total = sum(s.claims_total for s in sections)
+
     return {
         "word_count": total_words,
         "citation_count": total_citations,
@@ -256,6 +294,10 @@ def _compute_quality_metrics(
         "sections_critic_passed": sections_with_critic_pass,
         "comparison_markers": comparison_markers,
         "table_blocks": table_blocks,
+        "chart_count": chart_count,
+        "nli_claims_verified": nli_verified,
+        "nli_claims_total": nli_total,
+        "has_toc": True,
     }
 
 
@@ -298,10 +340,15 @@ async def run_assemble_phase(
     # Step 4: Grounded abstract
     abstract = _generate_abstract(resolved, query)
 
-    # Step 5: Compose full report
+    # Step 5: Compose full report with Table of Contents
     report_parts = [f"# Research Report: {query}\n"]
     if abstract:
         report_parts.append(f"## Abstract\n\n{abstract}\n")
+
+    # Table of Contents (Fix 7)
+    toc = _generate_table_of_contents(resolved)
+    if toc:
+        report_parts.append(f"## Table of Contents\n\n{toc}\n")
 
     for section in resolved:
         report_parts.append(f"## {section.title}\n\n{section.content}\n")
@@ -312,7 +359,11 @@ async def run_assemble_phase(
             num = entry["citation_number"]
             title = entry.get("title", "Unknown")
             url = entry.get("url", "")
-            report_parts.append(f"[{num}] {title}. {url}\n")
+            authors = ", ".join(entry.get("authors", [])) if entry.get("authors") else ""
+            year = entry.get("year", "")
+            author_str = f" {authors}." if authors else ""
+            year_str = f" ({year})" if year else ""
+            report_parts.append(f"[{num}]{author_str}{year_str} {title}. {url}\n")
 
     final_report = "\n".join(report_parts)
 
