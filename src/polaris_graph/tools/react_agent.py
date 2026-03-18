@@ -55,7 +55,7 @@ _CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
 
 # Learnings extraction env vars
 _LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
-_LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "40"))
+_LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
 _LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "45"))
 _LEARNINGS_MAX_CONCURRENCY = int(
     os.getenv("PG_LEARNINGS_MAX_CONCURRENCY", "3"),
@@ -766,17 +766,27 @@ class ReactAnalysisAgent:
             await self._run_fallback()
 
         # Phase 3: BRIEFING (1+ LLM calls when learnings enabled)
+        # Time budget: track remaining time for graceful degradation
+        elapsed_before_briefing = time.monotonic() - start_time
+        remaining = timeout - elapsed_before_briefing
         briefing = await self._build_evidence_briefing()
         logger.info(
-            "[8phase] Briefing: %d learnings, %d clusters, %d sub-questions",
+            "[8phase] Briefing: %d learnings, %d clusters, %d sub-questions "
+            "(%.0fs remaining)",
             len(briefing.get("learnings", [])),
             len(briefing.get("clusters", [])),
             len(briefing.get("sub_questions", [])),
+            remaining,
         )
 
         # Phase 4: SCAFFOLD (1 reason() call)
         scaffold = ""
-        if self._notebook.successful_steps > 0 and self._client:
+        elapsed = time.monotonic() - start_time
+        if (
+            self._notebook.successful_steps > 0
+            and self._client
+            and elapsed < timeout - 60  # need >=60s for write
+        ):
             scaffold = await self._generate_analytical_scaffold(briefing)
             logger.info(
                 "[8phase] Scaffold: %d chars", len(scaffold),
@@ -784,7 +794,8 @@ class ReactAnalysisAgent:
 
         # Phase 5: WRITE (1 generate() call)
         interpretation = ""
-        if scaffold and self._client:
+        elapsed = time.monotonic() - start_time
+        if scaffold and self._client and elapsed < timeout - 30:
             interpretation = await self._write_interpretation(
                 scaffold, briefing,
             )
@@ -792,9 +803,28 @@ class ReactAnalysisAgent:
                 "[8phase] Interpretation: %d chars", len(interpretation),
             )
 
+        # FALLBACK: if scaffold or write failed, use legacy interpret
+        if not interpretation and self._notebook.successful_steps > 0:
+            elapsed = time.monotonic() - start_time
+            if self._client and elapsed < timeout - 30:
+                logger.info(
+                    "[8phase] Scaffold/write failed, falling back to "
+                    "legacy interpret",
+                )
+                await self._interpret_results()
+                # Check if legacy produced output
+                for step in self._notebook.steps:
+                    if (
+                        step.tool_name == "interpret_results"
+                        and step.result.success
+                    ):
+                        interpretation = step.result.markdown
+                        break
+
         # Phase 6: CRITIQUE (1 reason() call)
         critique = None
-        if interpretation and self._client:
+        elapsed = time.monotonic() - start_time
+        if interpretation and self._client and elapsed < timeout - 30:
             critique = await self._critique_interpretation(
                 interpretation, briefing,
             )
@@ -808,11 +838,13 @@ class ReactAnalysisAgent:
                 )
 
         # Phase 7: REWRITE (conditional, 0-1 generate() call)
+        elapsed = time.monotonic() - start_time
         if (
             critique
             and critique.get("needs_rewrite")
             and interpretation
             and self._client
+            and elapsed < timeout - 30
         ):
             rewritten = await self._rewrite_interpretation(
                 interpretation, critique, briefing,
@@ -903,7 +935,8 @@ class ReactAnalysisAgent:
         valid_ids = set()
         for ev_dict in evidence_batch:
             eid = ev_dict["eid"]
-            stmt = ev_dict["statement"]
+            # Truncate to ~150 chars to keep prompt compact for Qwen
+            stmt = ev_dict["statement"][:150]
             cat = ev_dict["category"]
             valid_ids.add(eid)
             evidence_lines.append(f"[{eid}] ({cat}): {stmt}")
@@ -975,10 +1008,16 @@ class ReactAnalysisAgent:
             )
             return self._fallback_distill_batch(evidence_batch)
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[8phase] LLM learnings batch timed out (%ds), regex fallback",
+                _LEARNINGS_BATCH_TIMEOUT,
+            )
+            return self._fallback_distill_batch(evidence_batch)
         except Exception as exc:
             logger.warning(
-                "[8phase] LLM learnings batch failed (%s), regex fallback",
-                str(exc)[:200],
+                "[8phase] LLM learnings batch failed: %s: %s, regex fallback",
+                type(exc).__name__, str(exc)[:300],
             )
             return self._fallback_distill_batch(evidence_batch)
 

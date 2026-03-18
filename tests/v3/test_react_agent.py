@@ -244,6 +244,9 @@ async def test_react_respects_timeout(evidence_store, mock_client):
         )
         notebook = await agent.run()
 
+    # Restore module-level constants after reload
+    reload(ra_mod)
+
     # Should have completed in <= 5 iterations (max) but likely fewer
     # due to the 1s timeout
     assert notebook.step_count <= 5
@@ -854,6 +857,9 @@ async def test_agentic_respects_timeout(evidence_store, mock_client):
         )
         notebook = await agent.run()
 
+    # Restore module-level constants after reload
+    reload(ra_mod)
+
     # Should have completed with fewer than 5 steps due to timeout
     assert notebook.step_count <= 5
 
@@ -1424,54 +1430,73 @@ class TestEightPhasePipeline:
 
         mock_client.generate_structured = mock_structured
 
-        # Phase 4: Scaffold (reason)
-        scaffold_response = MagicMock()
-        scaffold_response.content = (
+        # Phase 4: Scaffold (reason) — must be >50 chars
+        scaffold_text = (
             "## Analytical Framework\n\n"
-            "### Effectiveness\n"
-            "Biochar removes 85-99% lead [CITE:ev_001] [CITE:ev_005].\n"
-            "However, contact time varies widely [CITE:ev_003].\n\n"
-            "### Trade-offs\n"
-            "Although effective, the cost implications are unclear.\n\n"
+            "### Sub-question 1: Effectiveness\n"
+            "Biochar removes 85-99% lead across 15 studies [CITE:ev_001] "
+            "[CITE:ev_005]. Rice husk variants show highest performance.\n"
+            "Higher pH improves removal: 99% at pH 7.8 [CITE:ev_015].\n"
+            "However, contact time varies from 40-170 min [CITE:ev_003].\n\n"
+            "### Sub-question 2: Trade-offs\n"
+            "Effectiveness correlates with contact time — higher removal "
+            "requires longer exposure. Cost data is sparse but biochar is "
+            "generally considered low-cost compared to activated carbon.\n\n"
+            "### Evidence-based ranking\n"
+            "1. Biochar (rice husk): highest removal, lowest cost\n"
+            "2. Biochar (wood): moderate removal, moderate cost\n\n"
             "### Gaps\n"
-            "Long-term performance data is missing."
+            "Long-term performance data missing. No cost-per-unit data."
         )
+        scaffold_response = MagicMock()
+        scaffold_response.content = scaffold_text
         mock_client.reason = AsyncMock(return_value=scaffold_response)
 
-        # Phase 5: Write + Phase 7: Rewrite (generate)
-        write_response = MagicMock()
-        write_response.content = (
+        # Phase 5: Write + Phase 7: Rewrite (generate) — must be >100 chars
+        write_text = (
             "Biochar derived from rice husk achieves 86% removal at pH 5.2 "
-            "[CITE:ev_001]. Statistical analysis across studies shows mean "
-            "removal of 92% [CITE:ev_005]. However, contact time varies from "
-            "40 to 170 minutes [CITE:ev_003]. The cost-effectiveness trade-off "
-            "between removal and price is significant. "
-            "Although effective at 99% removal [CITE:ev_015], the limitation "
-            "is the requirement for longer contact times. "
-            "The ranking places biochar at the top for lead removal. "
-            "Gaps remain in long-term performance data."
+            "[CITE:ev_001]. Statistical analysis across 15 studies shows "
+            "mean removal of 92% with 95% CI of 88-96% [CITE:ev_005]. "
+            "Higher pH levels correlate with improved performance, reaching "
+            "99% at pH 7.8 [CITE:ev_015]. However, contact time varies "
+            "significantly from 40 to 170 minutes [CITE:ev_003], creating "
+            "a trade-off between removal efficiency and processing speed. "
+            "Comparing rice husk and wood-derived biochar reveals that rice "
+            "husk variants consistently outperform at equivalent contact "
+            "times [CITE:ev_001] [CITE:ev_008]. The cost-effectiveness "
+            "ranking places biochar at the top for lead removal due to "
+            "low material cost and high efficiency. However, gaps remain: "
+            "no long-term performance data beyond 6 months exists, and "
+            "cost-per-unit comparisons with activated carbon are absent."
         )
+        write_response = MagicMock()
+        write_response.content = write_text
         mock_client.generate = AsyncMock(return_value=write_response)
 
         with patch.dict(os.environ, {"PG_ANALYSIS_PIPELINE": "8phase"}):
             with patch(
-                "src.polaris_graph.tools.react_agent.embed_text",
-                return_value=[1.0, 0.0, 0.0],
+                "src.polaris_graph.tools.react_agent._LLM_LEARNINGS_ENABLED",
+                False,
             ):
                 with patch(
-                    "src.polaris_graph.tools.react_agent.embed_texts",
-                    return_value=[
-                        [0.9, 0.1, 0.0] for _ in range(len(evidence_store))
-                    ],
+                    "src.polaris_graph.tools.react_agent.embed_text",
+                    return_value=[1.0, 0.0, 0.0],
                 ):
-                    agent = ReactAnalysisAgent(
-                        client=mock_client,
-                        evidence_store=evidence_store,
-                        evidence_ids=list(evidence_store.keys()),
-                        query="biochar heavy metal removal",
-                        mode="8phase",
-                    )
-                    notebook = await agent.run()
+                    with patch(
+                        "src.polaris_graph.tools.react_agent.embed_texts",
+                        return_value=[
+                            [0.9, 0.1, 0.0]
+                            for _ in range(len(evidence_store))
+                        ],
+                    ):
+                        agent = ReactAnalysisAgent(
+                            client=mock_client,
+                            evidence_store=evidence_store,
+                            evidence_ids=list(evidence_store.keys()),
+                            query="biochar heavy metal removal",
+                            mode="8phase",
+                        )
+                        notebook = await agent.run()
 
         tool_names = [s.tool_name for s in notebook.steps]
 
