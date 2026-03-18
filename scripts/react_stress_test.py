@@ -1,13 +1,16 @@
-"""Stress test: ReAct analysis on 5 diverse evidence sets with deep audit.
+"""Stress test: ReAct analysis on 5 diverse evidence sets with DRACO-inspired audit.
 
 Loads REAL evidence from previous pipeline runs, runs the ReAct agent,
-then audits every line of output for:
-- Citation accuracy (does [CITE:ev_xxx] match the claim it's attached to?)
-- Information density (ratio of facts vs filler)
-- Statistical correctness (can we verify the computed numbers?)
-- Provenance integrity (every analysis ID traces to real evidence)
-- Unit coherence (no mixing mg/L with %)
-- Insight uniqueness (are insights substantive or generic?)
+then audits every line of output using a 4-axis evaluation inspired by
+Perplexity's DRACO benchmark:
+
+Axis 1: Factual Accuracy (40 pts) — numerical claim verification
+Axis 2: Breadth/Depth (20 pts) — cross-source insights, trade-offs
+Axis 3: Citation Quality (25 pts) — count, validity, semantic match
+Axis 4: Content Quality (15 pts) — density, units, zero leakage
+
+Plus line-by-line verification: full interpretation output printed,
+5 random citations spot-checked per run against source evidence.
 
 Usage:
     python -u -m scripts.react_stress_test
@@ -17,6 +20,7 @@ import asyncio
 import json
 import math
 import os
+import random
 import re
 import sys
 import time
@@ -309,6 +313,165 @@ def audit_polaris_leakage(context: str, evidence_store: dict) -> dict:
     return {"leakage_count": len(issues), "details": issues[:5]}
 
 
+def audit_factual_accuracy(context: str, evidence_store: dict) -> dict:
+    """DRACO Axis 1: Verify each numerical claim against cited evidence.
+
+    For each [CITE:ev_xxx], extract the number near it and check:
+    1. Does the number appear in the cited evidence statement?
+    2. Does the claim category match the evidence category?
+    """
+    cite_pattern = re.compile(r'([^.!?\n]{10,120})\[CITE:(ev_[a-f0-9]+)\]')
+
+    total_checked = 0
+    number_verified = 0
+    category_mismatches = []
+
+    cost_words = {"cost", "price", "expensive", "affordable", "budget",
+                  "spending", "billion", "million", "usd", "$"}
+    removal_words = {"removal", "removed", "efficiency", "reduction",
+                     "achieved", "treatment", "filtration", "adsorption"}
+    market_words = {"market", "share", "cagr", "growth", "valued",
+                    "projected", "revenue"}
+
+    for match in cite_pattern.finditer(context):
+        claim_text = match.group(1).strip()
+        ev_id = match.group(2)
+
+        if ev_id not in evidence_store:
+            continue
+
+        nums = re.findall(r'(\d+\.?\d*)', claim_text)
+        if not nums:
+            continue
+
+        total_checked += 1
+        ev_stmt = evidence_store[ev_id].get("statement", "").lower()
+        key_num = nums[-1]
+
+        # Check 1: Number presence
+        if key_num in ev_stmt:
+            number_verified += 1
+
+        # Check 2: Category match
+        claim_lower = claim_text.lower()
+        claim_cat = (
+            "cost" if any(w in claim_lower for w in cost_words) else
+            "removal" if any(w in claim_lower for w in removal_words) else
+            "market" if any(w in claim_lower for w in market_words) else
+            "other"
+        )
+        ev_cat = (
+            "cost" if any(w in ev_stmt for w in cost_words) else
+            "removal" if any(w in ev_stmt for w in removal_words) else
+            "market" if any(w in ev_stmt for w in market_words) else
+            "other"
+        )
+
+        if claim_cat != "other" and ev_cat != "other" and claim_cat != ev_cat:
+            category_mismatches.append({
+                "claim": claim_text[:80],
+                "ev_id": ev_id,
+                "claim_category": claim_cat,
+                "ev_category": ev_cat,
+                "ev_statement": evidence_store[ev_id].get("statement", "")[:80],
+            })
+
+    return {
+        "total_checked": total_checked,
+        "number_verified": number_verified,
+        "verification_rate": round(
+            number_verified / max(total_checked, 1) * 100, 1,
+        ),
+        "category_mismatches": category_mismatches,
+    }
+
+
+def audit_breadth_depth(context: str) -> dict:
+    """DRACO Axis 2: Measure breadth and depth of analysis.
+
+    Counts unique technologies/methods, cross-source insights,
+    and trade-off identifications.
+    """
+    # Count unique technologies/methods (common domain-specific terms)
+    tech_patterns = re.findall(
+        r'(?:Reverse Osmosis|Granular Activated Carbon|Ion Exchange|'
+        r'Biochar|Nanofiltration|Membrane|Adsorption|Coagulation|'
+        r'Activated Alumina|Electrocoagulation|UV|Ozone|GAC|RO|NF|UF|MF|'
+        r'PFAS|PFOS|PFOA|DVS|PEI|EDI|Polymer|Ceramic|Activated Carbon|'
+        r'Sand Filtration|Flocculation|Precipitation|Distillation|'
+        r'[A-Z][a-z]+ [A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+        context,
+    )
+    unique_techs = len(set(t.strip() for t in tech_patterns))
+
+    # Count cross-source insights (sentences citing 2+ different sources)
+    cross_source = 0
+    for sentence in re.split(r'[.!?]\s+', context):
+        cites = set(re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', sentence))
+        if len(cites) >= 2:
+            cross_source += 1
+
+    # Count trade-off identifications
+    tradeoff_patterns = [
+        r'(?:but|however|although|while|whereas|despite|on the other hand)',
+        r'(?:trade-?off|downside|limitation|disadvantage|drawback)',
+        r'(?:more expensive|less effective|higher cost|lower efficiency)',
+        r'(?:better for|worse for|preferred when|suitable for)',
+    ]
+    tradeoffs = sum(
+        len(re.findall(p, context, re.IGNORECASE))
+        for p in tradeoff_patterns
+    )
+
+    return {
+        "unique_technologies": unique_techs,
+        "cross_source_insights": cross_source,
+        "tradeoff_identifications": min(tradeoffs, 20),
+    }
+
+
+def spot_check_citations(
+    context: str, evidence_store: dict, n: int = 5,
+) -> list:
+    """Randomly spot-check N citations against source evidence.
+
+    Returns list of dicts with claim text, evidence text, and match assessment.
+    """
+    pattern = re.compile(r'([^.!?\n]{10,150})\[CITE:(ev_[a-f0-9]+)\]')
+    matches = list(pattern.finditer(context))
+
+    if not matches:
+        return []
+
+    sample = random.sample(matches, min(n, len(matches)))
+
+    checks = []
+    for match in sample:
+        claim = match.group(1).strip()
+        ev_id = match.group(2)
+        ev = evidence_store.get(ev_id, {})
+        ev_stmt = ev.get("statement", "N/A")
+
+        claim_words = set(re.findall(r'[a-z]{4,}', claim.lower()))
+        ev_words = set(re.findall(r'[a-z]{4,}', ev_stmt.lower()))
+        overlap = claim_words & ev_words
+
+        claim_nums = set(re.findall(r'\d+\.?\d*', claim))
+        ev_nums = set(re.findall(r'\d+\.?\d*', ev_stmt))
+        num_overlap = claim_nums & ev_nums
+
+        checks.append({
+            "claim": claim[:100],
+            "ev_id": ev_id,
+            "ev_statement": ev_stmt[:100],
+            "word_overlap": len(overlap),
+            "number_overlap": len(num_overlap),
+            "likely_match": len(overlap) >= 2 or len(num_overlap) >= 1,
+        })
+
+    return checks
+
+
 # ---------------------------------------------------------------------------
 # Main stress test
 # ---------------------------------------------------------------------------
@@ -367,110 +530,182 @@ async def run_one_test(test_set: dict) -> dict:
     entries = [e.model_dump() for e in notebook.to_entries()]
 
     # -----------------------------------------------------------------------
-    # DEEP AUDIT
+    # DEEP AUDIT (DRACO-Inspired 4-Axis Evaluation)
     # -----------------------------------------------------------------------
     cite_audit = audit_citations(context, evidence_store)
     density_audit = audit_information_density(context)
     stats_audit = audit_statistics(entries, notebook.data_points)
     insight_audit = audit_insights(entries)
     leak_audit = audit_polaris_leakage(context, evidence_store)
+    factual_audit = audit_factual_accuracy(context, evidence_store)
+    breadth_audit = audit_breadth_depth(context)
+    spot_checks = spot_check_citations(context, evidence_store, n=5)
 
     # Print step trace
     for step in notebook.steps:
         status = "OK" if step.result.success else "FAIL"
         print(f"  Step {step.step_number}: {step.tool_name} [{status}] "
               f"({step.elapsed_seconds:.1f}s)")
-        print(f"    → {step.reasoning[:100]}")
+        print(f"    -> {step.reasoning[:100]}")
         if step.result.success:
-            print(f"    → {len(step.result.source_evidence_ids)} evidence, "
+            print(f"    -> {len(step.result.source_evidence_ids)} evidence, "
                   f"{len(step.result.data_points_produced)} data points, "
                   f"{len(step.result.markdown)} chars")
 
-    # Print audit results
-    print(f"\n  ── CITATION AUDIT ──")
+    # Print full interpretation (Steps 13-15: non-optional)
+    interp_steps = [
+        s for s in notebook.steps
+        if s.tool_name == "interpret_results" and s.result.success
+    ]
+    if interp_steps:
+        print(f"\n  ── FULL INTERPRETATION OUTPUT ──")
+        interp_text = interp_steps[0].result.markdown
+        for line in interp_text.split("\n"):
+            print(f"    | {line}")
+        print(f"    [{len(interp_text)} chars]")
+
+    # Print DRACO Axis 1: Factual Accuracy
+    print(f"\n  ── AXIS 1: FACTUAL ACCURACY ──")
+    print(f"    Claims checked: {factual_audit['total_checked']}")
+    print(f"    Numbers verified: {factual_audit['number_verified']}")
+    print(f"    Verification rate: {factual_audit['verification_rate']}%")
+    print(f"    Category mismatches: {len(factual_audit['category_mismatches'])}")
+    for mm in factual_audit['category_mismatches'][:3]:
+        print(f"      X {mm['ev_id']}: claim={mm['claim_category']}, "
+              f"ev={mm['ev_category']} — \"{mm['claim'][:50]}\"")
+
+    # Print DRACO Axis 2: Breadth/Depth
+    print(f"\n  ── AXIS 2: BREADTH & DEPTH ──")
+    print(f"    Unique technologies: {breadth_audit['unique_technologies']}")
+    print(f"    Cross-source insights: {breadth_audit['cross_source_insights']}")
+    print(f"    Trade-off identifications: {breadth_audit['tradeoff_identifications']}")
+
+    # Print DRACO Axis 3: Citation Quality
+    print(f"\n  ── AXIS 3: CITATION QUALITY ──")
     print(f"    Total tokens: {cite_audit['total_cite_tokens']} "
           f"({cite_audit['unique_cited']} unique)")
     print(f"    Phantom: {len(cite_audit['phantom_citations'])}")
     print(f"    Mismatched: {len(cite_audit['mismatched_citations'])}")
     if cite_audit['mismatched_citations']:
         for mm in cite_audit['mismatched_citations'][:3]:
-            print(f"      ⚠ {mm['evidence_id']}: "
+            print(f"      X {mm['evidence_id']}: "
                   f"line='{mm.get('context_line', mm.get('context_snippet', ''))[:60]}' "
                   f"vs ev='{mm['evidence_statement'][:60]}'")
-    print(f"    Citation density: {cite_audit['citation_density']:.1f} per 100 words")
 
-    print(f"\n  ── CONTENT DENSITY AUDIT ──")
-    print(f"    Lines: {density_audit['total_lines']} "
-          f"(content={density_audit['content_lines']}, "
-          f"table={density_audit['table_lines']}, "
-          f"header={density_audit['header_lines']})")
+    # Print DRACO Axis 4: Content Quality
+    print(f"\n  ── AXIS 4: CONTENT QUALITY ──")
     print(f"    Content ratio: {density_audit['content_ratio']}%")
     print(f"    Numbers with units: {density_audit['numbers_with_units']}")
-    print(f"    Factual sentences: {density_audit['factual_sentences']}")
-    print(f"    Data density: {density_audit['data_density']}%")
-
-    print(f"\n  ── STATISTICS AUDIT ──")
-    print(f"    Entries with stats: {stats_audit['entries_with_stats']}")
-    if stats_audit['verification_issues']:
-        for issue in stats_audit['verification_issues']:
-            print(f"      ⚠ {issue['type']}: claimed={issue['claimed']}, "
-                  f"all_data={issue['computed_from_all']}")
-
-    print(f"\n  ── INSIGHT AUDIT ──")
-    print(f"    Total: {insight_audit['total_insights']}, "
-          f"Substantive: {insight_audit['substantive']}, "
-          f"Generic: {insight_audit['generic']}")
-    print(f"    Substantive ratio: {insight_audit['substantive_ratio']}%")
-
-    print(f"\n  ── LEAKAGE AUDIT ──")
     print(f"    POLARIS leakage: {leak_audit['leakage_count']}")
 
-    # Compute score
+    # Print spot-check results (5 random citations)
+    print(f"\n  ── CITATION SPOT-CHECK ({len(spot_checks)} samples) ──")
+    for i, sc in enumerate(spot_checks, 1):
+        verdict = "PASS" if sc['likely_match'] else "FAIL"
+        print(f"    {i}. [{verdict}] {sc['ev_id']}")
+        print(f"       Claim: \"{sc['claim'][:80]}\"")
+        print(f"       Evidence: \"{sc['ev_statement'][:80]}\"")
+        print(f"       Overlap: {sc['word_overlap']} words, "
+              f"{sc['number_overlap']} numbers")
+
+    # Statistics audit (supplementary)
+    if stats_audit['verification_issues']:
+        print(f"\n  ── STATISTICS ISSUES ──")
+        for issue in stats_audit['verification_issues']:
+            print(f"      X {issue['type']}: claimed={issue['claimed']}, "
+                  f"actual={issue['computed_unit_filtered']}")
+
+    # -----------------------------------------------------------------------
+    # DRACO-Inspired 4-Axis Score
+    # -----------------------------------------------------------------------
     score = 0
     max_score = 100
     penalties = []
 
-    # Citation quality (30 pts)
-    if cite_audit['total_cite_tokens'] >= 10: score += 10
-    elif cite_audit['total_cite_tokens'] >= 5: score += 5
-    else: penalties.append(f"Low citations: {cite_audit['total_cite_tokens']}")
+    # Axis 1: Factual Accuracy (40 pts)
+    vr = factual_audit['verification_rate']
+    if vr >= 80:
+        score += 25
+    elif vr >= 50:
+        score += int(25 * vr / 80)
+    else:
+        penalties.append(f"Low verification: {vr}%")
+        score += max(0, int(25 * vr / 80))
 
-    if not cite_audit['phantom_citations']: score += 10
-    else: penalties.append(f"Phantom: {cite_audit['phantom_citations']}")
+    if not factual_audit['category_mismatches']:
+        score += 15
+    elif len(factual_audit['category_mismatches']) <= 1:
+        score += 8
+        penalties.append(
+            f"Category mismatch: {len(factual_audit['category_mismatches'])}"
+        )
+    else:
+        penalties.append(
+            f"Category mismatches: {len(factual_audit['category_mismatches'])}"
+        )
 
-    if len(cite_audit['mismatched_citations']) <= 2: score += 10
-    else: penalties.append(f"Mismatched: {len(cite_audit['mismatched_citations'])}")
+    # Axis 2: Breadth/Depth (20 pts)
+    if breadth_audit['unique_technologies'] >= 3:
+        score += 10
+    elif breadth_audit['unique_technologies'] >= 1:
+        score += 5
+    else:
+        penalties.append("No technologies identified")
 
-    # Content quality (30 pts)
-    if density_audit['content_ratio'] >= 30: score += 10
-    else: penalties.append(f"Low content: {density_audit['content_ratio']}%")
+    depth_score = (
+        breadth_audit['cross_source_insights']
+        + breadth_audit['tradeoff_identifications']
+    )
+    if depth_score >= 3:
+        score += 10
+    elif depth_score >= 1:
+        score += 5
+    else:
+        penalties.append(f"Low depth: {depth_score} insights+tradeoffs")
 
-    if density_audit['numbers_with_units'] >= 5: score += 10
-    elif density_audit['numbers_with_units'] >= 2: score += 5
-    else: penalties.append(f"Low data density: {density_audit['numbers_with_units']}")
+    # Axis 3: Citation Quality (25 pts)
+    if cite_audit['total_cite_tokens'] >= 10:
+        score += 10
+    elif cite_audit['total_cite_tokens'] >= 5:
+        score += 5
+    else:
+        penalties.append(f"Low citations: {cite_audit['total_cite_tokens']}")
 
-    if density_audit['factual_sentences'] >= 3: score += 10
-    else: penalties.append(f"Few factual sentences: {density_audit['factual_sentences']}")
+    if not cite_audit['phantom_citations']:
+        score += 10
+    else:
+        penalties.append(f"Phantom: {cite_audit['phantom_citations']}")
 
-    # Analysis depth (20 pts)
-    if notebook.successful_steps >= 3: score += 10
-    elif notebook.successful_steps >= 2: score += 5
-    else: penalties.append(f"Only {notebook.successful_steps} steps")
+    if len(cite_audit['mismatched_citations']) <= 2:
+        score += 5
+    else:
+        penalties.append(
+            f"Mismatched: {len(cite_audit['mismatched_citations'])}"
+        )
 
-    if len(notebook.data_points) >= 10: score += 10
-    elif len(notebook.data_points) >= 3: score += 5
-    else: penalties.append(f"Low data: {len(notebook.data_points)} points")
+    # Axis 4: Content Quality (15 pts)
+    if density_audit['content_ratio'] >= 30:
+        score += 5
+    else:
+        penalties.append(f"Low content: {density_audit['content_ratio']}%")
 
-    # Insight quality (10 pts)
-    if insight_audit['substantive_ratio'] >= 50: score += 10
-    elif insight_audit['substantive_ratio'] >= 25: score += 5
-    else: penalties.append(f"Generic insights: {insight_audit['substantive_ratio']}%")
+    if density_audit['numbers_with_units'] >= 5:
+        score += 5
+    elif density_audit['numbers_with_units'] >= 2:
+        score += 3
+    else:
+        penalties.append(
+            f"Low data density: {density_audit['numbers_with_units']}"
+        )
 
-    # Zero leakage (10 pts)
-    if leak_audit['leakage_count'] == 0: score += 10
-    else: penalties.append(f"POLARIS leakage: {leak_audit['leakage_count']}")
+    if leak_audit['leakage_count'] == 0:
+        score += 5
+    else:
+        penalties.append(f"POLARIS leakage: {leak_audit['leakage_count']}")
 
     print(f"\n  ── SCORE: {score}/{max_score} ──")
+    print(f"    Axis 1 (Factual):  "
+          f"{min(40, score)}/40")
     if penalties:
         for p in penalties:
             print(f"    penalty: {p}")

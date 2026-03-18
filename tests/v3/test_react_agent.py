@@ -20,6 +20,8 @@ import pytest
 from src.polaris_graph.contracts_v3 import AnalysisEntry
 from src.polaris_graph.tools.analysis_notebook import AnalysisNotebook, AnalysisStep
 from src.polaris_graph.tools.react_agent import (
+    AnalysisPlan,
+    PlannedStep,
     ReactAnalysisAgent,
     ReactDecision,
 )
@@ -101,6 +103,7 @@ async def test_react_extracts_first_when_no_data(evidence_store, mock_client):
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -140,6 +143,7 @@ async def test_react_stops_after_sufficient_analysis(evidence_store, mock_client
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -192,6 +196,7 @@ async def test_react_handles_tool_failure(mock_client):
         evidence_store=empty_store,
         evidence_ids=["ev_001"],
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -235,6 +240,7 @@ async def test_react_respects_timeout(evidence_store, mock_client):
             evidence_store=evidence_store,
             evidence_ids=list(evidence_store.keys()),
             query="biochar heavy metal removal",
+            mode="react",
         )
         notebook = await agent.run()
 
@@ -272,6 +278,7 @@ async def test_react_provenance_chain(evidence_store, mock_client):
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -322,6 +329,7 @@ async def test_react_no_polaris_citation(evidence_store, mock_client):
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -356,6 +364,7 @@ async def test_react_fallback_on_llm_failure(evidence_store, mock_client):
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -400,6 +409,7 @@ async def test_react_on_real_evidence(evidence_store, mock_client):
         evidence_store=evidence_store,
         evidence_ids=list(evidence_store.keys()),
         query="biochar heavy metal removal efficiency",
+        mode="react",
     )
     notebook = await agent.run()
 
@@ -596,3 +606,356 @@ class TestAnalysisNotebook:
         ctx = nb.build_synthesis_context()
         assert "[CITE:ev_001]" in ctx
         assert "POLARIS" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# Schema normalization tests (PlannedStep, AnalysisPlan)
+# ---------------------------------------------------------------------------
+
+class TestPlannedStepNormalization:
+    """Test that PlannedStep handles Qwen's various JSON formats."""
+
+    def test_standard_format(self):
+        step = PlannedStep(tool_name="extract_numeric_data", reasoning="First")
+        assert step.tool_name == "extract_numeric_data"
+        assert step.reasoning == "First"
+
+    def test_alt_field_tool(self):
+        step = PlannedStep.model_validate({"tool": "Statistical_Summary"})
+        assert step.tool_name == "statistical_summary"
+
+    def test_alt_field_action(self):
+        step = PlannedStep.model_validate(
+            {"action": "query_evidence_sql", "why": "Get tiers"}
+        )
+        assert step.tool_name == "query_evidence_sql"
+        assert step.reasoning == "Get tiers"
+
+    def test_alt_field_params(self):
+        step = PlannedStep.model_validate(
+            {"tool_name": "query_evidence_sql", "args": {"sql": "SELECT 1"}}
+        )
+        assert step.parameters == {"sql": "SELECT 1"}
+
+    def test_default_reasoning(self):
+        step = PlannedStep.model_validate({"tool_name": "meta_analysis"})
+        assert "meta_analysis" in step.reasoning
+
+
+class TestAnalysisPlanNormalization:
+    """Test that AnalysisPlan handles Qwen's various JSON formats."""
+
+    def test_standard_format(self):
+        plan = AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+        ])
+        assert len(plan.steps) == 1
+
+    def test_flat_tool_list(self):
+        plan = AnalysisPlan.model_validate({
+            "tools": ["extract_numeric_data", "statistical_summary"]
+        })
+        assert len(plan.steps) == 2
+        assert plan.steps[0].tool_name == "extract_numeric_data"
+        assert plan.steps[1].tool_name == "statistical_summary"
+
+    def test_alt_key_plan(self):
+        plan = AnalysisPlan.model_validate({
+            "plan": [
+                {"tool": "extract_numeric_data", "thought": "Extract first"},
+                {"name": "query_evidence_sql", "reason": "Get metadata"},
+            ]
+        })
+        assert len(plan.steps) == 2
+        assert plan.steps[0].tool_name == "extract_numeric_data"
+        assert plan.steps[0].reasoning == "Extract first"
+        assert plan.steps[1].tool_name == "query_evidence_sql"
+        assert plan.steps[1].reasoning == "Get metadata"
+
+    def test_alt_key_actions(self):
+        plan = AnalysisPlan.model_validate({
+            "actions": [{"tool_name": "meta_analysis"}]
+        })
+        assert len(plan.steps) == 1
+        assert plan.steps[0].tool_name == "meta_analysis"
+
+    def test_bare_list_of_strings(self):
+        """Qwen sometimes returns a bare list instead of an object."""
+        plan = AnalysisPlan.model_validate(
+            ["extract_numeric_data", "statistical_summary", "rank_by_impact"]
+        )
+        assert len(plan.steps) == 3
+        assert plan.steps[0].tool_name == "extract_numeric_data"
+
+    def test_bare_list_of_dicts(self):
+        """Qwen returns a bare list of tool dicts."""
+        plan = AnalysisPlan.model_validate([
+            {"tool": "extract_numeric_data"},
+            {"tool": "comparison_table"},
+        ])
+        assert len(plan.steps) == 2
+        assert plan.steps[1].tool_name == "comparison_table"
+
+
+# ---------------------------------------------------------------------------
+# Agentic mode tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_agentic_plan_and_execute(evidence_store, mock_client):
+    """Agentic mode: plan -> execute -> interpret -> verify."""
+    async def mock_structured(prompt, schema, **kwargs):
+        return AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+            PlannedStep(tool_name="statistical_summary"),
+            PlannedStep(tool_name="query_evidence_sql"),
+        ])
+
+    mock_response = MagicMock()
+    mock_response.content = (
+        "Biochar achieves 85-99% lead removal [CITE:ev_001]. "
+        "Average removal efficiency is 92% across 15 studies "
+        "[CITE:ev_005]. Contact time ranges from 40 to 170 "
+        "minutes [CITE:ev_008]."
+    )
+
+    async def mock_generate(**kwargs):
+        return mock_response
+
+    mock_client.generate_structured = mock_structured
+    mock_client.generate = mock_generate
+
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="biochar heavy metal removal",
+        mode="agentic",
+    )
+    notebook = await agent.run()
+
+    # Plan executed at least extract + sql (stats may be skipped if no data)
+    assert notebook.step_count >= 3
+    assert notebook.successful_steps >= 2
+
+    # Should have interpretation step
+    tool_names = [s.tool_name for s in notebook.steps]
+    assert "interpret_results" in tool_names
+    assert "verify_claims" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_agentic_plan_failure_falls_back(evidence_store, mock_client):
+    """When planning fails, agentic mode uses fallback plan."""
+    async def mock_structured(prompt, schema, **kwargs):
+        raise RuntimeError("LLM is down")
+
+    async def mock_generate(**kwargs):
+        raise RuntimeError("LLM is down")
+
+    mock_client.generate_structured = mock_structured
+    mock_client.generate = mock_generate
+
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="biochar heavy metal removal",
+        mode="agentic",
+    )
+    notebook = await agent.run()
+
+    # Fallback plan should have run extract + stats/sql
+    assert notebook.step_count >= 2
+    tool_names = [s.tool_name for s in notebook.steps]
+    assert "extract_numeric_data" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_agentic_verify_catches_category_mismatch(
+    evidence_store, mock_client,
+):
+    """Verification catches when a cost metric is cited as removal."""
+    # Add a cost-specific evidence piece (no removal/treatment words)
+    evidence_store["ev_c05700"] = {
+        "evidence_id": "ev_c05700",
+        "statement": (
+            "GAC is 40% less expensive than ion exchange "
+            "according to a 2024 cost analysis"
+        ),
+        "source_url": "https://example.com/cost",
+        "quality_tier": "GOLD",
+        "relevance_score": 0.9,
+    }
+
+    async def mock_structured(prompt, schema, **kwargs):
+        return AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+            PlannedStep(tool_name="query_evidence_sql"),
+        ])
+
+    mock_response = MagicMock()
+    # Deliberately misinterpret: cite cost evidence as removal
+    mock_response.content = (
+        "Biochar removes heavy metals effectively. "
+        "GAC achieves 40% removal efficiency [CITE:ev_c05700]. "
+        "Multiple studies confirm 85-99% lead removal [CITE:ev_001]."
+    )
+
+    async def mock_generate(**kwargs):
+        return mock_response
+
+    mock_client.generate_structured = mock_structured
+    mock_client.generate = mock_generate
+
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="biochar heavy metal removal",
+        mode="agentic",
+    )
+    notebook = await agent.run()
+
+    # Verify step should exist and flag the mismatch
+    verify_steps = [
+        s for s in notebook.steps if s.tool_name == "verify_claims"
+    ]
+    assert len(verify_steps) == 1
+    stats = verify_steps[0].result.statistics
+    assert stats.get("mismatches", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_agentic_respects_timeout(evidence_store, mock_client):
+    """Agentic mode respects the timeout budget."""
+    async def mock_structured(prompt, schema, **kwargs):
+        return AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+            PlannedStep(tool_name="statistical_summary"),
+            PlannedStep(tool_name="comparison_table"),
+            PlannedStep(tool_name="meta_analysis"),
+            PlannedStep(tool_name="rank_by_impact"),
+        ])
+
+    mock_client.generate_structured = mock_structured
+
+    with patch.dict(os.environ, {"PG_REACT_TIMEOUT_SECONDS": "1"}):
+        from importlib import reload
+        import src.polaris_graph.tools.react_agent as ra_mod
+        reload(ra_mod)
+
+        agent = ra_mod.ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar heavy metal removal",
+            mode="agentic",
+        )
+        notebook = await agent.run()
+
+    # Should have completed with fewer than 5 steps due to timeout
+    assert notebook.step_count <= 5
+
+
+@pytest.mark.asyncio
+async def test_mode_switch(evidence_store, mock_client):
+    """Agent respects mode parameter and env var override."""
+    async def mock_structured(prompt, schema, **kwargs):
+        if hasattr(schema, '__name__') and schema.__name__ == "AnalysisPlan":
+            return AnalysisPlan(steps=[
+                PlannedStep(tool_name="extract_numeric_data"),
+            ])
+        return ReactDecision(action="stop", reasoning="done")
+
+    mock_client.generate_structured = mock_structured
+
+    # Test explicit mode="react"
+    agent_react = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+        mode="react",
+    )
+    assert agent_react._mode == "react"
+
+    # Test explicit mode="agentic"
+    agent_agentic = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+        mode="agentic",
+    )
+    assert agent_agentic._mode == "agentic"
+
+    # Test env var override
+    with patch.dict(os.environ, {"PG_REACT_MODE": "react"}):
+        agent_env = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="test",
+            mode="agentic",  # Should be overridden by env var
+        )
+        assert agent_env._mode == "react"
+
+
+@pytest.mark.asyncio
+async def test_agentic_on_real_evidence(evidence_store, mock_client):
+    """Agentic pipeline produces usable output on real evidence."""
+    async def mock_structured(prompt, schema, **kwargs):
+        return AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+            PlannedStep(tool_name="query_evidence_sql"),
+            PlannedStep(tool_name="statistical_summary"),
+            PlannedStep(tool_name="rank_by_impact"),
+        ])
+
+    mock_response = MagicMock()
+    mock_response.content = (
+        "Biochar derived from rice husk achieves 86% lead removal "
+        "at pH 5.2 with 40-minute contact time [CITE:ev_001]. "
+        "Higher pH levels improve performance, with 99% removal "
+        "reported at pH 7.8 [CITE:ev_015]. "
+        "Statistical analysis across 15 studies shows mean removal "
+        "of 92.0% (95% CI: 88.2-95.8%) [CITE:ev_008]. "
+        "Contact time varies from 40 to 170 minutes [CITE:ev_003]."
+    )
+
+    async def mock_generate(**kwargs):
+        return mock_response
+
+    mock_client.generate_structured = mock_structured
+    mock_client.generate = mock_generate
+
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="biochar heavy metal removal efficiency",
+        mode="agentic",
+    )
+    notebook = await agent.run()
+
+    # Should have multiple successful steps
+    assert notebook.successful_steps >= 3
+
+    # Should have data points from extraction
+    assert len(notebook.data_points) > 0
+
+    # Should have interpretation and verification
+    tool_names = [s.tool_name for s in notebook.steps]
+    assert "interpret_results" in tool_names
+    assert "verify_claims" in tool_names
+
+    # Build synthesis context should be non-empty
+    ctx = notebook.build_synthesis_context()
+    assert len(ctx) > 100
+    assert "[CITE:" in ctx
+    assert "POLARIS" not in ctx
+
+    # to_entries should produce valid entries
+    entries = notebook.to_entries()
+    assert len(entries) >= 3

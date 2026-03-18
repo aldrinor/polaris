@@ -1,8 +1,11 @@
 """ReAct analysis agent — autonomous tool selection for evidence analysis.
 
-Instead of a fixed 7-tool pipeline, the LLM autonomously decides which
-tools to run based on data availability and what's been analyzed so far.
-Inspired by OpenAI Deep Research's ReAct (Plan-Act-Observe) pattern.
+Supports two modes:
+- "agentic" (default): Plan->Execute->Interpret->Verify (2 LLM calls, ReWOO pattern)
+- "react" (legacy): Per-step LLM decisions (up to 5+1 LLM calls)
+
+The agentic mode eliminates Qwen 3.5 Plus timeout issues on sequential
+structured output calls (2/5 timeout rate in ReAct mode).
 
 The agent enforces citation provenance: every analysis result traces back
 to original evidence IDs, never "POLARIS Analysis Toolkit".
@@ -28,6 +31,7 @@ logger = logging.getLogger("polaris_graph")
 _MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
 _TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "300"))
 _TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
+_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
 
 # Tool names Qwen is allowed to pick (for extraction from malformed JSON)
 _KNOWN_TOOLS = {
@@ -131,6 +135,84 @@ class ReactDecision(BaseModel):
         return str(v).strip().lower() if v else "stop"
 
 
+class PlannedStep(BaseModel):
+    """A single planned analysis step for the agentic pipeline.
+
+    Qwen 3.5 Plus returns simplified JSON — the model_validator
+    normalizes common deviations (same pattern as ReactDecision).
+    """
+
+    tool_name: str = Field(description="Tool to execute")
+    reasoning: str = Field(
+        description="Why this tool should run", default="",
+    )
+    parameters: dict = Field(
+        description="Tool parameters", default_factory=dict,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        """Handle common Qwen deviations from the expected schema."""
+        if not isinstance(data, dict):
+            return data
+        for alt in ("tool", "name", "action", "step", "tool_id"):
+            if alt in data and "tool_name" not in data:
+                data["tool_name"] = data.pop(alt)
+        for alt in ("thought", "explanation", "reason", "rationale", "why"):
+            if alt in data and "reasoning" not in data:
+                data["reasoning"] = data.pop(alt)
+        for alt in ("params", "args", "input", "kwargs", "action_input"):
+            if alt in data and "parameters" not in data:
+                data["parameters"] = data.pop(alt)
+        if "reasoning" not in data or not data.get("reasoning"):
+            data["reasoning"] = f"Run {data.get('tool_name', 'unknown')}"
+        return data
+
+    @field_validator("tool_name", mode="before")
+    @classmethod
+    def coerce_tool_name(cls, v):
+        """Coerce tool_name to lowercase string."""
+        if isinstance(v, str):
+            return v.strip().lower()
+        if isinstance(v, dict):
+            return str(
+                v.get("tool") or v.get("name") or "extract_numeric_data"
+            ).strip().lower()
+        return str(v).strip().lower() if v else "extract_numeric_data"
+
+
+class AnalysisPlan(BaseModel):
+    """LLM's analysis plan — ordered list of tools to execute.
+
+    The agentic pipeline asks for ONE plan upfront (ReWOO pattern),
+    then executes all steps deterministically without further LLM calls.
+    """
+
+    steps: list[PlannedStep] = Field(
+        description="Ordered list of analysis steps",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        """Handle common Qwen deviations from the expected schema."""
+        # Handle bare list: Qwen returns ["tool1", "tool2"] or [{"tool": ...}]
+        if isinstance(data, list):
+            data = {"steps": data}
+        if not isinstance(data, dict):
+            return data
+        for alt in ("plan", "tools", "actions", "tool_sequence", "sequence",
+                     "analysis_steps", "ordered_steps"):
+            if alt in data and "steps" not in data:
+                data["steps"] = data.pop(alt)
+        # Handle flat tool list: ["extract_numeric_data", "statistical_summary"]
+        if isinstance(data.get("steps"), list) and data["steps"]:
+            if isinstance(data["steps"][0], str):
+                data["steps"] = [{"tool_name": t} for t in data["steps"]]
+        return data
+
+
 class ReactAnalysisAgent:
     """ReAct loop that autonomously analyzes evidence using registered tools.
 
@@ -148,6 +230,7 @@ class ReactAnalysisAgent:
         query: str,
         registry: ToolRegistry | None = None,
         tracer=None,
+        mode: str | None = None,
     ):
         self._client = client
         self._evidence_store = evidence_store
@@ -156,9 +239,21 @@ class ReactAnalysisAgent:
         self._registry = registry or build_default_registry()
         self._tracer = tracer
         self._notebook = AnalysisNotebook(query, evidence_ids)
+        # Mode: env var takes precedence, then constructor arg, then default
+        self._mode = os.getenv("PG_REACT_MODE", mode or "agentic")
 
     async def run(self) -> AnalysisNotebook:
-        """Execute the ReAct loop and return the analysis notebook."""
+        """Execute analysis and return the notebook.
+
+        Dispatches to _run_agentic_analysis() or _run_react() based on
+        the mode parameter / PG_REACT_MODE env var.
+        """
+        if self._mode == "react":
+            return await self._run_react()
+        return await self._run_agentic_analysis()
+
+    async def _run_react(self) -> AnalysisNotebook:
+        """Execute the ReAct loop (legacy mode)."""
         start_time = time.monotonic()
         max_iterations = _MAX_ITERATIONS
         timeout = _TIMEOUT_SECONDS
@@ -248,6 +343,315 @@ class ReactAnalysisAgent:
         )
 
         return self._notebook
+
+    # -------------------------------------------------------------------
+    # Agentic pipeline (Plan -> Execute -> Interpret -> Verify)
+    # -------------------------------------------------------------------
+
+    async def _run_agentic_analysis(self) -> AnalysisNotebook:
+        """Execute Plan -> Execute -> Interpret -> Verify pipeline.
+
+        Phase 1: PLAN — 1 generate_structured() call produces AnalysisPlan
+        Phase 2: EXECUTE — deterministic tool execution, 0 LLM calls
+        Phase 3: INTERPRET — 1 generate() call produces analytical prose
+        Phase 4: VERIFY — programmatic claim<->evidence check, 0 LLM calls
+        """
+        start_time = time.monotonic()
+        timeout = _TIMEOUT_SECONDS
+
+        logger.info(
+            "[agentic] Starting analysis: %d evidence, timeout=%ds",
+            len(self._evidence_ids), timeout,
+        )
+
+        # Phase 1: PLAN (1 LLM call, ~75s)
+        plan = None
+        try:
+            plan = await self._plan_analysis()
+            logger.info(
+                "[agentic] Plan: %s",
+                [s.tool_name for s in plan.steps],
+            )
+        except Exception as exc:
+            logger.warning(
+                "[agentic] Plan failed: %s: %s, using fallback plan",
+                type(exc).__name__, str(exc)[:200],
+            )
+
+        if not plan or not plan.steps:
+            plan = AnalysisPlan(steps=[
+                PlannedStep(
+                    tool_name="extract_numeric_data",
+                    reasoning="Always extract first",
+                ),
+                PlannedStep(
+                    tool_name="statistical_summary",
+                    reasoning="Compute statistics on extracted data",
+                ),
+                PlannedStep(
+                    tool_name="query_evidence_sql",
+                    reasoning="Get tier distribution and metadata",
+                ),
+            ])
+            logger.info(
+                "[agentic] Using fallback plan: %s",
+                [s.tool_name for s in plan.steps],
+            )
+
+        # Phase 2: EXECUTE (0 LLM calls, ~10s)
+        for step_def in plan.steps:
+            elapsed = time.monotonic() - start_time
+            if elapsed >= timeout:
+                logger.info(
+                    "[agentic] Timeout after %.1fs, stopping execution",
+                    elapsed,
+                )
+                break
+
+            tool_def = self._registry.get_tool(step_def.tool_name)
+            if not tool_def or not tool_def.execute:
+                logger.warning(
+                    "[agentic] Skipping unknown tool: %s",
+                    step_def.tool_name,
+                )
+                continue
+
+            # Skip data-requiring tools if no data yet
+            if tool_def.requires_data and not self._notebook.has_data:
+                logger.info(
+                    "[agentic] Skipping %s (requires data, none yet)",
+                    step_def.tool_name,
+                )
+                continue
+
+            step_start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    tool_def.execute(
+                        evidence_store=self._evidence_store,
+                        data_points=self._notebook.data_points,
+                        client=self._client,
+                        **step_def.parameters,
+                    ),
+                    timeout=_TOOL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                result = ToolResult(
+                    success=False,
+                    tool_name=step_def.tool_name,
+                    markdown=f"Tool timed out after {_TOOL_TIMEOUT}s",
+                    error=f"Timeout after {_TOOL_TIMEOUT}s",
+                )
+            except Exception as exc:
+                result = ToolResult(
+                    success=False,
+                    tool_name=step_def.tool_name,
+                    markdown=f"Tool error: {str(exc)[:200]}",
+                    error=str(exc)[:500],
+                )
+
+            step_elapsed = time.monotonic() - step_start
+            step = AnalysisStep(
+                step_number=self._notebook.step_count + 1,
+                reasoning=step_def.reasoning or f"Planned: {step_def.tool_name}",
+                tool_name=step_def.tool_name,
+                result=result,
+                elapsed_seconds=round(step_elapsed, 3),
+            )
+            self._notebook.add_step(step)
+
+            logger.info(
+                "[agentic] Step %d: %s [%s] %.1fs",
+                step.step_number,
+                step_def.tool_name,
+                "OK" if result.success else "FAIL",
+                step_elapsed,
+            )
+
+        # If no steps succeeded, run deterministic fallback
+        if self._notebook.successful_steps == 0:
+            logger.warning("[agentic] No successful steps, running fallback")
+            await self._run_fallback()
+
+        # Phase 3: INTERPRET (1 LLM call, ~120s)
+        if self._notebook.successful_steps > 0 and self._client:
+            await self._interpret_results()
+
+        # Phase 4: VERIFY (programmatic, ~5s)
+        verification = self._verify_claims()
+        if verification:
+            logger.info(
+                "[agentic] Verification: %d/%d claims verified, "
+                "%d mismatches",
+                verification.get("verified", 0),
+                verification.get("total_claims_checked", 0),
+                verification.get("mismatches", 0),
+            )
+
+        total_elapsed = time.monotonic() - start_time
+        logger.info(
+            "[agentic] Complete: %d steps (%d ok), %d data points, %.1fs",
+            self._notebook.step_count,
+            self._notebook.successful_steps,
+            len(self._notebook.data_points),
+            total_elapsed,
+        )
+
+        return self._notebook
+
+    async def _plan_analysis(self) -> AnalysisPlan:
+        """Plan analysis in ONE LLM call (ReWOO pattern).
+
+        Returns an ordered list of tools to execute. Falls back to
+        a deterministic plan [extract, stats, sql] on failure.
+        """
+        all_tools = self._registry.available_tools(has_data=True)
+        evidence_count = len(self._evidence_ids)
+        has_structured = any(
+            self._evidence_store.get(eid, {}).get("structured_data")
+            for eid in self._evidence_ids[:50]
+        )
+
+        prompt = (
+            f"Plan analysis for: {self._query[:120]}\n"
+            f"Evidence: {evidence_count} | Structured: {has_structured}\n"
+            f"Tools: {', '.join(all_tools)}\n\n"
+            f"Rules:\n"
+            f"1. Always start with extract_numeric_data\n"
+            f"2. Then statistical_summary or query_evidence_sql\n"
+            f"3. Then comparison_table or meta_analysis\n"
+            f"4. Max {_MAX_ITERATIONS} steps\n\n"
+            f"Return ordered tool steps."
+        )
+
+        plan = await asyncio.wait_for(
+            self._client.generate_structured(
+                prompt=prompt,
+                schema=AnalysisPlan,
+                system="Plan the analysis. Return an ordered list of tool steps.",
+                max_tokens=512,
+                timeout=60,
+            ),
+            timeout=75,
+        )
+
+        # Filter to known tools only, cap at max iterations
+        valid_steps = [
+            step for step in plan.steps
+            if step.tool_name in _KNOWN_TOOLS and step.tool_name != "stop"
+        ]
+        plan.steps = valid_steps[:_MAX_ITERATIONS]
+
+        return plan
+
+    def _verify_claims(self) -> dict:
+        """Programmatic post-interpretation claim verification (Phase 4).
+
+        For each [CITE:ev_xxx] in the interpretation:
+        1. Extract the numerical claim near the citation
+        2. Extract the statement from the cited evidence
+        3. Check: does the claim category match? (via _verify_interpretation_claims)
+        4. Check: does the key number appear in the evidence?
+
+        Appends a verification step to the notebook with results.
+        Returns a summary dict.
+        """
+        import re as _re
+
+        # Find the interpretation step
+        interp_step = None
+        for step in self._notebook.steps:
+            if step.tool_name == "interpret_results" and step.result.success:
+                interp_step = step
+                break
+
+        if not interp_step:
+            return {}
+
+        content = interp_step.result.markdown
+
+        # Category mismatch check (reuses existing method)
+        category_mismatches = self._verify_interpretation_claims(content)
+
+        # Numerical presence check
+        all_cites = _re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', content)
+        pattern = _re.compile(
+            r'([^.!?\n]{10,120})\[CITE:(ev_[a-f0-9]+)\]'
+        )
+
+        total_checked = 0
+        verified = 0
+        for match in pattern.finditer(content):
+            claim_text = match.group(1).strip()
+            ev_id = match.group(2)
+
+            if ev_id not in self._evidence_store:
+                continue
+
+            nums_in_claim = _re.findall(r'(\d+\.?\d*)', claim_text)
+            if not nums_in_claim:
+                continue
+
+            total_checked += 1
+            ev_stmt = self._evidence_store[ev_id].get(
+                "statement", "",
+            ).lower()
+            key_num = nums_in_claim[-1]  # Closest to citation
+
+            if key_num in ev_stmt:
+                verified += 1
+
+        report = {
+            "total_citations": len(all_cites),
+            "unique_citations": len(set(all_cites)),
+            "total_claims_checked": total_checked,
+            "verified": verified,
+            "mismatches": len(category_mismatches),
+            "mismatch_details": category_mismatches[:10],
+        }
+
+        # Build verification report markdown
+        report_lines = [
+            "**Claim Verification Report:**",
+            f"- Citations: {len(all_cites)} total, "
+            f"{len(set(all_cites))} unique",
+            f"- Numerical claims checked: {total_checked}",
+            f"- Numbers verified in source: {verified}/{total_checked}",
+            f"- Category mismatches: {len(category_mismatches)}",
+        ]
+        if category_mismatches:
+            report_lines.append("\n**Category Mismatches:**")
+            for mm in category_mismatches[:5]:
+                report_lines.append(
+                    f"- {mm['ev_id']}: claim \"{mm['claim'][:50]}\" "
+                    f"({mm['claim_category']}) vs evidence "
+                    f"\"{mm['ev_statement'][:50]}\" ({mm['ev_category']})"
+                )
+
+        verify_step = AnalysisStep(
+            step_number=self._notebook.step_count + 1,
+            reasoning="Programmatic claim-evidence verification",
+            tool_name="verify_claims",
+            result=ToolResult(
+                success=True,
+                tool_name="verify_claims",
+                markdown="\n".join(report_lines),
+                source_evidence_ids=list(set(all_cites))[:20],
+                insights=[
+                    f"Verified {verified}/{total_checked} numerical "
+                    f"claims against source evidence",
+                ],
+                statistics=report,
+            ),
+            elapsed_seconds=0.0,
+        )
+        self._notebook.add_step(verify_step)
+
+        return report
+
+    # -------------------------------------------------------------------
+    # ReAct loop helpers (legacy mode)
+    # -------------------------------------------------------------------
 
     async def _decide(self, iteration: int) -> ReactDecision:
         """Ask the LLM which tool to use next."""

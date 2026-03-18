@@ -23,6 +23,8 @@ from src.polaris_graph.tools.tool_registry import (
     build_default_registry,
 )
 from src.polaris_graph.tools.react_agent import (
+    AnalysisPlan,
+    PlannedStep,
     ReactAnalysisAgent,
     ReactDecision,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "build_default_registry",
+    "AnalysisPlan",
+    "PlannedStep",
     "ReactAnalysisAgent",
     "ReactDecision",
     # Package installer
