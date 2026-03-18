@@ -274,6 +274,35 @@ class VerifiedSectionDraft(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Phase 3.5: ANALYSIS output (ReAct agent results with provenance)
+# ---------------------------------------------------------------------------
+
+class AnalysisEntry(BaseModel):
+    """Output from a single analysis tool execution with provenance tracking.
+
+    The key invariant: source_evidence_ids traces BACK to original evidence,
+    never to "POLARIS Analysis Toolkit". Every [CITE:ev_xxx] token in
+    markdown points to a real source URL in the bibliography.
+    """
+
+    entry_id: str = Field(description="Unique ID, e.g. 'analysis_a1b2c3d4'")
+    analysis_type: str = Field(
+        description="Tool that produced this: extract_numeric_data, statistical_summary, etc.",
+    )
+    title: str = Field(description="Brief description of what this analysis shows")
+    markdown: str = Field(
+        description="Formatted results with [CITE:ev_xxx] tokens inline",
+    )
+    source_evidence_ids: list[str] = Field(
+        description="Original evidence IDs that produced this analysis (provenance chain)",
+        default_factory=list,
+    )
+    statistics: dict = Field(default_factory=dict)
+    image_base64: str = Field(default="", description="Base64 PNG chart if any")
+    insights: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Phase 5: ASSEMBLE output (final result)
 # ---------------------------------------------------------------------------
 

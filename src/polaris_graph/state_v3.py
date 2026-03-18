@@ -44,6 +44,9 @@ class V3State(TypedDict):
     gaps: list[dict]             # OutlineGap dicts
     gap_searches_done: int
 
+    # --- Phase 3.5: ANALYSIS (ReAct agent results) ---
+    analysis_entries: list[dict]    # AnalysisEntry dicts with provenance
+
     # --- Phase 4: SYNTHESIZE (accumulated per section) ---
     completed_sections: list[dict]  # VerifiedSectionDraft dicts
     used_evidence_ids: list[str]    # Can't use set in TypedDict
@@ -88,6 +91,8 @@ def create_v3_state(
         outline_version=0,
         gaps=[],
         gap_searches_done=0,
+        # Phase 3.5
+        analysis_entries=[],
         # Phase 4
         completed_sections=[],
         used_evidence_ids=[],

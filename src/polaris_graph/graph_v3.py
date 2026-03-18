@@ -461,17 +461,14 @@ def build_v3_graph(
         return update
 
     # -----------------------------------------------------------------------
-    # Node: v3_analyze — proactive Python analysis of evidence data
+    # Node: v3_analyze — ReAct analysis loop with citation provenance
     # -----------------------------------------------------------------------
     async def analyze_node(state: V3State) -> dict:
-        """Phase 3.5: Proactive data analysis using Python tools.
+        """Phase 3.5: ReAct analysis agent with autonomous tool selection.
 
-        Runs BEFORE synthesis. Uses the analysis toolkit and code executor
-        to produce statistical summaries, comparison tables, and custom
-        analyses. Results are stored in evidence_store for synthesis to embed.
-
-        This is what differentiates POLARIS from Gemini — we don't just
-        search-extract-write. We ANALYZE with real Python computation.
+        The LLM decides which analysis tools to run based on evidence shape.
+        Every result tracks source_evidence_ids for citation provenance —
+        zero references to "POLARIS Analysis Toolkit" in the output chain.
         """
         if tracer:
             tracer.node_start("v3_analyze")
@@ -483,400 +480,34 @@ def build_v3_graph(
                 tracer.node_end("v3_analyze")
             return {}
 
-        from src.polaris_graph.tools.analysis_toolkit import (
-            statistical_summary,
-            build_comparison_table,
-            generate_meta_analysis_summary,
-            compute_agreement_score,
+        from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
+
+        agent = ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=state.get("evidence_ids", []),
+            query=state["original_query"],
+            tracer=tracer,
         )
-        from src.polaris_graph.tools.code_executor import (
-            generate_and_execute_analysis,
-        )
-
-        outline = state.get("outline", {})
-        sections = outline.get("sections", []) if isinstance(outline, dict) else []
-        query = state["original_query"]
-
-        # Collect structured data points from evidence
-        all_data_points = []
-        all_statements = []
-        for ev_id in state.get("evidence_ids", []):
-            ev = evidence_store.get(ev_id, {})
-            # Structured data from PG_STRUCTURED_DATA_EXTRACTION
-            for dp in ev.get("structured_data", []):
-                dp["evidence_id"] = ev_id
-                dp["source_url"] = ev.get("source_url", "")
-                all_data_points.append(dp)
-            # Collect statements for agreement analysis
-            stmt = ev.get("statement", "")
-            if stmt:
-                all_statements.append(stmt)
-
-        analysis_results = []
-        charts_generated = 0
-
-        # --- Self-driven extraction: extract numbers from raw text if no structured data ---
-        if not all_data_points and evidence_store:
-            try:
-                from src.polaris_graph.tools.evidence_extractor import (
-                    extract_numbers_from_evidence,
-                    summarize_extracted_data,
-                )
-                extracted = extract_numbers_from_evidence(evidence_store)
-                if extracted:
-                    all_data_points = extracted
-                    summary = summarize_extracted_data(extracted)
-                    logger.info(
-                        "[v3 analyze] Self-driven extraction: %d data points from raw text",
-                        len(extracted),
-                    )
-                    analysis_results.append({
-                        "type": "data_extraction",
-                        "title": "Extracted Numeric Data",
-                        "markdown": summary,
-                    })
-            except Exception as exc:
-                logger.warning("[v3 analyze] Self-driven extraction failed: %s", str(exc)[:200])
-
-        # --- Group data by unit for per-unit analysis (prevents mixing ng/L with %) ---
-        by_unit: dict[str, list] = {}
-        for dp in all_data_points:
-            unit = dp.get("unit", "unknown") or "unknown"
-            by_unit.setdefault(unit, []).append(dp)
-
-        # Use the LARGEST unit group for stats/meta-analysis (most meaningful)
-        primary_unit = max(by_unit, key=lambda u: len(by_unit[u])) if by_unit else ""
-        primary_data = by_unit.get(primary_unit, [])
-
-        # --- Tool 1: Statistical summary (per-unit to avoid mixing ng/L with %) ---
-        if primary_data:
-            try:
-                stats = statistical_summary(primary_data)
-                if stats.get("markdown_table"):
-                    analysis_results.append({
-                        "type": "statistical_summary",
-                        "title": "Statistical Summary Across Studies",
-                        "markdown": stats["markdown_table"],
-                        "insights": stats.get("insights", []),
-                        "statistics": stats.get("statistics", {}),
-                    })
-                    logger.info(
-                        "[v3 analyze] Statistical summary: n=%d, mean=%.2f, CI=[%.2f, %.2f]",
-                        stats["statistics"].get("n", 0),
-                        stats["statistics"].get("mean", 0),
-                        stats["statistics"].get("ci_95_lower", 0),
-                        stats["statistics"].get("ci_95_upper", 0),
-                    )
-            except Exception as exc:
-                logger.warning("[v3 analyze] Statistical summary failed: %s", str(exc)[:200])
-
-        # --- Tool 2: Comparison table across studies ---
-        if all_data_points and len(set(dp.get("source_url", "") for dp in all_data_points)) >= 2:
-            try:
-                table_md = build_comparison_table(all_data_points)
-                if table_md and len(table_md) > 50:
-                    analysis_results.append({
-                        "type": "comparison_table",
-                        "title": "Cross-Study Comparison",
-                        "markdown": table_md,
-                    })
-                    logger.info("[v3 analyze] Comparison table: %d chars", len(table_md))
-            except Exception as exc:
-                logger.warning("[v3 analyze] Comparison table failed: %s", str(exc)[:200])
-
-        # --- Tool 3: Meta-analysis summary (primary unit group only) ---
-        if primary_data and len(primary_data) >= 3:
-            try:
-                meta_md = generate_meta_analysis_summary(primary_data)
-                if meta_md and len(meta_md) > 50:
-                    analysis_results.append({
-                        "type": "meta_analysis",
-                        "title": "Meta-Analysis Summary",
-                        "markdown": meta_md,
-                    })
-                    logger.info("[v3 analyze] Meta-analysis generated: %d chars", len(meta_md))
-            except Exception as exc:
-                logger.warning("[v3 analyze] Meta-analysis failed: %s", str(exc)[:200])
-
-        # --- Fallback: Evidence source summary (always runs, even without structured data) ---
-        if not all_data_points and len(all_statements) >= 5:
-            # No structured data — build a markdown summary from evidence counts
-            source_counts: dict[str, int] = {}
-            source_tiers: dict[str, dict] = {}
-            for ev_id in state.get("evidence_ids", []):
-                ev = evidence_store.get(ev_id, {})
-                url = ev.get("source_title", ev.get("source_url", "Unknown"))[:60]
-                source_counts[url] = source_counts.get(url, 0) + 1
-                tier = ev.get("quality_tier", "BRONZE")
-                source_tiers.setdefault(url, {"GOLD": 0, "SILVER": 0, "BRONZE": 0})
-                source_tiers[url][tier] = source_tiers[url].get(tier, 0) + 1
-
-            if source_counts:
-                sorted_sources = sorted(source_counts.items(), key=lambda x: x[1], reverse=True)[:15]
-                table_lines = ["| Source | Evidence | Gold | Silver | Bronze |",
-                               "| --- | --- | --- | --- | --- |"]
-                for src, count in sorted_sources:
-                    tiers = source_tiers.get(src, {})
-                    table_lines.append(
-                        f"| {src} | {count} | {tiers.get('GOLD', 0)} | "
-                        f"{tiers.get('SILVER', 0)} | {tiers.get('BRONZE', 0)} |"
-                    )
-                analysis_results.append({
-                    "type": "source_summary",
-                    "title": "Evidence Source Distribution",
-                    "markdown": "\n".join(table_lines),
-                })
-                logger.info(
-                    "[v3 analyze] Source summary (no structured data): %d sources, %d evidence",
-                    len(source_counts), sum(source_counts.values()),
-                )
-
-        # --- Tool 4: Source agreement analysis ---
-        if len(all_statements) >= 3:
-            try:
-                agreement = compute_agreement_score(all_statements[:50])
-                analysis_results.append({
-                    "type": "agreement_analysis",
-                    "title": "Source Agreement Analysis",
-                    "markdown": (
-                        f"**Source Agreement:** {agreement.get('consensus_strength', 'unknown')} "
-                        f"(score: {agreement.get('agreement_score', 0):.2f})\n\n"
-                        f"Based on pairwise comparison of {len(all_statements[:50])} evidence statements."
-                    ),
-                    "agreement_score": agreement.get("agreement_score", 0),
-                })
-            except Exception as exc:
-                logger.warning("[v3 analyze] Agreement analysis failed: %s", str(exc)[:200])
-
-        # --- Tool 5: LLM-driven custom analysis (code executor) ---
-        code_exec_enabled = os.getenv("PG_V3_CODE_EXEC_ENABLED", "1") == "1"
-        if code_exec_enabled and (all_data_points or all_statements) and client:
-            try:
-                custom_result = await asyncio.wait_for(
-                    generate_and_execute_analysis(
-                        client=client,
-                        evidence_data=all_data_points[:30],
-                        analysis_question=(
-                            f"Analyze the key patterns and relationships in this research data about: {query}. "
-                            "Compute correlations, identify trends, and create a visualization."
-                        ),
-                        research_context=query,
-                    ),
-                    timeout=90,
-                )
-                if custom_result.get("success"):
-                    result_data = custom_result.get("result", {})
-                    if result_data:
-                        analysis_results.append({
-                            "type": "custom_analysis",
-                            "title": "Computational Analysis",
-                            "markdown": result_data.get("summary", str(result_data)[:1000]),
-                        })
-                    for chart in custom_result.get("charts", []):
-                        charts_generated += 1
-                        analysis_results.append({
-                            "type": "chart",
-                            "title": chart.get("title", "Analysis Chart"),
-                            "image_base64": chart.get("image_base64", ""),
-                        })
-                    logger.info(
-                        "[v3 analyze] Custom analysis: success, %d charts, %.1fs",
-                        len(custom_result.get("charts", [])),
-                        custom_result.get("execution_time_seconds", 0),
-                    )
-                else:
-                    logger.warning(
-                        "[v3 analyze] Custom analysis failed: %s",
-                        custom_result.get("error", "unknown")[:200],
-                    )
-            except Exception as exc:
-                logger.warning("[v3 analyze] Code executor failed: %s", str(exc)[:200])
-
-        # --- Tool 6: SQLite analytical queries (GAP-5) ---
-        sql_enabled = os.getenv("PG_V3_SQL_ANALYSIS_ENABLED", "1") == "1"
-        if sql_enabled and evidence_store and client:
-            try:
-                from src.polaris_graph.tools.evidence_database import (
-                    EvidenceDatabase,
-                    query_evidence_with_llm,
-                )
-
-                # Pre-built analytical queries (no LLM needed)
-                db = EvidenceDatabase()
-                db.load_evidence(evidence_store)
-
-                # Tier distribution
-                tier_result = db.query(
-                    "SELECT quality_tier, COUNT(*) as n, "
-                    "ROUND(AVG(relevance_score), 3) as avg_rel "
-                    "FROM evidence GROUP BY quality_tier ORDER BY n DESC"
-                )
-                if tier_result["success"] and tier_result["row_count"] > 0:
-                    analysis_results.append({
-                        "type": "sql_analysis",
-                        "title": "Evidence Quality Distribution",
-                        "markdown": tier_result["markdown_table"],
-                    })
-
-                # Top sources by evidence count
-                source_result = db.query(
-                    "SELECT source_title, evidence_count, "
-                    "ROUND(avg_relevance, 3) as avg_rel, "
-                    "gold_count, silver_count, bronze_count "
-                    "FROM source_summary ORDER BY evidence_count DESC LIMIT 10"
-                )
-                if source_result["success"] and source_result["row_count"] > 0:
-                    analysis_results.append({
-                        "type": "sql_analysis",
-                        "title": "Top Sources by Evidence Contribution",
-                        "markdown": source_result["markdown_table"],
-                    })
-
-                db.close()
-
-                # LLM-driven query for deeper patterns
-                llm_sql = await asyncio.wait_for(
-                    query_evidence_with_llm(
-                        client=client,
-                        evidence_store=evidence_store,
-                        question=f"What are the key statistical patterns in this evidence about: {query}?",
-                        research_context=query,
-                    ),
-                    timeout=60,
-                )
-                if llm_sql.get("success") and llm_sql["result"].get("markdown_table"):
-                    analysis_results.append({
-                        "type": "sql_analysis",
-                        "title": "Pattern Analysis (SQL)",
-                        "markdown": (
-                            f"Query: `{llm_sql['query']}`\n\n"
-                            f"{llm_sql['result']['markdown_table']}\n\n"
-                            f"*{llm_sql.get('interpretation', '')}*"
-                        ),
-                    })
-
-                logger.info("[v3 analyze] SQL analysis: %d queries succeeded", 3 if llm_sql.get("success") else 2)
-
-            except Exception as exc:
-                logger.warning("[v3 analyze] SQL analysis failed: %s", str(exc)[:200])
-
-        # --- Tool 7: Interactive analysis iteration (GAP-3) ---
-        # LLM reviews initial results and identifies follow-up analyses
-        max_iterations = int(os.getenv("PG_V3_ANALYSIS_ITERATIONS", "2"))
-        iteration_enabled = os.getenv("PG_V3_ITERATIVE_ANALYSIS", "1") == "1"
-        if iteration_enabled and analysis_results and client and all_data_points:
-            for iteration in range(1, max_iterations):
-                try:
-                    # Build summary of current results for LLM review
-                    results_summary = "\n".join(
-                        f"- {r['type']}: {r.get('title', '')} ({len(r.get('markdown', ''))} chars)"
-                        for r in analysis_results
-                    )
-
-                    from pydantic import BaseModel, Field
-
-                    class FollowUpAnalysis(BaseModel):
-                        has_gap: bool = Field(description="Whether there's a meaningful gap to fill")
-                        gap_description: str = Field(description="What's missing from the analysis", default="")
-                        analysis_question: str = Field(description="Specific question to answer with code", default="")
-                        needs_different_chart: bool = Field(default=False)
-                        chart_type: str = Field(default="")
-
-                    review = await asyncio.wait_for(
-                        client.generate_structured(
-                            prompt=(
-                                f"Research topic: {query}\n\n"
-                                f"Analysis completed so far:\n{results_summary}\n\n"
-                                f"Data points available: {len(all_data_points)}\n\n"
-                                "Review these results. Is there a meaningful gap that a "
-                                "follow-up Python analysis could fill? Consider:\n"
-                                "- Missing comparisons or correlations\n"
-                                "- Trends not yet visualized\n"
-                                "- Statistical tests not yet run\n"
-                                "- Data transformations that would reveal patterns\n"
-                                "Only suggest a follow-up if it adds SIGNIFICANT value."
-                            ),
-                            schema=FollowUpAnalysis,
-                            system="You are a research analyst reviewing analysis results for completeness.",
-                            max_tokens=1024,
-                            timeout=30,
-                        ),
-                        timeout=45,
-                    )
-
-                    if not review.has_gap or not review.analysis_question:
-                        logger.info("[v3 analyze] Iteration %d: no gaps found, stopping", iteration)
-                        break
-
-                    logger.info(
-                        "[v3 analyze] Iteration %d: gap='%s', question='%s'",
-                        iteration, review.gap_description[:50], review.analysis_question[:50],
-                    )
-
-                    # Execute follow-up analysis
-                    followup = await asyncio.wait_for(
-                        generate_and_execute_analysis(
-                            client=client,
-                            evidence_data=all_data_points[:30],
-                            analysis_question=review.analysis_question,
-                            research_context=query,
-                        ),
-                        timeout=90,
-                    )
-
-                    if followup.get("success"):
-                        result_data = followup.get("result", {})
-                        if result_data:
-                            analysis_results.append({
-                                "type": "iterative_analysis",
-                                "title": f"Follow-up Analysis: {review.gap_description[:80]}",
-                                "markdown": result_data.get("summary", str(result_data)[:1000]),
-                            })
-                        for chart in followup.get("charts", []):
-                            charts_generated += 1
-                            analysis_results.append({
-                                "type": "chart",
-                                "title": chart.get("title", f"Analysis Chart (iteration {iteration})"),
-                                "image_base64": chart.get("image_base64", ""),
-                            })
-
-                except Exception as exc:
-                    logger.warning("[v3 analyze] Iteration %d failed: %s", iteration, str(exc)[:200])
-                    break
-
-        # Store analysis results in evidence_store for synthesis to find
-        if analysis_results:
-            import uuid
-            for result in analysis_results:
-                analysis_id = f"analysis_{uuid.uuid4().hex[:8]}"
-                evidence_store[analysis_id] = {
-                    "evidence_id": analysis_id,
-                    "type": "analysis",
-                    "analysis_type": result["type"],
-                    "title": result.get("title", ""),
-                    "markdown": result.get("markdown", ""),
-                    "image_base64": result.get("image_base64", ""),
-                    "insights": result.get("insights", []),
-                    "statistics": result.get("statistics", {}),
-                }
+        notebook = await agent.run()
+        entries = [e.model_dump() for e in notebook.to_entries()]
 
         logger.info(
-            "[v3 analyze] Analysis phase complete: %d results, %d charts, %d data points processed",
-            len(analysis_results), charts_generated, len(all_data_points),
+            "[v3 analyze] ReAct complete: %d entries, %d steps, %d data points",
+            len(entries), notebook.step_count, len(notebook.data_points),
         )
 
         if tracer:
             tracer.log_event("evidence", node="v3_analyze", data={
                 "action": "analysis_complete",
-                "results_count": len(analysis_results),
-                "charts_generated": charts_generated,
-                "data_points_processed": len(all_data_points),
-                "statements_analyzed": len(all_statements),
-                "analysis_types": [r["type"] for r in analysis_results],
+                "results_count": len(entries),
+                "data_points_processed": len(notebook.data_points),
+                "steps_taken": notebook.step_count,
+                "analysis_types": [e["analysis_type"] for e in entries],
             })
             tracer.node_end("v3_analyze")
 
-        return {}  # Analysis stored in evidence_store side-channel
+        return {"analysis_entries": entries}
 
     # -----------------------------------------------------------------------
     # Node: v3_write_section
@@ -894,58 +525,62 @@ def build_v3_graph(
 
         outline = LiveOutline.model_validate(state["outline"])
 
-        # --- Inject analysis results into evidence for synthesis ---
-        # Analysis results from v3_analyze are stored in evidence_store
-        # with type="analysis". We need to surface them to the writer.
-        # Strategy: append analysis markdown to the FIRST topical section
-        # and Key Findings section as supplementary context.
-        analysis_items = [
-            (aid, ev) for aid, ev in evidence_store.items()
-            if ev.get("type") == "analysis" and ev.get("markdown")
-        ]
-        if analysis_items:
-            # Find Key Findings section (best home for analysis)
-            key_findings_idx = None
-            first_topical_idx = 0
-            for i, sec in enumerate(outline.sections):
-                if "key findings" in sec.title.lower():
-                    key_findings_idx = i
-                    break
+        # --- Inject analysis entries with citation provenance ---
+        # AnalysisEntry objects from the ReAct agent carry
+        # source_evidence_ids tracing back to ORIGINAL evidence.
+        # Route each entry to the section with most evidence overlap.
+        from src.polaris_graph.contracts_v3 import AnalysisEntry as _AE
 
-            target_idx = key_findings_idx if key_findings_idx is not None else first_topical_idx
+        analysis_entries = state.get("analysis_entries", [])
+        if analysis_entries:
+            for entry_dict in analysis_entries:
+                entry = _AE.model_validate(entry_dict)
 
-            # Add analysis evidence IDs to target section
-            for aid, _ in analysis_items:
-                if aid not in outline.sections[target_idx].evidence_ids:
-                    outline.sections[target_idx].evidence_ids.append(aid)
+                # Find section with most evidence overlap
+                best_idx = 0
+                best_overlap = 0
+                entry_ev_set = set(entry.source_evidence_ids)
+                for i, sec in enumerate(outline.sections):
+                    overlap = len(entry_ev_set & set(sec.evidence_ids))
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_idx = i
 
-            # Also build a pre-formatted analysis block that the writer can use
-            analysis_block = "\n\n---\n**Computational Analysis Results:**\n\n"
-            for aid, ev in analysis_items:
-                if ev.get("markdown"):
-                    analysis_block += f"### {ev.get('title', 'Analysis')}\n\n{ev['markdown']}\n\n"
-                if ev.get("image_base64"):
-                    title = ev.get("title", "Chart")
-                    analysis_block += f"![{title}](data:image/png;base64,{ev['image_base64']})\n\n"
+                # Fallback: prefer "Key Findings" section
+                if best_overlap == 0:
+                    for i, sec in enumerate(outline.sections):
+                        lower_title = sec.title.lower()
+                        if "key findings" in lower_title or "findings" in lower_title:
+                            best_idx = i
+                            break
 
-            # Store the combined block as a special evidence piece
-            evidence_store["_analysis_block"] = {
-                "evidence_id": "_analysis_block",
-                "type": "analysis_block",
-                "statement": "Computational analysis results including statistical summaries, comparison tables, and charts.",
-                "source_title": "POLARIS Analysis Toolkit",
-                "source_url": "",
-                "direct_quote": "",
-                "quality_tier": "GOLD",
-                "relevance_score": 1.0,
-                "source_content": analysis_block,
-            }
-            if "_analysis_block" not in outline.sections[target_idx].evidence_ids:
-                outline.sections[target_idx].evidence_ids.append("_analysis_block")
+                # Store in evidence_store with provenance (NO "POLARIS
+                # Analysis Toolkit" — markdown contains [CITE:ev_xxx])
+                evidence_store[entry.entry_id] = {
+                    "evidence_id": entry.entry_id,
+                    "type": "analysis",
+                    "analysis_type": entry.analysis_type,
+                    "title": entry.title,
+                    "markdown": entry.markdown,
+                    "source_content": entry.markdown,
+                    "statement": f"Analysis: {entry.title}",
+                    "source_title": "",
+                    "source_url": "",
+                    "direct_quote": "",
+                    "quality_tier": "GOLD",
+                    "relevance_score": 1.0,
+                    "image_base64": entry.image_base64,
+                    "insights": entry.insights,
+                    "statistics": entry.statistics,
+                    "source_evidence_ids": entry.source_evidence_ids,
+                }
+
+                if entry.entry_id not in outline.sections[best_idx].evidence_ids:
+                    outline.sections[best_idx].evidence_ids.append(entry.entry_id)
 
             logger.info(
-                "[v3 synth] Injected %d analysis results into '%s'",
-                len(analysis_items), outline.sections[target_idx].title,
+                "[v3 synth] Injected %d analysis entries (provenance-tracked)",
+                len(analysis_entries),
             )
 
         synth_budget_pct = float(os.getenv("PG_V3_SYNTH_BUDGET_PCT", "40"))

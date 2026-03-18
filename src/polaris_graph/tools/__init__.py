@@ -17,6 +17,15 @@ from src.polaris_graph.tools.code_executor import (
 from src.polaris_graph.tools.evidence_database import (
     EvidenceDatabase,
 )
+from src.polaris_graph.tools.tool_registry import (
+    ToolRegistry,
+    ToolResult,
+    build_default_registry,
+)
+from src.polaris_graph.tools.react_agent import (
+    ReactAnalysisAgent,
+    ReactDecision,
+)
 from src.polaris_graph.tools.package_installer import (
     get_approved_packages,
     is_approved,
@@ -42,6 +51,12 @@ __all__ = [
     "validate_script",
     # Evidence database (SQLite)
     "EvidenceDatabase",
+    # Tool registry + ReAct agent
+    "ToolRegistry",
+    "ToolResult",
+    "build_default_registry",
+    "ReactAnalysisAgent",
+    "ReactDecision",
     # Package installer
     "get_approved_packages",
     "is_approved",
