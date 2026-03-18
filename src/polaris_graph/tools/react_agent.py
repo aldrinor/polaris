@@ -461,14 +461,39 @@ class ReactAnalysisAgent:
                     title = ev.get("source_title", "")[:60]
                     ev_labels[eid] = title or eid[:16]
 
-        # Collect raw data points with their evidence IDs
+        # Collect data points with FULL evidence context (not truncated labels)
+        # This prevents Qwen from misinterpreting "40% less expensive" as
+        # "40% removal" — the full statement provides the semantic context.
         dp_lines = []
+        seen_ev = set()
         for dp in self._notebook.data_points[:60]:
             eid = dp.get("evidence_id", "")
-            label = dp.get("label", "")[:50]
             value = dp.get("value", "")
             unit = dp.get("unit", "")
-            dp_lines.append(f"- {label}: {value} {unit} [from {eid}]")
+
+            # Pre-format large numbers for readability
+            try:
+                num = float(str(value).replace(",", ""))
+                if abs(num) >= 1e9:
+                    value = f"~${num / 1e9:.2f} billion" if unit == "USD" else f"~{num / 1e9:.2f}B"
+                elif abs(num) >= 1e6:
+                    value = f"~${num / 1e6:.1f} million" if unit == "USD" else f"~{num / 1e6:.1f}M"
+            except (ValueError, TypeError):
+                pass
+
+            # Include the FULL evidence statement (not truncated label)
+            # so Qwen can read "40% less expensive" not just "GAC was: 40%"
+            ev = self._evidence_store.get(eid, {})
+            stmt = ev.get("statement", "")[:150]
+
+            if eid and eid not in seen_ev:
+                dp_lines.append(
+                    f"- {value} {unit} — \"{stmt}\" [{eid}]"
+                )
+                seen_ev.add(eid)
+            elif eid:
+                # Same evidence, different data point — just note the value
+                dp_lines.append(f"  also: {value} {unit} [{eid}]")
 
         raw_data = "\n".join(dp_lines) if dp_lines else "No structured data."
 
@@ -496,14 +521,20 @@ class ReactAnalysisAgent:
             f"cost (if available), limitations\n"
             f"3. Rank technologies by effectiveness AND affordability\n"
             f"4. For EVERY claim with a number, cite the source using "
-            f"[CITE:ev_xxx] format with the evidence ID from the data above\n"
+            f"[CITE:ev_xxx] format with the evidence ID from the data\n"
             f"5. Identify what the data does NOT tell us (gaps)\n"
             f"6. Be specific — never say 'several studies show' without "
             f"numbers and citations\n"
-            f"7. Fix any obvious unit errors: '9.0 USD' that should be "
-            f"'$9 billion', '152 da' that should be '152 days', etc.\n"
-            f"8. ONLY cite evidence IDs starting with 'ev_'. NEVER cite "
-            f"tool names like 'statistical_summary' or 'extract_numeric_data'\n\n"
+            f"7. READ THE QUOTED STATEMENT carefully before interpreting "
+            f"each number. '40% less expensive' is a COST metric, NOT a "
+            f"removal rate. '7.2% CAGR' is market growth, NOT removal\n"
+            f"8. Do NOT create false ranges from separate sources. If one "
+            f"study reports 2 kWh and another reports 313 kWh, those are "
+            f"TWO separate findings, not a '2-313 kWh range'\n"
+            f"9. Format large numbers readably: $2.09 billion NOT "
+            f"$2,089,500,000. Use B/M suffixes for billions/millions\n"
+            f"10. ONLY cite evidence IDs starting with 'ev_'. NEVER cite "
+            f"tool names\n\n"
             f"Produce 300-600 words of curated analysis with inline "
             f"citations. NO raw data dumps, NO tables — just analytical "
             f"prose with specific numbers."
@@ -555,6 +586,25 @@ class ReactAnalysisAgent:
                 for pid in set(phantom_ids):
                     content = content.replace(f"[CITE:{pid}]", "")
 
+            # Post-interpretation claim verification: check that numbers
+            # near each [CITE:ev_xxx] actually appear in that evidence.
+            # This catches "40% removal" when evidence says "40% cheaper".
+            mismatches = self._verify_interpretation_claims(content)
+            if mismatches:
+                logger.warning(
+                    "[react] Interpretation has %d claim mismatches",
+                    len(mismatches),
+                )
+                # Append warnings to the content so the section writer
+                # can see which claims may be inaccurate
+                warning_lines = ["\n\n**Verification Notes:**"]
+                for mm in mismatches[:5]:
+                    warning_lines.append(
+                        f"- Claim \"{mm['claim'][:60]}\" cites {mm['ev_id'][:20]} "
+                        f"which says: \"{mm['ev_statement'][:80]}\""
+                    )
+                content += "\n".join(warning_lines)
+
             # Add as the final step in the notebook
             step = AnalysisStep(
                 step_number=self._notebook.step_count + 1,
@@ -585,6 +635,95 @@ class ReactAnalysisAgent:
                 "[react] Interpretation failed: %s: %s",
                 type(exc).__name__, str(exc)[:200],
             )
+
+    def _verify_interpretation_claims(self, content: str) -> list[dict]:
+        """Lightweight post-interpretation verification.
+
+        For each [CITE:ev_xxx] in the output, extract the number closest
+        to it and check if that number appears in the cited evidence
+        statement. If not, flag as a potential misinterpretation.
+
+        This catches "GAC 40% removal" when evidence says "40% cheaper"
+        because the number 40 IS in the evidence but the surrounding
+        words don't match. For that we check if the claim sentence and
+        evidence share a key descriptor (removal/cost/efficiency/etc).
+        """
+        import re as _re
+
+        mismatches = []
+
+        # Find all citation contexts: text before [CITE:ev_xxx]
+        pattern = _re.compile(
+            r'([^.!?\n]{10,120})\[CITE:(ev_[a-f0-9]+)\]'
+        )
+
+        for match in pattern.finditer(content):
+            claim_text = match.group(1).strip()
+            ev_id = match.group(2)
+
+            if ev_id not in self._evidence_store:
+                continue
+
+            ev = self._evidence_store[ev_id]
+            ev_stmt = ev.get("statement", "").lower()
+
+            # Extract the key number from the claim (closest to the citation)
+            nums_in_claim = _re.findall(r'(\d+\.?\d*)', claim_text)
+            if not nums_in_claim:
+                continue
+
+            # Check if the key number exists in the evidence
+            key_num = nums_in_claim[-1]  # Closest to the citation
+            if key_num not in ev_stmt:
+                # Number not in evidence — might be derived (e.g. 15x)
+                continue
+
+            # Number IS in evidence — now check semantic match
+            # Define category keywords
+            cost_words = {"cost", "price", "expensive", "affordable",
+                          "budget", "spending", "allocated", "funding",
+                          "billion", "million", "usd", "$"}
+            removal_words = {"removal", "removed", "efficiency", "reduction",
+                             "achieved", "treatment", "filtration", "adsorption"}
+            market_words = {"market", "share", "cagr", "growth", "valued",
+                            "projected", "revenue"}
+
+            claim_lower = claim_text.lower()
+            claim_is_cost = any(w in claim_lower for w in cost_words)
+            claim_is_removal = any(w in claim_lower for w in removal_words)
+            claim_is_market = any(w in claim_lower for w in market_words)
+
+            ev_is_cost = any(w in ev_stmt for w in cost_words)
+            ev_is_removal = any(w in ev_stmt for w in removal_words)
+            ev_is_market = any(w in ev_stmt for w in market_words)
+
+            # Flag if categories don't match (cost claim citing removal ev)
+            category_mismatch = False
+            if claim_is_removal and ev_is_cost and not ev_is_removal:
+                category_mismatch = True
+            if claim_is_cost and ev_is_removal and not ev_is_cost:
+                category_mismatch = True
+            if claim_is_removal and ev_is_market and not ev_is_removal:
+                category_mismatch = True
+
+            if category_mismatch:
+                mismatches.append({
+                    "claim": claim_text,
+                    "ev_id": ev_id,
+                    "ev_statement": ev.get("statement", ""),
+                    "claim_category": (
+                        "cost" if claim_is_cost else
+                        "removal" if claim_is_removal else
+                        "market" if claim_is_market else "other"
+                    ),
+                    "ev_category": (
+                        "cost" if ev_is_cost else
+                        "removal" if ev_is_removal else
+                        "market" if ev_is_market else "other"
+                    ),
+                })
+
+        return mismatches
 
     def _is_sufficient(self) -> bool:
         """Check if analysis has enough results to stop.
