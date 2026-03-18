@@ -36,7 +36,7 @@ from src.utils.embedding_service import embed_text, embed_texts
 logger = logging.getLogger("polaris_graph")
 
 _MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
-_TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "300"))
+_TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "600"))
 _TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
 _INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
 
@@ -964,10 +964,12 @@ class ReactAnalysisAgent:
             "Format: - [ev_xxx] (category) fact. Never copy wording."
         )
 
-        # Timeout: ~3s per item (observed), min 90s, no cap.
+        # Learnings must fail fast — scaffold is what produces quality.
+        # Cap at 45s so 3 concurrent batches consume ≤45s total,
+        # leaving 500+ seconds for scaffold+write+critique.
         # MUST pass to generate() — otherwise DEFAULT_TIMEOUT_SECONDS=90
-        # kills the httpx call internally before asyncio.wait_for fires.
-        batch_timeout = max(90, len(evidence_batch) * 3)
+        # kills the httpx call internally.
+        batch_timeout = _LEARNINGS_BATCH_TIMEOUT  # default 45s
 
         try:
             response = await asyncio.wait_for(

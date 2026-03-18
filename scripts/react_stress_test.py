@@ -640,8 +640,8 @@ async def run_one_test(test_set: dict) -> dict:
 
     # Configure agent
     os.environ["PG_REACT_MAX_ITERATIONS"] = "5"
-    # 8-phase pipeline needs ~200-300s (scaffold+write+critique+rewrite)
-    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "300"
+    # 8-phase pipeline: learnings + scaffold + write + critique + rewrite
+    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "600"
 
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
     from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
