@@ -38,7 +38,7 @@ logger = logging.getLogger("polaris_graph")
 _MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
 _TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "600"))
 _TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
-_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
+_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"))
 
 # 8-phase pipeline env vars
 _ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
@@ -50,8 +50,8 @@ _MAX_CLUSTERS = int(os.getenv("PG_MAX_CLUSTERS", "15"))
 _MAX_INTERPRETATION_REWRITES = int(
     os.getenv("PG_MAX_INTERPRETATION_REWRITES", "1"),
 )
-_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "120"))
-_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
+_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "180"))
+_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "120"))
 
 # Learnings extraction env vars
 _LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
@@ -1720,7 +1720,7 @@ class ReactAnalysisAgent:
         )
 
         interpret_timeout = int(
-            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"),
+            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"),
         )
         try:
             response = await asyncio.wait_for(
@@ -1729,8 +1729,9 @@ class ReactAnalysisAgent:
                     system=system,
                     max_tokens=8192,
                     temperature=0.3,
+                    timeout=interpret_timeout,
                 ),
-                timeout=interpret_timeout,
+                timeout=interpret_timeout + 30,
             )
 
             content = response.content.strip()
@@ -2053,8 +2054,9 @@ class ReactAnalysisAgent:
                     system=system,
                     max_tokens=8192,
                     temperature=0.3,
+                    timeout=_SCAFFOLD_TIMEOUT,
                 ),
-                timeout=_SCAFFOLD_TIMEOUT,
+                timeout=_SCAFFOLD_TIMEOUT + 30,
             )
 
             rewritten = response.content.strip()
@@ -2639,7 +2641,7 @@ class ReactAnalysisAgent:
             "[CITE:ev_xxx] citation. Be concise, analytical, and critical."
         )
 
-        interpret_timeout = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
+        interpret_timeout = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"))
         try:
             response = await asyncio.wait_for(
                 self._client.generate(
@@ -2647,8 +2649,9 @@ class ReactAnalysisAgent:
                     system=system,
                     max_tokens=4096,
                     temperature=0.3,
+                    timeout=interpret_timeout,
                 ),
-                timeout=interpret_timeout,
+                timeout=interpret_timeout + 30,
             )
 
             content = response.content.strip()
