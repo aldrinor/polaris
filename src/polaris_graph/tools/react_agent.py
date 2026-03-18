@@ -54,10 +54,7 @@ _SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "120"))
 _CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
 
 # Learnings extraction env vars
-# Disabled by default: Qwen 3.5 Plus via OpenRouter is too slow for
-# batched structured extraction (42s per 5 items, 258 evidence = 750s).
-# Enable when using faster models (GPT-4o, Claude).
-_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "0") == "1"
+_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
 _LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
 _LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "45"))
 _LEARNINGS_MAX_CONCURRENCY = int(
@@ -926,9 +923,10 @@ class ReactAnalysisAgent:
         self,
         evidence_batch: list[dict],
     ) -> list[dict]:
-        """Extract learnings from a batch of evidence via LLM.
+        """Extract learnings from a batch of evidence via free-form LLM.
 
-        Forces paraphrasing — the LLM's task is to distill, not copy.
+        Uses generate() (NOT generate_structured) — Qwen is much faster
+        without JSON schema enforcement. Parses markdown bullets with regex.
         Falls back to _distill_fact() on failure.
         """
         if not self._client or not evidence_batch:
@@ -938,88 +936,83 @@ class ReactAnalysisAgent:
         valid_ids = set()
         for ev_dict in evidence_batch:
             eid = ev_dict["eid"]
-            # Truncate to ~150 chars to keep prompt compact for Qwen
-            stmt = ev_dict["statement"][:150]
-            cat = ev_dict["category"]
+            # 60 chars per item keeps prompt compact for large batches
+            stmt = ev_dict["statement"][:60]
             valid_ids.add(eid)
-            evidence_lines.append(f"[{eid}] ({cat}): {stmt}")
+            evidence_lines.append(f"[{eid}]: {stmt}")
 
         evidence_text = "\n".join(evidence_lines)
 
+        # Scale target learnings to batch size
+        target_min = max(10, len(evidence_batch) // 5)
+        target_max = max(20, len(evidence_batch) // 2)
+
         prompt = (
-            f"RESEARCH CONTEXT: {self._query}\n\n"
-            f"EVIDENCE STATEMENTS ({len(evidence_batch)} items):\n"
+            f"RESEARCH: {self._query[:100]}\n\n"
+            f"EVIDENCE ({len(evidence_batch)} items):\n"
             f"{evidence_text}\n\n"
-            f"TASK: Extract concise factual learnings from these evidence "
-            f"statements. Rules:\n"
-            f"1. Each learning must be a PARAPHRASED, information-dense "
-            f"fact (15-25 words)\n"
-            f"2. Do NOT copy original wording — rephrase into your own "
-            f"words while preserving meaning\n"
-            f"3. Preserve specific numbers, percentages, and measurements "
-            f"exactly\n"
-            f"4. Each learning must list the source_ids it was derived "
-            f"from\n"
-            f"5. Merge near-duplicate evidence into single learnings\n"
-            f"6. Assign a category from: {{mechanism, performance, cost, "
-            f"safety, comparison, limitation, application, general}}\n"
-            f"7. Only use evidence IDs from the input — do NOT invent IDs\n"
+            f"Distill into {target_min}-{target_max} paraphrased "
+            f"learnings. Format EXACTLY:\n"
+            f"- [ev_xxx] (category) Paraphrased fact with numbers\n\n"
+            f"REPHRASE (never copy wording), keep numbers exact, "
+            f"merge duplicates. Categories: performance, cost, "
+            f"comparison, mechanism, limitation, application, general."
         )
 
         system = (
-            "You are a research distillation engine. Extract concise "
-            "factual learnings. Paraphrase — never copy source wording "
-            "verbatim. Preserve quantitative data. Return valid JSON."
+            "Distill evidence into paraphrased bullet points. "
+            "Format: - [ev_xxx] (category) fact. Never copy wording."
+        )
+
+        # Scale timeout: ~2s per item, min 60s, max scaffold timeout
+        batch_timeout = min(
+            _SCAFFOLD_TIMEOUT,
+            max(60, len(evidence_batch) * 2),
         )
 
         try:
-            result = await asyncio.wait_for(
-                self._client.generate_structured(
+            response = await asyncio.wait_for(
+                self._client.generate(
                     prompt=prompt,
-                    schema=LearningsBatch,
                     system=system,
-                    max_tokens=2048,
-                    timeout=_LEARNINGS_BATCH_TIMEOUT,
+                    max_tokens=min(4096, len(evidence_batch) * 40),
+                    temperature=0.3,
                 ),
-                timeout=_LEARNINGS_BATCH_TIMEOUT + 15,
+                timeout=batch_timeout + 15,
             )
 
-            learnings_out = []
-            for learning in result.learnings:
-                validated_ids = [
-                    sid for sid in learning.source_ids if sid in valid_ids
-                ]
-                if not validated_ids:
-                    continue
-                if not learning.fact or len(learning.fact) < 10:
-                    continue
-                learnings_out.append({
-                    "fact": learning.fact,
-                    "source_ids": validated_ids,
-                    "category": learning.category,
-                })
+            content = response.content.strip()
+            if not content:
+                return self._fallback_distill_batch(evidence_batch)
 
-            if learnings_out:
+            raw_learnings = self._parse_learning_bullets(
+                content, valid_ids,
+            )
+
+            if raw_learnings:
                 logger.info(
                     "[8phase] LLM learnings: %d input -> %d learnings",
-                    len(evidence_batch), len(learnings_out),
+                    len(evidence_batch), len(raw_learnings),
                 )
-                return learnings_out
+                return raw_learnings
 
             logger.warning(
-                "[8phase] LLM learnings returned 0 valid, falling back",
+                "[8phase] LLM learnings parsed 0 from %d chars, "
+                "regex fallback",
+                len(content),
             )
             return self._fallback_distill_batch(evidence_batch)
 
         except asyncio.TimeoutError:
             logger.warning(
-                "[8phase] LLM learnings batch timed out (%ds), regex fallback",
-                _LEARNINGS_BATCH_TIMEOUT,
+                "[8phase] LLM learnings timed out (%ds for %d ev), "
+                "regex fallback",
+                batch_timeout, len(evidence_batch),
             )
             return self._fallback_distill_batch(evidence_batch)
         except Exception as exc:
             logger.warning(
-                "[8phase] LLM learnings batch failed: %s: %s, regex fallback",
+                "[8phase] LLM learnings failed: %s: %s, regex fallback",
                 type(exc).__name__, str(exc)[:300],
             )
             return self._fallback_distill_batch(evidence_batch)
@@ -1040,11 +1033,13 @@ class ReactAnalysisAgent:
         return results
 
     async def _extract_all_learnings(self) -> list[dict]:
-        """Extract learnings from ALL evidence, batched + concurrent.
+        """Extract learnings from ALL evidence in a single LLM call.
 
-        Returns list of dicts compatible with _build_evidence_briefing:
-            {"fact", "category", "tier", "evidence_ids", "relevance",
-             "perspective", "original_statement"}
+        Uses generate() with a compact evidence summary — one call for
+        all evidence instead of batched calls. Qwen's per-call overhead
+        (~6s routing + thinking) makes batching unviable.
+
+        Returns list of dicts compatible with _build_evidence_briefing.
         """
         evidence_items = []
         for eid in self._evidence_ids:
@@ -1072,17 +1067,23 @@ class ReactAnalysisAgent:
             )
             return self._build_learnings_from_regex(evidence_items)
 
-        # Split into batches
+        # Split into ~3 large batches for concurrent extraction
+        # Qwen takes ~3s/item — 3 batches of 85 items concurrently ≈ 90s
+        batch_size = max(
+            _LEARNINGS_BATCH_SIZE,
+            (len(evidence_items) + 2) // 3,  # ~3 batches
+        )
         batches = [
-            evidence_items[i:i + _LEARNINGS_BATCH_SIZE]
-            for i in range(0, len(evidence_items), _LEARNINGS_BATCH_SIZE)
+            evidence_items[i:i + batch_size]
+            for i in range(0, len(evidence_items), batch_size)
         ]
+
         logger.info(
-            "[8phase] LLM learnings: %d evidence -> %d batches",
-            len(evidence_items), len(batches),
+            "[8phase] LLM learnings: %d evidence -> %d batches of ~%d",
+            len(evidence_items), len(batches), batch_size,
         )
 
-        # Bounded concurrent execution
+        # Run batches concurrently
         sem = asyncio.Semaphore(_LEARNINGS_MAX_CONCURRENCY)
 
         async def _run_batch(batch):
@@ -1094,25 +1095,67 @@ class ReactAnalysisAgent:
             return_exceptions=True,
         )
 
-        # Merge results, fallback per failed batch
+        # Merge results, regex fallback per failed batch
         raw_learnings = []
-        failed_batches = []
         for i, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 logger.warning(
-                    "[8phase] Batch %d raised %s, regex fallback",
-                    i, str(result)[:200],
+                    "[8phase] Batch %d failed (%s), regex fallback",
+                    i, str(result)[:100],
                 )
-                failed_batches.append(batches[i])
+                raw_learnings.extend(
+                    self._fallback_distill_batch(batches[i]),
+                )
             elif isinstance(result, list):
                 raw_learnings.extend(result)
             else:
-                failed_batches.append(batches[i])
-
-        for batch in failed_batches:
-            raw_learnings.extend(self._fallback_distill_batch(batch))
+                raw_learnings.extend(
+                    self._fallback_distill_batch(batches[i]),
+                )
 
         return self._enrich_learnings(raw_learnings, evidence_items)
+
+    def _parse_learning_bullets(
+        self,
+        content: str,
+        valid_ids: set[str],
+    ) -> list[dict]:
+        """Parse markdown bullet list into learning dicts.
+
+        Expected format: - [ev_xxx] (category) fact text
+        Also handles: - [ev_xxx, ev_yyy] (category) fact text
+        Tolerant of trailing commas, truncated IDs, missing parens.
+        """
+        learnings = []
+
+        # Primary pattern: - [ev_xxx] (category) fact
+        bullet_pattern = re.compile(
+            r'^[-*]\s*\[([^\]]+)\]\s*'      # evidence IDs in brackets
+            r'(?:\((\w+)\)\s*)?'             # optional category in parens
+            r'(.+)$',                         # fact text
+            re.MULTILINE,
+        )
+
+        for match in bullet_pattern.finditer(content):
+            ids_str = match.group(1)
+            category = (match.group(2) or "general").lower()
+            fact = match.group(3).strip()
+
+            # Extract all ev_xxx patterns from the IDs string
+            # (handles trailing commas, spaces, truncated hashes)
+            raw_ids = re.findall(r'ev_[a-f0-9]{6,}', ids_str)
+            validated_ids = [sid for sid in raw_ids if sid in valid_ids]
+
+            if not validated_ids or not fact or len(fact) < 10:
+                continue
+
+            learnings.append({
+                "fact": fact,
+                "source_ids": validated_ids,
+                "category": category,
+            })
+
+        return learnings
 
     def _build_learnings_from_regex(
         self, evidence_items: list[dict],
