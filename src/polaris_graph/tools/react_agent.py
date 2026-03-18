@@ -9,6 +9,7 @@ to original evidence IDs, never "POLARIS Analysis Toolkit".
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -231,6 +232,11 @@ class ReactAnalysisAgent:
             logger.warning("[react] No successful steps, running fallback")
             await self._run_fallback()
 
+        # POST-PROCESSING: LLM interprets raw results into real insights
+        # This is what separates "regex + scipy" from "analyst with reasoning"
+        if self._notebook.successful_steps > 0 and self._client:
+            await self._interpret_results()
+
         total_elapsed = time.monotonic() - start_time
         logger.info(
             "[react] Analysis complete: %d steps (%d ok), %d data points, "
@@ -424,6 +430,157 @@ class ReactAnalysisAgent:
         except Exception as exc:
             logger.warning(
                 "[react] Fallback %s failed: %s", tool_name, str(exc)[:200],
+            )
+
+    async def _interpret_results(self) -> None:
+        """Use Qwen's reasoning to interpret raw tool outputs into insights.
+
+        This is the critical step that separates "regex + scipy" from
+        "analyst with reasoning." The LLM reads the raw extraction +
+        statistics and produces:
+        - Technology-level comparison (not URL-level)
+        - Key findings with specific numbers and [CITE:ev_xxx] tokens
+        - Cost-effectiveness ranking
+        - Insights the section writer can directly use
+
+        Uses generate() (prose mode) — NOT generate_structured() — because
+        we want rich markdown with inline citations, not constrained JSON.
+        """
+        import re as _re
+
+        # Build evidence ID → short label mapping for the prompt
+        ev_labels = {}
+        for step in self._notebook.steps:
+            if not step.result.success:
+                continue
+            for dp in step.result.data_points_produced:
+                eid = dp.get("evidence_id", "")
+                if eid and eid not in ev_labels:
+                    # Build a useful label from the evidence
+                    ev = self._evidence_store.get(eid, {})
+                    title = ev.get("source_title", "")[:60]
+                    ev_labels[eid] = title or eid[:16]
+
+        # Collect raw data points with their evidence IDs
+        dp_lines = []
+        for dp in self._notebook.data_points[:60]:
+            eid = dp.get("evidence_id", "")
+            label = dp.get("label", "")[:50]
+            value = dp.get("value", "")
+            unit = dp.get("unit", "")
+            dp_lines.append(f"- {label}: {value} {unit} [from {eid}]")
+
+        raw_data = "\n".join(dp_lines) if dp_lines else "No structured data."
+
+        # Collect raw stats
+        stats_text = ""
+        for step in self._notebook.steps:
+            if step.result.success and step.result.statistics:
+                stats_text += (
+                    f"\n{step.tool_name}: "
+                    f"{json.dumps(step.result.statistics, default=str)[:300]}"
+                )
+
+        prompt = (
+            f"You are a research analyst. Interpret the following raw data "
+            f"to answer the research question.\n\n"
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"RAW EXTRACTED DATA ({len(self._notebook.data_points)} points):\n"
+            f"{raw_data}\n\n"
+            f"STATISTICS:\n{stats_text}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"1. Group findings by TECHNOLOGY or METHOD (e.g., 'Reverse "
+            f"Osmosis', 'Granular Activated Carbon', 'Ion Exchange'), NOT "
+            f"by source URL\n"
+            f"2. For each technology, state: effectiveness (with numbers), "
+            f"cost (if available), limitations\n"
+            f"3. Rank technologies by effectiveness AND affordability\n"
+            f"4. For EVERY claim with a number, cite the source using "
+            f"[CITE:ev_xxx] format with the evidence ID from the data above\n"
+            f"5. Identify what the data does NOT tell us (gaps)\n"
+            f"6. Be specific — never say 'several studies show' without "
+            f"numbers and citations\n"
+            f"7. Fix any obvious unit errors: '9.0 USD' that should be "
+            f"'$9 billion', '152 da' that should be '152 days', etc.\n\n"
+            f"Produce 300-600 words of curated analysis with inline "
+            f"citations. NO raw data dumps, NO tables — just analytical "
+            f"prose with specific numbers."
+        )
+
+        system = (
+            "You are a senior research analyst producing publication-quality "
+            "insights. Every claim must have a specific number and a "
+            "[CITE:ev_xxx] citation. Be concise, analytical, and critical."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=4096,
+                    temperature=0.3,
+                ),
+                timeout=90,
+            )
+
+            content = response.content.strip()
+            if not content or len(content) < 100:
+                logger.warning(
+                    "[react] Interpretation produced too little content: "
+                    "%d chars", len(content),
+                )
+                return
+
+            # Validate: extract cited IDs and check they exist
+            cited_ids = _re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', content)
+            valid_ids = [
+                eid for eid in cited_ids
+                if eid in self._evidence_store
+            ]
+            phantom_ids = [
+                eid for eid in cited_ids
+                if eid not in self._evidence_store
+            ]
+
+            if phantom_ids:
+                logger.warning(
+                    "[react] Interpretation has %d phantom citations: %s",
+                    len(phantom_ids), phantom_ids[:5],
+                )
+                # Remove phantom citations from output
+                for pid in set(phantom_ids):
+                    content = content.replace(f"[CITE:{pid}]", "")
+
+            # Add as the final step in the notebook
+            step = AnalysisStep(
+                step_number=self._notebook.step_count + 1,
+                reasoning="LLM interpretation of raw analysis results",
+                tool_name="interpret_results",
+                result=ToolResult(
+                    success=True,
+                    tool_name="interpret_results",
+                    markdown=content,
+                    source_evidence_ids=list(set(valid_ids)),
+                    insights=[
+                        "LLM-synthesized analysis with per-claim citations",
+                    ],
+                ),
+                elapsed_seconds=0.0,
+            )
+            self._notebook.add_step(step)
+
+            logger.info(
+                "[react] Interpretation complete: %d chars, %d citations "
+                "(%d valid, %d phantom)",
+                len(content), len(cited_ids), len(valid_ids),
+                len(phantom_ids),
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "[react] Interpretation failed: %s: %s",
+                type(exc).__name__, str(exc)[:200],
             )
 
     def _is_sufficient(self) -> bool:

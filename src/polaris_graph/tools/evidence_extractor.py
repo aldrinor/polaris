@@ -24,47 +24,52 @@ _MAX_EVIDENCE = int(os.getenv("PG_EXTRACT_MAX_EVIDENCE", "500"))
 # Numeric value extraction patterns
 # ---------------------------------------------------------------------------
 
-# Patterns ordered by specificity (most specific first)
+# Patterns ordered by specificity (most specific first).
+# IMPORTANT: Each tuple is (regex, data_type, default_unit, flags).
+# flags=0 means use IGNORECASE from the caller. flags=re.NOFLAG means
+# case-sensitive (needed for Pa vs "parts", Da vs "days").
 _EXTRACTION_PATTERNS = [
     # Percentage ranges: "78-93%", "78% to 93%"
     (r'(\d+\.?\d*)\s*(?:%|percent)\s*(?:to|-)\s*(\d+\.?\d*)\s*(?:%|percent)',
-     "range", "%"),
+     "range", "%", 0),
     # Concentrations: "20 ng/L", "100 mg/L", "10 ppt", "70 ppb"
-    (r'(\d+[,\d]*\.?\d*)\s*(ng/[Ll]|ug/[Ll]|mg/[Ll]|ppt|ppb|ppm)',
-     "concentration", None),
+    # Must come BEFORE force/material to prevent "ppt" → "Pa" misclassification
+    (r'(\d+[,\d]*\.?\d*)\s*(ng/[Ll]|ug/[Ll]|μg/[Ll]|mg/[Ll]|ppt|ppb|ppm)',
+     "concentration", None, 0),
     # Currency: "$15/m3", "$1.548 billion", "$45 million"
     (r'\$\s*(\d+[,\d]*\.?\d*)\s*(billion|million|thousand|/m3|/ton|/kg)?',
-     "cost", "USD"),
+     "cost", "USD", 0),
     # Percentages: "95.2%", "67 percent"
     (r'(\d+\.?\d*)\s*(?:%|percent)',
-     "percentage", "%"),
-    # Force/pressure: "12.4 N/mm", "3.5 MPa", "0.8 kPa", "25 N/m"
-    (r'(\d+\.?\d*)\s*(N/mm2?|N/m2?|MPa|kPa|GPa|Pa|kN|N/cm2?|psi|bar)',
-     "force", None),
-    # Polymer/materials: "0.85 mol/L", "42 wt%", "94.2 mol%"
-    (r'(\d+\.?\d*)\s*(mol/[Ll]|mol%|wt%|vol%|g/mol|kDa|Da)',
-     "material_property", None),
-    # Angles and geometry: "90 degrees", "180°", "45-degree"
-    (r'(\d+\.?\d*)\s*(?:degrees?|°)\s*(?:C|Celsius|F|Fahrenheit)?',
-     "angle_or_temp", None),
-    # Measurements with units: "100 mg/g", "24 months", "1.7 mgd"
+     "percentage", "%", 0),
+    # Force/pressure: "12.4 N/mm", "3.5 MPa" — CASE-SENSITIVE to avoid
+    # "Pa" matching "parts" or "pages". Requires uppercase P in Pa.
+    (r'(\d+\.?\d*)\s*(N/mm2?|N/m2?|MPa|kPa|GPa|Pa\b|kN|N/cm2?|psi|bar)',
+     "force", None, re.NOFLAG),
+    # Polymer/materials: "0.85 mol/L", "42 wt%" — CASE-SENSITIVE for Da
+    # to avoid "days" → "Da" (Dalton) misclassification
+    (r'(\d+\.?\d*)\s*(mol/[Ll]|mol%|wt%|vol%|g/mol|kDa|Da\b)',
+     "material_property", None, re.NOFLAG),
+    # Measurements with units: "100 mg/g", "24 months", "1.7 mgd", "152 days"
+    # This MUST come before surface_property to prevent "L" in "ng/L" → "L"
     (r'(\d+\.?\d*)\s*(mg/g|mg/kg|m[23]|mgd|kWh|MWh|tons?|kg|g/[Ll]|months?|years?|hours?|days?|nm|[uμ]m|mm|cm|m/s)',
-     "measurement", None),
-    # Area/volume: "342 m2/g", "1.5 cm3/g", "50 mL"
-    (r'(\d+\.?\d*)\s*(m2/g|cm2/g|cm3/g|mL|[Ll]|m2)',
-     "surface_property", None),
+     "measurement", None, 0),
+    # Area/volume: "342 m2/g", "1.5 cm3/g", "50 mL" — NOT bare "L"
+    # Removed bare [Ll] to prevent "4 ng/L" → "4 L" misclassification
+    (r'(\d+\.?\d*)\s*(m2/g|cm2/g|cm3/g|mL\b|m2\b)',
+     "surface_property", None, 0),
     # Plain large numbers: "110 million", "9 billion"
     (r'(\d+[,\d]*\.?\d*)\s*(million|billion|trillion)',
-     "quantity", None),
-    # Temperature: "500°C", "700 K"
-    (r'(\d+\.?\d*)\s*(?:°[CF]|K\b)',
-     "temperature", None),
+     "quantity", None, 0),
+    # Temperature: "500°C", "700 K", "90 degrees C"
+    (r'(\d+\.?\d*)\s*(?:°[CF]|degrees?\s*[CF]|K\b)',
+     "temperature", None, 0),
     # pH values: "pH 5.0", "pH 3.0"
     (r'pH\s*(\d+\.?\d*)',
-     "pH", "pH"),
+     "pH", "pH", 0),
     # Rates/ratios: "R2=0.998", "k=0.045 min-1"
     (r'(?:R2?|k|Kd|Ka)\s*[=:]\s*(\d+\.?\d*)\s*(min-1|s-1|h-1|L/g|L/mol)?',
-     "rate_constant", None),
+     "rate_constant", None, 0),
 ]
 
 
@@ -113,9 +118,10 @@ def extract_numbers_from_evidence(
         source_title = ev.get("source_title", "")
         year = str(ev.get("year", ""))
 
-        # Try each pattern
-        for pattern, data_type, default_unit in _EXTRACTION_PATTERNS:
-            matches = re.finditer(pattern, statement, re.IGNORECASE)
+        # Try each pattern (per-pattern flags for case sensitivity)
+        for pattern, data_type, default_unit, flags in _EXTRACTION_PATTERNS:
+            re_flags = re.IGNORECASE if flags == 0 else flags
+            matches = re.finditer(pattern, statement, re_flags)
             for match in matches:
                 groups = match.groups()
                 value_str = groups[0]
