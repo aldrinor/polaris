@@ -540,9 +540,11 @@ class PipelineRunner:
             self._status.status = "running"
 
             # Import pipeline (deferred to avoid import-time side effects)
-            # Fix R7-#5: Route to v2 CRAG pipeline (local embeddings, $0 retrieval)
-            # Fallback to v1 if PG_V2_ENABLED=0
-            if os.getenv("PG_V2_ENABLED", "1") == "1":
+            # M6: Route to v3/v2/v1 based on PG_GRAPH_VERSION env var
+            graph_version = os.getenv("PG_GRAPH_VERSION", "v1")
+            if graph_version == "v3":
+                from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
+            elif os.getenv("PG_V2_ENABLED", "0") == "1":
                 from src.polaris_graph.graph_v2 import build_and_run
             else:
                 from src.polaris_graph.graph import build_and_run

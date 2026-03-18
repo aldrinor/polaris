@@ -19,8 +19,16 @@ async def run_research(
     max_iterations: int = 3,
     max_execution_minutes: int = 30,
 ):
-    """Entry point for polaris graph research pipeline."""
-    from src.polaris_graph.graph import build_and_run
+    """Entry point for polaris graph research pipeline.
+
+    Routes to v3/v2/v1 based on PG_GRAPH_VERSION env var.
+    """
+    import os
+    graph_version = os.getenv("PG_GRAPH_VERSION", "v1")
+    if graph_version == "v3":
+        from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
+    else:
+        from src.polaris_graph.graph import build_and_run
 
     return await build_and_run(
         vector_id=vector_id,

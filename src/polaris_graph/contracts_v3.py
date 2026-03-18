@@ -76,6 +76,7 @@ class ScopeOutput(BaseModel):
     )
     search_queries: list[SearchQuery] = Field(
         description="3-5 search queries per sub-question",
+        default_factory=list,
     )
     complexity: str = Field(
         description="simple|moderate|complex",
@@ -86,14 +87,39 @@ class ScopeOutput(BaseModel):
         default=200,
     )
 
+    @field_validator("estimated_depth", mode="before")
+    @classmethod
+    def coerce_estimated_depth(cls, v):
+        """LLM returns '200-500' or 'approximately 300' — extract first integer."""
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            import re
+            nums = re.findall(r'\d+', v)
+            return int(nums[0]) if nums else 200
+        return 200
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_scope_fields(cls, data):
+        """Handle LLM field name variations for search_queries."""
+        if isinstance(data, dict):
+            # LLM may use "queries", "search_query_list", etc.
+            for alt in ("queries", "search_query_list", "generated_queries"):
+                if alt in data and "search_queries" not in data:
+                    data["search_queries"] = data.pop(alt)
+            # Ensure search_queries exists
+            if "search_queries" not in data:
+                data["search_queries"] = []
+        return data
+
     @model_validator(mode="after")
     def validate_minimums(self):
         if len(self.sub_questions) < 3:
             raise ValueError(f"Need >= 3 sub-questions, got {len(self.sub_questions)}")
         if len(self.perspectives) < 3:
             raise ValueError(f"Need >= 3 perspectives, got {len(self.perspectives)}")
-        if len(self.search_queries) < 3:
-            raise ValueError(f"Need >= 3 search queries, got {len(self.search_queries)}")
+        # search_queries can be empty — fallback generates them
         return self
 
 

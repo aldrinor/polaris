@@ -104,7 +104,7 @@ def build_v3_graph(
         }
 
         if tracer:
-            tracer.emit("evidence", node="scope", data={
+            tracer.log_event("evidence", node="scope", data={
                 "action": "query_plan",
                 "queries": update["search_queries"],
                 "sub_questions": len(update["sub_questions"]),
@@ -167,7 +167,7 @@ def build_v3_graph(
         }
 
         if tracer:
-            tracer.emit("evidence", node="v3_search", data={
+            tracer.log_event("evidence", node="v3_search", data={
                 "action": "accumulated",
                 "count": len(all_ids),
                 "new": len(new_ids),
@@ -229,7 +229,7 @@ def build_v3_graph(
         }
 
         if tracer:
-            tracer.emit("evidence", node="v3_outline", data={
+            tracer.log_event("evidence", node="v3_outline", data={
                 "action": "report_outline",
                 "sections": [{"id": s.id, "title": s.title, "evidence": len(s.evidence_ids)} for s in outline.sections],
                 "version": outline.version,
@@ -267,7 +267,7 @@ def build_v3_graph(
 
         if tracer:
             for section in sections:
-                tracer.emit("llm_call", node="v3_write_section", data={
+                tracer.log_event("llm_call", node="v3_write_section", data={
                     "action": "section_write",
                     "call_type": "section_write",
                     "section_id": section.section_id,
@@ -313,7 +313,7 @@ def build_v3_graph(
 
         if tracer:
             # CRITICAL: report_assembled triggers frontend completion
-            tracer.emit("evidence", node="v3_assemble", data={
+            tracer.log_event("evidence", node="v3_assemble", data={
                 "action": "report_assembled",
                 "full_report": result.get("final_report", ""),
                 "bibliography": result.get("bibliography", []),
@@ -397,7 +397,7 @@ async def build_and_run_v3(
     try:
         from src.polaris_graph.tracing import PipelineTracer
         tracer = PipelineTracer(vector_id)
-        tracer.emit("pipeline_start", data={
+        tracer.log_event("pipeline_start", data={
             "query": query,
             "application": application,
             "region": region,
@@ -484,7 +484,7 @@ async def build_and_run_v3(
 
     # Emit pipeline_end trace event
     if tracer:
-        tracer.emit("pipeline_end", data={
+        tracer.log_event("pipeline_end", data={
             "status": output["status"],
             "total_words": output.get("quality_metrics", {}).get("word_count", 0),
             "total_citations": output.get("quality_metrics", {}).get("citation_count", 0),

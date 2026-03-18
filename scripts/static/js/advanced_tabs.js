@@ -537,8 +537,8 @@ function checkResearchStatus() {
 /* =====================================================================
    USER PROGRESS -- Map pipeline events to human-language progress
    ===================================================================== */
-/* Fix R7-#4: USER_PHASE_MAP includes BOTH v1 and v2 node names.
-   v2 nodes map to the same 4 user-facing steps (search → interview → verify → synthesize). */
+/* Fix R7-#4: USER_PHASE_MAP includes v1, v2, and v3 node names.
+   All versions map to the same 4 user-facing steps (search → interview → verify → synthesize). */
 var USER_PHASE_MAP = {
   "plan": { step: "search", text: "Planning research strategy...", pct: 5 },
   "search": { step: "search", text: "Searching {n} sources across the web...", pct: 15 },
@@ -554,7 +554,14 @@ var USER_PHASE_MAP = {
   "verify_one_section": { step: "synthesize", text: "Verifying section accuracy...", pct: 85 },
   "synthesize": { step: "synthesize", text: "Writing and synthesizing report...", pct: 85 },
   "assemble": { step: "synthesize", text: "Assembling final report...", pct: 95 },
-  "search_gaps": { step: "search", text: "Searching for additional evidence...", pct: 50 }
+  "search_gaps": { step: "search", text: "Searching for additional evidence...", pct: 50 },
+  "scope": { step: "search", text: "Decomposing research question...", pct: 5 },
+  "v3_search": { step: "search", text: "Searching {n} sources per question...", pct: 20 },
+  "v3_storm": { step: "interview", text: "Interviewing expert perspectives...", pct: 35 },
+  "v3_outline": { step: "verify", text: "Building dynamic outline...", pct: 50 },
+  "v3_write_section": { step: "synthesize", text: "Writing section {n}...", pct: 70 },
+  "v3_critic": { step: "synthesize", text: "Evaluating analytical depth...", pct: 80 },
+  "v3_assemble": { step: "synthesize", text: "Assembling final report...", pct: 95 }
 };
 
 function updateUserProgress(node, metrics) {

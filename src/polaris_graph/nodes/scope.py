@@ -170,6 +170,32 @@ async def run_scope(
         logger.warning("[v3 scope] All LLM attempts failed, using template fallback")
         scope_output = _fallback_scope(query, application, region)
 
+    # If LLM produced sub-questions but no search queries, generate them
+    if scope_output and len(scope_output.search_queries) == 0 and len(scope_output.sub_questions) > 0:
+        logger.info("[v3 scope] LLM omitted search_queries, generating from sub-questions")
+        generated_queries = []
+        for sq in scope_output.sub_questions:
+            # 2 queries per sub-question: one web, one academic
+            generated_queries.append(SearchQuery(
+                query=f"{query} {sq.question}",
+                sub_question_id=sq.id,
+                perspective=scope_output.perspectives[0] if scope_output.perspectives else "Scientific",
+                source_preference="both",
+            ))
+            generated_queries.append(SearchQuery(
+                query=sq.question,
+                sub_question_id=sq.id,
+                perspective=scope_output.perspectives[1] if len(scope_output.perspectives) > 1 else "Scientific",
+                source_preference="academic",
+            ))
+        scope_output = ScopeOutput(
+            sub_questions=scope_output.sub_questions,
+            perspectives=scope_output.perspectives,
+            search_queries=generated_queries,
+            complexity=scope_output.complexity,
+            estimated_depth=scope_output.estimated_depth,
+        )
+
     logger.info(
         "[v3 scope] Decomposed '%s' into %d sub-questions, %d perspectives, %d queries (complexity=%s)",
         query[:60],
