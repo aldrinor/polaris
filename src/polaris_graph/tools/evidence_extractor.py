@@ -173,17 +173,35 @@ def extract_numbers_from_evidence(
 
 
 def _generate_label(statement: str, match: re.Match, data_type: str) -> str:
-    """Generate a descriptive label from the statement context around the match."""
+    """Generate a descriptive label from the statement context around the match.
+
+    Tries words BEFORE the number first. If prefix is too short (e.g. "$9
+    billion"), falls back to words AFTER the number. Never returns generic
+    "cost_0" labels — those break citation matching audits.
+    """
     # Take 5-8 words before the number as the label
     prefix = statement[:match.start()].strip()
-    words = prefix.split()[-8:]
-    if words:
-        label = " ".join(words).strip(".,;:()[]")
-        # Capitalize first word
+    prefix_words = prefix.split()[-8:]
+    if len(prefix_words) >= 2:
+        label = " ".join(prefix_words).strip(".,;:()[]")
         if label:
             label = label[0].upper() + label[1:]
         return label[:80]
-    return f"{data_type}_{match.start()}"
+
+    # Fallback: words AFTER the number (for "$9 billion allocated for PFAS")
+    suffix = statement[match.end():].strip()
+    suffix_words = suffix.split()[:8]
+    if suffix_words:
+        # Combine any prefix words with suffix
+        all_words = prefix_words + suffix_words
+        label = " ".join(all_words).strip(".,;:()[]")
+        if label:
+            label = label[0].upper() + label[1:]
+        return label[:80]
+
+    # Last resort: use the matched value + type
+    value_str = match.group(0)[:30]
+    return f"{data_type}: {value_str}"
 
 
 def summarize_extracted_data(data_points: list[dict]) -> str:
