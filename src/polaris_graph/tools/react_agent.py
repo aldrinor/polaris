@@ -53,6 +53,14 @@ _MAX_INTERPRETATION_REWRITES = int(
 _SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "120"))
 _CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "90"))
 
+# Learnings extraction env vars
+_LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
+_LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "40"))
+_LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "45"))
+_LEARNINGS_MAX_CONCURRENCY = int(
+    os.getenv("PG_LEARNINGS_MAX_CONCURRENCY", "3"),
+)
+
 # Tool names Qwen is allowed to pick (for extraction from malformed JSON)
 _KNOWN_TOOLS = {
     "extract_numeric_data", "query_evidence_sql", "statistical_summary",
@@ -297,6 +305,59 @@ class InterpretationCritique(BaseModel):
         for alt in ("instructions", "fix_instructions", "fixes"):
             if alt in data and "rewrite_instructions" not in data:
                 data["rewrite_instructions"] = data.pop(alt)
+        return data
+
+
+class ExtractedLearning(BaseModel):
+    """A single distilled learning extracted from evidence."""
+
+    fact: str = Field(description="Paraphrased concise factual learning")
+    source_ids: list[str] = Field(
+        description="Evidence IDs this was extracted from",
+    )
+    category: str = Field(
+        description="Fact category", default="general",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for alt in ("learning", "insight", "finding", "statement",
+                     "text", "content"):
+            if alt in data and "fact" not in data:
+                data["fact"] = data.pop(alt)
+        for alt in ("sources", "evidence_ids", "ids", "evidence",
+                     "source_evidence", "from_ids"):
+            if alt in data and "source_ids" not in data:
+                data["source_ids"] = data.pop(alt)
+        for alt in ("type", "topic", "cat", "fact_category"):
+            if alt in data and "category" not in data:
+                data["category"] = data.pop(alt)
+        if isinstance(data.get("source_ids"), str):
+            data["source_ids"] = [data["source_ids"]]
+        return data
+
+
+class LearningsBatch(BaseModel):
+    """Batch of extracted learnings from evidence statements."""
+
+    learnings: list[ExtractedLearning] = Field(
+        description="Extracted factual learnings",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_qwen_response(cls, data):
+        if isinstance(data, list):
+            data = {"learnings": data}
+        if not isinstance(data, dict):
+            return data
+        for alt in ("facts", "findings", "insights", "extracted",
+                     "results", "items"):
+            if alt in data and "learnings" not in data:
+                data["learnings"] = data.pop(alt)
         return data
 
 
@@ -704,8 +765,8 @@ class ReactAnalysisAgent:
         if self._notebook.successful_steps == 0:
             await self._run_fallback()
 
-        # Phase 3: BRIEFING (0 LLM calls)
-        briefing = self._build_evidence_briefing()
+        # Phase 3: BRIEFING (1+ LLM calls when learnings enabled)
+        briefing = await self._build_evidence_briefing()
         logger.info(
             "[8phase] Briefing: %d learnings, %d clusters, %d sub-questions",
             len(briefing.get("learnings", [])),
@@ -822,8 +883,267 @@ class ReactAnalysisAgent:
 
         return text.strip()
 
-    def _build_evidence_briefing(self) -> dict:
+    # -------------------------------------------------------------------
+    # Learnings extraction (LLM-based, replaces regex _distill_fact)
+    # -------------------------------------------------------------------
+
+    async def _extract_learnings_batch(
+        self,
+        evidence_batch: list[dict],
+    ) -> list[dict]:
+        """Extract learnings from a batch of evidence via LLM.
+
+        Forces paraphrasing — the LLM's task is to distill, not copy.
+        Falls back to _distill_fact() on failure.
+        """
+        if not self._client or not evidence_batch:
+            return self._fallback_distill_batch(evidence_batch)
+
+        evidence_lines = []
+        valid_ids = set()
+        for ev_dict in evidence_batch:
+            eid = ev_dict["eid"]
+            stmt = ev_dict["statement"]
+            cat = ev_dict["category"]
+            valid_ids.add(eid)
+            evidence_lines.append(f"[{eid}] ({cat}): {stmt}")
+
+        evidence_text = "\n".join(evidence_lines)
+
+        prompt = (
+            f"RESEARCH CONTEXT: {self._query}\n\n"
+            f"EVIDENCE STATEMENTS ({len(evidence_batch)} items):\n"
+            f"{evidence_text}\n\n"
+            f"TASK: Extract concise factual learnings from these evidence "
+            f"statements. Rules:\n"
+            f"1. Each learning must be a PARAPHRASED, information-dense "
+            f"fact (15-25 words)\n"
+            f"2. Do NOT copy original wording — rephrase into your own "
+            f"words while preserving meaning\n"
+            f"3. Preserve specific numbers, percentages, and measurements "
+            f"exactly\n"
+            f"4. Each learning must list the source_ids it was derived "
+            f"from\n"
+            f"5. Merge near-duplicate evidence into single learnings\n"
+            f"6. Assign a category from: {{mechanism, performance, cost, "
+            f"safety, comparison, limitation, application, general}}\n"
+            f"7. Only use evidence IDs from the input — do NOT invent IDs\n"
+        )
+
+        system = (
+            "You are a research distillation engine. Extract concise "
+            "factual learnings. Paraphrase — never copy source wording "
+            "verbatim. Preserve quantitative data. Return valid JSON."
+        )
+
+        try:
+            result = await asyncio.wait_for(
+                self._client.generate_structured(
+                    prompt=prompt,
+                    schema=LearningsBatch,
+                    system=system,
+                    max_tokens=2048,
+                    timeout=_LEARNINGS_BATCH_TIMEOUT,
+                ),
+                timeout=_LEARNINGS_BATCH_TIMEOUT + 15,
+            )
+
+            learnings_out = []
+            for learning in result.learnings:
+                validated_ids = [
+                    sid for sid in learning.source_ids if sid in valid_ids
+                ]
+                if not validated_ids:
+                    continue
+                if not learning.fact or len(learning.fact) < 10:
+                    continue
+                learnings_out.append({
+                    "fact": learning.fact,
+                    "source_ids": validated_ids,
+                    "category": learning.category,
+                })
+
+            if learnings_out:
+                logger.info(
+                    "[8phase] LLM learnings: %d input -> %d learnings",
+                    len(evidence_batch), len(learnings_out),
+                )
+                return learnings_out
+
+            logger.warning(
+                "[8phase] LLM learnings returned 0 valid, falling back",
+            )
+            return self._fallback_distill_batch(evidence_batch)
+
+        except Exception as exc:
+            logger.warning(
+                "[8phase] LLM learnings batch failed (%s), regex fallback",
+                str(exc)[:200],
+            )
+            return self._fallback_distill_batch(evidence_batch)
+
+    def _fallback_distill_batch(
+        self, evidence_batch: list[dict],
+    ) -> list[dict]:
+        """Regex-based fallback for a failed LLM learnings batch."""
+        results = []
+        for ev_dict in evidence_batch:
+            fact = self._distill_fact(ev_dict["statement"])
+            if fact:
+                results.append({
+                    "fact": fact,
+                    "source_ids": [ev_dict["eid"]],
+                    "category": ev_dict["category"],
+                })
+        return results
+
+    async def _extract_all_learnings(self) -> list[dict]:
+        """Extract learnings from ALL evidence, batched + concurrent.
+
+        Returns list of dicts compatible with _build_evidence_briefing:
+            {"fact", "category", "tier", "evidence_ids", "relevance",
+             "perspective", "original_statement"}
+        """
+        evidence_items = []
+        for eid in self._evidence_ids:
+            ev = self._evidence_store.get(eid, {})
+            stmt = ev.get("statement", "")
+            if not stmt or len(stmt) < 10:
+                continue
+            evidence_items.append({
+                "eid": eid,
+                "statement": stmt,
+                "category": ev.get("fact_category", "general"),
+                "tier": ev.get("quality_tier", "BRONZE"),
+                "relevance": float(ev.get("relevance_score", 0.5)),
+                "perspective": ev.get("perspective", ""),
+            })
+
+        if not evidence_items:
+            return []
+
+        # Gate: LLM learnings disabled or no client
+        if not _LLM_LEARNINGS_ENABLED or not self._client:
+            logger.info(
+                "[8phase] LLM learnings disabled, using regex (%d ev)",
+                len(evidence_items),
+            )
+            return self._build_learnings_from_regex(evidence_items)
+
+        # Split into batches
+        batches = [
+            evidence_items[i:i + _LEARNINGS_BATCH_SIZE]
+            for i in range(0, len(evidence_items), _LEARNINGS_BATCH_SIZE)
+        ]
+        logger.info(
+            "[8phase] LLM learnings: %d evidence -> %d batches",
+            len(evidence_items), len(batches),
+        )
+
+        # Bounded concurrent execution
+        sem = asyncio.Semaphore(_LEARNINGS_MAX_CONCURRENCY)
+
+        async def _run_batch(batch):
+            async with sem:
+                return await self._extract_learnings_batch(batch)
+
+        batch_results = await asyncio.gather(
+            *[_run_batch(b) for b in batches],
+            return_exceptions=True,
+        )
+
+        # Merge results, fallback per failed batch
+        raw_learnings = []
+        failed_batches = []
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "[8phase] Batch %d raised %s, regex fallback",
+                    i, str(result)[:200],
+                )
+                failed_batches.append(batches[i])
+            elif isinstance(result, list):
+                raw_learnings.extend(result)
+            else:
+                failed_batches.append(batches[i])
+
+        for batch in failed_batches:
+            raw_learnings.extend(self._fallback_distill_batch(batch))
+
+        return self._enrich_learnings(raw_learnings, evidence_items)
+
+    def _build_learnings_from_regex(
+        self, evidence_items: list[dict],
+    ) -> list[dict]:
+        """Build learnings via regex fallback for ALL evidence."""
+        results = []
+        for ev in evidence_items:
+            fact = self._distill_fact(ev["statement"])
+            if not fact:
+                continue
+            results.append({
+                "fact": fact,
+                "category": ev["category"],
+                "tier": ev["tier"],
+                "evidence_ids": [ev["eid"]],
+                "relevance": ev["relevance"],
+                "perspective": ev["perspective"],
+                "original_statement": ev["statement"],
+            })
+        return results
+
+    def _enrich_learnings(
+        self,
+        raw_learnings: list[dict],
+        evidence_items: list[dict],
+    ) -> list[dict]:
+        """Enrich LLM-extracted learnings with metadata from sources.
+
+        Maps source_ids back to tier/relevance/perspective, producing
+        dicts compatible with downstream consumers.
+        """
+        ev_lookup = {ev["eid"]: ev for ev in evidence_items}
+        tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
+
+        enriched = []
+        for learning in raw_learnings:
+            source_ids = learning.get(
+                "source_ids", learning.get("evidence_ids", []),
+            )
+            tier = "BRONZE"
+            relevance = 0.5
+            perspective = ""
+            original_stmt = ""
+            for sid in source_ids:
+                if sid in ev_lookup:
+                    src = ev_lookup[sid]
+                    if tier_order.get(src["tier"], 3) < tier_order.get(
+                        tier, 3,
+                    ):
+                        tier = src["tier"]
+                    relevance = max(relevance, src["relevance"])
+                    if not perspective:
+                        perspective = src["perspective"]
+                    if not original_stmt:
+                        original_stmt = src["statement"]
+
+            enriched.append({
+                "fact": learning["fact"],
+                "category": learning.get("category", "general"),
+                "tier": tier,
+                "evidence_ids": source_ids,
+                "relevance": relevance,
+                "perspective": perspective,
+                "original_statement": original_stmt,
+            })
+
+        return enriched
+
+    async def _build_evidence_briefing(self) -> dict:
         """Build structured evidence briefing from ALL evidence (Phase 3).
+
+        Uses LLM-based learnings extraction (when enabled) to force
+        paraphrasing. Falls back to regex distillation on failure.
 
         Returns:
             {
@@ -835,27 +1155,8 @@ class ReactAnalysisAgent:
                 "comparison_matrix": str,
             }
         """
-        # Step 1: Distill ALL evidence into compact facts
-        raw_learnings = []
-        for eid in self._evidence_ids:
-            ev = self._evidence_store.get(eid, {})
-            stmt = ev.get("statement", "")
-            if not stmt or len(stmt) < 10:
-                continue
-
-            fact = self._distill_fact(stmt)
-            if not fact:
-                continue
-
-            raw_learnings.append({
-                "fact": fact,
-                "category": ev.get("fact_category", "general"),
-                "tier": ev.get("quality_tier", "BRONZE"),
-                "evidence_ids": [eid],
-                "relevance": float(ev.get("relevance_score", 0.5)),
-                "perspective": ev.get("perspective", ""),
-                "original_statement": stmt,
-            })
+        # Step 1: Extract learnings (LLM-based or regex fallback)
+        raw_learnings = await self._extract_all_learnings()
 
         if not raw_learnings:
             return {

@@ -1002,9 +1002,11 @@ class TestDistillFact:
 class TestBuildEvidenceBriefing:
     """Tests for _build_evidence_briefing."""
 
+    @patch("src.polaris_graph.tools.react_agent._LLM_LEARNINGS_ENABLED", False)
     @patch("src.polaris_graph.tools.react_agent.embed_texts")
     @patch("src.polaris_graph.tools.react_agent.embed_text")
-    def test_build_evidence_briefing_covers_all_categories(
+    @pytest.mark.asyncio
+    async def test_build_evidence_briefing_covers_all_categories(
         self, mock_embed_text, mock_embed_texts, mock_client,
     ):
         """Briefing should contain clusters covering all fact categories."""
@@ -1050,7 +1052,7 @@ class TestBuildEvidenceBriefing:
             query="water filter removal cost market analysis",
             mode="8phase",
         )
-        briefing = agent._build_evidence_briefing()
+        briefing = await agent._build_evidence_briefing()
 
         # At least 3 clusters (one per category)
         assert len(briefing["clusters"]) >= 3, (
@@ -1065,9 +1067,11 @@ class TestBuildEvidenceBriefing:
                 f"Category '{cat}' not in cluster themes: {themes}"
             )
 
+    @patch("src.polaris_graph.tools.react_agent._LLM_LEARNINGS_ENABLED", False)
     @patch("src.polaris_graph.tools.react_agent.embed_texts")
     @patch("src.polaris_graph.tools.react_agent.embed_text")
-    def test_domain_filter_catches_pei_conflation(
+    @pytest.mark.asyncio
+    async def test_domain_filter_catches_pei_conflation(
         self, mock_embed_text, mock_embed_texts, mock_client,
     ):
         """Domain filter removes evidence about the wrong polymer domain."""
@@ -1123,7 +1127,7 @@ class TestBuildEvidenceBriefing:
             query="polyethylenimine membrane coating",
             mode="8phase",
         )
-        briefing = agent._build_evidence_briefing()
+        briefing = await agent._build_evidence_briefing()
 
         # Learnings should NOT contain polyetherimide facts
         for learning in briefing["learnings"]:
@@ -1132,9 +1136,11 @@ class TestBuildEvidenceBriefing:
                 f"'{learning['fact']}'"
             )
 
+    @patch("src.polaris_graph.tools.react_agent._LLM_LEARNINGS_ENABLED", False)
     @patch("src.polaris_graph.tools.react_agent.embed_texts")
     @patch("src.polaris_graph.tools.react_agent.embed_text")
-    def test_comparison_matrix_for_multi_criteria(
+    @pytest.mark.asyncio
+    async def test_comparison_matrix_for_multi_criteria(
         self, mock_embed_text, mock_embed_texts, mock_client,
     ):
         """Multi-criteria query produces comparison matrix with markdown table."""
@@ -1172,7 +1178,7 @@ class TestBuildEvidenceBriefing:
             query="effective AND affordable water filters",
             mode="8phase",
         )
-        briefing = agent._build_evidence_briefing()
+        briefing = await agent._build_evidence_briefing()
 
         matrix = briefing.get("comparison_matrix", "")
         assert matrix, "comparison_matrix should be non-empty for multi-criteria query"
