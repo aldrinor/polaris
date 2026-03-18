@@ -231,7 +231,8 @@ def build_v3_graph(
                 "tier": ev.get("quality_tier", "BRONZE"),
                 "score": ev.get("relevance_score", 0.0),
                 "source_url": ev.get("source_url", ""),
-                "sub_question_id": ev.get("sub_question_id", ""),
+                "source_title": ev.get("source_title", ""),
+                "statement": ev.get("statement", ""),
             }
 
         all_ids = list(state.get("evidence_ids", [])) + new_ids
@@ -449,6 +450,206 @@ def build_v3_graph(
         return update
 
     # -----------------------------------------------------------------------
+    # Node: v3_analyze — proactive Python analysis of evidence data
+    # -----------------------------------------------------------------------
+    async def analyze_node(state: V3State) -> dict:
+        """Phase 3.5: Proactive data analysis using Python tools.
+
+        Runs BEFORE synthesis. Uses the analysis toolkit and code executor
+        to produce statistical summaries, comparison tables, and custom
+        analyses. Results are stored in evidence_store for synthesis to embed.
+
+        This is what differentiates POLARIS from Gemini — we don't just
+        search-extract-write. We ANALYZE with real Python computation.
+        """
+        if tracer:
+            tracer.node_start("v3_analyze")
+
+        analysis_enabled = os.getenv("PG_V3_ANALYSIS_ENABLED", "1") == "1"
+        if not analysis_enabled:
+            logger.info("[v3 analyze] Analysis phase disabled")
+            if tracer:
+                tracer.node_end("v3_analyze")
+            return {}
+
+        from src.polaris_graph.tools.analysis_toolkit import (
+            statistical_summary,
+            build_comparison_table,
+            generate_meta_analysis_summary,
+            compute_agreement_score,
+        )
+        from src.polaris_graph.tools.code_executor import (
+            generate_and_execute_analysis,
+        )
+
+        outline = state.get("outline", {})
+        sections = outline.get("sections", []) if isinstance(outline, dict) else []
+        query = state["original_query"]
+
+        # Collect ALL structured data points from evidence
+        all_data_points = []
+        all_statements = []
+        for ev_id in state.get("evidence_ids", []):
+            ev = evidence_store.get(ev_id, {})
+            # Structured data from PG_STRUCTURED_DATA_EXTRACTION
+            for dp in ev.get("structured_data", []):
+                dp["evidence_id"] = ev_id
+                dp["source_url"] = ev.get("source_url", "")
+                all_data_points.append(dp)
+            # Collect statements for agreement analysis
+            stmt = ev.get("statement", "")
+            if stmt:
+                all_statements.append(stmt)
+
+        analysis_results = []
+        charts_generated = 0
+
+        # --- Tool 1: Statistical summary across all numeric data ---
+        if all_data_points:
+            try:
+                stats = statistical_summary(all_data_points)
+                if stats.get("markdown_table"):
+                    analysis_results.append({
+                        "type": "statistical_summary",
+                        "title": "Statistical Summary Across Studies",
+                        "markdown": stats["markdown_table"],
+                        "insights": stats.get("insights", []),
+                        "statistics": stats.get("statistics", {}),
+                    })
+                    logger.info(
+                        "[v3 analyze] Statistical summary: n=%d, mean=%.2f, CI=[%.2f, %.2f]",
+                        stats["statistics"].get("n", 0),
+                        stats["statistics"].get("mean", 0),
+                        stats["statistics"].get("ci_95_lower", 0),
+                        stats["statistics"].get("ci_95_upper", 0),
+                    )
+            except Exception as exc:
+                logger.warning("[v3 analyze] Statistical summary failed: %s", str(exc)[:200])
+
+        # --- Tool 2: Comparison table across studies ---
+        if all_data_points and len(set(dp.get("source_url", "") for dp in all_data_points)) >= 2:
+            try:
+                table_md = build_comparison_table(all_data_points)
+                if table_md and len(table_md) > 50:
+                    analysis_results.append({
+                        "type": "comparison_table",
+                        "title": "Cross-Study Comparison",
+                        "markdown": table_md,
+                    })
+                    logger.info("[v3 analyze] Comparison table: %d chars", len(table_md))
+            except Exception as exc:
+                logger.warning("[v3 analyze] Comparison table failed: %s", str(exc)[:200])
+
+        # --- Tool 3: Meta-analysis summary ---
+        if all_data_points and len(all_data_points) >= 3:
+            try:
+                meta_md = generate_meta_analysis_summary(all_data_points)
+                if meta_md and len(meta_md) > 50:
+                    analysis_results.append({
+                        "type": "meta_analysis",
+                        "title": "Meta-Analysis Summary",
+                        "markdown": meta_md,
+                    })
+                    logger.info("[v3 analyze] Meta-analysis generated: %d chars", len(meta_md))
+            except Exception as exc:
+                logger.warning("[v3 analyze] Meta-analysis failed: %s", str(exc)[:200])
+
+        # --- Tool 4: Source agreement analysis ---
+        if len(all_statements) >= 3:
+            try:
+                agreement = compute_agreement_score(all_statements[:50])
+                analysis_results.append({
+                    "type": "agreement_analysis",
+                    "title": "Source Agreement Analysis",
+                    "markdown": (
+                        f"**Source Agreement:** {agreement.get('consensus_strength', 'unknown')} "
+                        f"(score: {agreement.get('agreement_score', 0):.2f})\n\n"
+                        f"Based on pairwise comparison of {len(all_statements[:50])} evidence statements."
+                    ),
+                    "agreement_score": agreement.get("agreement_score", 0),
+                })
+            except Exception as exc:
+                logger.warning("[v3 analyze] Agreement analysis failed: %s", str(exc)[:200])
+
+        # --- Tool 5: LLM-driven custom analysis (code executor) ---
+        code_exec_enabled = os.getenv("PG_V3_CODE_EXEC_ENABLED", "1") == "1"
+        if code_exec_enabled and all_data_points and client:
+            try:
+                custom_result = await asyncio.wait_for(
+                    generate_and_execute_analysis(
+                        client=client,
+                        evidence_data=all_data_points[:30],
+                        analysis_question=(
+                            f"Analyze the key patterns and relationships in this research data about: {query}. "
+                            "Compute correlations, identify trends, and create a visualization."
+                        ),
+                        research_context=query,
+                    ),
+                    timeout=90,
+                )
+                if custom_result.get("success"):
+                    result_data = custom_result.get("result", {})
+                    if result_data:
+                        analysis_results.append({
+                            "type": "custom_analysis",
+                            "title": "Computational Analysis",
+                            "markdown": result_data.get("summary", str(result_data)[:1000]),
+                        })
+                    for chart in custom_result.get("charts", []):
+                        charts_generated += 1
+                        analysis_results.append({
+                            "type": "chart",
+                            "title": chart.get("title", "Analysis Chart"),
+                            "image_base64": chart.get("image_base64", ""),
+                        })
+                    logger.info(
+                        "[v3 analyze] Custom analysis: success, %d charts, %.1fs",
+                        len(custom_result.get("charts", [])),
+                        custom_result.get("execution_time_seconds", 0),
+                    )
+                else:
+                    logger.warning(
+                        "[v3 analyze] Custom analysis failed: %s",
+                        custom_result.get("error", "unknown")[:200],
+                    )
+            except Exception as exc:
+                logger.warning("[v3 analyze] Code executor failed: %s", str(exc)[:200])
+
+        # Store analysis results in evidence_store for synthesis to find
+        if analysis_results:
+            import uuid
+            for result in analysis_results:
+                analysis_id = f"analysis_{uuid.uuid4().hex[:8]}"
+                evidence_store[analysis_id] = {
+                    "evidence_id": analysis_id,
+                    "type": "analysis",
+                    "analysis_type": result["type"],
+                    "title": result.get("title", ""),
+                    "markdown": result.get("markdown", ""),
+                    "image_base64": result.get("image_base64", ""),
+                    "insights": result.get("insights", []),
+                    "statistics": result.get("statistics", {}),
+                }
+
+        logger.info(
+            "[v3 analyze] Analysis phase complete: %d results, %d charts, %d data points processed",
+            len(analysis_results), charts_generated, len(all_data_points),
+        )
+
+        if tracer:
+            tracer.log_event("evidence", node="v3_analyze", data={
+                "action": "analysis_complete",
+                "results_count": len(analysis_results),
+                "charts_generated": charts_generated,
+                "data_points_processed": len(all_data_points),
+                "statements_analyzed": len(all_statements),
+                "analysis_types": [r["type"] for r in analysis_results],
+            })
+            tracer.node_end("v3_analyze")
+
+        return {}  # Analysis stored in evidence_store side-channel
+
+    # -----------------------------------------------------------------------
     # Node: v3_write_section
     # -----------------------------------------------------------------------
     async def synthesize_node(state: V3State) -> dict:
@@ -548,10 +749,11 @@ def build_v3_graph(
     graph.add_node("v3_search", search_node)
     graph.add_node("v3_storm", storm_node)
     graph.add_node("v3_outline", outline_node)
+    graph.add_node("v3_analyze", analyze_node)
     graph.add_node("v3_write_section", synthesize_node)
     graph.add_node("v3_assemble", assemble_node)
 
-    # Edges: scope → search → storm → outline → [gap_check] → synthesize → assemble
+    # Edges: scope → search → storm → outline → [gap_check] → analyze → synthesize → assemble
     graph.add_edge(START, "scope")
     graph.add_edge("scope", "v3_search")
     graph.add_edge("v3_search", "v3_storm")
@@ -561,9 +763,10 @@ def build_v3_graph(
         _should_search_gaps,
         {
             "v3_search": "v3_search",
-            "v3_write_section": "v3_write_section",
+            "v3_write_section": "v3_analyze",
         },
     )
+    graph.add_edge("v3_analyze", "v3_write_section")
     graph.add_edge("v3_write_section", "v3_assemble")
     graph.add_edge("v3_assemble", END)
 

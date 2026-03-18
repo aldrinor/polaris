@@ -252,10 +252,11 @@ def _ensure_structural_sections(
     existing_titles_lower = {s.title.lower().strip() for s in outline.sections}
 
     for spec in _STRUCTURAL_SECTIONS:
-        # Fuzzy match: check if title keywords exist in any section title
-        keywords = spec["title"].lower().split()
+        # Fuzzy match: check if the FIRST keyword (primary concept) exists
+        # in any existing section title. "Conclusions" matches "Conclusions and Future Directions".
+        primary_keyword = spec["title"].lower().split()[0]  # "key", "contradictions", "conclusions"
         already_exists = any(
-            all(kw in title for kw in keywords)
+            primary_keyword in title
             for title in existing_titles_lower
         )
         if already_exists:
@@ -386,39 +387,83 @@ def _enforce_section_evidence_ratio(
 
 
 # ---------------------------------------------------------------------------
-# Evidence assignment (F3.3)
+# Evidence assignment (F3.3) — Jaccard word overlap (v1 proven pattern)
 # ---------------------------------------------------------------------------
+
+def _word_set(text: str) -> set[str]:
+    """Extract meaningful words (>2 chars) as a lowercase set for Jaccard matching."""
+    _stopwords = {"the", "and", "for", "with", "this", "that", "from", "are", "was", "were", "has", "have", "been"}
+    return {
+        w.lower() for w in text.split()
+        if len(w) > 2 and w.lower() not in _stopwords
+    }
+
+
+def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
+    """Jaccard similarity between two word sets."""
+    if not set_a or not set_b:
+        return 0.0
+    intersection = len(set_a & set_b)
+    union = len(set_a | set_b)
+    return intersection / union if union > 0 else 0.0
+
 
 def _assign_evidence_to_outline(
     outline: LiveOutline,
     evidence_meta: dict[str, dict],
 ) -> LiveOutline:
-    """Assign evidence to sections based on sub_question_id matching.
+    """Assign evidence to sections using Jaccard word overlap matching.
 
-    Orphan evidence (no matching sub_question_id) goes to the first section.
+    v1 proven pattern: compare evidence statement words against section
+    title+description words. Each evidence piece goes to its best-matching
+    section. Evidence that matches no section goes to the section with
+    fewest evidence (balanced distribution).
+
+    This replaces the broken sub_question_id matching (v1's analyze_sources
+    never sets sub_question_id on evidence).
     """
-    # Build section lookup by sub_question_id
-    sq_to_section: dict[str, OutlineSection] = {}
-    for section in outline.sections:
-        sq_to_section[section.sub_question_id] = section
+    if not outline.sections or not evidence_meta:
+        return outline
 
-    # Clear existing assignments and reassign
+    # Clear existing assignments
     for section in outline.sections:
         section.evidence_ids = []
 
-    orphans = []
-    for ev_id, meta in evidence_meta.items():
-        sq_id = meta.get("sub_question_id", "")
-        target_section = sq_to_section.get(sq_id)
-        if target_section:
-            target_section.evidence_ids.append(ev_id)
-        else:
-            orphans.append(ev_id)
+    # Build section word sets from title + description
+    section_word_sets = [
+        _word_set(f"{s.title} {s.description}")
+        for s in outline.sections
+    ]
 
-    # Assign orphans to first section (F3.3: never discard evidence)
-    if orphans and outline.sections:
-        outline.sections[0].evidence_ids.extend(orphans)
-        logger.debug("[v3 outline] F3.3: %d orphan evidence assigned to '%s'", len(orphans), outline.sections[0].title)
+    # Assign each evidence to best-matching section
+    section_evidence: dict[int, list[str]] = {
+        i: [] for i in range(len(outline.sections))
+    }
+
+    for ev_id, meta in evidence_meta.items():
+        # Build word set from evidence statement + source title
+        ev_statement = meta.get("statement", "")
+        ev_source = meta.get("source_title", "")
+        ev_words = _word_set(f"{ev_statement} {ev_source}")
+
+        best_idx = 0
+        best_sim = -1.0
+
+        for si, s_words in enumerate(section_word_sets):
+            sim = _jaccard_similarity(ev_words, s_words)
+            if sim > best_sim:
+                best_sim = sim
+                best_idx = si
+
+        # If no meaningful match (sim < 0.01), assign to section with fewest evidence
+        if best_sim < 0.01:
+            best_idx = min(section_evidence, key=lambda k: len(section_evidence[k]))
+
+        section_evidence[best_idx].append(ev_id)
+
+    # Apply assignments
+    for i, section in enumerate(outline.sections):
+        section.evidence_ids = section_evidence.get(i, [])
 
     # Update confidence based on evidence count
     for section in outline.sections:
@@ -431,6 +476,13 @@ def _assign_evidence_to_outline(
             section.confidence = 0.4
         else:
             section.confidence = 0.1
+
+    # Log distribution
+    dist = [(s.title[:30], len(s.evidence_ids)) for s in outline.sections]
+    logger.info(
+        "[v3 outline] Evidence assignment: %s",
+        ", ".join(f"{t}={n}" for t, n in dist),
+    )
 
     return outline
 
