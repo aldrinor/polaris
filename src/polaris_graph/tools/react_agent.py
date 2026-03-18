@@ -501,7 +501,9 @@ class ReactAnalysisAgent:
             f"6. Be specific — never say 'several studies show' without "
             f"numbers and citations\n"
             f"7. Fix any obvious unit errors: '9.0 USD' that should be "
-            f"'$9 billion', '152 da' that should be '152 days', etc.\n\n"
+            f"'$9 billion', '152 da' that should be '152 days', etc.\n"
+            f"8. ONLY cite evidence IDs starting with 'ev_'. NEVER cite "
+            f"tool names like 'statistical_summary' or 'extract_numeric_data'\n\n"
             f"Produce 300-600 words of curated analysis with inline "
             f"citations. NO raw data dumps, NO tables — just analytical "
             f"prose with specific numbers."
@@ -513,6 +515,7 @@ class ReactAnalysisAgent:
             "[CITE:ev_xxx] citation. Be concise, analytical, and critical."
         )
 
+        interpret_timeout = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "120"))
         try:
             response = await asyncio.wait_for(
                 self._client.generate(
@@ -521,7 +524,7 @@ class ReactAnalysisAgent:
                     max_tokens=4096,
                     temperature=0.3,
                 ),
-                timeout=90,
+                timeout=interpret_timeout,
             )
 
             content = response.content.strip()
@@ -532,14 +535,14 @@ class ReactAnalysisAgent:
                 )
                 return
 
-            # Validate: extract cited IDs and check they exist
-            cited_ids = _re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', content)
+            # Validate: extract ALL [CITE:xxx] tokens and check they exist
+            all_cited = _re.findall(r'\[CITE:([^\]]+)\]', content)
             valid_ids = [
-                eid for eid in cited_ids
+                eid for eid in all_cited
                 if eid in self._evidence_store
             ]
             phantom_ids = [
-                eid for eid in cited_ids
+                eid for eid in all_cited
                 if eid not in self._evidence_store
             ]
 

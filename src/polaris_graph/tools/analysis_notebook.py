@@ -78,30 +78,54 @@ class AnalysisNotebook:
     def build_synthesis_context(self) -> str:
         """Build markdown context with [CITE:ev_xxx] tokens for synthesis.
 
-        This is the key output — each analysis result includes inline
-        citations pointing to ORIGINAL evidence, never "POLARIS Analysis
-        Toolkit".
+        Priority rules:
+        1. If interpret_results exists, lead with it (the analytical prose)
+        2. Follow with extract_numeric_data (structured data for reference)
+        3. Skip comparison_table and statistical_summary entirely —
+           the interpretation already incorporates their findings, and
+           raw pivot tables are unreadable noise for the section writer
 
-        The header uses a clean title (no LLM reasoning noise). Citations
-        live inside the markdown body where the data claims are, not on
-        the header line.
+        This ensures the section writer sees ANALYSIS first, then
+        supporting data — never raw stat dumps or sparse pivot tables.
         """
         if not self._steps:
             return ""
 
+        has_interpretation = any(
+            s.tool_name == "interpret_results" and s.result.success
+            for s in self._steps
+        )
+
+        # Tools to SKIP when interpretation exists (it supersedes them)
+        skip_when_interpreted = {
+            "comparison_table", "statistical_summary", "query_evidence_sql",
+        }
+
         sections = []
+
+        # Pass 1: interpretation first (if it exists)
+        if has_interpretation:
+            for step in self._steps:
+                if step.tool_name == "interpret_results" and step.result.success:
+                    sections.append("### Research Analysis")
+                    sections.append("")
+                    sections.append(step.result.markdown)
+                    sections.append("")
+                    break
+
+        # Pass 2: supporting raw data (extraction only, skip stats/tables)
         for step in self._steps:
             if not step.result.success:
                 continue
+            if step.tool_name == "interpret_results":
+                continue  # Already added above
 
-            # Clean header: tool name only (reasoning is for the agent, not
-            # the section writer). This prevents citations being misattributed
-            # to the header instead of the data.
+            if has_interpretation and step.tool_name in skip_when_interpreted:
+                continue  # Interpretation supersedes these
+
             tool_title = step.result.tool_name.replace("_", " ").title()
             sections.append(f"### {tool_title}")
             sections.append("")
-            # The markdown already contains [CITE:ev_xxx] tokens placed
-            # by _cite_inline() at the paragraph level
             sections.append(step.result.markdown)
 
             if step.result.insights:
