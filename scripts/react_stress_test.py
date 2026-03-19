@@ -346,16 +346,54 @@ def audit_factual_accuracy(context: str, evidence_store: dict) -> dict:
             continue
 
         total_checked += 1
+        claim_lower = claim_text.lower()
         ev_stmt = evidence_store[ev_id].get("statement", "").lower()
         key_num = nums[-1]
 
-        # Check 1: Number presence
+        # Check 1: Number presence + unit match
         if key_num in ev_stmt:
-            number_verified += 1
+            # Extract the unit phrase near the number in both claim and
+            # evidence. Catches ppt→ppb, mg→ng, billion→million errors.
+            # Look for unit within 30 chars after the number.
+            unit_words = (
+                r"(?:parts?\s+per\s+(?:trillion|billion|million)|"
+                r"ppt|ppb|ppm|mg/[gL]|ng/[gL]|µg/[gL]|"
+                r"%|mg|ng|µg|kWh|MPa|GPa|µm|m³|"
+                r"billion|million|USD)"
+            )
+            claim_unit_re = re.compile(
+                re.escape(key_num) + r'.{0,20}?' + unit_words,
+            )
+            ev_unit_re = re.compile(
+                re.escape(key_num) + r'.{0,20}?' + unit_words,
+            )
+            claim_unit_m = claim_unit_re.search(claim_lower)
+            ev_unit_m = ev_unit_re.search(ev_stmt)
+            if claim_unit_m and ev_unit_m:
+                # Extract just the unit part (last word/phrase)
+                c_unit = re.search(unit_words, claim_unit_m.group())
+                e_unit = re.search(unit_words, ev_unit_m.group())
+                if c_unit and e_unit and c_unit.group() == e_unit.group():
+                    number_verified += 1
+                elif c_unit and e_unit:
+                    # Unit mismatch — flag it
+                    category_mismatches.append({
+                        "claim": claim_text[:80],
+                        "ev_id": ev_id,
+                        "claim_category": f"unit:{c_unit.group()}",
+                        "ev_category": f"unit:{e_unit.group()}",
+                        "ev_statement": evidence_store[ev_id].get(
+                            "statement", "",
+                        )[:80],
+                    })
+                else:
+                    number_verified += 1
+            else:
+                # No unit found near number — still count as verified
+                number_verified += 1
 
         # Check 2: Category match — use ALL matching categories (not first-wins)
         # to avoid false positives on evidence like "100% removal at $90 cost"
-        claim_lower = claim_text.lower()
         claim_cats = set()
         if any(w in claim_lower for w in cost_words):
             claim_cats.add("cost")

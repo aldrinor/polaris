@@ -249,7 +249,9 @@ class CritiqueDimension(BaseModel):
     """Single dimension of the interpretation critique."""
 
     dimension: str = Field(description="Dimension name")
-    passed: bool = Field(description="Whether this dimension passes")
+    passed: bool = Field(
+        description="Whether this dimension passes", default=False,
+    )
     issues: list[str] = Field(
         description="Specific problems found", default_factory=list,
     )
