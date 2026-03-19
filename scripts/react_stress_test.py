@@ -731,12 +731,14 @@ async def audit_nli_faithfulness(context: str, evidence_store: dict) -> dict:
         print(f"    NLI scoring failed: {type(exc).__name__}: {str(exc)[:100]}")
         return {"nli_available": False}
 
-    # Classify results
+    # Classify results — thresholds calibrated for paraphrased
+    # analytical claims (MiniCheck flan-t5-large gives 0.04-0.19 for
+    # legitimate paraphrases, so 0.65 produced ~70% false positives)
     support_threshold = float(os.getenv(
-        "PG_FAITHFULNESS_NLI_THRESHOLD", "0.65",
+        "PG_FAITHFULNESS_NLI_THRESHOLD", "0.25",
     ))
     contradict_threshold = float(os.getenv(
-        "PG_NLI_DISPUTE_THRESHOLD", "0.3",
+        "PG_NLI_DISPUTE_THRESHOLD", "0.08",
     ))
 
     supported = 0
