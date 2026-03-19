@@ -28,6 +28,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # Evidence sets to test (diverse domains, sizes, quality distributions)
@@ -663,6 +665,188 @@ def audit_cross_source(context: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# NLI-based audit functions (SOTA: replaces regex hacks)
+# ---------------------------------------------------------------------------
+
+_nli_scorer_cache = None
+
+
+async def _get_nli_scorer():
+    """Lazy-load NLI scorer singleton."""
+    global _nli_scorer_cache
+    if _nli_scorer_cache is not None:
+        return _nli_scorer_cache
+    try:
+        from src.polaris_graph.agents.nli_verifier import load_nli_model
+        _nli_scorer_cache = await load_nli_model()
+        return _nli_scorer_cache
+    except Exception:
+        return None
+
+
+async def audit_nli_faithfulness(context: str, evidence_store: dict) -> dict:
+    """NLI-based claim-evidence verification.
+
+    Replaces regex unit checker + category mismatch detector.
+    Uses MiniCheck flan-t5-large to check if each cited claim is
+    entailed by the cited evidence. Naturally catches unit errors
+    (ppt vs ppb), category mismatches, and hallucinated claims.
+    """
+    if os.getenv("PG_NLI_ENABLED", "0") != "1":
+        return {"nli_available": False}
+
+    scorer = await _get_nli_scorer()
+    if scorer is None:
+        return {"nli_available": False}
+
+    # Extract all (claim, evidence) pairs from citations
+    cite_pattern = re.compile(r'([^.!?\n]{10,150})\[CITE:(ev_[a-f0-9]+)\]')
+    claim_texts = []
+    ev_statements = []
+    ev_ids = []
+
+    for match in cite_pattern.finditer(context):
+        claim = match.group(1).strip()
+        eid = match.group(2)
+        if eid not in evidence_store:
+            continue
+        ev_stmt = evidence_store[eid].get("statement", "")
+        if not ev_stmt or len(ev_stmt) < 10:
+            continue
+        claim_texts.append(claim)
+        ev_statements.append(ev_stmt)
+        ev_ids.append(eid)
+
+    if not claim_texts:
+        return {"nli_available": True, "total_claims": 0,
+                "supported": 0, "not_supported": 0, "contradicted": 0,
+                "contradictions": [], "faithfulness_score": 1.0}
+
+    # Run NLI in batch (blocking call → thread)
+    try:
+        _labels, probs, _chunks, _chunk_probs = await asyncio.to_thread(
+            scorer.score, docs=ev_statements, claims=claim_texts,
+        )
+    except Exception as exc:
+        print(f"    NLI scoring failed: {type(exc).__name__}: {str(exc)[:100]}")
+        return {"nli_available": False}
+
+    # Classify results
+    support_threshold = float(os.getenv(
+        "PG_FAITHFULNESS_NLI_THRESHOLD", "0.65",
+    ))
+    contradict_threshold = float(os.getenv(
+        "PG_NLI_DISPUTE_THRESHOLD", "0.3",
+    ))
+
+    supported = 0
+    not_supported = 0
+    contradicted = 0
+    contradictions = []
+
+    for i, prob in enumerate(probs):
+        p = float(prob)
+        if p >= support_threshold:
+            supported += 1
+        elif p < contradict_threshold:
+            contradicted += 1
+            contradictions.append({
+                "claim": claim_texts[i][:100],
+                "ev_id": ev_ids[i],
+                "ev_statement": ev_statements[i][:100],
+                "nli_score": round(p, 3),
+                "label": "CONTRADICTS",
+            })
+        else:
+            not_supported += 1
+
+    total = len(probs)
+    return {
+        "nli_available": True,
+        "total_claims": total,
+        "supported": supported,
+        "not_supported": not_supported,
+        "contradicted": contradicted,
+        "contradictions": contradictions,
+        "faithfulness_score": round(supported / max(total, 1), 3),
+    }
+
+
+def audit_originality(context: str, evidence_store: dict) -> dict:
+    """Embedding-based originality detection.
+
+    Replaces Jaccard word-overlap parroting detector. Uses cosine
+    similarity between output sentences and evidence statements.
+    Only flags sentences with very high similarity (>0.92) AND
+    no analytical markers — technical terminology alone won't trigger.
+    """
+    from src.utils.embedding_service import embed_texts
+
+    # Analytical markers that indicate synthesis (not copying)
+    analytical_markers = {
+        "however", "therefore", "trade-off", "tradeoff", "suggests",
+        "implies", "compared", "indicates", "whereas", "consequently",
+        "despite", "furthermore", "moreover", "notably", "in contrast",
+        "on the other hand", "this suggests", "this indicates",
+        "this creates", "this highlights", "this means", "ranking",
+        "rank", "trade-offs", "reveals", "necessitating",
+    }
+
+    # Clean citations from sentences before embedding
+    cite_re = re.compile(r'\[CITE:ev_[a-f0-9]+\]')
+    sentences = [
+        s.strip() for s in re.split(r'[.!?]\s+', context) if len(s.strip()) > 20
+    ]
+    clean_sentences = [cite_re.sub('', s).strip() for s in sentences]
+
+    # Collect evidence statements
+    ev_statements = [
+        ev.get("statement", "")
+        for ev in evidence_store.values()
+        if ev.get("statement", "") and len(ev.get("statement", "")) > 10
+    ]
+
+    if not clean_sentences or not ev_statements:
+        return {"total_sentences": len(sentences), "original": len(sentences),
+                "copied": 0, "copy_ratio": 0.0, "examples": []}
+
+    try:
+        sent_embeddings = embed_texts(clean_sentences)
+        ev_embeddings = embed_texts(ev_statements)
+
+        sent_matrix = np.array(sent_embeddings)
+        ev_matrix = np.array(ev_embeddings)
+
+        # Cosine similarity (embeddings are L2-normalized)
+        sim_matrix = sent_matrix @ ev_matrix.T
+
+        copied = 0
+        examples = []
+        for i, sent in enumerate(sentences):
+            max_sim = float(np.max(sim_matrix[i]))
+            if max_sim > 0.92:
+                sent_lower = sent.lower()
+                has_marker = any(m in sent_lower for m in analytical_markers)
+                if not has_marker:
+                    copied += 1
+                    if len(examples) < 3:
+                        examples.append(sent[:100])
+
+        total = len(sentences)
+        return {
+            "total_sentences": total,
+            "original": total - copied,
+            "copied": copied,
+            "copy_ratio": round(copied / max(total, 1), 3),
+            "examples": examples,
+        }
+    except Exception as exc:
+        print(f"    Originality check failed: {type(exc).__name__}: {str(exc)[:100]}")
+        return {"total_sentences": len(sentences), "original": len(sentences),
+                "copied": 0, "copy_ratio": 0.0, "examples": []}
+
+
+# ---------------------------------------------------------------------------
 # Main stress test
 # ---------------------------------------------------------------------------
 
@@ -821,10 +1005,28 @@ async def run_one_test(test_set: dict) -> dict:
     # -----------------------------------------------------------------------
     # 6-Axis Substance Score (100 pts)
     # -----------------------------------------------------------------------
-    parroting_audit = audit_parroting(context, evidence_store)
-    integration_audit = audit_integration(context, query)
-    coverage_audit = audit_evidence_coverage(context, evidence_store)
-    cross_source_audit = audit_cross_source(context)
+    # NLI-based audits (SOTA) with regex fallback
+    _nli_active = os.getenv("PG_NLI_ENABLED", "0") == "1"
+    nli_faith_audit = None
+    originality_audit = None
+
+    if _nli_active:
+        nli_faith_audit = await audit_nli_faithfulness(
+            audit_context, evidence_store,
+        )
+        if not nli_faith_audit.get("nli_available", False):
+            _nli_active = False
+            nli_faith_audit = None
+        else:
+            originality_audit = audit_originality(
+                audit_context, evidence_store,
+            )
+
+    # Legacy regex audits (always computed for reference)
+    parroting_audit = audit_parroting(audit_context, evidence_store)
+    integration_audit = audit_integration(audit_context, query)
+    coverage_audit = audit_evidence_coverage(audit_context, evidence_store)
+    cross_source_audit = audit_cross_source(audit_context)
 
     score = 0
     max_score = 100
@@ -833,25 +1035,56 @@ async def run_one_test(test_set: dict) -> dict:
     # Axis 1: Factual Accuracy (25 pts)
     vr = factual_audit['verification_rate']
     score_a1 = min(15, int(15 * min(vr, 80) / 80))
-    if not factual_audit['category_mismatches']:
-        score_a1 += 10
-    elif len(factual_audit['category_mismatches']) <= 1:
-        score_a1 += 5
-        penalties.append(f"Category mismatch: {len(factual_audit['category_mismatches'])}")
+    if _nli_active and nli_faith_audit:
+        fs = nli_faith_audit['faithfulness_score']
+        n_contra = nli_faith_audit['contradicted']
+        if n_contra == 0 and fs >= 0.80:
+            score_a1 += 10
+        elif n_contra <= 1 and fs >= 0.60:
+            score_a1 += 5
+            penalties.append(
+                f"NLI faith: {fs:.0%} ({n_contra} contradictions)"
+            )
+        else:
+            penalties.append(
+                f"NLI faith: {fs:.0%} ({n_contra} contradictions)"
+            )
     else:
-        penalties.append(f"Category mismatches: {len(factual_audit['category_mismatches'])}")
+        if not factual_audit['category_mismatches']:
+            score_a1 += 10
+        elif len(factual_audit['category_mismatches']) <= 1:
+            score_a1 += 5
+            penalties.append(
+                f"Category mismatch: "
+                f"{len(factual_audit['category_mismatches'])}"
+            )
+        else:
+            penalties.append(
+                f"Category mismatches: "
+                f"{len(factual_audit['category_mismatches'])}"
+            )
     score += score_a1
 
     # Axis 2: Synthesis Quality (25 pts)
     score_a2 = 0
-    pr = parroting_audit['parroted_ratio']
-    if pr <= 0.30:
-        score_a2 += 15
-    elif pr <= 0.50:
-        score_a2 += 8
-        penalties.append(f"Parroting: {pr:.0%}")
+    if _nli_active and originality_audit:
+        cr = originality_audit['copy_ratio']
+        if cr <= 0.15:
+            score_a2 += 15
+        elif cr <= 0.30:
+            score_a2 += 8
+            penalties.append(f"Copy ratio: {cr:.0%}")
+        else:
+            penalties.append(f"High copy ratio: {cr:.0%}")
     else:
-        penalties.append(f"High parroting: {pr:.0%}")
+        pr = parroting_audit['parroted_ratio']
+        if pr <= 0.30:
+            score_a2 += 15
+        elif pr <= 0.50:
+            score_a2 += 8
+            penalties.append(f"Parroting: {pr:.0%}")
+        else:
+            penalties.append(f"High parroting: {pr:.0%}")
 
     cs = cross_source_audit['cross_source_sentences']
     if cs >= 3:
@@ -922,10 +1155,35 @@ async def run_one_test(test_set: dict) -> dict:
         penalties.append(f"Low data density: {density_audit['numbers_with_units']}")
     score += score_a6
 
-    # Print new substance audits
-    print(f"\n  ── SUBSTANCE: PARROTING ──")
+    # Print NLI-based audits (when active)
+    if _nli_active and nli_faith_audit:
+        print(f"\n  ── NLI FAITHFULNESS ──")
+        print(f"    Claims: {nli_faith_audit['total_claims']}")
+        print(f"    Supported: {nli_faith_audit['supported']}")
+        print(f"    Not supported: {nli_faith_audit['not_supported']}")
+        print(f"    Contradicted: {nli_faith_audit['contradicted']}")
+        print(f"    Faithfulness: {nli_faith_audit['faithfulness_score']:.0%}")
+        for c in nli_faith_audit['contradictions'][:3]:
+            print(f"      X [{c['label']}] {c['ev_id']}: "
+                  f"NLI={c['nli_score']:.3f}")
+            print(f"        claim: \"{c['claim'][:70]}\"")
+            print(f"        evidence: \"{c['ev_statement'][:70]}\"")
+
+    if _nli_active and originality_audit:
+        print(f"\n  ── ORIGINALITY (embedding) ──")
+        print(f"    Sentences: {originality_audit['total_sentences']}")
+        print(f"    Original: {originality_audit['original']}")
+        print(f"    Copied: {originality_audit['copied']} "
+              f"({originality_audit['copy_ratio']:.0%})")
+        if originality_audit.get('examples'):
+            for ex in originality_audit['examples'][:2]:
+                print(f"      > \"{ex[:80]}\"")
+
+    # Print legacy regex audits (always shown for reference)
+    print(f"\n  ── SUBSTANCE: PARROTING (Jaccard) ──")
     print(f"    Sentences: {parroting_audit['total_sentences']}")
-    print(f"    Parroted: {parroting_audit['parroted_count']} ({parroting_audit['parroted_ratio']:.0%})")
+    print(f"    Parroted: {parroting_audit['parroted_count']} "
+          f"({parroting_audit['parroted_ratio']:.0%})")
     if parroting_audit.get('examples'):
         for ex in parroting_audit['examples'][:2]:
             print(f"      > \"{ex[:80]}\"")
@@ -979,6 +1237,18 @@ async def run_one_test(test_set: dict) -> dict:
         "integration_score": integration_audit['integration_score'],
         "category_coverage": coverage_audit['category_coverage'],
         "cross_source": cross_source_audit['cross_source_sentences'],
+        "nli_faithfulness": (
+            nli_faith_audit['faithfulness_score']
+            if nli_faith_audit else None
+        ),
+        "nli_contradictions": (
+            nli_faith_audit['contradicted']
+            if nli_faith_audit else None
+        ),
+        "originality_copy_ratio": (
+            originality_audit['copy_ratio']
+            if originality_audit else None
+        ),
         "elapsed": round(elapsed, 1),
         "cost": round(cost, 4),
         "context_chars": len(context),
