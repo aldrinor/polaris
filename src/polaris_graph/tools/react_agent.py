@@ -298,9 +298,23 @@ class InterpretationCritique(BaseModel):
     def normalize_qwen_response(cls, data):
         if not isinstance(data, dict):
             return data
+        # Unwrap nested wrappers: Qwen sometimes wraps in
+        # {"interpretation_critique": {actual_fields...}}
+        for wrapper_key in list(data.keys()):
+            val = data[wrapper_key]
+            if (
+                isinstance(val, dict)
+                and len(data) == 1
+                and any(
+                    k in val
+                    for k in ("dimensions", "needs_rewrite", "evaluation",
+                              "dimension_evaluations")
+                )
+            ):
+                data = val
+                break
         # Catch-all: ANY key containing a list of dicts → dimensions
-        # Qwen invents new field names every run (dimension_evaluations,
-        # evaluation, verdict, dimension_critiques, results, etc.)
+        # Qwen invents new field names every run.
         if "dimensions" not in data:
             for key, val in list(data.items()):
                 if (
@@ -311,6 +325,28 @@ class InterpretationCritique(BaseModel):
                 ):
                     data["dimensions"] = data.pop(key)
                     break
+            else:
+                # Qwen returned evaluation as a single dict instead of
+                # list — convert dict values to dimension list
+                for key, val in list(data.items()):
+                    if (
+                        isinstance(val, dict)
+                        and key not in (
+                            "needs_rewrite", "rewrite_instructions",
+                        )
+                        and any(
+                            isinstance(v, str)
+                            for v in val.values()
+                        )
+                    ):
+                        # {"sub_question_coverage": "PASS", ...}
+                        dims = [
+                            {"dimension": k, "passed": v}
+                            for k, v in val.items()
+                        ]
+                        data["dimensions"] = dims
+                        del data[key]
+                        break
         for alt in ("rewrite", "needs_revision", "should_rewrite",
                      "verdict"):
             if alt in data and "needs_rewrite" not in data:
@@ -2232,7 +2268,7 @@ class ReactAnalysisAgent:
                 norm = re.sub(
                     r'\[CITE:ev_[a-f0-9]+\]', '', sent,
                 ).strip().lower()
-                if len(norm) < 15:
+                if len(norm) < 10:
                     unique_sentences.append(sent)
                     continue
                 if norm not in seen_sentences:
