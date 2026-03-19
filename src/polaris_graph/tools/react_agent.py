@@ -296,7 +296,9 @@ class InterpretationCritique(BaseModel):
     def normalize_qwen_response(cls, data):
         if not isinstance(data, dict):
             return data
-        for alt in ("dims", "axes", "criteria", "evaluations"):
+        for alt in ("dims", "axes", "criteria", "evaluations",
+                     "dimension_evaluations", "evaluation",
+                     "dimension_results", "results"):
             if alt in data and "dimensions" not in data:
                 data["dimensions"] = data.pop(alt)
         for alt in ("rewrite", "needs_revision", "should_rewrite"):
@@ -305,6 +307,9 @@ class InterpretationCritique(BaseModel):
         for alt in ("instructions", "fix_instructions", "fixes"):
             if alt in data and "rewrite_instructions" not in data:
                 data["rewrite_instructions"] = data.pop(alt)
+        # Coerce None → "" for rewrite_instructions (Qwen returns null)
+        if data.get("rewrite_instructions") is None:
+            data["rewrite_instructions"] = ""
         return data
 
 
@@ -1584,7 +1589,10 @@ class ReactAnalysisAgent:
             f"2. Where do sources AGREE? Where do they CONTRADICT?\n"
             f"3. What TRADE-OFFS exist between the criteria?\n"
             f"4. What is the EVIDENCE-BASED ranking? (with specific numbers)\n"
-            f"5. What GAPS remain in the evidence?\n\n"
+            f"5. What GAPS remain in the evidence?\n"
+            f"6. Do NOT rank subtypes of the same technology family as "
+            f"separate entries (e.g., nanofiltration IS a high-pressure "
+            f"membrane — rank the family, note subtypes within it)\n\n"
             f"This scaffold will be expanded into a full analysis. "
             f"Be specific with numbers and citations. "
             f"Think carefully about cross-source reasoning."

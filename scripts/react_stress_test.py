@@ -353,27 +353,33 @@ def audit_factual_accuracy(context: str, evidence_store: dict) -> dict:
         if key_num in ev_stmt:
             number_verified += 1
 
-        # Check 2: Category match
+        # Check 2: Category match — use ALL matching categories (not first-wins)
+        # to avoid false positives on evidence like "100% removal at $90 cost"
         claim_lower = claim_text.lower()
-        claim_cat = (
-            "cost" if any(w in claim_lower for w in cost_words) else
-            "removal" if any(w in claim_lower for w in removal_words) else
-            "market" if any(w in claim_lower for w in market_words) else
-            "other"
-        )
-        ev_cat = (
-            "cost" if any(w in ev_stmt for w in cost_words) else
-            "removal" if any(w in ev_stmt for w in removal_words) else
-            "market" if any(w in ev_stmt for w in market_words) else
-            "other"
-        )
+        claim_cats = set()
+        if any(w in claim_lower for w in cost_words):
+            claim_cats.add("cost")
+        if any(w in claim_lower for w in removal_words):
+            claim_cats.add("removal")
+        if any(w in claim_lower for w in market_words):
+            claim_cats.add("market")
 
-        if claim_cat != "other" and ev_cat != "other" and claim_cat != ev_cat:
+        ev_cats = set()
+        if any(w in ev_stmt for w in cost_words):
+            ev_cats.add("cost")
+        if any(w in ev_stmt for w in removal_words):
+            ev_cats.add("removal")
+        if any(w in ev_stmt for w in market_words):
+            ev_cats.add("market")
+
+        # Mismatch only if claim categories and evidence categories
+        # have ZERO overlap (both non-empty)
+        if claim_cats and ev_cats and not (claim_cats & ev_cats):
             category_mismatches.append({
                 "claim": claim_text[:80],
                 "ev_id": ev_id,
-                "claim_category": claim_cat,
-                "ev_category": ev_cat,
+                "claim_category": ", ".join(sorted(claim_cats)),
+                "ev_category": ", ".join(sorted(ev_cats)),
                 "ev_statement": evidence_store[ev_id].get("statement", "")[:80],
             })
 
