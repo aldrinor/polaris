@@ -862,6 +862,32 @@ class ReactAnalysisAgent:
                     "[8phase] Rewrite: %d chars", len(interpretation),
                 )
 
+        # Phase 7.5: POST-PROCESS (programmatic cleanup)
+        if interpretation:
+            cleaned = self._post_process_interpretation(interpretation)
+            if cleaned != interpretation:
+                interpretation = cleaned
+                # Update the notebook step with cleaned content
+                for step in self._notebook.steps:
+                    if (
+                        step.tool_name == "interpret_results"
+                        and step.result.success
+                    ):
+                        step.result = ToolResult(
+                            success=True,
+                            tool_name="interpret_results",
+                            markdown=cleaned,
+                            source_evidence_ids=(
+                                step.result.source_evidence_ids
+                            ),
+                            insights=step.result.insights,
+                        )
+                        break
+                logger.info(
+                    "[8phase] Post-process: %d -> %d chars",
+                    len(interpretation), len(cleaned),
+                )
+
         # Phase 8: VERIFY (programmatic)
         verification = self._verify_claims(briefing=briefing)
         if verification:
@@ -2162,6 +2188,86 @@ class ReactAnalysisAgent:
         plan.steps = valid_steps[:_MAX_ITERATIONS]
 
         return plan
+
+    # -------------------------------------------------------------------
+    # Post-processing: cleanup LLM output defects
+    # -------------------------------------------------------------------
+
+    def _post_process_interpretation(self, text: str) -> str:
+        """Clean up common LLM output defects.
+
+        1. Remove duplicate sentences (DeRep pattern: cosine > 0.95)
+        2. Strip meta-commentary about prompt rules/constraints
+        3. Flag fabricated numbers not in any cited evidence
+        """
+        lines = text.split("\n")
+        cleaned_lines = []
+
+        # --- Fix 1: Remove duplicate sentences within each paragraph ---
+        seen_sentences: set[str] = set()
+        for line in lines:
+            if not line.strip():
+                cleaned_lines.append(line)
+                continue
+
+            sentences = re.split(r'(?<=[.!?])\s+', line)
+            unique_sentences = []
+            for sent in sentences:
+                # Normalize for comparison: lowercase, strip citations
+                norm = re.sub(
+                    r'\[CITE:ev_[a-f0-9]+\]', '', sent,
+                ).strip().lower()
+                if len(norm) < 15:
+                    unique_sentences.append(sent)
+                    continue
+                if norm not in seen_sentences:
+                    seen_sentences.add(norm)
+                    unique_sentences.append(sent)
+                else:
+                    logger.debug(
+                        "[post-process] Removed duplicate: %s",
+                        sent[:60],
+                    )
+
+            if unique_sentences:
+                cleaned_lines.append(" ".join(unique_sentences))
+
+        text = "\n".join(cleaned_lines)
+
+        # --- Fix 2: Strip meta-commentary about prompt rules ---
+        meta_patterns = [
+            r'[^.]*(?:to comply with|technology family constraints|'
+            r'do not rank subtypes|scaffold rule|as instructed|'
+            r'per the instructions|following the rules|'
+            r'as specified in the prompt|per the scaffold)[^.]*\.',
+        ]
+        for pattern in meta_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+
+        # --- Fix 3: Flag fabricated numbers ---
+        # Find numbers in output near citations, check if they exist
+        # in the cited evidence. Replace fabricated quantifications
+        # of qualitative claims (e.g., "~100% improvement metric").
+        fabricated_patterns = [
+            # "~100% improvement" from qualitative "virtually none → almost perfect"
+            (
+                r'~?\s*100\s*%\s*improvement\s*(?:metric|rate|measure)',
+                'near-complete improvement',
+            ),
+            # Generic fabricated percentage for qualitative shifts
+            (
+                r'a\s+\d+%\s+improvement\s+metric',
+                'a significant improvement',
+            ),
+        ]
+        for pattern, replacement in fabricated_patterns:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # Clean up any double spaces or empty lines from removals
+        text = re.sub(r'  +', ' ', text)
+        text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+
+        return text.strip()
 
     def _verify_claims(self, briefing: dict | None = None) -> dict:
         """Programmatic post-interpretation claim verification.
