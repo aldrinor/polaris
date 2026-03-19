@@ -298,20 +298,35 @@ class InterpretationCritique(BaseModel):
     def normalize_qwen_response(cls, data):
         if not isinstance(data, dict):
             return data
-        for alt in ("dims", "axes", "criteria", "evaluations",
-                     "dimension_evaluations", "evaluation",
-                     "dimension_results", "results"):
-            if alt in data and "dimensions" not in data:
-                data["dimensions"] = data.pop(alt)
-        for alt in ("rewrite", "needs_revision", "should_rewrite"):
+        # Catch-all: ANY key containing a list of dicts → dimensions
+        # Qwen invents new field names every run (dimension_evaluations,
+        # evaluation, verdict, dimension_critiques, results, etc.)
+        if "dimensions" not in data:
+            for key, val in list(data.items()):
+                if (
+                    isinstance(val, list)
+                    and val
+                    and isinstance(val[0], dict)
+                    and key not in ("needs_rewrite", "rewrite_instructions")
+                ):
+                    data["dimensions"] = data.pop(key)
+                    break
+        for alt in ("rewrite", "needs_revision", "should_rewrite",
+                     "verdict"):
             if alt in data and "needs_rewrite" not in data:
-                data["needs_rewrite"] = data.pop(alt)
+                val = data.pop(alt)
+                # Coerce string verdicts like "PASS"/"FAIL" to bool
+                if isinstance(val, str):
+                    val = val.upper() in ("PASS", "TRUE", "YES", "OK")
+                data["needs_rewrite"] = val
         for alt in ("instructions", "fix_instructions", "fixes"):
             if alt in data and "rewrite_instructions" not in data:
                 data["rewrite_instructions"] = data.pop(alt)
-        # Coerce None → "" for rewrite_instructions (Qwen returns null)
-        if data.get("rewrite_instructions") is None:
-            data["rewrite_instructions"] = ""
+        # Coerce None/list → "" for rewrite_instructions
+        if not isinstance(data.get("rewrite_instructions"), str):
+            data["rewrite_instructions"] = str(
+                data.get("rewrite_instructions") or ""
+            )
         return data
 
 
@@ -2334,6 +2349,42 @@ class ReactAnalysisAgent:
                     num_str, item["eid"][:16],
                     ", ".join(ev_numbers[:5]),
                 )
+
+        # --- Fix 5: Remove incomplete sentences (token truncation) ---
+        # Qwen sometimes hits max_tokens mid-word, producing
+        # "This inconsistency distingu" without terminal punctuation.
+        sentences = text.split("\n")
+        cleaned = []
+        for line in sentences:
+            stripped = line.rstrip()
+            if not stripped:
+                cleaned.append(line)
+                continue
+            # If line ends mid-word (no punctuation, no header, no list)
+            if (
+                stripped
+                and not stripped[-1] in '.!?:"|)'
+                and not stripped.startswith('#')
+                and not stripped.startswith('|')
+                and not stripped.startswith('-')
+                and not stripped.startswith('*')
+                and len(stripped) > 50
+            ):
+                # Find last complete sentence
+                last_period = max(
+                    stripped.rfind('. '),
+                    stripped.rfind('? '),
+                    stripped.rfind('! '),
+                    stripped.rfind('.]'),
+                )
+                if last_period > 0:
+                    stripped = stripped[:last_period + 1]
+                    logger.info(
+                        "[post-process] Trimmed incomplete sentence at "
+                        "end of line",
+                    )
+            cleaned.append(stripped)
+        text = "\n".join(cleaned)
 
         # Clean up any double spaces or empty lines from removals
         text = re.sub(r'  +', ' ', text)

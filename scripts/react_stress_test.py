@@ -499,6 +499,7 @@ def spot_check_citations(
         ev = evidence_store.get(ev_id, {})
         ev_stmt = ev.get("statement", "N/A")
 
+        # Word overlap (legacy metric)
         claim_words = set(re.findall(r'[a-z]{4,}', claim.lower()))
         ev_words = set(re.findall(r'[a-z]{4,}', ev_stmt.lower()))
         overlap = claim_words & ev_words
@@ -507,13 +508,26 @@ def spot_check_citations(
         ev_nums = set(re.findall(r'\d+\.?\d*', ev_stmt))
         num_overlap = claim_nums & ev_nums
 
+        # Embedding similarity (handles paraphrases better)
+        try:
+            from src.utils.embedding_service import get_embedding_service
+            svc = get_embedding_service()
+            sem_sim = svc.similarity(claim, ev_stmt)
+        except Exception:
+            sem_sim = 0.0
+
         checks.append({
             "claim": claim[:100],
             "ev_id": ev_id,
             "ev_statement": ev_stmt[:100],
             "word_overlap": len(overlap),
             "number_overlap": len(num_overlap),
-            "likely_match": len(overlap) >= 2 or len(num_overlap) >= 1,
+            "semantic_similarity": round(sem_sim, 3),
+            "likely_match": (
+                sem_sim >= 0.5
+                or len(overlap) >= 2
+                or len(num_overlap) >= 1
+            ),
         })
 
     return checks
@@ -994,8 +1008,10 @@ async def run_one_test(test_set: dict) -> dict:
         print(f"    {i}. [{verdict}] {sc['ev_id']}")
         print(f"       Claim: \"{sc['claim'][:80]}\"")
         print(f"       Evidence: \"{sc['ev_statement'][:80]}\"")
+        sem = sc.get('semantic_similarity', 0)
         print(f"       Overlap: {sc['word_overlap']} words, "
-              f"{sc['number_overlap']} numbers")
+              f"{sc['number_overlap']} numbers, "
+              f"sem={sem:.2f}")
 
     # Statistics audit (supplementary)
     if stats_audit['verification_issues']:
