@@ -2281,7 +2281,7 @@ class ReactAnalysisAgent:
         # and wrong-number-from-same-source errors).
         cite_num_pattern = re.compile(
             r'(\d+\.?\d*)\s'        # number followed by space
-            r'(.{1,30}?)\s*'        # any text up to 30 chars (lazy)
+            r'(.{0,30}?)\s*'        # any text up to 30 chars (lazy)
             r'\[CITE:(ev_[a-f0-9]+)\]',
         )
         # Collect ungrounded numbers (don't modify text during iteration)
@@ -2340,15 +2340,49 @@ class ReactAnalysisAgent:
                     break
 
             if not fixed:
-                # Strategy 2: Flag but don't remove — the number might
-                # be derived (e.g., "43% improvement" calculated from
-                # 152/106 days). Log for audit visibility.
-                logger.warning(
-                    "[post-process] Ungrounded number: %s not in %s "
-                    "(evidence has: %s)",
-                    num_str, item["eid"][:16],
-                    ", ".join(ev_numbers[:5]),
-                )
+                # Strategy 2: Citation correction — if the number exists
+                # in a DIFFERENT evidence piece, fix the citation
+                # (covers wrong-source attribution like 250µm cited to
+                # the 125µm source instead of the 250µm source).
+                correct_eid = None
+                for eid, ev in self._evidence_store.items():
+                    ev_stmt = ev.get("statement", "")
+                    if re.search(
+                        r'(?<!\d)' + re.escape(num_str) + r'(?!\d)',
+                        ev_stmt,
+                    ):
+                        correct_eid = eid
+                        break
+
+                if correct_eid and correct_eid != item["eid"]:
+                    old_cite = f"[CITE:{item['eid']}]"
+                    new_cite = f"[CITE:{correct_eid}]"
+                    old_span = item["span"]
+                    if old_cite in old_span:
+                        fixed_span = old_span.replace(
+                            old_cite, new_cite, 1,
+                        )
+                        text = text.replace(old_span, fixed_span, 1)
+                        logger.info(
+                            "[post-process] Fixed citation: %s -> %s "
+                            "for number %s",
+                            item["eid"][:16], correct_eid[:16], num_str,
+                        )
+                    else:
+                        logger.warning(
+                            "[post-process] Ungrounded number: %s not "
+                            "in %s (correct source: %s)",
+                            num_str, item["eid"][:16],
+                            correct_eid[:16],
+                        )
+                else:
+                    # Strategy 3: Flag — number might be derived
+                    logger.warning(
+                        "[post-process] Ungrounded number: %s not in "
+                        "%s (evidence has: %s)",
+                        num_str, item["eid"][:16],
+                        ", ".join(ev_numbers[:5]),
+                    )
 
         # --- Fix 5: Remove incomplete sentences (token truncation) ---
         # Qwen sometimes hits max_tokens mid-word, producing
