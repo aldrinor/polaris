@@ -36,9 +36,9 @@ from src.utils.embedding_service import embed_text, embed_texts
 logger = logging.getLogger("polaris_graph")
 
 _MAX_ITERATIONS = int(os.getenv("PG_REACT_MAX_ITERATIONS", "5"))
-_TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "600"))
+_TIMEOUT_SECONDS = int(os.getenv("PG_REACT_TIMEOUT_SECONDS", "900"))
 _TOOL_TIMEOUT = int(os.getenv("PG_REACT_TOOL_TIMEOUT", "60"))
-_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"))
+_INTERPRET_TIMEOUT = int(os.getenv("PG_REACT_INTERPRET_TIMEOUT", "240"))
 
 # 8-phase pipeline env vars
 _ANALYSIS_PIPELINE = os.getenv("PG_ANALYSIS_PIPELINE", "8phase")
@@ -50,13 +50,13 @@ _MAX_CLUSTERS = int(os.getenv("PG_MAX_CLUSTERS", "15"))
 _MAX_INTERPRETATION_REWRITES = int(
     os.getenv("PG_MAX_INTERPRETATION_REWRITES", "1"),
 )
-_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "180"))
-_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "120"))
+_SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "240"))
+_CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "180"))
 
 # Learnings extraction env vars
 _LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
 _LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
-_LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "45"))
+_LEARNINGS_BATCH_TIMEOUT = int(os.getenv("PG_LEARNINGS_BATCH_TIMEOUT", "90"))
 _LEARNINGS_MAX_CONCURRENCY = int(
     os.getenv("PG_LEARNINGS_MAX_CONCURRENCY", "3"),
 )

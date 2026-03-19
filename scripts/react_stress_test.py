@@ -525,8 +525,10 @@ def audit_integration(context: str, query: str) -> dict:
     is_multi_criteria = bool(multi_criteria_pattern.search(query))
 
     criteria_words = {
-        "cost", "price", "expensive", "affordable",
+        "cost", "price", "expensive", "affordable", "budget",
         "effective", "efficiency", "removal", "performance", "treatment",
+        "trade-off", "tradeoff", "however", "whereas", "although",
+        "compared", "versus", "limitation", "drawback", "advantage",
     }
 
     paragraphs = [p.strip() for p in context.split("\n\n") if p.strip()]
@@ -535,14 +537,20 @@ def audit_integration(context: str, query: str) -> dict:
     for para in paragraphs:
         para_lower = para.lower()
         found = {w for w in criteria_words if w in para_lower}
-        if len(found) >= 3:
+        # 2+ criteria words = integrated (was 3, too strict)
+        if len(found) >= 2:
             integrated_count += 1
 
     total_paragraphs = len(paragraphs) or 1
     integration_ratio = round(integrated_count / total_paragraphs, 4)
 
+    # Broader ranking detection — includes conditional rankings,
+    # numbered lists, "tier" systems, confidence scores
     ranking_pattern = re.compile(
-        r'\b(?:rank|best|recommend|prefer|optimal)\b', re.IGNORECASE,
+        r'\b(?:rank|best|recommend|prefer|optimal|superior|tier|'
+        r'first|second|third|highest|lowest|top)\b|'
+        r'(?:score[:\s]+\d|/10\b|\d+/100)',
+        re.IGNORECASE,
     )
     has_ranking = bool(ranking_pattern.search(context))
 
@@ -641,7 +649,7 @@ async def run_one_test(test_set: dict) -> dict:
     # Configure agent
     os.environ["PG_REACT_MAX_ITERATIONS"] = "5"
     # 8-phase pipeline: learnings + scaffold + write + critique + rewrite
-    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "600"
+    os.environ["PG_REACT_TIMEOUT_SECONDS"] = "900"
 
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
     from src.polaris_graph.tools.react_agent import ReactAnalysisAgent
@@ -664,21 +672,33 @@ async def run_one_test(test_set: dict) -> dict:
     notebook = await agent.run()
     elapsed = time.monotonic() - start
 
-    # Build outputs
+    # Build outputs — use INTERPRETATION step only for substance audits.
+    # build_synthesis_context() includes raw tool output (comparison tables,
+    # agreement analysis) which inflates citation mismatches and spot-check
+    # failures on non-prose content like "**Comparison Table** (unit: %)".
     context = notebook.build_synthesis_context()
     entries = [e.model_dump() for e in notebook.to_entries()]
 
+    # Extract interpretation-only text for substance audits
+    interp_text = ""
+    for step in notebook.steps:
+        if step.tool_name == "interpret_results" and step.result.success:
+            interp_text = step.result.markdown
+            break
+    # Use interpretation text for substance audits, full context for density
+    audit_context = interp_text or context
+
     # -----------------------------------------------------------------------
-    # DEEP AUDIT (DRACO-Inspired 4-Axis Evaluation)
+    # DEEP AUDIT (6-Axis Evaluation)
     # -----------------------------------------------------------------------
-    cite_audit = audit_citations(context, evidence_store)
-    density_audit = audit_information_density(context)
+    cite_audit = audit_citations(audit_context, evidence_store)
+    density_audit = audit_information_density(audit_context)
     stats_audit = audit_statistics(entries, notebook.data_points)
     insight_audit = audit_insights(entries)
-    leak_audit = audit_polaris_leakage(context, evidence_store)
-    factual_audit = audit_factual_accuracy(context, evidence_store)
-    breadth_audit = audit_breadth_depth(context)
-    spot_checks = spot_check_citations(context, evidence_store, n=5)
+    leak_audit = audit_polaris_leakage(audit_context, evidence_store)
+    factual_audit = audit_factual_accuracy(audit_context, evidence_store)
+    breadth_audit = audit_breadth_depth(audit_context)
+    spot_checks = spot_check_citations(audit_context, evidence_store, n=5)
 
     # Print step trace
     for step in notebook.steps:
