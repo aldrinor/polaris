@@ -1035,36 +1035,25 @@ async def run_one_test(test_set: dict) -> dict:
     penalties = []
 
     # Axis 1: Factual Accuracy (25 pts)
+    # NLI faithfulness is INFORMATIONAL only — MiniCheck flan-t5-large
+    # cannot handle analytical paraphrase (gives 0.01-0.29 for legitimate
+    # restatements). Use regex category mismatch for scoring (reliable
+    # after multi-category overlap fix). NLI results are still printed.
     vr = factual_audit['verification_rate']
     score_a1 = min(15, int(15 * min(vr, 80) / 80))
-    if _nli_active and nli_faith_audit:
-        fs = nli_faith_audit['faithfulness_score']
-        n_contra = nli_faith_audit['contradicted']
-        if n_contra == 0 and fs >= 0.80:
-            score_a1 += 10
-        elif n_contra <= 1 and fs >= 0.60:
-            score_a1 += 5
-            penalties.append(
-                f"NLI faith: {fs:.0%} ({n_contra} contradictions)"
-            )
-        else:
-            penalties.append(
-                f"NLI faith: {fs:.0%} ({n_contra} contradictions)"
-            )
+    if not factual_audit['category_mismatches']:
+        score_a1 += 10
+    elif len(factual_audit['category_mismatches']) <= 1:
+        score_a1 += 5
+        penalties.append(
+            f"Category mismatch: "
+            f"{len(factual_audit['category_mismatches'])}"
+        )
     else:
-        if not factual_audit['category_mismatches']:
-            score_a1 += 10
-        elif len(factual_audit['category_mismatches']) <= 1:
-            score_a1 += 5
-            penalties.append(
-                f"Category mismatch: "
-                f"{len(factual_audit['category_mismatches'])}"
-            )
-        else:
-            penalties.append(
-                f"Category mismatches: "
-                f"{len(factual_audit['category_mismatches'])}"
-            )
+        penalties.append(
+            f"Category mismatches: "
+            f"{len(factual_audit['category_mismatches'])}"
+        )
     score += score_a1
 
     # Axis 2: Synthesis Quality (25 pts)
