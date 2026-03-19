@@ -722,10 +722,10 @@ async def audit_nli_faithfulness(context: str, evidence_store: dict) -> dict:
                 "supported": 0, "not_supported": 0, "contradicted": 0,
                 "contradictions": [], "faithfulness_score": 1.0}
 
-    # Run NLI in batch (blocking call → thread)
+    # Run NLI in batch (synchronous — CUDA + asyncio.to_thread deadlocks)
     try:
-        _labels, probs, _chunks, _chunk_probs = await asyncio.to_thread(
-            scorer.score, docs=ev_statements, claims=claim_texts,
+        _labels, probs, _chunks, _chunk_probs = scorer.score(
+            docs=ev_statements, claims=claim_texts,
         )
     except Exception as exc:
         print(f"    NLI scoring failed: {type(exc).__name__}: {str(exc)[:100]}")
