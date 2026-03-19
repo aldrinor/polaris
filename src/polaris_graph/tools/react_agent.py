@@ -2258,17 +2258,19 @@ class ReactAnalysisAgent:
         for pattern, replacement in fabricated_patterns:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-        # --- Fix 4: Number truncation detection (FACTScore pattern) ---
+        # --- Fix 4: Number grounding check (FACTScore pattern) ---
         # For each [CITE:ev_xxx] with a nearby number, verify the number
-        # exists in the cited evidence. Catches "7" when source says "70",
-        # "1.1 billion" when source says "1.1 million", etc.
-        # Match: "NUMBER ...text... [CITE:ev_xxx]" — capture claim number
-        # before each citation within a 30-char window.
+        # exists as a standalone value in the cited evidence. If NOT,
+        # remove the ungrounded numerical claim (safer than guessing
+        # the correction — covers truncation, transposition, rounding,
+        # and wrong-number-from-same-source errors).
         cite_num_pattern = re.compile(
             r'(\d+\.?\d*)\s'        # number followed by space
             r'(.{1,30}?)\s*'        # any text up to 30 chars (lazy)
             r'\[CITE:(ev_[a-f0-9]+)\]',
         )
+        # Collect ungrounded numbers (don't modify text during iteration)
+        ungrounded = []
         for match in cite_num_pattern.finditer(text):
             num_str = match.group(1)
             eid = match.group(3)
@@ -2277,34 +2279,61 @@ class ReactAnalysisAgent:
             if not ev_stmt:
                 continue
 
-            # Check if the number exists as a standalone value in evidence
-            # (not as substring: "7" should NOT match inside "70")
+            # Skip small numbers likely to be ordinals/list items
+            try:
+                if float(num_str) < 2:
+                    continue
+            except ValueError:
+                continue
+
+            # Check if the number exists as a standalone value
             num_in_evidence = bool(re.search(
                 r'(?<!\d)' + re.escape(num_str) + r'(?!\d)',
                 ev_stmt,
             ))
             if not num_in_evidence:
-                # Number NOT in evidence — potential truncation/error
-                # Try to find the correct number (e.g., "7" → "70")
-                ev_numbers = re.findall(r'\d+\.?\d*', ev_stmt)
-                for ev_num in ev_numbers:
-                    # Check if output number is a truncation of evidence
-                    if (
-                        ev_num.startswith(num_str)
-                        and len(ev_num) > len(num_str)
-                    ):
-                        # Fix truncation: replace "7" with "70"
-                        old_span = match.group(0)
-                        fixed_span = old_span.replace(
-                            num_str, ev_num, 1,
-                        )
-                        text = text.replace(old_span, fixed_span, 1)
-                        logger.info(
-                            "[post-process] Fixed truncated number: "
-                            "%s -> %s (from %s)",
-                            num_str, ev_num, eid[:16],
-                        )
-                        break
+                ungrounded.append({
+                    "num": num_str,
+                    "eid": eid,
+                    "span": match.group(0),
+                    "ev_numbers": re.findall(r'\d+\.?\d*', ev_stmt),
+                })
+
+        # Fix ungrounded numbers
+        for item in ungrounded:
+            num_str = item["num"]
+            ev_numbers = item["ev_numbers"]
+
+            # Strategy 1: If output number is a prefix of an evidence
+            # number, it's truncation — fix it (7 → 70)
+            fixed = False
+            for ev_num in ev_numbers:
+                if (
+                    ev_num.startswith(num_str)
+                    and len(ev_num) > len(num_str)
+                    and len(ev_num) <= len(num_str) + 2
+                ):
+                    old_span = item["span"]
+                    fixed_span = old_span.replace(num_str, ev_num, 1)
+                    text = text.replace(old_span, fixed_span, 1)
+                    logger.info(
+                        "[post-process] Fixed truncated number: "
+                        "%s -> %s (from %s)",
+                        num_str, ev_num, item["eid"][:16],
+                    )
+                    fixed = True
+                    break
+
+            if not fixed:
+                # Strategy 2: Flag but don't remove — the number might
+                # be derived (e.g., "43% improvement" calculated from
+                # 152/106 days). Log for audit visibility.
+                logger.warning(
+                    "[post-process] Ungrounded number: %s not in %s "
+                    "(evidence has: %s)",
+                    num_str, item["eid"][:16],
+                    ", ".join(ev_numbers[:5]),
+                )
 
         # Clean up any double spaces or empty lines from removals
         text = re.sub(r'  +', ' ', text)
