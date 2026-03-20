@@ -1588,7 +1588,7 @@ class TestClassifyQuery:
         )
 
     def test_classify_query_comparison(self, evidence_store):
-        """'compare X vs Y' → archetype=comparison, artifacts include table."""
+        """'compare X vs Y' → archetype=comparison, artifacts include table + cond recs."""
         agent = self._make_agent(
             "compare GAC vs ion exchange for PFAS removal",
             evidence_store,
@@ -1597,6 +1597,36 @@ class TestClassifyQuery:
         result = agent._classify_query(briefing)
         assert result["archetype"] == "comparison"
         assert "comparison_table" in result["artifacts"]
+        assert "conditional_recommendations" in result["artifacts"]
+
+    def test_classify_query_ranking_gets_table(self, evidence_store):
+        """Ranking query with plural 'technologies' → gets comparison_table."""
+        agent = self._make_agent(
+            "What are the most effective water filtration technologies",
+            evidence_store,
+        )
+        briefing = {"learnings": [], "clusters": []}
+        result = agent._classify_query(briefing)
+        assert result["archetype"] == "ranking"
+        assert "comparison_table" in result["artifacts"]
+        assert "evidence_based_ranking" in result["artifacts"]
+
+    def test_classify_query_no_decision_matrix(self, evidence_store):
+        """decision_matrix artifact is never produced (fabrication risk)."""
+        agent = self._make_agent(
+            "rank the best and most affordable options",
+            evidence_store,
+        )
+        briefing = {
+            "learnings": [
+                {"fact": "Cost is $100/unit", "evidence_ids": ["ev_001"]},
+                {"fact": "Price ranges from $50-$200", "evidence_ids": ["ev_002"]},
+                {"fact": "Budget impact is $1M/year", "evidence_ids": ["ev_003"]},
+            ],
+            "clusters": [],
+        }
+        result = agent._classify_query(briefing)
+        assert "decision_matrix" not in result["artifacts"]
 
     def test_classify_query_mechanism(self, evidence_store):
         """'how does X work' → archetype=mechanism, mechanism_analysis."""

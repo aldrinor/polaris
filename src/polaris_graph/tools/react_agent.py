@@ -1661,10 +1661,24 @@ class ReactAnalysisAgent:
         has_entities = bool(re.search(
             r'(?:compare|vs|versus)\s+\w+', query,
         ))
+        # Detect implicit multi-option queries (plural nouns =
+        # multiple options to compare even without "compare/vs")
+        implies_multiple = bool(re.search(
+            r'\b(?:technologies|methods|options|approaches|'
+            r'techniques|systems|materials|alternatives)\b',
+            query,
+        ))
 
         # Determine required artifacts based on archetype + evidence
         artifacts = []
-        if archetype == "comparison" or has_entities:
+        # Comparison table: explicit comparison OR ranking queries
+        # that imply multiple options (e.g., "most effective
+        # technologies" = multiple techs to compare)
+        if (
+            archetype == "comparison"
+            or has_entities
+            or (archetype == "ranking" and implies_multiple)
+        ):
             artifacts.append("comparison_table")
         if archetype in ("ranking", "comparison"):
             artifacts.append("evidence_based_ranking")
@@ -1672,10 +1686,16 @@ class ReactAnalysisAgent:
             artifacts.append("mechanism_analysis")
         if cost_learnings >= 2:
             artifacts.append("cost_model")
-        if archetype in ("ranking", "cost_analysis") or cost_learnings >= 1:
+        # Conditional recommendations: ranking, comparison, and
+        # cost_analysis archetypes all benefit from If/Then guidance
+        if (
+            archetype in ("ranking", "comparison", "cost_analysis")
+            or cost_learnings >= 1
+        ):
             artifacts.append("conditional_recommendations")
-        if archetype == "ranking" and cost_learnings >= 2:
-            artifacts.append("decision_matrix")
+        # decision_matrix removed: LLM fabricates numeric scores
+        # instead of filling the template. Evidence-based ranking
+        # table serves the same purpose without hallucination risk.
 
         return {
             "archetype": archetype,
@@ -1801,16 +1821,10 @@ class ReactAnalysisAgent:
                 "[evidence] [CITE:ev_xxx]"
             )
 
+        # decision_matrix template removed — LLM fabricates scores
+        # instead of filling the template. Evidence-based ranking
+        # table with citations serves the same purpose safely.
         matrix_section = ""
-        if "decision_matrix" in artifacts:
-            matrix_section = (
-                "\nDECISION MATRIX (fill scores 1-5, calculate "
-                "weighted totals):\n"
-                "| Option | Effectiveness (wt: ?) | Cost (wt: ?) "
-                "| Maturity (wt: ?) | TOTAL |\n"
-                "|--------|----------------------|-------------|"
-                "-----------------|-------|"
-            )
 
         prompt = (
             f"RESEARCH QUESTION: {self._query}\n"
@@ -2468,7 +2482,9 @@ class ReactAnalysisAgent:
                     f"[CITE:{ge['evidence_id']}]"
                 )
             gap_context = (
-                "\n\nGAP-FILL EVIDENCE (use to address identified gaps):\n"
+                "\n\nGAP-FILL EVIDENCE (use to address identified "
+                "gaps — SYNTHESIZE these findings into your analysis, "
+                "do NOT copy them verbatim as a list):\n"
                 + "\n".join(gap_lines)
             )
 
@@ -2528,6 +2544,9 @@ class ReactAnalysisAgent:
             f"decision matrices (e.g., 'total score of 4.6'). "
             f"Rank by citing specific evidence metrics instead "
             f"(e.g., '>90% removal [CITE:ev_xxx]')\n"
+            f"16. SYNTHESIZE, do not parrot. Never restate an "
+            f"evidence statement verbatim — rephrase it into "
+            f"analytical prose that compares or evaluates\n"
             f"{gap_context}"
         )
 
