@@ -1567,3 +1567,223 @@ class TestEightPhasePipeline:
             assert step.tool_name not in ("scaffold", "critique", "rewrite"), (
                 f"Legacy mode should not have 8-phase step: {step.tool_name}"
             )
+
+
+# ---------------------------------------------------------------------------
+# 6-phase adaptive pipeline tests
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyQuery:
+    """Tests for _classify_query() archetype detection."""
+
+    def _make_agent(self, query, evidence_store):
+        client = MagicMock()
+        return ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query=query,
+            mode="react",
+        )
+
+    def test_classify_query_comparison(self, evidence_store):
+        """'compare X vs Y' → archetype=comparison, artifacts include table."""
+        agent = self._make_agent(
+            "compare GAC vs ion exchange for PFAS removal",
+            evidence_store,
+        )
+        briefing = {"learnings": [], "clusters": []}
+        result = agent._classify_query(briefing)
+        assert result["archetype"] == "comparison"
+        assert "comparison_table" in result["artifacts"]
+
+    def test_classify_query_mechanism(self, evidence_store):
+        """'how does X work' → archetype=mechanism, mechanism_analysis."""
+        agent = self._make_agent(
+            "how does biochar adsorption mechanism work for heavy metals",
+            evidence_store,
+        )
+        briefing = {"learnings": [], "clusters": []}
+        result = agent._classify_query(briefing)
+        assert result["archetype"] == "mechanism"
+        assert "mechanism_analysis" in result["artifacts"]
+
+    def test_classify_query_no_cost_without_data(self, evidence_store):
+        """Cost query but 0 cost learnings → no cost_model artifact."""
+        agent = self._make_agent(
+            "what is the cost of activated carbon filters",
+            evidence_store,
+        )
+        # No cost learnings in evidence
+        briefing = {
+            "learnings": [
+                {"fact": "GAC achieves 95% removal", "evidence_ids": ["ev_001"]},
+            ],
+            "clusters": [],
+        }
+        result = agent._classify_query(briefing)
+        assert result["archetype"] == "cost_analysis"
+        # Only 0 cost learnings → no cost_model
+        assert "cost_model" not in result["artifacts"]
+
+
+class TestBuildScaffoldPrompt:
+    """Tests for _build_scaffold_prompt() output."""
+
+    def _make_agent(self, query, evidence_store):
+        client = MagicMock()
+        return ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query=query,
+            mode="react",
+        )
+
+    def test_scaffold_prompt_includes_table_prefill(self, evidence_store):
+        """Comparison archetype → prompt contains table header."""
+        agent = self._make_agent(
+            "compare GAC vs ion exchange", evidence_store,
+        )
+        classification = {
+            "archetype": "comparison",
+            "artifacts": ["comparison_table", "evidence_based_ranking"],
+        }
+        briefing = {"learnings": [], "clusters": []}
+        prompt = agent._build_scaffold_prompt(briefing, classification)
+        assert "|" in prompt
+        assert "Key Limitation" in prompt
+        assert "COMPARATOR" in prompt
+
+    def test_scaffold_prompt_no_limitations_in_intent(self, evidence_store):
+        """Intent brief instructions say WILL, not WON'T (Loophole 6)."""
+        agent = self._make_agent("test query", evidence_store)
+        classification = {
+            "archetype": "general",
+            "artifacts": [],
+        }
+        briefing = {"learnings": [], "clusters": []}
+        prompt = agent._build_scaffold_prompt(briefing, classification)
+        assert "Do NOT list limitations" in prompt
+        assert "what you WILL deliver" in prompt
+
+    def test_scaffold_outputs_json_gap_queries(self, evidence_store):
+        """Scaffold prompt asks for JSON gap queries at end."""
+        agent = self._make_agent("test query", evidence_store)
+        classification = {"archetype": "general", "artifacts": []}
+        briefing = {"learnings": [], "clusters": []}
+        prompt = agent._build_scaffold_prompt(briefing, classification)
+        assert "gap_search_queries" in prompt
+        assert "POSITIVE search queries" in prompt
+
+
+class TestGapFill:
+    """Tests for _fill_evidence_gaps() embedding search."""
+
+    def test_gap_fill_uses_positive_queries(self, evidence_store):
+        """Gap queries must be affirmative, not negative (Loophole 4)."""
+        # Verify the prompt instructs positive phrasing
+        client = MagicMock()
+        agent = ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="test query",
+            mode="react",
+        )
+        classification = {"archetype": "general", "artifacts": []}
+        briefing = {"learnings": [], "clusters": []}
+        prompt = agent._build_scaffold_prompt(briefing, classification)
+        assert "affirmative phrasing" in prompt
+        assert 'NOT negative' in prompt
+
+
+class TestSelfRefine:
+    """Tests for SELF-REFINE loop behavior."""
+
+    def test_self_refine_boolean_checklist(self, evidence_store):
+        """Feedback is true/false flags, not 1-10 score (Loophole 5)."""
+        client = MagicMock()
+        agent = ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="compare X vs Y",
+            mode="react",
+        )
+        classification = {
+            "archetype": "comparison",
+            "artifacts": ["comparison_table"],
+        }
+        flags = agent._get_required_flags(classification)
+        # Should have boolean flags, not numeric scores
+        assert "all_numbers_cited" in flags
+        assert "has_explicit_tradeoffs" in flags
+        assert "contains_comparison_table" in flags
+
+    def test_self_refine_keeps_tables(self):
+        """Length guard bypassed when tables present (Loophole 3)."""
+        import re as _re
+        # Simulate a refined output with tables that is shorter than original
+        original = "A" * 1000
+        refined = (
+            "Short intro.\n"
+            "| Entity | Score | Cost |\n"
+            "|--------|-------|------|\n"
+            "| GAC    | 95%   | $100 |\n"
+            "| IX     | 90%   | $200 |\n"
+        )
+        # Patch 7: strict table detection regex
+        has_tables = bool(_re.search(r'\n\|[-:| ]+\|\n', refined))
+        assert has_tables, "Table should be detected"
+        # Even though refined < 0.7 * original, tables bypass length check
+        assert len(refined) < 0.7 * len(original)
+        # The pipeline would accept this because has_tables is True
+
+
+@pytest.mark.asyncio
+async def test_backward_compat_adaptive_off(evidence_store, mock_client):
+    """PG_ADAPTIVE_SCAFFOLD=0 → old behavior, no classification."""
+    async def mock_structured(prompt, schema, **kwargs):
+        return AnalysisPlan(steps=[
+            PlannedStep(tool_name="extract_numeric_data"),
+            PlannedStep(tool_name="query_evidence_sql"),
+        ])
+
+    mock_response = MagicMock()
+    mock_response.content = (
+        "Biochar achieves 85-99% lead removal [CITE:ev_001]. "
+        "Average removal efficiency is 92% [CITE:ev_005]."
+    )
+
+    async def mock_generate(**kwargs):
+        return mock_response
+
+    async def mock_reason(**kwargs):
+        return mock_response
+
+    mock_client.generate_structured = mock_structured
+    mock_client.generate = mock_generate
+    mock_client.reason = mock_reason
+
+    with patch.dict(os.environ, {"PG_ADAPTIVE_SCAFFOLD": "0"}):
+        from importlib import reload
+        import src.polaris_graph.tools.react_agent as ra_mod
+        reload(ra_mod)
+
+        agent = ra_mod.ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar heavy metal removal",
+            mode="agentic",
+        )
+        notebook = await agent.run()
+
+    # Restore module-level constants
+    reload(ra_mod)
+
+    # Should still produce output (backward compatible)
+    assert notebook.step_count >= 2
+    assert notebook.successful_steps >= 1

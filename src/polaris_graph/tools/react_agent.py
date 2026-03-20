@@ -1,13 +1,19 @@
 """ReAct analysis agent — autonomous tool selection for evidence analysis.
 
 Supports three pipeline modes (PG_ANALYSIS_PIPELINE env var):
-- "8phase" (default): Plan→Execute→Briefing→Scaffold→Write→Critique→Rewrite→Verify
+- "8phase" (default): 6-phase adaptive pipeline when PG_ADAPTIVE_SCAFFOLD=1:
+    Plan→Execute→Briefing+Classify→Scaffold(5-lens)→GapFill→Write+SelfRefine→Verify
+  Falls back to legacy 8-phase (critique→rewrite) when PG_ADAPTIVE_SCAFFOLD=0.
 - "legacy": Plan→Execute→Interpret→Verify (2 LLM calls, ReWOO pattern)
 - "react": Per-step LLM decisions (up to 5+1 LLM calls)
 
-The 8-phase pipeline fixes substance deficits (parroting, no integration,
-low evidence utilization) by interposing a learnings gateway + analytical
-scaffold + iterative critique between execution and writing.
+The adaptive pipeline fixes 6 loopholes identified by red team review:
+1. Time budget trap → deleted critique+rewrite, 75s headroom
+2. Refinement spaghetti → SELF-REFINE absorbs critique+rewrite
+3. Length guard kills artifacts → table-aware bypass
+4. Semantic vector trap → JSON gap queries with positive phrasing
+5. Self-scoring sycophancy → boolean checklist, not 1-10 score
+6. Intent anchoring bias → WILL not WON'T in intent brief
 
 The agent enforces citation provenance: every analysis result traces back
 to original evidence IDs, never "POLARIS Analysis Toolkit".
@@ -52,6 +58,14 @@ _MAX_INTERPRETATION_REWRITES = int(
 )
 _SCAFFOLD_TIMEOUT = int(os.getenv("PG_SCAFFOLD_TIMEOUT", "240"))
 _CRITIQUE_TIMEOUT = int(os.getenv("PG_CRITIQUE_TIMEOUT", "180"))
+
+# 6-phase adaptive pipeline env vars
+_ADAPTIVE_SCAFFOLD = os.getenv("PG_ADAPTIVE_SCAFFOLD", "1") == "1"
+_REFINER_ENABLED = os.getenv("PG_REFINER_ENABLED", "1") == "1"
+_SELF_REFINE_ENABLED = os.getenv("PG_SELF_REFINE_ENABLED", "1") == "1"
+_SELF_REFINE_MAX_ITERATIONS = int(
+    os.getenv("PG_SELF_REFINE_MAX_ITERATIONS", "2"),
+)
 
 # Learnings extraction env vars
 _LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
@@ -721,16 +735,20 @@ class ReactAnalysisAgent:
     # -------------------------------------------------------------------
 
     async def _run_8phase_analysis(self) -> AnalysisNotebook:
-        """Execute 8-phase SOTA analysis pipeline.
+        """Execute analysis pipeline (6-phase adaptive or 8-phase legacy).
 
-        Phase 1: PLAN      — 1 generate_structured() call
-        Phase 2: EXECUTE   — deterministic tool execution, 0 LLM calls
-        Phase 3: BRIEFING  — cluster + distill ALL evidence, 0 LLM calls
-        Phase 4: SCAFFOLD  — 1 reason() call: analytical framework
-        Phase 5: WRITE     — 1 generate() call: prose from scaffold
-        Phase 6: CRITIQUE  — 1 reason() call: structured quality check
-        Phase 7: REWRITE   — 0-1 generate() call: fix critique issues
-        Phase 8: VERIFY    — programmatic claim verification
+        When PG_ADAPTIVE_SCAFFOLD=1 (default):
+          Phase 1: PLAN       — 1 generate_structured() call
+          Phase 2: EXECUTE    — deterministic tool execution, 0 LLM calls
+          Phase 3: BRIEFING+CLASSIFY — cluster + archetype detection
+          Phase 4: SCAFFOLD   — 1 reason(): intent brief + 5-lens + gap queries
+          Phase 5: GAP FILL   — 0 LLM: embedding search for missing evidence
+          Phase 6: WRITE+REFINE — 2-4 generate(): draft + SELF-REFINE loop
+          Phase 6.5: POST-POLISH — programmatic cleanup
+          Phase 7: VERIFY     — programmatic claim verification
+
+        When PG_ADAPTIVE_SCAFFOLD=0 (legacy):
+          Phases 5-7 use separate write→critique→rewrite flow.
         """
         start_time = time.monotonic()
         timeout = _TIMEOUT_SECONDS
@@ -823,46 +841,77 @@ class ReactAnalysisAgent:
         if self._notebook.successful_steps == 0:
             await self._run_fallback()
 
-        # Phase 3: BRIEFING (1+ LLM calls when learnings enabled)
-        # Time budget: track remaining time for graceful degradation
+        # Phase 3: BRIEFING + CLASSIFY
         elapsed_before_briefing = time.monotonic() - start_time
         remaining = timeout - elapsed_before_briefing
         briefing = await self._build_evidence_briefing()
+        classification = (
+            self._classify_query(briefing) if _ADAPTIVE_SCAFFOLD else None
+        )
         logger.info(
             "[8phase] Briefing: %d learnings, %d clusters, %d sub-questions "
-            "(%.0fs remaining)",
+            "(%.0fs remaining)%s",
             len(briefing.get("learnings", [])),
             len(briefing.get("clusters", [])),
             len(briefing.get("sub_questions", [])),
             remaining,
+            f", archetype={classification['archetype']}"
+            if classification else "",
         )
 
-        # Phase 4: SCAFFOLD (1 reason() call)
+        # Phase 4: SCAFFOLD (1 reason() call, includes intent + gaps)
         scaffold = ""
+        gap_queries = []
         elapsed = time.monotonic() - start_time
         if (
             self._notebook.successful_steps > 0
             and self._client
-            and elapsed < timeout - 60  # need >=60s for write
+            and elapsed < timeout - 60
         ):
-            scaffold = await self._generate_analytical_scaffold(briefing)
+            scaffold_result = await self._generate_analytical_scaffold(
+                briefing, classification,
+            )
+            if isinstance(scaffold_result, dict):
+                scaffold = scaffold_result.get("scaffold", "")
+                gap_queries = scaffold_result.get("gap_queries", [])
+                intent_brief = scaffold_result.get("intent_brief", "")
+                if intent_brief:
+                    logger.info(
+                        "[8phase] Intent brief: %s",
+                        intent_brief[:120],
+                    )
+            else:
+                scaffold = scaffold_result
             logger.info(
-                "[8phase] Scaffold: %d chars", len(scaffold),
+                "[8phase] Scaffold: %d chars, %d gap queries",
+                len(scaffold), len(gap_queries),
             )
 
-        # Phase 5: WRITE (1 generate() call)
+        # Phase 5: GAP FILL (0 LLM calls, embedding search)
+        gap_evidence = []
+        if gap_queries and _ADAPTIVE_SCAFFOLD:
+            gap_evidence = self._fill_evidence_gaps(gap_queries, briefing)
+
+        # Phase 6: WRITE + SELF-REFINE (replaces old Phases 5+6+7)
         interpretation = ""
         elapsed = time.monotonic() - start_time
         if scaffold and self._client and elapsed < timeout - 30:
-            interpretation = await self._write_interpretation(
-                scaffold, briefing,
-            )
+            if _ADAPTIVE_SCAFFOLD and classification:
+                # Attach gap_queries to classification for feedback use
+                classification["_gap_queries"] = gap_queries
+                interpretation = await self._write_and_refine(
+                    scaffold, briefing, classification, gap_evidence,
+                )
+            else:
+                # Legacy path: separate write (no self-refine)
+                interpretation = await self._write_interpretation(
+                    scaffold, briefing,
+                )
             logger.info(
                 "[8phase] Interpretation: %d chars", len(interpretation),
             )
 
         # FALLBACK: if scaffold or write failed, ALWAYS use legacy interpret.
-        # No time budget check — producing zero prose is worse than overtime.
         if not interpretation and self._notebook.successful_steps > 0:
             if self._client:
                 logger.info(
@@ -879,41 +928,48 @@ class ReactAnalysisAgent:
                         interpretation = step.result.markdown
                         break
 
-        # Phase 6: CRITIQUE (1 reason() call)
-        critique = None
-        elapsed = time.monotonic() - start_time
-        if interpretation and self._client and elapsed < timeout - 30:
-            critique = await self._critique_interpretation(
-                interpretation, briefing,
-            )
-            if critique:
-                logger.info(
-                    "[8phase] Critique: needs_rewrite=%s, %d/%d dims passed",
-                    critique.get("needs_rewrite"),
-                    sum(1 for d in critique.get("dimensions", [])
-                        if d.get("passed")),
-                    len(critique.get("dimensions", [])),
+        # Legacy critique+rewrite path (when adaptive scaffold OFF)
+        if not _ADAPTIVE_SCAFFOLD:
+            critique = None
+            elapsed = time.monotonic() - start_time
+            if (
+                interpretation and self._client
+                and elapsed < timeout - 30
+            ):
+                critique = await self._critique_interpretation(
+                    interpretation, briefing,
                 )
+                if critique:
+                    logger.info(
+                        "[8phase] Critique: needs_rewrite=%s, "
+                        "%d/%d dims passed",
+                        critique.get("needs_rewrite"),
+                        sum(
+                            1 for d in critique.get("dimensions", [])
+                            if d.get("passed")
+                        ),
+                        len(critique.get("dimensions", [])),
+                    )
 
-        # Phase 7: REWRITE (conditional, 0-1 generate() call)
-        elapsed = time.monotonic() - start_time
-        if (
-            critique
-            and critique.get("needs_rewrite")
-            and interpretation
-            and self._client
-            and elapsed < timeout - 30
-        ):
-            rewritten = await self._rewrite_interpretation(
-                interpretation, critique, briefing,
-            )
-            if rewritten:
-                interpretation = rewritten
-                logger.info(
-                    "[8phase] Rewrite: %d chars", len(interpretation),
+            elapsed = time.monotonic() - start_time
+            if (
+                critique
+                and critique.get("needs_rewrite")
+                and interpretation
+                and self._client
+                and elapsed < timeout - 30
+            ):
+                rewritten = await self._rewrite_interpretation(
+                    interpretation, critique, briefing,
                 )
+                if rewritten:
+                    interpretation = rewritten
+                    logger.info(
+                        "[8phase] Rewrite: %d chars",
+                        len(interpretation),
+                    )
 
-        # Phase 7.5: POST-PROCESS (programmatic cleanup)
+        # Phase 6.5: POST-PROCESS (programmatic cleanup)
         if interpretation:
             cleaned = self._post_process_interpretation(interpretation)
             if cleaned != interpretation:
@@ -939,7 +995,7 @@ class ReactAnalysisAgent:
                     len(interpretation), len(cleaned),
                 )
 
-        # Phase 8: VERIFY (programmatic)
+        # Phase 7: VERIFY (programmatic)
         verification = self._verify_claims(briefing=briefing)
         if verification:
             logger.info(
@@ -1560,6 +1616,77 @@ class ReactAnalysisAgent:
 
         return unique
 
+    def _classify_query(self, briefing: dict) -> dict:
+        """Classify query archetype and determine required artifacts.
+
+        Returns dict with archetype, artifacts list, and evidence_signals.
+        Zero LLM calls — pure regex + evidence inspection.
+        """
+        query = self._query.lower()
+        learnings = briefing.get("learnings", [])
+
+        # Detect archetype via regex patterns
+        archetype = "general"
+        if re.search(
+            r'\b(?:compare|vs|versus|difference|between)\b', query,
+        ):
+            archetype = "comparison"
+        elif re.search(
+            r'\b(?:how\s+does|mechanism|why\s+does|process|pathway)\b',
+            query,
+        ):
+            archetype = "mechanism"
+        elif re.search(
+            r'\b(?:best|rank|top|most\s+effective|optimal|recommend)\b',
+            query,
+        ):
+            archetype = "ranking"
+        elif re.search(
+            r'\b(?:cost|price|afford|budget|economic|roi)\b', query,
+        ):
+            archetype = "cost_analysis"
+
+        # Evidence signal inspection
+        cost_learnings = sum(
+            1 for l in learnings
+            if re.search(
+                r'(?:cost|\$|price|USD|afford|budget)', l.get("fact", ""),
+                re.IGNORECASE,
+            )
+        )
+        numeric_learnings = sum(
+            1 for l in learnings
+            if re.search(r'\d+\.?\d*\s*%', l.get("fact", ""))
+        )
+        has_entities = bool(re.search(
+            r'(?:compare|vs|versus)\s+\w+', query,
+        ))
+
+        # Determine required artifacts based on archetype + evidence
+        artifacts = []
+        if archetype == "comparison" or has_entities:
+            artifacts.append("comparison_table")
+        if archetype in ("ranking", "comparison"):
+            artifacts.append("evidence_based_ranking")
+        if archetype == "mechanism":
+            artifacts.append("mechanism_analysis")
+        if cost_learnings >= 2:
+            artifacts.append("cost_model")
+        if archetype in ("ranking", "cost_analysis") or cost_learnings >= 1:
+            artifacts.append("conditional_recommendations")
+        if archetype == "ranking" and cost_learnings >= 2:
+            artifacts.append("decision_matrix")
+
+        return {
+            "archetype": archetype,
+            "artifacts": artifacts,
+            "evidence_signals": {
+                "cost_learnings": cost_learnings,
+                "numeric_learnings": numeric_learnings,
+                "has_entities": has_entities,
+            },
+        }
+
     def _build_comparison_matrix(
         self,
         learnings: list[dict],
@@ -1613,20 +1740,21 @@ class ReactAnalysisAgent:
     # Phase 4: SCAFFOLD — analytical framework generation
     # -------------------------------------------------------------------
 
-    async def _generate_analytical_scaffold(
-        self, briefing: dict,
+    def _build_scaffold_prompt(
+        self, briefing: dict, classification: dict | None,
     ) -> str:
-        """Generate analytical scaffold using reasoning model (Phase 4).
+        """Build 3-section scaffold prompt: intent + 5-lens + gap queries.
 
-        Uses reason() (thinking enabled) to produce a structured framework
-        that the writer will expand into prose.
-
-        Returns: markdown scaffold (300-500 words)
+        Merges intent brief, analytical framework, and gap search into a
+        single reason() call. Classification controls which artifacts
+        (tables, conditional recs, decision matrix) are requested.
         """
-        # Format briefing as compact input
-        cluster_text = []
         learnings = briefing.get("learnings", [])
-        for cluster in briefing.get("clusters", []):
+        clusters = briefing.get("clusters", [])
+
+        # Format clustered learnings
+        cluster_text = []
+        for cluster in clusters:
             theme = cluster["theme"]
             indices = cluster["learning_indices"]
             facts = []
@@ -1635,47 +1763,167 @@ class ReactAnalysisAgent:
                     l = learnings[idx]
                     tier_tag = f"[{l['tier']}]" if l.get("tier") else ""
                     ev_ids = ", ".join(l.get("evidence_ids", [])[:2])
-                    facts.append(
-                        f"  - {tier_tag} {l['fact']} [{ev_ids}]"
-                    )
+                    facts.append(f"  - {tier_tag} {l['fact']} [{ev_ids}]")
             cluster_text.append(
                 f"**{theme}** ({len(indices)} learnings):\n"
                 + "\n".join(facts)
             )
-
         clustered_learnings = "\n\n".join(cluster_text)
 
-        sub_questions = briefing.get("sub_questions", [])
-        sq_text = "\n".join(
-            f"  {i+1}. {q}" for i, q in enumerate(sub_questions)
-        )
+        archetype = (classification or {}).get("archetype", "general")
+        artifacts = (classification or {}).get("artifacts", [])
+        artifact_list = ", ".join(artifacts) if artifacts else "analytical prose"
 
-        matrix = briefing.get("comparison_matrix", "")
-        matrix_section = (
-            f"\nCOMPARISON MATRIX:\n{matrix}\n" if matrix else ""
-        )
+        # Build artifact-specific sections
+        artifact_sections = []
+        if "comparison_table" in artifacts:
+            artifact_sections.append(
+                "LENS 3 — COMPARATOR: Head-to-head analysis.\n"
+                "Build this comparison table (fill ALL rows from evidence):\n"
+                "| Entity | [Criterion_1] | [Criterion_2] | [Criterion_3] "
+                "| Key Limitation |\n"
+                "|--------|---------------|---------------|---------------|"
+                "----------------|"
+            )
+        else:
+            artifact_sections.append(
+                "LENS 3 — COMPARATOR: Head-to-head analysis "
+                "where evidence supports direct comparison."
+            )
+
+        conditional_section = ""
+        if "conditional_recommendations" in artifacts:
+            conditional_section = (
+                "\nCONDITIONAL RECOMMENDATIONS:\n"
+                "- If [scenario_1]: recommend [option] because "
+                "[evidence] [CITE:ev_xxx]\n"
+                "- If [scenario_2]: recommend [option] because "
+                "[evidence] [CITE:ev_xxx]"
+            )
+
+        matrix_section = ""
+        if "decision_matrix" in artifacts:
+            matrix_section = (
+                "\nDECISION MATRIX (fill scores 1-5, calculate "
+                "weighted totals):\n"
+                "| Option | Effectiveness (wt: ?) | Cost (wt: ?) "
+                "| Maturity (wt: ?) | TOTAL |\n"
+                "|--------|----------------------|-------------|"
+                "-----------------|-------|"
+            )
 
         prompt = (
-            f"RESEARCH QUESTION: {self._query}\n\n"
-            f"SUB-QUESTIONS:\n{sq_text}\n\n"
+            f"RESEARCH QUESTION: {self._query}\n"
+            f"QUERY TYPE: {archetype} — requires {artifact_list}\n\n"
             f"EVIDENCE BRIEFING ({len(learnings)} learnings across "
-            f"{len(briefing.get('clusters', []))} themes):\n"
-            f"{clustered_learnings}\n"
-            f"{matrix_section}\n"
-            f"PRODUCE AN ANALYTICAL SCAFFOLD:\n"
-            f"1. For each sub-question: what does the evidence say? "
-            f"(cite [CITE:ev_xxx])\n"
-            f"2. Where do sources AGREE? Where do they CONTRADICT?\n"
-            f"3. What TRADE-OFFS exist between the criteria?\n"
-            f"4. What is the EVIDENCE-BASED ranking? (with specific numbers)\n"
-            f"5. What GAPS remain in the evidence?\n"
-            f"6. Do NOT rank subtypes of the same technology family as "
-            f"separate entries (e.g., nanofiltration IS a high-pressure "
-            f"membrane — rank the family, note subtypes within it)\n\n"
-            f"This scaffold will be expanded into a full analysis. "
-            f"Be specific with numbers and citations. "
-            f"Think carefully about cross-source reasoning."
+            f"{len(clusters)} themes):\n"
+            f"{clustered_learnings}\n\n"
+            f"INSTRUCTIONS:\n\n"
+            f"STEP 1 — INTENT BRIEF (write inside <intent> tags):\n"
+            f"State in 3-4 sentences: what you will analyze, what "
+            f"sub-questions you will answer, and what artifacts you "
+            f"will produce. Do NOT list limitations — focus on what "
+            f"you WILL deliver.\n\n"
+            f"STEP 2 — ANALYTICAL SCAFFOLD using 5 lenses:\n\n"
+            f"LENS 1 — EVIDENCE GATHERER: Key quantified findings "
+            f"with citations [CITE:ev_xxx].\n"
+            f"LENS 2 — MECHANISM EXPLORER: How and why "
+            f"(causal chains).\n"
+            f"{artifact_sections[0]}\n"
+            f"LENS 4 — CRITIC: Contradictions, limitations, "
+            f"caveats.\n"
+            f"LENS 5 — HORIZON SCANNER: Emerging trends, gaps, "
+            f"future directions.\n"
+            f"{conditional_section}\n"
+            f"{matrix_section}\n\n"
+            f"STEP 3 — GAP SEARCH QUERIES (output as JSON at the "
+            f"very end):\n"
+            f"```json\n"
+            f'{{"gap_search_queries": ["query_1", "query_2"]}}\n'
+            f"```\n"
+            f"List 2-5 short, POSITIVE search queries for evidence "
+            f"that is MISSING from the briefing. Use affirmative "
+            f'phrasing ("maintenance cost data", "short-chain PFAS '
+            f'removal rates") NOT negative ("no data on costs").\n\n'
+            f"Do NOT rank subtypes of the same technology family as "
+            f"separate entries. Be specific with numbers and "
+            f"citations. Think carefully about cross-source reasoning."
         )
+
+        return prompt
+
+    async def _generate_analytical_scaffold(
+        self, briefing: dict, classification: dict | None = None,
+    ) -> dict | str:
+        """Generate analytical scaffold using reasoning model (Phase 4).
+
+        When _ADAPTIVE_SCAFFOLD is enabled and classification is provided,
+        uses the 5-lens prompt with intent brief and gap queries.
+        Otherwise falls back to the legacy sub-question scaffold.
+
+        Returns:
+            dict with keys scaffold, intent_brief, gap_queries when
+            adaptive mode is active; plain str otherwise.
+        """
+        # Use adaptive 5-lens prompt when classification available
+        if _ADAPTIVE_SCAFFOLD and classification:
+            prompt = self._build_scaffold_prompt(briefing, classification)
+        else:
+            # Legacy prompt (unchanged behavior)
+            learnings = briefing.get("learnings", [])
+            cluster_text = []
+            for cluster in briefing.get("clusters", []):
+                theme = cluster["theme"]
+                indices = cluster["learning_indices"]
+                facts = []
+                for idx in indices:
+                    if idx < len(learnings):
+                        l = learnings[idx]
+                        tier_tag = (
+                            f"[{l['tier']}]" if l.get("tier") else ""
+                        )
+                        ev_ids = ", ".join(
+                            l.get("evidence_ids", [])[:2],
+                        )
+                        facts.append(
+                            f"  - {tier_tag} {l['fact']} [{ev_ids}]"
+                        )
+                cluster_text.append(
+                    f"**{theme}** ({len(indices)} learnings):\n"
+                    + "\n".join(facts)
+                )
+            clustered_learnings = "\n\n".join(cluster_text)
+            sub_questions = briefing.get("sub_questions", [])
+            sq_text = "\n".join(
+                f"  {i+1}. {q}" for i, q in enumerate(sub_questions)
+            )
+            matrix = briefing.get("comparison_matrix", "")
+            matrix_section = (
+                f"\nCOMPARISON MATRIX:\n{matrix}\n" if matrix else ""
+            )
+            prompt = (
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"SUB-QUESTIONS:\n{sq_text}\n\n"
+                f"EVIDENCE BRIEFING ({len(learnings)} learnings across "
+                f"{len(briefing.get('clusters', []))} themes):\n"
+                f"{clustered_learnings}\n"
+                f"{matrix_section}\n"
+                f"PRODUCE AN ANALYTICAL SCAFFOLD:\n"
+                f"1. For each sub-question: what does the evidence say? "
+                f"(cite [CITE:ev_xxx])\n"
+                f"2. Where do sources AGREE? Where do they CONTRADICT?\n"
+                f"3. What TRADE-OFFS exist between the criteria?\n"
+                f"4. What is the EVIDENCE-BASED ranking? "
+                f"(with specific numbers)\n"
+                f"5. What GAPS remain in the evidence?\n"
+                f"6. Do NOT rank subtypes of the same technology family "
+                f"as separate entries (e.g., nanofiltration IS a "
+                f"high-pressure membrane — rank the family, note "
+                f"subtypes within it)\n\n"
+                f"This scaffold will be expanded into a full analysis. "
+                f"Be specific with numbers and citations. "
+                f"Think carefully about cross-source reasoning."
+            )
 
         system = (
             "You are an analytical strategist. Think through the evidence "
@@ -1695,21 +1943,78 @@ class ReactAnalysisAgent:
             )
 
             content = response.content.strip()
-            if content and len(content) > 50:
-                return content
+            if not content or len(content) <= 50:
+                logger.warning(
+                    "[8phase] Scaffold too short (%d chars), using fallback",
+                    len(content),
+                )
+                fallback = self._build_fallback_scaffold(briefing)
+                if _ADAPTIVE_SCAFFOLD and classification:
+                    return {
+                        "scaffold": fallback,
+                        "intent_brief": "",
+                        "gap_queries": [],
+                    }
+                return fallback
 
-            logger.warning(
-                "[8phase] Scaffold too short (%d chars), using fallback",
-                len(content),
-            )
+            # Parse adaptive scaffold components
+            if _ADAPTIVE_SCAFFOLD and classification:
+                intent_brief = ""
+                intent_match = re.search(
+                    r'<intent>(.*?)</intent>', content, re.DOTALL,
+                )
+                if intent_match:
+                    intent_brief = intent_match.group(1).strip()
+
+                gap_queries = []
+                # Patch 2: safe JSON extraction from LLM response
+                json_match = re.search(
+                    r'```json\s*(\{.*?\})\s*```', content, re.DOTALL,
+                )
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group(1))
+                        gap_queries = parsed.get(
+                            "gap_search_queries", [],
+                        )
+                    except json.JSONDecodeError:
+                        logger.debug(
+                            "[8phase] Could not parse gap queries JSON",
+                        )
+
+                # Strip intent tags and JSON block from scaffold
+                scaffold = content
+                if intent_match:
+                    scaffold = scaffold.replace(
+                        intent_match.group(0), "",
+                    ).strip()
+                if json_match:
+                    scaffold = scaffold[:json_match.start()].strip()
+
+                return {
+                    "scaffold": scaffold,
+                    "intent_brief": intent_brief,
+                    "gap_queries": gap_queries,
+                }
+
+            return content
+
         except Exception as exc:
             logger.warning(
-                "[8phase] Scaffold generation failed: %s: %s, using fallback",
+                "[8phase] Scaffold generation failed: %s: %s, "
+                "using fallback",
                 type(exc).__name__, str(exc)[:200],
             )
 
         # Fallback: programmatic scaffold from briefing
-        return self._build_fallback_scaffold(briefing)
+        fallback = self._build_fallback_scaffold(briefing)
+        if _ADAPTIVE_SCAFFOLD and classification:
+            return {
+                "scaffold": fallback,
+                "intent_brief": "",
+                "gap_queries": [],
+            }
+        return fallback
 
     def _build_fallback_scaffold(self, briefing: dict) -> str:
         """Build a programmatic scaffold from briefing data.
@@ -1758,6 +2063,86 @@ class ReactAnalysisAgent:
         lines.append("- Evidence gaps require further investigation")
 
         return "\n".join(lines)
+
+    def _fill_evidence_gaps(
+        self,
+        gap_queries: list[str],
+        briefing: dict,
+    ) -> list[dict]:
+        """Fill evidence gaps using embedding search (0 LLM calls).
+
+        For each gap query, embeds it and searches the full evidence store
+        by cosine similarity. Uses relative top-K (top 3 per query),
+        filters evidence already in briefing learnings.
+        """
+        if not gap_queries:
+            return []
+
+        # Collect evidence IDs already in briefing
+        briefing_eids = set()
+        for l in briefing.get("learnings", []):
+            briefing_eids.update(l.get("evidence_ids", []))
+
+        # Build evidence vectors if not cached
+        all_eids = list(self._evidence_store.keys())
+        if not all_eids:
+            return []
+
+        all_statements = [
+            self._evidence_store[eid].get("statement", "")
+            for eid in all_eids
+        ]
+        try:
+            ev_embeddings = embed_texts(all_statements)
+            ev_matrix = np.array(ev_embeddings)
+        except Exception as exc:
+            logger.warning(
+                "[gap-fill] Could not embed evidence: %s", str(exc)[:100],
+            )
+            return []
+
+        gap_evidence = []
+        max_gaps = min(len(gap_queries), 3)
+        max_per_gap = 5
+
+        for query_text in gap_queries[:max_gaps]:
+            try:
+                q_vec = np.array(embed_text(query_text))
+            except Exception:
+                continue
+
+            # Cosine similarity against all evidence
+            norms = np.linalg.norm(ev_matrix, axis=1)
+            q_norm = np.linalg.norm(q_vec)
+            if q_norm == 0:
+                continue
+            similarities = ev_matrix @ q_vec / (norms * q_norm + 1e-10)
+
+            # Relative top-K: take top 3 per gap query
+            top_indices = np.argsort(similarities)[::-1]
+            count = 0
+            for idx in top_indices:
+                if count >= max_per_gap:
+                    break
+                eid = all_eids[idx]
+                if eid in briefing_eids:
+                    continue
+                gap_evidence.append({
+                    "evidence_id": eid,
+                    "statement": self._evidence_store[eid].get(
+                        "statement", "",
+                    ),
+                    "gap_query": query_text,
+                    "similarity": float(similarities[idx]),
+                })
+                briefing_eids.add(eid)  # prevent duplicates across gaps
+                count += 1
+
+        logger.info(
+            "[gap-fill] Found %d supplementary evidence from %d gap queries",
+            len(gap_evidence), max_gaps,
+        )
+        return gap_evidence
 
     # -------------------------------------------------------------------
     # Phase 5: WRITE — scaffold-based interpretation
@@ -1878,7 +2263,433 @@ class ReactAnalysisAgent:
             return ""
 
     # -------------------------------------------------------------------
-    # Phase 6: CRITIQUE — structured quality check
+    # Phase 6 (new): WRITE + SELF-REFINE — merged draft/feedback/refine
+    # -------------------------------------------------------------------
+
+    def _get_required_flags(
+        self,
+        classification: dict | None,
+        gap_queries: list[str] | None = None,
+    ) -> list[str]:
+        """Determine required boolean flags based on classification.
+
+        Patch 5: has_gap_analysis only required when gap_queries exist.
+        """
+        artifacts = (classification or {}).get("artifacts", [])
+        flags = [
+            "all_numbers_cited",
+            "has_explicit_tradeoffs",
+        ]
+        if "comparison_table" in artifacts:
+            flags.append("contains_comparison_table")
+        if "conditional_recommendations" in artifacts:
+            flags.append("contains_conditional_recommendations")
+        if "evidence_based_ranking" in artifacts:
+            flags.append("has_evidence_based_ranking")
+        # Patch 5: only require gap analysis when gaps were identified
+        if gap_queries:
+            flags.append("has_gap_analysis")
+        return flags
+
+    async def _get_refinement_feedback(
+        self, draft: str, classification: dict | None,
+        gap_queries: list[str] | None = None,
+    ) -> dict[str, bool]:
+        """Get boolean checklist feedback on draft (Loophole 5 fix).
+
+        Returns dict of flag_name: true/false. No subjective scoring.
+        """
+        artifacts = (classification or {}).get("artifacts", [])
+        required_flags = self._get_required_flags(
+            classification, gap_queries,
+        )
+
+        checklist_lines = []
+        if "contains_comparison_table" in required_flags:
+            checklist_lines.append(
+                "contains_comparison_table: [true/false] — is there a "
+                "markdown table comparing entities?"
+            )
+        if "contains_conditional_recommendations" in required_flags:
+            checklist_lines.append(
+                "contains_conditional_recommendations: [true/false] — "
+                "are there 'If X then Y' statements?"
+            )
+        checklist_lines.append(
+            "all_numbers_cited: [true/false] — does every numerical "
+            "claim have a [CITE:ev_xxx]?"
+        )
+        checklist_lines.append(
+            "has_explicit_tradeoffs: [true/false] — are trade-offs "
+            "labeled (not just implied)?"
+        )
+        if "has_evidence_based_ranking" in required_flags:
+            checklist_lines.append(
+                "has_evidence_based_ranking: [true/false] — is there "
+                "a clear numbered ranking?"
+            )
+        if "has_gap_analysis" in required_flags:
+            checklist_lines.append(
+                "has_gap_analysis: [true/false] — are evidence gaps "
+                "identified?"
+            )
+
+        checklist = "\n".join(checklist_lines)
+        prompt = (
+            f"Check this analysis against these REQUIRED elements. "
+            f"Answer ONLY true/false for each:\n\n"
+            f"{checklist}\n\n"
+            f"ANALYSIS:\n{draft[:6000]}\n\n"
+            f"Return ONLY the checklist, nothing else."
+        )
+
+        feedback_timeout = int(
+            os.getenv("PG_SELF_REFINE_FEEDBACK_TIMEOUT", "60"),
+        )
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=(
+                        "You are a quality auditor. Return ONLY "
+                        "true/false flags, nothing else."
+                    ),
+                    max_tokens=256,
+                    temperature=0.0,
+                    timeout=feedback_timeout,
+                ),
+                timeout=feedback_timeout + 15,
+            )
+
+            content = response.content.strip()
+            feedback = {}
+            for flag in required_flags:
+                match = re.search(
+                    rf'{flag}\s*:\s*(true|false)',
+                    content, re.IGNORECASE,
+                )
+                if match:
+                    feedback[flag] = match.group(1).lower() == "true"
+                else:
+                    feedback[flag] = False
+            return feedback
+
+        except Exception as exc:
+            logger.warning(
+                "[self-refine] Feedback call failed: %s: %s",
+                type(exc).__name__, str(exc)[:100],
+            )
+            # Default: all flags false (will trigger refine)
+            return {flag: False for flag in required_flags}
+
+    async def _refine_draft(
+        self, draft: str, feedback: dict[str, bool],
+        briefing: dict, gap_evidence: list[dict] | None = None,
+    ) -> str:
+        """Refine draft based on boolean feedback flags."""
+        failing = [
+            flag for flag, passed in feedback.items() if not passed
+        ]
+        if not failing:
+            return draft
+
+        fix_instructions = "\n".join(
+            f"- FIX: {flag.replace('_', ' ')}" for flag in failing
+        )
+
+        gap_context = ""
+        if gap_evidence:
+            gap_lines = []
+            for ge in gap_evidence[:10]:
+                gap_lines.append(
+                    f"- {ge['statement'][:200]} "
+                    f"[CITE:{ge['evidence_id']}]"
+                )
+            gap_context = (
+                "\n\nSUPPLEMENTARY EVIDENCE (use to address gaps):\n"
+                + "\n".join(gap_lines)
+            )
+
+        prompt = (
+            f"ORIGINAL ANALYSIS:\n{draft}\n\n"
+            f"FEEDBACK — these elements are MISSING or FAILING:\n"
+            f"{fix_instructions}\n\n"
+            f"RULES:\n"
+            f"1. Preserve all existing CORRECT claims and citations\n"
+            f"2. Fix ONLY the issues identified above\n"
+            f"3. Do NOT shorten the analysis\n"
+            f"4. Maintain [CITE:ev_xxx] format for all citations\n"
+            f"5. Do NOT add claims without evidence\n"
+            f"6. PRESERVE all markdown tables — do NOT convert to prose\n"
+            f"{gap_context}"
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=(
+                        "Rewrite the analysis to fix the identified "
+                        "issues. Preserve correct claims, citations, "
+                        "and tables. Do not shorten."
+                    ),
+                    max_tokens=8192,
+                    temperature=0.3,
+                    timeout=180,
+                ),
+                timeout=210,
+            )
+            return response.content.strip()
+        except Exception as exc:
+            logger.warning(
+                "[self-refine] Refine call failed: %s: %s",
+                type(exc).__name__, str(exc)[:100],
+            )
+            return draft
+
+    async def _write_and_refine(
+        self, scaffold: str, briefing: dict,
+        classification: dict | None,
+        gap_evidence: list[dict],
+    ) -> str:
+        """Write analytical output with SELF-REFINE loop.
+
+        Replaces separate write→critique→rewrite with integrated
+        draft→feedback→refine loop (CMU SELF-REFINE pattern).
+        Absorbs old Phases 5, 6, 7 into one method.
+        """
+        # Format gap evidence for write prompt
+        gap_context = ""
+        if gap_evidence:
+            gap_lines = []
+            for ge in gap_evidence[:10]:
+                gap_lines.append(
+                    f"- {ge['statement'][:200]} "
+                    f"[CITE:{ge['evidence_id']}]"
+                )
+            gap_context = (
+                "\n\nGAP-FILL EVIDENCE (use to address identified gaps):\n"
+                + "\n".join(gap_lines)
+            )
+
+        # Build cluster summary for context
+        cluster_summary = ", ".join(
+            f"{c['theme']} ({c['evidence_count']})"
+            for c in briefing.get("clusters", [])[:10]
+        )
+
+        artifacts = (classification or {}).get("artifacts", [])
+        artifact_rules = ""
+        if "comparison_table" in artifacts:
+            artifact_rules += (
+                "11. PRESERVE all markdown tables from the scaffold "
+                "— do NOT convert to prose\n"
+            )
+        if "conditional_recommendations" in artifacts:
+            artifact_rules += (
+                "12. For conditional recommendations, format as: "
+                "**If** [condition] **then** [recommendation] "
+                "**because** [evidence]\n"
+            )
+        if any("cost" in a for a in artifacts):
+            artifact_rules += (
+                "13. For cost data, calculate practical examples: "
+                "[base] x [usage] = [result/year]\n"
+            )
+
+        prompt = (
+            f"You are a senior research analyst. Expand this analytical "
+            f"scaffold into publication-quality prose.\n\n"
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+            f"EVIDENCE THEMES: {cluster_summary}\n\n"
+            f"RULES:\n"
+            f"1. EXPAND the scaffold into full analytical paragraphs "
+            f"(800-1500 words)\n"
+            f"2. Preserve ALL citations [CITE:ev_xxx] from the scaffold\n"
+            f"3. For EVERY numerical claim, include the citation\n"
+            f"4. INTEGRATE criteria — discuss effectiveness AND cost in "
+            f"the SAME paragraph per technology\n"
+            f"5. Write CROSS-SOURCE insights "
+            f"('Comparing X and Y reveals...')\n"
+            f"6. Do NOT add claims not in the scaffold "
+            f"(no hallucination)\n"
+            f"7. Include a clear ranking with evidence-backed "
+            f"justification\n"
+            f"8. End with data gaps and limitations\n"
+            f"9. ONLY cite evidence IDs starting with 'ev_'. "
+            f"NEVER cite tool names\n"
+            f"10. Do NOT mention 'scaffold' or 'framework' in "
+            f"the output\n"
+            f"{artifact_rules}"
+            f"14. Include a 1-2 sentence EXECUTIVE SUMMARY as the "
+            f"first paragraph\n"
+            f"{gap_context}"
+        )
+
+        system = (
+            "Expand the scaffold into analytical prose. Every claim must "
+            "have a [CITE:ev_xxx] citation from the scaffold. "
+            "Do not invent new claims. Be concise and analytical."
+        )
+
+        interpret_timeout = int(
+            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"),
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=8192,
+                    temperature=0.3,
+                    timeout=interpret_timeout,
+                ),
+                timeout=interpret_timeout + 30,
+            )
+            current = response.content.strip()
+        except Exception as exc:
+            logger.warning(
+                "[write-refine] Initial draft failed: %s: %s",
+                type(exc).__name__, str(exc)[:200],
+            )
+            return ""
+
+        if not current or len(current) < 100:
+            logger.warning(
+                "[write-refine] Draft too short: %d chars", len(current),
+            )
+            return ""
+
+        # Remove phantom citations from initial draft
+        all_cited = re.findall(r'\[CITE:([^\]]+)\]', current)
+        for pid in set(all_cited):
+            if pid not in self._evidence_store:
+                current = current.replace(f"[CITE:{pid}]", "")
+
+        valid_ids = [
+            eid for eid in re.findall(
+                r'\[CITE:(ev_[a-f0-9]+)\]', current,
+            )
+            if eid in self._evidence_store
+        ]
+
+        # Add initial draft as notebook step
+        step = AnalysisStep(
+            step_number=self._notebook.step_count + 1,
+            reasoning="6-phase scaffold-based interpretation",
+            tool_name="interpret_results",
+            result=ToolResult(
+                success=True,
+                tool_name="interpret_results",
+                markdown=current,
+                source_evidence_ids=list(set(valid_ids)),
+                insights=[
+                    "Scaffold-based analysis with integrated criteria",
+                ],
+            ),
+            elapsed_seconds=0.0,
+        )
+        self._notebook.add_step(step)
+
+        logger.info(
+            "[write-refine] Initial draft: %d chars, %d citations",
+            len(current), len(valid_ids),
+        )
+
+        # SELF-REFINE loop (Loophole 2 fix: 1-2 passes, not 3-4)
+        if not _SELF_REFINE_ENABLED:
+            return current
+
+        gap_queries = []
+        if isinstance(classification, dict):
+            gap_queries = classification.get("_gap_queries", [])
+
+        for iteration in range(_SELF_REFINE_MAX_ITERATIONS):
+            # Feedback: boolean checklist (Loophole 5 fix)
+            feedback = await self._get_refinement_feedback(
+                current, classification, gap_queries,
+            )
+
+            # Stopping: ALL required flags must be true
+            required_flags = self._get_required_flags(
+                classification, gap_queries,
+            )
+            all_satisfied = all(
+                feedback.get(flag, False) for flag in required_flags
+            )
+            if all_satisfied:
+                logger.info(
+                    "[self-refine] All %d flags satisfied, stopping "
+                    "at iteration %d",
+                    len(required_flags), iteration,
+                )
+                break
+
+            failing = [
+                f for f, v in feedback.items() if not v
+            ]
+            logger.info(
+                "[self-refine] Iteration %d: %d/%d flags passing, "
+                "failing: %s",
+                iteration, len(required_flags) - len(failing),
+                len(required_flags), failing,
+            )
+
+            # Refine with specific instructions (Patch 4: pass gap_evidence)
+            refined = await self._refine_draft(
+                current, feedback, briefing, gap_evidence,
+            )
+
+            # Length check: BYPASS if refined has tables (Loophole 3 fix)
+            # Patch 7: strict table detection regex
+            has_tables = bool(
+                re.search(r'\n\|[-:| ]+\|\n', refined),
+            )
+            if not has_tables and len(refined) < 0.7 * len(current):
+                logger.warning(
+                    "[self-refine] Refined too short (%d vs %d) "
+                    "and no tables, keeping current",
+                    len(refined), len(current),
+                )
+                break
+
+            current = refined
+
+            # Remove phantom citations from refined version
+            all_cited = re.findall(r'\[CITE:([^\]]+)\]', current)
+            for pid in set(all_cited):
+                if pid not in self._evidence_store:
+                    current = current.replace(f"[CITE:{pid}]", "")
+
+        # Update notebook step with final version
+        valid_ids = [
+            eid for eid in re.findall(
+                r'\[CITE:(ev_[a-f0-9]+)\]', current,
+            )
+            if eid in self._evidence_store
+        ]
+        for s in self._notebook.steps:
+            if (
+                s.tool_name == "interpret_results"
+                and s.result.success
+            ):
+                s.result = ToolResult(
+                    success=True,
+                    tool_name="interpret_results",
+                    markdown=current,
+                    source_evidence_ids=list(set(valid_ids)),
+                    insights=[
+                        "Scaffold-based analysis (self-refined)",
+                    ],
+                )
+                break
+
+        return current
+
+    # -------------------------------------------------------------------
+    # Phase 6 (legacy): CRITIQUE — structured quality check
     # -------------------------------------------------------------------
 
     async def _critique_interpretation(
@@ -2489,6 +3300,41 @@ class ReactAnalysisAgent:
                     )
             cleaned.append(stripped)
         text = "\n".join(cleaned)
+
+        # --- Fix 6: Table integrity check (Patch 6: logging only) ---
+        if _REFINER_ENABLED:
+            table_blocks = re.findall(
+                r'(\|[^\n]+\|\n\|[-:| ]+\|\n(?:\|[^\n]+\|\n)*)',
+                text,
+            )
+            for table_block in table_blocks:
+                rows = [
+                    r for r in table_block.strip().split("\n")
+                    if r.strip().startswith("|")
+                ]
+                # Subtract header + separator = data rows
+                data_rows = max(0, len(rows) - 2)
+                if data_rows < 2:
+                    logger.warning(
+                        "[post-process] Sparse table: only %d data rows "
+                        "(need >=2 for useful comparison)",
+                        data_rows,
+                    )
+                # Check for empty/N/A cells
+                for row in rows[2:]:  # skip header + separator
+                    cells = [
+                        c.strip() for c in row.split("|") if c.strip()
+                    ]
+                    empty_cells = sum(
+                        1 for c in cells
+                        if c in ("", "N/A", "-", "?", "n/a")
+                    )
+                    if empty_cells > 0:
+                        logger.warning(
+                            "[post-process] Table row has %d empty/N/A "
+                            "cells: %s",
+                            empty_cells, row.strip()[:80],
+                        )
 
         # Clean up any double spaces or empty lines from removals
         text = re.sub(r'  +', ' ', text)

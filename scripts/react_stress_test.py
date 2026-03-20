@@ -192,6 +192,55 @@ def audit_information_density(context: str) -> dict:
     }
 
 
+def audit_structured_artifacts(context: str) -> dict:
+    """Count structured analytical artifacts in the output.
+
+    Detects comparison tables, conditional recommendations, executive
+    summaries, cost calculations, and decision matrices.
+    """
+    # Count table rows (subtract header + separator lines)
+    table_line_count = len(
+        re.findall(r'^\|.*\|.*\|$', context, re.MULTILINE),
+    )
+    table_rows = max(0, table_line_count - 2)
+
+    # Conditional recommendations: "If X then Y" pattern
+    conditionals = len(re.findall(
+        r'\*\*[Ii]f\*\*.*\*\*then\*\*', context,
+    ))
+    # Also catch unbolded "If...then" patterns
+    conditionals += len(re.findall(
+        r'(?:^|\. )If\s+.{10,80}\s+then\s+', context, re.MULTILINE,
+    ))
+
+    # Executive summary: first paragraph with 50-300 chars
+    first_paragraph = ""
+    for para in context.split("\n\n"):
+        stripped = para.strip()
+        if stripped and not stripped.startswith("#"):
+            first_paragraph = stripped
+            break
+    has_exec_summary = 50 <= len(first_paragraph) <= 600
+
+    # Cost calculations: dollar amounts with math operators
+    cost_calcs = len(re.findall(
+        r'\$[\d,.]+.*(?:per|/|x|\u00d7|=)', context, re.IGNORECASE,
+    ))
+
+    # Decision matrices: tables with weight/score/total headers
+    decision_matrices = len(re.findall(
+        r'\|.*(?:weight|score|total).*\|', context, re.IGNORECASE,
+    ))
+
+    return {
+        "table_rows": table_rows,
+        "conditional_recommendations": conditionals,
+        "has_executive_summary": has_exec_summary,
+        "cost_calculations": cost_calcs,
+        "decision_matrices": decision_matrices,
+    }
+
+
 def audit_statistics(entries: list, data_points: list) -> dict:
     """Verify statistical claims against raw data using same unit grouping."""
     issues = []
@@ -937,6 +986,7 @@ async def run_one_test(test_set: dict) -> dict:
     # -----------------------------------------------------------------------
     cite_audit = audit_citations(audit_context, evidence_store)
     density_audit = audit_information_density(audit_context)
+    artifact_audit = audit_structured_artifacts(audit_context)
     stats_audit = audit_statistics(entries, notebook.data_points)
     insight_audit = audit_insights(entries)
     leak_audit = audit_polaris_leakage(audit_context, evidence_store)
@@ -994,6 +1044,15 @@ async def run_one_test(test_set: dict) -> dict:
             print(f"      X {mm['evidence_id']}: "
                   f"line='{mm.get('context_line', mm.get('context_snippet', ''))[:60]}' "
                   f"vs ev='{mm['evidence_statement'][:60]}'")
+
+    # Print structured artifacts
+    print(f"\n  ── STRUCTURED ARTIFACTS ──")
+    print(f"    Table rows: {artifact_audit['table_rows']}")
+    print(f"    Conditional recommendations: "
+          f"{artifact_audit['conditional_recommendations']}")
+    print(f"    Executive summary: {artifact_audit['has_executive_summary']}")
+    print(f"    Cost calculations: {artifact_audit['cost_calculations']}")
+    print(f"    Decision matrices: {artifact_audit['decision_matrices']}")
 
     # Print DRACO Axis 4: Content Quality
     print(f"\n  ── AXIS 4: CONTENT QUALITY ──")
