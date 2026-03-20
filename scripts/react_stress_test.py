@@ -213,13 +213,24 @@ def audit_structured_artifacts(context: str) -> dict:
         r'(?:^|\. )If\s+.{10,80}\s+then\s+', context, re.MULTILINE,
     ))
 
-    # Executive summary: first paragraph with 50-300 chars
+    # Executive summary: first substantive paragraph (50-600 chars)
+    # Skip headers (# or **HEADER**) to find actual prose
     first_paragraph = ""
     for para in context.split("\n\n"):
         stripped = para.strip()
-        if stripped and not stripped.startswith("#"):
-            first_paragraph = stripped
-            break
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        # Bold-only header line like "**EXECUTIVE SUMMARY**"
+        if re.match(r'^\*\*[A-Z ]+\*\*$', stripped):
+            continue
+        first_paragraph = stripped
+        break
+    # Strip leading bold prefix (e.g., "**EXECUTIVE SUMMARY**\n...")
+    first_paragraph = re.sub(
+        r'^\*\*[A-Z ]+\*\*\s*\n?', '', first_paragraph,
+    ).strip()
     has_exec_summary = 50 <= len(first_paragraph) <= 600
 
     # Cost calculations: dollar amounts with math operators

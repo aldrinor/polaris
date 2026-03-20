@@ -2524,6 +2524,10 @@ class ReactAnalysisAgent:
             f"{artifact_rules}"
             f"14. Include a 1-2 sentence EXECUTIVE SUMMARY as the "
             f"first paragraph\n"
+            f"15. Do NOT invent numeric scores for rankings or "
+            f"decision matrices (e.g., 'total score of 4.6'). "
+            f"Rank by citing specific evidence metrics instead "
+            f"(e.g., '>90% removal [CITE:ev_xxx]')\n"
             f"{gap_context}"
         )
 
@@ -2561,6 +2565,12 @@ class ReactAnalysisAgent:
                 "[write-refine] Draft too short: %d chars", len(current),
             )
             return ""
+
+        # Strip leaked gap query JSON blocks from output
+        current = re.sub(
+            r'```json\s*\{[^}]*"gap_search_queries"[^}]*\}\s*```',
+            '', current, flags=re.DOTALL,
+        ).strip()
 
         # Remove phantom citations from initial draft
         all_cited = re.findall(r'\[CITE:([^\]]+)\]', current)
@@ -3106,6 +3116,18 @@ class ReactAnalysisAgent:
         for pattern in meta_patterns:
             text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
+        # --- Fix 2b: Strip leaked gap query JSON blocks ---
+        text = re.sub(
+            r'```json\s*\{[^}]*"gap_search_queries"[^}]*\}\s*```',
+            '', text, flags=re.DOTALL,
+        )
+
+        # --- Fix 2c: Strip leaked scaffold lens labels ---
+        text = re.sub(
+            r'^#{1,4}\s*LENS\s+\d+\s*[—–-]\s*[A-Z ]+[^#\n]*$',
+            '', text, flags=re.MULTILINE,
+        )
+
         # --- Fix 3: Fabricated number patterns ---
         fabricated_patterns = [
             (
@@ -3119,6 +3141,27 @@ class ReactAnalysisAgent:
         ]
         for pattern, replacement in fabricated_patterns:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # --- Fix 3b: Fabricated decision matrix scores ---
+        # LLM invents numeric "total scores" (e.g., 4.6, 3.8) for
+        # rankings that have no evidence backing. Replace the invented
+        # score with a qualifier keeping the ranking structure intact.
+        text = re.sub(
+            r'(?:with\s+)?a\s+total\s+score\s+of\s+\d+\.?\d*',
+            '', text, flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r'(?:follows?\s+(?:closely\s+)?at|scores?\s+)\s*\d+\.\d+',
+            lambda m: m.group(0).split()[0] + ' closely'
+            if 'follow' in m.group(0).lower()
+            else m.group(0).split()[0],
+            text, flags=re.IGNORECASE,
+        )
+        # Clean up orphaned parenthetical score references
+        text = re.sub(
+            r'\(Evidence\s+Score\s+derived\s+from[^)]*\)',
+            '', text, flags=re.IGNORECASE,
+        )
 
         # --- Fix 4: Number grounding check (FACTScore pattern) ---
         # For each [CITE:ev_xxx] with a nearby number, verify the number
