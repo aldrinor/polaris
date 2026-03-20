@@ -2330,10 +2330,17 @@ class ReactAnalysisAgent:
             if not ev_stmt:
                 continue
 
-            # Look backwards from citation for the nearest number
+            # Look backwards from citation for the nearest number.
+            # Stop at '[' to avoid matching digits inside [CITE:ev_xxx]
+            # tokens from adjacent citations.
             window_start = max(0, cite_start - 30)
             before_cite = text[window_start:cite_start]
-            # Find ALL numbers in the window, take the LAST one (closest)
+            # Trim to text after last '[' (exclude prior CITE tokens)
+            last_bracket = before_cite.rfind(']')
+            if last_bracket >= 0:
+                before_cite = before_cite[last_bracket + 1:]
+                window_start = window_start + last_bracket + 1
+            # Find ALL numbers in the clean window, take LAST (closest)
             nums_in_window = list(re.finditer(
                 r'\d+\.?\d*', before_cite,
             ))
