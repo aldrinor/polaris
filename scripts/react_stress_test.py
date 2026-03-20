@@ -220,17 +220,23 @@ def audit_structured_artifacts(context: str) -> dict:
         stripped = para.strip()
         if not stripped:
             continue
-        if stripped.startswith("#"):
-            continue
-        # Bold-only header line like "**EXECUTIVE SUMMARY**"
+        # Bold-only header line (entire paragraph is just a header)
         if re.match(r'^\*\*[A-Z ]+\*\*$', stripped):
             continue
-        first_paragraph = stripped
-        break
-    # Strip leading bold prefix (e.g., "**EXECUTIVE SUMMARY**\n...")
-    first_paragraph = re.sub(
-        r'^\*\*[A-Z ]+\*\*\s*\n?', '', first_paragraph,
-    ).strip()
+        # Strip leading header/bold lines from the paragraph,
+        # then check if substantive prose remains
+        cleaned = stripped
+        # Strip "# Header" line at start of paragraph
+        cleaned = re.sub(
+            r'^#{1,4}\s+[^\n]*\n?', '', cleaned,
+        ).strip()
+        # Strip "**BOLD HEADER**:" prefix on same line
+        cleaned = re.sub(
+            r'^\*\*[A-Z ]+\*\*:?\s*\n?', '', cleaned,
+        ).strip()
+        if cleaned and len(cleaned) >= 30:
+            first_paragraph = cleaned
+            break
     has_exec_summary = 50 <= len(first_paragraph) <= 600
 
     # Cost calculations: dollar amounts with math operators

@@ -2497,9 +2497,23 @@ class ReactAnalysisAgent:
         if not failing:
             return draft
 
-        fix_instructions = "\n".join(
-            f"- FIX: {flag.replace('_', ' ')}" for flag in failing
-        )
+        fix_lines = []
+        for flag in failing:
+            line = f"- FIX: {flag.replace('_', ' ')}"
+            if flag == "contains_conditional_recommendations":
+                line += (
+                    " — add a section with 2-3 recommendations "
+                    "using EXACTLY this format: '**If** [scenario] "
+                    "**then** [technology] **because** [evidence] "
+                    "[CITE:ev_xxx]'"
+                )
+            elif flag == "contains_comparison_table":
+                line += (
+                    " — add a markdown comparison table with "
+                    "| Entity | key columns | [CITE:ev_xxx] |"
+                )
+            fix_lines.append(line)
+        fix_instructions = "\n".join(fix_lines)
 
         gap_context = ""
         if gap_evidence:
@@ -2637,6 +2651,15 @@ class ReactAnalysisAgent:
             f"16. SYNTHESIZE, do not parrot. Never restate an "
             f"evidence statement verbatim — rephrase it into "
             f"analytical prose that compares or evaluates\n"
+            f"17. PRESERVE exact units from evidence (ppt, ppb, "
+            f"ppm, mg/L, MPa, µm, kWh, etc.). Never replace "
+            f"a specific unit with vague terms like 'per "
+            f"specified unit' or 'relevant measure'\n"
+            f"18. CONDITIONAL RECOMMENDATIONS must use the exact "
+            f"format: '**If** [scenario] **then** [tech] "
+            f"**because** [evidence]'. Do NOT embed "
+            f"recommendations in prose paragraphs or plain "
+            f"ranking lists\n"
             f"{gap_context}"
         )
 
@@ -3214,6 +3237,71 @@ class ReactAnalysisAgent:
                 cleaned_lines.append(" ".join(unique_sentences))
 
         text = "\n".join(cleaned_lines)
+
+        # --- Fix 1b: Remove duplicate adjacent CITE tokens ---
+        # LLM sometimes emits [CITE:ev_xxx][CITE:ev_xxx] (same ID twice).
+        # Existing dedup at resolution stage handles [1][1] but not raw tokens.
+        text = re.sub(
+            r'(\[CITE:ev_[a-f0-9]+\])\s*\1',
+            r'\1', text,
+        )
+
+        # --- Fix 1c: Remove intra-sentence redundancy ---
+        # "superior uniformity...through processes that yield superior
+        # uniformity" — find 4+ word phrases appearing twice, remove
+        # the second occurrence with its connecting clause.
+        new_lines = []
+        for line in text.split("\n"):
+            sentences = re.split(r'(?<=[.!?])\s+', line)
+            deduped_sents = []
+            for sent in sentences:
+                words = sent.lower().split()
+                if len(words) < 10:
+                    deduped_sents.append(sent)
+                    continue
+                # Find any repeated multi-word phrase (>=8 chars)
+                # in the sentence and remove the second clause
+                # containing it
+                cleaned = sent
+                sent_lower = sent.lower()
+                for phrase_len in range(6, 1, -1):
+                    for i in range(len(words) - phrase_len):
+                        phrase = " ".join(words[i:i + phrase_len])
+                        if len(phrase) < 15:
+                            continue
+                        first_pos = sent_lower.find(phrase)
+                        if first_pos < 0:
+                            continue
+                        second_pos = sent_lower.find(
+                            phrase, first_pos + len(phrase),
+                        )
+                        if second_pos < 0:
+                            continue
+                        # Found duplicate phrase — remove the
+                        # second occurrence with connectors
+                        # Work on the original-case text
+                        before = cleaned[:second_pos]
+                        after = cleaned[second_pos + len(phrase):]
+                        # Strip trailing connector before the dup
+                        before = re.sub(
+                            r'[,;]?\s*(?:through\s+)?'
+                            r'(?:processes\s+that\s+)?'
+                            r'(?:that\s+)?(?:which\s+)?'
+                            r'(?:yielding\s+)?(?:yield\s+)?$',
+                            '', before,
+                        )
+                        cleaned = before + after
+                        logger.debug(
+                            "[post-process] Removed intra-sentence "
+                            "repeat: '%s'", phrase[:40],
+                        )
+                        break
+                    else:
+                        continue
+                    break
+                deduped_sents.append(cleaned)
+            new_lines.append(" ".join(deduped_sents))
+        text = "\n".join(new_lines)
 
         # --- Fix 2: Strip meta-commentary about prompt rules ---
         meta_patterns = [
