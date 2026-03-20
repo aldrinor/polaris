@@ -1752,6 +1752,46 @@ class TestSelfRefine:
         assert "has_explicit_tradeoffs" in flags
         assert "contains_comparison_table" in flags
 
+    def test_programmatic_feedback_detects_table(self, evidence_store):
+        """Programmatic fallback correctly detects comparison table."""
+        client = MagicMock()
+        agent = ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="test", mode="react",
+        )
+        with_table = (
+            "Some text.\n"
+            "| Method | Score | Cost |\n"
+            "|--------|-------|------|\n"
+            "| GAC    | 95%   | $100 |\n"
+            "| IX     | 90%   | $200 |\n"
+            "However, trade-offs exist. Although GAC is cheaper, "
+            "the limitation is lower efficacy. Conversely, IX "
+            "offers higher capacity.\n"
+        )
+        result = agent._programmatic_feedback(
+            with_table, ["contains_comparison_table", "has_explicit_tradeoffs"],
+        )
+        assert result["contains_comparison_table"] is True
+        assert result["has_explicit_tradeoffs"] is True
+
+    def test_programmatic_feedback_detects_missing_table(self, evidence_store):
+        """Programmatic fallback fails when no table present."""
+        client = MagicMock()
+        agent = ReactAnalysisAgent(
+            client=client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="test", mode="react",
+        )
+        no_table = "Just prose analysis. No tables here."
+        result = agent._programmatic_feedback(
+            no_table, ["contains_comparison_table"],
+        )
+        assert result["contains_comparison_table"] is False
+
     def test_self_refine_keeps_tables(self):
         """Length guard bypassed when tables present (Loophole 3)."""
         import re as _re

@@ -2305,6 +2305,96 @@ class ReactAnalysisAgent:
             flags.append("has_gap_analysis")
         return flags
 
+    def _programmatic_feedback(
+        self, draft: str, required_flags: list[str],
+    ) -> dict[str, bool]:
+        """Programmatic boolean checklist — no LLM, pure regex.
+
+        Used as fallback when LLM feedback times out. Stricter than
+        LLM (no sycophancy risk) so false negatives drive refinement.
+        """
+        feedback = {}
+
+        for flag in required_flags:
+            if flag == "contains_comparison_table":
+                # Strict markdown table: header + separator + >=2 data rows
+                tables = re.findall(
+                    r'\n\|[-:| ]+\|\n', draft,
+                )
+                table_lines = len(re.findall(
+                    r'^\|.+\|$', draft, re.MULTILINE,
+                ))
+                # header + separator + at least 2 data rows = 4+ lines
+                feedback[flag] = len(tables) >= 1 and table_lines >= 4
+
+            elif flag == "contains_conditional_recommendations":
+                # "If...then" patterns (bold or plain)
+                bold_if = len(re.findall(
+                    r'\*\*[Ii]f\*\*', draft,
+                ))
+                plain_if = len(re.findall(
+                    r'(?:^|\. )[Ii]f\s+.{10,80}\s+then\s+',
+                    draft, re.MULTILINE,
+                ))
+                feedback[flag] = (bold_if + plain_if) >= 2
+
+            elif flag == "all_numbers_cited":
+                # Check ratio of numerical claims with nearby citations
+                num_claims = re.findall(
+                    r'\d+\.?\d*\s*(?:%|mg|ng|ppt|ppb|ppm|kWh|\$|MPa|'
+                    r'µm|nm|m2|g/L|mg/g|billion|million)',
+                    draft,
+                )
+                cited_nums = re.findall(
+                    r'\d+\.?\d*\s*(?:%|mg|ng|ppt|ppb|ppm|kWh|\$|MPa|'
+                    r'µm|nm|m2|g/L|mg/g|billion|million)'
+                    r'[^.!?\n]{0,80}\[CITE:ev_[a-f0-9]+\]',
+                    draft,
+                )
+                ratio = len(cited_nums) / max(len(num_claims), 1)
+                feedback[flag] = ratio >= 0.6
+
+            elif flag == "has_explicit_tradeoffs":
+                tradeoff_markers = len(re.findall(
+                    r'(?:trade-?off|however|although|whereas|'
+                    r'disadvantage|drawback|limitation|conversely|'
+                    r'in contrast)',
+                    draft, re.IGNORECASE,
+                ))
+                feedback[flag] = tradeoff_markers >= 3
+
+            elif flag == "has_evidence_based_ranking":
+                # Numbered list or "ranks highest/first/second"
+                has_numbered = bool(re.search(
+                    r'(?:^|\n)\s*[1-3]\.\s+\*?\*?', draft,
+                ))
+                has_rank_words = bool(re.search(
+                    r'rank(?:s|ed)?\s+(?:highest|first|second|third)',
+                    draft, re.IGNORECASE,
+                ))
+                feedback[flag] = has_numbered or has_rank_words
+
+            elif flag == "has_gap_analysis":
+                gap_markers = len(re.findall(
+                    r'(?:gap|limitation|missing|insufficient|'
+                    r'further research|future\s+(?:research|work|'
+                    r'studies))',
+                    draft, re.IGNORECASE,
+                ))
+                feedback[flag] = gap_markers >= 2
+
+            else:
+                # Unknown flag — default to false to trigger refine
+                feedback[flag] = False
+
+        passing = sum(1 for v in feedback.values() if v)
+        logger.info(
+            "[self-refine] Programmatic feedback: %d/%d flags passing: %s",
+            passing, len(required_flags),
+            {k: v for k, v in feedback.items()},
+        )
+        return feedback
+
     async def _get_refinement_feedback(
         self, draft: str, classification: dict | None,
         gap_queries: list[str] | None = None,
@@ -2358,7 +2448,7 @@ class ReactAnalysisAgent:
         )
 
         feedback_timeout = int(
-            os.getenv("PG_SELF_REFINE_FEEDBACK_TIMEOUT", "60"),
+            os.getenv("PG_SELF_REFINE_FEEDBACK_TIMEOUT", "90"),
         )
         try:
             response = await asyncio.wait_for(
@@ -2390,11 +2480,11 @@ class ReactAnalysisAgent:
 
         except Exception as exc:
             logger.warning(
-                "[self-refine] Feedback call failed: %s: %s",
+                "[self-refine] LLM feedback failed: %s: %s, "
+                "using programmatic fallback",
                 type(exc).__name__, str(exc)[:100],
             )
-            # Default: all flags false (will trigger refine)
-            return {flag: False for flag in required_flags}
+            return self._programmatic_feedback(draft, required_flags)
 
     async def _refine_draft(
         self, draft: str, feedback: dict[str, bool],
