@@ -261,7 +261,7 @@ class CritiqueDimension(BaseModel):
     def normalize_qwen_response(cls, data):
         if not isinstance(data, dict):
             return data
-        for alt in ("name", "dim", "category"):
+        for alt in ("name", "dim", "category", "dimension_name"):
             if alt in data and "dimension" not in data:
                 data["dimension"] = data.pop(alt)
         for alt in ("pass", "ok", "passed", "status", "result",
@@ -2315,39 +2315,63 @@ class ReactAnalysisAgent:
         # remove the ungrounded numerical claim (safer than guessing
         # the correction — covers truncation, transposition, rounding,
         # and wrong-number-from-same-source errors).
-        cite_num_pattern = re.compile(
-            r'(\d+\.?\d*)\s'        # number followed by space
-            r'(.{0,30}?)\s*'        # any text up to 30 chars (lazy)
-            r'\[CITE:(ev_[a-f0-9]+)\]',
-        )
+        # Find ALL [CITE:ev_xxx] tokens first, then look for the
+        # nearest number BEFORE each citation (within 30 chars).
+        # This ensures we check the closest number, not the first.
+        cite_positions = [
+            (m.group(1), m.start(), m.end())
+            for m in re.finditer(r'\[CITE:(ev_[a-f0-9]+)\]', text)
+        ]
         # Collect ungrounded numbers (don't modify text during iteration)
         ungrounded = []
-        for match in cite_num_pattern.finditer(text):
-            num_str = match.group(1)
-            eid = match.group(3)
+        for eid, cite_start, cite_end in cite_positions:
             ev = self._evidence_store.get(eid, {})
             ev_stmt = ev.get("statement", "")
             if not ev_stmt:
                 continue
 
-            # Skip small numbers likely to be ordinals/list items
+            # Look backwards from citation for the nearest number
+            window_start = max(0, cite_start - 30)
+            before_cite = text[window_start:cite_start]
+            # Find ALL numbers in the window, take the LAST one (closest)
+            nums_in_window = list(re.finditer(
+                r'\d+\.?\d*', before_cite,
+            ))
+            if not nums_in_window:
+                continue
+            last_num_match = nums_in_window[-1]
+            num_str = last_num_match.group()
+            num_abs_start = window_start + last_num_match.start()
+
+            # Skip small numbers likely to be ordinals/list items,
+            # BUT keep dollar amounts ($1 is meaningful)
             try:
-                if float(num_str) < 2:
+                num_val = float(num_str)
+                char_before = (
+                    text[num_abs_start - 1] if num_abs_start > 0 else ""
+                )
+                if num_val < 2 and char_before != "$":
                     continue
-            except ValueError:
+            except (ValueError, IndexError):
                 continue
 
+            # Build the span for replacement (num...CITE)
+            span = text[num_abs_start:cite_end]
+
             # Check if the number exists as a standalone value
+            # (not as substring: "7" ≠ "70", "1" ≠ "1,000")
             num_in_evidence = bool(re.search(
-                r'(?<!\d)' + re.escape(num_str) + r'(?!\d)',
+                r'(?<!\d)' + re.escape(num_str) + r'(?!\d|,\d)',
                 ev_stmt,
             ))
             if not num_in_evidence:
                 ungrounded.append({
                     "num": num_str,
                     "eid": eid,
-                    "span": match.group(0),
-                    "ev_numbers": re.findall(r'\d+\.?\d*', ev_stmt),
+                    "span": span,
+                    "ev_numbers": re.findall(
+                        r'\d[\d,]*\.?\d*', ev_stmt,
+                    ),
                 })
 
         # Fix ungrounded numbers
@@ -2356,13 +2380,16 @@ class ReactAnalysisAgent:
             ev_numbers = item["ev_numbers"]
 
             # Strategy 1: If output number is a prefix of an evidence
-            # number, it's truncation — fix it (7 → 70)
+            # number, it's truncation — fix it (7 → 70, 1 → 1,000)
             fixed = False
             for ev_num in ev_numbers:
+                ev_num_clean = ev_num.replace(",", "")
+                # Check: output is prefix of evidence number
+                # Allow up to 4 extra chars (handles 1→1000, 7→70)
                 if (
-                    ev_num.startswith(num_str)
-                    and len(ev_num) > len(num_str)
-                    and len(ev_num) <= len(num_str) + 2
+                    ev_num_clean.startswith(num_str)
+                    and len(ev_num_clean) > len(num_str)
+                    and len(ev_num_clean) <= len(num_str) + 4
                 ):
                     old_span = item["span"]
                     fixed_span = old_span.replace(num_str, ev_num, 1)
