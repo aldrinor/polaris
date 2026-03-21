@@ -97,8 +97,10 @@ class AnalysisNotebook:
         )
 
         # Tools to SKIP when interpretation exists (it supersedes them)
+        # PQ-4: Keep comparison_table — it provides supplementary
+        # context the writer can use for structured comparisons
         skip_when_interpreted = {
-            "comparison_table", "statistical_summary", "query_evidence_sql",
+            "statistical_summary", "query_evidence_sql",
         }
 
         sections = []

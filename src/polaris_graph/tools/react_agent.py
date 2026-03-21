@@ -752,6 +752,20 @@ class ReactAnalysisAgent:
         """
         start_time = time.monotonic()
         timeout = _TIMEOUT_SECONDS
+        # INF-3: Per-phase cost/time tracking
+        phase_timings: dict[str, float] = {}
+        phase_costs: dict[str, float] = {}
+
+        def _snap_cost() -> float:
+            """Snapshot current cost from client usage tracker."""
+            try:
+                cost = self._client.usage.total_cost_usd
+                # Guard against MagicMock or non-numeric values
+                if isinstance(cost, (int, float)):
+                    return float(cost)
+                return 0.0
+            except (AttributeError, TypeError):
+                return 0.0
 
         logger.info(
             "[8phase] Starting analysis: %d evidence, timeout=%ds",
@@ -759,6 +773,8 @@ class ReactAnalysisAgent:
         )
 
         # Phase 1: PLAN (1 LLM call)
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         plan = None
         try:
             plan = await self._plan_analysis()
@@ -788,7 +804,12 @@ class ReactAnalysisAgent:
                 ),
             ])
 
+        phase_timings["plan"] = time.monotonic() - phase_start
+        phase_costs["plan"] = _snap_cost() - cost_before
+
         # Phase 2: EXECUTE (0 LLM calls)
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         for step_def in plan.steps:
             elapsed = time.monotonic() - start_time
             if elapsed >= timeout:
@@ -841,7 +862,12 @@ class ReactAnalysisAgent:
         if self._notebook.successful_steps == 0:
             await self._run_fallback()
 
+        phase_timings["execute"] = time.monotonic() - phase_start
+        phase_costs["execute"] = _snap_cost() - cost_before
+
         # Phase 3: BRIEFING + CLASSIFY
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         elapsed_before_briefing = time.monotonic() - start_time
         remaining = timeout - elapsed_before_briefing
         briefing = await self._build_evidence_briefing()
@@ -859,7 +885,12 @@ class ReactAnalysisAgent:
             if classification else "",
         )
 
+        phase_timings["briefing"] = time.monotonic() - phase_start
+        phase_costs["briefing"] = _snap_cost() - cost_before
+
         # Phase 4: SCAFFOLD (1 reason() call, includes intent + gaps)
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         scaffold = ""
         gap_queries = []
         elapsed = time.monotonic() - start_time
@@ -887,12 +918,22 @@ class ReactAnalysisAgent:
                 len(scaffold), len(gap_queries),
             )
 
+        phase_timings["scaffold"] = time.monotonic() - phase_start
+        phase_costs["scaffold"] = _snap_cost() - cost_before
+
         # Phase 5: GAP FILL (0 LLM calls, embedding search)
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         gap_evidence = []
         if gap_queries and _ADAPTIVE_SCAFFOLD:
             gap_evidence = self._fill_evidence_gaps(gap_queries, briefing)
 
+        phase_timings["gap_fill"] = time.monotonic() - phase_start
+        phase_costs["gap_fill"] = _snap_cost() - cost_before
+
         # Phase 6: WRITE + SELF-REFINE (replaces old Phases 5+6+7)
+        phase_start = time.monotonic()
+        cost_before = _snap_cost()
         interpretation = ""
         elapsed = time.monotonic() - start_time
         if scaffold and self._client and elapsed < timeout - 30:
@@ -901,6 +942,7 @@ class ReactAnalysisAgent:
                 classification["_gap_queries"] = gap_queries
                 interpretation = await self._write_and_refine(
                     scaffold, briefing, classification, gap_evidence,
+                    pipeline_start=start_time,
                 )
             else:
                 # Legacy path: separate write (no self-refine)
@@ -969,6 +1011,26 @@ class ReactAnalysisAgent:
                         len(interpretation),
                     )
 
+        # Phase 6.25: AUTO-CHART (VIZ-1: matplotlib via execute_python)
+        elapsed = time.monotonic() - start_time
+        if (
+            interpretation
+            and self._client
+            and elapsed < timeout - 300
+            and _ADAPTIVE_SCAFFOLD
+        ):
+            chart_text = await self._generate_charts(
+                classification, briefing,
+            )
+            if chart_text:
+                interpretation = interpretation.rstrip() + "\n\n" + chart_text
+
+        # VIZ-3: Decision flowchart for conditional recommendations
+        if interpretation and _ADAPTIVE_SCAFFOLD:
+            flowchart = self._generate_decision_flowchart(interpretation)
+            if flowchart:
+                interpretation = interpretation.rstrip() + "\n\n" + flowchart
+
         # Phase 6.5: POST-PROCESS (programmatic cleanup)
         if interpretation:
             cleaned = self._post_process_interpretation(interpretation)
@@ -1005,13 +1067,86 @@ class ReactAnalysisAgent:
                 verification.get("mismatches", 0),
             )
 
+        # G1: Log gap evidence utilization
+        if gap_evidence and interpretation:
+            gap_eids = {ge["evidence_id"] for ge in gap_evidence}
+            cited_eids = set(
+                re.findall(r'\[CITE:(ev_[a-f0-9]+)\]', interpretation),
+            )
+            gap_cited = gap_eids & cited_eids
+            logger.info(
+                "[verify] G1: Gap evidence utilization: %d/%d gap IDs cited",
+                len(gap_cited), len(gap_eids),
+            )
+
+        # G2: Log sub-question coverage from verification
+        if verification:
+            sq_cov = verification.get("sub_question_coverage", 0)
+            logger.info(
+                "[verify] G2: Sub-question coverage: %.0f%%",
+                sq_cov * 100,
+            )
+
+        # G3: 5-lens diversity check (Jaccard on section CONTENT)
+        if interpretation and scaffold:
+            # Split interpretation into sections by headings
+            section_splits = re.split(
+                r'(?:^|\n)#{1,3}\s+[^\n]+\n',
+                interpretation,
+            )
+            # Filter to non-trivial sections (>50 chars)
+            section_texts = [
+                s.strip() for s in section_splits
+                if s.strip() and len(s.strip()) > 50
+            ]
+            if len(section_texts) >= 2:
+                max_jaccard = 0.0
+                for i, s1 in enumerate(section_texts):
+                    w1 = set(
+                        w for w in re.findall(r'[a-z]{4,}', s1.lower())
+                    )
+                    for s2 in section_texts[i + 1:]:
+                        w2 = set(
+                            w for w in re.findall(
+                                r'[a-z]{4,}', s2.lower(),
+                            )
+                        )
+                        if w1 | w2:
+                            j = len(w1 & w2) / len(w1 | w2)
+                            max_jaccard = max(max_jaccard, j)
+                if max_jaccard > 0.6:
+                    logger.warning(
+                        "[verify] G3: High section content similarity "
+                        "(Jaccard=%.2f, %d sections) — lenses may "
+                        "overlap",
+                        max_jaccard, len(section_texts),
+                    )
+                else:
+                    logger.info(
+                        "[verify] G3: Section diversity OK "
+                        "(max Jaccard=%.2f, %d sections)",
+                        max_jaccard, len(section_texts),
+                    )
+
         total_elapsed = time.monotonic() - start_time
+        # INF-3: Log per-phase timing + cost breakdown
+        timing_str = ", ".join(
+            f"{k}={v:.1f}s" for k, v in phase_timings.items()
+        )
+        total_cost = _snap_cost()
+        cost_str = ", ".join(
+            f"{k}=${v:.4f}" for k, v in phase_costs.items() if v > 0
+        )
         logger.info(
-            "[8phase] Complete: %d steps (%d ok), %d data points, %.1fs",
+            "[8phase] Complete: %d steps (%d ok), %d data points, "
+            "%.1fs, $%.4f [%s] [%s]",
             self._notebook.step_count,
             self._notebook.successful_steps,
             len(self._notebook.data_points),
             total_elapsed,
+            total_cost,
+            timing_str,
+            cost_str or "no cost data",
         )
 
         return self._notebook
@@ -1201,11 +1336,20 @@ class ReactAnalysisAgent:
         if not evidence_items:
             return []
 
-        # Gate: LLM learnings disabled or no client
-        if not _LLM_LEARNINGS_ENABLED or not self._client:
+        # Gate: LLM learnings disabled, no client, or evidence >100
+        # INF-1: Skip LLM for large evidence sets (timeout risk)
+        _learnings_llm_threshold = int(
+            os.getenv("PG_LEARNINGS_LLM_THRESHOLD", "100"),
+        )
+        if (
+            not _LLM_LEARNINGS_ENABLED
+            or not self._client
+            or len(evidence_items) > _learnings_llm_threshold
+        ):
             logger.info(
-                "[8phase] LLM learnings disabled, using regex (%d ev)",
-                len(evidence_items),
+                "[8phase] LLM learnings skipped (%d ev, threshold=%d), "
+                "using regex",
+                len(evidence_items), _learnings_llm_threshold,
             )
             return self._build_learnings_from_regex(evidence_items)
 
@@ -1821,6 +1965,17 @@ class ReactAnalysisAgent:
                 "[evidence] [CITE:ev_xxx]"
             )
 
+        # TQ-4: Cost calculation template when cost evidence exists
+        cost_section = ""
+        if "cost_model" in artifacts:
+            cost_section = (
+                "\nCOST CALCULATIONS:\n"
+                "- [Entity]: $[cost] per [unit] × [usage] = "
+                "$[total]/[period] [CITE:ev_xxx]\n"
+                "Include at least one worked cost example from "
+                "evidence data."
+            )
+
         # decision_matrix template removed — LLM fabricates scores
         # instead of filling the template. Evidence-based ranking
         # table with citations serves the same purpose safely.
@@ -1849,6 +2004,7 @@ class ReactAnalysisAgent:
             f"LENS 5 — HORIZON SCANNER: Emerging trends, gaps, "
             f"future directions.\n"
             f"{conditional_section}\n"
+            f"{cost_section}\n"
             f"{matrix_section}\n\n"
             f"STEP 3 — GAP SEARCH QUERIES (output as JSON at the "
             f"very end):\n"
@@ -1861,7 +2017,12 @@ class ReactAnalysisAgent:
             f'removal rates") NOT negative ("no data on costs").\n\n'
             f"Do NOT rank subtypes of the same technology family as "
             f"separate entries. Be specific with numbers and "
-            f"citations. Think carefully about cross-source reasoning."
+            f"citations. Think carefully about cross-source reasoning.\n\n"
+            f"PQ-1: Synthesize findings using comparative language. "
+            f"Never restate an evidence claim as a standalone sentence "
+            f"— always compare, contextualize, or evaluate it.\n"
+            f"PQ-2: Cite 2+ sources in the SAME sentence for at least "
+            f"3 sentences (cross-source synthesis)."
         )
 
         return prompt
@@ -2303,6 +2464,12 @@ class ReactAnalysisAgent:
         # Patch 5: only require gap analysis when gaps were identified
         if gap_queries:
             flags.append("has_gap_analysis")
+        # TQ-4: cost calculations required when cost evidence exists
+        cost_learnings = (classification or {}).get(
+            "evidence_signals", {},
+        ).get("cost_learnings", 0)
+        if cost_learnings >= 2 or "cost_model" in artifacts:
+            flags.append("has_cost_calculations")
         return flags
 
     def _programmatic_feedback(
@@ -2383,6 +2550,15 @@ class ReactAnalysisAgent:
                 ))
                 feedback[flag] = gap_markers >= 2
 
+            elif flag == "has_cost_calculations":
+                # TQ-4: requires $...per/×/= patterns
+                cost_patterns = len(re.findall(
+                    r'\$[\d,.]+\s*(?:per|/|×|=|million|billion|'
+                    r'annually|year|month)',
+                    draft, re.IGNORECASE,
+                ))
+                feedback[flag] = cost_patterns >= 1
+
             else:
                 # Unknown flag — default to false to trigger refine
                 feedback[flag] = False
@@ -2395,187 +2571,380 @@ class ReactAnalysisAgent:
         )
         return feedback
 
-    async def _get_refinement_feedback(
+    def _get_refinement_feedback(
         self, draft: str, classification: dict | None,
         gap_queries: list[str] | None = None,
     ) -> dict[str, bool]:
-        """Get boolean checklist feedback on draft (Loophole 5 fix).
+        """Get boolean checklist feedback on draft — programmatic only.
 
-        Returns dict of flag_name: true/false. No subjective scoring.
+        SR-1: LLM feedback deleted (0/15 succeeded historically).
+        Programmatic checks are stricter, instant, and deterministic.
         """
-        artifacts = (classification or {}).get("artifacts", [])
         required_flags = self._get_required_flags(
             classification, gap_queries,
         )
+        return self._programmatic_feedback(draft, required_flags)
 
-        checklist_lines = []
-        if "contains_comparison_table" in required_flags:
-            checklist_lines.append(
-                "contains_comparison_table: [true/false] — is there a "
-                "markdown table comparing entities?"
-            )
-        if "contains_conditional_recommendations" in required_flags:
-            checklist_lines.append(
-                "contains_conditional_recommendations: [true/false] — "
-                "are there 'If X then Y' statements?"
-            )
-        checklist_lines.append(
-            "all_numbers_cited: [true/false] — does every numerical "
-            "claim have a [CITE:ev_xxx]?"
-        )
-        checklist_lines.append(
-            "has_explicit_tradeoffs: [true/false] — are trade-offs "
-            "labeled (not just implied)?"
-        )
-        if "has_evidence_based_ranking" in required_flags:
-            checklist_lines.append(
-                "has_evidence_based_ranking: [true/false] — is there "
-                "a clear numbered ranking?"
-            )
-        if "has_gap_analysis" in required_flags:
-            checklist_lines.append(
-                "has_gap_analysis: [true/false] — are evidence gaps "
-                "identified?"
-            )
-
-        checklist = "\n".join(checklist_lines)
-        prompt = (
-            f"Check this analysis against these REQUIRED elements. "
-            f"Answer ONLY true/false for each:\n\n"
-            f"{checklist}\n\n"
-            f"ANALYSIS:\n{draft[:6000]}\n\n"
-            f"Return ONLY the checklist, nothing else."
-        )
-
-        feedback_timeout = int(
-            os.getenv("PG_SELF_REFINE_FEEDBACK_TIMEOUT", "90"),
-        )
-        try:
-            response = await asyncio.wait_for(
-                self._client.generate(
-                    prompt=prompt,
-                    system=(
-                        "You are a quality auditor. Return ONLY "
-                        "true/false flags, nothing else."
-                    ),
-                    max_tokens=256,
-                    temperature=0.0,
-                    timeout=feedback_timeout,
-                ),
-                timeout=feedback_timeout + 15,
-            )
-
-            content = response.content.strip()
-            feedback = {}
-            for flag in required_flags:
-                match = re.search(
-                    rf'{flag}\s*:\s*(true|false)',
-                    content, re.IGNORECASE,
-                )
-                if match:
-                    feedback[flag] = match.group(1).lower() == "true"
-                else:
-                    feedback[flag] = False
-            return feedback
-
-        except Exception as exc:
-            logger.warning(
-                "[self-refine] LLM feedback failed: %s: %s, "
-                "using programmatic fallback",
-                type(exc).__name__, str(exc)[:100],
-            )
-            return self._programmatic_feedback(draft, required_flags)
-
-    async def _refine_draft(
+    def _programmatic_refine(
         self, draft: str, feedback: dict[str, bool],
         briefing: dict, gap_evidence: list[dict] | None = None,
     ) -> str:
-        """Refine draft based on boolean feedback flags."""
+        """SR-2: Targeted programmatic patches — no LLM, instant.
+
+        Instead of regenerating text, injects existing tool outputs
+        and appends missing sections per failing flag.
+        """
         failing = [
             flag for flag, passed in feedback.items() if not passed
         ]
         if not failing:
             return draft
 
-        fix_lines = []
+        patches = []
+
         for flag in failing:
-            line = f"- FIX: {flag.replace('_', ' ')}"
-            if flag == "contains_conditional_recommendations":
-                line += (
-                    " — add a section with 2-3 recommendations "
-                    "using EXACTLY this format: '**If** [scenario] "
-                    "**then** [technology] **because** [evidence] "
-                    "[CITE:ev_xxx]'"
-                )
-            elif flag == "contains_comparison_table":
-                line += (
-                    " — add a markdown comparison table with "
-                    "| Entity | key columns | [CITE:ev_xxx] |"
-                )
-            fix_lines.append(line)
-        fix_instructions = "\n".join(fix_lines)
+            if flag == "contains_comparison_table":
+                table_patch = self._patch_comparison_table()
+                if table_patch:
+                    # Insert after ### Comparative or ### Analysis
+                    # heading, or append if no heading found
+                    heading_match = re.search(
+                        r'(###\s+(?:Comparative|Analysis|Comparison)'
+                        r'[^\n]*\n)',
+                        draft, re.IGNORECASE,
+                    )
+                    if heading_match:
+                        insert_pos = heading_match.end()
+                        draft = (
+                            draft[:insert_pos] + "\n"
+                            + table_patch + "\n\n"
+                            + draft[insert_pos:]
+                        )
+                    else:
+                        # Insert before last section heading
+                        last_heading = None
+                        for m in re.finditer(
+                            r'\n(###\s+[^\n]+\n)', draft,
+                        ):
+                            last_heading = m
+                        if last_heading:
+                            pos = last_heading.start()
+                            draft = (
+                                draft[:pos] + "\n\n"
+                                + table_patch + "\n"
+                                + draft[pos:]
+                            )
+                        else:
+                            patches.append(table_patch)
+            elif flag == "contains_conditional_recommendations":
+                patches.append(self._patch_conditional_recs(briefing))
+            elif flag == "all_numbers_cited":
+                draft = self._patch_uncited_numbers(draft)
+            elif flag == "has_explicit_tradeoffs":
+                patches.append(self._patch_tradeoffs(briefing))
+            elif flag == "has_evidence_based_ranking":
+                patches.append(self._patch_ranking())
+            elif flag == "has_gap_analysis":
+                gap_queries = []
+                if isinstance(briefing, dict):
+                    gap_queries = briefing.get(
+                        "_gap_queries", [],
+                    ) or (
+                        self._notebook.steps[-1].result.statistics.get(
+                            "gap_queries", [],
+                        )
+                        if self._notebook.steps
+                        and self._notebook.steps[-1].result.statistics
+                        else []
+                    )
+                patches.append(self._patch_gap_analysis(gap_queries))
 
-        gap_context = ""
-        if gap_evidence:
-            gap_lines = []
-            for ge in gap_evidence[:10]:
-                gap_lines.append(
-                    f"- {ge['statement'][:200]} "
-                    f"[CITE:{ge['evidence_id']}]"
-                )
-            gap_context = (
-                "\n\nSUPPLEMENTARY EVIDENCE (use to address gaps):\n"
-                + "\n".join(gap_lines)
-            )
+        # Append non-empty patches to draft
+        appended = [p for p in patches if p]
+        if appended:
+            draft = draft.rstrip() + "\n\n" + "\n\n".join(appended)
 
-        prompt = (
-            f"ORIGINAL ANALYSIS:\n{draft}\n\n"
-            f"FEEDBACK — these elements are MISSING or FAILING:\n"
-            f"{fix_instructions}\n\n"
-            f"RULES:\n"
-            f"1. Preserve all existing CORRECT claims and citations\n"
-            f"2. Fix ONLY the issues identified above\n"
-            f"3. Do NOT shorten the analysis\n"
-            f"4. Maintain [CITE:ev_xxx] format for all citations\n"
-            f"5. Do NOT add claims without evidence\n"
-            f"6. PRESERVE all markdown tables — do NOT convert to prose\n"
-            f"{gap_context}"
+        logger.info(
+            "[self-refine] Programmatic refine: %d flags failing, "
+            "%d patches applied",
+            len(failing), len(appended),
         )
+        return draft
 
-        try:
-            response = await asyncio.wait_for(
-                self._client.generate(
-                    prompt=prompt,
-                    system=(
-                        "Rewrite the analysis to fix the identified "
-                        "issues. Preserve correct claims, citations, "
-                        "and tables. Do not shorten."
-                    ),
-                    max_tokens=8192,
-                    temperature=0.3,
-                    timeout=180,
-                ),
-                timeout=210,
+    def _patch_comparison_table(self) -> str:
+        """Extract comparison_table tool output and format as markdown."""
+        for step in self._notebook.steps:
+            if (
+                step.tool_name == "comparison_table"
+                and step.result.success
+                and step.result.markdown
+            ):
+                table_md = step.result.markdown.strip()
+                if "|" in table_md:
+                    return f"### Comparative Analysis\n\n{table_md}"
+        return ""
+
+    def _patch_conditional_recs(self, briefing: dict) -> str:
+        """Generate templated conditional recommendations from data.
+
+        SR-2: Extracts from data_points grouped by label, then
+        enriches with evidence from learnings.
+        TQ-3: Uses actual breakpoints from data_points.
+        """
+        data_points = self._notebook.data_points
+
+        # Primary path: group data_points by label
+        by_label: dict[str, list[dict]] = {}
+        for dp in data_points:
+            label = dp.get("label", "")
+            if label:
+                by_label.setdefault(label, []).append(dp)
+
+        # Fallback: if no data_points, extract from learnings
+        learnings = briefing.get("learnings", [])
+        if not by_label:
+            entity_evidence: dict[str, list[dict]] = {}
+            for learn in learnings:
+                fact = learn.get("fact", "")
+                entity_match = re.search(
+                    r'\b([A-Z][a-zA-Z\-]+(?:\s+[A-Z][a-zA-Z\-]+)*)\b',
+                    fact,
+                )
+                entity = (
+                    entity_match.group(1)
+                    if entity_match else "this approach"
+                )
+                eids = learn.get("evidence_ids", [])
+                if eids:
+                    entity_evidence.setdefault(entity, []).append({
+                        "fact": fact,
+                        "eid": eids[0],
+                    })
+            top_entities = sorted(
+                entity_evidence.items(),
+                key=lambda x: len(x[1]),
+                reverse=True,
+            )[:3]
+            if not top_entities:
+                return ""
+            recs = ["### Conditional Recommendations\n"]
+            for entity, evidence_list in top_entities:
+                ev = evidence_list[0]
+                claim = ev["fact"][:120]
+                eid = ev["eid"]
+                recs.append(
+                    f"**If** the application requires the properties "
+                    f"described for {entity}, **then** {entity} is "
+                    f"recommended **because** {claim} "
+                    f"[CITE:{eid}]"
+                )
+            return "\n\n".join(recs) if len(recs) > 1 else ""
+
+        # Primary path: top 3 labels by data point count
+        top_labels = sorted(
+            by_label.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        )[:3]
+
+        # Build evidence lookup from learnings
+        label_evidence: dict[str, dict] = {}
+        for learn in learnings:
+            fact = learn.get("fact", "")
+            eids = learn.get("evidence_ids", [])
+            if not eids:
+                continue
+            for label, _ in top_labels:
+                if label.lower() in fact.lower():
+                    label_evidence.setdefault(label, {
+                        "fact": fact,
+                        "eid": eids[0],
+                    })
+
+        recs = ["### Conditional Recommendations\n"]
+        for label, dps in top_labels:
+            # TQ-3: Use actual breakpoints from data_points
+            best_dp = max(dps, key=lambda d: d.get("value", 0))
+            val = best_dp.get("value", "")
+            unit = best_dp.get("unit", "")
+            eid = best_dp.get("evidence_id", "")
+            ev_info = label_evidence.get(label, {})
+            claim = ev_info.get("fact", f"{label} data")[:120]
+            cite_eid = ev_info.get("eid", eid)
+
+            if val and unit:
+                condition = (
+                    f"the target requires ≥{val} {unit} performance"
+                )
+            else:
+                condition = (
+                    f"the application requires the properties "
+                    f"described for {label}"
+                )
+            recs.append(
+                f"**If** {condition}, **then** {label} is "
+                f"recommended **because** {claim} "
+                f"[CITE:{cite_eid}]"
             )
-            return response.content.strip()
-        except Exception as exc:
-            logger.warning(
-                "[self-refine] Refine call failed: %s: %s",
-                type(exc).__name__, str(exc)[:100],
+
+        return "\n\n".join(recs) if len(recs) > 1 else ""
+
+    def _patch_uncited_numbers(self, draft: str) -> str:
+        """Find numbers without nearby CITE and add citations."""
+        num_pattern = re.compile(
+            r'(\d+\.?\d*)\s*(%|mg|ng|ppt|ppb|ppm|kWh|\$|MPa|'
+            r'µm|nm|m2|g/L|mg/g|billion|million)',
+        )
+        cite_pattern = re.compile(r'\[CITE:ev_[a-f0-9]+\]')
+
+        lines = draft.split("\n")
+        patched_lines = []
+        for line in lines:
+            for match in num_pattern.finditer(line):
+                num_str = match.group(1)
+                num_end = match.end()
+                # Check if there's a CITE within 80 chars after
+                after_window = line[num_end:num_end + 80]
+                if cite_pattern.search(after_window):
+                    continue
+                # Search evidence store for this number
+                for eid, ev in self._evidence_store.items():
+                    ev_stmt = ev.get("statement", "")
+                    if re.search(
+                        r'(?<!\d)' + re.escape(num_str) + r'(?!\d)',
+                        ev_stmt,
+                    ):
+                        # Insert citation after the unit
+                        insert_pos = match.end()
+                        line = (
+                            line[:insert_pos]
+                            + f" [CITE:{eid}]"
+                            + line[insert_pos:]
+                        )
+                        break
+            patched_lines.append(line)
+        return "\n".join(patched_lines)
+
+    def _patch_tradeoffs(self, briefing: dict) -> str:
+        """Find opposing evidence and append trade-off sentences."""
+        learnings = briefing.get("learnings", [])
+        tradeoff_pairs = []
+
+        for i, learn_a in enumerate(learnings):
+            fact_a = learn_a.get("fact", "")
+            eids_a = learn_a.get("evidence_ids", [])
+            if not eids_a:
+                continue
+            for learn_b in learnings[i + 1:]:
+                fact_b = learn_b.get("fact", "")
+                eids_b = learn_b.get("evidence_ids", [])
+                if not eids_b:
+                    continue
+                # Check for opposition markers
+                if re.search(
+                    r'(?:however|but|limitation|drawback|lower|'
+                    r'higher cost|less|reduced)',
+                    fact_b, re.IGNORECASE,
+                ):
+                    tradeoff_pairs.append((
+                        fact_a[:100], eids_a[0],
+                        fact_b[:100], eids_b[0],
+                    ))
+                    if len(tradeoff_pairs) >= 2:
+                        break
+            if len(tradeoff_pairs) >= 2:
+                break
+
+        if not tradeoff_pairs:
+            return ""
+
+        lines = ["### Key Trade-offs\n"]
+        for fact_a, eid_a, fact_b, eid_b in tradeoff_pairs:
+            lines.append(
+                f"A key trade-off exists: while {fact_a} "
+                f"[CITE:{eid_a}], {fact_b} [CITE:{eid_b}]."
             )
-            return draft
+        return "\n\n".join(lines)
+
+    def _patch_ranking(self) -> str:
+        """Extract ranking from rank_by_impact tool output."""
+        for step in self._notebook.steps:
+            if (
+                step.tool_name == "rank_by_impact"
+                and step.result.success
+                and step.result.markdown
+            ):
+                return (
+                    f"### Evidence-Based Ranking\n\n"
+                    f"{step.result.markdown.strip()}"
+                )
+
+        # Fallback: build ranking from data points
+        data_points = self._notebook.data_points
+        if not data_points:
+            return ""
+
+        # Group by label, sort by value
+        by_label: dict[str, list] = {}
+        for dp in data_points:
+            label = dp.get("label", "unknown")
+            by_label.setdefault(label, []).append(dp)
+
+        if len(by_label) < 2:
+            return ""
+
+        # Rank by average value per label
+        ranked = []
+        for label, dps in by_label.items():
+            vals = [dp.get("value", 0) for dp in dps if dp.get("value")]
+            avg = sum(vals) / max(len(vals), 1)
+            eid = dps[0].get("evidence_id", "")
+            ranked.append((label, avg, eid))
+        ranked.sort(key=lambda x: x[1], reverse=True)
+
+        lines = ["### Evidence-Based Ranking\n"]
+        for i, (label, avg, eid) in enumerate(ranked[:5], 1):
+            cite = f" [CITE:{eid}]" if eid else ""
+            lines.append(f"{i}. **{label}** ({avg:.1f}){cite}")
+
+        return "\n".join(lines)
+
+    def _patch_gap_analysis(self, gap_queries: list[str]) -> str:
+        """Format gap queries as prose gap analysis section."""
+        if not gap_queries:
+            return ""
+
+        lines = [
+            "### Data Gaps and Limitations\n",
+            "The following evidence gaps were identified during "
+            "analysis:\n",
+        ]
+        for gq in gap_queries[:5]:
+            lines.append(f"- {gq}")
+        lines.append(
+            "\nFurther research is needed to address these gaps "
+            "and strengthen the evidence base."
+        )
+        return "\n".join(lines)
 
     async def _write_and_refine(
         self, scaffold: str, briefing: dict,
         classification: dict | None,
         gap_evidence: list[dict],
+        pipeline_start: float | None = None,
     ) -> str:
         """Write analytical output with SELF-REFINE loop.
 
-        Replaces separate write→critique→rewrite with integrated
-        draft→feedback→refine loop (CMU SELF-REFINE pattern).
-        Absorbs old Phases 5, 6, 7 into one method.
+        SR-1: Feedback is programmatic-only (no LLM, instant).
+        SR-2: Refine is targeted patches (no LLM, instant).
+        SR-3: Quality gate with budget-aware retry after loop.
+        SR-4: Write prompt consolidated to 10 rules.
         """
+        write_phase_start = time.monotonic()
+        # SR-3 fix: use pipeline start for budget check, fallback
+        # to write phase start if not provided
+        _pipeline_start = pipeline_start or write_phase_start
+
         # Format gap evidence for write prompt
         gap_context = ""
         if gap_evidence:
@@ -2598,68 +2967,33 @@ class ReactAnalysisAgent:
             for c in briefing.get("clusters", [])[:10]
         )
 
-        artifacts = (classification or {}).get("artifacts", [])
-        artifact_rules = ""
-        if "comparison_table" in artifacts:
-            artifact_rules += (
-                "11. PRESERVE all markdown tables from the scaffold "
-                "— do NOT convert to prose\n"
-            )
-        if "conditional_recommendations" in artifacts:
-            artifact_rules += (
-                "12. For conditional recommendations, format as: "
-                "**If** [condition] **then** [recommendation] "
-                "**because** [evidence]\n"
-            )
-        if any("cost" in a for a in artifacts):
-            artifact_rules += (
-                "13. For cost data, calculate practical examples: "
-                "[base] x [usage] = [result/year]\n"
-            )
-
         prompt = (
             f"You are a senior research analyst. Expand this analytical "
-            f"scaffold into publication-quality prose.\n\n"
+            f"scaffold into publication-quality prose (800-1500 words).\n\n"
             f"RESEARCH QUESTION: {self._query}\n\n"
             f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
             f"EVIDENCE THEMES: {cluster_summary}\n\n"
-            f"RULES:\n"
-            f"1. EXPAND the scaffold into full analytical paragraphs "
-            f"(800-1500 words)\n"
-            f"2. Preserve ALL citations [CITE:ev_xxx] from the scaffold\n"
-            f"3. For EVERY numerical claim, include the citation\n"
-            f"4. INTEGRATE criteria — discuss effectiveness AND cost in "
-            f"the SAME paragraph per technology\n"
-            f"5. Write CROSS-SOURCE insights "
-            f"('Comparing X and Y reveals...')\n"
-            f"6. Do NOT add claims not in the scaffold "
+            f"MUST:\n"
+            f"1. Cite EVERY numerical claim with [CITE:ev_xxx]\n"
+            f"2. Do NOT add claims not in the scaffold "
             f"(no hallucination)\n"
-            f"7. Include a clear ranking with evidence-backed "
-            f"justification\n"
-            f"8. End with data gaps and limitations\n"
-            f"9. ONLY cite evidence IDs starting with 'ev_'. "
-            f"NEVER cite tool names\n"
-            f"10. Do NOT mention 'scaffold' or 'framework' in "
-            f"the output\n"
-            f"{artifact_rules}"
-            f"14. Include a 1-2 sentence EXECUTIVE SUMMARY as the "
-            f"first paragraph\n"
-            f"15. Do NOT invent numeric scores for rankings or "
-            f"decision matrices (e.g., 'total score of 4.6'). "
-            f"Rank by citing specific evidence metrics instead "
-            f"(e.g., '>90% removal [CITE:ev_xxx]')\n"
-            f"16. SYNTHESIZE, do not parrot. Never restate an "
-            f"evidence statement verbatim — rephrase it into "
-            f"analytical prose that compares or evaluates\n"
-            f"17. PRESERVE exact units from evidence (ppt, ppb, "
-            f"ppm, mg/L, MPa, µm, kWh, etc.). Never replace "
-            f"a specific unit with vague terms like 'per "
-            f"specified unit' or 'relevant measure'\n"
-            f"18. CONDITIONAL RECOMMENDATIONS must use the exact "
-            f"format: '**If** [scenario] **then** [tech] "
-            f"**because** [evidence]'. Do NOT embed "
-            f"recommendations in prose paragraphs or plain "
-            f"ranking lists\n"
+            f"3. Preserve ALL [CITE:ev_xxx] tokens from the scaffold\n"
+            f"4. SYNTHESIZE — never restate evidence verbatim, "
+            f"rephrase into analytical prose that compares or "
+            f"evaluates\n"
+            f"5. PRESERVE exact units (ppt, ppb, ppm, mg/L, MPa, "
+            f"µm, kWh, etc.)\n\n"
+            f"SHOULD:\n"
+            f"6. Write cross-source sentences citing 2+ sources in "
+            f"the SAME sentence (≥3 such sentences)\n"
+            f"7. Include evidence-based ranking (cite metrics, not "
+            f"invented scores)\n"
+            f"8. Identify trade-offs explicitly (however, whereas, "
+            f"in contrast)\n"
+            f"9. Start with 1-2 sentence executive summary\n"
+            f"10. Format conditional recs as: **If** [scenario] "
+            f"**then** [tech] **because** [evidence] "
+            f"[CITE:ev_xxx]\n"
             f"{gap_context}"
         )
 
@@ -2669,8 +3003,8 @@ class ReactAnalysisAgent:
             "Do not invent new claims. Be concise and analytical."
         )
 
-        interpret_timeout = int(
-            os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"),
+        write_timeout = int(
+            os.getenv("PG_WRITE_TIMEOUT", "120"),
         )
 
         try:
@@ -2680,9 +3014,9 @@ class ReactAnalysisAgent:
                     system=system,
                     max_tokens=8192,
                     temperature=0.3,
-                    timeout=interpret_timeout,
+                    timeout=write_timeout,
                 ),
-                timeout=interpret_timeout + 30,
+                timeout=write_timeout + 30,
             )
             current = response.content.strip()
         except Exception as exc:
@@ -2748,9 +3082,13 @@ class ReactAnalysisAgent:
         if isinstance(classification, dict):
             gap_queries = classification.get("_gap_queries", [])
 
+        # Inject gap_queries into briefing for _programmatic_refine
+        briefing_with_gaps = dict(briefing)
+        briefing_with_gaps["_gap_queries"] = gap_queries
+
         for iteration in range(_SELF_REFINE_MAX_ITERATIONS):
-            # Feedback: boolean checklist (Loophole 5 fix)
-            feedback = await self._get_refinement_feedback(
+            # Feedback: programmatic boolean checklist (SR-1: instant)
+            feedback = self._get_refinement_feedback(
                 current, classification, gap_queries,
             )
 
@@ -2779,13 +3117,12 @@ class ReactAnalysisAgent:
                 len(required_flags), failing,
             )
 
-            # Refine with specific instructions (Patch 4: pass gap_evidence)
-            refined = await self._refine_draft(
-                current, feedback, briefing, gap_evidence,
+            # SR-2: Programmatic refine — targeted patches, no LLM
+            refined = self._programmatic_refine(
+                current, feedback, briefing_with_gaps, gap_evidence,
             )
 
             # Length check: BYPASS if refined has tables (Loophole 3 fix)
-            # Patch 7: strict table detection regex
             has_tables = bool(
                 re.search(r'\n\|[-:| ]+\|\n', refined),
             )
@@ -2804,6 +3141,13 @@ class ReactAnalysisAgent:
             for pid in set(all_cited):
                 if pid not in self._evidence_store:
                     current = current.replace(f"[CITE:{pid}]", "")
+
+        # SR-3: Quality gate with budget-aware retry
+        current = await self._quality_gate(
+            current, scaffold, briefing, classification,
+            gap_evidence, cluster_summary, gap_context,
+            write_timeout, start_time=_pipeline_start,
+        )
 
         # Update notebook step with final version
         valid_ids = [
@@ -2829,6 +3173,193 @@ class ReactAnalysisAgent:
                 break
 
         return current
+
+    async def _quality_gate(
+        self,
+        draft: str,
+        scaffold: str,
+        briefing: dict,
+        classification: dict | None,
+        gap_evidence: list[dict],
+        cluster_summary: str,
+        gap_context: str,
+        write_timeout: int,
+        start_time: float,
+    ) -> str:
+        """SR-3: Quality gate with budget-aware retry.
+
+        Checks: word count ≥500, citation count ≥5, programmatic
+        feedback ≥4/N flags, parroting ratio <0.35.
+        If FAIL and time remains: retry generate() at temperature=0.5.
+        """
+        words = len(draft.split())
+        cite_count = len(re.findall(r'\[CITE:ev_[a-f0-9]+\]', draft))
+
+        gap_queries = []
+        if isinstance(classification, dict):
+            gap_queries = classification.get("_gap_queries", [])
+        feedback = self._get_refinement_feedback(
+            draft, classification, gap_queries,
+        )
+        required_flags = self._get_required_flags(
+            classification, gap_queries,
+        )
+        passing = sum(1 for v in feedback.values() if v)
+
+        # Parroting ratio check (3-gram Jaccard)
+        parroting = self._compute_parroting_ratio(draft)
+
+        gate_pass = (
+            words >= 500
+            and cite_count >= 5
+            and passing >= min(4, len(required_flags))
+            and parroting < 0.35
+        )
+
+        logger.info(
+            "[quality-gate] words=%d cites=%d flags=%d/%d "
+            "parrot=%.2f → %s",
+            words, cite_count, passing, len(required_flags),
+            parroting, "PASS" if gate_pass else "FAIL",
+        )
+
+        if gate_pass:
+            return draft
+
+        # Budget check: need 180s for retry
+        pipeline_timeout = int(
+            os.getenv("PG_REACT_TIMEOUT_SECONDS", "900"),
+        )
+        elapsed = time.monotonic() - start_time
+        if elapsed > pipeline_timeout - 180:
+            logger.warning(
+                "[quality-gate] FAIL but no budget for retry "
+                "(%.0fs elapsed, need 180s)",
+                elapsed,
+            )
+            return draft
+
+        # Retry with different temperature
+        logger.info(
+            "[quality-gate] Retrying write at temperature=0.5 "
+            "(%.0fs remaining)",
+            pipeline_timeout - elapsed,
+        )
+
+        prompt = (
+            f"You are a senior research analyst. Expand this "
+            f"analytical scaffold into publication-quality prose "
+            f"(800-1500 words).\n\n"
+            f"RESEARCH QUESTION: {self._query}\n\n"
+            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+            f"EVIDENCE THEMES: {cluster_summary}\n\n"
+            f"MUST:\n"
+            f"1. Cite EVERY numerical claim with [CITE:ev_xxx]\n"
+            f"2. Do NOT add claims not in the scaffold\n"
+            f"3. Preserve ALL [CITE:ev_xxx] tokens\n"
+            f"4. SYNTHESIZE — never restate evidence verbatim\n"
+            f"5. PRESERVE exact units\n\n"
+            f"SHOULD:\n"
+            f"6. Cross-source sentences citing 2+ sources\n"
+            f"7. Evidence-based ranking\n"
+            f"8. Explicit trade-offs\n"
+            f"9. Executive summary first paragraph\n"
+            f"10. Conditional recs: **If** X **then** Y "
+            f"**because** Z [CITE:ev_xxx]\n"
+            f"{gap_context}"
+        )
+
+        try:
+            retry_response = await asyncio.wait_for(
+                self._client.generate(
+                    prompt=prompt,
+                    system=(
+                        "Expand the scaffold into analytical prose. "
+                        "Every claim must have a [CITE:ev_xxx]. "
+                        "Do not invent claims. Be analytical."
+                    ),
+                    max_tokens=8192,
+                    temperature=0.5,
+                    timeout=write_timeout,
+                ),
+                timeout=write_timeout + 30,
+            )
+            retry_draft = retry_response.content.strip()
+        except Exception as exc:
+            logger.warning(
+                "[quality-gate] Retry write failed: %s: %s",
+                type(exc).__name__, str(exc)[:100],
+            )
+            return draft
+
+        if not retry_draft or len(retry_draft) < 100:
+            return draft
+
+        # Pick better draft by gate score
+        retry_words = len(retry_draft.split())
+        retry_cites = len(
+            re.findall(r'\[CITE:ev_[a-f0-9]+\]', retry_draft),
+        )
+        retry_parrot = self._compute_parroting_ratio(retry_draft)
+
+        original_score = words + cite_count * 10 - parroting * 100
+        retry_score = (
+            retry_words + retry_cites * 10 - retry_parrot * 100
+        )
+
+        if retry_score > original_score:
+            logger.info(
+                "[quality-gate] Retry draft better: score %.0f > %.0f",
+                retry_score, original_score,
+            )
+            return retry_draft
+
+        logger.info(
+            "[quality-gate] Original draft kept: score %.0f >= %.0f",
+            original_score, retry_score,
+        )
+        return draft
+
+    def _compute_parroting_ratio(self, text: str) -> float:
+        """Compute 3-gram Jaccard overlap between text and evidence."""
+        sentences = re.split(r'[.!?]\s+', text)
+        if not sentences:
+            return 0.0
+
+        parroted = 0
+        checked = 0
+        for sent in sentences:
+            sent_words = re.findall(r'[a-z]{4,}', sent.lower())
+            if len(sent_words) < 5:
+                continue
+            checked += 1
+            # Build 3-grams
+            sent_ngrams = set()
+            for i in range(len(sent_words) - 2):
+                sent_ngrams.add(
+                    (sent_words[i], sent_words[i + 1], sent_words[i + 2]),
+                )
+            if not sent_ngrams:
+                continue
+
+            for eid in self._evidence_ids[:100]:
+                ev = self._evidence_store.get(eid, {})
+                ev_stmt = ev.get("statement", "")
+                ev_words = re.findall(r'[a-z]{4,}', ev_stmt.lower())
+                ev_ngrams = set()
+                for i in range(len(ev_words) - 2):
+                    ev_ngrams.add(
+                        (ev_words[i], ev_words[i + 1], ev_words[i + 2]),
+                    )
+                if not ev_ngrams:
+                    continue
+                overlap = len(sent_ngrams & ev_ngrams)
+                union = len(sent_ngrams | ev_ngrams)
+                if union > 0 and overlap / union > 0.5:
+                    parroted += 1
+                    break
+
+        return parroted / max(checked, 1)
 
     # -------------------------------------------------------------------
     # Phase 6 (legacy): CRITIQUE — structured quality check
@@ -3173,15 +3704,17 @@ class ReactAnalysisAgent:
             f"Return ordered tool steps."
         )
 
+        # INF-2: Cap plan timeout at 30s (fallback handles failure)
+        plan_timeout = int(os.getenv("PG_PLAN_TIMEOUT", "30"))
         plan = await asyncio.wait_for(
             self._client.generate_structured(
                 prompt=prompt,
                 schema=AnalysisPlan,
                 system="Plan the analysis. Return an ordered list of tool steps.",
                 max_tokens=512,
-                timeout=60,
+                timeout=plan_timeout,
             ),
-            timeout=75,
+            timeout=plan_timeout + 15,
         )
 
         # Filter to known tools only, cap at max iterations
@@ -3194,6 +3727,176 @@ class ReactAnalysisAgent:
         return plan
 
     # -------------------------------------------------------------------
+    # Phase 6.25: Visual artifacts (VIZ-1, VIZ-2, VIZ-3)
+    # -------------------------------------------------------------------
+
+    async def _generate_charts(
+        self,
+        classification: dict | None,
+        briefing: dict,
+    ) -> str:
+        """VIZ-1: Auto-generate matplotlib chart via execute_python.
+
+        Only generates charts when data points have ≥3 entries with
+        same unit AND ≥2 distinct labels. Returns markdown image embed.
+        """
+        data_points = self._notebook.data_points
+        if not data_points:
+            return ""
+
+        archetype = (classification or {}).get("archetype", "general")
+        if archetype == "mechanism":
+            return ""  # Causal chains don't map to bar charts
+
+        # Check chart-worthiness: group by unit, need ≥3 points + ≥2 labels
+        by_unit: dict[str, list] = {}
+        for dp in data_points:
+            unit = dp.get("unit", "")
+            if unit:
+                by_unit.setdefault(unit, []).append(dp)
+
+        best_unit = ""
+        best_group = []
+        for unit, group in by_unit.items():
+            labels = set(dp.get("label", "") for dp in group)
+            if len(group) >= 3 and len(labels) >= 2:
+                if len(group) > len(best_group):
+                    best_unit = unit
+                    best_group = group
+
+        if not best_group:
+            return ""
+
+        # Determine chart type
+        chart_type = "barh"  # Default horizontal bar
+        if archetype == "cost_analysis":
+            chart_type = "bar"  # Grouped vertical bar
+
+        # Build data for the chart
+        labels = []
+        values = []
+        eids = []
+        for dp in best_group[:15]:  # Cap at 15 bars
+            label = dp.get("label", "unknown")[:30]
+            val = dp.get("value", 0)
+            eid = dp.get("evidence_id", "")
+            if val and label:
+                labels.append(label)
+                values.append(float(val))
+                eids.append(eid)
+
+        if len(labels) < 2:
+            return ""
+
+        # Generate chart via execute_python tool
+        metric_name = best_group[0].get("metric", "Value")
+        tool_def = self._registry.get_tool("execute_python")
+        if not tool_def or not tool_def.execute:
+            return ""
+
+        chart_timeout = int(os.getenv("PG_CHART_TIMEOUT", "60"))
+        try:
+            result = await asyncio.wait_for(
+                tool_def.execute(
+                    evidence_store=self._evidence_store,
+                    data_points=data_points,
+                    client=self._client,
+                    question=(
+                        f"Create a {'horizontal ' if chart_type == 'barh' else ''}"
+                        f"bar chart comparing: "
+                        f"labels={labels}, values={values}, "
+                        f"unit='{best_unit}', metric='{metric_name}'. "
+                        f"Use clear colors, annotate bars with values. "
+                        f"Title: '{metric_name} by Entity'. "
+                        f"Return as PNG."
+                    ),
+                    research_context=self._query,
+                ),
+                timeout=chart_timeout,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[chart] execute_python failed: %s: %s",
+                type(exc).__name__, str(exc)[:100],
+            )
+            return ""
+
+        if not result.success or not result.charts:
+            return ""
+
+        # VIZ-2: Embed chart as base64 image reference
+        chart = result.charts[0]
+        b64 = chart.get("image_base64", "")
+        if not b64:
+            return ""
+
+        chart_title = f"{metric_name} Comparison ({best_unit})"
+        step = AnalysisStep(
+            step_number=self._notebook.step_count + 1,
+            reasoning=f"Auto-generated {chart_type} chart: {chart_title}",
+            tool_name="auto_chart",
+            result=ToolResult(
+                success=True,
+                tool_name="auto_chart",
+                markdown=f"![{chart_title}](chart)",
+                source_evidence_ids=eids[:10],
+                charts=[chart],
+                insights=[f"Chart: {chart_title}"],
+            ),
+            elapsed_seconds=0.0,
+        )
+        self._notebook.add_step(step)
+
+        logger.info(
+            "[chart] Generated %s chart: %d bars, %s",
+            chart_type, len(labels), chart_title,
+        )
+        return f"\n![{chart_title}](data:image/png;base64,{b64})\n"
+
+    def _generate_decision_flowchart(self, text: str) -> str:
+        """VIZ-3: Text-based decision tree from conditional recs.
+
+        Only generated when ≥2 **If** ... **then** patterns exist.
+        Pure text, no Mermaid dependency, renders everywhere.
+        """
+        # Find conditional recommendations in the text
+        if_then_pattern = re.compile(
+            r'\*\*[Ii]f\*\*\s*(.{10,120}?)\s*\*\*then\*\*\s*'
+            r'(.{5,80}?)\s*(?:\*\*because\*\*\s*)?'
+            r'(.{0,120}?)(?:\[CITE:(ev_[a-f0-9]+)\])?'
+            r'(?:\.|$)',
+            re.DOTALL,
+        )
+        matches = list(if_then_pattern.finditer(text))
+
+        if len(matches) < 2:
+            return ""
+
+        lines = [
+            "### Decision Guide\n",
+            "```",
+        ]
+
+        for i, match in enumerate(matches[:5]):
+            condition = match.group(1).strip().rstrip(",")[:60]
+            recommendation = match.group(2).strip().rstrip(",")[:40]
+            eid = match.group(4) or ""
+            cite = f" [CITE:{eid}]" if eid else ""
+
+            prefix = "├─" if i < len(matches) - 1 else "└─"
+            lines.append(
+                f"  {prefix} {condition}? → {recommendation}{cite}"
+            )
+
+        lines.append("```")
+
+        logger.info(
+            "[decision-tree] Generated from %d conditional recs",
+            len(matches),
+        )
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------------
     # Post-processing: cleanup LLM output defects
     # -------------------------------------------------------------------
 
@@ -3204,6 +3907,8 @@ class ReactAnalysisAgent:
         2. Strip meta-commentary about prompt rules/constraints
         3. Flag fabricated numbers not in any cited evidence
         """
+        # D3: Normalize line endings (handles \r\n from Windows/mixed)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
         lines = text.split("\n")
         cleaned_lines = []
 
@@ -3221,7 +3926,26 @@ class ReactAnalysisAgent:
                 norm = re.sub(
                     r'\[CITE:ev_[a-f0-9]+\]', '', sent,
                 ).strip().lower()
-                if len(norm) < 10:
+                # D1: Raise min to 5 words AND 25 chars to prevent
+                # over-stripping short domain-specific phrases.
+                # Also safelist domain terms that must never be
+                # stripped even in short phrases.
+                _domain_safelist = {
+                    "gac", "ro", "nf", "pfas", "pfos", "pfoa",
+                    "biochar", "membrane", "adsorption", "ion",
+                    "exchange", "electrochemical", "oxidation",
+                    "activated carbon", "reverse osmosis",
+                    "nanofiltration", "ultrafiltration",
+                }
+                norm_words = norm.split()
+                has_domain_term = any(
+                    term in norm for term in _domain_safelist
+                )
+                if (
+                    len(norm) < 25
+                    or len(norm_words) < 5
+                    or has_domain_term
+                ):
                     unique_sentences.append(sent)
                     continue
                 if norm not in seen_sentences:
@@ -3237,14 +3961,6 @@ class ReactAnalysisAgent:
                 cleaned_lines.append(" ".join(unique_sentences))
 
         text = "\n".join(cleaned_lines)
-
-        # --- Fix 1b: Remove duplicate adjacent CITE tokens ---
-        # LLM sometimes emits [CITE:ev_xxx][CITE:ev_xxx] (same ID twice).
-        # Existing dedup at resolution stage handles [1][1] but not raw tokens.
-        text = re.sub(
-            r'(\[CITE:ev_[a-f0-9]+\])\s*\1',
-            r'\1', text,
-        )
 
         # --- Fix 1c: Remove intra-sentence redundancy ---
         # "superior uniformity...through processes that yield superior
@@ -3324,6 +4040,72 @@ class ReactAnalysisAgent:
             r'^#{1,4}\s*LENS\s+\d+\s*[—–-]\s*[A-Z ]+[^#\n]*$',
             '', text, flags=re.MULTILINE,
         )
+
+        # --- PQ-3: Remove filler sentences (no CITE, generic info) ---
+        filler_pattern = re.compile(
+            r'(?<=[.!?]\s)([^.!?\n]*\b(?:is available|comes in|offers|'
+            r'features|provides a range|can be found)\b[^.!?\n]*[.!?])',
+            re.IGNORECASE,
+        )
+        for filler_match in filler_pattern.finditer(text):
+            sentence = filler_match.group(1)
+            if '[CITE:' not in sentence:
+                text = text.replace(sentence, '', 1)
+                logger.debug(
+                    "[post-process] PQ-3: Removed filler: %s",
+                    sentence[:60],
+                )
+
+        # --- PQ-1b: Per-sentence parroting detection + flagging ---
+        # Compute 3-gram Jaccard per sentence vs its CITE'd evidence.
+        # If >0.5, flag with log warning (sentence is parroted).
+        parroted_count = 0
+        parroted_sentences = []
+        cite_per_sent = re.compile(r'\[CITE:(ev_[a-f0-9]+)\]')
+        for sent_match in re.finditer(r'[^.!?]+[.!?]', text):
+            sent = sent_match.group().strip()
+            sent_words = re.findall(r'[a-z]{4,}', sent.lower())
+            if len(sent_words) < 5:
+                continue
+            # Build 3-grams for this sentence
+            sent_ngrams = set()
+            for idx in range(len(sent_words) - 2):
+                sent_ngrams.add(
+                    (sent_words[idx], sent_words[idx + 1],
+                     sent_words[idx + 2]),
+                )
+            if not sent_ngrams:
+                continue
+            # Check against CITE'd evidence in this sentence
+            cited_eids = cite_per_sent.findall(sent)
+            for eid in cited_eids:
+                ev = self._evidence_store.get(eid, {})
+                ev_stmt = ev.get("statement", "")
+                ev_words = re.findall(r'[a-z]{4,}', ev_stmt.lower())
+                ev_ngrams = set()
+                for idx in range(len(ev_words) - 2):
+                    ev_ngrams.add(
+                        (ev_words[idx], ev_words[idx + 1],
+                         ev_words[idx + 2]),
+                    )
+                if not ev_ngrams:
+                    continue
+                overlap = len(sent_ngrams & ev_ngrams)
+                union = len(sent_ngrams | ev_ngrams)
+                if union > 0 and overlap / union > 0.5:
+                    parroted_count += 1
+                    parroted_sentences.append(sent[:80])
+                    logger.warning(
+                        "[post-process] PQ-1: Parroted sentence "
+                        "(Jaccard=%.2f vs %s): %s",
+                        overlap / union, eid[:16], sent[:60],
+                    )
+                    break  # One match per sentence is enough
+        if parroted_count > 0:
+            logger.info(
+                "[post-process] PQ-1: %d parroted sentences flagged",
+                parroted_count,
+            )
 
         # --- Fix 3: Fabricated number patterns ---
         fabricated_patterns = [
@@ -3505,9 +4287,10 @@ class ReactAnalysisAgent:
                         ", ".join(ev_numbers[:5]),
                     )
 
-        # --- Fix 5: Remove incomplete sentences (token truncation) ---
-        # Qwen sometimes hits max_tokens mid-word, producing
-        # "This inconsistency distingu" without terminal punctuation.
+        # --- Fix 5: Remove incomplete sentences + D4 dangling preps ---
+        _dangling_preps = re.compile(
+            r'\s+(?:of|for|with|to|from|by|in|on|at|as|into)\s*$',
+        )
         sentences = text.split("\n")
         cleaned = []
         for line in sentences:
@@ -3535,13 +4318,14 @@ class ReactAnalysisAgent:
                 if last_period > 0:
                     stripped = stripped[:last_period + 1]
                     logger.info(
-                        "[post-process] Trimmed incomplete sentence at "
-                        "end of line",
+                        "[post-process] Trimmed incomplete sentence",
                     )
+            # D4: Trim dangling prepositions after sentence trim
+            stripped = _dangling_preps.sub('', stripped)
             cleaned.append(stripped)
         text = "\n".join(cleaned)
 
-        # --- Fix 6: Table integrity check (Patch 6: logging only) ---
+        # --- Fix 6: Table integrity + D5 identical columns + D7 matrix ---
         if _REFINER_ENABLED:
             table_blocks = re.findall(
                 r'(\|[^\n]+\|\n\|[-:| ]+\|\n(?:\|[^\n]+\|\n)*)',
@@ -3552,16 +4336,14 @@ class ReactAnalysisAgent:
                     r for r in table_block.strip().split("\n")
                     if r.strip().startswith("|")
                 ]
-                # Subtract header + separator = data rows
                 data_rows = max(0, len(rows) - 2)
                 if data_rows < 2:
                     logger.warning(
-                        "[post-process] Sparse table: only %d data rows "
-                        "(need >=2 for useful comparison)",
+                        "[post-process] Sparse table: only %d data rows",
                         data_rows,
                     )
                 # Check for empty/N/A cells
-                for row in rows[2:]:  # skip header + separator
+                for row in rows[2:]:
                     cells = [
                         c.strip() for c in row.split("|") if c.strip()
                     ]
@@ -3575,6 +4357,112 @@ class ReactAnalysisAgent:
                             "cells: %s",
                             empty_cells, row.strip()[:80],
                         )
+
+                # D5/TQ-2: Detect + annotate identical column values
+                identical_cols = []
+                if data_rows >= 3 and rows:
+                    header_cells = [
+                        c.strip() for c in rows[0].split("|") if c.strip()
+                    ]
+                    for col_idx in range(len(header_cells)):
+                        col_values = set()
+                        for row in rows[2:]:
+                            cells = [
+                                c.strip()
+                                for c in row.split("|") if c.strip()
+                            ]
+                            if col_idx < len(cells):
+                                col_values.add(cells[col_idx])
+                        if len(col_values) < 2:
+                            col_name = (
+                                header_cells[col_idx]
+                                if col_idx < len(header_cells)
+                                else f"col{col_idx}"
+                            )
+                            identical_cols.append(col_name)
+                            logger.warning(
+                                "[post-process] D5: Column '%s' has "
+                                "identical values across %d rows",
+                                col_name, data_rows,
+                            )
+                if identical_cols:
+                    annotation = (
+                        "\n\n*(Note: "
+                        + ", ".join(identical_cols)
+                        + " — no differentiation in evidence)*"
+                    )
+                    text = text.replace(
+                        table_block,
+                        table_block.rstrip() + annotation,
+                        1,
+                    )
+
+                # D7: Matrix false positive — require 2+ score-like
+                # words in header to flag as decision matrix
+                if rows:
+                    header_lower = rows[0].lower()
+                    score_words = sum(
+                        1 for w in (
+                            "weight", "score", "total", "rating",
+                            "rank",
+                        )
+                        if w in header_lower
+                    )
+                    if score_words >= 2:
+                        logger.warning(
+                            "[post-process] D7: Table looks like a "
+                            "fabricated decision matrix (header has "
+                            "%d score-related columns)",
+                            score_words,
+                        )
+
+        # --- TQ-1: Table cell verbosity trimming ---
+        # Cells >60 chars: keep number+unit+qualifier (≤30 chars)
+        def _trim_cell(cell_text: str) -> str:
+            if len(cell_text) <= 60:
+                return cell_text
+            # Preserve citations
+            cites = re.findall(r'\[CITE:ev_[a-f0-9]+\]', cell_text)
+            cite_str = " ".join(cites)
+            # Extract first number + unit + qualifier (up to 30 chars)
+            num_match = re.search(
+                r'(\d+\.?\d*\s*(?:%|mg|ng|ppt|ppb|ppm|kWh|\$|MPa|'
+                r'µm|nm|m2|g/L|mg/g|billion|million|°C|bar|min|h|'
+                r'L|mL|kg)(?:\s*[^\d\[]{0,25})?)',
+                cell_text,
+            )
+            if num_match:
+                core = num_match.group(1).strip()[:30]
+                return f"{core} {cite_str}".strip()
+            return cell_text[:30] + f"... {cite_str}".strip()
+
+        table_line_pattern = re.compile(r'^\|(.+)\|$', re.MULTILINE)
+        sep_pattern = re.compile(r'^\|[-:| ]+\|$', re.MULTILINE)
+        new_lines = []
+        for line in text.split("\n"):
+            if (
+                table_line_pattern.match(line.strip())
+                and not sep_pattern.match(line.strip())
+            ):
+                cells = line.split("|")
+                trimmed = []
+                for cell in cells:
+                    if cell.strip():
+                        trimmed.append(f" {_trim_cell(cell.strip())} ")
+                    else:
+                        trimmed.append(cell)
+                new_lines.append("|".join(trimmed))
+            else:
+                new_lines.append(line)
+        text = "\n".join(new_lines)
+
+        # --- D2: Remove duplicate adjacent CITE tokens (moved to end) ---
+        # Catches 2+ adjacent identical CITE tokens introduced by
+        # any prior fix. Must run LAST so no fix re-introduces dupes.
+        text = re.sub(
+            r'(\[CITE:ev_[a-f0-9]+\])(?:\s*\1)+',
+            r'\1', text,
+        )
 
         # Clean up any double spaces or empty lines from removals
         text = re.sub(r'  +', ' ', text)

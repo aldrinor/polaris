@@ -1338,25 +1338,89 @@ async def run_one_test(test_set: dict) -> dict:
     }
 
 
+def parse_args():
+    """INF-4: CLI args for --sets, --fast, --parallel."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="ReAct analysis stress test",
+    )
+    parser.add_argument(
+        "--sets", type=int, default=None,
+        help="Number of test sets to run (default: all)",
+    )
+    parser.add_argument(
+        "--fast", action="store_true",
+        help="Fast mode: 2 smallest sets, 300s timeout",
+    )
+    parser.add_argument(
+        "--parallel", action="store_true",
+        help="Run test sets concurrently",
+    )
+    return parser.parse_args()
+
+
 async def main():
+    args = parse_args()
+
+    # INF-4: Select test sets
+    selected_sets = TEST_SETS
+    if args.fast:
+        # 2 smallest sets by evidence count
+        selected_sets = sorted(
+            TEST_SETS,
+            key=lambda s: int(
+                re.search(r'\d+', s["name"]).group()
+                if re.search(r'\d+', s["name"]) else "999"
+            ),
+        )[:2]
+        os.environ.setdefault("PG_REACT_TIMEOUT_SECONDS", "300")
+    elif args.sets:
+        selected_sets = TEST_SETS[:args.sets]
+
     print(f"\n{'='*80}")
     print("POLARIS v3 ReAct STRESS TEST — Deep Content Audit")
     print(f"{'='*80}")
-    print(f"Testing {len(TEST_SETS)} diverse evidence sets")
-    print(f"Max iterations: 5 | Timeout: 120s | Tool timeout: 60s")
+    print(f"Testing {len(selected_sets)} evidence sets"
+          f"{' (fast mode)' if args.fast else ''}"
+          f"{' (parallel)' if args.parallel else ''}")
+    print(f"Max iterations: 5 | Timeout: "
+          f"{os.getenv('PG_REACT_TIMEOUT_SECONDS', '120')}s | "
+          f"Tool timeout: 60s")
 
     results = []
-    for test_set in TEST_SETS:
-        try:
-            r = await run_one_test(test_set)
-            results.append(r)
-        except Exception as exc:
-            print(f"\n  CRASH: {test_set['name']}: {type(exc).__name__}: {str(exc)[:200]}")
-            results.append({
-                "name": test_set["name"],
-                "status": "CRASH",
-                "error": str(exc)[:200],
-            })
+
+    if args.parallel:
+        # Run all sets concurrently
+        tasks = []
+        for test_set in selected_sets:
+            tasks.append(run_one_test(test_set))
+        batch_results = await asyncio.gather(
+            *tasks, return_exceptions=True,
+        )
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                print(f"\n  CRASH: {selected_sets[i]['name']}: "
+                      f"{type(result).__name__}: {str(result)[:200]}")
+                results.append({
+                    "name": selected_sets[i]["name"],
+                    "status": "CRASH",
+                    "error": str(result)[:200],
+                })
+            else:
+                results.append(result)
+    else:
+        for test_set in selected_sets:
+            try:
+                r = await run_one_test(test_set)
+                results.append(r)
+            except Exception as exc:
+                print(f"\n  CRASH: {test_set['name']}: "
+                      f"{type(exc).__name__}: {str(exc)[:200]}")
+                results.append({
+                    "name": test_set["name"],
+                    "status": "CRASH",
+                    "error": str(exc)[:200],
+                })
 
     # -----------------------------------------------------------------------
     # Summary table
