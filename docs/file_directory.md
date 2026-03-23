@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-03-16 (Session 45 — v2 CRAG pipeline, 12 new retrieval modules, 4 new v2 core modules, frontend v2 nodes)
-**Status**: 354 tests passing. v2 CRAG pipeline complete (7 adversarial rounds, 30 fixes). Fire Tests 15/15 PASS. live_server v2 routing verified.
+**Last Updated**: 2026-03-22 (Session 50 — added polaris_graph/tools section, react_stress_test, tests/v3)
+**Status**: 204 v3 tests passing. 27-defect fix plan committed. 3 smoke tests verified (mean 86/100).
 
 ---
 
@@ -70,6 +70,23 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 | `source_confidence.py` | 299 | Source confidence scoring: domain authority, peer-reviewed enforcement |
 | `citation_agent.py` | 229 | Citation handling: S2 citation chasing, bibliography validation (ARCH-3) |
 | `hallucination_detector.py` | 331 | NLI-based post-synthesis hallucination audit: MiniCheck claim-level verification, replaces LettuceDetect |
+
+---
+
+## 3b. src/polaris_graph/tools/ -- ReAct Analysis Agent & Tools
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `react_agent.py` | ~7200 | **ReAct analysis agent**: 6-phase scaffold interpretation, quality gate (template echo, grammar, phantom citation detection), _post_process_interpretation() (CoT scrub, P2 citation validation, Wave 4 parroting rewrite, P7 number grounding, CiteFix, bare-item cleanup, phantom stripping). Score: 86 mean across PFAS+DVS. |
+| `analysis_toolkit.py` | ~450 | Analysis tools: extract_numeric_data, statistical_summary, comparison_table (FIX-D2 header sanitization), rank_by_impact |
+| `analysis_notebook.py` | ~300 | AnalysisNotebook + AnalysisStep: ordered step tracking, synthesis context builder, entry export |
+| `tool_registry.py` | ~430 | ToolRegistry + ToolDefinition: tool registration, lookup, execution. FIX-D2 absurd value filtering |
+| `evidence_database.py` | ~200 | Evidence SQLite database for structured queries |
+| `evidence_extractor.py` | ~250 | Evidence extraction from raw content |
+| `code_executor.py` | ~150 | Safe Python code execution sandbox |
+| `data_analyzer.py` | ~200 | Data analysis utilities |
+| `pdf_table_extractor.py` | ~180 | PDF table extraction |
+| `package_installer.py` | ~100 | Runtime package installation |
 
 ---
 
@@ -406,6 +423,8 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `pg_test_061.py` | -- | PG_TEST_061 test runner script |
 | `run_audit.py` | 127 | Automated deep audit CLI (`python scripts/run_audit.py --result-file <path>`) |
 | `audit_v3_report.py` | 260 | v3 Hybrid forensic audit: 4 quality layers (analytical depth, structure, integrity, surface), A-F grading, JSON+text output. `python scripts/audit_v3_report.py <report.md> [--json]` |
+| `react_stress_test.py` | ~1770 | **ReAct stress test**: 14 test sets (PFAS/DVS/Adhesion), 6-axis scoring (100pts) + hygiene score (15pts), Bayesian CI multi-run, Wilcoxon A/B comparison, NLI faithfulness audit, async MiniCheck. `python -u -m scripts.react_stress_test --fast --runs 7` |
+| `react_full_scale_test.py` | -- | Full-scale ReAct test runner |
 | `run_s1v1_full.py` | 229 | Run S1V1 full pipeline (legacy) |
 | `playwright_visual_overhaul.py` | ~850 | Closed-loop Playwright visual audit: 40 checks across 9 tabs, 3 breakpoints, screenshots + JSON audit report. Manages inject->server->browser lifecycle. |
 | `deploy.sh` | ~1215 | **Sprint 5**: Production deployment script. Prerequisites check (Python/pip/CUDA/Docker/port), GPU detection (nvidia-smi/CUDA/VRAM), venv setup, .env validation + template generation, directory creation, health check (start server, poll /health, verify /api/system/info), Docker mode (compose build/up, GPU passthrough). CLI flags: --check-only, --docker, --gpu, --no-gpu, --port, --help. Colored output, trap cleanup, cross-platform venv paths. |
@@ -503,6 +522,12 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 ---
 
 ## 11. tests/ -- Test Suite
+
+### tests/v3/ -- ReAct Agent Tests (204 tests)
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `test_react_agent.py` | 204 | Comprehensive ReAct agent tests: tool selection, timeout, provenance, parroting, structural rewrite, quality gate (template echo, grammar, phantom), post-processor (P2 cleanup, P7 grounding, R3 scale guard, expanded decimal, CiteFix, citation normalization), hygiene scoring, MiniCheck async integration. 20 tests added Session 50. |
 
 ### tests/unit/ -- 31 Unit Test Files
 
