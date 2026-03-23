@@ -58,9 +58,10 @@ torch>=2.0.0
 semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
 
 # RAG Verification (Sprint 2)
-# MiniCheck for auditor - install separately with:
-# pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
-# Note: Not on PyPI, must install from git
+# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+# Install separately (not on PyPI):
+#   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
 
 # Search & Content
 crawl4ai>=0.8.0  # Free Playwright-based web crawler (LLM-ready markdown)

@@ -414,6 +414,21 @@ async def _wrap_comparison_table(
     if len(filtered) < 2:
         filtered = unit_data[:50]  # Fallback: just cap rows
 
+    # FIX-D2: Filter absurd numeric values before table construction
+    _max_reasonable = float(os.getenv("PG_TABLE_MAX_VALUE", "1e9"))
+    sane = []
+    for dp in filtered:
+        try:
+            val = float(
+                str(dp.get("value", 0)).replace(",", ""),
+            )
+            if abs(val) <= _max_reasonable:
+                sane.append(dp)
+        except (ValueError, TypeError):
+            sane.append(dp)  # Keep non-numeric values
+    if sane:
+        filtered = sane
+
     table_md = build_comparison_table(filtered)
     ev_ids = _extract_evidence_ids(filtered)
 

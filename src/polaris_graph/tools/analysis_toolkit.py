@@ -353,6 +353,21 @@ def statistical_summary(
     }
 
 
+def _sanitize_column_header(raw: str, max_len: int = 40) -> str:
+    """FIX-D2: Truncate long column headers to readable length.
+
+    Tries to split at natural break points before falling back to
+    hard truncation.
+    """
+    if len(raw) <= max_len:
+        return raw
+    for sep in [",", " - ", ": ", " ("]:
+        pos = raw.find(sep)
+        if 10 < pos < max_len:
+            return raw[:pos]
+    return raw[:max_len - 3] + "..."
+
+
 def build_comparison_table(
     data_points: list[dict],
     row_field: str = "source_url",
@@ -408,11 +423,14 @@ def build_comparison_table(
     if not row_keys or not col_keys:
         return ""
 
-    # Build headers
+    # Build headers — FIX-D2: sanitize long column headers
     row_header_label = row_field.replace("_", " ").title()
-    headers = [row_header_label] + col_keys
+    headers = [row_header_label] + [
+        _sanitize_column_header(c) for c in col_keys
+    ]
+    expected_cols = len(headers)
 
-    # Build data rows
+    # Build data rows — FIX-D2: pad/truncate to match header count
     rows = []
     for row_key in row_keys:
         display_key = (
@@ -423,6 +441,11 @@ def build_comparison_table(
         for col_key in col_keys:
             cell = pivot[row_key].get(col_key, "\u2014")
             row_data.append(cell)
+        # Pad short rows
+        while len(row_data) < expected_cols:
+            row_data.append("\u2014")
+        # Truncate long rows
+        row_data = row_data[:expected_cols]
         rows.append(row_data)
 
     # Add summary row (mean/range for numeric columns, count for non-numeric)

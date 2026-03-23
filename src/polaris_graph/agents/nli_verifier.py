@@ -21,6 +21,7 @@ Falls back gracefully to LLM verification if NLI model unavailable.
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -29,11 +30,33 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # Model selection via env var
+# Wave 5: PG_NLI_MODEL=auto selects best model within VRAM constraints
 PG_NLI_MODEL = os.getenv("PG_NLI_MODEL", "flan-t5-large")
 PG_NLI_BATCH_SIZE = int(os.getenv("PG_NLI_BATCH_SIZE", "16"))
 PG_NLI_ENABLED = os.getenv("PG_NLI_ENABLED", "0") == "1"
-PG_NLI_DISPUTE_THRESHOLD = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.3"))
-PG_NLI_CONTEXT_WINDOW = int(os.getenv("PG_NLI_CONTEXT_WINDOW", "2048"))
+# Wave 5: Lower dispute threshold → more claims get LLM second opinion
+PG_NLI_DISPUTE_THRESHOLD = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
+# Wave 5: Expanded context window for better surrounding evidence capture
+PG_NLI_CONTEXT_WINDOW = int(os.getenv("PG_NLI_CONTEXT_WINDOW", "3072"))
+
+# D5-FIX: Domain-adaptive NLI threshold.
+# When the average NLI score across ALL claims is below this floor, the NLI
+# model cannot handle the domain (e.g., polymer chemistry, niche materials).
+# All claims are marked DISPUTED for LLM second opinion instead of blindly
+# marking them CONTRADICTS.
+PG_NLI_DOMAIN_ADAPTIVE = os.getenv("PG_NLI_DOMAIN_ADAPTIVE", "0") == "1"
+PG_NLI_DOMAIN_FLOOR = float(os.getenv("PG_NLI_DOMAIN_FLOOR", "0.10"))
+
+# Wave 5: Analytical claim patterns — skip NLI, route to LLM second opinion.
+# These are synthesis claims, not factual assertions, so NLI will false-negative.
+_ANALYTICAL_CLAIM_PATTERNS = re.compile(
+    r'(?:rank(?:s|ed)?\s+highest|more\s+effective\s+than|'
+    r'compared\s+to|outperform|superior\s+to|less\s+efficient|'
+    r'most\s+promising|best\s+(?:option|choice|candidate)|'
+    r'preferred\s+(?:over|to)|worse\s+than|'
+    r'higher\s+(?:performance|efficiency)|lower\s+(?:cost|price))',
+    re.IGNORECASE,
+)
 
 # FIX-047J: FaithLens 8B model option (F1: 87.3 vs flan-t5-large 62.1)
 # Set PG_NLI_MODEL=faithlens to enable. Requires: pip install faithlens
@@ -92,16 +115,59 @@ async def _load_faithlens():
             return None
 
 
+def _auto_select_nli_model() -> str:
+    """Wave 5: Auto-detect VRAM and select best NLI model.
+
+    Returns model name string:
+    - "Bespoke-MiniCheck-7B" if VRAM >= 16GB
+    - "flan-t5-large" otherwise (or if no GPU)
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            vram_bytes = getattr(
+                props, "total_memory",
+                getattr(props, "total_mem", 0),
+            )
+            vram_gb = vram_bytes / (1024 ** 3)
+            logger.info(
+                "[polaris graph] Wave 5: Detected %.1f GB VRAM", vram_gb,
+            )
+            if vram_gb >= 16:
+                return "Bespoke-MiniCheck-7B"
+    except ImportError:
+        pass
+    except Exception as exc:
+        logger.warning(
+            "[polaris graph] Wave 5: VRAM detection failed: %s",
+            str(exc)[:100],
+        )
+    return "flan-t5-large"
+
+
 async def load_nli_model():
     """Lazy-load NLI scorer. Returns scorer instance or None.
 
-    FIX-047J: When PG_NLI_MODEL=faithlens, loads FaithLens 8B (F1: 87.3).
-    Otherwise loads MiniCheck flan-t5-large (F1: 62.1) as before.
+    Wave 5: PG_NLI_MODEL=auto detects VRAM and picks best model:
+    - >=16GB → MiniCheck-7B (77.4% LLM-AggreFact)
+    - <16GB  → flan-t5-large (75.0% LLM-AggreFact)
+
+    FIX-047J: PG_NLI_MODEL=faithlens loads FaithLens 8B (F1: 87.3).
     """
     global _scorer
 
+    # Wave 5: Auto-select model based on VRAM
+    model_name = PG_NLI_MODEL
+    if model_name == "auto":
+        model_name = _auto_select_nli_model()
+        logger.info(
+            "[polaris graph] Wave 5: Auto-selected NLI model: %s",
+            model_name,
+        )
+
     # FIX-047J: Route to FaithLens if configured
-    if PG_NLI_MODEL == "faithlens":
+    if model_name == "faithlens":
         return await _load_faithlens()
 
     if _scorer is not None:
@@ -683,11 +749,25 @@ async def verify_evidence_nli(
         else:
             basis_list.append("title_only")
 
+    # Wave 5: Detect analytical synthesis claims (comparisons, rankings)
+    # that NLI false-negatives on. Route these to LLM second opinion.
+    analytical_indices: set[int] = set()
+    for i, ev in enumerate(evidence):
+        statement = ev.get("statement", "")
+        if _ANALYTICAL_CLAIM_PATTERNS.search(statement):
+            analytical_indices.add(i)
+
     if offtopic_indices:
         logger.info(
             "[polaris graph] RC-5: %d/%d evidence pieces flagged as off-topic "
             "(zero query keyword overlap with source)",
             len(offtopic_indices), len(evidence),
+        )
+    if analytical_indices:
+        logger.info(
+            "[polaris graph] Wave 5: %d/%d claims are analytical synthesis "
+            "(will route to LLM second opinion instead of NLI)",
+            len(analytical_indices), len(evidence),
         )
 
     if not docs_list:
@@ -756,6 +836,18 @@ async def verify_evidence_nli(
             is_faithful = False
             reasoning = f"RC-5 OFF-TOPIC OVERRIDE: source has zero query keyword overlap. Original NLI score: {prob:.3f}"
             offtopic_overrides += 1
+
+        # Wave 5: Analytical claims get dispute flag to route to LLM.
+        # NLI is too strict for comparative/synthesis claims — the claim
+        # isn't a factual assertion that can be entailed by a single source.
+        if i in analytical_indices and not is_faithful:
+            # W5 fix: force into disputed zone, floor at 0.0
+            prob = max(0.0, min(prob, PG_NLI_DISPUTE_THRESHOLD - 0.01))
+            reasoning = (
+                f"Wave 5 ANALYTICAL: comparative/ranking claim bypasses "
+                f"NLI (original score: {float(raw_probs[i]) if i < len(raw_probs) else 0.0:.3f}). "
+                f"Routed to LLM second opinion."
+            )
 
         # FIX-047-K4: Mark self-referential verification explicitly.
         # NLI checks claim against its OWN source — this validates extraction
@@ -843,6 +935,27 @@ async def verify_evidence_nli(
         total / max(elapsed, 0.1),
         PG_NLI_MODEL,
     )
+
+    # D5-FIX: Domain-adaptive NLI threshold.
+    # When avg NLI score is extremely low (< floor), the model can't handle
+    # this domain — mark all claims DISPUTED for LLM fallback instead of
+    # blindly failing them. Normal domains (PFAS avg ~0.6) are unaffected.
+    if PG_NLI_DOMAIN_ADAPTIVE and results:
+        nli_scores = [
+            r.get("nli_score", 0.0) for r in results
+        ]
+        avg_nli = sum(nli_scores) / max(len(nli_scores), 1)
+        if avg_nli < PG_NLI_DOMAIN_FLOOR:
+            logger.warning(
+                "[polaris graph] D5: NLI domain-incompatible detected "
+                "(avg_score=%.3f < floor=%.3f). Marking %d claims DISPUTED "
+                "for LLM second opinion.",
+                avg_nli, PG_NLI_DOMAIN_FLOOR, len(results),
+            )
+            for r in results:
+                r["is_faithful"] = False
+                r["verdict"] = "DISPUTED"
+                r["verification_method"] = "nli_domain_incompatible"
 
     return results
 
