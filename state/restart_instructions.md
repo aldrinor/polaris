@@ -1,75 +1,72 @@
 # Restart Instructions
 
-## Current State (2026-03-22)
-**SESSION 50: 27-Defect Fix Plan — ALL 5 WPs IMPLEMENTED + 2 BUG FIXES**
+## Current State (2026-03-23)
+**SESSION 51: Generate-Then-Attribute Architecture — READY TO IMPLEMENT**
 
-### What Happened This Session
-Implemented the full 27-defect fix plan from the 7-run stress test audit. 5 work packages across 3 files, plus 2 post-smoke-test bug fixes discovered during verification. 3 smoke tests confirmed all fixes work.
+### What Happened Last Session (Session 50-51)
 
-**WP-1: Neutralize Defect-Creating Post-Processor**
-- WP-1.1: Transform B gated behind `PG_TRANSFORM_B_ENABLED` (default OFF) — both primary + fallback blocks
-- WP-1.2: P7 decimal boundary fix + R3 expanded-decimal rejection (10+ digits) + standalone expanded-decimal detector
-- WP-1.3: P2 orphaned punctuation cleanup + sentence-length guard + bare-item removal (moved unconditional to end of post-processor)
-- WP-1.4: Citation token whitespace normalization before dedup
+**Session 50 (committed, 4 commits):**
+- 27-defect fix plan fully implemented (5 WPs + 2 bug fixes)
+- 204 tests pass, 3 smoke tests verified (mean 86/100, 0 phantoms, 0 bare items)
+- 7-run evaluation completed (mean 83.5, 95% CI [57.1, 94.7])
+- Full manual audit of all 14 interpretation outputs
+- All documentation updated
 
-**WP-2: Strengthen Quality Gate**
-- WP-2.1: Template echo detector (4 patterns), echo_ok gate, scrub-before-return fallback, parroted_count threshold raised to 5
-- WP-2.2: Grammar integrity check (mid-word cites + 80-word run-on detection)
-- WP-2.3: Phantom citation removal via `_strip_phantom_citations()` helper — runs in quality gate AND `_post_process_interpretation()`
-- WP-2.4: Hygiene score as SEPARATE 15-point metric in stress test (not folded into main score)
+**Session 51 (research + planning, no code committed):**
+- Researched production RAG output quality (ACL 2024-2026, PaperQA2, Anthropic, CiteFix, ReClaim, STORM)
+- Attempted 3 template patch iterations — ALL FAILED:
+  1. "What evidence supports X's role in Y?" → leaked 20+ instances
+  2. "How does X affect Y?" → DVS collapsed to 58/100 (too vague)
+  3. "What specific findings describe X's impact on Y?" → leaked 25+ new instances
+- **Root cause confirmed:** ANY distinctive phrase in qualitative claim template will echo. Template patching is a dead end.
+- **Decision:** Generate-Then-Attribute architecture — separate prose generation from citation placement
+- **Plan written and critically reviewed:** `C:\Users\msn\.claude\plans\cached-popping-locket.md`
+- Experimental code changes REVERTED to clean committed state
 
-**WP-3: Fix Broken WS-1 + WS-5**
-- WP-3.1: `audit_citations()` made async, `await load_nli_model()` replaces `run_until_complete()`
-- WP-3.2: CiteFix uses runtime `os.getenv()` at call site instead of import-time `_CITEFIX_ENABLED`
+### Next Step: Implement Generate-Then-Attribute
 
-**WP-4: Timeout Fallback**
-- Budget threshold 180s→90s, fast-path emergency retry for <2500 char outputs
+**Read the plan first:** `C:\Users\msn\.claude\plans\cached-popping-locket.md`
 
-**WP-5: Dead Stage Removal**
-- PQ-3 filler removal removed (too aggressive)
-- Fix 3b fabricated matrix scores removed (removed evidence-backed content)
+The plan has 6 critical issues identified and fixed, 2 moderate issues, realistic effort estimates (~190 min implementation + ~120 min validation), and a feature flag for safe rollback.
 
-**Post-Smoke-Test Bug Fixes**
-- Bug 1: Phantom citations in appended sections — `_strip_phantom_citations()` added to `_post_process_interpretation()` end
-- Bug 2: Bare items from LLM rankings — cleanup moved from inside `if removed_cites > 0:` to unconditional at end of post-processor
+**Summary of the 3 changes:**
+1. **CHANGE-1:** Strip `[CITE:ev_xxx]` from scaffold — replace with `(refs: ev_xxx)` metadata
+2. **CHANGE-2:** Strip `[CITE:ev_xxx]` from write prompt — LLM writes clean prose
+3. **CHANGE-3:** New `_attribute_citations()` — 3-strategy (number + keyword + embedding) citation placement at sentence boundaries
 
-**Commits**
-- `acf0877` — Wave 5 NLI + FIX-D2 (5 pre-existing files)
-- `3154f00` — 27-defect fix plan (3 files: react_agent.py, react_stress_test.py, test_react_agent.py)
+**Feature flag:** `PG_GENERATE_THEN_ATTRIBUTE=1` (default OFF for safe rollback)
 
-### Smoke Test Results (3 runs)
-| Run | PFAS Score | DVS Score | Mean | Phantoms | Bare Items |
-|-----|-----------|-----------|------|----------|------------|
-| 1 (pre-bugfix) | 86 | 80 | 83 | 3 | 5 |
-| 2 (bug2 fixed) | 92 | 76 | 84 | 3 | 0 |
-| 3 (both fixed) | 91 | 81 | 86 | 0 | 0 |
-
-### Next Steps
-1. **Full 7-run evaluation**: `python -u -m scripts.react_stress_test --fast --runs 7 --baseline outputs/stress_test_scores.json`
-2. **Manual audit**: Read 1 full run line-by-line, grep for surviving defects
-3. **Follow-up fixes** (next cycle):
-   - Broaden template echo patterns for non-DVS domains
-   - Add expanded-decimal cleanup to `_post_process_interpretation()`
-   - Address deferred defects: C2 (table rows), C3 (exec summary), C4 (conditional recs)
+### Key Baseline Numbers
+- **Pre-fix mean:** 83.5/100 (7-run, 14 outputs)
+- **DVS range:** 77-91
+- **PFAS range:** 69-86
+- **Defects eliminated (Session 50):** A1, A3, B5, C1, D1, D4 (all at 0/14 runs)
+- **Defects remaining:** B1 (50%), B3 (14%), D2 (21%), grammar (93%), verbatim (29%)
 
 ### Key Commands
 ```bash
-# Run all tests (204 expected)
+# Tests (204 expected, clean committed state)
 python -m pytest tests/v3/test_react_agent.py -x -q
 
-# Fast smoke test (2 sets, 300s timeout)
+# Smoke test
 python -u -m scripts.react_stress_test --fast --sets 1
 
-# Full 7-run evaluation with baseline
+# 7-run evaluation with baseline
 python -u -m scripts.react_stress_test --fast --runs 7 --baseline outputs/stress_test_scores.json
 
 # Preflight
 python -u scripts/pg_preflight_v2.py
 ```
 
-### All Modified Files (This Session)
-| File | Changes |
+### Commits (Session 50, all on v3-rewrite branch)
+- `353c9da` — file_directory.md update
+- `d2407cc` — Session 50 documentation
+- `3154f00` — 27-defect fix plan (main code change)
+- `acf0877` — Wave 5 NLI + FIX-D2
+
+### Critical Files
+| File | Purpose |
 |------|---------|
-| `src/polaris_graph/tools/react_agent.py` | WP-1 through WP-5 + bug fixes (+2625/-230 lines) |
-| `scripts/react_stress_test.py` | WP-2.4 hygiene score + WP-3.1 async fix (+409 lines) |
-| `tests/v3/test_react_agent.py` | 20 new/updated tests (+2475 lines) |
+| `src/polaris_graph/tools/react_agent.py` | Main file — ALL changes go here |
+| `tests/v3/test_react_agent.py` | 204 tests — need ~8 new + ~30 updated |
+| `C:\Users\msn\.claude\plans\cached-popping-locket.md` | Full implementation plan with critical review |
