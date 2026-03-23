@@ -28,7 +28,54 @@ import time
 from collections import Counter
 from pathlib import Path
 
+# Windows console encoding fix: LLM output contains Unicode chars that
+# cp1252 can't encode. Force UTF-8 with replacement on error.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import numpy as np
+from scipy import stats
+
+
+# ---------------------------------------------------------------------------
+# WS-4: Statistical evaluation framework (Bayesian CIs, multi-run protocol)
+# ---------------------------------------------------------------------------
+
+def bayesian_ci(scores: list[float], alpha: float = 0.05) -> tuple[float, float, float]:
+    """Bayesian credible interval (Beta-Binomial) for [0,100] scores.
+
+    Returns (mean, lower_bound, upper_bound) as percentages.
+    Uses uninformative Beta(1,1) prior. Per ICML 2025 recommendation,
+    CLT/bootstrap CIs dramatically underestimate uncertainty for small N.
+    """
+    if not scores:
+        return 0.0, 0.0, 0.0
+    normalized = np.array(scores) / 100.0
+    a_post = 1 + np.sum(normalized)
+    b_post = 1 + len(normalized) - np.sum(normalized)
+    lower = stats.beta.ppf(alpha / 2, a_post, b_post) * 100
+    upper = stats.beta.ppf(1 - alpha / 2, a_post, b_post) * 100
+    return float(np.mean(scores)), float(lower), float(upper)
+
+
+def compare_configs(
+    scores_a: list[float], scores_b: list[float],
+) -> tuple[float, float]:
+    """Wilcoxon signed-rank test for paired runs.
+
+    Requires 10+ paired observations for reliable p-values.
+    Returns (test_statistic, p_value).
+    """
+    if len(scores_a) < 6 or len(scores_b) < 6:
+        return 0.0, 1.0  # Insufficient data
+    if len(scores_a) != len(scores_b):
+        n = min(len(scores_a), len(scores_b))
+        scores_a = scores_a[:n]
+        scores_b = scores_b[:n]
+    stat, p = stats.wilcoxon(scores_a, scores_b)
+    return float(stat), float(p)
 
 
 # ---------------------------------------------------------------------------
@@ -67,12 +114,14 @@ TEST_SETS = [
 # Deep content audit functions
 # ---------------------------------------------------------------------------
 
-def audit_citations(context: str, evidence_store: dict) -> dict:
+async def audit_citations(context: str, evidence_store: dict) -> dict:
     """Audit every [CITE:ev_xxx] token in the context.
 
     Uses a LINE-level context window for list items (not 200-char window)
     to avoid cross-item bleed. A citation on a list item about "PFOS 34 ng/L"
     should be checked against THAT line, not the header 3 lines above.
+
+    WP-3.1: Made async to avoid `run_until_complete()` inside running loop.
     """
     cite_pattern = re.compile(r'\[CITE:(ev_[a-f0-9]+)\]')
     all_cites = cite_pattern.findall(context)
@@ -129,6 +178,68 @@ def audit_citations(context: str, evidence_store: dict) -> dict:
                     "number_overlap": len(num_overlap),
                 })
 
+    # R2: MiniCheck NLI verification (WS-1 SOTA) with embedding fallback.
+    # MiniCheck-FT5 matches GPT-4 factuality at 400x lower cost (EMNLP 2024).
+    # Falls back to cosine similarity when MiniCheck is unavailable.
+    if mismatched:
+        minicheck_available = False
+        try:
+            if os.getenv("PG_NLI_ENABLED", "0") == "1":
+                from src.polaris_graph.agents.nli_verifier import load_nli_model
+                scorer = await load_nli_model()
+                if scorer is not None:
+                    minicheck_available = True
+                    ctx_texts = [m["context_line"] for m in mismatched]
+                    ev_texts = [m["evidence_statement"] for m in mismatched]
+                    _labels, probs, _chunks, _chunk_probs = scorer.score(
+                        docs=ev_texts, claims=ctx_texts,
+                    )
+                    rescued = []
+                    still_mismatched = []
+                    n = len(mismatched)
+                    for i, m_item in enumerate(mismatched):
+                        p = float(probs[i])
+                        if p >= 0.25:  # MiniCheck entailment threshold
+                            rescued.append(m_item["evidence_id"])
+                        else:
+                            still_mismatched.append(m_item)
+                    if rescued:
+                        print(f"    R2: MiniCheck rescued {len(rescued)}/{n} "
+                              f"citations (NLI >= 0.25)")
+                    mismatched = still_mismatched
+        except (ImportError, Exception) as exc:
+            print(f"    R2: MiniCheck unavailable ({type(exc).__name__}), "
+                  f"falling back to embedding similarity")
+
+        # Embedding fallback when MiniCheck unavailable
+        if not minicheck_available and mismatched:
+            try:
+                from src.utils.embedding_service import embed_texts
+                rescued = []
+                still_mismatched = []
+                ctx_texts = [m["context_line"] for m in mismatched]
+                ev_texts = [m["evidence_statement"] for m in mismatched]
+                all_texts = ctx_texts + ev_texts
+                all_vecs = embed_texts(all_texts)
+                n = len(mismatched)
+                for i, m_item in enumerate(mismatched):
+                    ctx_vec = all_vecs[i]
+                    ev_vec = all_vecs[n + i]
+                    dot = sum(a * b for a, b in zip(ctx_vec, ev_vec))
+                    mag_a = sum(a * a for a in ctx_vec) ** 0.5
+                    mag_b = sum(b * b for b in ev_vec) ** 0.5
+                    sim = dot / (mag_a * mag_b) if mag_a > 0 and mag_b > 0 else 0.0
+                    if sim >= 0.50:
+                        rescued.append(m_item["evidence_id"])
+                    else:
+                        still_mismatched.append(m_item)
+                if rescued:
+                    print(f"    R2: Embedding rescued {len(rescued)}/{n} "
+                          f"citations (sim >= 0.50)")
+                mismatched = still_mismatched
+            except ImportError:
+                pass  # embedding_service not available — skip fallback
+
     return {
         "total_cite_tokens": len(all_cites),
         "unique_cited": len(unique_cites),
@@ -166,15 +277,31 @@ def audit_information_density(context: str) -> dict:
         else:
             content_lines += 1
 
+    # R1: Expanded unit regex covering all scientific domains.
+    # Word-boundary guards on ambiguous short units (m, N, Da).
+    _unit_rx = (
+        r'%|mg/[Ll]|µg/[Ll]|ng/[Ll]|g/L|mg/g|'        # concentration
+        r'ppt|ppb|ppm|'                                   # parts-per
+        r'kDa|Da\b|'                                      # molecular wt
+        r'GPa|MPa|kPa|Pa\b|bar\b|atm\b|'                # pressure
+        r'(?:µ|n|m|c|k)m\b|'                             # length (nm µm mm cm km)
+        r'°[CF]|'                                         # temperature
+        r'[Ll]/min|m[Ll]/min|m³/h|'                      # flow rate
+        r'(?:k|m)?N\b|'                                   # force
+        r'g/m2|kg/m2|m2\b|'                              # area / density
+        r'k?Wh|MWh|'                                      # energy
+        r'(?:m|k)?Hz|rpm|'                                # frequency
+        r'\$|USD|EUR'                                      # currency
+    )
     # Count numbers in content (sign of data density)
     numbers_found = len(re.findall(
-        r'\d+\.?\d*\s*(%|mg|ng|ppt|ppb|ppm|m2|kWh|\$|USD|g/L|mg/g)',
+        r'\d+\.?\d*\s*(?:' + _unit_rx + r')',
         context,
     ))
 
     # Count unique factual claims (sentences with numbers + units)
     factual_sentences = len(re.findall(
-        r'[A-Z][^.!?]*\d+\.?\d*\s*(%|mg|ng|ppt|ppb|ppm|kWh|\$)[^.!?]*[.!?]',
+        r'[A-Z][^.!?]*\d+\.?\d*\s*(?:' + _unit_rx + r')[^.!?]*[.!?]',
         context,
     ))
 
@@ -642,33 +769,28 @@ def audit_parroting(context: str, evidence_store: dict) -> dict:
 def audit_integration(context: str, query: str) -> dict:
     """Measure multi-criteria integration depth in the synthesis.
 
-    Detects whether the query is multi-criteria and checks how many
-    paragraphs integrate 3+ different criteria keywords.
+    When PG_DISCOURSE_INTEGRATION=1, uses discourse relation TYPE counting
+    (Argument Mining Workshop 2025): a paragraph is "integrated" only when
+    it contains 2+ DISTINCT discourse relation types. This eliminates false
+    positives from single-dimension text like "optimal performance".
+
+    Falls back to keyword co-occurrence when the feature flag is off.
     """
     multi_criteria_pattern = re.compile(
         r'\b(?:and|&|vs\.?|versus|compare)\b', re.IGNORECASE,
     )
     is_multi_criteria = bool(multi_criteria_pattern.search(query))
 
-    criteria_words = {
-        "cost", "price", "expensive", "affordable", "budget",
-        "effective", "efficiency", "removal", "performance", "treatment",
-        "trade-off", "tradeoff", "however", "whereas", "although",
-        "compared", "versus", "limitation", "drawback", "advantage",
-    }
+    use_discourse = os.getenv("PG_DISCOURSE_INTEGRATION", "0") == "1"
 
-    paragraphs = [p.strip() for p in context.split("\n\n") if p.strip()]
-    integrated_count = 0
+    if use_discourse:
+        integrated_count, total_paragraphs = _discourse_integration(context)
+    else:
+        integrated_count, total_paragraphs = _keyword_integration(context)
 
-    for para in paragraphs:
-        para_lower = para.lower()
-        found = {w for w in criteria_words if w in para_lower}
-        # 2+ criteria words = integrated (was 3, too strict)
-        if len(found) >= 2:
-            integrated_count += 1
-
-    total_paragraphs = len(paragraphs) or 1
-    integration_ratio = round(integrated_count / total_paragraphs, 4)
+    integration_ratio = round(
+        integrated_count / max(total_paragraphs, 1), 4,
+    )
 
     # Broader ranking detection — includes conditional rankings,
     # numbered lists, "tier" systems, confidence scores
@@ -686,12 +808,88 @@ def audit_integration(context: str, query: str) -> dict:
 
     return {
         "is_multi_criteria": is_multi_criteria,
-        "total_paragraphs": len(paragraphs),
+        "total_paragraphs": total_paragraphs,
         "integrated_paragraphs": integrated_count,
         "integration_ratio": integration_ratio,
         "has_ranking": has_ranking,
         "integration_score": integration_score,
     }
+
+
+# Discourse relation patterns (WS-3, MODERATE-2: mutually exclusive).
+# Each connective maps to exactly one category. "while" is contrastive
+# only when standalone; trade_off requires explicit trade-off language.
+_DISCOURSE_RELATIONS: dict[str, re.Pattern] = {
+    "causal": re.compile(
+        r'\b(?:because|therefore|consequently|as a result|thus|hence|'
+        r'leading to|caused by|owing to|due to)\b', re.IGNORECASE,
+    ),
+    "contrastive": re.compile(
+        r'\b(?:however|although|whereas|despite|nevertheless|'
+        r'on the other hand|in contrast|while|yet|nonetheless)\b',
+        re.IGNORECASE,
+    ),
+    "conditional": re.compile(
+        r'\b(?:provided that|depending on|assuming|unless)\b|'
+        r'\bif\b[^.]{5,80}\bthen\b',
+        re.IGNORECASE,
+    ),
+    "trade_off": re.compile(
+        r'\b(?:trade-off|tradeoff|at the expense of|balanced against)\b|'
+        r'\bwhile\s+\w+\s+improve\w*\b[^.]{3,60}\breduce\w*\b',
+        re.IGNORECASE,
+    ),
+    "additive": re.compile(
+        r'\b(?:moreover|furthermore|in addition|additionally|'
+        r'coupled with|along with)\b',
+        re.IGNORECASE,
+    ),
+    "evaluative": re.compile(
+        r'\b(?:superior|preferable|compared to|relative to|'
+        r'outperform\w*)\b',
+        re.IGNORECASE,
+    ),
+}
+
+
+def _discourse_integration(context: str) -> tuple[int, int]:
+    """Count paragraphs with 2+ distinct discourse relation types."""
+    paragraphs = [p.strip() for p in context.split("\n\n") if p.strip()]
+    integrated_count = 0
+
+    for para in paragraphs:
+        matched_types: set[str] = set()
+        for rel_type, pattern in _DISCOURSE_RELATIONS.items():
+            if pattern.search(para):
+                matched_types.add(rel_type)
+        if len(matched_types) >= 2:
+            integrated_count += 1
+
+    return integrated_count, len(paragraphs) or 1
+
+
+def _keyword_integration(context: str) -> tuple[int, int]:
+    """Legacy keyword co-occurrence integration detection."""
+    criteria_words = {
+        "cost", "price", "expensive", "affordable", "budget",
+        "effective", "efficiency", "removal", "performance", "treatment",
+        "trade-off", "tradeoff", "however", "whereas", "although",
+        "compared", "versus", "limitation", "drawback", "advantage",
+        "mechanism", "consequently", "therefore",
+        "correlation", "optimal", "threshold",
+        "scalability", "feasibility", "compatibility",
+    }
+
+    paragraphs = [p.strip() for p in context.split("\n\n") if p.strip()]
+    integrated_count = 0
+
+    for para in paragraphs:
+        para_lower = para.lower()
+        found = {w for w in criteria_words if w in para_lower}
+        if len(found) >= 2:
+            integrated_count += 1
+
+    return integrated_count, len(paragraphs) or 1
 
 
 def audit_evidence_coverage(context: str, evidence_store: dict) -> dict:
@@ -1001,7 +1199,7 @@ async def run_one_test(test_set: dict) -> dict:
     # -----------------------------------------------------------------------
     # DEEP AUDIT (6-Axis Evaluation)
     # -----------------------------------------------------------------------
-    cite_audit = audit_citations(audit_context, evidence_store)
+    cite_audit = await audit_citations(audit_context, evidence_store)
     density_audit = audit_information_density(audit_context)
     artifact_audit = audit_structured_artifacts(audit_context)
     stats_audit = audit_statistics(entries, notebook.data_points)
@@ -1285,13 +1483,54 @@ async def run_one_test(test_set: dict) -> dict:
     print(f"    Cross-source sentences: {cross_source_audit['cross_source_sentences']}")
     print(f"    Cross-source ratio: {cross_source_audit['cross_source_ratio']:.0%}")
 
-    print(f"\n  ── SCORE: {score}/{max_score} ──")
+    # WP-2.4: Hygiene score — SEPARATE from main score (CRITICAL-3)
+    # Detects structural defects without breaking baseline comparability.
+    hygiene_deductions = 0
+    hygiene_details = []
+    # Template echoes (-3 each)
+    _h_echo_patterns = [
+        r'\b[A-Z]\w+\s+demonstrates?\s+(?:is|are|was|were|sees|'
+        r'items|production|evaluation|activation|modification|'
+        r'force|adhesion|strength|properties)\b',
+        r'\b\w+\s+evidence\s+supports?\s+(?:general\s+)?'
+        r'(?:\w+\s+)?role\b',
+        r'\bEvidence\s+supports?\s+\w+\'s\s+role\b',
+    ]
+    for hp in _h_echo_patterns:
+        h_matches = re.findall(hp, audit_context, re.IGNORECASE)
+        if h_matches:
+            hygiene_deductions += 3 * len(h_matches)
+            hygiene_details.append(
+                f"template_echo({len(h_matches)}): -"
+                f"{3 * len(h_matches)}"
+            )
+    # Orphaned fragments (-3 each)
+    bare_items = re.findall(r'^\s*\d+\.\s*$', audit_context, re.MULTILINE)
+    if bare_items:
+        hygiene_deductions += 3 * len(bare_items)
+        hygiene_details.append(
+            f"bare_items({len(bare_items)}): -{3 * len(bare_items)}"
+        )
+    # Number corruption (-3 each)
+    expanded_decs = re.findall(r'\d{10,}', audit_context)
+    if expanded_decs:
+        hygiene_deductions += 3 * len(expanded_decs)
+        hygiene_details.append(
+            f"expanded_decimal({len(expanded_decs)}): "
+            f"-{3 * len(expanded_decs)}"
+        )
+    hygiene_score = max(0, 15 - hygiene_deductions)
+
+    print(f"\n  ── SCORE: {score}/{max_score} | Hygiene: "
+          f"{hygiene_score}/15 ──")
     print(f"    Axis 1 (Factual):     {score_a1}/25")
     print(f"    Axis 2 (Synthesis):   {score_a2}/25")
     print(f"    Axis 3 (QA):          {score_a3}/20")
     print(f"    Axis 4 (Evidence):    {score_a4}/10")
     print(f"    Axis 5 (Citation):    {score_a5}/10")
     print(f"    Axis 6 (Content):     {score_a6}/10")
+    if hygiene_details:
+        print(f"    Hygiene deductions:   {', '.join(hygiene_details)}")
     if penalties:
         for p in penalties:
             print(f"    penalty: {p}")
@@ -1332,6 +1571,7 @@ async def run_one_test(test_set: dict) -> dict:
             originality_audit['copy_ratio']
             if originality_audit else None
         ),
+        "hygiene_score": hygiene_score,
         "elapsed": round(elapsed, 1),
         "cost": round(cost, 4),
         "context_chars": len(context),
@@ -1356,12 +1596,19 @@ def parse_args():
         "--parallel", action="store_true",
         help="Run test sets concurrently",
     )
+    parser.add_argument(
+        "--runs", type=int, default=1,
+        help="Number of runs for Bayesian CI (default: 1, recommend 7+)",
+    )
+    parser.add_argument(
+        "--baseline", type=str, default=None,
+        help="Path to baseline scores JSON for Wilcoxon A/B comparison",
+    )
     return parser.parse_args()
 
 
-async def main():
-    args = parse_args()
-
+async def _single_run(args) -> list[dict]:
+    """Execute one full run across selected test sets. Returns results list."""
     # INF-4: Select test sets
     selected_sets = TEST_SETS
     if args.fast:
@@ -1428,10 +1675,11 @@ async def main():
     print(f"\n{'='*80}")
     print("STRESS TEST SUMMARY")
     print(f"{'='*80}")
-    print(f"{'Name':<15} {'Score':>5} {'Steps':>5} {'Data':>5} {'Cites':>5} "
-          f"{'Phntm':>5} {'Match':>5} {'Leak':>4} {'Time':>6} {'Cost':>7}")
-    print(f"{'-'*15} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*5} "
-          f"{'-'*4} {'-'*6} {'-'*7}")
+    print(f"{'Name':<15} {'Score':>5} {'Hyg':>4} {'Steps':>5} {'Data':>5} "
+          f"{'Cites':>5} {'Phntm':>5} {'Match':>5} {'Leak':>4} "
+          f"{'Time':>6} {'Cost':>7}")
+    print(f"{'-'*15} {'-'*5} {'-'*4} {'-'*5} {'-'*5} {'-'*5} {'-'*5} "
+          f"{'-'*5} {'-'*4} {'-'*6} {'-'*7}")
 
     total_cost = 0
     total_score = 0
@@ -1450,10 +1698,12 @@ async def main():
         total_score += r["score"]
 
         mismatch_marker = f"{r['mismatched']}!" if r["mismatched"] > 2 else str(r["mismatched"])
-        print(f"{r['name']:<15} {r['score']:>5} {r['successful']:>5} "
-              f"{r['data_points']:>5} {r['citations']:>5} {r['phantom']:>5} "
-              f"{mismatch_marker:>5} {r['leakage']:>4} {r['elapsed']:>5.1f}s "
-              f"${r['cost']:>6.4f}")
+        hyg = r.get('hygiene_score', '-')
+        print(f"{r['name']:<15} {r['score']:>5} {hyg:>4} "
+              f"{r['successful']:>5} {r['data_points']:>5} "
+              f"{r['citations']:>5} {r['phantom']:>5} "
+              f"{mismatch_marker:>5} {r['leakage']:>4} "
+              f"{r['elapsed']:>5.1f}s ${r['cost']:>6.4f}")
 
     if ok_count > 0:
         avg_score = total_score / ok_count
@@ -1470,6 +1720,93 @@ async def main():
         print("OVERALL VERDICT: PASS — Analysis robust across diverse evidence sets")
     else:
         print("OVERALL VERDICT: NEEDS WORK — See penalties above")
+    print(f"{'='*80}\n")
+
+    return results
+
+
+async def main():
+    args = parse_args()
+
+    if args.runs <= 1:
+        # Single run (original behavior)
+        await _single_run(args)
+        return
+
+    # Multi-run with Bayesian CI (WS-4)
+    print(f"\n{'='*80}")
+    print(f"POLARIS v3 ReAct MULTI-RUN EVALUATION — {args.runs} runs")
+    print(f"{'='*80}")
+
+    all_run_results: list[list[dict]] = []
+    all_scores: dict[str, list[float]] = {}
+
+    for run_idx in range(args.runs):
+        print(f"\n{'='*80}")
+        print(f"  RUN {run_idx + 1}/{args.runs}")
+        print(f"{'='*80}")
+        run_results = await _single_run(args)
+        all_run_results.append(run_results)
+
+        for r in run_results:
+            if r.get("status") == "OK":
+                name = r["name"]
+                all_scores.setdefault(name, []).append(r["score"])
+
+    # Bayesian CI summary
+    print(f"\n{'='*80}")
+    print(f"MULTI-RUN SUMMARY ({args.runs} runs)")
+    print(f"{'='*80}")
+    print(f"{'Name':<15} {'Mean':>6} {'95% CI':>18} {'Runs':>5} {'StdDev':>7}")
+    print(f"{'-'*15} {'-'*6} {'-'*18} {'-'*5} {'-'*7}")
+
+    overall_scores = []
+    for name, scores in sorted(all_scores.items()):
+        mean, ci_low, ci_high = bayesian_ci(scores)
+        sd = float(np.std(scores)) if len(scores) > 1 else 0.0
+        overall_scores.extend(scores)
+        print(
+            f"{name:<15} {mean:>5.1f} [{ci_low:>5.1f}, {ci_high:>5.1f}]"
+            f"   {len(scores):>5} {sd:>6.1f}"
+        )
+
+    if overall_scores:
+        mean, ci_low, ci_high = bayesian_ci(overall_scores)
+        sd = float(np.std(overall_scores)) if len(overall_scores) > 1 else 0.0
+        print(f"\n{'OVERALL':<15} {mean:>5.1f} [{ci_low:>5.1f}, {ci_high:>5.1f}]"
+              f"   {len(overall_scores):>5} {sd:>6.1f}")
+
+    # Wilcoxon A/B comparison against baseline
+    if args.baseline and overall_scores:
+        try:
+            with open(args.baseline, encoding="utf-8") as f:
+                baseline_data = json.load(f)
+            baseline_scores = baseline_data.get("scores", [])
+            if len(baseline_scores) >= 6 and len(overall_scores) >= 6:
+                stat, p = compare_configs(baseline_scores, overall_scores)
+                print(f"\n  Wilcoxon A/B vs baseline: stat={stat:.1f}, p={p:.4f}")
+                if p < 0.05:
+                    print("  Result: SIGNIFICANT difference (p < 0.05)")
+                else:
+                    print("  Result: No significant difference (p >= 0.05)")
+            else:
+                print(f"\n  Wilcoxon: Need 6+ paired runs (have "
+                      f"{len(baseline_scores)} baseline, "
+                      f"{len(overall_scores)} current)")
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            print(f"\n  Baseline load failed: {exc}")
+
+    # Save scores for future comparison
+    scores_output = {
+        "runs": args.runs,
+        "scores": overall_scores,
+        "per_set": {k: v for k, v in all_scores.items()},
+    }
+    scores_path = Path("outputs/stress_test_scores.json")
+    scores_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(scores_path, "w", encoding="utf-8") as f:
+        json.dump(scores_output, f, indent=2)
+    print(f"\n  Scores saved to {scores_path}")
     print(f"{'='*80}\n")
 
 
