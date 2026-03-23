@@ -1,10 +1,41 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-03-16 (Session 45 — v2 CRAG pipeline implemented, 7 rounds adversarial review, 30 fixes, STORM wired, Fire Tests 15/15 PASS, live_server v2 routing verified)
+**Last Updated**: 2026-03-22 (Session 50 — 27-defect fix plan: 5 WPs + 2 bug fixes, 3 smoke tests, mean 86/100)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Enterprise Plan)
 **Gemini Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Gemini Architecture Redesign)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
+
+---
+
+## REACT AGENT: 27-DEFECT FIX PLAN (Active Priority — Session 50)
+
+### Completed (commit 3154f00)
+- [x] WP-1.1: Gate Transform B behind PG_TRANSFORM_B_ENABLED (default OFF)
+- [x] WP-1.2: P7 decimal boundary + R3 expanded-decimal rejection + standalone detector
+- [x] WP-1.3: P2 cleanup + bare item removal (unconditional at end of post-processor)
+- [x] WP-1.4: Citation token whitespace normalization
+- [x] WP-2.1: Template echo detector (4 patterns) + scrub fallback + parroted_count<5
+- [x] WP-2.2: Grammar integrity check (mid-word cites + 80-word run-on)
+- [x] WP-2.3: Phantom citation removal (quality gate + post-processor)
+- [x] WP-2.4: Hygiene score as separate 15-point metric
+- [x] WP-3.1: audit_citations() async (MiniCheck crash fix)
+- [x] WP-3.2: CiteFix runtime os.getenv() (import-time binding fix)
+- [x] WP-4: Timeout fallback 180s→90s + fast-path emergency retry
+- [x] WP-5: Remove PQ-3 filler removal + Fix 3b fabricated matrix scores
+- [x] Bug 1: Phantom citations in retry/appended sections
+- [x] Bug 2: Bare items from LLM-generated empty rankings
+
+### Verification (Next Steps)
+- [ ] Full 7-run evaluation: `python -u -m scripts.react_stress_test --fast --runs 7`
+- [ ] Baseline comparison: `--baseline outputs/stress_test_scores.json`
+- [ ] Manual audit of 1 full run (grep for surviving defects)
+
+### Follow-Up Items (Future Cycle)
+- [ ] Broaden template echo patterns for non-DVS domains ("X demonstrates Y" where Y is arbitrary)
+- [ ] Add expanded-decimal cleanup to _post_process_interpretation() (currently only detected by hygiene)
+- [ ] Address deferred defects: C2 (table rows), C3 (exec summary), C4 (conditional recs)
+- [ ] Replace scaffold prompt template that causes template echoes at source
 
 ---
 
