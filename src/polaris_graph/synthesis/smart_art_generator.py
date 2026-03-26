@@ -423,6 +423,37 @@ class SmartArtGenerator:
                 len(mermaid_code),
                 mermaid_code[:120],
             )
+            # FIX-CITE-3/A4: Retry with simpler diagram type (flowchart TD)
+            logger.info(
+                "[smart_art] FIX-A4: Retrying '%s' with simplified flowchart",
+                section_title[:40],
+            )
+            try:
+                retry_prompt = (
+                    f"Create a simple Mermaid.js flowchart (flowchart TD) for:\n"
+                    f"Section: {section_title}\n"
+                    f"Use at most 10 nodes. Keep node labels under 40 characters.\n"
+                    f"Output ONLY valid Mermaid code, no markdown fences."
+                )
+                retry_resp = await llm_client.generate(
+                    prompt=retry_prompt,
+                    max_tokens=1500,
+                    temperature=0.3,
+                )
+                retry_code = _strip_code_fences(retry_resp.content.strip())
+                if _validate_mermaid(retry_code):
+                    logger.info(
+                        "[smart_art] FIX-A4: Retry succeeded for '%s' (%d chars)",
+                        section_title[:40],
+                        len(retry_code),
+                    )
+                    return retry_code
+            except Exception as retry_exc:
+                logger.warning(
+                    "[smart_art] FIX-A4: Retry failed for '%s': %s",
+                    section_title[:40],
+                    str(retry_exc)[:100],
+                )
             return ""
 
         logger.info(
@@ -523,6 +554,19 @@ class SmartArtGenerator:
             section_content = sec_data.get("content", "")
             section_title = rec["section_title"]
             diagram_type = rec["diagram_type"]
+
+            # FIX-CITE-3/A3: Heuristic override for diagram type based on content
+            table_count = section_content.count("|:---")
+            comparison_words = sum(1 for w in ["versus", "vs.", "compared to", "in contrast"]
+                                  if w in section_content.lower())
+            if table_count >= 2 or comparison_words >= 3:
+                if diagram_type not in ("comparison_matrix",):
+                    diagram_type = "comparison_matrix"
+                    logger.info(
+                        "[smart_art] FIX-A3: Overrode type to comparison_matrix "
+                        "for '%s' (tables=%d, comparisons=%d)",
+                        section_title[:40], table_count, comparison_words,
+                    )
 
             # Gather evidence summaries for this section
             section_evidence_ids = sec_data.get("evidence_ids", [])

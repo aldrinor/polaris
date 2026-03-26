@@ -111,6 +111,34 @@ _LOW_AUTHORITY_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# FIX-CITE-3/C6: Low-credibility health/news domains that should be demoted
+# for queries explicitly requesting "clinical research and meta-analyses".
+# These produce pop-health content, not peer-reviewed evidence.
+_LOW_CREDIBILITY_DOMAINS = frozenset([
+    "webmd.com",
+    "healthcentral.com",
+    "nutritionfacts.org",
+    "equip.health",
+    "brokenscience.org",
+    "ktla.com",
+    "tctmd.com",
+    "jeffersonhealth.org",
+    "healthline.com",
+    "verywellhealth.com",
+    "medicalnewstoday.com",
+    "everydayhealth.com",
+    "livestrong.com",
+    # FIX-CITE-3/S5: Additional low-credibility domains from TEST_067 audit
+    "droracle.ai",
+    "centerwellprimarycare.com",
+    "orthomolecular.org",
+    "eatingwell.com",
+    "sciencefocus.com",
+    "aarp.org",
+    "diabetesonthenet.com",
+])
+_DOMAIN_AUTHORITY_LOW_CREDIBILITY = 0.2
+
 
 def _strip_markdown(text: str) -> str:
     """FIX-059-D (H-09): Strip markdown syntax from quote text.
@@ -392,6 +420,15 @@ def _get_domain_authority(url: str) -> float:
             if "/blog" in path:
                 return _DOMAIN_AUTHORITY_DEFAULT
             return _DOMAIN_AUTHORITY_TIER3
+
+    # FIX-CITE-3/C6: Low-credibility health/news domains
+    for domain in _LOW_CREDIBILITY_DOMAINS:
+        if hostname == domain or hostname.endswith("." + domain):
+            return _DOMAIN_AUTHORITY_LOW_CREDIBILITY
+
+    # FIX-R10: Pattern-based low authority (plumbers, HVAC, etc.)
+    if _LOW_AUTHORITY_PATTERNS.search(url_lower):
+        return 0.1
 
     # TIER 4: Default — unknown domains get conservative score
     return _DOMAIN_AUTHORITY_DEFAULT

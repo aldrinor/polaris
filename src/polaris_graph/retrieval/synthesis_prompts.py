@@ -17,7 +17,26 @@ from __future__ import annotations
 
 import os
 
-from src.polaris_graph.retrieval.citation_normalizer import CITATION_RULES
+from src.polaris_graph.retrieval.citation_normalizer import CITATION_RULES  # v2 only
+
+# ---------------------------------------------------------------------------
+# FIX-CITE: v1/v3 citation rules using [CITE:evidence_id] format
+# ---------------------------------------------------------------------------
+# The v2 pipeline uses [SRC-NNN] with a SourceRegistry that maps NNN->URL.
+# The v1/v3 pipeline uses [CITE:evidence_id] throughout (section_writer.py,
+# quality gate, citation density check, expansion, hallucination audit).
+# Injecting CITATION_RULES ([SRC-NNN]) into the v1/v3 prompt causes the LLM
+# to use a format that no downstream component can resolve, yielding 0 citations.
+
+CITE_EVIDENCE_RULES = """
+CITATION FORMAT (MANDATORY — violations will fail quality gate):
+- Cite sources inline as [CITE:evidence_id], using the exact evidence ID provided.
+- For multiple sources: [CITE:ev_aaa][CITE:ev_bbb] (separate brackets).
+- NEVER combine citations: [CITE:ev_aaa, ev_bbb] is FORBIDDEN.
+- NEVER abbreviate or rename evidence IDs.
+- NEVER use [SRC-NNN] format — use [CITE:evidence_id] ONLY.
+- Every factual claim MUST have at least one [CITE:evidence_id] citation.
+""".strip()
 
 # ---------------------------------------------------------------------------
 # Fix R5-#5: Phantom Figure Ban
@@ -151,7 +170,7 @@ def build_section_writer_prompt(
 {focus_block}
 {writing_rules}
 
-{CITATION_RULES}
+{CITE_EVIDENCE_RULES}
 
 {PHANTOM_FIGURE_BAN}
 

@@ -888,6 +888,9 @@ def _fallback_outline(
             "theme", "topic", "section", "category", "cluster",
         }
         desc = cluster.get("description", "")
+        # FIX-CITE-3/R2: Strip "Evidence categorized as X" from description —
+        # this is the category fallback pattern and produces garbage titles.
+        desc = re.sub(r"^Evidence categorized as \w+\s*", "", desc).strip()
         theme_words = cluster_label.strip().split()
         is_generic = (
             len(theme_words) == 1
@@ -895,7 +898,8 @@ def _fallback_outline(
         )
 
         if is_generic and evidence_ids:
-            # Extract top keywords from evidence statements for this cluster
+            # Extract top keywords from evidence statements for this cluster.
+            # FIX-CITE-3/R2: Use keywords as the FULL title (no desc suffix).
             from collections import Counter
             _stopwords = {
                 "the", "and", "for", "that", "this", "with", "from", "are",
@@ -915,13 +919,14 @@ def _fallback_outline(
             top_keywords = [w for w, _ in word_counts.most_common(5)]
             if len(top_keywords) >= 3:
                 fallback_title = " ".join(top_keywords[:3]).title()
-                if desc:
+                # FIX-CITE-3/R2: Only append desc if it adds value (non-empty after stripping)
+                if desc and len(desc) > 10:
                     fallback_title = f"{fallback_title}: {desc[:50].rstrip('.,; ')}"
-            elif desc:
+            elif desc and len(desc) > 10:
                 fallback_title = desc[:80].rstrip(".,; ")
             else:
                 fallback_title = f"Analysis of {cluster_label}"
-        elif desc and len(theme_words) <= 2:
+        elif desc and len(desc) > 10 and len(theme_words) <= 2:
             fallback_title = f"{cluster_label}: {desc[:60].rstrip('.,; ')}"
         else:
             fallback_title = cluster_label[:100]
@@ -1099,14 +1104,26 @@ async def write_section(
             corroboration_block += "Emphasize these findings as particularly well-established.\n"
 
 
-    # NRC-2: Build previously covered claims block to prevent recycling
+    # NRC-2 + FIX-CITE-3/C1: Build covered claims + statistics block
     covered_block = ""
     if previously_covered_claims:
-        claims_text = "\n".join(f"- {c}" for c in previously_covered_claims[:30])
-        covered_block = (
-            f"\nPREVIOUSLY COVERED CLAIMS (Do NOT repeat these — each was already stated in an earlier section):\n"
-            f"{claims_text}\n"
-        )
+        # Separate statistics from sentence claims for clearer prompt
+        stats = [c for c in previously_covered_claims if c.startswith("STATISTIC:")]
+        claims = [c for c in previously_covered_claims if not c.startswith("STATISTIC:")]
+
+        parts = []
+        if stats:
+            stats_text = ", ".join(s.replace("STATISTIC: ", "") for s in stats[:40])
+            parts.append(
+                f"STATISTICS ALREADY REPORTED (Do NOT reuse these exact numbers — "
+                f"they appeared in earlier sections):\n{stats_text}"
+            )
+        if claims:
+            claims_text = "\n".join(f"- {c}" for c in claims[:20])
+            parts.append(
+                f"CLAIMS ALREADY COVERED (Do NOT repeat these):\n{claims_text}"
+            )
+        covered_block = "\n" + "\n\n".join(parts) + "\n"
 
     # RC-6: Pre-formatted comparison tables (v3 Hybrid)
     table_block = ""
@@ -1660,6 +1677,10 @@ async def write_all_sections(
 
     section_filtered_evidence: dict[str, list[EvidencePiece]] = {}
 
+    # FIX-CITE-3/HARD-DEDUP: Global evidence dedup for Path A too
+    _hard_dedup_a = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
+    _globally_claimed_a: set[str] = set()
+
     if global_assignments:
         # FIX-E Path A: Global evidence assignment (breaks section isolation)
         logger.info(
@@ -1691,6 +1712,13 @@ async def write_all_sections(
                         combined.append(evidence_by_id[eid])
                         existing_ids.add(eid)
 
+            # FIX-CITE-3/HARD-DEDUP: Remove already-claimed evidence (Path A)
+            if _hard_dedup_a:
+                combined = [
+                    e for e in combined
+                    if e.get("evidence_id") not in _globally_claimed_a
+                ]
+
             # Final top-k filter — use wider pool when token budget enabled
             _tb_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
             _pool_k = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _tb_enabled else PG_SECTION_EVIDENCE_TOP_K
@@ -1701,6 +1729,12 @@ async def write_all_sections(
                 top_k=_pool_k,
             )
             section_filtered_evidence[section.section_id] = filtered
+
+            # FIX-CITE-3/HARD-DEDUP: Claim these evidence IDs (Path A)
+            if _hard_dedup_a:
+                for e in filtered:
+                    _globally_claimed_a.add(e.get("evidence_id", ""))
+
             section_evidence_map[section.section_id] = [
                 e.get("evidence_id", "") for e in filtered
             ]
@@ -1720,15 +1754,34 @@ async def write_all_sections(
                 len(unassigned_evidence), len(evidence),
             )
 
+        # FIX-CITE-3/HARD-DEDUP: Track globally claimed evidence IDs.
+        # Once an evidence piece is assigned to a section, it is removed
+        # from the pool for subsequent sections. This is the deterministic
+        # fix for cross-section repetition (GraphRAG pattern).
+        _hard_dedup = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
+        _globally_claimed: set[str] = set()
+
         for section in sorted_sections:
             # First, get outline-assigned evidence
             assigned_evidence = [
                 e for e in evidence if e.get("evidence_id") in section.evidence_ids
             ]
+
+            # FIX-CITE-3/HARD-DEDUP: Remove already-claimed evidence
+            if _hard_dedup:
+                assigned_evidence = [
+                    e for e in assigned_evidence
+                    if e.get("evidence_id") not in _globally_claimed
+                ]
+
             # FIX-043C: Also pull in unassigned evidence
             if unassigned_evidence:
+                _available_unassigned = [
+                    e for e in unassigned_evidence
+                    if not _hard_dedup or e.get("evidence_id") not in _globally_claimed
+                ]
                 bonus = _filter_evidence_for_section(
-                    evidence=unassigned_evidence,
+                    evidence=_available_unassigned,
                     section_title=section.title,
                     section_description=section.description,
                     top_k=10,
@@ -1748,6 +1801,12 @@ async def write_all_sections(
                 top_k=_pool_k_b,
             )
             section_filtered_evidence[section.section_id] = filtered
+
+            # FIX-CITE-3/HARD-DEDUP: Claim these evidence IDs
+            if _hard_dedup:
+                for e in filtered:
+                    _globally_claimed.add(e.get("evidence_id", ""))
+
             section_evidence_map[section.section_id] = [
                 e.get("evidence_id", "") for e in filtered
             ]
@@ -1927,7 +1986,10 @@ async def write_all_sections(
                 max_citation_freq,
             )
 
-        # NRC-2: Extract key claims from newly written sections to prevent recycling
+        # NRC-2 + FIX-CITE-3/C1: Extract key claims AND specific statistics
+        # from newly written sections to prevent cross-section repetition.
+        # Focus on concrete data points (numbers with units) which the LLM
+        # is most likely to repeat verbatim across sections.
         for draft in batch_results:
             if isinstance(draft, Exception):
                 continue
@@ -1939,9 +2001,22 @@ async def write_all_sections(
                     claim = sent.strip()[:120]
                     if claim not in all_covered_claims:
                         all_covered_claims.append(claim)
-            # Cap at 50 claims to keep prompt manageable
-            if len(all_covered_claims) > 100:
-                all_covered_claims[:] = all_covered_claims[-100:]
+
+            # FIX-CITE-3/C1: Extract specific statistics (numbers + units/context)
+            # These are the data points most likely to be repeated verbatim.
+            stats = re.findall(
+                r'(\d+[\.\d]*\s*(?:kg|%|mmol|mg|pmol|mmHg|hours?|weeks?|months?'
+                r'|years?|participants?|studies|trials?|adults?))',
+                draft.content, re.IGNORECASE,
+            )
+            for stat in stats:
+                stat_claim = f"STATISTIC: {stat.strip()}"
+                if stat_claim not in all_covered_claims:
+                    all_covered_claims.append(stat_claim)
+
+            # Cap to keep prompt manageable
+            if len(all_covered_claims) > 150:
+                all_covered_claims[:] = all_covered_claims[-150:]
 
         # FIX-C2: Pass summaries of ALL previous sections, not just the last one
         if drafts:

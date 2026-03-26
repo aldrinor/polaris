@@ -492,6 +492,61 @@ async def _run_web_searches(
 
 
 
+# FIX-CITE-3/S1: Synonym expansion for academic topic overlap.
+# The stem-only approach rejected 926/926 papers because "time-restricted
+# eating", "caloric restriction", "metabolic syndrome" have zero stem overlap
+# with "intermittent fasting". These synonym sets ensure semantically
+# equivalent research terms are recognized as matching.
+_SYNONYM_SETS: list[frozenset[str]] = [
+    frozenset(["fast", "eat", "diet", "feed", "nourish", "calor", "restrict"]),
+    frozenset(["intermitt", "time-restrict", "period", "cycl", "alternat"]),
+    frozenset(["metabol", "glycem", "insulin", "glucos", "lipid", "cholesterol"]),
+    frozenset(["cardiovascular", "cardiac", "heart", "coronar", "vascular"]),
+    frozenset(["obes", "overweight", "adipos", "weight", "body mass", "bmi"]),
+    frozenset(["mortal", "death", "surviv", "longev"]),
+    frozenset(["random", "clinical trial", "rct", "controlled trial"]),
+    frozenset(["meta-analys", "systematic review", "umbrella review"]),
+    frozenset(["inflammat", "cytokine", "crp", "il-6", "tnf"]),
+    frozenset(["blood pressur", "hypertens", "systolic", "diastolic"]),
+]
+
+
+def _expand_with_synonyms(stems: set[str]) -> set[str]:
+    """Expand a set of stems with synonyms from _SYNONYM_SETS.
+
+    Uses minimum 5-char prefix matching to avoid false positives
+    (e.g., "system" matching "systematic review" via 4-char prefix).
+    """
+    expanded = set(stems)
+    _min_prefix = 5
+    for syn_set in _SYNONYM_SETS:
+        matched = False
+        for stem in stems:
+            if matched:
+                break
+            for syn in syn_set:
+                # Skip multi-word synonyms for substring matching
+                # (prevents "system" matching "systematic review")
+                is_multi_word = " " in syn
+                # Require longer prefix match to avoid false positives
+                prefix_len = max(_min_prefix, min(len(stem), len(syn)))
+                if not is_multi_word and stem[:prefix_len] == syn[:prefix_len]:
+                    expanded.update(syn_set)
+                    matched = True
+                    break
+                # Single-word: check containment (min 5 chars to avoid noise)
+                if not is_multi_word and len(syn) >= 5 and (syn in stem or stem in syn):
+                    expanded.update(syn_set)
+                    matched = True
+                    break
+                # Multi-word: require exact match in the stems set
+                if is_multi_word and syn in " ".join(sorted(stems)):
+                    expanded.update(syn_set)
+                    matched = True
+                    break
+    return expanded
+
+
 def _prefilter_academic_results(papers: list[dict], query: str) -> list[dict]:
     """FIX-059-E: Pre-filter academic results before evidence extraction.
 
@@ -499,8 +554,9 @@ def _prefilter_academic_results(papers: list[dict], query: str) -> list[dict]:
     1. No abstract or abstract too short (<50 chars) (H-12)
     2. Zero stemmed-word overlap between query and title+abstract (BUG-5)
 
-    This prevents off-topic S2/OpenAlex papers (UAV radar, dog medicine,
-    brain tumors for water filter queries) from entering evidence extraction.
+    FIX-CITE-3/S1: Uses synonym expansion so "time-restricted eating",
+    "caloric restriction", "metabolic syndrome" etc. match queries about
+    "intermittent fasting". Previously rejected 926/926 relevant papers.
     """
 
     def _stem_words(text: str) -> set[str]:
@@ -521,35 +577,59 @@ def _prefilter_academic_results(papers: list[dict], query: str) -> list[dict]:
     min_abstract_len = int(os.getenv("PG_ACADEMIC_MIN_ABSTRACT_LEN", "50"))
 
     query_stems = _stem_words(query)
+    # FIX-CITE-3/S1: Expand query stems with synonyms
+    expanded_query_stems = _expand_with_synonyms(query_stems)
+
     filtered: list[dict] = []
-    rejected = 0
+    rejected_no_abstract = 0
+    rejected_no_overlap = 0
 
     for paper in papers:
         # H-12: Skip papers without meaningful abstracts
-        abstract = paper.get("abstract", "") or ""
+        # FIX-CITE-3/S4: OpenAlex uses "snippet" not "abstract". S2 uses "abstract".
+        abstract = paper.get("abstract", "") or paper.get("snippet", "") or ""
         if len(abstract.strip()) < min_abstract_len:
-            rejected += 1
+            rejected_no_abstract += 1
             continue
 
-        # BUG-5: Check title has at least 1 stemmed-word overlap with query
+        # BUG-5: Check title/abstract has topic overlap with expanded query stems.
+        # FIX-CITE-3/S1: Use synonym expansion for bidirectional matching.
+        # Require >= 2 overlapping synonym groups to avoid false positives
+        # (e.g., "randomized trial of canine behavior" matching via "RCT" alone).
+        _min_overlap = 2
         title = paper.get("title", "") or ""
         title_stems = _stem_words(title)
-        overlap = query_stems & title_stems
-        if not overlap:
-            # Also check abstract for overlap as fallback
-            abstract_stems = _stem_words(abstract[:200])
-            if not (query_stems & abstract_stems):
-                rejected += 1
+        expanded_title = _expand_with_synonyms(title_stems)
+        overlap = expanded_query_stems & expanded_title
+        # Also count how many distinct synonym sets are represented
+        _overlap_groups = sum(
+            1 for syn_set in _SYNONYM_SETS
+            if overlap & syn_set
+        )
+        if _overlap_groups < _min_overlap:
+            # Fallback: check abstract for overlap
+            abstract_stems = _stem_words(abstract[:300])
+            expanded_abstract = _expand_with_synonyms(abstract_stems)
+            abstract_overlap = expanded_query_stems & expanded_abstract
+            _abs_groups = sum(
+                1 for syn_set in _SYNONYM_SETS
+                if abstract_overlap & syn_set
+            )
+            if _abs_groups < _min_overlap:
+                rejected_no_overlap += 1
                 continue
 
         filtered.append(paper)
 
-    if rejected > 0:
+    total_rejected = rejected_no_abstract + rejected_no_overlap
+    if total_rejected > 0:
         logger.info(
             "[polaris graph] FIX-059-E: Pre-filtered %d/%d academic results "
-            "(no abstract or zero topic overlap with query)",
-            rejected,
+            "(no_abstract=%d, no_overlap=%d)",
+            total_rejected,
             len(papers),
+            rejected_no_abstract,
+            rejected_no_overlap,
         )
 
     return filtered
@@ -853,6 +933,8 @@ async def _run_exa_searches(
     headers = {
         "x-api-key": api_key,
         "Content-Type": "application/json",
+        # FIX-CITE-3/S2: Prevent brotli encoding (aiohttp can't decode br)
+        "Accept-Encoding": "gzip, deflate",
     }
 
     try:

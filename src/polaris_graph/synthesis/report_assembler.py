@@ -946,7 +946,19 @@ def _reduce_filler(text: str) -> str:
                         stripped = stripped[0].upper() + stripped[1:]
             cleaned.append(stripped)
         sentences = cleaned
-    return " ".join(s for s in sentences if s)
+    # FIX-CITE-3: Preserve paragraph breaks (newlines) during filler reduction.
+    # Previously used " ".join() which destroyed all newlines.
+    result = " ".join(s for s in sentences if s)
+    # Restore paragraph breaks that were present in the original text
+    if "\n\n" in text:
+        # Re-insert paragraph breaks at ". [Capital]" boundaries
+        result = re.sub(r"(\.\s)(?=[A-Z][a-z]{2,})", r".\n\n", result)
+        # Re-insert breaks before **Key Findings** and markdown headings
+        result = re.sub(r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", result)
+        result = re.sub(r"(?<!\n)(###\s)", r"\n\n\1", result)
+        # Re-insert break before first table
+        result = re.sub(r"(?<!\n)(\|[^|]+\|[^|]+\|)", r"\n\n\1", result, count=1)
+    return result
 
 
 def _compute_density_metrics(report: str) -> dict:
@@ -989,6 +1001,84 @@ def _compute_density_metrics(report: str) -> dict:
     return metrics
 
 
+# ---------------------------------------------------------------------------
+# FIX-CITE-3: Post-processing — filler word removal + table cleanup
+# ---------------------------------------------------------------------------
+
+_FILLER_SENTENCE_START = re.compile(
+    r"(?:(?<=\.\s)|(?<=;\s)|(?<=:\s)|(?<=^))"
+    r"(Additionally|Moreover|Furthermore|In addition|Indeed|"
+    r"Consequently|Specifically|Significantly),?\s+",
+    re.MULTILINE,
+)
+
+_FILLER_BEFORE_TABLE = re.compile(
+    r"(Additionally|Moreover|Furthermore|In addition|Indeed|"
+    r"Consequently|Specifically|Significantly),?\s*(\|)",
+)
+
+
+def _clean_filler_and_tables(text: str) -> str:
+    """Remove filler transition words at sentence starts and before table rows."""
+    # Strip filler words that start sentences, then capitalize remainder
+    def _strip_and_capitalize(m: re.Match) -> str:
+        rest = text[m.end():m.end() + 1] if m.end() < len(text) else ""
+        return ""
+
+    text = _FILLER_SENTENCE_START.sub("", text)
+    # Capitalize first letter after ". " when it's lowercase (from filler removal)
+    text = re.sub(r"(\.\s)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
+    # Capitalize first char of text if lowercase
+    if text and text[0].islower():
+        text = text[0].upper() + text[1:]
+
+    # Strip filler words injected before table pipe characters
+    text = _FILLER_BEFORE_TABLE.sub(r"\2", text)
+
+    # Fix table rows: ensure no stray text before | at line start
+    # (handles cases like "In contrast, | Cell1 | Cell2 |")
+    text = re.sub(
+        r"(?m)^(In contrast|On the other hand|However),?\s*(\|)",
+        r"\2",
+        text,
+    )
+
+    # FIX-CITE-3/C7: Replace hedging on cited claims with definitive language.
+    # FIX-CITE-3/C7b: Handle "may/might be X" → "is X" (consume "be").
+    # Handle "may/might + verb" → drop hedge word.
+    # Exclude "May" when followed by a year (month name).
+
+    # Step 1: "may be" / "might be" → "is" (before cited claims)
+    text = re.sub(
+        r"\b(may|might)\s+be\b(?=[^.]*\[\d+\])",
+        lambda m: "is" if m.group(1)[0].islower() else "Is",
+        text,
+    )
+    # Step 2: "may/might + verb" → drop hedge, "could" → "can"
+    _hedge_cited = re.compile(
+        r"\b(may|might|could|potentially)\b(?=[^.]*\[\d+\])",
+        re.IGNORECASE,
+    )
+    _hedge_map = {"may": "", "might": "", "could": "can", "potentially": ""}
+    def _replace_hedge(m: re.Match) -> str:
+        word = m.group(1)
+        # Skip "May" as month name
+        if word == "May":
+            after = text[m.end():m.end() + 6]
+            if re.match(r"\s+\d{4}", after) or re.match(r",?\s+\d{4}", after):
+                return word
+        replacement = _hedge_map.get(word.lower(), word.lower())
+        if word[0].isupper() and replacement:
+            replacement = replacement[0].upper() + replacement[1:]
+        return replacement
+    text = _hedge_cited.sub(_replace_hedge, text)
+
+    # Clean up double spaces from hedge removal
+    text = re.sub(r"  +", " ", text)
+
+    return text
+
+
 def assemble_report(
     outline: ReportOutline,
     sections: list[SectionDraft],
@@ -1019,6 +1109,39 @@ def assemble_report(
         key=lambda s: section_order.get(s.section_id, 999),
     )
 
+    # FIX-CITE-3/C4: Pre-pass to merge thin sections (< 3 unique evidence IDs)
+    # into adjacent sections. Prevents hollow final sections.
+    # Operates on sorted_sections (not clean_sections) to respect ordering.
+    _min_evidence_for_section = int(os.getenv("PG_MIN_SECTION_EVIDENCE", "3"))
+    _merged_indices: set[int] = set()
+    for idx in range(len(sorted_sections) - 1, 0, -1):
+        sec = sorted_sections[idx]
+        if len(set(getattr(sec, "evidence_ids", []) or [])) < _min_evidence_for_section:
+            prev = sorted_sections[idx - 1]
+            # Merge content and evidence_ids into previous section
+            merged_content = prev.content + "\n\n" + sec.content
+            merged_eids = list(set((getattr(prev, "evidence_ids", []) or [])
+                                   + (getattr(sec, "evidence_ids", []) or [])))
+            sorted_sections[idx - 1] = SectionDraft(
+                section_id=prev.section_id,
+                title=prev.title,
+                content=merged_content,
+                word_count=len(merged_content.split()),
+                evidence_count=len(merged_eids),
+            )
+            # Preserve evidence_ids on the merged draft
+            sorted_sections[idx - 1].evidence_ids = merged_eids
+            _merged_indices.add(idx)
+            logger.info(
+                "[polaris graph] FIX-CITE-3/C4: Merged thin section '%s' "
+                "(%d evidence) into '%s'",
+                sec.title[:40],
+                len(set(getattr(sec, "evidence_ids", []) or [])),
+                prev.title[:40],
+            )
+    if _merged_indices:
+        sorted_sections = [s for i, s in enumerate(sorted_sections) if i not in _merged_indices]
+
     # Assemble report parts
     parts: list[str] = []
     report_sections: list[ReportSection] = []
@@ -1043,6 +1166,8 @@ def assemble_report(
             section.content, citation_map,
             global_citation_counts=global_citation_counts,
         )
+        # FIX-CITE-3: Strip filler words and fix table formatting
+        resolved_content = _clean_filler_and_tables(resolved_content)
         # FIX-060-E: Transitions AND artifact cleanup deferred to post-global-cleanup
         # to prevent orphaned transitions from citation/phantom removal.
 
@@ -1053,6 +1178,28 @@ def assemble_report(
             for eid, num in citation_map.items()
             if str(num) in citation_numbers
         ]
+
+        # FIX-CITE-3: Ensure paragraph breaks in section content.
+        # LLM sometimes outputs entire section as single line.
+        # Insert \n\n before ### subheadings, **Key Findings**, and tables.
+        if "\n" not in resolved_content and len(resolved_content) > 500:
+            # Insert breaks before markdown subheadings
+            resolved_content = re.sub(
+                r"(?<!\n)(###\s)", r"\n\n\1", resolved_content
+            )
+            # Insert breaks before **Key Findings**
+            resolved_content = re.sub(
+                r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", resolved_content
+            )
+            # Insert breaks before markdown tables (| header |)
+            resolved_content = re.sub(
+                r"(?<!\n)(\|[^|]+\|[^|]+\|)", r"\n\n\1", resolved_content, count=1
+            )
+            # Insert paragraph breaks: period + space + uppercase (not after citations)
+            # Avoid breaking inside tables or after [N] citations mid-sentence
+            resolved_content = re.sub(
+                r"(\.\s)(?=[A-Z][a-z]{2,})", r".\n\n", resolved_content
+            )
 
         word_count = len(resolved_content.split())
 
@@ -1321,12 +1468,17 @@ def assemble_report(
     for section in report_sections:
         section["content"] = _fix_number_spacing(section["content"])
 
-    # FIX-060-E: Inject transitions AFTER all global cleanup to prevent
-    # orphaned transitions from citation/phantom removal.
+    # FIX-060-E: Artifact cleanup AFTER all global cleanup.
+    # FIX-CITE-3: Transition injection DISABLED — it re-introduces filler words
+    # ("Moreover", "Additionally") that _clean_filler_and_tables() just removed.
+    # The target_density=0.40 was adding 10-16 filler words per section.
     _section_titles = [s["title"] for s in report_sections]
     for section in report_sections:
-        section["content"] = _inject_transitions(section["content"], target_density=0.40)
+        # _inject_transitions DISABLED — net negative on quality
+        # section["content"] = _inject_transitions(section["content"], target_density=0.40)
         section["content"] = _clean_artifacts(section["content"], section_titles=_section_titles)
+        # FIX-CITE-3: Re-apply filler stripping (in case _clean_artifacts introduced any)
+        section["content"] = _clean_filler_and_tables(section["content"])
         section["word_count"] = len(section["content"].split())
 
     # GAP-2: Recompute citation_ids after transition injection + artifact cleanup.
@@ -1347,7 +1499,23 @@ def assemble_report(
     for section in report_sections:
         _final_parts.append(f"## {section['title']}")
         _final_parts.append("")
-        _final_parts.append(section["content"])
+        # FIX-CITE-3: Insert paragraph breaks in single-line content
+        sec_content = section["content"]
+        if "\n" not in sec_content and len(sec_content) > 500:
+            sec_content = re.sub(
+                r"(?<!\n)(###\s)", r"\n\n\1", sec_content
+            )
+            sec_content = re.sub(
+                r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", sec_content
+            )
+            sec_content = re.sub(
+                r"(?<!\n)(\|[^|]+\|[^|]+\|)", r"\n\n\1", sec_content, count=1
+            )
+            sec_content = re.sub(
+                r"(\.\s)(?=[A-Z][a-z]{2,})", r".\n\n", sec_content
+            )
+            section["content"] = sec_content
+        _final_parts.append(sec_content)
         _final_parts.append("")
     _final_parts.append("## References")
     _final_parts.append("")

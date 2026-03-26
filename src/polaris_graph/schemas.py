@@ -493,6 +493,24 @@ class EvidenceCluster(BaseModel):
         default="moderate",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_cluster_fields(cls, data):
+        """FIX-CITE-2: Qwen returns variant field names for clusters."""
+        if isinstance(data, dict):
+            # section_title / title / name → theme
+            for alt in ("section_title", "title", "name", "topic", "label"):
+                if alt in data and "theme" not in data:
+                    data["theme"] = data.pop(alt)
+            # id / index / number → cluster_id
+            for alt in ("id", "index", "number", "group_id"):
+                if alt in data and "cluster_id" not in data:
+                    data["cluster_id"] = str(data.pop(alt))
+            # Auto-generate cluster_id from theme if missing
+            if "cluster_id" not in data and "theme" in data:
+                data["cluster_id"] = f"c_{data['theme'][:20].lower().replace(' ', '_')}"
+        return data
+
     @field_validator("cluster_id", mode="before")
     @classmethod
     def coerce_cluster_id(cls, v):
@@ -835,8 +853,16 @@ class SectionOutlineItem(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_field_names(cls, data):
-        """LLM uses variant field names — normalize them."""
+        """LLM uses variant field names — normalize them.
+
+        FIX-CITE-2: Also normalize section_title → title (Qwen 3.5 Plus
+        consistently returns section_title instead of title).
+        """
         if isinstance(data, dict):
+            # FIX-CITE-2: section_title / heading / name → title
+            for alt in ("section_title", "heading", "name"):
+                if alt in data and "title" not in data:
+                    data["title"] = data.pop(alt)
             # Map section_number → section_id
             for alt in ("section_number", "id", "number"):
                 if alt in data and "section_id" not in data:
@@ -878,7 +904,24 @@ class ReportOutline(BaseModel):
 
         FIX-T4: Also handles SectionOutlineItem instances (from _fallback_outline)
         which are not dicts but valid section objects.
+
+        FIX-CITE-2: Normalize alternative key names from Qwen 3.5 Plus.
+        The LLM returns 'report_outline', 'outline_sections', 'outline'
+        instead of 'sections'. Map them before validation.
         """
+        if isinstance(data, dict):
+            # FIX-CITE-2: Normalize sections key
+            if "sections" not in data:
+                for alt in ("report_outline", "outline_sections", "outline", "section_list"):
+                    if alt in data and isinstance(data[alt], list):
+                        data["sections"] = data.pop(alt)
+                        break
+            # FIX-CITE-2: Normalize title key
+            if "title" not in data:
+                for alt in ("report_title", "research_question", "heading"):
+                    if alt in data:
+                        data["title"] = data.pop(alt)
+                        break
         if isinstance(data, dict) and "sections" in data:
             valid = []
             for i, item in enumerate(data["sections"]):
