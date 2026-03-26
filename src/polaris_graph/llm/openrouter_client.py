@@ -46,6 +46,13 @@ OPENROUTER_BASE_URL = os.getenv(
 OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
+# FIX-GLM5: Models that always route output to reasoning_content.
+# These need reasoning_enabled=True for all calls, and generate() must
+# use reasoning as content directly (no </think> tag extraction).
+_ALWAYS_REASON_MODELS = frozenset({
+    "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7",
+})
+
 # Pricing per million tokens (configurable per LAW VI)
 # Qwen 3.5 Plus: $0.26 input, $1.56 output
 # Use API-reported cost when available (FIX-C1)
@@ -777,6 +784,13 @@ class OpenRouterClient:
             "stream": True,
         }
 
+        # FIX-GLM5: Models that always route output to reasoning_content
+        # need reasoning_enabled=True regardless of caller's request.
+        # Without this, generate() gets empty content and fails.
+        if self.model in _ALWAYS_REASON_MODELS and not reasoning_enabled:
+            reasoning_enabled = True
+            reasoning_effort = reasoning_effort or "medium"
+
         # Reasoning control — only send when explicitly enabled.
         # Sending {"enabled": False} can cause empty SSE streams on some models.
         if reasoning_enabled:
@@ -1399,6 +1413,24 @@ class OpenRouterClient:
                 )
                 result = LLMResponse(
                     content=extracted,
+                    reasoning=result.reasoning,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    reasoning_tokens=result.reasoning_tokens,
+                    model=result.model,
+                    duration_ms=result.duration_ms,
+                    raw_response=result.raw_response,
+                )
+            elif self.model in _ALWAYS_REASON_MODELS:
+                # FIX-GLM5: Models that always reason don't use </think> tags.
+                # Use reasoning directly as content (same as COT-3 free-form).
+                logger.info(
+                    "[polaris graph] FIX-GLM5: generate() using reasoning as "
+                    "content for always-reason model %s (%d chars)",
+                    self.model, len(result.reasoning),
+                )
+                result = LLMResponse(
+                    content=result.reasoning,
                     reasoning=result.reasoning,
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,
