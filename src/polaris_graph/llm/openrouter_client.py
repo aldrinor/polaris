@@ -1424,13 +1424,29 @@ class OpenRouterClient:
             elif self.model in _ALWAYS_REASON_MODELS:
                 # FIX-GLM5: Models that always reason don't use </think> tags.
                 # Use reasoning directly as content (same as COT-3 free-form).
+                # FIX-GLM5-COT: Strip chain-of-thought markers from reasoning
+                # before using as content. GLM-5's reasoning includes
+                # "The user wants..." / "Let me analyze..." thinking.
+                _cleaned_reasoning = result.reasoning
+                import re as _re
+                _cot_end = _re.search(
+                    r"(?:^|\n)(?=[A-Z][a-z].*(?:\[CITE:|\[\d+\]|fasting|study|meta|trial|evidence|research|protocol|clinical))",
+                    _cleaned_reasoning,
+                )
+                if _cot_end and _cot_end.start() > 100:
+                    _cleaned_reasoning = _cleaned_reasoning[_cot_end.start():].lstrip()
+                    logger.info(
+                        "[polaris graph] FIX-GLM5-COT: Stripped %d chars CoT prefix "
+                        "from generate() reasoning",
+                        _cot_end.start(),
+                    )
                 logger.info(
                     "[polaris graph] FIX-GLM5: generate() using reasoning as "
                     "content for always-reason model %s (%d chars)",
-                    self.model, len(result.reasoning),
+                    self.model, len(_cleaned_reasoning),
                 )
                 result = LLMResponse(
-                    content=result.reasoning,
+                    content=_cleaned_reasoning,
                     reasoning=result.reasoning,
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,
