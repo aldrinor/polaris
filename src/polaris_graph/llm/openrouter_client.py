@@ -1425,20 +1425,41 @@ class OpenRouterClient:
                 # FIX-GLM5: Models that always reason don't use </think> tags.
                 # Use reasoning directly as content (same as COT-3 free-form).
                 # FIX-GLM5-COT: Strip chain-of-thought markers from reasoning
-                # before using as content. GLM-5's reasoning includes
-                # "The user wants..." / "Let me analyze..." thinking.
+                # before using as content. GLM-5 puts "1. **Analyze the Request:**"
+                # and "The user wants..." thinking before the actual output.
                 _cleaned_reasoning = result.reasoning
                 import re as _re
-                _cot_end = _re.search(
-                    r"(?:^|\n)(?=[A-Z][a-z].*(?:\[CITE:|\[\d+\]|fasting|study|meta|trial|evidence|research|protocol|clinical))",
+
+                # Strategy 1: Find end of numbered thinking steps pattern
+                # GLM-5 uses "1. **Analyze...**\n2. **Draft...**\n" then output
+                _thinking_block = _re.search(
+                    r"\n(?=(?:##\s|[A-Z][a-z]{3,}.*(?:\[|\(95%|MD\s|SMD\s|HR\s|RR\s|OR\s)))",
                     _cleaned_reasoning,
                 )
-                if _cot_end and _cot_end.start() > 100:
-                    _cleaned_reasoning = _cleaned_reasoning[_cot_end.start():].lstrip()
+
+                # Strategy 2: Find after "Now let me" / "Here is" / "Output:" patterns
+                if not _thinking_block or _thinking_block.start() < 50:
+                    _thinking_block = _re.search(
+                        r"\n(?:(?:Now let me|Here is|Here's|Output:?|The revised|The edited|REVISED|EDITED).*\n)",
+                        _cleaned_reasoning,
+                        _re.IGNORECASE,
+                    )
+                    if _thinking_block:
+                        _thinking_block = type('M', (), {'start': lambda s=_thinking_block: s.end()})()
+
+                # Strategy 3: Original domain-keyword detection
+                if not _thinking_block or _thinking_block.start() < 50:
+                    _thinking_block = _re.search(
+                        r"(?:^|\n)(?=[A-Z][a-z].*(?:\[CITE:|\[\d+\]|fasting|study|meta|trial|evidence|research|protocol|clinical))",
+                        _cleaned_reasoning,
+                    )
+
+                if _thinking_block and _thinking_block.start() > 100:
+                    _cleaned_reasoning = _cleaned_reasoning[_thinking_block.start():].lstrip()
                     logger.info(
                         "[polaris graph] FIX-GLM5-COT: Stripped %d chars CoT prefix "
                         "from generate() reasoning",
-                        _cot_end.start(),
+                        _thinking_block.start(),
                     )
                 logger.info(
                     "[polaris graph] FIX-GLM5: generate() using reasoning as "

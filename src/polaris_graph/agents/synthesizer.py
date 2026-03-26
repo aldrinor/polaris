@@ -2626,10 +2626,12 @@ async def synthesize_report(
                 "Output the COMPLETE edited report. Do not summarize or truncate.\n\n"
                 f"REPORT:\n{final_report}"
             )
-            _polish_response = await client.generate(
+            # Use reason() — GLM-5's generate() mixes CoT into content.
+            # reason() separates thinking from the edited report output.
+            _polish_response = await client.reason(
                 prompt=_polish_prompt,
+                effort="high",
                 max_tokens=16384,
-                temperature=0.3,
             )
             _polished = _polish_response.content.strip()
             # Validate: polished version should retain most citations and headings

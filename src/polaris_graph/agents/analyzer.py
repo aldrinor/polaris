@@ -1161,7 +1161,9 @@ async def analyze_sources(
                     f"Statement: {e.get('statement','')[:150]}"
                     for j, e in enumerate(_grade_batch)
                 )
-                _grade_resp = await client.generate(
+                # Use reason() instead of generate() — GLM-5's generate()
+                # puts CoT in content. reason() separates thinking from answer.
+                _grade_resp = await client.reason(
                     prompt=(
                         f"Assign GRADE certainty ratings to each evidence item below.\n"
                         f"Ratings: HIGH (systematic review of RCTs, low heterogeneity), "
@@ -1172,15 +1174,38 @@ async def analyze_sources(
                         f"1. HIGH\n2. MODERATE\n...\n\n"
                         f"EVIDENCE:\n{_grade_items}"
                     ),
+                    effort="low",
                     max_tokens=500,
-                    temperature=0.1,
                 )
-                # Parse ratings
+                # Parse ratings — try structured format first, then extract from reasoning
                 import re as _gre
                 _ratings = _gre.findall(
                     r"(\d+)\.\s*(HIGH|MODERATE|LOW|VERY_LOW)",
                     _grade_resp.content.upper(),
                 )
+                # FIX-GLM5: If structured parsing fails, extract from reasoning text.
+                # GLM-5 writes "**Item 1:**...Rating: High" or "*Rating:* Low"
+                if len(_ratings) < len(_grade_batch) // 2:
+                    _text = _grade_resp.content.upper()
+                    for _bi, _be in enumerate(_grade_batch):
+                        if any(n == str(_bi + 1) for n, _ in _ratings):
+                            continue  # Already parsed
+                        # Strategy 1: "ITEM N" block followed by "RATING: X"
+                        _block = _gre.search(
+                            rf"ITEM\s*{_bi+1}[:\s].*?RATING[:\s]*\*?\*?\s*(HIGH|MODERATE|VERY[_\s]LOW|LOW)",
+                            _text, _gre.DOTALL,
+                        )
+                        if _block:
+                            _ratings.append((str(_bi + 1), _block.group(1).replace(" ", "_")))
+                            continue
+                        # Strategy 2: "N." or "ITEM N" followed eventually by rating keyword
+                        _loose = _gre.search(
+                            rf"(?:ITEM\s*{_bi+1}|\b{_bi+1}\b\.\s*\*?\*?)"
+                            rf".*?(HIGH|MODERATE|VERY[_\s]LOW|(?<!\w)LOW(?!\w))",
+                            _text, _gre.DOTALL,
+                        )
+                        if _loose:
+                            _ratings.append((str(_bi + 1), _loose.group(1).replace(" ", "_")))
                 for _num_str, _rating in _ratings:
                     _idx = int(_num_str) - 1
                     if 0 <= _idx < len(_grade_batch):
