@@ -2601,73 +2601,74 @@ async def synthesize_report(
             quality["unique_sources"],
         )
 
-    # POLISH-PASS: Final report-wide edit for coherence, redundancy, and prose quality.
-    # Reads the entire assembled report and produces an edited version.
-    # Addresses: topic-level redundancy across sections, prose flow, transition smoothing.
+    # POLISH-PASS: Per-section edit for redundancy and prose quality.
+    # FIX-071: Changed from full-report single call to per-section chunked approach.
+    # GLM-5 truncates on 13K-word reports. Per-section calls stay within token limits.
+    # Provides section titles list so editor can cross-reference.
     _polish_enabled = os.getenv("PG_POLISH_PASS", "1") == "1"
-    if _polish_enabled and final_report and len(final_report.split()) > 1000:
+    if _polish_enabled and report_sections and len(report_sections) > 1:
         try:
-            _polish_prompt = (
-                "You are an expert academic editor. Edit the following research report "
-                "for quality. Apply these edits:\n\n"
-                "1. REDUNDANCY: When the same statistic, finding, or concept appears in "
-                "multiple sections, keep it in the MOST relevant section and remove or "
-                "replace with a cross-reference ('as established in [Section Title]') elsewhere.\n"
-                "2. PROSE: Vary sentence structure. Remove any remaining filler transitions. "
-                "Tighten verbose sentences. Ensure each paragraph opens with a substantive "
-                "claim, not a transition.\n"
-                "3. FLOW: Ensure sections build on each other logically. Add brief bridge "
-                "sentences where transitions are abrupt.\n"
-                "4. CONSISTENCY: Ensure all statistical claims use consistent formatting "
-                "(MD, CI, I², p-value, GRADE rating where available).\n"
-                "5. PRESERVE: Keep ALL [N] citation markers exactly as they are. Do NOT "
-                "renumber, remove, or add citations. Keep all tables intact. Keep all "
-                "## headings. Keep **Key Findings** sections.\n\n"
-                "Output the COMPLETE edited report. Do not summarize or truncate.\n\n"
-                f"REPORT:\n{final_report}"
-            )
-            # Use reason() — GLM-5's generate() mixes CoT into content.
-            # reason() separates thinking from the edited report output.
-            _polish_response = await client.reason(
-                prompt=_polish_prompt,
-                effort="high",
-                max_tokens=16384,
-            )
-            _polished = _polish_response.content.strip()
-            # Validate: polished version should retain most citations and headings
             import re as _re
-            _orig_cites = len(_re.findall(r"\[\d+\]", final_report))
-            _new_cites = len(_re.findall(r"\[\d+\]", _polished))
-            _orig_headings = final_report.count("## ")
-            _new_headings = _polished.count("## ")
-            # FIX-GLM5-TRUNC: Require 70% length retention and References section
-            # to detect truncation from max_tokens limit on long reports.
-            _has_references = "## References" in _polished or "## Bibliography" in _polished
-            if (
-                _polished
-                and len(_polished) > len(final_report) * 0.7
-                and _new_cites >= _orig_cites * 0.8
-                and _new_headings >= _orig_headings * 0.8
-                and _has_references
-            ):
-                final_report = _polished
-                logger.info(
-                    "[polaris graph] POLISH-PASS: Report polished (%d→%d words, "
-                    "%d→%d citations, %d→%d headings)",
-                    len(final_report.split()), len(_polished.split()),
-                    _orig_cites, _new_cites,
-                    _orig_headings, _new_headings,
+            _section_titles = [s.get("title", "") for s in report_sections]
+            _titles_block = "\n".join(f"  - {t}" for t in _section_titles)
+            _polished_count = 0
+
+            for _si, _section in enumerate(report_sections):
+                _sec_content = _section.get("content", "")
+                if len(_sec_content.split()) < 100:
+                    continue  # Skip very short sections
+
+                _polish_prompt = (
+                    f"You are an expert academic editor. Edit this ONE section of a "
+                    f"research report.\n\n"
+                    f"REPORT SECTIONS (for cross-reference context):\n{_titles_block}\n\n"
+                    f"CURRENT SECTION: {_section.get('title', '')}\n\n"
+                    f"EDITING RULES:\n"
+                    f"1. REDUNDANCY: If a statistic or finding is better suited to another "
+                    f"section listed above, replace with 'as established in [Section Title]'.\n"
+                    f"2. PROSE: Vary sentence structure. Tighten verbose sentences.\n"
+                    f"3. CONSISTENCY: Format statistics as MD/CI/I²/p-value/GRADE.\n"
+                    f"4. PRESERVE: Keep ALL [N] citation markers. Keep tables. "
+                    f"Keep **Key Findings**.\n\n"
+                    f"Output ONLY the edited section content. No title. No metadata.\n\n"
+                    f"SECTION CONTENT:\n{_sec_content}"
                 )
-            else:
-                logger.warning(
-                    "[polaris graph] POLISH-PASS: Rejected polished output "
-                    "(len=%d/%d=%.0f%%, cites=%d→%d, headings=%d→%d, refs=%s) "
-                    "— keeping original report",
-                    len(_polished), len(final_report),
-                    len(_polished) / max(len(final_report), 1) * 100,
-                    _orig_cites, _new_cites,
-                    _orig_headings, _new_headings,
-                    _has_references,
+
+                _polish_resp = await client.reason(
+                    prompt=_polish_prompt,
+                    effort="medium",
+                    max_tokens=8192,
+                )
+                _polished_sec = _polish_resp.content.strip()
+
+                # Validate: retain citations and reasonable length
+                _orig_sec_cites = len(_re.findall(r"\[\d+\]", _sec_content))
+                _new_sec_cites = len(_re.findall(r"\[\d+\]", _polished_sec))
+                if (
+                    _polished_sec
+                    and len(_polished_sec) > len(_sec_content) * 0.5
+                    and _new_sec_cites >= _orig_sec_cites * 0.7
+                ):
+                    _section["content"] = _polished_sec
+                    _section["word_count"] = len(_polished_sec.split())
+                    _polished_count += 1
+
+            if _polished_count > 0:
+                # Rebuild full_report from polished sections
+                _rebuild_parts = [f"# {outline.title}", ""]
+                if outline.abstract:
+                    _rebuild_parts.extend(["## Abstract", "", outline.abstract, ""])
+                for _ps in report_sections:
+                    _rebuild_parts.extend([f"## {_ps['title']}", "", _ps["content"], ""])
+                _rebuild_parts.extend(["## References", ""])
+                for _be in bibliography:
+                    _rebuild_parts.append(_be["formatted"])
+                _rebuild_parts.append("")
+                final_report = "\n".join(_rebuild_parts)
+
+                logger.info(
+                    "[polaris graph] POLISH-PASS: Polished %d/%d sections",
+                    _polished_count, len(report_sections),
                 )
         except Exception as polish_exc:
             logger.warning(

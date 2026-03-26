@@ -136,6 +136,11 @@ _LOW_CREDIBILITY_DOMAINS = frozenset([
     "sciencefocus.com",
     "aarp.org",
     "diabetesonthenet.com",
+    # FIX-071: Additional from TEST_071 audit
+    "healthshots.com",
+    "theconversation.com",
+    "agencia.fapesp.br",
+    "sochob.cl",
 ])
 _DOMAIN_AUTHORITY_LOW_CREDIBILITY = 0.2
 
@@ -1151,7 +1156,10 @@ async def analyze_sources(
     _grade_enabled = os.getenv("PG_GRADE_STANDARDIZATION", "1") == "1"
     if _grade_enabled and evidence:
         try:
-            _grade_batch_size = 20
+            # FIX-071: Reduced from 20 to 5. GLM-5 truncates output before
+            # finishing 20 items, resulting in only 14% rated. Batch of 5
+            # needs only 5 lines output — well within GLM-5's reliable range.
+            _grade_batch_size = 5
             _grade_updated = 0
             for _gi in range(0, len(evidence), _grade_batch_size):
                 _grade_batch = evidence[_gi:_gi + _grade_batch_size]

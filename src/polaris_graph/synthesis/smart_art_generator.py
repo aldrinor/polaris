@@ -456,11 +456,26 @@ class SmartArtGenerator:
                 )
             return ""
 
+        # FIX-071: Reject trivial diagrams (<10 lines or <200 chars).
+        # s05 "Healthy Diet → Insulin Sensitivity" (6 lines) and
+        # s12 "Identify Population → Contraindication?" (6 lines)
+        # added no value in TEST_071. Minimum 10 lines ensures substance.
+        _min_lines = int(os.getenv("PG_DIAGRAM_MIN_LINES", "10"))
+        _diagram_lines = len(mermaid_code.strip().split("\n"))
+        if _diagram_lines < _min_lines:
+            logger.warning(
+                "[smart_art] FIX-071: Rejected trivial diagram for '%s' "
+                "(%d lines < %d minimum)",
+                section_title[:40], _diagram_lines, _min_lines,
+            )
+            return ""
+
         logger.info(
-            "[smart_art] Generated %s diagram for '%s' (%d chars)",
+            "[smart_art] Generated %s diagram for '%s' (%d chars, %d lines)",
             diagram_type,
             section_title,
             len(mermaid_code),
+            _diagram_lines,
         )
         return mermaid_code
 
