@@ -441,13 +441,22 @@ class SmartArtGenerator:
                     temperature=0.3,
                 )
                 retry_code = _strip_code_fences(retry_resp.content.strip())
-                if _validate_mermaid(retry_code):
+                _retry_lines = len(retry_code.strip().split("\n"))
+                _min = int(os.getenv("PG_DIAGRAM_MIN_LINES", "10"))
+                if _validate_mermaid(retry_code) and _retry_lines >= _min:
                     logger.info(
-                        "[smart_art] FIX-A4: Retry succeeded for '%s' (%d chars)",
+                        "[smart_art] FIX-A4: Retry succeeded for '%s' (%d chars, %d lines)",
                         section_title[:40],
                         len(retry_code),
+                        _retry_lines,
                     )
                     return retry_code
+                elif _validate_mermaid(retry_code):
+                    logger.warning(
+                        "[smart_art] FIX-071: Retry diagram too trivial for '%s' "
+                        "(%d lines < %d min)",
+                        section_title[:40], _retry_lines, _min,
+                    )
             except Exception as retry_exc:
                 logger.warning(
                     "[smart_art] FIX-A4: Retry failed for '%s': %s",
