@@ -2640,11 +2640,15 @@ async def synthesize_report(
             _new_cites = len(_re.findall(r"\[\d+\]", _polished))
             _orig_headings = final_report.count("## ")
             _new_headings = _polished.count("## ")
+            # FIX-GLM5-TRUNC: Require 70% length retention and References section
+            # to detect truncation from max_tokens limit on long reports.
+            _has_references = "## References" in _polished or "## Bibliography" in _polished
             if (
                 _polished
-                and len(_polished) > len(final_report) * 0.5
+                and len(_polished) > len(final_report) * 0.7
                 and _new_cites >= _orig_cites * 0.8
                 and _new_headings >= _orig_headings * 0.8
+                and _has_references
             ):
                 final_report = _polished
                 logger.info(
@@ -2657,10 +2661,13 @@ async def synthesize_report(
             else:
                 logger.warning(
                     "[polaris graph] POLISH-PASS: Rejected polished output "
-                    "(len=%d, cites=%d→%d, headings=%d→%d)",
-                    len(_polished),
+                    "(len=%d/%d=%.0f%%, cites=%d→%d, headings=%d→%d, refs=%s) "
+                    "— keeping original report",
+                    len(_polished), len(final_report),
+                    len(_polished) / max(len(final_report), 1) * 100,
                     _orig_cites, _new_cites,
                     _orig_headings, _new_headings,
+                    _has_references,
                 )
         except Exception as polish_exc:
             logger.warning(
