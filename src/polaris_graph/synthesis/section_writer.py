@@ -1811,8 +1811,31 @@ async def write_all_sections(
                     if e.get("evidence_id") not in _globally_claimed
                 ]
 
-            # FIX-043C: Also pull in unassigned evidence
-            if unassigned_evidence:
+            # FIX-069: When outline assignment is empty or depleted by dedup,
+            # pull from the FULL unclaimed pool by embedding similarity.
+            # This prevents 14/15 sections getting 0 evidence.
+            _min_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8"))
+            if len(assigned_evidence) < _min_per_section:
+                _all_unclaimed = [
+                    e for e in evidence
+                    if e.get("evidence_id") not in _globally_claimed
+                ]
+                if _all_unclaimed:
+                    bonus_from_pool = _filter_evidence_for_section(
+                        evidence=_all_unclaimed,
+                        section_title=section.title,
+                        section_description=section.description,
+                        top_k=_min_per_section,
+                    )
+                    existing_ids = {e.get("evidence_id") for e in assigned_evidence}
+                    for b in bonus_from_pool:
+                        if b.get("evidence_id") not in existing_ids:
+                            assigned_evidence.append(b)
+                        if len(assigned_evidence) >= _min_per_section:
+                            break
+
+            # FIX-043C: Also pull in unassigned evidence (supplementary)
+            if unassigned_evidence and len(assigned_evidence) < _fair_share:
                 _available_unassigned = [
                     e for e in unassigned_evidence
                     if not _hard_dedup or e.get("evidence_id") not in _globally_claimed
