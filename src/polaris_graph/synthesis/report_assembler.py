@@ -1018,8 +1018,87 @@ _FILLER_BEFORE_TABLE = re.compile(
 )
 
 
+def _scrub_meta_commentary(text: str) -> str:
+    """FIX-072: Remove LLM meta-commentary from section content.
+
+    GLM-5 sometimes inserts mid-generation requests like:
+    - "Please provide the evidence pieces so I can..."
+    - "I need the 13 evidence pieces to continue..."
+    - "the evidence pieces were not provided to me"
+    - "Once you share the evidence..."
+    - "Without these materials, I cannot..."
+    - "I must note a critical issue:..."
+    - "The prompt indicates..."
+
+    These are the LLM talking to itself, not report content.
+    """
+    _META_PATTERNS = [
+        # Direct requests for evidence
+        r"Please provide[^.]*evidence[^.]*\.",
+        r"I need[^.]*evidence[^.]*\.",
+        r"Once you share[^.]*\.",
+        r"Without these materials[^.]*\.",
+        r"I cannot verify[^.]*without[^.]*\.",
+        # Self-referential commentary
+        r"[Tt]he evidence pieces[^.]*were not provided[^.]*\.",
+        r"[Tt]he evidence pieces referenced[^.]*\.",
+        r"[Tt]he prompt indicates[^.]*\.",
+        r"I must note a critical issue[^.]*\.",
+        r"[Tt]he text contains citations[^.]*but I cannot[^.]*\.",
+        # Instruction echoing
+        r"To properly complete this section[^.]*I would need[^.]*\.",
+        r"I would need[^.]*evidence[^.]*to continue[^.]*\.",
+        # Bullet lists requesting evidence
+        r"- The \w+ evidence piece mentioned[^.]*\.",
+        # "I should/I will" planning
+        r"[Ll]et me now revise[^.]*\.",
+        r"[Ll]et me go through[^.]*\.",
+        r"[Nn]ow let me[^.]*\.",
+    ]
+
+    import re
+    _cleaned = text
+    _total_removed = 0
+    for pattern in _META_PATTERNS:
+        matches = list(re.finditer(pattern, _cleaned))
+        for m in reversed(matches):
+            _cleaned = _cleaned[:m.start()] + _cleaned[m.end():]
+            _total_removed += m.end() - m.start()
+
+    # Also remove multi-line meta blocks (indented with "- " after meta sentence)
+    _cleaned = re.sub(
+        r"(?:Please provide|I need|Once you share|Without these)[^\n]*(?:\n\s*-[^\n]*)*",
+        "",
+        _cleaned,
+    )
+
+    # Remove orphaned bullet fragments (bullets without substantive content)
+    _cleaned = re.sub(
+        r"^\s*-\s*(Properly cite|Perform the mandatory|Meet the anti-hallucination"
+        r"|The \w+ evidence piece)[^\n]*\n?",
+        "",
+        _cleaned,
+        flags=re.MULTILINE,
+    )
+    # Remove sentences starting with "However, " followed by nothing substantive
+    _cleaned = re.sub(r"However,\s*\n", "\n", _cleaned)
+    # Clean up resulting double spaces and double newlines
+    _cleaned = re.sub(r"  +", " ", _cleaned)
+    _cleaned = re.sub(r"\n{3,}", "\n\n", _cleaned)
+
+    if _total_removed > 0:
+        logger.info(
+            "[polaris graph] FIX-072: Scrubbed %d chars of LLM meta-commentary",
+            _total_removed,
+        )
+
+    return _cleaned.strip()
+
+
 def _clean_filler_and_tables(text: str) -> str:
     """Remove filler transition words at sentence starts and before table rows."""
+    # FIX-072: Scrub meta-commentary first
+    text = _scrub_meta_commentary(text)
     # Strip filler words that start sentences, then capitalize remainder
     def _strip_and_capitalize(m: re.Match) -> str:
         rest = text[m.end():m.end() + 1] if m.end() < len(text) else ""
