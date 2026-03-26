@@ -328,6 +328,32 @@ class AccessBypass:
         4. Institutional proxy
         5. Sci-Hub (last resort for academic papers)
         """
+        # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
+        # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
+        # not HTML scraping. This gives the analyzer full paper content with
+        # forest plots, I² values, GRADE ratings — the detail Gemini captures.
+        if url.lower().endswith(".pdf") or "/pdf/" in url.lower():
+            try:
+                pdf_text = await self._extract_pdf_text(url)
+                if pdf_text and len(pdf_text) > 500:
+                    logger.info(
+                        "[ACCESS] FIX-GAP4: PDF text extracted for %s (%d chars)",
+                        url[:60], len(pdf_text),
+                    )
+                    return AccessResult(
+                        url=url,
+                        content=pdf_text[:50000],  # Cap at 50K chars
+                        method="pdf_extract",
+                        legal_alternative=None,
+                        success=True,
+                        metadata={"content_type": "application/pdf"},
+                    )
+            except Exception as pdf_exc:
+                logger.warning(
+                    "[ACCESS] FIX-GAP4: PDF extraction failed for %s: %s — falling back to HTML",
+                    url[:60], str(pdf_exc)[:100],
+                )
+
         # FIX-QM2: Run Crawl4AI, Jina and Firecrawl concurrently -- first success wins
         logger.info("[ACCESS] FIX-QM2: Concurrent Crawl4AI+Jina+Firecrawl for %s", url[:60])
 
@@ -776,6 +802,49 @@ class AccessBypass:
             # FIX-UNICODE: Do NOT restore original encoding. Multiple
             # concurrent Crawl4AI calls race: one call's restore undoes
             # another call's reconfigure. utf-8 is strictly superior.
+
+    async def _extract_pdf_text(self, url: str) -> str:
+        """FIX-CITE-3/GAP4: Download and extract text from academic PDF.
+
+        Uses PyMuPDF (fitz) for extraction. Falls back to basic text
+        extraction if PyMuPDF is not available.
+        """
+        import aiohttp
+        import tempfile
+
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return ""
+                pdf_bytes = await resp.read()
+                if len(pdf_bytes) < 1000:
+                    return ""
+
+        # Extract text using PyMuPDF
+        try:
+            import fitz
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+
+            doc = fitz.open(tmp_path)
+            pages_text = []
+            for page in doc:
+                pages_text.append(page.get_text())
+            doc.close()
+
+            import os as _os
+            _os.unlink(tmp_path)
+
+            full_text = "\n\n".join(pages_text)
+            return full_text.strip()
+        except ImportError:
+            logger.warning("[ACCESS] FIX-GAP4: PyMuPDF not installed, PDF extraction unavailable")
+            return ""
+        except Exception as exc:
+            logger.warning("[ACCESS] FIX-GAP4: PDF extraction error: %s", str(exc)[:100])
+            return ""
 
     async def _try_trafilatura(self, url: str) -> Optional[AccessResult]:
         """Fetch content via trafilatura in thread pool (non-blocking).

@@ -173,8 +173,17 @@ Rules:
    - 0.1-0.4: Marginally relevant, mostly off-topic
    Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.
 5. Include exact numbers, dates, measurements, names, standards.
-6. Include methodology details, sample sizes, confidence intervals, and limitations.
+6. For EVERY quantitative finding, extract ALL of the following when available:
+   - Effect size with units (MD, SMD, WMD, OR, HR, RR)
+   - 95% confidence interval (e.g., "95% CI -5.54 to -3.05")
+   - Heterogeneity (I-squared value, e.g., "I²=96%")
+   - Number of studies/trials included (e.g., "7 RCTs")
+   - Total sample size (e.g., "n=269")
+   - Evidence certainty/quality rating (e.g., "GRADE: moderate", "high certainty")
+   - Study duration/follow-up period
+   Missing any of these when the source provides them is a CRITICAL extraction failure.
 7. For review/meta-analysis papers, extract findings from EACH cited study individually.
+   Prioritize pooled estimates with I² and CI over narrative summaries.
 8. For each atomic fact, tag the research perspective it belongs to.
 9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.
    Do NOT infer, extrapolate, or add information beyond what the direct_quote states.

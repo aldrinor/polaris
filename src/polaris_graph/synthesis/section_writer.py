@@ -1215,13 +1215,26 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # Try up to 2 attempts — retry if content comes back empty
     # (can happen when Kimi puts everything in reasoning_content)
     content = ""
+    # FIX-CITE-3/GAP-LLM: Use reason() for section writing when enabled.
+    # Gives the model explicit reasoning budget to think through evidence
+    # before generating prose. Produces deeper analytical output with I²,
+    # GRADE ratings, and structured comparisons.
+    _use_reasoning = os.getenv("PG_SECTION_REASONING", "0") == "1"
     for attempt in range(2):
-        response = await client.generate(
-            prompt=prompt,
-            system=system,
-            max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
-            temperature=0.7,
-        )
+        if _use_reasoning:
+            response = await client.reason(
+                prompt=prompt,
+                system=system,
+                effort="high",
+                max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
+            )
+        else:
+            response = await client.generate(
+                prompt=prompt,
+                system=system,
+                max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
+                temperature=0.7,
+            )
         content = response.content.strip()
         if content and len(content.split()) >= 50:
             break
