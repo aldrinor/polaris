@@ -1144,6 +1144,61 @@ async def analyze_sources(
     # nli_self_check_score from prior iteration verification via FIX-051)
     evidence = _assign_quality_tiers(evidence)
 
+    # GRADE-PASS: Assign standardized GRADE certainty ratings to evidence.
+    # Examines each evidence statement + source context to determine:
+    # high (RCT/meta-analysis, low heterogeneity), moderate (RCT, some concerns),
+    # low (observational/high heterogeneity), very low (case reports/expert opinion).
+    _grade_enabled = os.getenv("PG_GRADE_STANDARDIZATION", "1") == "1"
+    if _grade_enabled and evidence:
+        try:
+            _grade_batch_size = 20
+            _grade_updated = 0
+            for _gi in range(0, len(evidence), _grade_batch_size):
+                _grade_batch = evidence[_gi:_gi + _grade_batch_size]
+                _grade_items = "\n".join(
+                    f"{j+1}. [{e.get('quality_tier','?')}] "
+                    f"Source: {e.get('source_title','')[:60]} | "
+                    f"Statement: {e.get('statement','')[:150]}"
+                    for j, e in enumerate(_grade_batch)
+                )
+                _grade_resp = await client.generate(
+                    prompt=(
+                        f"Assign GRADE certainty ratings to each evidence item below.\n"
+                        f"Ratings: HIGH (systematic review of RCTs, low heterogeneity), "
+                        f"MODERATE (RCT with some concerns, or consistent observational), "
+                        f"LOW (observational studies, high heterogeneity, indirect evidence), "
+                        f"VERY_LOW (case reports, expert opinion, serious limitations).\n\n"
+                        f"For each item, output ONLY the number and rating, one per line:\n"
+                        f"1. HIGH\n2. MODERATE\n...\n\n"
+                        f"EVIDENCE:\n{_grade_items}"
+                    ),
+                    max_tokens=500,
+                    temperature=0.1,
+                )
+                # Parse ratings
+                import re as _gre
+                _ratings = _gre.findall(
+                    r"(\d+)\.\s*(HIGH|MODERATE|LOW|VERY_LOW)",
+                    _grade_resp.content.upper(),
+                )
+                for _num_str, _rating in _ratings:
+                    _idx = int(_num_str) - 1
+                    if 0 <= _idx < len(_grade_batch):
+                        _grade_batch[_idx]["grade_certainty"] = _rating.lower()
+                        _grade_updated += 1
+
+            if _grade_updated > 0:
+                logger.info(
+                    "[polaris graph] GRADE-PASS: Assigned certainty ratings to "
+                    "%d/%d evidence pieces",
+                    _grade_updated, len(evidence),
+                )
+        except Exception as _grade_exc:
+            logger.warning(
+                "[polaris graph] GRADE-PASS: Failed (non-blocking): %s",
+                str(_grade_exc)[:200],
+            )
+
     # FIX-059-D (BUG-4 Part 5): Exact string dedup before SemHash
     # Trivial O(n) pass removes byte-identical quotes that SemHash would
     # also catch, but this is faster and deterministic.
@@ -1221,6 +1276,25 @@ async def analyze_sources(
             len(fetched),
             len(batches),
         )
+
+    # QUERY-GATE: When query explicitly requests clinical/academic evidence,
+    # hard-exclude non-academic sources from synthesis entirely.
+    _clinical_keywords = ["clinical research", "meta-analyses", "systematic review",
+                          "randomized controlled", "clinical trials", "peer-reviewed"]
+    _query_is_clinical = any(kw in query.lower() for kw in _clinical_keywords)
+    if _query_is_clinical and os.getenv("PG_ACADEMIC_ONLY_GATE", "1") == "1":
+        _before = len(evidence)
+        evidence = [
+            e for e in evidence
+            if _get_domain_authority(e.get("source_url", "")) >= 0.5
+        ]
+        _excluded = _before - len(evidence)
+        if _excluded > 0:
+            logger.info(
+                "[polaris graph] QUERY-GATE: Excluded %d non-academic evidence "
+                "(query requests clinical research, domain authority < 0.5)",
+                _excluded,
+            )
 
     gold_count = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
     silver_count = sum(1 for e in evidence if e.get("quality_tier") == "SILVER")

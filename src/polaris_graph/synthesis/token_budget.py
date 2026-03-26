@@ -115,8 +115,12 @@ def format_l1(ev: dict) -> str:
     else:
         tag = "[UNVERIFIED]"
 
+    # GRADE-PASS: Include certainty rating when available
+    grade = ev.get("grade_certainty", "")
+    grade_tag = f" [GRADE: {grade}]" if grade else ""
+
     return (
-        f"Evidence ID: {eid} {tag}\n"
+        f"Evidence ID: {eid} {tag}{grade_tag}\n"
         f"  Statement: {stmt}\n"
         f"  Source: {title} ({year})"
     )
@@ -153,13 +157,17 @@ def format_l2(ev: dict) -> str:
 
     quote_line = f'  Direct quote: "{quote[:500]}"' if quote else ""
 
+    # GRADE-PASS: Include certainty rating when available
+    grade = ev.get("grade_certainty", "")
+    grade_tag = f" | GRADE: {grade}" if grade else ""
+
     return (
         f"Evidence ID: {eid} {tag}\n"
         f"  Statement: {stmt}\n"
         f"{quote_line}\n"
         f"  Source: {title} ({year})\n"
         f"  URL: {url}\n"
-        f"  Quality: {tier} | Relevance: {relevance:.2f}"
+        f"  Quality: {tier} | Relevance: {relevance:.2f}{grade_tag}"
     )
 
 

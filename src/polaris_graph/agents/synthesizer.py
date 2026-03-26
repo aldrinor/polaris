@@ -2601,6 +2601,71 @@ async def synthesize_report(
             quality["unique_sources"],
         )
 
+    # POLISH-PASS: Final report-wide edit for coherence, redundancy, and prose quality.
+    # Reads the entire assembled report and produces an edited version.
+    # Addresses: topic-level redundancy across sections, prose flow, transition smoothing.
+    _polish_enabled = os.getenv("PG_POLISH_PASS", "1") == "1"
+    if _polish_enabled and final_report and len(final_report.split()) > 1000:
+        try:
+            _polish_prompt = (
+                "You are an expert academic editor. Edit the following research report "
+                "for quality. Apply these edits:\n\n"
+                "1. REDUNDANCY: When the same statistic, finding, or concept appears in "
+                "multiple sections, keep it in the MOST relevant section and remove or "
+                "replace with a cross-reference ('as established in [Section Title]') elsewhere.\n"
+                "2. PROSE: Vary sentence structure. Remove any remaining filler transitions. "
+                "Tighten verbose sentences. Ensure each paragraph opens with a substantive "
+                "claim, not a transition.\n"
+                "3. FLOW: Ensure sections build on each other logically. Add brief bridge "
+                "sentences where transitions are abrupt.\n"
+                "4. CONSISTENCY: Ensure all statistical claims use consistent formatting "
+                "(MD, CI, I², p-value, GRADE rating where available).\n"
+                "5. PRESERVE: Keep ALL [N] citation markers exactly as they are. Do NOT "
+                "renumber, remove, or add citations. Keep all tables intact. Keep all "
+                "## headings. Keep **Key Findings** sections.\n\n"
+                "Output the COMPLETE edited report. Do not summarize or truncate.\n\n"
+                f"REPORT:\n{final_report}"
+            )
+            _polish_response = await client.generate(
+                prompt=_polish_prompt,
+                max_tokens=16384,
+                temperature=0.3,
+            )
+            _polished = _polish_response.content.strip()
+            # Validate: polished version should retain most citations and headings
+            import re as _re
+            _orig_cites = len(_re.findall(r"\[\d+\]", final_report))
+            _new_cites = len(_re.findall(r"\[\d+\]", _polished))
+            _orig_headings = final_report.count("## ")
+            _new_headings = _polished.count("## ")
+            if (
+                _polished
+                and len(_polished) > len(final_report) * 0.5
+                and _new_cites >= _orig_cites * 0.8
+                and _new_headings >= _orig_headings * 0.8
+            ):
+                final_report = _polished
+                logger.info(
+                    "[polaris graph] POLISH-PASS: Report polished (%d→%d words, "
+                    "%d→%d citations, %d→%d headings)",
+                    len(final_report.split()), len(_polished.split()),
+                    _orig_cites, _new_cites,
+                    _orig_headings, _new_headings,
+                )
+            else:
+                logger.warning(
+                    "[polaris graph] POLISH-PASS: Rejected polished output "
+                    "(len=%d, cites=%d→%d, headings=%d→%d)",
+                    len(_polished),
+                    _orig_cites, _new_cites,
+                    _orig_headings, _new_headings,
+                )
+        except Exception as polish_exc:
+            logger.warning(
+                "[polaris graph] POLISH-PASS: Failed (non-blocking): %s",
+                str(polish_exc)[:200],
+            )
+
     # Build audit-compatible bibliography with title/authors fields
     evidence_map = {e.get("evidence_id", ""): e for e in evidence}
     enriched_bibliography = []
