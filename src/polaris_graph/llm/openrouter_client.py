@@ -1229,13 +1229,28 @@ class OpenRouterClient:
             elif not schema:
                 # COT-3 fast path: For free-form reason() (no schema),
                 # the reasoning IS the answer — use it directly without retry.
+                # FIX-071B: Strip CoT prefix for always-reason models.
+                _reason_content = result.reasoning
+                if self.model in _ALWAYS_REASON_MODELS:
+                    import re as _re
+                    _cot_end = _re.search(
+                        r"\n(?=(?:##\s|[A-Z][a-z].*(?:\[\d+\]|\[CITE:|\(95%|MD\s|SMD\s)))",
+                        _reason_content,
+                    )
+                    if _cot_end and _cot_end.start() > 100:
+                        _reason_content = _reason_content[_cot_end.start():].lstrip()
+                        logger.info(
+                            "[polaris graph] FIX-071B: Stripped %d chars CoT from "
+                            "reason() free-form output",
+                            _cot_end.start(),
+                        )
                 logger.info(
                     "[polaris graph] COT-3: Free-form reason() using "
                     "reasoning as content (%d chars, no schema to parse)",
-                    len(result.reasoning),
+                    len(_reason_content),
                 )
                 result = LLMResponse(
-                    content=result.reasoning,
+                    content=_reason_content,
                     reasoning=result.reasoning,
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,

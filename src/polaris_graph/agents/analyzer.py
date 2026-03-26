@@ -1169,22 +1169,31 @@ async def analyze_sources(
                     f"Statement: {e.get('statement','')[:150]}"
                     for j, e in enumerate(_grade_batch)
                 )
-                # Use reason() instead of generate() — GLM-5's generate()
-                # puts CoT in content. reason() separates thinking from answer.
-                _grade_resp = await client.reason(
-                    prompt=(
-                        f"Assign GRADE certainty ratings to each evidence item below.\n"
-                        f"Ratings: HIGH (systematic review of RCTs, low heterogeneity), "
-                        f"MODERATE (RCT with some concerns, or consistent observational), "
-                        f"LOW (observational studies, high heterogeneity, indirect evidence), "
-                        f"VERY_LOW (case reports, expert opinion, serious limitations).\n\n"
-                        f"For each item, output ONLY the number and rating, one per line:\n"
-                        f"1. HIGH\n2. MODERATE\n...\n\n"
-                        f"EVIDENCE:\n{_grade_items}"
-                    ),
-                    effort="low",
-                    max_tokens=500,
-                )
+                # FIX-071B: Retry on empty + reason() for GRADE assignment
+                _grade_resp = None
+                for _ga in range(2):
+                    try:
+                        _grade_resp = await client.reason(
+                            prompt=(
+                                f"Assign GRADE certainty ratings to each evidence item below.\n"
+                                f"Ratings: HIGH (systematic review of RCTs, low heterogeneity), "
+                                f"MODERATE (RCT with some concerns, or consistent observational), "
+                                f"LOW (observational studies, high heterogeneity, indirect evidence), "
+                                f"VERY_LOW (case reports, expert opinion, serious limitations).\n\n"
+                                f"For each item, output ONLY the number and rating, one per line:\n"
+                                f"1. HIGH\n2. MODERATE\n...\n\n"
+                                f"EVIDENCE:\n{_grade_items}"
+                            ),
+                            effort="low",
+                            max_tokens=500,
+                        )
+                        if _grade_resp.content.strip():
+                            break
+                    except (ValueError, RuntimeError):
+                        if _ga == 0:
+                            continue
+                if not _grade_resp or not _grade_resp.content.strip():
+                    continue  # Skip this batch
                 # Parse ratings — try structured format first, then extract from reasoning
                 import re as _gre
                 _ratings = _gre.findall(

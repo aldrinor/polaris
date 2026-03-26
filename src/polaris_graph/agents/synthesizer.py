@@ -2634,12 +2634,48 @@ async def synthesize_report(
                     f"SECTION CONTENT:\n{_sec_content}"
                 )
 
-                _polish_resp = await client.reason(
-                    prompt=_polish_prompt,
-                    effort="medium",
-                    max_tokens=8192,
-                )
-                _polished_sec = _polish_resp.content.strip()
+                # FIX-071B: Retry on empty + strip CoT from polish response
+                _polished_sec = ""
+                for _attempt in range(2):
+                    try:
+                        _polish_resp = await client.reason(
+                            prompt=_polish_prompt,
+                            effort="medium",
+                            max_tokens=8192,
+                        )
+                        _polished_sec = _polish_resp.content.strip()
+                        if _polished_sec:
+                            break
+                    except (ValueError, RuntimeError):
+                        if _attempt == 0:
+                            logger.warning(
+                                "[polaris graph] POLISH-PASS: Empty response for "
+                                "'%s', retrying", _section.get("title", "?")[:30],
+                            )
+                            continue
+                        break
+
+                # FIX-071B: Strip CoT prefix from polish output
+                # GLM-5 writes "1. **Analyze the Request:**..." before edited text
+                if _polished_sec:
+                    _cot_markers = [
+                        "analyze the request", "let me", "the user wants",
+                        "my task", "instructions:",
+                    ]
+                    if any(m in _polished_sec[:300].lower() for m in _cot_markers):
+                        # Find where actual content starts (## heading or sentence with [N])
+                        _content_start = _re.search(
+                            r"\n(?=(?:##\s|[A-Z][a-z].*\[\d+\]))",
+                            _polished_sec,
+                        )
+                        if _content_start and _content_start.start() > 50:
+                            _stripped = len(_polished_sec[:_content_start.start()])
+                            _polished_sec = _polished_sec[_content_start.start():].lstrip()
+                            logger.info(
+                                "[polaris graph] POLISH-PASS: Stripped %d chars CoT "
+                                "from section '%s'",
+                                _stripped, _section.get("title", "?")[:30],
+                            )
 
                 # Validate: retain citations and reasonable length
                 _orig_sec_cites = len(_re.findall(r"\[\d+\]", _sec_content))
@@ -2652,6 +2688,14 @@ async def synthesize_report(
                     _section["content"] = _polished_sec
                     _section["word_count"] = len(_polished_sec.split())
                     _polished_count += 1
+                elif _polished_sec:
+                    logger.warning(
+                        "[polaris graph] POLISH-PASS: Rejected edit for '%s' "
+                        "(len=%.0f%%, cites=%d->%d)",
+                        _section.get("title", "?")[:30],
+                        len(_polished_sec) / max(len(_sec_content), 1) * 100,
+                        _orig_sec_cites, _new_sec_cites,
+                    )
 
             if _polished_count > 0:
                 # Rebuild full_report from polished sections
