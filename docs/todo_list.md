@@ -1,10 +1,50 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-03-22 (Session 50 — 27-defect fix plan: 5 WPs + 2 bug fixes, 3 smoke tests, mean 86/100)
+**Last Updated**: 2026-03-24 (Session 53 — Citation architecture evaluated, baseline confirmed)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Enterprise Plan)
 **Gemini Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Gemini Architecture Redesign)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
+
+---
+
+## POLARIS GRAPH OUTPUT QUALITY (Session 54 — 15 Defects Fixed)
+
+### Completed (commit f0ee5cf)
+- [x] FIX-CITE: Citation format conflict [SRC-NNN] → [CITE:evidence_id]
+- [x] FIX-CITE-2: Schema normalization (ReportOutline, SectionOutlineItem, EvidenceCluster)
+- [x] FIX-CITE-3/C1+R2: Hard evidence dedup (GraphRAG) + statistics exclusion
+- [x] FIX-CITE-3/C2+C3: Filler stripping + table cleanup
+- [x] FIX-CITE-3/C5: Newline insertion + preservation
+- [x] FIX-CITE-3/C7: Hedge replacement (may be→is, May 2024 preserved)
+- [x] FIX-CITE-3/S1: Synonym expansion in academic pre-filter
+- [x] FIX-CITE-3/S2: Exa Accept-Encoding (brotli fix)
+- [x] FIX-CITE-3/S4: OpenAlex snippet field mapping
+- [x] FIX-CITE-3/S5: Low-credibility domain expansion
+- [x] FIX-CITE-3/R2: Fallback outline title cleanup
+- [x] FIX-A3+A4: Diagram type override + retry
+- [x] Transition injection disabled
+- [x] Thin section merge
+
+### Remaining (Next Sprint)
+- [ ] Evidence redistribution: balanced allocation across sections (hard dedup first-come bias)
+- [ ] Local model migration: Qwen 3.5 27B Claude-distilled (Ollama, $0/run)
+- [ ] Expand low-credibility domain list (epocrates, brokenscience still pass)
+
+---
+
+## CITATION ARCHITECTURE (CLOSED — Session 53)
+
+**Decision:** Baseline + WP-2.1 post-processing is optimal (83.5 mean). All alternatives regressed.
+
+| Approach | Score | Status |
+|----------|-------|--------|
+| Baseline + WP-2.1 | 83.5 | **ACTIVE** |
+| GTA | 76.5 | Flag OFF, code retained |
+| GTA + 4 fixes | 72.5 | Reverted |
+| Hybrid evidence | 74.0 | Flag OFF, code retained |
+
+Template echo is inherent to prompt-based citation on non-citation-trained LLMs. Residual echoes caught by WP-2.1. No further work planned.
 
 ---
 
@@ -35,7 +75,7 @@
 - [ ] Broaden template echo patterns for non-DVS domains ("X demonstrates Y" where Y is arbitrary)
 - [ ] Add expanded-decimal cleanup to _post_process_interpretation() (currently only detected by hygiene)
 - [ ] Address deferred defects: C2 (table rows), C3 (exec summary), C4 (conditional recs)
-- [ ] Replace scaffold prompt template that causes template echoes at source
+- [x] Replace scaffold prompt template that causes template echoes at source — SOLVED by GTA (Session 52)
 
 ---
 

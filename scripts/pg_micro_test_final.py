@@ -189,11 +189,11 @@ def _():
     has_lowercase_may_cited = bool(re.search(r"\bmay\b(?=[^.]*\[\d+\])", cleaned))  # case-sensitive
     may_2024 = "May 2024" in cleaned
     uncited_may = "claim may be true" in cleaned
-    does_reduce = "does reduce" in cleaned  # "may reduce" -> "does reduce"
+    hedge_gone = "reduce glucose [1]" in cleaned  # "may reduce" -> "reduce" (hedge dropped)
     print(f"  Lowercase 'may' before citation gone: {not has_lowercase_may_cited}")
-    print(f"  May 2024 kept: {may_2024}, Uncited hedge kept: {uncited_may}, 'does reduce': {does_reduce}")
+    print(f"  May 2024 kept: {may_2024}, Uncited hedge kept: {uncited_may}, hedge dropped: {hedge_gone}")
     print(f"  Cleaned: {cleaned}")
-    return not has_lowercase_may_cited and may_2024 and uncited_may and does_reduce
+    return not has_lowercase_may_cited and may_2024 and uncited_may and hedge_gone
 
 
 @register("C4", "Transition injection disabled")

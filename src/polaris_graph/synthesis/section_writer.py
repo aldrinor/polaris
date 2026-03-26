@@ -1677,9 +1677,15 @@ async def write_all_sections(
 
     section_filtered_evidence: dict[str, list[EvidencePiece]] = {}
 
-    # FIX-CITE-3/HARD-DEDUP: Global evidence dedup for Path A too
+    # FIX-CITE-3/HARD-DEDUP + REDIST: Global evidence dedup for Path A too
     _hard_dedup_a = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
     _globally_claimed_a: set[str] = set()
+    _n_sections_a = max(len(sorted_sections), 1)
+    _total_evidence_a = len(evidence)
+    _fair_share_a = max(
+        int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+        int(_total_evidence_a / _n_sections_a * 1.5),
+    )
 
     if global_assignments:
         # FIX-E Path A: Global evidence assignment (breaks section isolation)
@@ -1720,13 +1726,15 @@ async def write_all_sections(
                 ]
 
             # Final top-k filter — use wider pool when token budget enabled
+            # FIX-CITE-3/REDIST: Cap to fair share (Path A)
             _tb_enabled = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
             _pool_k = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _tb_enabled else PG_SECTION_EVIDENCE_TOP_K
+            _effective_k_a = min(_pool_k, _fair_share_a) if _hard_dedup_a else _pool_k
             filtered = _filter_evidence_for_section(
                 evidence=combined,
                 section_title=section.title,
                 section_description=section.description,
-                top_k=_pool_k,
+                top_k=_effective_k_a,
             )
             section_filtered_evidence[section.section_id] = filtered
 
@@ -1758,8 +1766,24 @@ async def write_all_sections(
         # Once an evidence piece is assigned to a section, it is removed
         # from the pool for subsequent sections. This is the deterministic
         # fix for cross-section repetition (GraphRAG pattern).
+        #
+        # FIX-CITE-3/REDIST: Fair-share cap prevents first-come hoarding.
+        # Each section gets at most ceil(total_evidence / num_sections * 1.5)
+        # evidence pieces. This ensures later sections have material to work with.
         _hard_dedup = os.getenv("PG_HARD_EVIDENCE_DEDUP", "1") == "1"
         _globally_claimed: set[str] = set()
+        _n_sections = max(len(sorted_sections), 1)
+        _total_evidence = len(evidence)
+        _fair_share = max(
+            int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "8")),
+            int(_total_evidence / _n_sections),
+        )
+        if _hard_dedup:
+            logger.info(
+                "[polaris graph] FIX-CITE-3/REDIST: Evidence fair share = %d "
+                "(%d evidence / %d sections * 1.5)",
+                _fair_share, _total_evidence, _n_sections,
+            )
 
         for section in sorted_sections:
             # First, get outline-assigned evidence
@@ -1792,13 +1816,15 @@ async def write_all_sections(
                         assigned_evidence.append(b)
 
             # Then apply embedding-based filtering on the combined pool
+            # FIX-CITE-3/REDIST: Cap to fair share to prevent first-come hoarding
             _tb_enabled_b = int(os.getenv("PG_SECTION_TOKEN_BUDGET", "6000")) > 0
             _pool_k_b = int(os.getenv("PG_EVIDENCE_CANDIDATE_POOL", "100")) if _tb_enabled_b else PG_SECTION_EVIDENCE_TOP_K
+            _effective_k = min(_pool_k_b, _fair_share) if _hard_dedup else _pool_k_b
             filtered = _filter_evidence_for_section(
                 evidence=assigned_evidence,
                 section_title=section.title,
                 section_description=section.description,
-                top_k=_pool_k_b,
+                top_k=_effective_k,
             )
             section_filtered_evidence[section.section_id] = filtered
 

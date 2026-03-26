@@ -1,5 +1,113 @@
 # POLARIS Session Log
 
+## [2026-03-25 -- Session 54: 15-Defect Fix Sprint — polaris_graph Output Quality]
+
+[2026-03-25 00:00:00]
+- ACTION: Diagnosed and fixed 15 output quality defects across 7 source files, validated with 49 micro tests across 5 test suites, ran 6 pipeline tests (TEST_062→TEST_068)
+- RATIONALE: TEST_062 produced 0 citations, 0 words despite $3.21 spent. Root cause discovery process: (1) read reasoning traces from JSONL, found model detecting citation format conflict every section write, (2) traced to CITATION_RULES ([SRC-NNN]) injected into v1/v3 prompt expecting [CITE:evidence_id], (3) built micro test proving the fix, (4) expanded to full audit of content/reasoning/artifacts, (5) iterated 6 pipeline runs with line-by-line content review after each. Key methodology: small-scale micro tests before each pipeline run, reading actual output content not just metrics.
+- DOCS/RESEARCH: GraphRAG (Microsoft) hard evidence dedup pattern, STORM (Stanford) polish pass, arXiv 2410.06203 plan-constrained generation. Qwen 3.5 27B Claude-distilled model identified (HuggingFace: Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled) for future local deployment.
+- SYNC: todo_list.md updated with new section. restart_instructions.md rewritten. MEMORY.md to be updated.
+- AFFECTED_FILES: synthesis_prompts.py, schemas.py, report_assembler.py, section_writer.py, analyzer.py, searcher.py, smart_art_generator.py + 8 new test scripts
+- EVIDENCE/FINDINGS:
+  15 fixes committed (f0ee5cf):
+  - FIX-CITE: [SRC-NNN] → [CITE:evidence_id] in analytical prompt (root cause of 0 citations)
+  - FIX-CITE-2: ReportOutline/SectionOutlineItem/EvidenceCluster schema normalization
+  - FIX-CITE-3/C1+R2: Hard evidence dedup (GraphRAG) + statistics exclusion list
+  - FIX-CITE-3/C2+C3: Filler stripping + table cleanup post-processing
+  - FIX-CITE-3/C5: Newline insertion + preservation through _reduce_filler
+  - FIX-CITE-3/C7: Hedge replacement ("may be [1]" → "is [1]", May 2024 preserved)
+  - FIX-CITE-3/S1: Synonym expansion in academic pre-filter (926 papers previously rejected)
+  - FIX-CITE-3/S2: Exa Accept-Encoding header (brotli fix)
+  - FIX-CITE-3/S4: OpenAlex snippet→abstract field mapping
+  - FIX-CITE-3/S5: Low-credibility domain list expansion
+  - FIX-CITE-3/R2: Fallback outline title cleanup ("Evidence categorized as..." stripped)
+  - FIX-A3: Diagram type heuristic override (comparison_matrix)
+  - FIX-A4: Diagram retry with simplified flowchart
+  - Transition injection disabled (was re-adding fillers)
+  - Thin section merge (< 3 evidence → merge into neighbor)
+
+  Pipeline test progression:
+  | Test | Words | Citations | Sources | Repeats | Fillers | Newlines | Academic | Cost |
+  |------|-------|-----------|---------|---------|---------|----------|----------|------|
+  | 062 | 1,455 | 0 | 0 | N/A | N/A | 0 | 0 | $3.21 |
+  | 063 | 13,027 | 118 | 48 | 13+ | 175 | 0 | 30 | $1.86 |
+  | 065 | 7,367 | 117 | 48 | 3 | 82 | 0 | N/A | $1.74 |
+  | 067 | 7,658 | 134 | 46 | 0 | 1 | 516 | 35 | $1.47 |
+  | 068 | 6,910 | 124 | 49 | 0 | 1 | 480 | 35 | $2.06 |
+
+  49 micro tests across 5 suites (all passing):
+  - pg_micro_test_edge.py (5): Citation format [CITE:] vs [SRC-]
+  - pg_micro_test_assembler.py (6): Filler, table, hedge, newline, transition, dedup
+  - pg_micro_test_edge_v2.py (15): Edge cases for all post-processing
+  - pg_micro_test_final.py (15): Full comprehensive pre-launch verification
+  - pg_micro_test_risks.py (7): _reduce_filler, fallback titles, tier data, Exa API
+
+  Remaining known issues (not blocking):
+  - Sections 2-9 thinner than section 1 (hard dedup first-come bias) → next task
+  - Stats exclusion prompt ignored by model (hard dedup compensates)
+  - 6/49 bibliography sources still marginal (epocrates, brokenscience)
+  - Reasoning still 60% mechanical (model limitation)
+- STATUS: Pipeline producing legitimate research reports. 6/6 quality gates pass. Content reads as real analysis, not LLM fluff. Committed f0ee5cf.
+- NEXT_STEP: Fix evidence redistribution (hard dedup first-come bias), then evaluate local model migration.
+
+---
+
+## [2026-03-24 -- Session 53: Citation Architecture Evaluation — Baseline Confirmed]
+
+[2026-03-24 10:00:00]
+- ACTION: Ran hybrid evidence smoke test (PG_HYBRID_EVIDENCE=1) and evaluated all citation architecture options
+- RATIONALE: Session 52 implemented three approaches (GTA, targeted fixes, hybrid evidence). All regressed from baseline. Research into production citation systems (Cohere, Claude, Perplexity, Google Gemini) confirmed: prompt-based citation on non-citation-trained LLMs inherently causes template echo. Only solutions are model fine-tuning (not available to us) or post-hoc grounding engines (our GTA attempt). Since all alternatives scored worse, baseline + WP-2.1 post-processing (83.5 mean) is the optimal outcome with Qwen 3.5 Plus.
+- DOCS/RESEARCH: OpenAI community reports confirm same template echo issue on GPT-4. Cohere Command R, Claude Citations API, Perplexity Sonar solved via fine-tuning. Google Gemini solved via server-side grounding engine.
+- SYNC: restart_instructions.md rewritten for Session 53. PG_HYBRID_EVIDENCE=0 in .env.
+- AFFECTED_FILES: `.env` (HYBRID=0), `state/restart_instructions.md`, `logs/session_log.md`, `docs/todo_list.md`
+- EVIDENCE/FINDINGS:
+  Hybrid smoke test results (1 set, 2 evidence collections):
+  - PFAS-40: 84/100, Hygiene 15/15, NLI 40%, 0 phantom, 1 mismatch
+  - DVS-71: 64/100, Hygiene 12/15 (template_echo -3), NLI 9%, 56% parroting, 44% copy ratio, 6 mismatched
+  - Average: 74.0/100 (vs 83.5 baseline = -9.5 regression)
+  - Root cause: numbered passages caused verbatim evidence copying on DVS
+  All 4 attempts compared:
+  | Approach | Score | Delta |
+  |----------|-------|-------|
+  | Baseline + WP-2.1 | 83.5 | — |
+  | GTA | 76.5 | -7.0 |
+  | GTA + 4 fixes | 72.5 | -11.0 |
+  | Hybrid evidence | 74.0 | -9.5 |
+- STATUS: Citation architecture evaluation COMPLETE. Baseline confirmed as optimal. Both experimental flags disabled (HYBRID=0, GTA=0). Code remains in place for future reference but will not be activated.
+- NEXT_STEP: Run 7-run baseline evaluation to confirm 83.5 stability, then redirect to higher-ROI work items.
+
+[2026-03-24 11:30:00]
+- ACTION: Completed 7-run ReAct stress test baseline validation + launched polaris_graph E2E (PG_TEST_061)
+- RATIONALE: Need statistical baseline before testing v3 RC-2 analytical prompt impact. 7 runs provide mean + variance. Then polaris_graph E2E with RC-2+RC-3 ON to measure analytical prompt impact on full pipeline (v3 flags don't affect react_agent, only polaris_graph section_writer/planner).
+- DOCS/RESEARCH: N/A
+- SYNC: N/A
+- AFFECTED_FILES: `outputs/stress_test_scores.json` (baseline scores saved)
+- EVIDENCE/FINDINGS:
+  7-run ReAct baseline (14 observations):
+  - OVERALL: mean=84.1, stddev=7.6, 95% CI [57.7, 94.9]
+  - PFAS-40: mean=89.1, stddev=4.4, range [82, 94]
+  - DVS-71: mean=79.0, stddev=6.6, range [69, 88]
+  Per-run scores: 75.5, 81.5, 79.0, 86.5, 85.5, 90.0, 90.5
+  Baseline confirmed at 84.1 (above 83.5 estimate).
+  DVS-71 is the swing factor — high variance, niche domain.
+  PG_TEST_061 launched (polaris_graph E2E, intermittent fasting query, RC-2+RC-3 ON).
+- STATUS: ReAct baseline locked at 84.1±7.6. PG_TEST_061 running (~60-90 min).
+- NEXT_STEP: Analyze PG_TEST_061 results, compare against PG_TEST_039 baseline.
+
+---
+
+## [2026-03-23 -- Session 52: Generate-Then-Attribute Implementation]
+
+[2026-03-23 16:30:00]
+- ACTION: Implemented Generate-Then-Attribute (GTA) architecture — 3 changes + integration + 8 new tests
+- RATIONALE: Template patching failed 3x in Session 51 — ANY distinctive phrase in qualitative claim template echoes into output. GTA separates prose generation from citation placement. LLM writes clean prose, `_attribute_citations()` adds citations programmatically at sentence boundaries using 3 strategies (number → keyword → embedding). Feature-flagged for safe rollback.
+- DOCS/RESEARCH: Plan at `C:\Users\msn\.claude\plans\cached-popping-locket.md` (ACL 2024-2026: PaperQA2, CiteFix, ReClaim, STORM)
+- SYNC: restart_instructions.md rewritten for Session 52 state; .env updated with GTA config (default OFF)
+- AFFECTED_FILES: `src/polaris_graph/tools/react_agent.py` (3 changes + integration), `tests/v3/test_react_agent.py` (8 new tests), `.env` (4 new vars), `state/restart_instructions.md`
+- EVIDENCE/FINDINGS: 212 tests pass (204 original + 8 new). Smoke test blocked by Qwen API timeouts (pre-existing, same with GTA ON/OFF). Feature flag defaults to OFF — zero risk to existing behavior.
+- STATUS: Implementation complete. Smoke test + manual audit pending (API availability). All 6 CRITICAL issues from plan addressed: CRITICAL-1 (3-strategy not embedding-only), CRITICAL-2 (re-attribute at lower threshold), CRITICAL-3 (refs: metadata), CRITICAL-4 (test updates), CRITICAL-5 (fallback path wired), CRITICAL-6 (skip non-prose lines). Both MODERATE issues addressed: feature flag + safe rollback.
+- NEXT_STEP: When API is responsive, run smoke test with PG_GENERATE_THEN_ATTRIBUTE=1, manually audit outputs, then commit.
+
 ## [2026-03-17 -- Session 47b: v3 Hybrid — ALL 4 SPRINTS IMPLEMENTED]
 
 [2026-03-17 13:45:00]
