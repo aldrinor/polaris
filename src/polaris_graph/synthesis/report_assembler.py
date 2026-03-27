@@ -1069,10 +1069,52 @@ def _scrub_meta_commentary(text: str) -> str:
         r"[Ll]et me now revise[^.]*\.",
         r"[Ll]et me go through[^.]*\.",
         r"[Nn]ow let me[^.]*\.",
+        # FIX-075: Polish pass reasoning leaked as italic markdown blocks
+        r"\*Critique of the draft[:\*][^*]*(?:\*|$)",
+        r"\*Refining the[^*]*(?:\*|$)",
+        r"\*Final (?:Polish )?Plan[^*]*(?:\*|$)",
+        r"\*Checking[^*]*(?:\*|$)",
+        r"\*Drafting the[^*]*(?:\*|$)",
+        r"\*Review against rules[^*]*(?:\*|$)",
+        r"\*Prose tightening[^*]*(?:\*|$)",
+        r"\*Table handling[^*]*(?:\*|$)",
+        r"\*One (?:check|detail)[^*]*(?:\*|$)",
     ]
 
     import re
     _cleaned = text
+
+    # FIX-075: Truncate at polish reasoning blocks FIRST, before regex patterns.
+    # GLM-5 appends "*Critique of the draft:*" followed by editing reasoning.
+    _polish_reasoning_markers = [
+        "*Critique of the draft",
+        "*Refining the",
+        "*Final Polish Plan",
+        "*Final Plan",
+        "Critique of the draft:",
+        "Let's execute this.",
+        "*Review against rules",
+        "I will format the table",
+        "I will replace this paragraph",
+        "This seems correct.",
+        "This is results.",
+        "This is limitations.",
+        "The prompt asks to",
+        "The prompt asks",
+        "The prompt says",
+        "The original text has:",
+        "The original section is",
+    ]
+    for marker in _polish_reasoning_markers:
+        idx = _cleaned.find(marker)
+        if idx > 100:
+            _cleaned = _cleaned[:idx].rstrip()
+            logger.info(
+                "[polaris graph] FIX-075: Truncated at '%s' (char %d)",
+                marker[:30], idx,
+            )
+            break
+
     _total_removed = 0
     for pattern in _META_PATTERNS:
         matches = list(re.finditer(pattern, _cleaned))
@@ -1086,6 +1128,8 @@ def _scrub_meta_commentary(text: str) -> str:
         "",
         _cleaned,
     )
+
+    # (FIX-075 truncation moved to top of function)
     # Remove "[Section 'X' omitted: no evidence assigned.]" markers (both quote styles)
     _cleaned = re.sub(r"\[Section ['\u2018\u201c][^'\u2019\u201d]*['\u2019\u201d] omitted:[^\]]*\]\.?", "", _cleaned)
     _cleaned = re.sub(r"\[Section \"[^\"]*\" omitted:[^\]]*\]\.?", "", _cleaned)
