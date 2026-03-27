@@ -63,8 +63,12 @@ def _():
     titles = [p["title"][:40] for p in filtered]
     print(f"  Input: {len(papers)} papers")
     print(f"  Passed: {len(filtered)} — {titles}")
-    # First 4 should pass, last 2 should be rejected
-    return len(filtered) == 4
+    # FIX-074: With 1-group minimum, first 4 IF-related papers pass.
+    # Canine paper may pass (has "randomized trial" in abstract matching RCT group).
+    # UAV paper (no matching groups at all) must still be blocked.
+    uav_passed = any("UAV" in p["title"] for p in filtered)
+    if_passed = sum(1 for p in filtered if any(kw in p["title"].lower() for kw in ["fasting", "eating", "caloric", "glucose", "circadian"]))
+    return if_passed >= 4 and not uav_passed
 
 
 @register("S1b", "OpenAlex snippet field recognized as abstract")
