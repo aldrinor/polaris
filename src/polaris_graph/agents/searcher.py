@@ -594,9 +594,12 @@ def _prefilter_academic_results(papers: list[dict], query: str) -> list[dict]:
 
         # BUG-5: Check title/abstract has topic overlap with expanded query stems.
         # FIX-CITE-3/S1: Use synonym expansion for bidirectional matching.
-        # Require >= 2 overlapping synonym groups to avoid false positives
-        # (e.g., "randomized trial of canine behavior" matching via "RCT" alone).
-        _min_overlap = 2
+        # FIX-074: Lowered from 2 to 1 synonym group. The 2-group requirement
+        # blocked 80-100% of academic results across TEST_068-074 because
+        # OpenAlex papers about "geographic variations of fasting" only match
+        # the fasting group, not a second medical group. The original false
+        # positive (UAV radar) has ZERO matching groups, so 1-group suffices.
+        _min_overlap = 1
         title = paper.get("title", "") or ""
         title_stems = _stem_words(title)
         expanded_title = _expand_with_synonyms(title_stems)
