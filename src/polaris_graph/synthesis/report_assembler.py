@@ -1039,17 +1039,32 @@ def _scrub_meta_commentary(text: str) -> str:
         r"Once you share[^.]*\.",
         r"Without these materials[^.]*\.",
         r"I cannot verify[^.]*without[^.]*\.",
+        r"Can you please share[^.]*evidence[^.]*\.",
+        r"I'm ready to continue once[^.]*\.",
+        r"I am ready to continue once[^.]*\.",
         # Self-referential commentary
         r"[Tt]he evidence pieces[^.]*were not provided[^.]*\.",
         r"[Tt]he evidence pieces referenced[^.]*\.",
         r"[Tt]he prompt indicates[^.]*\.",
         r"I must note a critical issue[^.]*\.",
         r"[Tt]he text contains citations[^.]*but I cannot[^.]*\.",
+        r"[Tt]he Key Findings section appears complete[^.]*\.",
+        r"[Tt]he section has concluded[^.]*\.",
+        r"[Tt]he single citation provided suggests[^.]*\.",
         # Instruction echoing
         r"To properly complete this section[^.]*I would need[^.]*\.",
         r"I would need[^.]*evidence[^.]*to continue[^.]*\.",
+        r"Properly challenge the evidence base[^.]*\.",
+        r"For a robust analytical section[^.]*additional evidence would be necessary[^.]*\.",
         # Bullet lists requesting evidence
         r"- The \w+ evidence piece mentioned[^.]*\.",
+        r"- Create appropriate comparisons[^.]*\.",
+        r"- Build data tables[^.]*\.",
+        r"- Identify limitations and gaps[^.]*\.",
+        r"- Complete the Key Findings[^.]*\.",
+        r"- Properly cite claims[^.]*\.",
+        r"- Perform the mandatory[^.]*\.",
+        r"- Meet the anti-hallucination[^.]*\.",
         # "I should/I will" planning
         r"[Ll]et me now revise[^.]*\.",
         r"[Ll]et me go through[^.]*\.",
@@ -1067,21 +1082,36 @@ def _scrub_meta_commentary(text: str) -> str:
 
     # Also remove multi-line meta blocks (indented with "- " after meta sentence)
     _cleaned = re.sub(
-        r"(?:Please provide|I need|Once you share|Without these)[^\n]*(?:\n\s*-[^\n]*)*",
+        r"(?:Please provide|I need|Once you share|Without these|Can you please share|I'm ready to continue)[^\n]*(?:\n\s*-[^\n]*)*",
         "",
         _cleaned,
     )
+    # Remove "[Section 'X' omitted: no evidence assigned.]" markers (both quote styles)
+    _cleaned = re.sub(r"\[Section ['\u2018\u201c][^'\u2019\u201d]*['\u2019\u201d] omitted:[^\]]*\]\.?", "", _cleaned)
+    _cleaned = re.sub(r"\[Section \"[^\"]*\" omitted:[^\]]*\]\.?", "", _cleaned)
 
     # Remove orphaned bullet fragments (bullets without substantive content)
     _cleaned = re.sub(
         r"^\s*-\s*(Properly cite|Perform the mandatory|Meet the anti-hallucination"
-        r"|The \w+ evidence piece)[^\n]*\n?",
+        r"|The \w+ evidence piece|Create appropriate|Build data tables"
+        r"|Identify limitations|Complete the Key)[^\n]*\n?",
         "",
         _cleaned,
         flags=re.MULTILINE,
     )
     # Remove sentences starting with "However, " followed by nothing substantive
     _cleaned = re.sub(r"However,\s*\n", "\n", _cleaned)
+
+    # FIX-073: Fix broken table rows with ".| " separators
+    # GLM-5 sometimes outputs table rows on a single line with ". |" between rows.
+    # Split into proper rows, then clean up double pipes.
+    _cleaned = re.sub(r"\.\s*\|\s*\|", "|\n|", _cleaned)  # ".| |" → "|\n|"
+    _cleaned = re.sub(r"\.\s*\|(\s*[A-Z\d])", r"|\n|\1", _cleaned)  # ".| Data" → "|\n| Data"
+    # Fix delimiter rows concatenated with data rows
+    _cleaned = re.sub(r"(\|[:\-]+\|)\s*\|", r"\1\n|", _cleaned)
+    # Remove trailing double pipes
+    _cleaned = re.sub(r"\|\|", "|", _cleaned)
+
     # Clean up resulting double spaces and double newlines
     _cleaned = re.sub(r"  +", " ", _cleaned)
     _cleaned = re.sub(r"\n{3,}", "\n\n", _cleaned)

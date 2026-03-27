@@ -1460,7 +1460,12 @@ class OpenRouterClient:
                         _re.IGNORECASE,
                     )
                     if _thinking_block:
-                        _thinking_block = type('M', (), {'start': lambda s=_thinking_block: s.end()})()
+                        # Use the end of the "Now let me" line as the start of real content
+                        _tb_pos = _thinking_block.end()
+                        class _PosHolder:
+                            def start(self):
+                                return _tb_pos
+                        _thinking_block = _PosHolder()
 
                 # Strategy 3: Original domain-keyword detection
                 if not _thinking_block or _thinking_block.start() < 50:
