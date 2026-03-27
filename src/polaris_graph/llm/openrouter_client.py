@@ -1235,20 +1235,43 @@ class OpenRouterClient:
             elif not schema:
                 # COT-3 fast path: For free-form reason() (no schema),
                 # the reasoning IS the answer — use it directly without retry.
-                # FIX-071B: Strip CoT prefix for always-reason models.
+                # FIX-071B + FIX-076: Strip CoT prefix for always-reason models.
+                # GLM-5 always starts with "1. **Analyze the Request:**" planning
+                # that contains research terms, fooling the keyword-based strip.
+                # Use explicit CoT openers first, then fall back to keyword search.
                 _reason_content = result.reasoning
                 if self.model in _ALWAYS_REASON_MODELS:
                     import re as _re
-                    _cot_end = _re.search(
-                        r"\n(?=(?:##\s|[A-Z][a-z].*(?:\[\d+\]|\[CITE:|\(95%|MD\s|SMD\s)))",
+
+                    # FIX-076: First try explicit CoT opener patterns
+                    _explicit_cot = _re.search(
+                        r"\n(?=(?:##\s|[A-Z][a-z]{3,}[^*\n]{10,}(?:\[\d+\]|\[CITE:)))",
                         _reason_content,
                     )
-                    if _cot_end and _cot_end.start() > 100:
-                        _reason_content = _reason_content[_cot_end.start():].lstrip()
+                    # Also check: if content starts with numbered planning ("1. **Analyze")
+                    # find the actual output after all planning steps
+                    if _reason_content.lstrip().startswith(("1.", "1 ")) and "**Analyze" in _reason_content[:200]:
+                        # Find end of numbered planning — look for prose paragraph
+                        # that doesn't start with a number+period
+                        _plan_end = _re.search(
+                            r"\n\n(?=[A-Z][a-z]{3,}[^*\n]{20,})",
+                            _reason_content[200:],  # skip first 200 chars of planning
+                        )
+                        if _plan_end:
+                            _pos = 200 + _plan_end.start()
+                            if _pos > 100:
+                                _reason_content = _reason_content[_pos:].lstrip()
+                                logger.info(
+                                    "[polaris graph] FIX-076: Stripped %d chars CoT "
+                                    "planning from reason() output",
+                                    _pos,
+                                )
+                    elif _explicit_cot and _explicit_cot.start() > 100:
+                        _reason_content = _reason_content[_explicit_cot.start():].lstrip()
                         logger.info(
                             "[polaris graph] FIX-071B: Stripped %d chars CoT from "
                             "reason() free-form output",
-                            _cot_end.start(),
+                            _explicit_cot.start(),
                         )
                 logger.info(
                     "[polaris graph] COT-3: Free-form reason() using "

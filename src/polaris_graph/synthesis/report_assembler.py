@@ -1087,6 +1087,9 @@ def _scrub_meta_commentary(text: str) -> str:
     # FIX-075: Truncate at polish reasoning blocks FIRST, before regex patterns.
     # GLM-5 appends "*Critique of the draft:*" followed by editing reasoning.
     _polish_reasoning_markers = [
+        # GLM-5 planning headers (many variants)
+        "1. **Analyze",
+        "1.  **Analyze",
         "*Critique of the draft",
         "*Refining the",
         "*Final Polish Plan",
