@@ -796,6 +796,12 @@ class OpenRouterClient:
         if reasoning_enabled:
             body["reasoning"] = {"effort": reasoning_effort, "enabled": True}
 
+        # FIX-075B: GLM-5 native Deep Thinking — set temperature=1.0 and
+        # add thinking parameter for maximum analytical depth.
+        # GLM-5 docs: "Set temperature to 1.0 for deep thinking requests"
+        if self.model in _ALWAYS_REASON_MODELS and reasoning_enabled:
+            body["temperature"] = 1.0
+
         if response_format:
             body["response_format"] = response_format
             # FIX-QWEN-2: Use non-streaming for json_object responses.

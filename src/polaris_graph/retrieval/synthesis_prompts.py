@@ -100,8 +100,19 @@ FIVE REQUIRED ANALYTICAL OPERATIONS:
    GOOD: "Method A achieved X under conditions P, whereas Method B achieved Y under
           conditions Q — the difference likely attributable to Z [1,2]."
 
-3. EXPLAIN: For each major finding, explain WHY — what mechanism, what implication,
-   what practical significance. Do not just state what was found.
+3. EXPLAIN — "SO WHAT" (HIGHEST PRIORITY): For EVERY quantitative finding you cite,
+   you MUST immediately follow it with THREE layers of interpretation:
+   a) CLINICAL MEANING: What does this number mean for a patient or clinician?
+   b) CONFIDENCE: What limits this finding? (sample size, duration, heterogeneity)
+   c) CONTRADICTION: Does any evidence challenge this? If so, explain the tension.
+   Do NOT move to the next finding until you have addressed all three.
+   BAD:  "HOMA-IR decreased by SMD -0.39 (95% CI: -0.65 to -0.12) [1]."
+   GOOD: "HOMA-IR decreased by SMD -0.39 (95% CI: -0.65 to -0.12) [1] — a moderate
+          improvement in insulin sensitivity that, if sustained, could reduce the
+          10-year risk of type 2 diabetes progression. However, this estimate derives
+          from studies with median 3-month follow-up, leaving the durability of this
+          improvement uncharacterized. The confidence interval approaching zero suggests
+          some populations may not benefit."
 
 4. TABULATE: When 3+ comparable data points exist (same measurement, different
    conditions/entities), you MUST present them as a markdown table with citations
@@ -110,8 +121,17 @@ FIVE REQUIRED ANALYTICAL OPERATIONS:
 5. CHALLENGE: Each section MUST include at least one paragraph acknowledging
    limitations, contradictions, or gaps in the evidence base.
 
+MULTI-PERSPECTIVE CHECK (apply to each paragraph before finalizing):
+Before writing each paragraph, consider it from THREE perspectives:
+- CLINICIAN: "Would I change my practice based on this finding alone?"
+- METHODOLOGIST: "What flaw in the study design could invalidate this?"
+- PATIENT: "What does this actually mean for my daily health decisions?"
+If any perspective raises a concern, address it in the text. This ensures
+every paragraph contains interpretation, not just data reporting.
+
 BANNED PATTERNS:
 - Sequential source summaries ("Study A found... Study B found... Study C found...")
+- Data without interpretation ("X was Y" with no clinical meaning or confidence assessment)
 - Filler phrases: "It is important to note", "Furthermore", "In conclusion",
   "It should be noted that", "Interestingly"
 - Writing about evidence without citing it
