@@ -1,84 +1,101 @@
 # Restart Instructions
 
-## Current State (2026-03-26)
-**SESSION 54 (continued): Output Quality Sprint — TEST_072 COMPLETE, PENDING FULL AUDIT**
+## Current State (2026-03-27)
+**SESSION 55: Evidence Deepening Loop — BUILD PHASE**
 
-### What Happened This Session
+### What Happened Last Session (Session 54)
+Two-day sprint: 21 commits, 12 pipeline runs (TEST_062→075), 60+ micro tests.
+- Fixed citation format (root cause: [SRC-NNN] vs [CITE:evidence_id])
+- Switched to GLM-5 (#1 open-source model)
+- Added: hard evidence dedup, GRADE ratings, polish pass, academic gate, 
+  meta-commentary scrubber, SO WHAT analytical prompt, multi-perspective check
+- Output quality: 0 citations → 75% of Gemini Deep Research
 
-Massive output quality sprint across 12 commits. Started with 0 citations (TEST_062), ended at 78% of Gemini Deep Research quality (TEST_072). Key changes:
+### The Core Insight (WHY we're not at 90%)
+The remaining 25% gap is NOT the LLM or the prompt — it's the EVIDENCE.
+Gemini writes deeper because it READS deeper sources (specific RCTs, landmark studies).
+Our pipeline searches for topics (meta-analyses) but never follows citation chains
+to find the specific primary studies those meta-analyses reference.
 
-1. **Citation format fix** (root cause): CITATION_RULES [SRC-NNN] → [CITE:evidence_id]
-2. **Model switch**: Qwen 3.5 Plus → GLM-5 (#1 open-source, Chatbot Arena 1451)
-3. **FIX-GLM5**: Always-reason model handling (reasoning as content, CoT stripping)
-4. **Evidence pipeline**: Synonym expansion (926 rejected papers → passing), hard dedup, fair-share redistribution
-5. **Post-processing**: Filler strip, newline insertion, hedge replacement, table cleanup, transition injection disabled
-6. **Quality features**: Depth gate, MoST reflector, GRADE standardization, per-section polish pass, academic gate, PDF extraction
-7. **Schema fixes**: ReportOutline, SectionOutlineItem, EvidenceCluster normalization
+### BUILD TASK: Evidence Deepening Loop + Mechanism Search
 
-### TEST_072 Results (NEEDS FULL LINE-BY-LINE AUDIT)
-- 6/6 quality gates PASS
-- 11,747 words, 136 citations, 41 sources, 12 sections, 5 diagrams
-- 100% faithfulness, $3.04, 102 min
-- 0 CoT leakage, 0 fillers, 532 newlines
-- GRADE: 38/88 (43%) rated — up from 14% but skewed HIGH
-- Polish pass: per-section chunking active
-- Academic gate: active for clinical queries
-- 85% academic sources (correctly classified)
-- ONLY 4/12 sections read, 4/34 reasoning traces checked — INCOMPLETE AUDIT
-
-### CRITICAL NEXT STEP: Full Audit of TEST_072
-Read ALL 12 sections, ALL reasoning traces, ALL 5 diagrams, full bibliography. Compare against Gemini/ChatGPT PDFs at:
-- `C:\Users\msn\OneDrive\桌面\Download\Intermittent Fasting in Clinical Research_ Benefits, Risks, Evidence Quality, and Practical Guidance.pdf` (Gemini)
-- `C:\Users\msn\OneDrive\桌面\Download\Intermittent Fasting_ Benefits and Risks.pdf` (ChatGPT)
-
-### Pipeline Test History This Session
-| Test | Words | Citations | Sources | Model | Cost | Key Issue |
-|------|-------|-----------|---------|-------|------|-----------|
-| 062 | 1,455 | 0 | 0 | Qwen | $3.21 | Citation format + DNS |
-| 063 | 13,027 | 118 | 48 | Qwen | $1.86 | 175 fillers, 0 newlines |
-| 065 | 7,367 | 117 | 48 | Qwen | $1.74 | 82 fillers, 0 newlines |
-| 067 | 7,658 | 134 | 46 | Qwen | $1.47 | 0 repeats, 0 fillers |
-| 068 | 6,910 | 124 | 49 | Qwen | $2.06 | 35 academic, 5 diagrams |
-| 069 | 2,234 | 27 | 12 | GLM-5 | $0.27 | 1/15 sections (dedup starved) |
-| 070 | 12,632 | 148 | 52 | GLM-5 | $3.42 | 1 CoT leak in section 5 |
-| 071 | 13,258 | 171 | 55 | GLM-5 | $2.91 | Polish failed, 14% GRADE |
-| 072 | 11,747 | 136 | 41 | GLM-5 | $3.04 | PENDING FULL AUDIT |
-
-### Commits This Session (12 total)
+#### Architecture
 ```
-f0ee5cf  Fix 15 output quality defects
-2ed31c7  Evidence redistribution
-fb301e9  Close quality gap: depth gate, extraction, PDF, reasoning
-2404b5e  Switch to GLM-5 + always-reason client handling
-602b3ac  FIX-069: Pull from unclaimed pool when section has 0 evidence
-eb1be38  FIX-GLM5-COT: Strip chain-of-thought prefix
-2293d87  Close remaining quality gap: polish, academic gate, GRADE
-10d99e6  Fix polish/GRADE for GLM-5: reason() + enhanced CoT parsing
-ff34ceb  Polish pass truncation guard + scale tests
-6a0a740  FIX-071: GRADE batch 5, chunked polish, diagram gate, domain list
-3a5ae71  FIX-071B: CoT strip in reason() + retry for polish/GRADE
-7216156  Fix diagram quality gate bypass on retry path
+Current: plan → search → fetch → analyze → verify → synthesize → done
+                                                      (shallow evidence)
+
+New: plan → search → fetch → analyze → verify → DEEPEN → synthesize → done
+                                                   ↓
+                                         1. Named study extraction
+                                         2. S2 citation chasing
+                                         3. S2 recommendations
+                                         4. Mechanism keyword search
+                                         5. PDF full-text fetch
+                                         6. Re-analyze deeper sources
+                                         7. Merge into evidence pool
 ```
+
+#### Operation 1: Named Study Extraction
+- LLM reads evidence statements, extracts author names, trial names, journal refs
+- "Trepanowski et al. found..." → search S2 for "Trepanowski intermittent fasting"
+- Cost: 1 LLM call
+
+#### Operation 2: S2 Citation Chasing
+- For each meta-analysis/review in evidence pool:
+  GET /paper/{paperId}/references?fields=title,abstract,year,openAccessPdf&limit=20
+- Filter by relevance to query, take top 5
+- Need S2 paper ID resolution first: GET /paper/URL:{source_url}
+- Cost: ~10-15 S2 API calls (free, 1/sec)
+
+#### Operation 3: S2 Recommendations
+- POST /recommendations/v1/papers with seed paper IDs
+- Returns up to 500 related papers ranked by relevance
+- Cost: 1 API call
+
+#### Operation 4: Mechanism Search (addresses Loophole 3)
+- 3-5 keyword queries targeting WHY/HOW:
+  "intermittent fasting thyroid mechanism HPT axis"
+  "fasting autophagy cellular pathway signaling"
+  "caloric restriction circadian rhythm molecular"
+- Via Serper + S2 — finds the basic science papers citation chasing misses
+- Cost: 3-5 search queries
+
+#### Operation 5: PDF Full-text Fetch
+- For papers with openAccessPdf, use _extract_pdf_text()
+- Already implemented in access_bypass.py
+- Paywalled papers: use abstract only (permanent ~5% ceiling vs Gemini)
+
+#### Known Loopholes (from deep analysis)
+1. S2 paper ID gap — need URL-to-ID resolution (50 calls, ~50s)
+2. Paywalled papers — no clean solution, work with abstracts
+3. Mechanism gap — addressed by Operation 4 (topic search, not citation chase)
+4. Gap identification — needs meta-analysis full text with reference list
+5. Evidence pool explosion — cap at 150 with relevance sorting
+6. Time budget — ~12 extra minutes, within 150min budget
+
+#### Existing Code to Reuse
+- `src/utils/citation_chainer.py` — legacy citation chasing (review, adapt)
+- `_fetch_citation_references()` in searcher.py — S2 references API
+- `_extract_pdf_text()` in access_bypass.py — PDF extraction
+- `_prefilter_academic_results()` — synonym expansion for relevance filter
+
+#### Where It Goes in the Graph
+New node `deepen_evidence` between `verify` and `synthesize` in graph.py.
+Feature-flagged: PG_EVIDENCE_DEEPENER=1 (default ON)
+
+### Gemini/ChatGPT Comparison PDFs
+- Gemini: `C:\Users\msn\OneDrive\桌面\Download\Intermittent Fasting in Clinical Research_ Benefits, Risks, Evidence Quality, and Practical Guidance.pdf`
+- ChatGPT: `C:\Users\msn\OneDrive\桌面\Download\Intermittent Fasting_ Benefits and Risks.pdf`
 
 ### Key Commands
 ```bash
-# Run all micro test suites (7 suites, ~60 tests)
-python -u scripts/pg_micro_test_edge.py
-python -u scripts/pg_micro_test_assembler.py
-python -u scripts/pg_micro_test_edge_v2.py
-python -u scripts/pg_micro_test_final.py
-python -u scripts/pg_micro_test_risks.py
-python -u scripts/pg_micro_test_gaps.py
-python -u scripts/pg_micro_test_071_fixes.py
-
-# Run pipeline test
-python -u scripts/pg_test_061.py  # Currently PG_TEST_072
-
-# Check output
-cat outputs/polaris_graph/PG_TEST_072_report.md
+python -u scripts/pg_test_061.py  # Currently PG_TEST_075
+python -u scripts/pg_micro_test_final.py  # 15/15
+python -u scripts/pg_micro_test_071_fixes.py  # 10/10
+git log --oneline -25  # See all 21 commits
 ```
 
-### Critical Config (.env)
+### Config (.env)
 ```
 OPENROUTER_DEFAULT_MODEL=z-ai/glm-5
 PG_V3_ANALYTICAL_PROMPT=1
@@ -93,9 +110,9 @@ PG_STORM_ENABLED=1
 PG_MAX_ITERATIONS=2
 ```
 
-### Remaining Known Issues
-1. GRADE ratings skewed HIGH (32/38 rated HIGH) — needs calibration
-2. Polish pass CoT strip sometimes fails on short prompts — retry guards in place
-3. 2 trivial diagrams escaped quality gate on retry path — fixed in 7216156
-4. Section 4 (glucose) thin at 351w — evidence gaps acknowledged honestly
-5. GLM-5 verbosity concern not materialized (reasoning tokens cheap)
+### TEST_075 Output (latest successful run)
+- 11,006 words, 131 citations, 54 sources, 7 sections, 4 diagrams
+- 100% faithfulness, $3.59, 186 min
+- Section 1: polish reasoning contaminated (fix committed, untested in full run)
+- Sections 4,5,7: strong analytical quality with SO WHAT interpretation
+- Section 2: shallow mechanism listing (needs mechanism search)
