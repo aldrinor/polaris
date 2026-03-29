@@ -536,17 +536,33 @@ def remove_redundancy(
             seen_sentences.append((words, section_idx, sent))
 
         if removed_in_section > 0:
-            # Reconstruct content from kept sentences
-            new_content = ". ".join(kept_sentences)
-            if new_content and not new_content.endswith("."):
-                new_content += "."
-            section["content"] = new_content
-            section["word_count"] = len(new_content.split())
-            logger.info(
-                "[polaris graph] FIX-4: Removed %d redundant sentences from '%s'",
-                removed_in_section,
-                section.get("title", "?")[:50],
-            )
+            # FIX-A1: NEVER empty a section completely. If redundancy removal
+            # would wipe >50% of sentences, keep the original content.
+            # On focused topics (e.g. intermittent fasting), Jaccard similarity
+            # across sections flags ALL later sentences as duplicates, producing
+            # empty sections. Cap removal at 50% per section.
+            original_count = len(sentences)
+            if len(kept_sentences) < original_count * 0.5:
+                logger.warning(
+                    "[polaris graph] FIX-A1: Redundancy would remove %d/%d "
+                    "sentences (>50%%) from '%s' — keeping original",
+                    removed_in_section, original_count,
+                    section.get("title", "?")[:50],
+                )
+                # Revert: don't modify this section
+                total_removed -= removed_in_section
+            else:
+                # Safe to apply: reconstruct content from kept sentences
+                new_content = ". ".join(kept_sentences)
+                if new_content and not new_content.endswith("."):
+                    new_content += "."
+                section["content"] = new_content
+                section["word_count"] = len(new_content.split())
+                logger.info(
+                    "[polaris graph] FIX-4: Removed %d redundant sentences from '%s'",
+                    removed_in_section,
+                    section.get("title", "?")[:50],
+                )
 
     if total_removed > 0:
         logger.info(
@@ -1005,8 +1021,11 @@ def _compute_density_metrics(report: str) -> dict:
 # FIX-CITE-3: Post-processing — filler word removal + table cleanup
 # ---------------------------------------------------------------------------
 
+# FIX-C6: Broadened lookbehind — old pattern missed "Furthermore" after
+# citation brackets ([5]. Furthermore) and paragraph breaks.
+# New: also match after ]. or ). or newline boundaries.
 _FILLER_SENTENCE_START = re.compile(
-    r"(?:(?<=\.\s)|(?<=;\s)|(?<=:\s)|(?<=^))"
+    r"(?:(?<=\.\s)|(?<=;\s)|(?<=:\s)|(?<=\]\.\s)|(?<=\)\.\s)|(?<=\n)|(?<=^))"
     r"(Additionally|Moreover|Furthermore|In addition|Indeed|"
     r"Consequently|Specifically|Significantly),?\s+",
     re.MULTILINE,
@@ -1176,6 +1195,17 @@ def _clean_filler_and_tables(text: str) -> str:
     """Remove filler transition words at sentence starts and before table rows."""
     # FIX-072: Scrub meta-commentary first
     text = _scrub_meta_commentary(text)
+    # FIX-C5: Fix common LLM misspellings (GLM-5 produces "Intermittittent" etc.)
+    _TYPO_FIXES = {
+        "Intermittittent": "Intermittent",
+        "intermittittent": "intermittent",
+        "effecacy": "efficacy",
+        "cardivascular": "cardiovascular",
+        "signficant": "significant",
+        "signficantly": "significantly",
+    }
+    for typo, fix in _TYPO_FIXES.items():
+        text = text.replace(typo, fix)
     # Strip filler words that start sentences, then capitalize remainder
     def _strip_and_capitalize(m: re.Match) -> str:
         rest = text[m.end():m.end() + 1] if m.end() < len(text) else ""
@@ -2105,10 +2135,33 @@ def compute_quality_metrics(
     weak_total = sum(hedging_counts.get(w, 0) for w in hedging_words_weak)
     strong_total = sum(hedging_counts.get(w, 0) for w in hedging_words_strong)
     if total_hedging > max_hedging:
+        # FIX-C7: Enforce hedge reduction — replace excess "may" with
+        # evidence-backed assertions. "may" is the most common offender.
+        _excess = total_hedging - max_hedging
+        _reduced = 0
+        for section in report_sections:
+            if _reduced >= _excess:
+                break
+            _content = section.get("content", "")
+            # Replace "may" → drop (only when followed by verb, not "May 2024")
+            _new = re.sub(
+                r'(?<!\d\s)\bmay\b(?!\s+\d{4})',
+                lambda m: "",
+                _content,
+                count=min(3, _excess - _reduced),  # Max 3 per section
+            )
+            _sec_reduced = len(re.findall(r'(?<!\d\s)\bmay\b(?!\s+\d{4})', _content)) - len(re.findall(r'(?<!\d\s)\bmay\b(?!\s+\d{4})', _new))
+            if _sec_reduced > 0:
+                # Clean double spaces from removal
+                _new = re.sub(r"  +", " ", _new)
+                section["content"] = _new
+                section["word_count"] = len(_new.split())
+                _reduced += _sec_reduced
+
         logger.warning(
-            "[polaris graph] FIX-043D: Hedging words %d > %d limit "
-            "(strong=%d, weak=%d): %s",
-            total_hedging, max_hedging, strong_total, weak_total,
+            "[polaris graph] FIX-043D+C7: Hedging words %d > %d limit "
+            "(strong=%d, weak=%d, reduced=%d): %s",
+            total_hedging, max_hedging, strong_total, weak_total, _reduced,
             {k: v for k, v in sorted(
                 hedging_counts.items(), key=lambda x: -x[1]
             ) if v > 0},

@@ -202,6 +202,11 @@ WORD TARGET:
 - Do NOT pad beyond what the evidence supports. Quality over quantity.
 - If evidence is thin, write a shorter, honest section rather than padding with filler.
 
+GRADE EVIDENCE CERTAINTY:
+- When evidence has a [GRADE: high/moderate/low/very_low] tag, INCLUDE the rating
+  in your prose. Example: "...with moderate certainty (GRADE) [CITE:ev_xxx]"
+- This helps readers assess confidence in each finding.
+
 KEY FINDINGS:
 - End each section with a "**Key Findings**" subsection (3-5 bullet points).
 - Each bullet must cite at least one source.

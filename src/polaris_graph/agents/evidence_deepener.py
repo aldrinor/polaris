@@ -257,12 +257,19 @@ async def _extract_named_studies(
 
     Returns list of {name, authors, context} for S2 search.
     """
-    # Collect evidence statements (cap to avoid huge prompts)
+    # Collect evidence text — both statements AND direct_quotes.
+    # FIX-B6: statements are paraphrased claims ("ADF reduced weight by 6%")
+    # which lack author references. direct_quotes contain the original text
+    # ("Trepanowski et al. (2017) reported...") where regex can find names.
     statements = []
+    quotes_for_regex = []
     for ev in evidence[:100]:
         stmt = ev.get("statement", "")
         if stmt:
             statements.append(stmt[:300])
+        quote = ev.get("direct_quote", "")
+        if quote:
+            quotes_for_regex.append(quote[:300])
 
     if not statements:
         return []
@@ -317,7 +324,10 @@ async def _extract_named_studies(
     # "Author et al. (YYYY)" patterns directly from evidence text.
     # Zero API cost, catches most named references.
     if len(studies) < 2:
-        regex_studies = _regex_extract_studies(statements)
+        # FIX-B6: Search direct_quotes first (contain "Author et al. (YYYY)")
+        # then statements as fallback. Quotes have author references,
+        # statements usually don't.
+        regex_studies = _regex_extract_studies(quotes_for_regex + statements)
         # Merge without duplicates (by author last name)
         existing_authors = {s["author"].lower() for s in studies}
         for rs in regex_studies:

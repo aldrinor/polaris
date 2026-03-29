@@ -319,10 +319,23 @@ async def verify_claims(
             if faithfulness < _nli_floor:
                 logger.warning(
                     "[polaris graph] FIX-3: NLI faithfulness %.1f%% below %.0f%% "
-                    "floor — discarding NLI verdicts, falling back to LLM "
-                    "verification (%d evidence)",
+                    "floor — falling back to LLM verification (%d evidence). "
+                    "FIX-B2: Preserving per-claim NLI scores for downstream use.",
                     faithfulness * 100, _nli_floor * 100, len(evidence),
                 )
+                # FIX-B2: Preserve per-claim NLI scores on evidence even when
+                # overall NLI faithfulness is below floor. Old behavior discarded
+                # ALL NLI metadata, leaving LLM rubber-stamp as only signal.
+                # New: keep nli_score on each evidence piece so the LLM verifier
+                # can use it as a skepticism signal (cross-check its own verdict).
+                for _nli_claim in nli_results:
+                    _nli_eid = _nli_claim.get("claim_id", "")
+                    _nli_sc = _nli_claim.get("nli_score")
+                    if _nli_eid and _nli_sc is not None:
+                        for _ev in evidence:
+                            if _ev.get("evidence_id") == _nli_eid:
+                                _ev["nli_self_check_score"] = _nli_sc
+                                break
                 # Fall through to LLM-only verification below
             else:
                 return {

@@ -401,9 +401,27 @@ def _get_domain_authority(url: str) -> float:
     except Exception:
         return _DOMAIN_AUTHORITY_DEFAULT
 
-    # TIER 1: Check TLDs first (.gov, .edu)
+    # TIER 1: Check TLDs (.gov, .edu) with path-based demotion.
+    # FIX-B4: .edu TLD gave blanket 1.0 to community college blogs,
+    # university news pages, and student projects — same as Nature/BMJ.
+    # Now: .edu gets TIER 1 only for journal/research paths. News,
+    # blogs, and general pages get TIER 2 (0.85).
+    # FIX-B4: Demote .edu subdomains/paths that are news, blogs, etc.
+    _EDU_DEMOTE_PATTERNS = {
+        "news", "today", "blog", "stories", "press",
+        "media", "magazine", "events", "myctcd",
+    }
     for tld in _TIER1_TLDS:
         if hostname.endswith(tld):
+            if tld == ".edu":
+                # Check both subdomain (today.uic.edu) and path (/news/...)
+                _host_parts = hostname.replace(tld, "").split(".")
+                _is_non_research = (
+                    any(dp in path for dp in _EDU_DEMOTE_PATTERNS)
+                    or any(dp in part for part in _host_parts for dp in _EDU_DEMOTE_PATTERNS)
+                )
+                if _is_non_research:
+                    return _DOMAIN_AUTHORITY_TIER2  # 0.85 not 1.0
             return _DOMAIN_AUTHORITY_TIER1
 
     # TIER 1: Check specific domains (exact or subdomain match)
@@ -1325,17 +1343,26 @@ async def analyze_sources(
                           "randomized controlled", "clinical trials", "peer-reviewed"]
     _query_is_clinical = any(kw in query.lower() for kw in _clinical_keywords)
     if _query_is_clinical and os.getenv("PG_ACADEMIC_ONLY_GATE", "1") == "1":
+        # FIX-B3: Gate threshold must be ABOVE default authority (0.5) to
+        # actually filter. Old threshold (>= 0.5) equaled the default,
+        # making the gate a no-op (53% non-journal sources passed).
+        # New: require authority >= 0.6 OR journal_article source_type.
+        _gate_threshold = float(os.getenv("PG_ACADEMIC_GATE_THRESHOLD", "0.6"))
+        _academic_source_types = {"journal_article", "academic"}
         _before = len(evidence)
         evidence = [
             e for e in evidence
-            if _get_domain_authority(e.get("source_url", "")) >= 0.5
+            if (
+                _get_domain_authority(e.get("source_url", "")) >= _gate_threshold
+                or e.get("source_type") in _academic_source_types
+            )
         ]
         _excluded = _before - len(evidence)
         if _excluded > 0:
             logger.info(
-                "[polaris graph] QUERY-GATE: Excluded %d non-academic evidence "
-                "(query requests clinical research, domain authority < 0.5)",
-                _excluded,
+                "[polaris graph] QUERY-GATE FIX-B3: Excluded %d non-academic "
+                "evidence (authority < %.1f and not journal_article)",
+                _excluded, _gate_threshold,
             )
 
     gold_count = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
