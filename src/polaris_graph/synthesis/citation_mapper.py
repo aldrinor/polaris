@@ -213,16 +213,46 @@ async def audit_citations(
     all_citations: list[dict] = []
     ungrounded_claims: list[str] = []
 
+    # FIX-B1: Semantic relevance check — detect citation hallucination.
+    # When LLM attaches [CITE:ev_xxx] to wrong claim (e.g., "ADF vs TRE LDL"
+    # citing a mouse lifespan study), keyword overlap between the surrounding
+    # sentence and the evidence statement is ~0. Strip these misattributions.
+    _misattribution_threshold = int(os.getenv("PG_CITE_MIN_KEYWORD_OVERLAP", "2"))
+    _misattributed_count = 0
+
     for section in sections:
         # Normalize multi-citations and truncated citations first
         normalized = _normalize_citations(section.content)
         matches = CITE_PATTERN.findall(normalized)
         for evidence_id in matches:
             if evidence_id in evidence_map:
+                # FIX-B1: Check semantic relevance of citation to context
+                _is_relevant = True
+                if _misattribution_threshold > 0:
+                    ev = evidence_map[evidence_id]
+                    ev_text = (ev.get("statement", "") + " " + ev.get("direct_quote", "")).lower()
+                    ev_words = set(re.findall(r"\w{5,}", ev_text))
+                    # Extract sentence around the citation
+                    _cite_pattern_str = re.escape(f"[CITE:{evidence_id}]")
+                    _ctx_match = re.search(
+                        rf"[^.]*{_cite_pattern_str}[^.]*\.",
+                        normalized,
+                    )
+                    if _ctx_match and ev_words:
+                        ctx_words = set(re.findall(r"\w{5,}", _ctx_match.group().lower()))
+                        overlap = len(ev_words & ctx_words)
+                        if overlap < _misattribution_threshold:
+                            _is_relevant = False
+                            _misattributed_count += 1
+                            ungrounded_claims.append(
+                                f"Section '{section.title}': [CITE:{evidence_id}] "
+                                f"misattributed (0 keyword overlap with evidence)"
+                            )
+
                 all_citations.append({
                     "evidence_id": evidence_id,
                     "section_id": section.section_id,
-                    "grounded": True,
+                    "grounded": _is_relevant,
                 })
             else:
                 ungrounded_claims.append(
@@ -234,6 +264,13 @@ async def audit_citations(
                     "section_id": section.section_id,
                     "grounded": False,
                 })
+
+    if _misattributed_count > 0:
+        logger.warning(
+            "[polaris graph] FIX-B1: Detected %d misattributed citations "
+            "(claim-evidence keyword overlap < %d)",
+            _misattributed_count, _misattribution_threshold,
+        )
 
     # FIX-QG1: Deduplicate by DOI first, then by URL — prevents same paper
     # from appearing twice under different URLs (PG_TEST_023: [1]=[2], [4]=[5]).

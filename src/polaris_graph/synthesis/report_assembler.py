@@ -178,10 +178,14 @@ def _fix_abstract_metrics(
         _fix_sources, fixed,
     )
 
-    # Fix citation count: "N citations"
+    # FIX-D5: Fix citation count — broadened to catch "N total citations",
+    # "N in-text citations", "N referenced citations" etc.
     def _fix_citations(match: re.Match) -> str:
         return f"{total_citations} {match.group(1)}"
-    fixed = re.sub(r"\d+\s+(citations?)\b", _fix_citations, fixed)
+    fixed = re.sub(
+        r"\d+\s+(?:total\s+|in-text\s+|referenced\s+)?(citations?)\b",
+        _fix_citations, fixed,
+    )
 
     # FIX-R9: Remove self-referential word count from abstract
     # "The 10,983-word report" is fragile — wrong if report is edited later
@@ -1878,6 +1882,15 @@ def backfill_unused_citations(
         backfilled = 0
         max_backfill = int(os.getenv("PG_MAX_BACKFILL_CITATIONS", "20"))
 
+        # FIX-C8: Build section→evidence assignment map to scope backfill.
+        # Without scoping, evidence from Section A gets cited in Section B,
+        # causing cross-section citation leakage (Clinical Implementation
+        # had 8 citations but only 3 evidence assigned).
+        _section_evidence_ids: dict[str, set] = {}
+        for section in report_sections:
+            sid = section.get("section_id", "")
+            _section_evidence_ids[sid] = set(section.get("evidence_ids", []))
+
         for ev_idx, ev in enumerate(uncited_filtered):
             if backfilled >= max_backfill:
                 break
@@ -1887,9 +1900,18 @@ def backfill_unused_citations(
             if not cite_num:
                 continue
 
-            # Find best matching sentence
-            best_sent_idx = int(np.argmax(similarity[ev_idx]))
-            best_sim = float(similarity[ev_idx, best_sent_idx])
+            # FIX-C8: Only match sentences in sections where this evidence
+            # was originally assigned. Prevents cross-section leakage.
+            # Mask out sentences from non-assigned sections.
+            _masked_sims = similarity[ev_idx].copy()
+            for s_idx, (_, sec_idx, sec_id) in enumerate(sentence_pool):
+                if eid not in _section_evidence_ids.get(
+                    report_sections[sec_idx].get("section_id", ""), set()
+                ):
+                    _masked_sims[s_idx] = -1.0  # Mask out
+
+            best_sent_idx = int(np.argmax(_masked_sims))
+            best_sim = float(_masked_sims[best_sent_idx])
 
             if best_sim >= min_similarity:
                 _, sec_idx, _ = sentence_pool[best_sent_idx]

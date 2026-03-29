@@ -141,6 +141,10 @@ _LOW_CREDIBILITY_DOMAINS = frozenset([
     "theconversation.com",
     "agencia.fapesp.br",
     "sochob.cl",
+    # FIX-D1/D3: From TEST_076 audit — medical news aggregators and consumer pages
+    "endocrinologyadvisor.com",
+    "eurekalert.org",
+    "withpower.com",
 ])
 _DOMAIN_AUTHORITY_LOW_CREDIBILITY = 0.2
 
@@ -344,6 +348,10 @@ _TIER2_DOMAINS = frozenset([
     "awwa.org",
     "reuters.com",
     "apnews.com",
+    # FIX-D3: Institutional consumer health pages — legitimate but not peer-reviewed
+    "hopkinsmedicine.org",
+    "mayoclinic.org",
+    "clevelandclinic.org",
 ])
 
 # TIER 2 partial matches (substring in hostname)
