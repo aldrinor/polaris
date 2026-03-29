@@ -2157,33 +2157,13 @@ def compute_quality_metrics(
     weak_total = sum(hedging_counts.get(w, 0) for w in hedging_words_weak)
     strong_total = sum(hedging_counts.get(w, 0) for w in hedging_words_strong)
     if total_hedging > max_hedging:
-        # FIX-C7: Enforce hedge reduction — replace excess "may" with
-        # evidence-backed assertions. "may" is the most common offender.
-        _excess = total_hedging - max_hedging
-        _reduced = 0
-        for section in report_sections:
-            if _reduced >= _excess:
-                break
-            _content = section.get("content", "")
-            # Replace "may" → drop (only when followed by verb, not "May 2024")
-            _new = re.sub(
-                r'(?<!\d\s)\bmay\b(?!\s+\d{4})',
-                lambda m: "",
-                _content,
-                count=min(3, _excess - _reduced),  # Max 3 per section
-            )
-            _sec_reduced = len(re.findall(r'(?<!\d\s)\bmay\b(?!\s+\d{4})', _content)) - len(re.findall(r'(?<!\d\s)\bmay\b(?!\s+\d{4})', _new))
-            if _sec_reduced > 0:
-                # Clean double spaces from removal
-                _new = re.sub(r"  +", " ", _new)
-                section["content"] = _new
-                section["word_count"] = len(_new.split())
-                _reduced += _sec_reduced
-
+        # C7: Log-only. Removing "may" programmatically breaks grammar
+        # ("fasting may reduce" → "fasting reduce"). Hedge reduction
+        # must be done by the LLM during writing, not post-hoc regex.
         logger.warning(
-            "[polaris graph] FIX-043D+C7: Hedging words %d > %d limit "
-            "(strong=%d, weak=%d, reduced=%d): %s",
-            total_hedging, max_hedging, strong_total, weak_total, _reduced,
+            "[polaris graph] FIX-043D: Hedging words %d > %d limit "
+            "(strong=%d, weak=%d): %s",
+            total_hedging, max_hedging, strong_total, weak_total,
             {k: v for k, v in sorted(
                 hedging_counts.items(), key=lambda x: -x[1]
             ) if v > 0},

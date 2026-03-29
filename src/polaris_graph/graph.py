@@ -227,29 +227,35 @@ def build_graph() -> StateGraph:
                     len(state["academic_results"]),
                 )
 
-                # FIX-B5: Carry deepener's full_text into fetched_content
-                # so the analyzer doesn't re-fetch from scratch (most S2
-                # URLs are paywalled — re-fetch gets empty/stub content).
-                existing_fetched = list(state.get("fetched_content", []))
-                existing_fetched_urls = {f.get("url", "") for f in existing_fetched}
-                injected_count = 0
-                for paper in new_from_deepen:
-                    ft = paper.get("full_text", "")
-                    purl = paper.get("url", "")
-                    if ft and purl and purl not in existing_fetched_urls:
-                        existing_fetched.append({
-                            "url": purl,
-                            "title": paper.get("title", ""),
-                            "content": ft[:25000],
-                        })
-                        existing_fetched_urls.add(purl)
-                        injected_count += 1
-                if injected_count:
-                    state["fetched_content"] = existing_fetched
-                    logger.info(
-                        "[polaris graph] FIX-B5: Injected %d deepened paper "
-                        "full texts into fetched_content",
-                        injected_count,
+                # FIX-B5: Inject deepener's full_text into the SQLite
+                # content cache so the analyzer's _fetch_all_content()
+                # finds it via get_cached_content() and skips re-fetching.
+                # State["fetched_content"] doesn't work — analyzer reads
+                # from SQLite cache, not state.
+                try:
+                    from src.polaris_graph.memory.content_cache import cache_content
+                    _cached_count = 0
+                    for paper in new_from_deepen:
+                        ft = paper.get("full_text", "")
+                        purl = paper.get("url", "")
+                        if ft and purl and len(ft) > 500:
+                            await cache_content(
+                                url=purl,
+                                content=ft[:25000],
+                                title=paper.get("title", ""),
+                                fetch_method="deepener",
+                            )
+                            _cached_count += 1
+                    if _cached_count:
+                        logger.info(
+                            "[polaris graph] FIX-B5: Cached %d deepened paper "
+                            "full texts in content_cache SQLite",
+                            _cached_count,
+                        )
+                except Exception as _cache_exc:
+                    logger.debug(
+                        "[polaris graph] FIX-B5: Content caching failed: %s",
+                        str(_cache_exc)[:200],
                     )
 
         result = await analyze_sources(

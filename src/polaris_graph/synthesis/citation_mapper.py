@@ -217,7 +217,9 @@ async def audit_citations(
     # When LLM attaches [CITE:ev_xxx] to wrong claim (e.g., "ADF vs TRE LDL"
     # citing a mouse lifespan study), keyword overlap between the surrounding
     # sentence and the evidence statement is ~0. Strip these misattributions.
-    _misattribution_threshold = int(os.getenv("PG_CITE_MIN_KEYWORD_OVERLAP", "2"))
+    # FIX-B1: Use 4+ char words (not 5+) and threshold 1 (not 2) to avoid
+    # false positives from abbreviations (ADF/TRE vs alternate-day/time-restricted).
+    _misattribution_threshold = int(os.getenv("PG_CITE_MIN_KEYWORD_OVERLAP", "1"))
     _misattributed_count = 0
 
     for section in sections:
@@ -230,8 +232,8 @@ async def audit_citations(
                 _is_relevant = True
                 if _misattribution_threshold > 0:
                     ev = evidence_map[evidence_id]
-                    ev_text = (ev.get("statement", "") + " " + ev.get("direct_quote", "")).lower()
-                    ev_words = set(re.findall(r"\w{5,}", ev_text))
+                    ev_text = (ev.get("statement", "") + " " + ev.get("direct_quote", "") + " " + ev.get("source_title", "")).lower()
+                    ev_words = set(re.findall(r"\w{4,}", ev_text))
                     # Extract sentence around the citation
                     _cite_pattern_str = re.escape(f"[CITE:{evidence_id}]")
                     _ctx_match = re.search(
@@ -239,7 +241,7 @@ async def audit_citations(
                         normalized,
                     )
                     if _ctx_match and ev_words:
-                        ctx_words = set(re.findall(r"\w{5,}", _ctx_match.group().lower()))
+                        ctx_words = set(re.findall(r"\w{4,}", _ctx_match.group().lower()))
                         overlap = len(ev_words & ctx_words)
                         if overlap < _misattribution_threshold:
                             _is_relevant = False
