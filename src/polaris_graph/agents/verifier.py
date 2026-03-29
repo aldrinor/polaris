@@ -1071,7 +1071,10 @@ Each claim was extracted from its cited source by an AI system.
                 # FIX-059-B: Enforce NLI threshold on faithfulness verdict.
                 # A claim is faithful only if LLM says SUPPORTED AND NLI score
                 # (when available on the evidence) meets the threshold.
-                _ev_nli = ev.get("nli_score")
+                # FIX-B2: Read NLI score from EITHER field — nli_score (set by
+                # normal NLI path) or nli_self_check_score (preserved by FIX-B2
+                # when NLI floor triggers full discard).
+                _ev_nli = ev.get("nli_score") or ev.get("nli_self_check_score")
                 is_faithful = verification.verdict == "SUPPORTED"
                 if is_faithful and _ev_nli is not None and _ev_nli < _nli_faith_threshold:
                     is_faithful = False

@@ -129,6 +129,13 @@ Before writing each paragraph, consider it from THREE perspectives:
 If any perspective raises a concern, address it in the text. This ensures
 every paragraph contains interpretation, not just data reporting.
 
+HEDGING RULES:
+- Limit "may", "could", "potentially" to MAX 4 per section.
+- When evidence is strong (meta-analysis, large RCT), use DEFINITIVE language:
+  BAD:  "Intermittent fasting may reduce body weight"
+  GOOD: "Intermittent fasting reduces body weight (MD -4.30 kg) [CITE:ev_xxx]"
+- Reserve hedging for genuinely uncertain findings (single study, small sample, animal model).
+
 BANNED PATTERNS:
 - Sequential source summaries ("Study A found... Study B found... Study C found...")
 - Data without interpretation ("X was Y" with no clinical meaning or confidence assessment)
