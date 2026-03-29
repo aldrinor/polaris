@@ -1,5 +1,53 @@
 # POLARIS Session Log
 
+## [2026-03-27 -- Session 55: Evidence Deepening Loop — Closing Gemini/ChatGPT Gap]
+
+[2026-03-27 10:00:00]
+- ACTION: Built evidence deepening loop — new graph node with 6 operations (named study extraction, S2 citation chasing, S2 recommendations, mechanism keyword search, PDF fetch, re-analyze)
+- RATIONALE: After 21 commits and 12 pipeline runs (Session 54), output quality reached ~75% of Gemini Deep Research. The remaining 25% gap is NOT the LLM — it's that Gemini reads specific primary studies (RCTs, landmark trials) while we only read meta-analyses and review articles. The evidence deepener chases citations from meta-analyses to find primary RCTs, searches for named studies extracted by LLM, and executes mechanism keyword searches to find basic science papers.
+- DOCS/RESEARCH: S2 API docs (graph/v1/paper/{id}/references, recommendations/v1/papers), PaSa (ByteDance paper search agent), Karpathy autoresearch iterate→evaluate→improve pattern
+- SYNC: todo_list.md, file_directory.md, restart_instructions.md updated
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/agents/evidence_deepener.py (530 lines, 6 operations)
+  - NEW: scripts/pg_micro_test_deepener.py (15 tests)
+  - MODIFIED: src/polaris_graph/graph.py (9-node graph, deepen_evidence between verify and evaluate)
+  - MODIFIED: src/polaris_graph/state.py (deepened_papers, deepener_stats fields)
+  - MODIFIED: .env (PG_EVIDENCE_DEEPENER=1)
+  - MODIFIED: docs/todo_list.md, docs/file_directory.md, state/restart_instructions.md
+- EVIDENCE/FINDINGS:
+  40/40 micro tests passing across 3 suites:
+  - pg_micro_test_deepener.py: 15/15
+    - D01-D06: Offline (imports, DOI extraction, academic URL detection, S2 normalization, relevance filtering, fallback queries)
+    - D07-D08: Evidence cap (150) and dedup against existing URLs
+    - D09-D11: Graph wiring (9 nodes, correct order), state fields, feature flag bypass
+    - D12: Live S2 (PMID: paperId=9b5951b..., ArXiv: paperId=30c0cdc...)
+    - D13: Live S2 search (3 results for Trepanowski)
+    - D14: Live LLM (3/3 named studies: Trepanowski, Varady, Longo)
+    - D15: Live mechanism search (on-topic after relevance filter fix)
+  - pg_micro_test_final.py: 15/15 (no regressions)
+  - pg_micro_test_071_fixes.py: 10/10 (no regressions)
+
+  Post-build fixes:
+  - FIX-DOI: URL-encoding in _s2_lookup() — DOI slashes (10.1001/jama...) created extra path segments → 404. Fixed with urllib.parse.quote(identifier, safe=''). Validated: 3/4 test DOIs resolve. 1 (Trepanowski) not in S2 DOI index but resolves via PMID.
+  - FIX-MECH: Mechanism search relevance filter — _mechanism_search() returned off-topic papers ("Pull Request Acceptance"). Added _filter_by_query_relevance() call. Validated: D15 now returns on-topic papers.
+  - FIX-FORWARD: Forward snowballing — legacy citation_chainer.py had bidirectional snowballing (forward + backward). My initial build only did backward. Added _fetch_citations() using S2 /paper/{id}/citations endpoint + integrated into _chase_citations_deep().
+  - FIX-STATS: _finalize() used stats["key"] but tests pass empty dict. Changed to stats.get("key", 0).
+
+  Integration path verified:
+  - Deepen merges papers into academic_results → analyze processes them on next iteration
+  - Content cache (SQLite) prevents re-fetching already-fetched URLs
+  - Evidence accumulation deduplicates by evidence_id across iterations
+  - PG_MAX_ITERATIONS=2 gives exactly 2 passes (deepener runs on pass 1, new papers analyzed on pass 2)
+
+  Known remaining issues:
+  - S2 DOI index incomplete (some papers only resolve via PMID/ArXiv)
+  - PO2 test stochastic failure (pre-existing GLM-5 CoT leakage, not regression)
+  - No full pipeline run yet (TEST_076)
+- STATUS: Evidence deepening loop built, tested, and hardened with 4 post-build fixes. 40/40 tests pass. NOT yet validated in full pipeline.
+- NEXT_STEP: Run TEST_076 with PG_EVIDENCE_DEEPENER=1 to validate end-to-end.
+
+---
+
 ## [2026-03-25 -- Session 54: 15-Defect Fix Sprint — polaris_graph Output Quality]
 
 [2026-03-25 00:00:00]

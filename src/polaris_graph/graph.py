@@ -1,17 +1,16 @@
 """
 polaris graph — LangGraph workflow.
 
-Clean graph with 8 nodes:
+9-node graph:
 1. plan: Generate 50 sub-queries
 2. search: Execute web + academic + Exa searches
 3. storm_interviews: AREA-3 multi-perspective STORM research (opt-in)
 4. analyze: Fetch content, extract atomic facts
 5. verify: Verify ALL claims against evidence
-6. evaluate: Gap analysis, decide whether to iterate
-7. synthesize: Cluster → outline → sections → citations → report
-8. search_gaps: FIX-307 targeted gap search (bypasses planner)
-
-No CoT scrubbing. No feature flags. No legacy FIX patches.
+6. deepen_evidence: Citation chasing + mechanism search (opt-in, PG_EVIDENCE_DEEPENER=1)
+7. evaluate: Gap analysis, decide whether to iterate
+8. synthesize: Cluster → outline → sections → citations → report
+9. search_gaps: FIX-307 targeted gap search (bypasses planner)
 """
 
 import asyncio
@@ -49,6 +48,7 @@ def build_graph() -> StateGraph:
         analyze_gaps,
         synthesize_report,
     )
+    from src.polaris_graph.agents.evidence_deepener import deepen_evidence
 
     # Create shared client (will be set in state via closure)
     # FIX-QM10: _snapshot stores accumulated state for timeout recovery.
@@ -205,6 +205,27 @@ def build_graph() -> StateGraph:
                 }
                 for f in fetched_so_far
             ]
+
+        # DEEP-FIX: Merge deepened_papers into academic_results BEFORE
+        # analyze_sources() runs. Without this, the search node overwrites
+        # academic_results on iteration 2, wiping out deepened papers.
+        # By merging here, we guarantee the analyzer processes them.
+        deepened = state.get("deepened_papers", [])
+        if deepened:
+            existing_academic = list(state.get("academic_results", []))
+            existing_urls = {r.get("url", "") for r in existing_academic}
+            new_from_deepen = [
+                p for p in deepened
+                if p.get("url", "") and p.get("url", "") not in existing_urls
+            ]
+            if new_from_deepen:
+                state["academic_results"] = existing_academic + new_from_deepen
+                logger.info(
+                    "[polaris graph] DEEP-FIX: Injected %d deepened papers "
+                    "into academic_results for analysis (%d total)",
+                    len(new_from_deepen),
+                    len(state["academic_results"]),
+                )
 
         result = await analyze_sources(
             client, state, on_evidence_progress=_on_evidence_progress,
@@ -570,6 +591,81 @@ def build_graph() -> StateGraph:
         client_holder["_snapshot"]["faithfulness_score"] = result.get("faithfulness_score", -1.0)
         return result
 
+    async def _deepen(state: ResearchState) -> dict:
+        """Deepen evidence node: chase citations, find primary studies.
+
+        Runs between verify and evaluate. Feature-flagged via PG_EVIDENCE_DEEPENER.
+        Only runs on first iteration (like STORM).
+
+        When new papers are found:
+        1. Adds them as additional academic_results for re-analysis
+        2. The next iteration (plan→search→analyze→verify) will process them
+        3. OR, if we're about to synthesize, they get analyzed inline
+        """
+        from src.polaris_graph.agents.evidence_deepener import (
+            PG_EVIDENCE_DEEPENER,
+        )
+
+        if not PG_EVIDENCE_DEEPENER:
+            return {}
+
+        # Only run on first iteration
+        if state.get("iteration_count", 0) > 1:
+            logger.info(
+                "[polaris graph] DEEPEN: Skipping on iteration %d",
+                state.get("iteration_count", 0),
+            )
+            return {}
+
+        client = client_holder["client"]
+        tracer = get_tracer()
+        state["timestamps"]["deepen_start"] = _now()
+
+        logger.info(
+            "[polaris graph] DEEPEN: Starting evidence deepening "
+            "(%d evidence in pool)",
+            len(state.get("evidence", [])),
+        )
+
+        try:
+            result = await deepen_evidence(client, state)
+        except Exception as exc:
+            logger.warning(
+                "[polaris graph] DEEPEN: Failed (non-fatal): %s — continuing",
+                str(exc)[:300],
+            )
+            return {"deepener_stats": {"error": str(exc)[:300]}}
+
+        deepened_papers = result.get("deepened_papers", [])
+        deepener_stats = result.get("deepener_stats", {})
+
+        if deepened_papers:
+            # Store in deepened_papers state key. The _analyze node's
+            # DEEP-FIX reads this and merges into academic_results
+            # BEFORE calling analyze_sources(). This avoids two bugs:
+            #   1. search node overwrites academic_results on iteration 2
+            #   2. evaluate overwrites needs_iteration with its own decision
+            # The deepened_papers persist in state across iterations,
+            # and _analyze picks them up whenever it next runs.
+            logger.info(
+                "[polaris graph] DEEPEN: Found %d new papers — "
+                "stored in deepened_papers for analyze to process",
+                len(deepened_papers),
+            )
+
+        result["deepened_papers"] = deepened_papers
+        result["deepener_stats"] = deepener_stats
+        result["timestamps"] = {
+            **state.get("timestamps", {}),
+            "deepen_end": _now(),
+        }
+
+        # Shadow for timeout recovery
+        if deepened_papers:
+            client_holder["_snapshot"]["deepened_papers"] = deepened_papers
+
+        return result
+
     async def _evaluate(state: ResearchState) -> dict:
         """Evaluate node: gap analysis and iteration decision."""
         client = client_holder["client"]
@@ -584,6 +680,21 @@ def build_graph() -> StateGraph:
                 "'needs_iteration'. Setting False as safe fallback."
             )
             result["needs_iteration"] = False
+
+        # DEEP-FIX-2: Force iteration when deepened_papers exist but
+        # haven't been processed yet. Without this, the LLM gap analysis
+        # might say "looks good" and skip to synthesize, wasting all the
+        # papers the deepener found.
+        deepened = state.get("deepened_papers", [])
+        iteration = state.get("iteration_count", 0)
+        if deepened and iteration <= 1 and not result.get("needs_iteration"):
+            logger.info(
+                "[polaris graph] DEEP-FIX-2: Forcing iteration to process "
+                "%d deepened papers (evaluate said no gaps, overriding)",
+                len(deepened),
+            )
+            result["needs_iteration"] = True
+
         if tracer:
             tracer.node_end(
                 "evaluate",
@@ -1001,6 +1112,7 @@ def build_graph() -> StateGraph:
     graph.add_node("storm_interviews", _storm_interviews)  # AREA-3
     graph.add_node("analyze", _analyze)
     graph.add_node("verify", _verify)
+    graph.add_node("deepen_evidence", _deepen)  # Evidence deepening loop
     graph.add_node("evaluate", _evaluate)
     graph.add_node("synthesize", _synthesize)
     graph.add_node("search_gaps", _search_gaps)  # FIX-307
@@ -1011,7 +1123,8 @@ def build_graph() -> StateGraph:
     graph.add_edge("search", "storm_interviews")  # AREA-3: STORM between search and analyze
     graph.add_edge("storm_interviews", "analyze")
     graph.add_edge("analyze", "verify")
-    graph.add_edge("verify", "evaluate")
+    graph.add_edge("verify", "deepen_evidence")  # Deepen between verify and evaluate
+    graph.add_edge("deepen_evidence", "evaluate")
     graph.add_conditional_edges(
         "evaluate",
         _should_iterate,

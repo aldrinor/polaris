@@ -1,10 +1,33 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-03-24 (Session 53 — Citation architecture evaluated, baseline confirmed)
+**Last Updated**: 2026-03-27 (Session 55 — Evidence deepening loop implemented)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Enterprise Plan)
 **Gemini Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Gemini Architecture Redesign)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
+
+---
+
+## EVIDENCE DEEPENING LOOP (Session 55 — Closing Gemini/ChatGPT Gap)
+
+### Completed
+- [x] Evidence deepener module (src/polaris_graph/agents/evidence_deepener.py)
+  - OP-1: Named study extraction (LLM extracts author/year/description)
+  - OP-2: S2 paper ID resolution (DOI, ArXiv, PMID strategies)
+  - OP-3: S2 citation chasing from meta-analyses + named study search
+  - OP-4: S2 recommendations from seed papers
+  - OP-5: Mechanism keyword search (LLM-generated + fallback queries)
+  - OP-6: PDF full-text fetch for open-access papers
+- [x] Graph integration: 9-node graph (deepen_evidence between verify and evaluate)
+- [x] State fields: deepened_papers, deepener_stats in ResearchState
+- [x] Feature flag: PG_EVIDENCE_DEEPENER=1 in .env
+- [x] 15/15 micro tests passing (scripts/pg_micro_test_deepener.py)
+
+### Remaining
+- [ ] Run TEST_076 with deepening loop enabled
+- [ ] Line-by-line audit of TEST_076 output vs Gemini/ChatGPT
+- [ ] Tune mechanism query quality (D15 showed some off-topic results)
+- [ ] DOI resolution on S2 returns 404 — investigate alternate endpoint
 
 ---
 

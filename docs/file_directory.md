@@ -70,6 +70,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 | `source_confidence.py` | 299 | Source confidence scoring: domain authority, peer-reviewed enforcement |
 | `citation_agent.py` | 229 | Citation handling: S2 citation chasing, bibliography validation (ARCH-3) |
 | `hallucination_detector.py` | 331 | NLI-based post-synthesis hallucination audit: MiniCheck claim-level verification, replaces LettuceDetect |
+| `evidence_deepener.py` | 920 | Evidence deepening loop: named study extraction (LLM), S2 paper ID resolution (DOI/PMID/ArXiv), backward+forward snowballing, S2 recommendations, mechanism keyword search, PDF fetch. Closes Gemini/ChatGPT source depth gap. Feature flag: PG_EVIDENCE_DEEPENER=1. |
 
 ---
 

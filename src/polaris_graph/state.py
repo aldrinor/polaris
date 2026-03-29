@@ -560,6 +560,10 @@ class ResearchState(TypedDict):
     # RC-7 (v3 Hybrid): Perspective diversity tracking
     perspective_entropy: float
 
+    # Evidence deepening loop (closes Gemini/ChatGPT gap)
+    deepened_papers: list[dict[str, Any]]  # Papers found by deepener
+    deepener_stats: dict[str, Any]  # Deepening operation statistics
+
 
 def create_initial_state(
     vector_id: str,
@@ -666,4 +670,7 @@ def create_initial_state(
         question_decomposition=[],
         # RC-7 (v3 Hybrid): Perspective diversity tracking
         perspective_entropy=0.0,
+        # Evidence deepening loop
+        deepened_papers=[],
+        deepener_stats={},
     )
