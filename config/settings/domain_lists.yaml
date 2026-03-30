@@ -1,0 +1,133 @@
+# Domain-specific lists for source authority, credibility, and filtering.
+# Loaded at runtime via PG_DOMAIN_CONFIG_PATH env var.
+# LAW VI: No domain-specific values hardcoded in source code.
+
+# Low-credibility consumer/news domains (authority: 0.2)
+# These are popular sites that simplify or sensationalize research.
+# Override per-domain by adding to tier1/tier2 lists instead.
+low_credibility_domains:
+  - webmd.com
+  - healthcentral.com
+  - nutritionfacts.org
+  - equip.health
+  - brokenscience.org
+  - ktla.com
+  - tctmd.com
+  - jeffersonhealth.org
+  - healthline.com
+  - verywellhealth.com
+  - medicalnewstoday.com
+  - everydayhealth.com
+  - livestrong.com
+  - droracle.ai
+  - centerwellprimarycare.com
+  - orthomolecular.org
+  - eatingwell.com
+  - sciencefocus.com
+  - aarp.org
+  - diabetesonthenet.com
+  - healthshots.com
+  - theconversation.com
+  - agencia.fapesp.br
+  - sochob.cl
+  - endocrinologyadvisor.com
+  - eurekalert.org
+  - withpower.com
+
+# Blocked commercial domains (authority: 0.0, excluded entirely)
+blocked_domains:
+  - amazon.com
+  - ebay.com
+  - walmart.com
+  - aliexpress.com
+  - alibaba.com
+  - homedepot.com
+  - lowes.com
+  - target.com
+  - costco.com
+  - bestbuy.com
+  - etsy.com
+  - shopify.com
+  - wish.com
+
+# Tier 1 academic domains (authority: 1.0)
+tier1_domains:
+  - nature.com
+  - science.org
+  - sciencedirect.com
+  - wiley.com
+  - springer.com
+  - bmj.com
+  - thelancet.com
+  - cell.com
+  - nejm.org
+  - jamanetwork.com
+  - tandfonline.com
+  - mdpi.com
+  - frontiersin.org
+  - plos.org
+  - cochranelibrary.com
+  - oup.com
+
+# Tier 2 institutional domains (authority: 0.85)
+tier2_domains:
+  - ncbi.nlm.nih.gov
+  - pubmed.ncbi.nlm.nih.gov
+  - nsf.org
+  - iso.org
+  - astm.org
+  - awwa.org
+  - reuters.com
+  - apnews.com
+  - hopkinsmedicine.org
+  - mayoclinic.org
+  - clevelandclinic.org
+
+# Tier 3 trade/industry domains (authority: 0.7)
+# NOTE: These are domain-specific. Add domains relevant to your query domain.
+tier3_domains:
+  - wateronline.com
+  - chemengonline.com
+  - engineering.com
+  - process-worldwide.com
+  - waterworld.com
+  - filtsep.com
+
+# Low-authority URL patterns (regex, authority: 0.1)
+# Matches commercial/service-oriented sites
+low_authority_patterns:
+  - "plumb"
+  - "hvac"
+  - "filter-?site"
+  - "cleanwater"
+  - "waterfilter"
+  - "purifier"
+  - "softener"
+
+# Synonym sets for academic query expansion.
+# Each set groups terms that are synonymous in context.
+# NOTE: These are domain-specific. Replace for different query domains.
+synonym_sets:
+  - ["intermittent fasting", "time-restricted eating", "alternate-day fasting", "periodic fasting"]
+  - ["metabolic health", "metabolic syndrome", "insulin resistance", "glucose metabolism"]
+  - ["cardiovascular", "heart disease", "coronary", "cardiac", "atherosclerosis"]
+  - ["obesity", "overweight", "body mass index", "adiposity", "body composition"]
+  - ["mortality", "death rate", "survival", "lifespan", "longevity"]
+  - ["autophagy", "cellular repair", "proteostasis", "mitophagy"]
+  - ["inflammation", "inflammatory markers", "cytokines", "C-reactive protein"]
+  - ["diabetes", "type 2 diabetes", "glycemic control", "HbA1c", "HOMA-IR"]
+  - ["blood pressure", "hypertension", "systolic", "diastolic"]
+  - ["cholesterol", "lipid profile", "triglycerides", "HDL", "LDL"]
+
+# Unit patterns for quantitative data validation (regex)
+# NOTE: Domain-specific. These are medical/chemistry units.
+unit_patterns: "mmol/L|mg/dL|mmHg|kg|BMI|HbA1c|HOMA-IR|mg|µg|ng|IU|kcal|kJ|%|ppm|ppb|ppt|mg/L|µg/L|ng/L|bar|kPa|MPa|kWh|MWh|Da|kDa|L/min|m³/h"
+
+# Clinical keywords that trigger the academic-only gate
+clinical_keywords:
+  - "clinical research"
+  - "meta-analyses"
+  - "systematic review"
+  - "randomized controlled"
+  - "clinical trials"
+  - "peer-reviewed"

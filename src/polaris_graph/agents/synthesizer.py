@@ -2642,7 +2642,7 @@ async def synthesize_report(
                         # (logged), content to Pool 2 (used for polished text).
                         _polish_resp = await client.generate(
                             prompt=_polish_prompt,
-                            max_tokens=8192,
+                            max_tokens=int(os.getenv("PG_POLISH_MAX_TOKENS", "16384")),
                         )
                         _polished_sec = _polish_resp.content.strip()
                         if _polished_sec:

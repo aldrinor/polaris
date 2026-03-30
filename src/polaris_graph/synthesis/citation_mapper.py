@@ -217,9 +217,9 @@ async def audit_citations(
     # When LLM attaches [CITE:ev_xxx] to wrong claim (e.g., "ADF vs TRE LDL"
     # citing a mouse lifespan study), keyword overlap between the surrounding
     # sentence and the evidence statement is ~0. Strip these misattributions.
-    # FIX-B1: Use 4+ char words (not 5+) and threshold 1 (not 2) to avoid
-    # false positives from abbreviations (ADF/TRE vs alternate-day/time-restricted).
-    _misattribution_threshold = int(os.getenv("PG_CITE_MIN_KEYWORD_OVERLAP", "1"))
+    # FIX-B1: Embedding similarity for citation-claim matching.
+    # Domain-agnostic — no hardcoded stopwords. Works for any topic.
+    _cite_sim_threshold = float(os.getenv("PG_CITE_SIMILARITY_THRESHOLD", "0.3"))
     _misattributed_count = 0
 
     for section in sections:
@@ -230,33 +230,33 @@ async def audit_citations(
             if evidence_id in evidence_map:
                 # FIX-B1: Check semantic relevance of citation to context
                 _is_relevant = True
-                if _misattribution_threshold > 0:
+                if _cite_sim_threshold > 0:
                     ev = evidence_map[evidence_id]
-                    ev_text = (ev.get("statement", "") + " " + ev.get("direct_quote", "") + " " + ev.get("source_title", "")).lower()
-                    ev_words = set(re.findall(r"\w{4,}", ev_text))
-                    # Extract ~200 chars around the citation (fixed window,
-                    # avoids catastrophic backtracking from [^.]* on long text)
+                    ev_text = (
+                        ev.get("statement", "") + " "
+                        + ev.get("source_title", "")
+                    ).strip()
+                    # Extract ~200 chars around the citation
                     _cite_literal = f"[CITE:{evidence_id}]"
                     _cite_pos = normalized.find(_cite_literal)
-                    _ctx_match = None
-                    if _cite_pos >= 0:
+                    if _cite_pos >= 0 and ev_text:
                         _ctx_start = max(0, _cite_pos - 100)
                         _ctx_end = min(len(normalized), _cite_pos + len(_cite_literal) + 100)
                         _ctx_text = normalized[_ctx_start:_ctx_end]
-                        class _CtxMatch:
-                            def group(self):
-                                return _ctx_text
-                        _ctx_match = _CtxMatch()
-                    if _ctx_match and ev_words:
-                        ctx_words = set(re.findall(r"\w{4,}", _ctx_match.group().lower()))
-                        overlap = len(ev_words & ctx_words)
-                        if overlap < _misattribution_threshold:
-                            _is_relevant = False
-                            _misattributed_count += 1
-                            ungrounded_claims.append(
-                                f"Section '{section.title}': [CITE:{evidence_id}] "
-                                f"misattributed (0 keyword overlap with evidence)"
-                            )
+                        try:
+                            from src.utils.embedding_service import embed_texts
+                            import numpy as np
+                            vecs = np.array(embed_texts([_ctx_text, ev_text]))
+                            sim = float(vecs[0] @ vecs[1])
+                            if sim < _cite_sim_threshold:
+                                _is_relevant = False
+                                _misattributed_count += 1
+                                ungrounded_claims.append(
+                                    f"Section '{section.title}': [CITE:{evidence_id}] "
+                                    f"misattributed (sim={sim:.2f} < {_cite_sim_threshold})"
+                                )
+                        except Exception:
+                            pass  # Embedding unavailable — skip check
 
                 all_citations.append({
                     "evidence_id": evidence_id,

@@ -1013,8 +1013,29 @@ async def write_section(
                     section.title[:40], len(_rescued_ids),
                 )
         except Exception as _rescue_exc:
+            # Keyword fallback when embedding fails (Errno 22, model not loaded)
+            _rescue_pool = all_evidence or evidence
+            _title_words = set(re.findall(r"\w{4,}", section.title.lower()))
+            if _title_words and _rescue_pool:
+                _keyword_scored = []
+                for _ev in _rescue_pool:
+                    _ev_text = (
+                        _ev.get("statement", "") + " " + _ev.get("source_title", "")
+                    ).lower()
+                    _ev_words = set(re.findall(r"\w{4,}", _ev_text))
+                    _overlap = len(_title_words & _ev_words)
+                    _keyword_scored.append((_overlap, _ev.get("evidence_id", "")))
+                _keyword_scored.sort(reverse=True)
+                _rescued_ids = [eid for sc, eid in _keyword_scored[:5] if sc > 0]
+                if _rescued_ids:
+                    section.evidence_ids = _rescued_ids
+                    logger.info(
+                        "[polaris graph] FIX-C6+STARVATION: Keyword fallback rescued "
+                        "section '%s' with %d evidence",
+                        section.title[:40], len(_rescued_ids),
+                    )
             logger.debug(
-                "[polaris graph] FIX-C6+STARVATION: Rescue failed for '%s': %s",
+                "[polaris graph] FIX-C6+STARVATION: Embedding rescue failed for '%s': %s",
                 section.title[:30], str(_rescue_exc)[:100],
             )
 

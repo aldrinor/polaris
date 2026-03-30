@@ -21,6 +21,7 @@ SOTA upgrades:
 """
 
 import asyncio
+import datetime
 import errno
 import hashlib
 import re
@@ -103,50 +104,15 @@ _RE_MD_IMAGE = re.compile(r'!\[([^\]]*)\]\([^)]+\)')
 _RE_MD_BOLD = re.compile(r'\*\*([^*]+)\*\*')
 _RE_MD_ITALIC = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
 
-# FIX-R10: Domains that should not be cited for quantitative/scientific claims.
-# Consumer sites, plumber sites, filter vendors -- reduce authority to 0.1.
-_LOW_AUTHORITY_PATTERNS = re.compile(
-    r'(plumb|hvac|filter-?site|cleanwater(?:for|4)|handyman|home-?repair|'
-    r'renovation|cleaning-?service|appliance-?repair|contractor)',
-    re.IGNORECASE,
-)
+# LAW VI: Domain-specific lists loaded from config, not hardcoded.
+# See config/settings/domain_lists.yaml for all domain lists.
+from src.polaris_graph.config_loader import get_domain_config as _get_domain_config
 
-# FIX-CITE-3/C6: Low-credibility health/news domains that should be demoted
-# for queries explicitly requesting "clinical research and meta-analyses".
-# These produce pop-health content, not peer-reviewed evidence.
-_LOW_CREDIBILITY_DOMAINS = frozenset([
-    "webmd.com",
-    "healthcentral.com",
-    "nutritionfacts.org",
-    "equip.health",
-    "brokenscience.org",
-    "ktla.com",
-    "tctmd.com",
-    "jeffersonhealth.org",
-    "healthline.com",
-    "verywellhealth.com",
-    "medicalnewstoday.com",
-    "everydayhealth.com",
-    "livestrong.com",
-    # FIX-CITE-3/S5: Additional low-credibility domains from TEST_067 audit
-    "droracle.ai",
-    "centerwellprimarycare.com",
-    "orthomolecular.org",
-    "eatingwell.com",
-    "sciencefocus.com",
-    "aarp.org",
-    "diabetesonthenet.com",
-    # FIX-071: Additional from TEST_071 audit
-    "healthshots.com",
-    "theconversation.com",
-    "agencia.fapesp.br",
-    "sochob.cl",
-    # FIX-D1/D3: From TEST_076 audit — medical news aggregators and consumer pages
-    "endocrinologyadvisor.com",
-    "eurekalert.org",
-    "withpower.com",
-])
-_DOMAIN_AUTHORITY_LOW_CREDIBILITY = 0.2
+def _get_low_authority_patterns() -> re.Pattern:
+    cfg = _get_domain_config()
+    return cfg.low_authority_patterns or re.compile(r"(?!)")  # Never-match fallback
+
+_DOMAIN_AUTHORITY_LOW_CREDIBILITY = float(os.getenv("PG_LOW_CREDIBILITY_AUTHORITY", "0.2"))
 
 
 def _strip_markdown(text: str) -> str:
@@ -211,29 +177,9 @@ Output format (return ONLY this JSON structure):
 # ---------------------------------------------------------------------------
 
 # Domain blocklist: commercial, affiliate, and low-quality sources
-_BLOCKED_DOMAINS = frozenset([
-    "cnfilter.net",
-    "uswatersystems.com",
-    "waterfilteradviser.com",
-    "filterwateronline.com",
-    "bestreviews.com",
-    "amazon.com",
-    "ebay.com",
-    "alibaba.com",
-    "aliexpress.com",
-    # FIX-QG1: Commercial filter retailers identified in PG_TEST_023 audit
-    "frizzlife.com",
-    "aquasana.com",
-    "multipure.com",
-    "tapwaterdata.com",
-    "mytapscore.com",
-    "honestwaterfilter.com",
-    "springwellwater.com",
-    "premierh2o.com",
-    "glacierfreshfilter.com",
-    "aquageneral.com",
-    "7sage.com",
-])
+# LAW VI: Blocked domains loaded from config/settings/domain_lists.yaml
+def _get_blocked_domains() -> frozenset:
+    return _get_domain_config().blocked_domains
 
 # Path-qualified domain blocks (only block specific paths on these domains)
 _BLOCKED_DOMAIN_PATHS = [
@@ -288,7 +234,7 @@ def _is_blocked_source(url: str) -> bool:
         return False
 
     # Check exact domain blocklist (match domain and subdomains)
-    for blocked in _BLOCKED_DOMAINS:
+    for blocked in _get_blocked_domains():
         if hostname == blocked or hostname.endswith("." + blocked):
             return True
 
@@ -315,65 +261,14 @@ def _is_blocked_source(url: str) -> bool:
 # FIX-B2: Domain authority scoring
 # ---------------------------------------------------------------------------
 
-# TIER 1 (1.0): High-authority academic, government, and top journals
-_TIER1_DOMAINS = frozenset([
-    "nature.com",
-    "sciencedirect.com",
-    "frontiersin.org",
-    "springer.com",
-    "wiley.com",
-    "thelancet.com",
-    "bmj.com",
-    "nejm.org",
-    "cell.com",
-    "pnas.org",
-    "acs.org",
-    "rsc.org",
-    "iwaponline.com",
-    "who.int",
-    "epa.gov",
-    "cdc.gov",
-])
+# LAW VI: All domain tier lists loaded from config/settings/domain_lists.yaml
+_TIER1_TLDS = frozenset([".gov", ".edu"])  # Universal TLDs, not domain-specific
 
-# TIER 1 also includes .gov and .edu TLDs (checked separately)
-_TIER1_TLDS = frozenset([".gov", ".edu"])
+# TIER 2 partial matches (universal academic infrastructure)
+_TIER2_PARTIALS = frozenset(["pubmed", "pmc"])
 
-# TIER 2 (0.85): High-quality secondary sources
-_TIER2_DOMAINS = frozenset([
-    "ncbi.nlm.nih.gov",
-    "pubmed.ncbi.nlm.nih.gov",
-    "nsf.org",
-    "iso.org",
-    "astm.org",
-    "awwa.org",
-    "reuters.com",
-    "apnews.com",
-    # FIX-D3: Institutional consumer health pages — legitimate but not peer-reviewed
-    "hopkinsmedicine.org",
-    "mayoclinic.org",
-    "clevelandclinic.org",
-])
-
-# TIER 2 partial matches (substring in hostname)
-_TIER2_PARTIALS = frozenset([
-    "pubmed",
-    "pmc",
-])
-
-# TIER 2 path-qualified
-_TIER2_DOMAIN_PATHS = [
-    ("bbc.com", "/news"),
-]
-
-# TIER 3 (0.7): Industry reports and trade publications
-_TIER3_DOMAINS = frozenset([
-    "wateronline.com",
-    "engineering.com",
-    "chemengonline.com",
-    "wqa.org",
-    "nrdc.org",
-    "ewg.org",
-])
+# TIER 2 path-qualified (universal news outlets)
+_TIER2_DOMAIN_PATHS = [("bbc.com", "/news")]
 
 _DOMAIN_AUTHORITY_TIER1 = 1.0
 _DOMAIN_AUTHORITY_TIER2 = 0.85
@@ -431,13 +326,16 @@ def _get_domain_authority(url: str) -> float:
                     return _DOMAIN_AUTHORITY_TIER2  # 0.85
             return _DOMAIN_AUTHORITY_TIER1
 
+    # LAW VI: All domain lists from config (not hardcoded)
+    _cfg = _get_domain_config()
+
     # TIER 1: Check specific domains (exact or subdomain match)
-    for domain in _TIER1_DOMAINS:
+    for domain in _cfg.tier1_domains:
         if hostname == domain or hostname.endswith("." + domain):
             return _DOMAIN_AUTHORITY_TIER1
 
     # TIER 2: Check specific domains
-    for domain in _TIER2_DOMAINS:
+    for domain in _cfg.tier2_domains:
         if hostname == domain or hostname.endswith("." + domain):
             return _DOMAIN_AUTHORITY_TIER2
 
@@ -452,22 +350,22 @@ def _get_domain_authority(url: str) -> float:
             if required_path in path:
                 return _DOMAIN_AUTHORITY_TIER2
 
-    # TIER 3: Trade/industry publications
-    for domain in _TIER3_DOMAINS:
+    # TIER 3: Trade/industry publications (domain-specific, from config)
+    for domain in _cfg.tier3_domains:
         if hostname == domain or hostname.endswith("." + domain):
-            # Exclude blog sections from tier 3
             if "/blog" in path:
                 return _DOMAIN_AUTHORITY_DEFAULT
             return _DOMAIN_AUTHORITY_TIER3
 
-    # FIX-CITE-3/C6: Low-credibility health/news domains
-    for domain in _LOW_CREDIBILITY_DOMAINS:
+    # Low-credibility consumer domains (from config)
+    for domain in _cfg.low_credibility_domains:
         if hostname == domain or hostname.endswith("." + domain):
             return _DOMAIN_AUTHORITY_LOW_CREDIBILITY
 
-    # FIX-R10: Pattern-based low authority (plumbers, HVAC, etc.)
-    if _LOW_AUTHORITY_PATTERNS.search(url_lower):
-        return 0.1
+    # Pattern-based low authority (from config)
+    _low_auth_re = _cfg.low_authority_patterns
+    if _low_auth_re and _low_auth_re.search(url_lower):
+        return float(os.getenv("PG_LOW_AUTHORITY_SCORE", "0.1"))
 
     # TIER 4: Default — unknown domains get conservative score
     return _DOMAIN_AUTHORITY_DEFAULT
@@ -1346,8 +1244,12 @@ async def analyze_sources(
 
     # QUERY-GATE: When query explicitly requests clinical/academic evidence,
     # hard-exclude non-academic sources from synthesis entirely.
-    _clinical_keywords = ["clinical research", "meta-analyses", "systematic review",
-                          "randomized controlled", "clinical trials", "peer-reviewed"]
+    # LAW VI: Clinical keywords from config (not hardcoded)
+    _cfg_kw = _get_domain_config()
+    _clinical_keywords = _cfg_kw.clinical_keywords or [
+        "clinical research", "meta-analyses", "systematic review",
+        "randomized controlled", "clinical trials", "peer-reviewed",
+    ]
     _query_is_clinical = any(kw in query.lower() for kw in _clinical_keywords)
     if _query_is_clinical and os.getenv("PG_ACADEMIC_ONLY_GATE", "1") == "1":
         # FIX-B3: Gate threshold must be ABOVE default authority (0.5) to
@@ -2566,7 +2468,7 @@ def _compute_freshness(ev: dict) -> float:
         year = int(year)
     except (ValueError, TypeError):
         return 0.3
-    current_year = 2026
+    current_year = datetime.date.today().year
     age = current_year - year
     return max(0.0, min(1.0, 1.0 - age * 0.1))
 
@@ -2670,7 +2572,8 @@ def _assign_quality_tiers(evidence: list[EvidencePiece]) -> list[EvidencePiece]:
 
         # FIX-R10: Penalize consumer/commercial domains
         _src_url = e.get("source_url", "")
-        if _src_url and _LOW_AUTHORITY_PATTERNS.search(_src_url):
+        _low_auth_pat = _get_low_authority_patterns()
+        if _src_url and _low_auth_pat.search(_src_url):
             sig_authority = min(sig_authority, 0.1)
             logger.debug(
                 "[polaris graph] FIX-R10: Low authority domain: %s -> authority capped at 0.1",
