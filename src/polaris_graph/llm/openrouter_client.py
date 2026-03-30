@@ -800,7 +800,7 @@ class OpenRouterClient:
             # Enforce minimum max_tokens so reasoning doesn't starve content.
             # At max_tokens<2000, GLM-5 spends entire budget on reasoning,
             # leaving content empty. Tested: 2000 → 1313 chars content.
-            _min_tokens = int(os.getenv("PG_GLM5_MIN_MAX_TOKENS", "2000"))
+            _min_tokens = int(os.getenv("PG_GLM5_MIN_MAX_TOKENS", "4096"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
         elif reasoning_enabled:

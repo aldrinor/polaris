@@ -109,7 +109,9 @@ async def reflect_across_sections(
                     '"revision_needed": true/false}'
                 )
 
-                resp = await client.generate(prompt, max_tokens=2048)
+                resp = await client.generate(
+                    prompt, max_tokens=int(os.getenv("PG_REFLECTOR_MAX_TOKENS", "8192")),
+                )
                 content = getattr(resp, 'content', '') or ''
 
                 # Parse JSON from response
@@ -356,7 +358,9 @@ async def _revise_with_reflection(
     )
 
     try:
-        resp = await client.generate(prompt, max_tokens=4096)
+        resp = await client.generate(
+            prompt, max_tokens=int(os.getenv("PG_REDUNDANCY_REWRITE_MAX_TOKENS", "8192")),
+        )
         revised_content = getattr(resp, 'content', '') or ''
         if not revised_content or len(revised_content) < 50:
             return None

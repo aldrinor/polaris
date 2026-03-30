@@ -271,7 +271,9 @@ async def _enrich_section(
     )
 
     try:
-        resp = await client.generate(prompt, max_tokens=4096)
+        resp = await client.generate(
+            prompt, max_tokens=int(os.getenv("PG_EVIDENCE_ENRICH_MAX_TOKENS", "8192")),
+        )
         content = getattr(resp, 'content', '') or ''
         if not content or len(content) < 50:
             return None
