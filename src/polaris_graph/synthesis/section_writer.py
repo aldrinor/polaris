@@ -1003,8 +1003,9 @@ async def write_section(
             _title_vec = np.array(embed_text(section.title))
             _ev_vecs = np.array(embed_texts(_all_ev_texts))
             _sims = _ev_vecs @ _title_vec
+            _rescue_threshold = float(os.getenv("PG_EVIDENCE_RESCUE_SIM_THRESHOLD", "0.15"))
             _top_indices = np.argsort(_sims)[-5:][::-1]  # Top 5 by similarity
-            _rescued_ids = [_all_ev_ids[i] for i in _top_indices if _sims[i] > 0.3]
+            _rescued_ids = [_all_ev_ids[i] for i in _top_indices if _sims[i] > _rescue_threshold]
             if _rescued_ids:
                 section.evidence_ids = _rescued_ids
                 logger.info(
@@ -1558,7 +1559,11 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # FIX-R1: Unit consistency validation + correction
     # When section text contains units NOT found in evidence, trigger LLM rewrite
     # to replace incorrect units with evidence's exact phrasing
-    _unit_pattern = re.compile(r'(\d+\.?\d*)\s*(ppt|ppb|ug/L|ng/L|mg/L|μg/L|parts per trillion|parts per billion)')
+    # LAW VI: Unit patterns from config (not hardcoded)
+    from src.polaris_graph.config_loader import get_domain_config as _get_sw_cfg
+    _sw_unit_cfg = _get_sw_cfg().unit_patterns
+    _unit_re_str = _sw_unit_cfg.pattern if _sw_unit_cfg else r"ppt|ppb|mg/L|μg/L"
+    _unit_pattern = re.compile(r'(\d+\.?\d*)\s*(' + _unit_re_str + r')')
     _unit_matches = _unit_pattern.findall(content)
     _mismatched_units: list[tuple[str, str]] = []
     if _unit_matches and section_evidence:

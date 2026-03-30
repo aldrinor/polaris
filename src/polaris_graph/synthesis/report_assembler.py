@@ -688,19 +688,20 @@ def _audit_uncited_claims(
 
     Returns list of flagged claim dicts for logging/remediation.
     """
-    # Patterns that indicate specific numerical claims requiring citation
+    # LAW VI: Unit patterns from config + universal patterns
+    from src.polaris_graph.config_loader import get_domain_config as _get_cfg
+    _cfg_units = _get_cfg().unit_patterns
     numeric_patterns = [
         re.compile(r'\b\d+(?:\.\d+)?\s*(?:%|percent|per cent)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:ppm|ppb|ppt|mg/L|µg/L|ng/L)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:bar|kPa|MPa|PSI|atm)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:kWh|MWh|Wh|kW|MW)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:µm|nm|mm|cm|m)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:Da|kDa|Daltons?)\b', re.IGNORECASE),
         re.compile(r'\b\d+(?:\.\d+)?\s*(?:°C|°F|K)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:L/min|m³/h|gal/min|GPM)\b', re.IGNORECASE),
-        # Dollar/cost claims
         re.compile(r'(?:\$|USD|EUR)\s*[\d,.]+', re.IGNORECASE),
     ]
+    # Add domain-specific unit pattern from config
+    if _cfg_units:
+        numeric_patterns.append(re.compile(
+            r'\b\d+(?:\.\d+)?\s*(?:' + _cfg_units.pattern + r')\b',
+            re.IGNORECASE,
+        ))
     citation_pattern = re.compile(r'\[\d+\]|\[\*\]')  # Treat phantom markers as cited
 
     flagged: list[dict] = []
@@ -744,44 +745,34 @@ def _soften_uncited_numerics(
     For sentences that contain specific numbers without citations, replaces
     exact figures with hedged language to avoid asserting unsupported specifics.
     """
-    # Phase 1: Range-aware patterns (process FIRST to avoid splitting ranges)
-    _RANGE_UNITS = (
-        r"(?:%|percent|per cent|ppm|ppb|ppt|mg/L|µg/L|ug/L|ng/L"
-        r"|bar|kPa|MPa|PSI|atm|kWh|MWh|Wh|kW|MW"
-        r"|µm|um|nm|mm|cm|m|Da|kDa|Daltons?"
-        r"|°C|°F|K|L/min|m³/h|m3/h|gal/min|GPM)"
-    )
+    # LAW VI: Unit patterns from config + universal patterns
+    from src.polaris_graph.config_loader import get_domain_config as _get_cfg2
+    _cfg_units2 = _get_cfg2().unit_patterns
+    _unit_re_str = _cfg_units2.pattern if _cfg_units2 else r"%|percent"
+
+    # Phase 1: Range-aware patterns
+    _RANGE_UNITS = r"(?:" + _unit_re_str + r"|°C|°F|K)"
     range_patterns = [
-        # "15-40 bar", "0.001-0.01 um", "90-99%"
         re.compile(
             r'\b\d+(?:\.\d+)?\s*[-\u2013\u2014]\s*\d+(?:\.\d+)?\s*'
             + _RANGE_UNITS + r'(?=[^a-zA-Z0-9]|$)',
             re.IGNORECASE,
         ),
-        # "$50-100", "USD 10-20"
-        re.compile(
-            r'(?:\$|USD|EUR)\s*[\d,.]+\s*[-\u2013\u2014]\s*[\d,.]+',
-            re.IGNORECASE,
-        ),
-        # "pH 6.5-8.0" or "pH 7.2"
-        re.compile(
-            r'\bpH\s*\d+(?:\.\d+)?(?:\s*[-\u2013\u2014]\s*\d+(?:\.\d+)?)?',
-            re.IGNORECASE,
-        ),
+        re.compile(r'(?:\$|USD|EUR)\s*[\d,.]+\s*[-\u2013\u2014]\s*[\d,.]+', re.IGNORECASE),
+        re.compile(r'\bpH\s*\d+(?:\.\d+)?(?:\s*[-\u2013\u2014]\s*\d+(?:\.\d+)?)?', re.IGNORECASE),
     ]
 
-    # Phase 2: Isolated number patterns (existing)
+    # Phase 2: Isolated number patterns
     numeric_patterns = [
         re.compile(r'\b\d+(?:\.\d+)?\s*(?:%|percent|per cent)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:ppm|ppb|ppt|mg/L|µg/L|ug/L|ng/L)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:bar|kPa|MPa|PSI|atm)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:kWh|MWh|Wh|kW|MW)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:µm|um|nm|mm|cm|m)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:Da|kDa|Daltons?)\b', re.IGNORECASE),
         re.compile(r'\b\d+(?:\.\d+)?\s*(?:°C|°F|K)\b', re.IGNORECASE),
-        re.compile(r'\b\d+(?:\.\d+)?\s*(?:L/min|m³/h|m3/h|gal/min|GPM)\b', re.IGNORECASE),
         re.compile(r'(?:\$|USD|EUR)\s*[\d,.]+', re.IGNORECASE),
     ]
+    if _cfg_units2:
+        numeric_patterns.append(re.compile(
+            r'\b\d+(?:\.\d+)?\s*(?:' + _cfg_units2.pattern + r')\b',
+            re.IGNORECASE,
+        ))
     citation_pattern = re.compile(r'\[\d+\]|\[\*\]')  # Treat phantom markers as cited
     total_softened = 0
 
