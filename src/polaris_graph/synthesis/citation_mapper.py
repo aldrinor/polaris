@@ -255,8 +255,11 @@ async def audit_citations(
                                     f"Section '{section.title}': [CITE:{evidence_id}] "
                                     f"misattributed (sim={sim:.2f} < {_cite_sim_threshold})"
                                 )
-                        except Exception:
-                            pass  # Embedding unavailable — skip check
+                        except Exception as _embed_exc:
+                            logger.debug(
+                                "[polaris graph] FIX-B1: Embedding check skipped "
+                                "for %s: %s", evidence_id, str(_embed_exc)[:100],
+                            )
 
                 all_citations.append({
                     "evidence_id": evidence_id,
@@ -278,7 +281,7 @@ async def audit_citations(
         logger.warning(
             "[polaris graph] FIX-B1: Detected %d misattributed citations "
             "(claim-evidence keyword overlap < %d)",
-            _misattributed_count, _misattribution_threshold,
+            _misattributed_count, _cite_sim_threshold,
         )
 
     # FIX-QG1: Deduplicate by DOI first, then by URL — prevents same paper

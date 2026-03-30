@@ -63,16 +63,19 @@ def get_domain_config() -> DomainConfig:
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
     except FileNotFoundError:
-        logger.warning(
-            "[config] Domain config not found at %s — using empty defaults",
+        logger.critical(
+            "[config] DOMAIN CONFIG NOT FOUND at %s — ALL domain filtering "
+            "disabled (no blocked domains, no tier differentiation). "
+            "Create the file or set PG_DOMAIN_CONFIG_PATH.",
             config_path,
         )
         _cached_config = DomainConfig()
         return _cached_config
     except Exception as exc:
-        logger.error(
-            "[config] Failed to load domain config: %s — using empty defaults",
-            str(exc)[:200],
+        logger.critical(
+            "[config] DOMAIN CONFIG LOAD FAILED: %s — ALL domain filtering "
+            "disabled. Fix the YAML file at %s.",
+            str(exc)[:200], config_path,
         )
         _cached_config = DomainConfig()
         return _cached_config
