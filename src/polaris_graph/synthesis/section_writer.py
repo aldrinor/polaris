@@ -1219,22 +1219,18 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # Gives the model explicit reasoning budget to think through evidence
     # before generating prose. Produces deeper analytical output with I²,
     # GRADE ratings, and structured comparisons.
-    _use_reasoning = os.getenv("PG_SECTION_REASONING", "0") == "1"
+    # POOL-FIX: Always use generate() for prose output to avoid CoT leakage.
+    # GLM-5 with reason() puts everything in reasoning field → CoT merges
+    # into content. generate() with effort=none returns clean prose.
+    # The analytical quality comes from the prompt (SO WHAT, GRADE rules),
+    # not from visible reasoning tokens.
     for attempt in range(2):
-        if _use_reasoning:
-            response = await client.reason(
-                prompt=prompt,
-                system=system,
-                effort="high",
-                max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
-            )
-        else:
-            response = await client.generate(
-                prompt=prompt,
-                system=system,
-                max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
-                temperature=0.7,
-            )
+        response = await client.generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
+            temperature=0.7,
+        )
         content = response.content.strip()
         if content and len(content.split()) >= 50:
             break

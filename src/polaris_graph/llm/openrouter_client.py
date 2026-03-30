@@ -784,23 +784,29 @@ class OpenRouterClient:
             "stream": True,
         }
 
-        # FIX-GLM5: Models that always route output to reasoning_content
-        # need reasoning_enabled=True regardless of caller's request.
-        # Without this, generate() gets empty content and fails.
-        if self.model in _ALWAYS_REASON_MODELS and not reasoning_enabled:
-            reasoning_enabled = True
-            reasoning_effort = reasoning_effort or "medium"
-
-        # Reasoning control — only send when explicitly enabled.
-        # Sending {"enabled": False} can cause empty SSE streams on some models.
-        if reasoning_enabled:
+        # GLM-5 POOL SEPARATION FIX:
+        # GLM-5 is an always-reason model. Old code forced reasoning=True
+        # for ALL calls, then tried (and failed) to strip CoT from content.
+        # New architecture: two pools.
+        #   - Prose generation (reasoning_enabled=False): use effort="none"
+        #     → GLM-5 returns clean content, zero CoT leakage
+        #   - Analysis calls (reasoning_enabled=True): use effort=high
+        #     → reasoning goes to reasoning field (Pool 1, logged)
+        #     → content goes to content field (Pool 2, used for output)
+        if self.model in _ALWAYS_REASON_MODELS:
+            if reasoning_enabled:
+                # Analysis/planning: two-pool separation
+                body["reasoning"] = {
+                    "effort": reasoning_effort or "high",
+                    "exclude": False,  # Keep reasoning visible for logging
+                }
+                body["temperature"] = 1.0  # GLM-5 docs: temp 1.0 for thinking
+            else:
+                # Prose generation: disable reasoning entirely
+                # Test confirmed: effort="none" → clean content, 0 reasoning
+                body["reasoning"] = {"effort": "none"}
+        elif reasoning_enabled:
             body["reasoning"] = {"effort": reasoning_effort, "enabled": True}
-
-        # FIX-075B: GLM-5 native Deep Thinking — set temperature=1.0 and
-        # add thinking parameter for maximum analytical depth.
-        # GLM-5 docs: "Set temperature to 1.0 for deep thinking requests"
-        if self.model in _ALWAYS_REASON_MODELS and reasoning_enabled:
-            body["temperature"] = 1.0
 
         if response_format:
             body["response_format"] = response_format
@@ -1446,13 +1452,21 @@ class OpenRouterClient:
             timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
         )
 
-        # COT-2: Handle empty content from provider misroute
-        if not result.content.strip() and result.reasoning:
+        # POOL SEPARATION: With effort="none", GLM-5 returns clean content.
+        # The COT-2 fallback below only fires if content is STILL empty
+        # (e.g., provider routing ignored effort="none").
+        if result.content.strip():
+            # Clean content received — no pool merging needed
+            return result
+
+        # COT-2: Fallback — content empty despite effort="none".
+        # Try to recover from reasoning field.
+        if result.reasoning:
             extracted = _extract_answer_from_reasoning(result.reasoning)
             if extracted:
-                logger.info(
-                    "[polaris graph] COT-2: generate() recovered %d chars from "
-                    "reasoning via </think> split",
+                logger.warning(
+                    "[polaris graph] COT-2: generate() effort=none but content "
+                    "empty — recovered %d chars from reasoning via </think> split",
                     len(extracted),
                 )
                 result = LLMResponse(
