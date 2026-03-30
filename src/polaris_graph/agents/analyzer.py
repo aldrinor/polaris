@@ -415,21 +415,20 @@ def _get_domain_authority(url: str) -> float:
     # Now: .edu gets TIER 1 only for journal/research paths. News,
     # blogs, and general pages get TIER 2 (0.85).
     # FIX-B4: Demote .edu subdomains/paths that are news, blogs, etc.
-    _EDU_DEMOTE_PATTERNS = {
-        "news", "today", "blog", "stories", "press",
-        "media", "magazine", "events", "myctcd",
-    }
+    # FIX-B4: .edu demotion — two levels based on content type
+    _EDU_BLOG_PATTERNS = {"blog", "myctcd", "wordpress", "sites/"}
+    _EDU_NEWS_PATTERNS = {"news", "today", "stories", "press", "media", "magazine", "events"}
     for tld in _TIER1_TLDS:
         if hostname.endswith(tld):
             if tld == ".edu":
-                # Check both subdomain (today.uic.edu) and path (/news/...)
                 _host_parts = hostname.replace(tld, "").split(".")
-                _is_non_research = (
-                    any(dp in path for dp in _EDU_DEMOTE_PATTERNS)
-                    or any(dp in part for part in _host_parts for dp in _EDU_DEMOTE_PATTERNS)
-                )
-                if _is_non_research:
-                    return _DOMAIN_AUTHORITY_TIER2  # 0.85 not 1.0
+                _combined = path + " " + " ".join(_host_parts)
+                # Blog/student content → LOW credibility (below gate threshold)
+                if any(bp in _combined for bp in _EDU_BLOG_PATTERNS):
+                    return _DOMAIN_AUTHORITY_DEFAULT  # 0.5 — below B3 gate 0.6
+                # Institutional news → TIER 2 (above gate, not TIER 1)
+                if any(np in _combined for np in _EDU_NEWS_PATTERNS):
+                    return _DOMAIN_AUTHORITY_TIER2  # 0.85
             return _DOMAIN_AUTHORITY_TIER1
 
     # TIER 1: Check specific domains (exact or subdomain match)

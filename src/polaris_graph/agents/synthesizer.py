@@ -2638,9 +2638,8 @@ async def synthesize_report(
                 _polished_sec = ""
                 for _attempt in range(2):
                     try:
-                        # POOL-FIX: Use generate() not reason() for prose.
-                        # reason() returns CoT merged into content for GLM-5.
-                        # generate() with effort=none returns clean content.
+                        # TWO-POOL: Use generate() — reasoning goes to Pool 1
+                        # (logged), content to Pool 2 (used for polished text).
                         _polish_resp = await client.generate(
                             prompt=_polish_prompt,
                             max_tokens=8192,

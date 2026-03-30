@@ -784,27 +784,19 @@ class OpenRouterClient:
             "stream": True,
         }
 
-        # GLM-5 POOL SEPARATION FIX:
-        # GLM-5 is an always-reason model. Old code forced reasoning=True
-        # for ALL calls, then tried (and failed) to strip CoT from content.
-        # New architecture: two pools.
-        #   - Prose generation (reasoning_enabled=False): use effort="none"
-        #     → GLM-5 returns clean content, zero CoT leakage
-        #   - Analysis calls (reasoning_enabled=True): use effort=high
-        #     → reasoning goes to reasoning field (Pool 1, logged)
-        #     → content goes to content field (Pool 2, used for output)
+        # GLM-5 TWO-POOL ARCHITECTURE:
+        # Pool 1 (reasoning field): reasoning tokens → logged for monitoring
+        # Pool 2 (content field): actual output → used for report
+        # GLM-5 returns BOTH when max_tokens is sufficient (tested:
+        #   max_tokens=2000 → 1313 chars content + 5868 chars reasoning).
+        # CRITICAL: Never merge reasoning into content. Never disable reasoning.
+        # Reasoning drives analytical quality (SO WHAT, contradictions, GRADE).
         if self.model in _ALWAYS_REASON_MODELS:
-            if reasoning_enabled:
-                # Analysis/planning: two-pool separation
-                body["reasoning"] = {
-                    "effort": reasoning_effort or "high",
-                    "exclude": False,  # Keep reasoning visible for logging
-                }
-                body["temperature"] = 1.0  # GLM-5 docs: temp 1.0 for thinking
-            else:
-                # Prose generation: disable reasoning entirely
-                # Test confirmed: effort="none" → clean content, 0 reasoning
-                body["reasoning"] = {"effort": "none"}
+            body["reasoning"] = {
+                "effort": reasoning_effort or "high",
+                "exclude": False,  # Both pools visible
+            }
+            body["temperature"] = 1.0  # GLM-5 docs: temp 1.0 for thinking
         elif reasoning_enabled:
             body["reasoning"] = {"effort": reasoning_effort, "enabled": True}
 
@@ -1452,21 +1444,26 @@ class OpenRouterClient:
             timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
         )
 
-        # POOL SEPARATION: With effort="none", GLM-5 returns clean content.
-        # The COT-2 fallback below only fires if content is STILL empty
-        # (e.g., provider routing ignored effort="none").
-        if result.content.strip():
-            # Clean content received — no pool merging needed
+        # TWO-POOL: Content field = output. Reasoning field = logged separately.
+        # For GLM-5, both pools are populated when max_tokens is sufficient.
+        # Log reasoning for monitoring but NEVER merge into content.
+        if result.reasoning and self.model in _ALWAYS_REASON_MODELS:
+            logger.info(
+                "[polaris graph] POOL-1: Reasoning logged (%d chars) for generate()",
+                len(result.reasoning),
+            )
+
+        if result.content and result.content.strip():
             return result
 
-        # COT-2: Fallback — content empty despite effort="none".
-        # Try to recover from reasoning field.
+        # Fallback: content empty (max_tokens too low or provider issue).
+        # Try </think> extraction from reasoning as last resort.
         if result.reasoning:
             extracted = _extract_answer_from_reasoning(result.reasoning)
             if extracted:
                 logger.warning(
-                    "[polaris graph] COT-2: generate() effort=none but content "
-                    "empty — recovered %d chars from reasoning via </think> split",
+                    "[polaris graph] POOL-FALLBACK: generate() content empty — "
+                    "recovered %d chars from reasoning via </think> split",
                     len(extracted),
                 )
                 result = LLMResponse(

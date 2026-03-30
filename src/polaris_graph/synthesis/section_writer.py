@@ -1219,17 +1219,15 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # Gives the model explicit reasoning budget to think through evidence
     # before generating prose. Produces deeper analytical output with I²,
     # GRADE ratings, and structured comparisons.
-    # POOL-FIX: Always use generate() for prose output to avoid CoT leakage.
-    # GLM-5 with reason() puts everything in reasoning field → CoT merges
-    # into content. generate() with effort=none returns clean prose.
-    # The analytical quality comes from the prompt (SO WHAT, GRADE rules),
-    # not from visible reasoning tokens.
+    # TWO-POOL ARCHITECTURE: Use generate() which sends reasoning to Pool 1
+    # (logged) and content to Pool 2 (output). GLM-5 with two-pool separation
+    # returns ~1300 chars content + ~6000 chars reasoning at max_tokens=16384.
+    # Reasoning drives analytical depth; content is clean prose.
     for attempt in range(2):
         response = await client.generate(
             prompt=prompt,
             system=system,
             max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
-            temperature=0.7,
         )
         content = response.content.strip()
         if content and len(content.split()) >= 50:
