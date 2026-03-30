@@ -1049,7 +1049,7 @@ Each claim was extracted from its cited source by an AI system.
                 prompt=prompt,
                 schema=VerificationBatch,
                 system=VERIFICATION_SYSTEM,
-                max_tokens=8192,
+                max_tokens=int(os.getenv("PG_VERIFY_MAX_TOKENS", "8192")),
                 timeout=per_call_timeout,
                 reasoning_enabled=True,
             )

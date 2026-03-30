@@ -1408,7 +1408,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             _kf_resp = await client.generate(
                 prompt=_kf_prompt,
                 system="Extract key findings from the section. Output ONLY the bullet list.",
-                max_tokens=1024,
+                max_tokens=int(os.getenv("PG_KEY_FINDINGS_MAX_TOKENS", "1024")),
                 temperature=0.3,
             )
             _kf_block = _kf_resp.content.strip()

@@ -510,7 +510,7 @@ Do NOT include chain-of-thought or planning text."""
     response = await client.generate(
         prompt=prompt,
         system=system,
-        max_tokens=2048,
+        max_tokens=int(os.getenv("PG_OUTLINE_MAX_TOKENS", "2048")),
         temperature=0.5,
     )
     abstract = response.content.strip()
@@ -674,8 +674,8 @@ Your JSON response MUST include ALL of these fields:
                 "only recommend FULL_SECTION when there are 3+ distinct, citable "
                 "claims with real evidence backing them."
             ),
-            max_tokens=2048,
-            timeout=60,
+            max_tokens=int(os.getenv("PG_EVIDENCE_ASSIGN_MAX_TOKENS", "2048")),
+            timeout=int(os.getenv("PG_EVIDENCE_ASSIGN_TIMEOUT", "60")),
         )
         return {
             "decision": assessment.decision,
@@ -2683,7 +2683,7 @@ async def synthesize_report(
                 _new_sec_cites = len(_re.findall(r"\[\d+\]", _polished_sec))
                 if (
                     _polished_sec
-                    and len(_polished_sec) > len(_sec_content) * 0.5
+                    and len(_polished_sec) > len(_sec_content) * float(os.getenv("PG_POLISH_MIN_LENGTH_RATIO", "0.7"))
                     and _new_sec_cites >= _orig_sec_cites * 0.7
                 ):
                     _section["content"] = _polished_sec
@@ -3077,8 +3077,8 @@ Limit to 10 highest-priority gap queries."""
             prompt=prompt,
             schema=GapAnalysis,
             system=GAP_ANALYSIS_SYSTEM,
-            max_tokens=4096,
-            timeout=120,
+            max_tokens=int(os.getenv("PG_GAP_ANALYSIS_MAX_TOKENS", "4096")),
+            timeout=int(os.getenv("PG_GAP_ANALYSIS_TIMEOUT", "120")),
         )
 
         gap_queries = parsed.suggested_queries

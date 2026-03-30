@@ -622,7 +622,7 @@ async def _extract_structured_data(
             prompt=prompt,
             schema=StructuredDataExtraction,
             system=_STRUCTURED_DATA_SYSTEM,
-            max_tokens=4096,
+            max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
             timeout=_sd_timeout,
             reasoning_enabled=False,
         )
@@ -714,7 +714,7 @@ async def _enrich_evidence_cards(
                 prompt=f"Enrich these {len(batch)} evidence pieces:\n\n{batch_text}",
                 schema=EvidenceCardBatch,
                 system=system,
-                max_tokens=4096,
+                max_tokens=int(os.getenv("PG_STRUCTURED_DATA_MAX_TOKENS", "4096")),
                 timeout=int(os.getenv("PG_V3_CARD_TIMEOUT", "120")),
             )
 
@@ -1108,7 +1108,7 @@ async def analyze_sources(
                                 f"EVIDENCE:\n{_grade_items}"
                             ),
                             effort="low",
-                            max_tokens=500,
+                            max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "500")),
                         )
                         if _grade_resp.content.strip():
                             break
@@ -2008,7 +2008,7 @@ Sources:
             prompt=prompt,
             schema=SourceAnalysisBatch,
             system=ANALYSIS_SYSTEM,
-            max_tokens=16384,
+            max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
             timeout=180,
             reasoning_enabled=False,  # FIX-I2b: Evidence extraction is pattern-matching, not reasoning
         )
@@ -2168,7 +2168,7 @@ Sources:
                 prompt=prompt,
                 schema=SourceAnalysisBatch,
                 system=ANALYSIS_SYSTEM,
-                max_tokens=16384,
+                max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
                 timeout=180,
                 reasoning_enabled=False,
             )

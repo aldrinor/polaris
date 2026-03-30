@@ -797,6 +797,12 @@ class OpenRouterClient:
                 "exclude": False,  # Both pools visible
             }
             body["temperature"] = 1.0  # GLM-5 docs: temp 1.0 for thinking
+            # Enforce minimum max_tokens so reasoning doesn't starve content.
+            # At max_tokens<2000, GLM-5 spends entire budget on reasoning,
+            # leaving content empty. Tested: 2000 → 1313 chars content.
+            _min_tokens = int(os.getenv("PG_GLM5_MIN_MAX_TOKENS", "2000"))
+            if body.get("max_tokens", 0) < _min_tokens:
+                body["max_tokens"] = _min_tokens
         elif reasoning_enabled:
             body["reasoning"] = {"effort": reasoning_effort, "enabled": True}
 
