@@ -511,7 +511,10 @@ async def plan_report(
         # Critical evidence starvation: 1 section per evidence piece, minimum 3
         target_sections = max(3, len(evidence))
     else:
-        evidence_based_cap = min(max_sections_cap, len(evidence) + 2)
+        # Ensure at least 5 evidence per section to prevent thin sections.
+        # 55 evidence / 5 = 11 sections max (not 15).
+        _min_ev_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
+        evidence_based_cap = min(max_sections_cap, len(evidence) // _min_ev_per_section)
         target_sections = max(3, evidence_based_cap)
     target_words = int(os.getenv('PG_TARGET_TOTAL_WORDS', '8000'))
 

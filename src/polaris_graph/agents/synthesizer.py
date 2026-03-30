@@ -2699,11 +2699,18 @@ async def synthesize_report(
                     )
 
             if _polished_count > 0:
-                # Rebuild full_report from polished sections
+                # Rebuild full_report from polished sections.
+                # GUARD: Skip sections with 0 content (prevents empty headings).
                 _rebuild_parts = [f"# {outline.title}", ""]
                 if outline.abstract:
                     _rebuild_parts.extend(["## Abstract", "", outline.abstract, ""])
                 for _ps in report_sections:
+                    if not _ps.get("content", "").strip():
+                        logger.warning(
+                            "[polaris graph] POLISH-REBUILD: Skipping empty section '%s'",
+                            _ps.get("title", "?")[:40],
+                        )
+                        continue
                     _rebuild_parts.extend([f"## {_ps['title']}", "", _ps["content"], ""])
                 _rebuild_parts.extend(["## References", ""])
                 for _be in bibliography:
