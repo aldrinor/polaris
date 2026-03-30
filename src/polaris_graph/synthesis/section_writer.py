@@ -1559,85 +1559,39 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # FIX-059-L: Break long paragraphs for readability
     content = _break_long_paragraphs(content)
 
-    # FIX-R1: Unit consistency validation + correction
-    # When section text contains units NOT found in evidence, trigger LLM rewrite
-    # to replace incorrect units with evidence's exact phrasing
-    # LAW VI: Unit patterns from config (not hardcoded)
-    from src.polaris_graph.config_loader import get_domain_config as _get_sw_cfg
-    _sw_unit_cfg = _get_sw_cfg().unit_patterns
-    _unit_re_str = _sw_unit_cfg.pattern if _sw_unit_cfg else r"ppt|ppb|mg/L|μg/L"
-    _unit_pattern = re.compile(r'(\d+\.?\d*)\s*(' + _unit_re_str + r')')
-    _unit_matches = _unit_pattern.findall(content)
-    _mismatched_units: list[tuple[str, str]] = []
-    if _unit_matches and section_evidence:
-        _ev_text = " ".join(
-            e.get("direct_quote", "") + " " + e.get("statement", "")
-            for e in section_evidence
-        )
-        for _val, _unit in _unit_matches:
-            # Check if this exact value+unit combination appears in evidence
-            _val_in_ev = _val in _ev_text
-            _unit_in_ev = _unit.lower() in _ev_text.lower()
-            if not _val_in_ev and _unit not in ("ppt", "ppb", "parts per trillion", "parts per billion"):
-                _mismatched_units.append((_val, _unit))
-            elif _val_in_ev and not _unit_in_ev:
-                # Value is in evidence but with a DIFFERENT unit
-                _mismatched_units.append((_val, _unit))
-
-    if _mismatched_units:
-        logger.warning(
-            "[polaris graph] FIX-R1: %d unit mismatch(es) detected in '%s': %s. "
-            "Triggering LLM correction.",
-            len(_mismatched_units),
-            section.title[:40],
-            ", ".join(f"{v} {u}" for v, u in _mismatched_units[:5]),
-        )
-        # Build correction prompt with evidence excerpts
-        _ev_excerpts = []
-        for e in section_evidence[:10]:
-            _q = e.get("direct_quote", "")
-            _s = e.get("statement", "")
-            if any(_val in (_q + " " + _s) for _val, _ in _mismatched_units):
-                _ev_excerpts.append(f"- Evidence: {(_q or _s)[:300]}")
-
-        _correction_prompt = (
-            "The following section text contains unit measurement errors. "
-            "Some numerical values use INCORRECT units that do NOT match the source evidence."
-            "\n\nMISMATCHED UNITS (these are WRONG in the text):\n"
-            + "\n".join(f"- {v} {u}" for v, u in _mismatched_units[:10])
-            + "\n\nEVIDENCE WITH CORRECT UNITS:\n"
-            + "\n".join(_ev_excerpts[:10])
-            + "\n\nSECTION TEXT:\n" + content
-            + "\n\nINSTRUCTION: Return the COMPLETE section text with ONLY the unit errors corrected. "
-            "Replace incorrect units with the EXACT units from the evidence. "
-            "Do NOT change anything else \u2014 keep all text, citations, and structure identical. "
-            "If you cannot determine the correct unit from the evidence, keep the original."
-        )
-        try:
-            _corrected = await client.generate(
-                prompt=_correction_prompt,
-                system="You are a precise copy editor. Fix ONLY unit measurement errors. Return the complete text.",
-                max_tokens=PG_SECTION_CONTINUATION_MAX_TOKENS,  # FIX-C5
-                timeout=60,
+    # FIX-R1: DISABLED — Unit consistency validation is broken.
+    # 1. Flags valid medical units (mg/dL, kg, %) as "mismatches" because the
+    #    exact value+unit string doesn't appear verbatim in evidence text
+    # 2. LLM correction crashes ('LLMResponse' has no attribute 'split') 3/4 times
+    # 3. The LLM synthesizes numbers from evidence (e.g., "7 kg" from "7% body weight
+    #    in 100 kg patient") — these aren't errors, they're interpretations
+    # The section writer already cites evidence for claims. If the number is wrong,
+    # the faithfulness check catches it.
+    _unit_correction_enabled = os.getenv("PG_UNIT_CORRECTION_ENABLED", "0") == "1"
+    if _unit_correction_enabled:
+        from src.polaris_graph.config_loader import get_domain_config as _get_sw_cfg
+        _sw_unit_cfg = _get_sw_cfg().unit_patterns
+        _unit_re_str = _sw_unit_cfg.pattern if _sw_unit_cfg else r"ppt|ppb|mg/L|μg/L"
+        _unit_pattern = re.compile(r'(\d+\.?\d*)\s*(' + _unit_re_str + r')')
+        _unit_matches = _unit_pattern.findall(content)
+        _mismatched_units: list[tuple[str, str]] = []
+        if _unit_matches and section_evidence:
+            _ev_text = " ".join(
+                e.get("direct_quote", "") + " " + e.get("statement", "")
+                for e in section_evidence
             )
-            if _corrected and len(_corrected.split()) >= len(content.split()) * 0.8:
-                # Sanity check: corrected version should be similar length
-                content = _corrected
-                logger.info(
-                    "[polaris graph] FIX-R1: Unit correction applied for '%s'",
-                    section.title[:40],
-                )
-            else:
-                logger.warning(
-                    "[polaris graph] FIX-R1: Unit correction returned too-short result "
-                    "(%d words vs %d original), keeping original",
-                    len((_corrected or "").split()), len(content.split()),
-                )
-        except Exception as _r1_exc:
-            logger.warning(
-                "[polaris graph] FIX-R1: Unit correction LLM call failed for '%s': %s. "
-                "Keeping original text with warning.",
-                section.title[:40], str(_r1_exc)[:100],
+            for _val, _unit in _unit_matches:
+                _val_in_ev = _val in _ev_text
+                _unit_in_ev = _unit.lower() in _ev_text.lower()
+                if not _val_in_ev and _unit not in ("ppt", "ppb", "parts per trillion", "parts per billion"):
+                    _mismatched_units.append((_val, _unit))
+                elif _val_in_ev and not _unit_in_ev:
+                    _mismatched_units.append((_val, _unit))
+
+        if _mismatched_units:
+            logger.info(
+                "[polaris graph] FIX-R1: %d unit(s) flagged in '%s' (disabled, keeping original)",
+                len(_mismatched_units), section.title[:40],
             )
 
     # FIX-KF-PRESERVE: Re-append preserved Key Findings after all post-processing

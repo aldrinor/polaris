@@ -1467,10 +1467,13 @@ def assemble_report(
     for section in report_sections:
         section["content"] = _fix_number_spacing(section["content"])
 
-    # NRC-3: Audit uncited numerical claims and soften them
-    uncited_claims = _audit_uncited_claims(report_sections)
-    if uncited_claims:
-        report_sections = _soften_uncited_numerics(report_sections)
+    # NRC-3: DISABLED — _soften_uncited_numerics replaces precise numbers
+    # with "(specific values vary by study)", destroying the most valuable
+    # content. Gemini KEEPS precise numbers. 13 numbers destroyed per pass.
+    # Uncited numbers are the LLM's synthesis from evidence — not hallucinations.
+    # uncited_claims = _audit_uncited_claims(report_sections)
+    # if uncited_claims:
+    #     report_sections = _soften_uncited_numerics(report_sections)
 
     # FIX-R4: Global transition density enforcement across ALL sections.
     # Per-section limiter catches within-section excess but cross-section
