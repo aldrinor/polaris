@@ -799,17 +799,23 @@ def _validate_outline_evidence(outline: ReportOutline) -> ReportOutline:
             dedup_count,
         )
 
-    # FIX-QG1: Redistribute evidence to starved sections
-    # Find sections with 0 evidence_ids and sections with excess (>10)
+    # FIX-QG1+STARVATION: Redistribute evidence to starved sections.
+    # Old: donor threshold >10 evidence. With 53 evidence / 8 sections = 6.6 avg,
+    # NO section had >10 → 3 sections got 0 evidence → empty sections.
+    # New: adaptive donor threshold = max(avg+2, min_evidence_per_section+1).
+    # Donors keep at least min_evidence_per_section, donate the rest.
     starved = [s for s in sorted_sections if len(s.evidence_ids) < min_evidence_per_section]
     if starved:
-        # Build donor pool from over-assigned sections (>10 evidence_ids)
+        total_ev = sum(len(s.evidence_ids) for s in sorted_sections)
+        avg_ev = total_ev / max(len(sorted_sections), 1)
+        donor_threshold = max(int(avg_ev) + 2, min_evidence_per_section + 1)
+        keep_minimum = min_evidence_per_section  # Donors keep at least this many
+
         donor_pool: list[str] = []
         for section in sorted_sections:
-            if len(section.evidence_ids) > 10:
-                # Donate excess beyond 8 (keep 8, donate rest)
-                excess = section.evidence_ids[8:]
-                section.evidence_ids = section.evidence_ids[:8]
+            if len(section.evidence_ids) > donor_threshold:
+                excess = section.evidence_ids[keep_minimum:]
+                section.evidence_ids = section.evidence_ids[:keep_minimum]
                 donor_pool.extend(excess)
 
         # Distribute from donor pool to starved sections
@@ -965,6 +971,7 @@ async def write_section(
     section_position: str = "",
     evidence_conflicts: Optional[list[dict]] = None,
     previously_covered_claims: Optional[list[str]] = None,
+    all_evidence: Optional[list[EvidencePiece]] = None,
 ) -> SectionDraft:
     """
     Write a single report section.
@@ -980,8 +987,37 @@ async def write_section(
     FIX-ENV4: When evidence_conflicts relevant to this section are detected,
     the prompt includes explicit instructions to address contradictions.
     """
-    # FIX-C6: Guard against empty evidence_ids — skip section write when no
-    # evidence is assigned, preventing empty/hallucinated sections.
+    # FIX-C6+STARVATION: When no evidence assigned, pull from full pool
+    # using embedding similarity to section title. Better than returning
+    # an empty placeholder that destroys the section.
+    if not section.evidence_ids:
+        try:
+            from src.utils.embedding_service import embed_text, embed_texts
+            import numpy as np
+            _rescue_pool = all_evidence or evidence
+            _all_ev_ids = [e.get("evidence_id", "") for e in _rescue_pool]
+            _all_ev_texts = [
+                f"{e.get('statement', '')}. {e.get('direct_quote', '')}"
+                for e in _rescue_pool
+            ]
+            _title_vec = np.array(embed_text(section.title))
+            _ev_vecs = np.array(embed_texts(_all_ev_texts))
+            _sims = _ev_vecs @ _title_vec
+            _top_indices = np.argsort(_sims)[-5:][::-1]  # Top 5 by similarity
+            _rescued_ids = [_all_ev_ids[i] for i in _top_indices if _sims[i] > 0.3]
+            if _rescued_ids:
+                section.evidence_ids = _rescued_ids
+                logger.info(
+                    "[polaris graph] FIX-C6+STARVATION: Rescued section '%s' "
+                    "with %d evidence from global pool (embedding similarity)",
+                    section.title[:40], len(_rescued_ids),
+                )
+        except Exception as _rescue_exc:
+            logger.debug(
+                "[polaris graph] FIX-C6+STARVATION: Rescue failed for '%s': %s",
+                section.title[:30], str(_rescue_exc)[:100],
+            )
+
     if not section.evidence_ids:
         logger.warning(
             "[polaris graph] FIX-C6: Section '%s' has no evidence_ids — "
@@ -1873,6 +1909,9 @@ async def write_all_sections(
     # FIX-058G: Per-section write timeout to prevent hung LLM calls
     section_write_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300"))
 
+    # FIX-STARVATION: Keep reference to full evidence pool for rescue
+    full_evidence_pool = evidence
+
     async def _write_with_semaphore(
         section: SectionOutlineItem,
         prev_summary: str,
@@ -1906,6 +1945,7 @@ async def write_all_sections(
                     section_position=f"Section {section_idx + 1} of {total_sections}",
                     evidence_conflicts=evidence_conflicts,
                     previously_covered_claims=covered_claims if covered_claims else None,
+                    all_evidence=full_evidence_pool,  # FIX-STARVATION
                 ),
                 timeout=section_write_timeout,
             )
