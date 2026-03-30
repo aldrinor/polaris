@@ -234,12 +234,19 @@ async def audit_citations(
                     ev = evidence_map[evidence_id]
                     ev_text = (ev.get("statement", "") + " " + ev.get("direct_quote", "") + " " + ev.get("source_title", "")).lower()
                     ev_words = set(re.findall(r"\w{4,}", ev_text))
-                    # Extract sentence around the citation
-                    _cite_pattern_str = re.escape(f"[CITE:{evidence_id}]")
-                    _ctx_match = re.search(
-                        rf"[^.]*{_cite_pattern_str}[^.]*\.",
-                        normalized,
-                    )
+                    # Extract ~200 chars around the citation (fixed window,
+                    # avoids catastrophic backtracking from [^.]* on long text)
+                    _cite_literal = f"[CITE:{evidence_id}]"
+                    _cite_pos = normalized.find(_cite_literal)
+                    _ctx_match = None
+                    if _cite_pos >= 0:
+                        _ctx_start = max(0, _cite_pos - 100)
+                        _ctx_end = min(len(normalized), _cite_pos + len(_cite_literal) + 100)
+                        _ctx_text = normalized[_ctx_start:_ctx_end]
+                        class _CtxMatch:
+                            def group(self):
+                                return _ctx_text
+                        _ctx_match = _CtxMatch()
                     if _ctx_match and ev_words:
                         ctx_words = set(re.findall(r"\w{4,}", _ctx_match.group().lower()))
                         overlap = len(ev_words & ctx_words)

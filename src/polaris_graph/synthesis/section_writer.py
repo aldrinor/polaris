@@ -2009,6 +2009,7 @@ async def write_all_sections(
                             section_position=f"Section {i + _idx + 1} of {total_sections}",
                             evidence_conflicts=evidence_conflicts,
                             previously_covered_claims=list(all_covered_claims) if all_covered_claims else None,
+                            all_evidence=full_evidence_pool,  # FIX-STARVATION retry path
                         ),
                         timeout=section_write_timeout,
                     )

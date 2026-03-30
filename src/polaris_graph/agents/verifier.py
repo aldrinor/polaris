@@ -1074,7 +1074,10 @@ Each claim was extracted from its cited source by an AI system.
                 # FIX-B2: Read NLI score from EITHER field — nli_score (set by
                 # normal NLI path) or nli_self_check_score (preserved by FIX-B2
                 # when NLI floor triggers full discard).
-                _ev_nli = ev.get("nli_score") or ev.get("nli_self_check_score")
+                # Use `is not None` instead of `or` — 0.0 is a valid NLI score
+                # (completely unsupported), not falsy.
+                _ev_nli_raw = ev.get("nli_score")
+                _ev_nli = _ev_nli_raw if _ev_nli_raw is not None else ev.get("nli_self_check_score")
                 is_faithful = verification.verdict == "SUPPORTED"
                 if is_faithful and _ev_nli is not None and _ev_nli < _nli_faith_threshold:
                     is_faithful = False
