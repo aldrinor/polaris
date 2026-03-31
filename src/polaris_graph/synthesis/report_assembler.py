@@ -1054,6 +1054,10 @@ def _scrub_meta_commentary(text: str) -> str:
         r"Without these materials[^.]*\.",
         r"Without the evidence[^.]*I cannot[^.]*\.",
         r"Without the evidence content[^.]*\.",
+        # Multi-sentence prompt echo blocks
+        r"Write the required Key Findings[^.]*\.",
+        r"Complete the limitations paragraph[^.]*\.",
+        r"\*\*To proceed, please provide[^*]*\*\*",
         r"I cannot verify[^.]*without[^.]*\.",
         r"Can you please share[^.]*evidence[^.]*\.",
         r"I'm ready to continue once[^.]*\.",
@@ -1182,11 +1186,11 @@ def _scrub_meta_commentary(text: str) -> str:
     # Pattern 4: data row ends without newline before next row "|value|\n|"
     # Catches: "| High |\n| Older adults" as one line → split
     _cleaned = re.sub(r"\|\s*\.\s*\|", "|\n|", _cleaned)
-    # Pattern 5: wall-of-text table (header|---|data all on one line)
-    # Catches: "|Col|Col|\n|---|---|\n|Data|Data|" compressed to one line
+    # Pattern 5: double-pipe row separator (GLM-5 omits newlines between rows)
+    # Catches: "| Risk || Older Adults |" → "| Risk |\n| Older Adults |"
+    _cleaned = re.sub(r"\|\s*\|\s*(?=[A-Z\d*])", "|\n| ", _cleaned)
+    # Pattern 6: wall-of-text table header
     _cleaned = re.sub(r"(\|)\s*\|\s*-", r"\1\n|---", _cleaned)
-    # Remove trailing double pipes
-    _cleaned = re.sub(r"\|\|", "|", _cleaned)
 
     # Clean up resulting double spaces and double newlines
     _cleaned = re.sub(r"  +", " ", _cleaned)
