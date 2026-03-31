@@ -2267,29 +2267,10 @@ async def synthesize_report(
                     "evidence_assigned": len(getattr(s, "evidence_ids", []) if hasattr(s, "evidence_ids") else s.get("evidence_ids", []) if isinstance(s, dict) else []),
                 } for s in thin_sections])
 
-        # Expand thin sections
-        # FIX-058G-v2: Timeout guard — 300s per thin section (sequential internally)
-        _expand_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300")) * max(len(thin_sections), 1)
-        try:
-            expanded_drafts = await asyncio.wait_for(
-                expand_thin_sections(
-                    client=client,
-                    thin_sections=thin_sections,
-                    outline=outline,
-                    evidence=verified_evidence,
-                    query=query,
-                    target_expansion=dynamic_target,
-                ),
-                timeout=_expand_timeout,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[polaris graph] FIX-058G-v2: expand_thin_sections timed out after %ds "
-                "— continuing without expansion",
-                _expand_timeout,
-            )
-            expanded_drafts = []
-
+        # v4-simplify: Expansion pass DISABLED.
+        # Proven net negative across TEST_077-080: injected CoT, prompt echoes,
+        # broken tables. Quality comes from evidence + prompt, not post-hoc expansion.
+        expanded_drafts = []
         if not expanded_drafts:
             logger.warning(
                 "[polaris graph] FIX-310: Section expansion returned no results. "
@@ -2684,7 +2665,7 @@ async def synthesize_report(
                 if (
                     _polished_sec
                     and len(_polished_sec) > len(_sec_content) * float(os.getenv("PG_POLISH_MIN_LENGTH_RATIO", "0.7"))
-                    and _new_sec_cites >= _orig_sec_cites * 0.7
+                    and _new_sec_cites >= _orig_sec_cites * float(os.getenv("PG_POLISH_MIN_CITE_RATIO", "0.8"))
                 ):
                     _section["content"] = _polished_sec
                     _section["word_count"] = len(_polished_sec.split())

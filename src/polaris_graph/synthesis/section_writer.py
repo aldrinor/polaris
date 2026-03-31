@@ -1559,40 +1559,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
     # FIX-059-L: Break long paragraphs for readability
     content = _break_long_paragraphs(content)
 
-    # FIX-R1: DISABLED — Unit consistency validation is broken.
-    # 1. Flags valid medical units (mg/dL, kg, %) as "mismatches" because the
-    #    exact value+unit string doesn't appear verbatim in evidence text
-    # 2. LLM correction crashes ('LLMResponse' has no attribute 'split') 3/4 times
-    # 3. The LLM synthesizes numbers from evidence (e.g., "7 kg" from "7% body weight
-    #    in 100 kg patient") — these aren't errors, they're interpretations
-    # The section writer already cites evidence for claims. If the number is wrong,
-    # the faithfulness check catches it.
-    _unit_correction_enabled = os.getenv("PG_UNIT_CORRECTION_ENABLED", "0") == "1"
-    if _unit_correction_enabled:
-        from src.polaris_graph.config_loader import get_domain_config as _get_sw_cfg
-        _sw_unit_cfg = _get_sw_cfg().unit_patterns
-        _unit_re_str = _sw_unit_cfg.pattern if _sw_unit_cfg else r"ppt|ppb|mg/L|μg/L"
-        _unit_pattern = re.compile(r'(\d+\.?\d*)\s*(' + _unit_re_str + r')')
-        _unit_matches = _unit_pattern.findall(content)
-        _mismatched_units: list[tuple[str, str]] = []
-        if _unit_matches and section_evidence:
-            _ev_text = " ".join(
-                e.get("direct_quote", "") + " " + e.get("statement", "")
-                for e in section_evidence
-            )
-            for _val, _unit in _unit_matches:
-                _val_in_ev = _val in _ev_text
-                _unit_in_ev = _unit.lower() in _ev_text.lower()
-                if not _val_in_ev and _unit not in ("ppt", "ppb", "parts per trillion", "parts per billion"):
-                    _mismatched_units.append((_val, _unit))
-                elif _val_in_ev and not _unit_in_ev:
-                    _mismatched_units.append((_val, _unit))
-
-        if _mismatched_units:
-            logger.info(
-                "[polaris graph] FIX-R1: %d unit(s) flagged in '%s' (disabled, keeping original)",
-                len(_mismatched_units), section.title[:40],
-            )
+    # FIX-R1: Unit correction removed in v4-simplify (was broken, net negative)
 
     # FIX-KF-PRESERVE: Re-append preserved Key Findings after all post-processing
     if _kf_preserve_block:

@@ -77,6 +77,24 @@ _CITEFIX_SEMANTIC_THRESHOLD = float(
     os.getenv("PG_CITEFIX_SEMANTIC_THRESHOLD", "0.50"),
 )
 
+# Generate-Then-Attribute: separate prose generation from citation placement
+# When ON, scaffold uses (refs: ev_xxx) metadata instead of [CITE:ev_xxx],
+# write prompts produce citation-free prose, and _attribute_citations()
+# adds citations programmatically at sentence boundaries using 3 strategies:
+# number matching → keyword overlap → embedding similarity.
+_GTA_ENABLED = os.getenv("PG_GENERATE_THEN_ATTRIBUTE", "0") == "1"
+_GTA_THRESHOLD = float(os.getenv("PG_ATTRIBUTION_THRESHOLD", "0.35"))
+_GTA_MAX_PER_SENTENCE = int(
+    os.getenv("PG_ATTRIBUTION_MAX_PER_SENTENCE", "3"),
+)
+_GTA_KEYWORD_MIN = int(os.getenv("PG_ATTRIBUTION_KEYWORD_MIN", "3"))
+
+# Hybrid Evidence: numbered source passages instead of claim questions
+# STORM/OpenScholar/Attribute-First pattern (ACL 2024-2026).
+# When ON: evidence grouped by theme with [N] markers, LLM cites by
+# number, post-process maps [N] -> [CITE:ev_xxx].
+_HYBRID_EVIDENCE = os.getenv("PG_HYBRID_EVIDENCE", "0") == "1"
+
 # Learnings extraction env vars
 _LLM_LEARNINGS_ENABLED = os.getenv("PG_LLM_LEARNINGS_ENABLED", "1") == "1"
 _LEARNINGS_BATCH_SIZE = int(os.getenv("PG_LEARNINGS_BATCH_SIZE", "10"))
@@ -640,6 +658,9 @@ class ReactAnalysisAgent:
         self._evidence_ids = evidence_ids
         self._query = query
         self._registry = registry or build_default_registry()
+        # Hybrid evidence passage state
+        self._passage_reverse_map: dict[int, str] = {}
+        self._evidence_passages_text: str = ""
         self._tracer = tracer
         self._notebook = AnalysisNotebook(query, evidence_ids)
         # Mode precedence: PG_REACT_MODE env (legacy compat) > constructor
@@ -1152,6 +1173,40 @@ class ReactAnalysisAgent:
                     ):
                         interpretation = step.result.markdown
                         break
+
+        # Hybrid: map passage numbers for legacy/fallback paths
+        if (
+            _HYBRID_EVIDENCE
+            and interpretation
+            and self._passage_reverse_map
+            and not (_ADAPTIVE_SCAFFOLD and classification)
+        ):
+            interpretation = self._map_passage_citations(
+                interpretation, self._passage_reverse_map,
+            )
+
+        # CRITICAL-5: GTA attribution for legacy write + fallback paths
+        # (adaptive path attribution happens inside _write_and_refine)
+        if (
+            _GTA_ENABLED
+            and interpretation
+            and not (_ADAPTIVE_SCAFFOLD and classification)
+        ):
+            # Strip LLM-generated citations before programmatic ones
+            interpretation = re.sub(
+                r'\[CITE:ev_[a-f0-9]+\]', '', interpretation,
+            )
+            interpretation = re.sub(r'  +', ' ', interpretation)
+            interpretation = re.sub(
+                r' ([.,;:!?])', r'\1', interpretation,
+            )
+            interpretation = self._attribute_citations(interpretation)
+            logger.info(
+                "[8phase] GTA attribution (legacy/fallback): %d cites",
+                len(re.findall(
+                    r'\[CITE:ev_[a-f0-9]+\]', interpretation,
+                )),
+            )
 
         # Legacy critique+rewrite path (when adaptive scaffold OFF)
         if not _ADAPTIVE_SCAFFOLD:
@@ -2128,26 +2183,49 @@ class ReactAnalysisAgent:
 
         conditional_section = ""
         if "conditional_recommendations" in artifacts:
-            conditional_section = (
-                "\nCONDITIONAL RECOMMENDATIONS:\n"
-                "- **If** a specific application scenario applies: "
-                "recommend the best option **because** evidence "
-                "shows the rationale [CITE:ev_xxx]\n"
-                "- **If** a different condition or constraint "
-                "applies: recommend the alternative **because** "
-                "evidence demonstrates the benefit [CITE:ev_xxx]"
-            )
+            if _GTA_ENABLED:
+                conditional_section = (
+                    "\nCONDITIONAL RECOMMENDATIONS:\n"
+                    "- **If** a specific application scenario "
+                    "applies: recommend the best option "
+                    "**because** evidence shows the rationale\n"
+                    "- **If** a different condition or constraint "
+                    "applies: recommend the alternative "
+                    "**because** evidence shows the benefit"
+                )
+            else:
+                conditional_section = (
+                    "\nCONDITIONAL RECOMMENDATIONS:\n"
+                    "- **If** a specific application scenario "
+                    "applies: recommend the best option "
+                    "**because** evidence "
+                    "shows the rationale [CITE:ev_xxx]\n"
+                    "- **If** a different condition or constraint "
+                    "applies: recommend the alternative "
+                    "**because** "
+                    "evidence demonstrates the benefit "
+                    "[CITE:ev_xxx]"
+                )
 
         # TQ-4: Cost calculation template when cost evidence exists
         cost_section = ""
         if "cost_model" in artifacts:
-            cost_section = (
-                "\nCOST CALCULATIONS:\n"
-                "- [Entity]: $[cost] per [unit] × [usage] = "
-                "$[total]/[period] [CITE:ev_xxx]\n"
-                "Include at least one worked cost example from "
-                "evidence data."
-            )
+            if _GTA_ENABLED:
+                cost_section = (
+                    "\nCOST CALCULATIONS:\n"
+                    "- [Entity]: $[cost] per [unit] × [usage] "
+                    "= $[total]/[period]\n"
+                    "Include at least one worked cost example "
+                    "from evidence data."
+                )
+            else:
+                cost_section = (
+                    "\nCOST CALCULATIONS:\n"
+                    "- [Entity]: $[cost] per [unit] × [usage] "
+                    "= $[total]/[period] [CITE:ev_xxx]\n"
+                    "Include at least one worked cost example "
+                    "from evidence data."
+                )
 
         # decision_matrix template removed — LLM fabricates scores
         # instead of filling the template. Evidence-based ranking
@@ -2157,9 +2235,11 @@ class ReactAnalysisAgent:
         prompt = (
             f"RESEARCH QUESTION: {self._query}\n"
             f"QUERY TYPE: {archetype} — requires {artifact_list}\n\n"
-            f"ANALYTICAL CLAIMS ({len(learnings)} learnings across "
-            f"{len(clusters)} themes — ANSWER each question, "
-            f"do NOT restate it):\n"
+            f"{'EVIDENCE PASSAGES' if _HYBRID_EVIDENCE else 'ANALYTICAL CLAIMS'}"
+            f" ({len(learnings)} learnings across "
+            f"{len(clusters)} themes — "
+            f"{'Reference passages by number [N] when making claims'if _HYBRID_EVIDENCE else 'ANSWER each question, do NOT restate it'}"
+            f"):\n"
             f"{analytical_claims}\n\n"
             f"INSTRUCTIONS:\n\n"
             f"STEP 1 — INTENT BRIEF (write inside <intent> tags):\n"
@@ -2168,8 +2248,8 @@ class ReactAnalysisAgent:
             f"will produce. Do NOT list limitations — focus on what "
             f"you WILL deliver.\n\n"
             f"STEP 2 — ANALYTICAL SCAFFOLD using 5 lenses:\n\n"
-            f"LENS 1 — EVIDENCE GATHERER: Key quantified findings "
-            f"with citations [CITE:ev_xxx].\n"
+            f"LENS 1 — EVIDENCE GATHERER: Key quantified findings"
+            f"{'' if _GTA_ENABLED else ' with citations [CITE:ev_xxx]'}.\n"
             f"LENS 2 — MECHANISM EXPLORER: How and why "
             f"(causal chains).\n"
             f"{artifact_sections[0]}\n"
@@ -2237,9 +2317,16 @@ class ReactAnalysisAgent:
                         ev_ids = ", ".join(
                             l.get("evidence_ids", [])[:2],
                         )
-                        facts.append(
-                            f"  - {tier_tag} {l['fact']} [{ev_ids}]"
-                        )
+                        if _GTA_ENABLED:
+                            facts.append(
+                                f"  - {tier_tag} {l['fact']} "
+                                f"(refs: {ev_ids})"
+                            )
+                        else:
+                            facts.append(
+                                f"  - {tier_tag} {l['fact']} "
+                                f"[{ev_ids}]"
+                            )
                 cluster_text.append(
                     f"**{theme}** ({len(indices)} learnings):\n"
                     + "\n".join(facts)
@@ -2261,8 +2348,8 @@ class ReactAnalysisAgent:
                 f"{clustered_learnings}\n"
                 f"{matrix_section}\n"
                 f"PRODUCE AN ANALYTICAL SCAFFOLD:\n"
-                f"1. For each sub-question: what does the evidence say? "
-                f"(cite [CITE:ev_xxx])\n"
+                f"1. For each sub-question: what does the evidence say?"
+                f"{'' if _GTA_ENABLED else ' (cite [CITE:ev_xxx])'}\n"
                 f"2. Where do sources AGREE? Where do they CONTRADICT?\n"
                 f"3. What TRADE-OFFS exist between the criteria?\n"
                 f"4. What is the EVIDENCE-BASED ranking? "
@@ -2277,10 +2364,17 @@ class ReactAnalysisAgent:
                 f"Think carefully about cross-source reasoning."
             )
 
-        system = (
-            "You are an analytical strategist. Think through the evidence "
-            "and produce a research framework. Use [CITE:ev_xxx] citations."
-        )
+        if _GTA_ENABLED:
+            system = (
+                "You are an analytical strategist. Think through the "
+                "evidence and produce a research framework."
+            )
+        else:
+            system = (
+                "You are an analytical strategist. Think through the "
+                "evidence and produce a research framework. "
+                "Use [CITE:ev_xxx] citations."
+            )
 
         try:
             response = await asyncio.wait_for(
@@ -2386,10 +2480,19 @@ class ReactAnalysisAgent:
                 if len(sq_words & fact_words) >= 2:
                     relevant.append(l)
             for r in relevant[:3]:
-                ev_ids = ", ".join(
-                    f"[CITE:{eid}]" for eid in r.get("evidence_ids", [])[:1]
-                )
-                lines.append(f"- {r['fact']} {ev_ids}")
+                if _GTA_ENABLED:
+                    ref_ids = ", ".join(
+                        r.get("evidence_ids", [])[:1],
+                    )
+                    lines.append(
+                        f"- {r['fact']} (refs: {ref_ids})",
+                    )
+                else:
+                    ev_ids = ", ".join(
+                        f"[CITE:{eid}]"
+                        for eid in r.get("evidence_ids", [])[:1]
+                    )
+                    lines.append(f"- {r['fact']} {ev_ids}")
             lines.append("")
 
         # Top findings from each cluster
@@ -2402,11 +2505,21 @@ class ReactAnalysisAgent:
             for idx in indices:
                 if idx < len(learnings):
                     l = learnings[idx]
-                    ev = ", ".join(
-                        f"[CITE:{eid}]"
-                        for eid in l.get("evidence_ids", [])[:1]
-                    )
-                    facts.append(f"  - {l['fact']} {ev}")
+                    if _GTA_ENABLED:
+                        ref = ", ".join(
+                            l.get("evidence_ids", [])[:1],
+                        )
+                        facts.append(
+                            f"  - {l['fact']} (refs: {ref})",
+                        )
+                    else:
+                        ev = ", ".join(
+                            f"[CITE:{eid}]"
+                            for eid in l.get(
+                                "evidence_ids", [],
+                            )[:1]
+                        )
+                        facts.append(f"  - {l['fact']} {ev}")
             lines.append(f"**{theme}**:")
             lines.extend(facts)
             lines.append("")
@@ -2513,6 +2626,14 @@ class ReactAnalysisAgent:
         """
         if top_n is None:
             top_n = _EVIDENCE_PER_CLUSTER
+        # Hybrid: numbered evidence passages (STORM pattern)
+        if _HYBRID_EVIDENCE:
+            passages, rmap = self._build_numbered_evidence_passages(
+                briefing, top_n=top_n,
+            )
+            if passages:
+                self._passage_reverse_map = rmap
+                return passages
         # Delegate to analytical claims builder for consistency
         claims = self._build_analytical_claims(briefing, top_n=top_n)
         if claims:
@@ -2604,25 +2725,42 @@ class ReactAnalysisAgent:
                     number = metric_match.group(1)
                     unit = metric_match.group(2)
                     category = self._classify_metric(unit)
-                    # Use [CITE:ev_xxx] format for consistency with
-                    # write prompt instructions — C1 fix
-                    cite_refs = " ".join(
-                        f"[CITE:{e}]" for e in eids
-                    )
-                    cluster_claims.append(
-                        f"  - What {category} does {entity} achieve? "
-                        f"(value: {number}{unit}) {cite_refs}"
-                    )
+                    if _GTA_ENABLED:
+                        # GTA: non-copyable metadata — no [CITE:] tokens
+                        ref_str = ", ".join(eids)
+                        cluster_claims.append(
+                            f"  - What {category} does {entity} "
+                            f"achieve? (value: {number}{unit}) "
+                            f"(refs: {ref_str})"
+                        )
+                    else:
+                        cite_refs = " ".join(
+                            f"[CITE:{e}]" for e in eids
+                        )
+                        cluster_claims.append(
+                            f"  - What {category} does {entity} "
+                            f"achieve? "
+                            f"(value: {number}{unit}) {cite_refs}"
+                        )
                 else:
                     # Qualitative fact — generate topical question
                     topic = theme.lower().rstrip(".")
-                    cite_refs = " ".join(
-                        f"[CITE:{e}]" for e in eids
-                    )
-                    cluster_claims.append(
-                        f"  - What evidence supports {entity}'s "
-                        f"role in {topic}? {cite_refs}"
-                    )
+                    if _GTA_ENABLED:
+                        # GTA: neutral question + non-copyable refs
+                        ref_str = ", ".join(eids)
+                        cluster_claims.append(
+                            f"  - What role does {entity} play "
+                            f"in {topic}? (refs: {ref_str})"
+                        )
+                    else:
+                        cite_refs = " ".join(
+                            f"[CITE:{e}]" for e in eids
+                        )
+                        cluster_claims.append(
+                            f"  - What evidence supports "
+                            f"{entity}'s "
+                            f"role in {topic}? {cite_refs}"
+                        )
 
             if cluster_claims:
                 claims_parts.append(
@@ -2633,6 +2771,141 @@ class ReactAnalysisAgent:
         # D2-FIX: Store analytical claims text for Jaccard echo detection
         self._analytical_claims_text = result
         return result
+
+    # -------------------------------------------------------------------
+    # Hybrid Evidence: numbered source passages (STORM/Attribute-First)
+    # -------------------------------------------------------------------
+
+    def _build_numbered_evidence_passages(
+        self, briefing: dict, top_n: int = 5,
+    ) -> tuple[str, dict[int, str]]:
+        """Group evidence by cluster theme as numbered passages.
+
+        STORM/OpenScholar/Attribute-First pattern: LLM sees raw
+        evidence text with numbered markers [1], [2], ... instead
+        of templated questions. Eliminates verb template leakage.
+
+        Returns:
+            (formatted_text, reverse_map) where reverse_map maps
+            passage number (int) to evidence ID (str).
+        """
+        clusters = briefing.get("clusters", [])[:_MAX_CLUSTERS]
+        learnings = briefing.get("learnings", [])
+        if not clusters or not learnings:
+            return "", {}
+
+        passage_num = 0
+        reverse_map: dict[int, str] = {}
+        parts: list[str] = []
+
+        for c in clusters:
+            theme = c.get("theme", "Unknown")
+            indices = c.get("learning_indices", [])
+
+            selected = self._mmr_select_learnings(
+                learnings, indices, top_n,
+            )
+
+            cluster_passages: list[str] = []
+            for idx in selected:
+                if idx >= len(learnings):
+                    continue
+                learn = learnings[idx]
+                eids = learn.get("evidence_ids", [])[:2]
+                if not eids:
+                    continue
+
+                eid = eids[0]
+                ev = self._evidence_store.get(eid, {})
+                # Prefer raw source text over paraphrased fact
+                text = (
+                    learn.get("original_statement", "")
+                    or ev.get("statement", "")
+                    or learn.get("fact", "")
+                )
+                if not text:
+                    continue
+
+                text = text[:200].rstrip()
+                source_title = ev.get("source_title", "")
+                tier = learn.get("tier", "")
+
+                passage_num += 1
+                reverse_map[passage_num] = eid
+
+                source_tag = f" — {source_title}" if source_title else ""
+                tier_tag = f" [{tier}]" if tier else ""
+                cluster_passages.append(
+                    f"  [{passage_num}]{tier_tag} {text}{source_tag}"
+                )
+
+            if cluster_passages:
+                parts.append(
+                    f"**{theme}**:\n" + "\n".join(cluster_passages)
+                )
+
+        result = "\n\n".join(parts)
+        self._evidence_passages_text = result
+        self._passage_reverse_map = reverse_map
+        return result, reverse_map
+
+    @staticmethod
+    def _map_passage_citations(
+        text: str, reverse_map: dict[int, str],
+    ) -> str:
+        """Map numbered passage references [N] to [CITE:ev_xxx].
+
+        Handles: [N], [N, M], [N; M], adjacent [N][M].
+        Skips: footnotes [^N], markdown links [text](url),
+        table separators, unknown passage numbers.
+        """
+        if not reverse_map:
+            return text
+
+        def _replace_compound(m: re.Match) -> str:
+            inner = m.group(1)
+            nums = re.findall(r'\d+', inner)
+            cites = []
+            for n in nums:
+                eid = reverse_map.get(int(n))
+                if eid:
+                    cites.append(f"[CITE:{eid}]")
+            return "".join(cites) if cites else m.group(0)
+
+        # Compound: [1, 2, 3] or [1; 2; 3]
+        text = re.sub(
+            r'(?<!\^)\[(\d+(?:\s*[,;]\s*\d+)+)\](?!\()',
+            _replace_compound,
+            text,
+        )
+
+        # Single: [N] — skip if preceded by ^ or followed by (
+        def _replace_single(m: re.Match) -> str:
+            n = int(m.group(1))
+            eid = reverse_map.get(n)
+            return f"[CITE:{eid}]" if eid else m.group(0)
+
+        text = re.sub(
+            r'(?<!\^)\[(\d+)\](?!\()',
+            _replace_single,
+            text,
+        )
+
+        # Deduplicate adjacent identical citations
+        text = re.sub(
+            r'(\[CITE:ev_[a-f0-9]+\])(?:\1)+',
+            r'\1',
+            text,
+        )
+
+        return text
+
+    def _get_passage_number(self, eid: str) -> int | None:
+        """Find passage number for an evidence ID."""
+        for num, mapped_eid in self._passage_reverse_map.items():
+            if mapped_eid == eid:
+                return num
+        return None
 
     @staticmethod
     def _extract_entity(fact: str) -> str:
@@ -2732,8 +3005,11 @@ class ReactAnalysisAgent:
             if key in seen or not value:
                 continue
             seen.add(key)
-            cite = f" [CITE:{eid}]" if eid else ""
-            lines.append(f"  - {label}: {value} {unit}{cite}")
+            if _GTA_ENABLED:
+                ref = f" (refs: {eid})" if eid else ""
+            else:
+                ref = f" [CITE:{eid}]" if eid else ""
+            lines.append(f"  - {label}: {value} {unit}{ref}")
             if len(lines) >= 20:
                 break
         if not lines:
@@ -2943,14 +3219,24 @@ class ReactAnalysisAgent:
             return ""
 
         lines = [
-            "\nCROSS-SOURCE FACTS (cite both sources in same "
+            "\nCROSS-SOURCE FACTS (compare both sources in same "
             "sentence):",
         ]
         for a, b in pairs:
-            lines.append(
-                f"- Source A: {a['fact'][:100]} [CITE:{a['eid']}] "
-                f"vs Source B: {b['fact'][:100]} [CITE:{b['eid']}]",
-            )
+            if _GTA_ENABLED:
+                lines.append(
+                    f"- Source A ({a['eid']}): "
+                    f"{a['fact'][:100]} "
+                    f"vs Source B ({b['eid']}): "
+                    f"{b['fact'][:100]}",
+                )
+            else:
+                lines.append(
+                    f"- Source A: {a['fact'][:100]} "
+                    f"[CITE:{a['eid']}] "
+                    f"vs Source B: {b['fact'][:100]} "
+                    f"[CITE:{b['eid']}]",
+                )
         return "\n".join(lines)
 
     # -------------------------------------------------------------------
@@ -3055,19 +3341,49 @@ class ReactAnalysisAgent:
                 f"{b['fact'][:120]}"
             )
 
-            # Exemplar sentence
-            if num_a and num_b:
-                lines.append(
-                    f"  -> WRITE: \"{entity_name} achieves "
-                    f"{num_a.group(1)} [CITE:{a['eid']}] while "
-                    f"costing {num_b.group(1)} [CITE:{b['eid']}].\""
-                )
+            # Exemplar sentence / directive
+            if _HYBRID_EVIDENCE:
+                # No exemplar verbs — passage-number directives
+                num_a_p = self._get_passage_number(a['eid'])
+                num_b_p = self._get_passage_number(b['eid'])
+                if num_a_p and num_b_p:
+                    lines.append(
+                        f"  -> Compare [{num_a_p}] and "
+                        f"[{num_b_p}] on {entity_name}"
+                    )
+                else:
+                    lines.append(
+                        f"  -> Compare findings on "
+                        f"{entity_name} across both sources"
+                    )
+            elif _GTA_ENABLED:
+                if num_a and num_b:
+                    lines.append(
+                        f"  -> WRITE: \"{entity_name} achieves "
+                        f"{num_a.group(1)} while costing "
+                        f"{num_b.group(1)}.\""
+                    )
+                else:
+                    lines.append(
+                        f"  -> WRITE: \"{entity_name} achieves "
+                        f"[finding A], whereas [finding B].\""
+                    )
             else:
-                lines.append(
-                    f"  -> WRITE: \"{entity_name} demonstrates "
-                    f"[finding A] [CITE:{a['eid']}], whereas "
-                    f"[finding B] [CITE:{b['eid']}].\""
-                )
+                if num_a and num_b:
+                    lines.append(
+                        f"  -> WRITE: \"{entity_name} achieves "
+                        f"{num_a.group(1)} [CITE:{a['eid']}] "
+                        f"while costing {num_b.group(1)} "
+                        f"[CITE:{b['eid']}].\""
+                    )
+                else:
+                    lines.append(
+                        f"  -> WRITE: \"{entity_name} "
+                        f"demonstrates "
+                        f"[finding A] [CITE:{a['eid']}], "
+                        f"whereas "
+                        f"[finding B] [CITE:{b['eid']}].\""
+                    )
 
             directive_count += 1
             if directive_count >= 8:
@@ -3128,39 +3444,116 @@ class ReactAnalysisAgent:
             briefing,
         )
 
-        prompt = (
-            f"You are a senior research analyst. Expand this analytical "
-            f"scaffold into publication-quality prose.\n\n"
-            f"RESEARCH QUESTION: {self._query}\n\n"
-            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
-            f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
-            f"{mandatory_numbers}"
-            f"{perspective_coverage}"
-            f"RULES:\n"
-            f"1. EXPAND the scaffold into full analytical paragraphs "
-            f"(800-1500 words)\n"
-            f"2. Preserve ALL citations [CITE:ev_xxx] from the scaffold\n"
-            f"3. For EVERY numerical claim, include the citation\n"
-            f"4. Never restate a claim question as prose — ANSWER it\n"
-            f"5. Write CROSS-SOURCE insights "
-            f"('Comparing X and Y reveals...')\n"
-            f"6. Do NOT add claims not in the scaffold (no hallucination)\n"
-            f"7. Include a clear ranking with evidence-backed justification\n"
-            f"8. End with data gaps and limitations\n"
-            f"9. ONLY cite evidence IDs starting with 'ev_'. "
-            f"NEVER cite tool names\n"
-            f"10. Do NOT mention 'scaffold' or 'framework' in the output\n"
-            f"11. Every body paragraph MUST discuss at least 2 criteria "
-            f"(cost, performance, mechanism, limitation, application)\n"
-            f"12. Include at least 5 numerical values with units from "
-            f"evidence — use exact values, do not paraphrase numbers\n"
-        )
-
-        system = (
-            "Expand the scaffold into analytical prose. Every claim must "
-            "have a [CITE:ev_xxx] citation from the scaffold. "
-            "Do not invent new claims. Be concise and analytical."
-        )
+        if _HYBRID_EVIDENCE:
+            prompt = (
+                f"You are a senior research analyst. Expand "
+                f"this analytical scaffold into publication-"
+                f"quality prose.\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"EVIDENCE PASSAGES:\n{cluster_summary}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"RULES:\n"
+                f"1. Cite by passage number [N]\n"
+                f"2. Synthesize — do NOT copy passage text\n"
+                f"3. Write CROSS-SOURCE insights\n"
+                f"4. Do NOT add claims not in the evidence\n"
+                f"5. Evidence-based ranking\n"
+                f"6. End with data gaps and limitations\n"
+                f"7. Every body paragraph MUST discuss at "
+                f"least 2 criteria\n"
+                f"8. Include at least 5 numerical values with "
+                f"units from evidence\n"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. "
+                "Cite by passage number [N]. Synthesize "
+                "findings. Do not invent new claims."
+            )
+        elif _GTA_ENABLED:
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality "
+                f"prose.\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"RULES:\n"
+                f"1. EXPAND the scaffold into full analytical "
+                f"paragraphs (800-1500 words)\n"
+                f"2. Write analytical prose — do NOT include "
+                f"citation markers (citations will be added "
+                f"automatically)\n"
+                f"3. Never restate a claim question as prose — "
+                f"ANSWER it\n"
+                f"4. Write CROSS-SOURCE insights ('Comparing X "
+                f"and Y reveals...')\n"
+                f"5. Do NOT add claims not in the scaffold (no "
+                f"hallucination)\n"
+                f"6. Include a clear ranking with evidence-backed "
+                f"justification\n"
+                f"7. End with data gaps and limitations\n"
+                f"8. Do NOT mention 'scaffold' or 'framework' in "
+                f"the output\n"
+                f"9. Every body paragraph MUST discuss at least 2 "
+                f"criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"10. Include at least 5 numerical values with "
+                f"units from evidence — use exact values, do not "
+                f"paraphrase numbers\n"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. Do not "
+                "include citation markers — citations will be added "
+                "automatically. Do not invent new claims. Be "
+                "concise and analytical."
+            )
+        else:
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality "
+                f"prose.\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"RULES:\n"
+                f"1. EXPAND the scaffold into full analytical "
+                f"paragraphs (800-1500 words)\n"
+                f"2. Preserve ALL citations [CITE:ev_xxx] from "
+                f"the scaffold\n"
+                f"3. For EVERY numerical claim, include the "
+                f"citation\n"
+                f"4. Never restate a claim question as prose — "
+                f"ANSWER it\n"
+                f"5. Write CROSS-SOURCE insights ('Comparing X "
+                f"and Y reveals...')\n"
+                f"6. Do NOT add claims not in the scaffold (no "
+                f"hallucination)\n"
+                f"7. Include a clear ranking with evidence-backed "
+                f"justification\n"
+                f"8. End with data gaps and limitations\n"
+                f"9. ONLY cite evidence IDs starting with 'ev_'. "
+                f"NEVER cite tool names\n"
+                f"10. Do NOT mention 'scaffold' or 'framework' "
+                f"in the output\n"
+                f"11. Every body paragraph MUST discuss at least "
+                f"2 criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"12. Include at least 5 numerical values with "
+                f"units from evidence — use exact values, do not "
+                f"paraphrase numbers\n"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. Every "
+                "claim must have a [CITE:ev_xxx] citation from "
+                "the scaffold. Do not invent new claims. Be "
+                "concise and analytical."
+            )
 
         interpret_timeout = int(
             os.getenv("PG_REACT_INTERPRET_TIMEOUT", "180"),
@@ -3821,10 +4214,16 @@ class ReactAnalysisAgent:
         if gap_evidence:
             gap_lines = []
             for ge in gap_evidence[:_MAX_GAP_EVIDENCE]:
-                gap_lines.append(
-                    f"- {ge['statement'][:200]} "
-                    f"[CITE:{ge['evidence_id']}]"
-                )
+                if _GTA_ENABLED:
+                    gap_lines.append(
+                        f"- {ge['statement'][:200]} "
+                        f"(refs: {ge['evidence_id']})"
+                    )
+                else:
+                    gap_lines.append(
+                        f"- {ge['statement'][:200]} "
+                        f"[CITE:{ge['evidence_id']}]"
+                    )
             gap_context = (
                 "\n\nGAP-FILL EVIDENCE (use to address identified "
                 "gaps — SYNTHESIZE these findings into your analysis, "
@@ -3844,53 +4243,162 @@ class ReactAnalysisAgent:
             briefing,
         )
 
-        prompt = (
-            f"You are a senior research analyst. Expand this analytical "
-            f"scaffold into publication-quality prose (800-1500 words).\n\n"
-            f"RESEARCH QUESTION: {self._query}\n\n"
-            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
-            f"SECTION 1 — ANALYTICAL CLAIMS (answer each question in "
-            f"your own words):\n{cluster_summary}\n\n"
-            f"SECTION 2 — CROSS-SOURCE SYNTHESIS DIRECTIVES:\n"
-            f"{cross_source}\n\n"
-            f"{mandatory_numbers}"
-            f"{perspective_coverage}"
-            f"INSTRUCTIONS:\n"
-            f"Phase 1 — ANSWER each analytical claim in your own "
-            f"words using the cited evidence values\n"
-            f"Phase 2 — WEAVE cross-source sentences using the "
-            f"directives above (minimum 4)\n"
-            f"Phase 3 — CONNECT with transitions (compare, contrast, "
-            f"evaluate)\n\n"
-            f"RULES:\n"
-            f"1. Every numerical value must have [CITE:ev_xxx]\n"
-            f"2. Never restate a claim question as prose — ANSWER it\n"
-            f"3. Cross-source: ONE sentence citing BOTH sources per "
-            f"directive\n"
-            f"4. Use comparative language (whereas, in contrast, "
-            f"similarly)\n"
-            f"5. Preserve exact units (ppt, ppb, ppm, mg/L, MPa, "
-            f"µm, kWh, etc.)\n"
-            f"6. Do NOT add claims not in the scaffold\n"
-            f"7. Evidence-based ranking (cite metrics, not scores)\n"
-            f"8. Trade-offs explicitly (however, whereas, in "
-            f"contrast)\n"
-            f"9. Executive summary first paragraph\n"
-            f"10. Conditional recs: **If** X **then** Y "
-            f"**because** Z [CITE:ev_xxx]\n"
-            f"11. Every body paragraph MUST discuss at least 2 criteria "
-            f"(cost, performance, mechanism, limitation, application)\n"
-            f"12. Include at least 5 numerical values with units from "
-            f"evidence — use exact values, do not paraphrase numbers\n"
-            f"{gap_context}"
-        )
-
-        system = (
-            "Expand the scaffold into analytical prose. ANSWER each "
-            "analytical claim — do not restate the question. Every "
-            "claim must have a [CITE:ev_xxx]. Do not invent claims. "
-            "Write cross-source sentences citing 2+ sources."
-        )
+        if _HYBRID_EVIDENCE:
+            # Hybrid: numbered passages, LLM cites by [N]
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality "
+                f"prose (800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"SECTION 1 — EVIDENCE PASSAGES (synthesize "
+                f"from these numbered sources — do NOT copy "
+                f"text):\n{cluster_summary}\n\n"
+                f"SECTION 2 — CROSS-SOURCE COMPARISONS:\n"
+                f"{cross_source}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"RULES:\n"
+                f"1. Every factual claim must cite its source "
+                f"passage by number [N]\n"
+                f"2. Synthesize — do NOT copy passage text "
+                f"verbatim\n"
+                f"3. Cross-source: ONE sentence comparing BOTH "
+                f"sources per directive\n"
+                f"4. Use comparative language (whereas, in "
+                f"contrast, similarly)\n"
+                f"5. Preserve exact units (ppt, ppb, ppm, "
+                f"mg/L, MPa, µm, kWh, etc.)\n"
+                f"6. Do NOT add claims not in the evidence\n"
+                f"7. Evidence-based ranking (cite metrics)\n"
+                f"8. Trade-offs explicitly (however, whereas)\n"
+                f"9. Executive summary first paragraph\n"
+                f"10. Conditional recs: **If** X **then** Y "
+                f"**because** Z [N]\n"
+                f"11. Every body paragraph MUST discuss at "
+                f"least 2 criteria\n"
+                f"12. Include at least 5 numerical values with "
+                f"units from evidence\n"
+                f"{gap_context}"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. "
+                "Cite evidence by passage number [N]. "
+                "Synthesize findings — do not copy passage text. "
+                "Do not invent claims."
+            )
+        elif _GTA_ENABLED:
+            # GTA: citation-free prose — citations added programmatically
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality prose "
+                f"(800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"SECTION 1 — ANALYTICAL CLAIMS (answer each "
+                f"question in your own words):\n"
+                f"{cluster_summary}\n\n"
+                f"SECTION 2 — CROSS-SOURCE SYNTHESIS DIRECTIVES:\n"
+                f"{cross_source}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"INSTRUCTIONS:\n"
+                f"Phase 1 — ANSWER each analytical claim in your "
+                f"own words using evidence values\n"
+                f"Phase 2 — WEAVE cross-source sentences using the "
+                f"directives above (minimum 4)\n"
+                f"Phase 3 — CONNECT with transitions (compare, "
+                f"contrast, evaluate)\n\n"
+                f"RULES:\n"
+                f"1. Write analytical prose — do NOT include "
+                f"citation markers (citations will be added "
+                f"automatically)\n"
+                f"2. Never restate a claim question as prose — "
+                f"ANSWER it\n"
+                f"3. Cross-source: ONE sentence comparing BOTH "
+                f"sources per directive\n"
+                f"4. Use comparative language (whereas, in "
+                f"contrast, similarly)\n"
+                f"5. Preserve exact units (ppt, ppb, ppm, mg/L, "
+                f"MPa, µm, kWh, etc.)\n"
+                f"6. Do NOT add claims not in the scaffold\n"
+                f"7. Evidence-based ranking (cite metrics, not "
+                f"scores)\n"
+                f"8. Trade-offs explicitly (however, whereas, in "
+                f"contrast)\n"
+                f"9. Executive summary first paragraph\n"
+                f"10. Conditional recs: **If** X **then** Y "
+                f"**because** Z\n"
+                f"11. Every body paragraph MUST discuss at least 2 "
+                f"criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"12. Include at least 5 numerical values with "
+                f"units from evidence — use exact values, do not "
+                f"paraphrase numbers\n"
+                f"{gap_context}"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. ANSWER "
+                "each analytical claim — do not restate the "
+                "question. Do not invent claims. Do NOT include "
+                "citation markers like [CITE:...] — citations will "
+                "be added automatically after writing."
+            )
+        else:
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality prose "
+                f"(800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"SECTION 1 — ANALYTICAL CLAIMS (answer each "
+                f"question in your own words):\n"
+                f"{cluster_summary}\n\n"
+                f"SECTION 2 — CROSS-SOURCE SYNTHESIS DIRECTIVES:\n"
+                f"{cross_source}\n\n"
+                f"{mandatory_numbers}"
+                f"{perspective_coverage}"
+                f"INSTRUCTIONS:\n"
+                f"Phase 1 — ANSWER each analytical claim in your "
+                f"own words using the cited evidence values\n"
+                f"Phase 2 — WEAVE cross-source sentences using the "
+                f"directives above (minimum 4)\n"
+                f"Phase 3 — CONNECT with transitions (compare, "
+                f"contrast, evaluate)\n\n"
+                f"RULES:\n"
+                f"1. Every numerical value must have "
+                f"[CITE:ev_xxx]\n"
+                f"2. Never restate a claim question as prose — "
+                f"ANSWER it\n"
+                f"3. Cross-source: ONE sentence citing BOTH "
+                f"sources per directive\n"
+                f"4. Use comparative language (whereas, in "
+                f"contrast, similarly)\n"
+                f"5. Preserve exact units (ppt, ppb, ppm, mg/L, "
+                f"MPa, µm, kWh, etc.)\n"
+                f"6. Do NOT add claims not in the scaffold\n"
+                f"7. Evidence-based ranking (cite metrics, not "
+                f"scores)\n"
+                f"8. Trade-offs explicitly (however, whereas, in "
+                f"contrast)\n"
+                f"9. Executive summary first paragraph\n"
+                f"10. Conditional recs: **If** X **then** Y "
+                f"**because** Z [CITE:ev_xxx]\n"
+                f"11. Every body paragraph MUST discuss at least 2 "
+                f"criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"12. Include at least 5 numerical values with "
+                f"units from evidence — use exact values, do not "
+                f"paraphrase numbers\n"
+                f"{gap_context}"
+            )
+            system = (
+                "Expand the scaffold into analytical prose. ANSWER "
+                "each analytical claim — do not restate the "
+                "question. Every claim must have a [CITE:ev_xxx]. "
+                "Do not invent claims. Write cross-source "
+                "sentences citing 2+ sources."
+            )
 
         write_timeout = int(
             os.getenv("PG_WRITE_TIMEOUT", "120"),
@@ -4030,6 +4538,48 @@ class ReactAnalysisAgent:
             for pid in set(all_cited):
                 if pid not in self._evidence_store:
                     current = current.replace(f"[CITE:{pid}]", "")
+
+        # Hybrid: Map passage numbers [N] → [CITE:ev_xxx]
+        if _HYBRID_EVIDENCE and self._passage_reverse_map:
+            current = self._map_passage_citations(
+                current, self._passage_reverse_map,
+            )
+            cite_count = len(
+                re.findall(r'\[CITE:ev_[a-f0-9]+\]', current),
+            )
+            logger.info(
+                "[write-refine] Hybrid passage mapping: %d "
+                "citations", cite_count,
+            )
+            # GTA fallback for sentences without passage refs
+            if _GTA_ENABLED:
+                current = self._attribute_citations(current)
+
+        # GTA: Strip LLM-generated citations then add programmatically
+        elif _GTA_ENABLED:
+            # LLM may ignore "no citation markers" instruction and
+            # write [CITE:ev_xxx] anyway (often mid-word → D2).
+            # Strip ALL before programmatic attribution.
+            llm_cites = len(
+                re.findall(r'\[CITE:ev_[a-f0-9]+\]', current),
+            )
+            if llm_cites > 0:
+                current = re.sub(
+                    r'\[CITE:ev_[a-f0-9]+\]', '', current,
+                )
+                # Clean up whitespace artifacts from removal
+                current = re.sub(r'  +', ' ', current)
+                current = re.sub(r' ([.,;:!?])', r'\1', current)
+                logger.info(
+                    "[write-refine] GTA: stripped %d LLM-generated "
+                    "citations before attribution",
+                    llm_cites,
+                )
+            current = self._attribute_citations(current)
+            logger.info(
+                "[write-refine] GTA attribution: %d citations",
+                len(re.findall(r'\[CITE:ev_[a-f0-9]+\]', current)),
+            )
 
         # SR-3: Quality gate with budget-aware retry
         current = await self._quality_gate(
@@ -4177,6 +4727,44 @@ class ReactAnalysisAgent:
         if gate_pass:
             return draft
 
+        # CRITICAL-2: GTA re-attribution at lower threshold when
+        # only citation count fails — no LLM retry needed
+        if _GTA_ENABLED and cite_count < 5:
+            other_checks_pass = (
+                words >= 500
+                and passing >= min(4, len(required_flags))
+                and parrot_ok
+                and echo_ok
+                and grammar_ok
+            )
+            if other_checks_pass:
+                lower_threshold = max(
+                    sim_threshold - 0.10, 0.15,
+                ) if (
+                    sim_threshold := _GTA_THRESHOLD
+                ) else 0.25
+                # Strip existing citations and re-attribute
+                draft_clean = re.sub(
+                    r'\[CITE:ev_[a-f0-9]+\]', '', draft,
+                )
+                draft = self._attribute_citations(
+                    draft_clean,
+                    threshold_override=_GTA_THRESHOLD - 0.10,
+                )
+                new_cites = len(
+                    re.findall(
+                        r'\[CITE:ev_[a-f0-9]+\]', draft,
+                    ),
+                )
+                logger.info(
+                    "[quality-gate] GTA re-attribution at "
+                    "threshold=%.2f: %d -> %d cites",
+                    _GTA_THRESHOLD - 0.10, cite_count,
+                    new_cites,
+                )
+                if new_cites >= 5:
+                    return draft
+
         # Budget check: need 90s for retry (WP-4: lowered from 180s)
         pipeline_timeout = int(
             os.getenv("PG_REACT_TIMEOUT_SECONDS", "900"),
@@ -4218,43 +4806,116 @@ class ReactAnalysisAgent:
         # D3+D4: Re-inject structural enforcement on retry
         retry_numbers = self._build_mandatory_numbers_section()
         retry_coverage = self._build_perspective_coverage_section(briefing)
-        prompt = (
-            f"You are a senior research analyst. Expand this "
-            f"analytical scaffold into publication-quality prose "
-            f"(800-1500 words).\n\n"
-            f"RESEARCH QUESTION: {self._query}\n\n"
-            f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
-            f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
-            f"CROSS-SOURCE DIRECTIVES:\n{retry_cross}\n\n"
-            f"{retry_numbers}"
-            f"{retry_coverage}"
-            f"RULES:\n"
-            f"1. Cite EVERY numerical value with [CITE:ev_xxx]\n"
-            f"2. Never restate a claim question — ANSWER it\n"
-            f"3. Cross-source: cite 2+ sources per directive\n"
-            f"4. Comparative language (whereas, in contrast)\n"
-            f"5. Preserve exact units\n"
-            f"6. Evidence-based ranking\n"
-            f"7. Explicit trade-offs\n"
-            f"8. Executive summary first paragraph\n"
-            f"9. Conditional recs: **If** X **then** Y "
-            f"**because** Z [CITE:ev_xxx]\n"
-            f"10. Every body paragraph MUST discuss at least 2 criteria "
-            f"(cost, performance, mechanism, limitation, application)\n"
-            f"11. Include at least 5 numerical values with units from "
-            f"evidence — use exact values, do not paraphrase numbers\n"
-            f"{gap_context}"
-        )
+        if _HYBRID_EVIDENCE:
+            prompt = (
+                f"You are a senior research analyst. Expand "
+                f"this analytical scaffold into publication-"
+                f"quality prose (800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"EVIDENCE PASSAGES:\n{cluster_summary}\n\n"
+                f"CROSS-SOURCE COMPARISONS:\n"
+                f"{retry_cross}\n\n"
+                f"{retry_numbers}"
+                f"{retry_coverage}"
+                f"RULES:\n"
+                f"1. Cite by passage number [N]\n"
+                f"2. Synthesize — do NOT copy\n"
+                f"3. Cross-source: compare both sources\n"
+                f"4. Comparative language\n"
+                f"5. Preserve exact units\n"
+                f"6. Evidence-based ranking\n"
+                f"7. Explicit trade-offs\n"
+                f"8. Executive summary first\n"
+                f"9. Conditional recs: **If** X **then** Y "
+                f"**because** Z [N]\n"
+                f"10. At least 2 criteria per paragraph\n"
+                f"11. At least 5 numerical values with units\n"
+                f"{gap_context}"
+            )
+            retry_system = (
+                "Cite by passage number [N]. Synthesize — "
+                "do not copy. Be analytical."
+            )
+        elif _GTA_ENABLED:
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality "
+                f"prose (800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
+                f"CROSS-SOURCE DIRECTIVES:\n{retry_cross}\n\n"
+                f"{retry_numbers}"
+                f"{retry_coverage}"
+                f"RULES:\n"
+                f"1. Write analytical prose — do NOT include "
+                f"citation markers\n"
+                f"2. Never restate a claim question — ANSWER it\n"
+                f"3. Cross-source: compare 2+ sources per "
+                f"directive\n"
+                f"4. Comparative language (whereas, in contrast)\n"
+                f"5. Preserve exact units\n"
+                f"6. Evidence-based ranking\n"
+                f"7. Explicit trade-offs\n"
+                f"8. Executive summary first paragraph\n"
+                f"9. Conditional recs: **If** X **then** Y "
+                f"**because** Z\n"
+                f"10. Every body paragraph MUST discuss at least "
+                f"2 criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"11. Include at least 5 numerical values with "
+                f"units from evidence — use exact values\n"
+                f"{gap_context}"
+            )
+            retry_system = (
+                "ANSWER analytical claims — do not restate. "
+                "Do NOT include citation markers. "
+                "Write cross-source sentences. Be analytical."
+            )
+        else:
+            prompt = (
+                f"You are a senior research analyst. Expand this "
+                f"analytical scaffold into publication-quality "
+                f"prose (800-1500 words).\n\n"
+                f"RESEARCH QUESTION: {self._query}\n\n"
+                f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                f"ANALYTICAL CLAIMS:\n{cluster_summary}\n\n"
+                f"CROSS-SOURCE DIRECTIVES:\n{retry_cross}\n\n"
+                f"{retry_numbers}"
+                f"{retry_coverage}"
+                f"RULES:\n"
+                f"1. Cite EVERY numerical value with "
+                f"[CITE:ev_xxx]\n"
+                f"2. Never restate a claim question — ANSWER it\n"
+                f"3. Cross-source: cite 2+ sources per "
+                f"directive\n"
+                f"4. Comparative language (whereas, in contrast)\n"
+                f"5. Preserve exact units\n"
+                f"6. Evidence-based ranking\n"
+                f"7. Explicit trade-offs\n"
+                f"8. Executive summary first paragraph\n"
+                f"9. Conditional recs: **If** X **then** Y "
+                f"**because** Z [CITE:ev_xxx]\n"
+                f"10. Every body paragraph MUST discuss at least "
+                f"2 criteria (cost, performance, mechanism, "
+                f"limitation, application)\n"
+                f"11. Include at least 5 numerical values with "
+                f"units from evidence — use exact values, do "
+                f"not paraphrase numbers\n"
+                f"{gap_context}"
+            )
+            retry_system = (
+                "ANSWER analytical claims — do not restate. "
+                "Every claim must have [CITE:ev_xxx]. "
+                "Write cross-source sentences. Be analytical."
+            )
 
         try:
             retry_response = await asyncio.wait_for(
                 self._client.generate(
                     prompt=prompt,
-                    system=(
-                        "ANSWER analytical claims — do not restate. "
-                        "Every claim must have [CITE:ev_xxx]. "
-                        "Write cross-source sentences. Be analytical."
-                    ),
+                    system=retry_system,
                     max_tokens=8192,
                     temperature=0.5,
                     timeout=write_timeout,
@@ -4271,6 +4932,15 @@ class ReactAnalysisAgent:
 
         if not retry_draft or len(retry_draft) < 100:
             return draft
+
+        # Hybrid: map passage numbers on retry draft
+        if _HYBRID_EVIDENCE and self._passage_reverse_map:
+            retry_draft = self._map_passage_citations(
+                retry_draft, self._passage_reverse_map,
+            )
+        # GTA: attribute citations on retry draft
+        if _GTA_ENABLED:
+            retry_draft = self._attribute_citations(retry_draft)
 
         # Pick better draft by gate score
         retry_words = len(retry_draft.split())
@@ -4317,19 +4987,35 @@ class ReactAnalysisAgent:
                     "(%d chars < 2500, %.0fs remaining)",
                     len(best_draft), remaining,
                 )
-                fast_prompt = (
-                    f"Write a comprehensive analytical report "
-                    f"(800+ words) answering:\n\n"
-                    f"RESEARCH QUESTION: {self._query}\n\n"
-                    f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
-                    f"Cite every claim with [CITE:ev_xxx]. "
-                    f"Be thorough and specific."
+                if _GTA_ENABLED:
+                    fast_prompt = (
+                        f"Write a comprehensive analytical "
+                        f"report (800+ words) answering:\n\n"
+                        f"RESEARCH QUESTION: {self._query}\n\n"
+                        f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                        f"Be thorough and specific. Do NOT "
+                        f"include citation markers."
+                    )
+                else:
+                    fast_prompt = (
+                        f"Write a comprehensive analytical "
+                        f"report (800+ words) answering:\n\n"
+                        f"RESEARCH QUESTION: {self._query}\n\n"
+                        f"ANALYTICAL SCAFFOLD:\n{scaffold}\n\n"
+                        f"Cite every claim with [CITE:ev_xxx]. "
+                        f"Be thorough and specific."
+                    )
+                fast_system = (
+                    "Senior research analyst. Write analytical "
+                    "prose without citation markers."
+                    if _GTA_ENABLED
+                    else "Senior research analyst. Cite all claims."
                 )
                 try:
                     fast_resp = await asyncio.wait_for(
                         self._client.generate(
                             prompt=fast_prompt,
-                            system="Senior research analyst. Cite all claims.",
+                            system=fast_system,
                             max_tokens=4096,
                             temperature=0.3,
                             timeout=min(int(remaining) - 10, 60),
@@ -4338,6 +5024,11 @@ class ReactAnalysisAgent:
                     )
                     fast_draft = fast_resp.content.strip()
                     if fast_draft and len(fast_draft) > len(best_draft):
+                        # GTA: attribute citations on fast-path
+                        if _GTA_ENABLED:
+                            fast_draft = self._attribute_citations(
+                                fast_draft,
+                            )
                         # Bug-1 fix: also clean fast-path draft
                         fast_draft = self._strip_phantom_citations(
                             fast_draft,
@@ -4737,6 +5428,258 @@ class ReactAnalysisAgent:
         for placeholder, cite in cite_placeholders:
             result = result.replace(placeholder, cite)
 
+        return result
+
+    # -------------------------------------------------------------------
+    # Generate-Then-Attribute: programmatic citation placement
+    # -------------------------------------------------------------------
+
+    def _attribute_citations(
+        self,
+        text: str,
+        threshold_override: float | None = None,
+    ) -> str:
+        """Add citations at sentence boundaries using 3-strategy matching.
+
+        Generate-Then-Attribute pattern (ACL 2024-2026): LLM writes clean
+        prose, citations placed programmatically using number matching,
+        keyword overlap, and embedding similarity.
+
+        Strategies (descending priority):
+        1. Number match: sentence number matches evidence number
+        2. Keyword overlap: 3+ content words shared with evidence
+        3. Embedding similarity: cosine sim >= threshold (fallback)
+
+        Citations placed at sentence boundary (before period).
+        Skips non-prose lines: tables, images, code blocks, headers.
+
+        Args:
+            text: Citation-free prose from LLM.
+            threshold_override: Override embedding threshold (for
+                quality gate re-attribution at lower threshold).
+
+        Returns:
+            Text with [CITE:ev_xxx] at sentence boundaries.
+        """
+        if not self._evidence_store:
+            return text
+
+        sim_threshold = (
+            threshold_override
+            if threshold_override is not None
+            else _GTA_THRESHOLD
+        )
+        max_per_sent = _GTA_MAX_PER_SENTENCE
+        keyword_min = _GTA_KEYWORD_MIN
+
+        # Build evidence lookup structures
+        all_eids = list(self._evidence_store.keys())
+        all_stmts = [
+            self._evidence_store[eid].get("statement", "")
+            for eid in all_eids
+        ]
+
+        # Pre-extract numbers from each evidence (filter trivial 0-9)
+        ev_numbers: dict[str, set[str]] = {}
+        for eid, stmt in zip(all_eids, all_stmts):
+            ev_numbers[eid] = {
+                n for n in re.findall(r'\d+\.?\d*', stmt)
+                if len(n) >= 2 or float(n) >= 10
+            }
+
+        # Pre-extract content words from each evidence
+        _stopwords = frozenset({
+            "the", "and", "for", "with", "from", "that", "this",
+            "was", "were", "are", "been", "have", "has", "had",
+            "not", "but", "which", "their", "they", "than",
+            "can", "its", "also", "into", "more", "such",
+            "about", "through", "between", "after", "before",
+            "would", "could", "should", "will", "does", "did",
+            "being", "each", "other", "some", "what", "when",
+            "where", "while",
+        })
+        ev_words: dict[str, set[str]] = {}
+        for eid, stmt in zip(all_eids, all_stmts):
+            ev_words[eid] = {
+                w for w in re.findall(r'[a-z]{4,}', stmt.lower())
+                if w not in _stopwords
+            }
+
+        # Build embedding matrix lazily (only if needed)
+        _ev_emb_matrix = None
+        _ev_emb_norms = None
+
+        def _get_ev_embeddings():
+            nonlocal _ev_emb_matrix, _ev_emb_norms
+            if _ev_emb_matrix is None:
+                try:
+                    embs = embed_texts(all_stmts)
+                    _ev_emb_matrix = np.array(embs)
+                    norms = np.linalg.norm(
+                        _ev_emb_matrix, axis=1, keepdims=True,
+                    )
+                    _ev_emb_norms = _ev_emb_matrix / np.maximum(
+                        norms, 1e-8,
+                    )
+                except Exception:
+                    logger.debug(
+                        "[GTA] embed_texts failed for evidence",
+                        exc_info=True,
+                    )
+                    _ev_emb_matrix = np.zeros((0, 0))
+                    _ev_emb_norms = np.zeros((0, 0))
+            return _ev_emb_norms
+
+        # Process text line by line
+        output_lines = []
+        in_code_block = False
+        total_cites_added = 0
+
+        for line in text.split("\n"):
+            stripped = line.strip()
+
+            # Toggle code block state
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                output_lines.append(line)
+                continue
+
+            # Skip non-prose lines (CRITICAL-6 fix)
+            if (
+                in_code_block
+                or stripped.startswith("|")       # tables
+                or stripped.startswith("!")        # images
+                or stripped.startswith("#")        # headers
+                or stripped.startswith("-")        # list items
+                or stripped.startswith("*")        # list items
+                or not stripped                    # empty
+            ):
+                output_lines.append(line)
+                continue
+
+            # Split line into sentences
+            # Match sentence-ending punctuation while preserving
+            # the structure for reassembly
+            parts = re.split(r'([.!?](?:\s|$))', line)
+
+            rebuilt = ""
+            i = 0
+            while i < len(parts):
+                fragment = parts[i]
+                # Check if next part is the delimiter
+                delim = parts[i + 1] if i + 1 < len(parts) else ""
+                sentence = fragment + delim
+
+                if len(fragment.split()) < 3:
+                    # Too short to be a meaningful sentence
+                    rebuilt += sentence
+                    i += 2 if delim else 1
+                    continue
+
+                # Find matching evidence for this sentence
+                matched_eids: list[str] = []
+                sent_lower = fragment.lower()
+
+                # Strategy 1: Number matching (highest priority)
+                # Filter out trivially common numbers (0-9)
+                sent_nums = {
+                    n for n in re.findall(r'\d+\.?\d*', fragment)
+                    if len(n) >= 2 or float(n) >= 10
+                }
+                if sent_nums:
+                    for eid in all_eids:
+                        shared = sent_nums & ev_numbers[eid]
+                        if shared and eid not in matched_eids:
+                            matched_eids.append(eid)
+                            if len(matched_eids) >= max_per_sent:
+                                break
+
+                # Strategy 2: Keyword overlap
+                if len(matched_eids) < max_per_sent:
+                    sent_words = {
+                        w for w in re.findall(
+                            r'[a-z]{4,}', sent_lower,
+                        )
+                        if w not in _stopwords
+                    }
+                    if sent_words:
+                        kw_candidates: list[tuple[int, str]] = []
+                        for eid in all_eids:
+                            if eid in matched_eids:
+                                continue
+                            overlap = len(sent_words & ev_words[eid])
+                            if overlap >= keyword_min:
+                                kw_candidates.append((overlap, eid))
+                        # Sort by overlap descending
+                        kw_candidates.sort(reverse=True)
+                        for _, eid in kw_candidates:
+                            if eid not in matched_eids:
+                                matched_eids.append(eid)
+                                if len(matched_eids) >= max_per_sent:
+                                    break
+
+                # Strategy 3: Embedding similarity (fallback)
+                if (
+                    len(matched_eids) < max_per_sent
+                    and len(fragment.split()) >= 5
+                ):
+                    ev_normed = _get_ev_embeddings()
+                    if ev_normed.size > 0:
+                        try:
+                            sent_emb = np.array(
+                                embed_texts([fragment]),
+                            )
+                            sent_norm = np.linalg.norm(
+                                sent_emb, axis=1, keepdims=True,
+                            )
+                            sent_normed = sent_emb / np.maximum(
+                                sent_norm, 1e-8,
+                            )
+                            sims = (sent_normed @ ev_normed.T)[0]
+                            top_indices = np.argsort(sims)[::-1]
+                            for si in top_indices:
+                                if sims[si] < sim_threshold:
+                                    break
+                                eid = all_eids[si]
+                                if eid not in matched_eids:
+                                    matched_eids.append(eid)
+                                    if (
+                                        len(matched_eids)
+                                        >= max_per_sent
+                                    ):
+                                        break
+                        except Exception:
+                            logger.debug(
+                                "[GTA] Embedding match failed "
+                                "for sentence",
+                                exc_info=True,
+                            )
+
+                # Place citations at sentence boundary
+                if matched_eids and delim:
+                    cite_str = "".join(
+                        f"[CITE:{eid}]"
+                        for eid in matched_eids[:max_per_sent]
+                    )
+                    # Insert before the period/punctuation
+                    rebuilt += fragment.rstrip() + " " + cite_str
+                    rebuilt += delim
+                    total_cites_added += len(
+                        matched_eids[:max_per_sent],
+                    )
+                else:
+                    rebuilt += sentence
+
+                i += 2 if delim else 1
+
+            output_lines.append(rebuilt)
+
+        result = "\n".join(output_lines)
+        logger.info(
+            "[GTA] Attribution complete: %d citations added "
+            "(threshold=%.2f)",
+            total_cites_added, sim_threshold,
+        )
         return result
 
     # -------------------------------------------------------------------
@@ -5782,7 +6725,14 @@ class ReactAnalysisAgent:
         # Path A (uncited): Jaccard > 0.30 against claims text
         # Path B (cited): Subject-predicate echo ("Bonding demonstrates
         #   bonding PE...") — subject word reappears in predicate text
-        claims_text = getattr(self, '_analytical_claims_text', '') or ''
+        if _HYBRID_EVIDENCE:
+            claims_text = (
+                getattr(self, '_evidence_passages_text', '') or ''
+            )
+        else:
+            claims_text = (
+                getattr(self, '_analytical_claims_text', '') or ''
+            )
         claims_3grams = (
             self._ngrams(claims_text.lower(), 3) if claims_text else set()
         )

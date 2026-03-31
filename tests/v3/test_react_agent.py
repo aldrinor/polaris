@@ -4899,3 +4899,504 @@ def test_bug1_strip_phantom_preserves_valid_only(
     draft = "Claim one [CITE:ev_001]. Claim two [CITE:ev_002]."
     result = agent._strip_phantom_citations(draft)
     assert result == draft
+
+
+# ---------------------------------------------------------------------------
+# Generate-Then-Attribute (GTA) tests
+# ---------------------------------------------------------------------------
+
+
+def test_gta_attribute_number_match(evidence_store, mock_client):
+    """GTA: sentence with '86%' matches evidence containing '86%'."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    # ev_001 has "85 + 1 = 86%" in its statement
+    text = "The removal efficiency reached 86% at optimal pH. More text here."
+    result = agent._attribute_citations(text)
+    assert "[CITE:ev_001]" in result, (
+        f"Number match should cite ev_001 (86%), got: {result}"
+    )
+
+
+def test_gta_attribute_keyword_match(evidence_store, mock_client):
+    """GTA: sentence sharing 3+ content words with evidence gets cited."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    # Evidence statements contain "removal efficiency biochar lead"
+    text = (
+        "Biochar demonstrates strong removal efficiency for lead "
+        "contamination in water treatment systems."
+    )
+    result = agent._attribute_citations(text)
+    assert "[CITE:" in result, (
+        f"Keyword match should produce citation, got: {result}"
+    )
+
+
+def test_gta_attribute_max_per_sentence(evidence_store, mock_client):
+    """GTA: never more than K citations per sentence."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    # This sentence matches many evidence items (85-99%)
+    text = (
+        "Studies show removal rates of 85% 86% 87% 88% 89% 90% "
+        "91% 92% 93% 94% across different conditions."
+    )
+    result = agent._attribute_citations(text)
+    cite_count = len(re.findall(r'\[CITE:ev_\d+\]', result))
+    max_k = int(os.getenv("PG_ATTRIBUTION_MAX_PER_SENTENCE", "3"))
+    assert cite_count <= max_k, (
+        f"Max {max_k} citations per sentence, got {cite_count}: "
+        f"{result}"
+    )
+
+
+def test_gta_attribute_no_midword(evidence_store, mock_client):
+    """GTA: no mid-word citation patterns like 'ng[CITE:ev_xxx]/L'."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    text = (
+        "Biochar achieves 86% removal efficiency at pH 5.2. "
+        "Contact time of 40 minutes yields optimal results."
+    )
+    result = agent._attribute_citations(text)
+    # No letter directly before [CITE:
+    assert not re.search(r'[a-z]\[CITE:', result), (
+        f"Mid-word citation found: {result}"
+    )
+    # No letter directly after closing ]
+    assert not re.search(r'\[CITE:ev_[a-f0-9]+\][a-z]', result), (
+        f"Citation touching next word found: {result}"
+    )
+
+
+def test_gta_attribute_skips_tables(evidence_store, mock_client):
+    """GTA: lines starting with '|' (tables) get no citations."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    text = (
+        "Biochar achieves 86% removal.\n"
+        "| Material | Removal | pH |\n"
+        "|----------|---------|-----|\n"
+        "| Biochar  | 86%     | 5.2 |\n"
+        "Contact time matters for efficiency."
+    )
+    result = agent._attribute_citations(text)
+    for line in result.split("\n"):
+        if line.strip().startswith("|"):
+            assert "[CITE:" not in line, (
+                f"Table line should not have citations: {line}"
+            )
+
+
+def test_gta_scaffold_no_cite_tokens(
+    evidence_store, mock_client, monkeypatch,
+):
+    """GTA ON: scaffold output has (refs:) metadata but no [CITE:ev_."""
+    monkeypatch.setenv("PG_GENERATE_THEN_ATTRIBUTE", "1")
+    # Reimport to pick up new env var
+    import src.polaris_graph.tools.react_agent as ra_module
+    old_val = ra_module._GTA_ENABLED
+    ra_module._GTA_ENABLED = True
+    try:
+        agent = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar heavy metal removal",
+        )
+        briefing = {
+            "learnings": [
+                {
+                    "fact": (
+                        f"Biochar removes {85 + i}% of lead "
+                        f"at pH {5.0 + i * 0.2}"
+                    ),
+                    "evidence_ids": [f"ev_{i:03d}"],
+                    "tier": "GOLD",
+                }
+                for i in range(1, 6)
+            ],
+            "clusters": [
+                {
+                    "theme": "Removal Efficiency",
+                    "learning_indices": [0, 1, 2, 3, 4],
+                    "evidence_count": 5,
+                },
+            ],
+        }
+        claims = agent._build_analytical_claims(briefing)
+        assert "[CITE:" not in claims, (
+            f"GTA ON: no [CITE:] in claims, got: {claims[:200]}"
+        )
+        assert "(refs:" in claims, (
+            f"GTA ON: should have (refs:) metadata, got: "
+            f"{claims[:200]}"
+        )
+    finally:
+        ra_module._GTA_ENABLED = old_val
+
+
+def test_gta_feature_flag_off_uses_old_flow(
+    evidence_store, mock_client, monkeypatch,
+):
+    """GTA OFF: analytical claims use [CITE:ev_xxx] format."""
+    monkeypatch.setenv("PG_GENERATE_THEN_ATTRIBUTE", "0")
+    import src.polaris_graph.tools.react_agent as ra_module
+    old_val = ra_module._GTA_ENABLED
+    ra_module._GTA_ENABLED = False
+    try:
+        agent = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar heavy metal removal",
+        )
+        briefing = {
+            "learnings": [
+                {
+                    "fact": (
+                        f"Biochar removes {85 + i}% of lead "
+                        f"at pH {5.0 + i * 0.2}"
+                    ),
+                    "evidence_ids": [f"ev_{i:03d}"],
+                    "tier": "GOLD",
+                }
+                for i in range(1, 6)
+            ],
+            "clusters": [
+                {
+                    "theme": "Removal Efficiency",
+                    "learning_indices": [0, 1, 2, 3, 4],
+                    "evidence_count": 5,
+                },
+            ],
+        }
+        claims = agent._build_analytical_claims(briefing)
+        assert "[CITE:" in claims, (
+            f"GTA OFF: should use [CITE:], got: {claims[:200]}"
+        )
+        assert "(refs:" not in claims, (
+            f"GTA OFF: should NOT have (refs:), got: {claims[:200]}"
+        )
+    finally:
+        ra_module._GTA_ENABLED = old_val
+
+
+def test_gta_attribute_skips_code_blocks(evidence_store, mock_client):
+    """GTA: content inside code blocks gets no citations."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    text = (
+        "Biochar achieves 86% removal.\n"
+        "```python\n"
+        "result = biochar.remove(lead, efficiency=86)\n"
+        "```\n"
+        "Further analysis confirms the finding."
+    )
+    result = agent._attribute_citations(text)
+    lines = result.split("\n")
+    # Code block lines should have no citations
+    for i, line in enumerate(lines):
+        if line.strip().startswith("result = "):
+            assert "[CITE:" not in line, (
+                f"Code block line has citation: {line}"
+            )
+    # Prose line should have citation
+    assert "[CITE:" in result, (
+        f"Prose should have citations: {result}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Hybrid Evidence Passages tests (STORM/Attribute-First pattern)
+# ---------------------------------------------------------------------------
+
+
+def test_hybrid_numbered_passages_format(evidence_store, mock_client):
+    """Hybrid: passages numbered [1], [2], ... with theme grouping."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="biochar heavy metal removal",
+    )
+    briefing = {
+        "learnings": [
+            {
+                "fact": f"Biochar removes {85 + i}% of lead",
+                "evidence_ids": [f"ev_{i:03d}"],
+                "tier": "GOLD",
+            }
+            for i in range(1, 6)
+        ],
+        "clusters": [
+            {
+                "theme": "Removal Efficiency",
+                "learning_indices": [0, 1, 2, 3, 4],
+                "evidence_count": 5,
+            },
+        ],
+    }
+    text, rmap = agent._build_numbered_evidence_passages(briefing)
+    assert "[1]" in text, f"Should have [1], got: {text[:200]}"
+    assert "Removal Efficiency" in text
+    assert 1 in rmap, f"Reverse map should have key 1, got: {rmap}"
+    assert rmap[1].startswith("ev_")
+
+
+def test_hybrid_numbered_passages_prefers_original(
+    evidence_store, mock_client,
+):
+    """Hybrid: uses original_statement over fact when available."""
+    agent = ReactAnalysisAgent(
+        client=mock_client,
+        evidence_store=evidence_store,
+        evidence_ids=list(evidence_store.keys()),
+        query="test",
+    )
+    briefing = {
+        "learnings": [
+            {
+                "fact": "Paraphrased fact about biochar",
+                "original_statement": "Original source text here",
+                "evidence_ids": ["ev_001"],
+                "tier": "GOLD",
+            },
+        ],
+        "clusters": [
+            {
+                "theme": "Test Theme",
+                "learning_indices": [0],
+                "evidence_count": 1,
+            },
+        ],
+    }
+    text, _ = agent._build_numbered_evidence_passages(briefing)
+    assert "Original source text" in text, (
+        f"Should prefer original_statement, got: {text}"
+    )
+    assert "Paraphrased fact" not in text
+
+
+def test_hybrid_map_single_citation(evidence_store, mock_client):
+    """Hybrid: [1] maps to [CITE:ev_xxx]."""
+    rmap = {1: "ev_001", 2: "ev_002"}
+    text = "GAC removes 95% of contaminants [1]. Cost is $20 [2]."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert "[CITE:ev_001]" in result
+    assert "[CITE:ev_002]" in result
+    assert "[1]" not in result
+    assert "[2]" not in result
+
+
+def test_hybrid_map_compound_citation(evidence_store, mock_client):
+    """Hybrid: [1, 2] maps to two CITE tokens."""
+    rmap = {1: "ev_001", 2: "ev_002"}
+    text = "Multiple studies confirm this finding [1, 2]."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert "[CITE:ev_001]" in result
+    assert "[CITE:ev_002]" in result
+
+
+def test_hybrid_map_skips_footnotes():
+    """Hybrid: [^1] footnotes are NOT mapped."""
+    rmap = {1: "ev_001"}
+    text = "This is a footnote reference [^1]."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert "[^1]" in result
+    assert "[CITE:" not in result
+
+
+def test_hybrid_map_skips_markdown_links():
+    """Hybrid: [text](url) markdown links are NOT mapped."""
+    rmap = {1: "ev_001"}
+    text = "See [1](https://example.com) for details."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert "[1](https://example.com)" in result
+    assert "[CITE:" not in result
+
+
+def test_hybrid_map_unknown_numbers():
+    """Hybrid: [999] stays as-is when not in reverse map."""
+    rmap = {1: "ev_001"}
+    text = "Unknown reference [999]."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert "[999]" in result
+
+
+def test_hybrid_scaffold_labels(
+    evidence_store, mock_client, monkeypatch,
+):
+    """Hybrid ON: scaffold prompt says EVIDENCE PASSAGES."""
+    import src.polaris_graph.tools.react_agent as ra
+    old = ra._HYBRID_EVIDENCE
+    ra._HYBRID_EVIDENCE = True
+    try:
+        agent = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar removal",
+        )
+        briefing = {
+            "learnings": [
+                {
+                    "fact": f"Fact {i}",
+                    "evidence_ids": [f"ev_{i:03d}"],
+                    "tier": "GOLD",
+                }
+                for i in range(1, 4)
+            ],
+            "clusters": [
+                {
+                    "theme": "Theme A",
+                    "learning_indices": [0, 1, 2],
+                    "evidence_count": 3,
+                },
+            ],
+        }
+        prompt = agent._build_scaffold_prompt(
+            briefing, {"archetype": "general", "artifacts": []},
+        )
+        assert "EVIDENCE PASSAGES" in prompt, (
+            f"Hybrid ON should use EVIDENCE PASSAGES label"
+        )
+        assert "ANALYTICAL CLAIMS" not in prompt
+    finally:
+        ra._HYBRID_EVIDENCE = old
+
+
+def test_hybrid_cross_source_no_achieves(
+    evidence_store, mock_client, monkeypatch,
+):
+    """Hybrid ON: cross-source directives have no 'achieves'."""
+    import src.polaris_graph.tools.react_agent as ra
+    old = ra._HYBRID_EVIDENCE
+    ra._HYBRID_EVIDENCE = True
+    try:
+        agent = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar removal",
+        )
+        # Set up passage reverse map
+        agent._passage_reverse_map = {
+            1: "ev_001", 2: "ev_002", 3: "ev_003",
+        }
+        briefing = {
+            "learnings": [
+                {
+                    "fact": "GAC achieves 95% removal efficiency",
+                    "evidence_ids": ["ev_001"],
+                    "tier": "GOLD",
+                },
+                {
+                    "fact": "GAC shows 88% removal at pH 7",
+                    "evidence_ids": ["ev_002"],
+                    "tier": "SILVER",
+                },
+            ],
+            "clusters": [
+                {
+                    "theme": "Performance",
+                    "learning_indices": [0, 1],
+                    "evidence_count": 2,
+                },
+            ],
+        }
+        result = agent._build_cross_source_synthesis_pairs(briefing)
+        assert "achieves" not in result.lower() or (
+            "achieves" in result.lower()
+            and "-> WRITE:" not in result
+        ), (
+            f"Hybrid should not have 'achieves' in exemplars: "
+            f"{result[:300]}"
+        )
+    finally:
+        ra._HYBRID_EVIDENCE = old
+
+
+def test_hybrid_no_template_verbs(
+    evidence_store, mock_client, monkeypatch,
+):
+    """Hybrid ON: no 'achieves'/'demonstrates' in claim format."""
+    import src.polaris_graph.tools.react_agent as ra
+    old = ra._HYBRID_EVIDENCE
+    ra._HYBRID_EVIDENCE = True
+    try:
+        agent = ReactAnalysisAgent(
+            client=mock_client,
+            evidence_store=evidence_store,
+            evidence_ids=list(evidence_store.keys()),
+            query="biochar removal",
+        )
+        briefing = {
+            "learnings": [
+                {
+                    "fact": (
+                        f"Biochar removes {85 + i}% of lead "
+                        f"at pH {5.0 + i * 0.2}"
+                    ),
+                    "evidence_ids": [f"ev_{i:03d}"],
+                    "tier": "GOLD",
+                }
+                for i in range(1, 6)
+            ],
+            "clusters": [
+                {
+                    "theme": "Removal",
+                    "learning_indices": [0, 1, 2, 3, 4],
+                    "evidence_count": 5,
+                },
+            ],
+        }
+        summary = agent._build_enriched_cluster_summary(briefing)
+        # Hybrid uses numbered passages — no question templates
+        assert "achieve" not in summary.lower(), (
+            f"Hybrid should not contain 'achieve': "
+            f"{summary[:200]}"
+        )
+        assert "demonstrates" not in summary.lower(), (
+            f"Hybrid should not contain 'demonstrates': "
+            f"{summary[:200]}"
+        )
+        assert "[1]" in summary, (
+            f"Hybrid should have numbered passages: "
+            f"{summary[:200]}"
+        )
+    finally:
+        ra._HYBRID_EVIDENCE = old
+
+
+def test_hybrid_dedup_adjacent_citations():
+    """Hybrid: adjacent identical citations deduplicated."""
+    rmap = {1: "ev_001"}
+    text = "Claim here [1][1]."
+    result = ReactAnalysisAgent._map_passage_citations(text, rmap)
+    assert result.count("[CITE:ev_001]") == 1
