@@ -355,8 +355,12 @@ def detect_redundancy(
     Uses both Jaccard similarity AND embedding cosine similarity to catch
     semantically identical but reworded sentences that Jaccard misses.
     """
+    # v4-simplify: raised from 0.45 to 0.65. At 0.45, sentences sharing
+    # common topic words (intermittent, fasting, weight, loss) matched as
+    # "redundant" even when making different claims. 0.65 requires 65%
+    # word overlap — only truly duplicated sentences are removed.
     jaccard_threshold = float(
-        os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.45")
+        os.getenv("PG_REDUNDANCY_JACCARD_THRESHOLD", "0.65")
     )
     embedding_threshold = float(
         os.getenv("PG_REDUNDANCY_EMBEDDING_THRESHOLD", "0.85")
