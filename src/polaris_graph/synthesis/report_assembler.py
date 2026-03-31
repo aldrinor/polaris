@@ -1052,6 +1052,8 @@ def _scrub_meta_commentary(text: str) -> str:
         r"I need[^.]*evidence[^.]*\.",
         r"Once you share[^.]*\.",
         r"Without these materials[^.]*\.",
+        r"Without the evidence[^.]*I cannot[^.]*\.",
+        r"Without the evidence content[^.]*\.",
         r"I cannot verify[^.]*without[^.]*\.",
         r"Can you please share[^.]*evidence[^.]*\.",
         r"I'm ready to continue once[^.]*\.",
