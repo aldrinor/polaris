@@ -2596,8 +2596,9 @@ async def synthesize_report(
 
             for _si, _section in enumerate(report_sections):
                 _sec_content = _section.get("content", "")
-                if len(_sec_content.split()) < 100:
-                    continue  # Skip very short sections
+                _min_polish_words = int(os.getenv("PG_POLISH_MIN_SECTION_WORDS", "500"))
+                if len(_sec_content.split()) < _min_polish_words:
+                    continue  # Skip sections too short to benefit from polishing
 
                 _polish_prompt = (
                     f"You are an expert academic editor. Edit this ONE section of a "
