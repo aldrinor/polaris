@@ -2273,6 +2273,20 @@ Write in third person, academic register."""
                 )
                 new_content = hedged_content
 
+            # Guard: reject expansion output that contains prompt echoes,
+            # evidence requests, or LLM meta-instructions.
+            _poison_markers = [
+                "please provide", "I cannot", "evidence content",
+                "To proceed", "evidence pieces", "Without the",
+                "I need the", "provide the evidence",
+            ]
+            if any(m.lower() in new_content.lower() for m in _poison_markers):
+                logger.warning(
+                    "[polaris graph] EXPANSION-GUARD: Rejected poisoned expansion "
+                    "for '%s' (prompt echo detected)", section["title"][:40],
+                )
+                continue
+
             # Combine existing + new content
             combined = existing_content.rstrip() + "\n\n" + new_content
 
@@ -2776,7 +2790,7 @@ def _limit_hedging(text: str) -> str:
     if not text or not text.strip():
         return text
 
-    max_hedging = int(os.getenv("PG_MAX_HEDGING_PER_SECTION", "8"))
+    max_hedging = int(os.getenv("PG_MAX_HEDGING_PER_SECTION", "4"))
 
     # Pattern matches common hedging words/phrases
     _hedging_pattern = re.compile(

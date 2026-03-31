@@ -1121,6 +1121,13 @@ def _scrub_meta_commentary(text: str) -> str:
         "The prompt says",
         "The original text has:",
         "The original section is",
+        # Prompt echo blocks (LLM requesting evidence)
+        "Without the evidence content, I cannot",
+        "**To proceed, please provide",
+        "To proceed, please provide",
+        "Without these, I cannot",
+        "Once received, I will complete",
+        "I cannot:\n-",
     ]
     for marker in _polish_reasoning_markers:
         idx = _cleaned.find(marker)
@@ -1163,13 +1170,19 @@ def _scrub_meta_commentary(text: str) -> str:
     # Remove sentences starting with "However, " followed by nothing substantive
     _cleaned = re.sub(r"However,\s*\n", "\n", _cleaned)
 
-    # FIX-073: Fix broken table rows with ".| " separators
-    # GLM-5 sometimes outputs table rows on a single line with ". |" between rows.
-    # Split into proper rows, then clean up double pipes.
-    _cleaned = re.sub(r"\.\s*\|\s*\|", "|\n|", _cleaned)  # ".| |" → "|\n|"
-    _cleaned = re.sub(r"\.\s*\|(\s*[A-Z\d])", r"|\n|\1", _cleaned)  # ".| Data" → "|\n| Data"
-    # Fix delimiter rows concatenated with data rows
+    # FIX-073: Fix broken table rows — GLM-5 outputs tables on single lines.
+    # Pattern 1: ".| |" → proper row break
+    _cleaned = re.sub(r"\.\s*\|\s*\|", "|\n|", _cleaned)
+    # Pattern 2: ".| Data" → proper row break
+    _cleaned = re.sub(r"\.\s*\|(\s*[A-Z\d])", r"|\n|\1", _cleaned)
+    # Pattern 3: delimiter row concatenated with data "|---|...|  |Data"
     _cleaned = re.sub(r"(\|[:\-]+\|)\s*\|", r"\1\n|", _cleaned)
+    # Pattern 4: data row ends without newline before next row "|value|\n|"
+    # Catches: "| High |\n| Older adults" as one line → split
+    _cleaned = re.sub(r"\|\s*\.\s*\|", "|\n|", _cleaned)
+    # Pattern 5: wall-of-text table (header|---|data all on one line)
+    # Catches: "|Col|Col|\n|---|---|\n|Data|Data|" compressed to one line
+    _cleaned = re.sub(r"(\|)\s*\|\s*-", r"\1\n|---", _cleaned)
     # Remove trailing double pipes
     _cleaned = re.sub(r"\|\|", "|", _cleaned)
 
