@@ -2586,7 +2586,14 @@ async def synthesize_report(
     # FIX-071: Changed from full-report single call to per-section chunked approach.
     # GLM-5 truncates on 13K-word reports. Per-section calls stay within token limits.
     # Provides section titles list so editor can cross-reference.
-    _polish_enabled = os.getenv("PG_POLISH_PASS", "1") == "1"
+    # v4-simplify: POLISH PASS PERMANENTLY DISABLED.
+    # GLM-5 interprets "edit this section" as "analyze how to edit" and outputs
+    # editing plans (103 lines in TEST_082, 60 lines in TEST_077, 140 lines in TEST_079).
+    # This is NOT CoT leakage — the model's content output IS the editing plan.
+    # Two-pool can't fix this because the editing plan is in Pool 2 (content).
+    # The polish pass damaged output in EVERY run: TEST_077/078/079/080/082.
+    # Quality comes from evidence + prompt, not post-hoc rewriting.
+    _polish_enabled = False
     if _polish_enabled and report_sections and len(report_sections) > 1:
         try:
             import re as _re
