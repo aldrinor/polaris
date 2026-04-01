@@ -163,6 +163,11 @@ Rules:
 9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.
    Do NOT infer, extrapolate, or add information beyond what the direct_quote states.
    If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.
+10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.
+   Quote only the KEY phrase, not entire sentences or paragraphs.
+   This forces you to identify the most important fragment of evidence.
+   BAD: "A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction"
+   GOOD: "alternate-day fasting produced weight loss comparable to continuous energy restriction"
    A 2-word quote like 'distilled water' can only support a statement about distilled water,
    not a full sentence about healthcare settings or bacterial contamination.
    Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.
