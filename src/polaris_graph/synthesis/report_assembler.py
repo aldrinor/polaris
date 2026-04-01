@@ -681,6 +681,15 @@ def _dedup_key_statistics(
     return report_sections
 
 
+_TRANSITION_CHECK = {
+    "however", "moreover", "furthermore", "additionally", "consequently",
+    "therefore", "nevertheless", "nonetheless", "in contrast",
+    "on the other hand", "similarly", "likewise", "meanwhile",
+    "subsequently", "in addition", "as a result", "for example",
+    "for instance", "in particular", "specifically", "notably",
+}
+
+
 def _has_transition(sentence: str) -> bool:
     """Check if sentence already starts with a transition word/phrase."""
     lower = sentence.strip().lower()
