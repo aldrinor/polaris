@@ -2882,11 +2882,32 @@ async def analyze_gaps(
             unfaithful_evidence_ids.update(c.get("evidence_ids", []))
         if unfaithful_evidence_ids:
             before_filter = len(evidence)
-            evidence = [
-                e for e in evidence
-                if e.get("evidence_id") not in unfaithful_evidence_ids
-            ]
-            removed = before_filter - len(evidence)
+            # v4-simplify: Guard against over-removal.
+            # TEST_082: 27/36 removed (75%) left synthesis with 6 evidence.
+            # If removal rate > 60%, the verifier is being too strict —
+            # keep all evidence but mark unfaithful ones so section writer
+            # can deprioritize them.
+            _max_removal_rate = float(os.getenv("PG_MAX_FAITHFULNESS_REMOVAL_RATE", "0.60"))
+            _removal_rate = len(unfaithful_evidence_ids) / max(before_filter, 1)
+            if _removal_rate > _max_removal_rate:
+                logger.warning(
+                    "[polaris graph] OVER-REMOVAL GUARD: Faithfulness gate would "
+                    "remove %.0f%% of evidence (%d/%d) — exceeds %.0f%% threshold. "
+                    "Keeping all evidence, marking unfaithful for deprioritization.",
+                    _removal_rate * 100, len(unfaithful_evidence_ids),
+                    before_filter, _max_removal_rate * 100,
+                )
+                # Mark unfaithful but don't remove
+                for e in evidence:
+                    if e.get("evidence_id") in unfaithful_evidence_ids:
+                        e["is_faithful"] = False
+                removed = 0
+            else:
+                evidence = [
+                    e for e in evidence
+                    if e.get("evidence_id") not in unfaithful_evidence_ids
+                ]
+                removed = before_filter - len(evidence)
             if removed > 0:
                 logger.info(
                     "[polaris graph] FIX-QM7: Faithfulness gate removed %d/%d "

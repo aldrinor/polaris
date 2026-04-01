@@ -1031,6 +1031,21 @@ async def write_section(
                     _keyword_scored.append((_overlap, _ev.get("evidence_id", "")))
                 _keyword_scored.sort(reverse=True)
                 _rescued_ids = [eid for sc, eid in _keyword_scored[:5] if sc > 0]
+                # If keyword rescue finds < 3, take top 5 by tier regardless
+                # (Conclusions/summary sections have generic titles that don't match)
+                if len(_rescued_ids) < 3:
+                    _tier_order = {"GOLD": 0, "SILVER": 1, "BRONZE": 2}
+                    _by_tier = sorted(
+                        _rescue_pool,
+                        key=lambda e: _tier_order.get(e.get("quality_tier", "BRONZE"), 2),
+                    )
+                    _rescued_ids = [e.get("evidence_id", "") for e in _by_tier[:5]]
+                    logger.info(
+                        "[polaris graph] FIX-C6+STARVATION: Keyword rescue too weak "
+                        "(%d matches), falling back to top 5 by tier for '%s'",
+                        len([eid for sc, eid in _keyword_scored[:5] if sc > 0]),
+                        section.title[:40],
+                    )
                 if _rescued_ids:
                     section.evidence_ids = _rescued_ids
                     logger.info(
@@ -1306,6 +1321,28 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             f"Section '{section.title}' too short ({len(content.split()) if content else 0} words) "
             f"after 2 attempts"
         )
+
+    # v4-simplify: Cap section length to prevent one section dominating the report.
+    # TEST_082: Section 1 was 4,268 words (55% of the report).
+    _max_section_words = int(os.getenv("PG_MAX_WORDS_PER_SECTION", "1500"))
+    _word_count = len(content.split())
+    if _word_count > _max_section_words:
+        # Truncate at the last sentence boundary before the cap
+        sentences = re.split(r'(?<=[.!?])\s+', content)
+        truncated = []
+        running = 0
+        for sent in sentences:
+            sent_words = len(sent.split())
+            if running + sent_words > _max_section_words:
+                break
+            truncated.append(sent)
+            running += sent_words
+        if truncated:
+            content = " ".join(truncated)
+            logger.info(
+                "[polaris graph] WORD-CAP: Section '%s' truncated %d -> %d words (max %d)",
+                section.title[:40], _word_count, len(content.split()), _max_section_words,
+            )
 
     # Detect truncation: content doesn't end with sentence-ending punctuation
     if content and not content.rstrip().endswith((".", "?", "!", '"', ")")):

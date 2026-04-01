@@ -205,6 +205,7 @@ def build_section_writer_prompt(
 
 WORD TARGET:
 - Target approximately {suggested_words} words based on available evidence.
+- MAXIMUM 1500 words per section. Do NOT exceed this limit.
 - {n_evidence} evidence pieces support roughly {suggested_words} words of analysis.
 - Do NOT pad beyond what the evidence supports. Quality over quantity.
 - If evidence is thin, write a shorter, honest section rather than padding with filler.
