@@ -1,81 +1,78 @@
 # Restart Instructions
 
-## Current State (2026-03-27)
-**SESSION 55: Evidence Deepening Loop — BUILT AND TESTED**
+## Current State (2026-04-01)
+**SESSION 52: Claw Code Adoption — ALL 5 PHASES BUILT AND SMOKE TESTED**
 
 ### What Was Built This Session
-Evidence deepening loop — the key architectural change to close the 25% gap
-to Gemini/ChatGPT Deep Research. The gap is in the evidence depth, not the model.
+5 phases from the Claw Code (Claude Code) architecture adoption plan, implementing
+20 code changes across 3 source files + 6 config files. All 26 identified loopholes
+addressed. 12/12 smoke tests passing, 223/223 existing tests passing.
 
-#### New Files
-- `src/polaris_graph/agents/evidence_deepener.py` (~530 lines)
-  - 6 operations: named study extraction, S2 citation chasing, S2 recommendations,
-    mechanism keyword search, PDF full-text fetch, re-analyze and merge
-  - Feature flag: `PG_EVIDENCE_DEEPENER=1` (default ON)
-  - Only runs on first iteration (like STORM)
-  - Evidence cap at 150 to prevent synthesis starvation
-  - Time budget: 720s (12 min)
-- `scripts/pg_micro_test_deepener.py` — 15/15 tests passing
+#### Phase 2A: Evidence-Driven Outline (read-then-plan)
+- `_summarize_evidence_clusters()` — LLM summarizes each cluster with specific findings
+- `_generate_evidence_driven_outline()` — outline from evidence summaries, not query alone
+- Feature flag: `PG_PHASE_2A_ENABLED=1`
 
-#### Modified Files
-- `src/polaris_graph/graph.py` — Added `deepen_evidence` node (9-node graph)
-  - Placed between `verify` and `evaluate`
-  - Merges new papers into `academic_results` for re-analysis on next iteration
-  - Forces `needs_iteration=True` when new papers found
-- `src/polaris_graph/state.py` — Added `deepened_papers`, `deepener_stats` fields
-- `.env` — Added `PG_EVIDENCE_DEEPENER=1`
-- `docs/todo_list.md`, `docs/file_directory.md` — Updated
+#### Phase 2B: Focused Re-Extraction
+- `_generate_section_questions()` — 2-3 focused questions per section
+- `_focused_reextraction()` — per-section × per-question extraction from cached content
+- Feature flag: `PG_PHASE_2B_ENABLED=1`
 
-#### Graph Flow
+#### Phase 3A: Outline Critique Agent
+- `_critique_outline()` — adversarial structural review, max 2 rounds
+- Simple adjustments: merge thin sections, reorder, rename
+- Feature flag: `PG_PHASE_3A_ENABLED=1`
+
+#### Phase 3B: Sequential Writing with Quality Gates
+- `PG_SECTION_WRITE_CONCURRENCY=1` (was 12)
+- Per-section quality gate: word count >= 400, citations >= 2, no CoT
+- Section summary generation for cross-referencing
+- Covered claims cap: 20 stats + 50 claims
+
+#### Phase 4: Post-Write Adversarial Review
+- `_review_sections()` — per-section adversarial fact-checking
+- `_apply_critical_fixes()` — regex/string fixes for CRITICAL issues only
+- Feature flag: `PG_PHASE_4_ENABLED=1`
+
+#### Phase 5: Modular Prompt Fragments
+- 6 files in `config/prompts/`: base_rules, comparison, safety, mechanism, methodology, clinical
+- `_detect_section_type()` — evidence-based type detection
+- `_load_prompt_fragment()` — exclusive fragment injection per section
+- Feature flag: `PG_PHASE_5_ENABLED=1`
+
+### Modified Files
+- `src/polaris_graph/agents/synthesizer.py` — Added 6 new async functions (~800 lines)
+  - Phases 2A, 2B, 3A, 4 functions + synthesis flow wiring
+- `src/polaris_graph/synthesis/section_writer.py` — Phase 3B quality gate, Phase 5 prompts (~150 lines)
+- `src/polaris_graph/state.py` — Default concurrency 4→1
+- `.env` — 6 new phase feature flags, concurrency=1
+- `config/prompts/*.md` — 6 new prompt fragment files
+
+### Synthesis Flow After Changes
 ```
-plan → search → storm → analyze → verify → DEEPEN → evaluate → synthesize
-                                              ↓
-                                    1. Named study extraction (LLM)
-                                    2. S2 paper ID resolution
-                                    3. S2 citation chasing + author search
-                                    4. S2 recommendations
-                                    5. Mechanism keyword search
-                                    6. PDF full-text fetch
-                                    → merge into academic_results
-                                    → force next iteration
+synthesize_report():
+    Filter evidence (relevance gate, faithfulness gate, over-removal guard)
+    Step 1: Cluster evidence — UNCHANGED
+    Step 1b: Assess cluster viability — UNCHANGED
+    Step 2a: Phase 2A — Summarize clusters (NEW)
+    Step 2b: Phase 2A — Evidence-driven outline (NEW) or legacy outline
+    FIX-OUTLINE: Assign evidence to sections
+    FIX-056: Trim empty sections
+    Step 2c: Phase 3A — Outline critique (NEW)
+    Step 2d: Phase 2B — Section questions + focused re-extraction (NEW)
+    Step 3: Write sections (concurrency=1, Phase 3B quality gate, Phase 5 prompts)
+    Step 3.5: Phase 4 — Post-write adversarial review (NEW)
+    Step 4: Audit citations — UNCHANGED
+    Step 5: Assemble report — UNCHANGED
 ```
 
-### Post-Build Fixes (4 fixes after initial build)
-- FIX-DOI: URL-encoding in _s2_lookup() — `urllib.parse.quote(identifier, safe='')`. 3/4 DOIs resolve.
-- FIX-MECH: Mechanism search relevance filter — `_filter_by_query_relevance()` added.
-- FIX-FORWARD: Forward snowballing from legacy citation_chainer.py — `_fetch_citations()` via S2 /paper/{id}/citations.
-- FIX-STATS: `_finalize()` uses `.get()` instead of `[]` for stats keys.
+### Next Step
+Run TEST_083 to validate all 5 phases end-to-end with a real query.
+Target: 80-85/100 (up from 75/100 baseline).
 
-### Known Issues
-- S2 DOI index incomplete (some papers only via PMID/ArXiv — Trepanowski 10.1001/jama.2017.3164)
-- PO2 stochastic GLM-5 CoT leakage (pre-existing, not regression)
-- No full pipeline run yet — 40/40 micro tests pass but integration untested
-
-### Next Steps
-1. **Run TEST_076** with deepening loop enabled
-2. **Line-by-line audit** of output quality vs Gemini/ChatGPT
-3. Tune mechanism query generation (may need domain-specific templates)
-
-### Key Commands
-```bash
-python -u scripts/pg_test_061.py            # Full pipeline (currently PG_TEST_076)
-python -u scripts/pg_micro_test_deepener.py # 15/15 deepener tests
-python -u scripts/pg_micro_test_final.py    # 15/15 pre-launch tests
-python -u scripts/pg_micro_test_071_fixes.py # 10/10 FIX-071 tests
-```
-
-### Config (.env)
-```
-OPENROUTER_DEFAULT_MODEL=z-ai/glm-5
-PG_V3_ANALYTICAL_PROMPT=1
-PG_V3_DEPTH_GATE=1
-PG_MOST_ENABLED=1
-PG_HARD_EVIDENCE_DEDUP=1
-PG_SECTION_REASONING=1
-PG_POLISH_PASS=1
-PG_ACADEMIC_ONLY_GATE=1
-PG_GRADE_STANDARDIZATION=1
-PG_STORM_ENABLED=1
-PG_EVIDENCE_DEEPENER=1
-PG_MAX_ITERATIONS=2
-```
+### How to Resume
+1. Read CLAUDE.md
+2. Read this file
+3. Review .env for phase flags (all 5 enabled)
+4. Run: `python -u -m scripts.pg_test_061 --query "your query here"`
+5. Audit the output with `python scripts/run_audit.py --result-file <path>`

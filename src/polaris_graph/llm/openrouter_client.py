@@ -1631,9 +1631,16 @@ class OpenRouterClient:
                 response_format = None
 
         # Ensure system message instructs JSON output (defense-in-depth even with strict schema)
+        # FIX-GEMMA4: Include expected field names in JSON hint to prevent
+        # models from using alternative naming or nested wrappers.
+        try:
+            _schema_fields = list(schema.model_fields.keys())
+            _fields_hint = f" Required top-level keys: {', '.join(_schema_fields)}."
+        except Exception:
+            _fields_hint = ""
         json_hint = (
             "You MUST respond with valid JSON only. No prose, no markdown, "
-            "no code fences — just the JSON object."
+            f"no code fences — just the JSON object.{_fields_hint}"
         )
         messages = []
         if system:
@@ -1734,6 +1741,29 @@ class OpenRouterClient:
                 "[polaris graph] %s: cleaned_len=%d, preview=%s",
                 schema.__name__, len(cleaned), cleaned[:200],
             )
+        # FIX-GEMMA4: Flatten nested JSON wrappers. Some models (Gemma 4)
+        # wrap the expected schema in an outer object like {"research_plan": {...}}.
+        # Unwrap by trying each top-level value as the schema target.
+        try:
+            _probe = json.loads(cleaned)
+            if isinstance(_probe, dict) and len(_probe) == 1:
+                _inner = next(iter(_probe.values()))
+                if isinstance(_inner, dict):
+                    # Try validating the inner dict first
+                    try:
+                        _inner_json = json.dumps(_inner)
+                        schema.model_validate_json(_inner_json)
+                        cleaned = _inner_json
+                        logger.info(
+                            "[polaris graph] FIX-GEMMA4: Unwrapped nested JSON for %s "
+                            "(outer key: '%s')",
+                            schema.__name__, next(iter(_probe.keys())),
+                        )
+                    except Exception:
+                        pass  # Inner doesn't validate either, keep original
+        except (json.JSONDecodeError, Exception):
+            pass
+
         try:
             parsed = schema.model_validate_json(cleaned)
             # FIX-CA1: If ClusterAssessment has empty reasoning/claims but

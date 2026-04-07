@@ -10,6 +10,7 @@ Orchestrates the full synthesis pipeline:
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -45,6 +46,10 @@ from src.polaris_graph.synthesis.section_writer import (
     revise_section,
     write_all_sections,
     _scrub_cot,
+    _assign_evidence_to_sections,
+    _validate_outline_evidence,
+    _fallback_outline,
+    OUTLINE_SYSTEM_PROMPT,
 )
 from src.polaris_graph.synthesis.citation_mapper import (
     audit_citations,
@@ -847,6 +852,958 @@ def _evaluate_analytical_depth(
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 2A: Evidence Cluster Summarization (Claw Code read-then-plan)
+# ---------------------------------------------------------------------------
+
+async def _summarize_evidence_clusters(
+    client: OpenRouterClient,
+    clusters: list[dict],
+    evidence: list[dict],
+    query: str,
+) -> list[dict]:
+    """Summarize each evidence cluster with SPECIFIC findings for outline generation.
+
+    For each cluster, generates a 1-sentence summary including study types,
+    effect sizes, populations, and measurement types actually present in the
+    evidence. This drives evidence-aware outline generation (Phase 2A).
+
+    Returns clusters with added 'evidence_summary' field.
+    """
+    if not clusters:
+        return clusters
+
+    ev_by_id: dict[str, dict] = {}
+    for ev in evidence:
+        eid = ev.get("evidence_id", "")
+        if eid:
+            ev_by_id[eid] = ev
+
+    _timeout = int(os.getenv("PG_CLUSTER_SUMMARY_TIMEOUT", "120"))
+    _max_tokens = int(os.getenv("PG_CLUSTER_SUMMARY_MAX_TOKENS", "512"))
+    _concurrency = int(os.getenv("PG_CLUSTER_SUMMARY_CONCURRENCY", "5"))
+    _sem = asyncio.Semaphore(_concurrency)
+
+    async def _summarize_one(cluster: dict) -> dict:
+        theme = cluster.get("theme", "Unknown")
+        ev_ids = cluster.get("evidence_ids", [])
+        cluster_evidence = [ev_by_id[eid] for eid in ev_ids if eid in ev_by_id]
+
+        if not cluster_evidence:
+            cluster["evidence_summary"] = f"{theme}: no evidence available."
+            return cluster
+
+        # Build compact evidence block for the LLM
+        ev_lines = []
+        for ev in cluster_evidence[:20]:  # Cap at 20 per cluster
+            stmt = ev.get("statement", "")[:200]
+            tier = ev.get("quality_tier", "BRONZE")
+            src_type = ev.get("source_type", "web")
+            ev_lines.append(f"- [{tier}][{src_type}] {stmt}")
+        ev_block = "\n".join(ev_lines)
+
+        prompt = (
+            f"Research question: {query}\n\n"
+            f"Cluster theme: {theme}\n"
+            f"Evidence count: {len(cluster_evidence)}\n\n"
+            f"Evidence:\n{ev_block}\n\n"
+            "Write ONE sentence summarizing what this evidence cluster contains. "
+            "Include: study types (RCT, meta-analysis, cohort, etc.), specific "
+            "measurements/effect sizes with numbers, populations studied, and "
+            "time frames. Be SPECIFIC — not 'studies about weight loss' but "
+            "'8 RCTs and 3 meta-analyses reporting weight loss of -0.9 to -4.3 kg "
+            "in overweight adults over 8-52 weeks.'"
+        )
+
+        async with _sem:
+            try:
+                response = await asyncio.wait_for(
+                    client.generate(
+                        prompt=prompt,
+                        system="You are a research evidence summarizer. Output ONE factual sentence only.",
+                        max_tokens=_max_tokens,
+                        temperature=0.3,
+                    ),
+                    timeout=_timeout,
+                )
+                summary = _scrub_cot(response.content.strip())
+                first_sent = re.split(r'(?<=[.!?])\s+', summary)[0] if summary else ""
+                cluster["evidence_summary"] = first_sent or f"{theme}: {len(cluster_evidence)} evidence pieces."
+            except Exception as exc:
+                logger.warning(
+                    "[polaris graph] Phase 2A: Cluster summary failed for '%s': %s",
+                    theme[:40], str(exc)[:200],
+                )
+                types = {}
+                for ev in cluster_evidence:
+                    t = ev.get("source_type", "web")
+                    types[t] = types.get(t, 0) + 1
+                type_str = ", ".join(f"{v} {k}" for k, v in sorted(types.items(), key=lambda x: -x[1]))
+                cluster["evidence_summary"] = f"{theme}: {len(cluster_evidence)} evidence ({type_str})."
+        return cluster
+
+    results = await asyncio.gather(
+        *[_summarize_one(c) for c in clusters],
+        return_exceptions=True,
+    )
+    summarized = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.warning("[polaris graph] Phase 2A: Cluster %d summary exception: %s", i, str(result)[:200])
+            clusters[i]["evidence_summary"] = f"{clusters[i].get('theme', 'Unknown')}: summary failed."
+            summarized.append(clusters[i])
+        else:
+            summarized.append(result)
+
+    logger.info(
+        "[polaris graph] Phase 2A: Summarized %d evidence clusters for outline generation",
+        len(summarized),
+    )
+    return summarized
+
+
+async def _generate_evidence_driven_outline(
+    client: OpenRouterClient,
+    query: str,
+    clusters: list[dict],
+    evidence: list[dict],
+    evidence_conflicts: list[dict] | None = None,
+    ltm_prior_knowledge: str = "",
+) -> ReportOutline:
+    """Generate outline driven by actual evidence summaries (Phase 2A).
+
+    Instead of generating an outline from the query alone, this uses
+    evidence cluster summaries to ensure every section has guaranteed
+    evidence backing. Mandatory sections for benefits, risks, and
+    methodology are enforced regardless of cluster count.
+    """
+    # Build evidence summary block
+    summary_lines = []
+    for i, cluster in enumerate(clusters, 1):
+        theme = cluster.get("theme", f"Cluster {i}")
+        count = len(cluster.get("evidence_ids", []))
+        summary = cluster.get("evidence_summary", f"{count} evidence pieces")
+        summary_lines.append(f"  Cluster {i} ({count} evidence): {theme}\n    Summary: {summary}")
+
+    evidence_summary_block = "\n".join(summary_lines)
+
+    # Evidence statistics
+    gold_count = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
+    silver_count = sum(1 for e in evidence if e.get("quality_tier") == "SILVER")
+    perspectives: dict[str, int] = {}
+    for e in evidence:
+        p = e.get("perspective", "")
+        if p:
+            perspectives[p] = perspectives.get(p, 0) + 1
+    _perspective_str = ", ".join(
+        f"{k} ({v})" for k, v in sorted(perspectives.items(), key=lambda x: -x[1])
+    ) if perspectives else "Scientific"
+    # D7 fix: Identify underrepresented perspectives for diversity enforcement
+    _all_storm_perspectives = {
+        "Scientific", "Regulatory", "Industry", "Economic",
+        "Public_Health", "Historical", "Regional", "Methodological", "Emerging_Trends",
+    }
+    _represented = set(perspectives.keys())
+    _missing_perspectives = _all_storm_perspectives - _represented
+    _perspective_diversity_hint = ""
+    if _missing_perspectives and len(_represented) >= 2:
+        _perspective_diversity_hint = (
+            f"\n10. PERSPECTIVE DIVERSITY: Your evidence covers {len(_represented)} perspectives "
+            f"({', '.join(sorted(_represented))}). "
+            f"Missing: {', '.join(sorted(_missing_perspectives))}. "
+            f"Where possible, ensure sections acknowledge {', '.join(list(sorted(_missing_perspectives))[:3])} "
+            f"viewpoints even if evidence is primarily from other perspectives."
+        )
+
+    # Section cap from evidence count
+    max_sections_cap = int(os.getenv("PG_MAX_OUTLINE_SECTIONS", "15"))
+    _min_ev_per_section = int(os.getenv("PG_MIN_EVIDENCE_PER_SECTION", "5"))
+    if len(evidence) < 10:
+        target_sections = max(3, len(evidence))
+    else:
+        evidence_based_cap = min(max_sections_cap, len(evidence) // _min_ev_per_section)
+        target_sections = max(3, evidence_based_cap)
+
+    # Conflict block
+    conflict_block = ""
+    if evidence_conflicts:
+        conflict_lines = []
+        for i, c in enumerate(evidence_conflicts[:10], 1):
+            conflict_lines.append(
+                f"  {i}. [{c.get('evidence_a_id', '?')}] vs [{c.get('evidence_b_id', '?')}] "
+                f"({', '.join(c.get('contradiction_signals', [])[:3])})"
+            )
+        conflict_block = (
+            f"\n\nEVIDENCE CONFLICTS ({len(evidence_conflicts)} pairs):\n"
+            + "\n".join(conflict_lines)
+            + "\nEnsure sections address conflicting evidence explicitly."
+        )
+
+    ltm_block = ""
+    if ltm_prior_knowledge:
+        ltm_block = f"\n\nPRIOR KNOWLEDGE:\n{ltm_prior_knowledge}"
+
+    prompt = f"""Research question: {query}
+
+AVAILABLE EVIDENCE (what you can actually write about):
+{evidence_summary_block}
+
+Total: {len(evidence)} evidence (GOLD={gold_count}, SILVER={silver_count})
+Perspectives: {_perspective_str}
+{conflict_block}{ltm_block}
+
+Create a report outline with ONE section per evidence cluster (or merge small clusters).
+Rules:
+1. Each section title must reflect the SPECIFIC evidence available, not generic topics.
+2. Do NOT create sections for topics with < 3 evidence pieces — merge into nearest neighbor.
+3. Maximum {target_sections} sections. target_words = min(200 + cluster_evidence * 80, 2000).
+4. MANDATORY: Include at least one section covering risks/safety/limitations even if evidence is thin.
+5. Return evidence_ids as empty lists [] — evidence assignment is automated.{_perspective_diversity_hint}
+6. The abstract MUST include scope, exclusions, and evidence limitations.
+7. Sections should flow: background → core findings → safety → methodology → implications.
+8. Note which sections should include comparison TABLES (clusters with 4+ comparable data points).
+9. If a cluster has contradictory evidence, plan a balanced treatment."""
+
+    outline = None
+    try:
+        outline = await client.generate_structured(
+            prompt=prompt,
+            schema=ReportOutline,
+            system=OUTLINE_SYSTEM_PROMPT,
+            max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
+            timeout=600,
+        )
+        if outline and len(outline.sections) == 0:
+            logger.warning("[polaris graph] Phase 2A: Evidence-driven outline returned 0 sections, retrying")
+            outline = await client.generate_structured(
+                prompt=prompt,
+                schema=ReportOutline,
+                system=OUTLINE_SYSTEM_PROMPT,
+                max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
+                timeout=600,
+            )
+    except Exception as exc:
+        logger.error(
+            "[polaris graph] Phase 2A: Evidence-driven outline failed: %s",
+            str(exc)[:200],
+        )
+        outline = None
+
+    if outline is None or len(outline.sections) == 0:
+        logger.warning("[polaris graph] Phase 2A: Falling back to cluster-based outline")
+        from src.polaris_graph.synthesis.section_writer import _fallback_outline
+        outline = _fallback_outline(query, clusters, evidence)
+
+    logger.info(
+        "[polaris graph] Phase 2A: Evidence-driven outline: %d sections, '%s'",
+        len(outline.sections), outline.title[:80],
+    )
+    return outline
+
+
+# ---------------------------------------------------------------------------
+# Phase 3A: Outline Critique Agent (Claw Code verification specialist)
+# ---------------------------------------------------------------------------
+
+async def _critique_outline(
+    client: OpenRouterClient,
+    outline: ReportOutline,
+    cluster_summaries: list[dict],
+    query: str,
+) -> ReportOutline:
+    """Adversarial critique of outline structure before section writing.
+
+    Runs up to 2 critique rounds. Applies SIMPLE adjustments only:
+    reorder, rename, merge thin sections. Does NOT split or restructure.
+    """
+    max_rounds = int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_ROUNDS", "2"))
+
+    # Build outline description
+    outline_lines = []
+    for s in outline.sections:
+        ev_count = len(s.evidence_ids)
+        outline_lines.append(
+            f"  {s.order}. [{s.section_id}] {s.title} "
+            f"({ev_count} evidence, {s.target_words} words)\n"
+            f"     {s.description[:120]}"
+        )
+    outline_block = "\n".join(outline_lines)
+
+    # Build cluster summary block
+    cluster_lines = []
+    for i, c in enumerate(cluster_summaries, 1):
+        summary = c.get("evidence_summary", "")
+        count = len(c.get("evidence_ids", []))
+        cluster_lines.append(f"  Cluster {i} ({count} ev): {summary[:200]}")
+    cluster_block = "\n".join(cluster_lines)
+
+    critique_prompt_template = """You are reviewing a research report outline. Your job is to FIND PROBLEMS.
+Do NOT say "looks good." Find problems or say "NO ISSUES FOUND."
+
+Research question: {query}
+
+OUTLINE:
+{outline_block}
+
+AVAILABLE EVIDENCE:
+{cluster_block}
+
+Find SPECIFIC problems:
+1. Are any key aspects of the query NOT covered by a section?
+2. Do any two sections overlap significantly? Name WHICH ONES.
+3. Does any section have fewer than 3 evidence pieces? Which ones?
+4. Is the section order logical for a reader? What should move?
+5. Is any section title too vague to write a focused analysis?
+
+For each problem found, state:
+- Problem type: MISSING_COVERAGE | OVERLAP | THIN_SECTION | BAD_ORDER | VAGUE_TITLE
+- Details: which sections, what's wrong
+- Fix: specific adjustment (merge X into Y, rename X to Y, move X before Y)"""
+
+    for round_num in range(max_rounds):
+        prompt = critique_prompt_template.format(
+            query=query,
+            outline_block=outline_block,
+            cluster_block=cluster_block,
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                client.generate(
+                    prompt=prompt,
+                    system=(
+                        "You are an adversarial outline critic. Your job is not to "
+                        "confirm the outline. Your job is to BREAK it. Find structural "
+                        "weaknesses that will produce a bad report. Be harsh but specific."
+                    ),
+                    max_tokens=int(os.getenv("PG_OUTLINE_CRITIQUE_MAX_TOKENS", "2048")),
+                    temperature=0.8,  # Different temperature for diversity
+                ),
+                timeout=int(os.getenv("PG_OUTLINE_CRITIQUE_TIMEOUT", "180")),
+            )
+            critique_text = _scrub_cot(response.content.strip())
+        except Exception as exc:
+            logger.warning(
+                "[polaris graph] Phase 3A: Outline critique round %d failed: %s",
+                round_num + 1, str(exc)[:200],
+            )
+            break
+
+        # Check if no issues found
+        if "NO ISSUES FOUND" in critique_text.upper() or len(critique_text) < 30:
+            logger.info("[polaris graph] Phase 3A: Critique round %d — no issues found", round_num + 1)
+            break
+
+        # Apply simple adjustments based on critique
+        adjustments_made = 0
+        _critique_lower = critique_text.lower()
+
+        # Fuzzy detection of thin/few/insufficient evidence mentions
+        _thin_signals = any(kw in _critique_lower for kw in [
+            "thin_section", "thin section", "too few", "insufficient",
+            "fewer than", "only 1 ", "only 2 ", "merge", "too little evidence",
+        ])
+
+        # THIN_SECTION: Merge sections with < 3 evidence into neighbors
+        # Uses fuzzy matching: check if ANY significant word from title appears in critique
+        for section in list(outline.sections):
+            if len(section.evidence_ids) < 3 and len(outline.sections) > 3:
+                # Fuzzy title match: check if 2+ significant words from title appear in critique
+                _title_words = {w.lower() for w in section.title.split() if len(w) > 3}
+                _title_overlap = sum(1 for w in _title_words if w in _critique_lower)
+                _title_mentioned = _title_overlap >= 2 or section.title.lower() in _critique_lower
+
+                if _thin_signals and _title_mentioned:
+                    neighbors = sorted(
+                        [s for s in outline.sections if s.section_id != section.section_id],
+                        key=lambda s: abs(s.order - section.order),
+                    )
+                    if neighbors:
+                        target = neighbors[0]
+                        target.evidence_ids.extend(section.evidence_ids)
+                        target.description += f" (merged: {section.title})"
+                        outline.sections = [s for s in outline.sections if s.section_id != section.section_id]
+                        adjustments_made += 1
+                        logger.info(
+                            "[polaris graph] Phase 3A: Merged thin section '%s' into '%s'",
+                            section.title[:40], target.title[:40],
+                        )
+
+        # AUTO-MERGE: Even without critique, merge any section with 0-1 evidence
+        # if total sections > 4 (safety net — critique parsing may miss it)
+        if adjustments_made == 0 and len(outline.sections) > 4:
+            for section in list(outline.sections):
+                if len(section.evidence_ids) <= 1 and len(outline.sections) > 3:
+                    neighbors = sorted(
+                        [s for s in outline.sections if s.section_id != section.section_id],
+                        key=lambda s: abs(s.order - section.order),
+                    )
+                    if neighbors:
+                        target = neighbors[0]
+                        target.evidence_ids.extend(section.evidence_ids)
+                        target.description += f" (auto-merged: {section.title})"
+                        outline.sections = [s for s in outline.sections if s.section_id != section.section_id]
+                        adjustments_made += 1
+                        logger.info(
+                            "[polaris graph] Phase 3A: Auto-merged near-empty section '%s' into '%s'",
+                            section.title[:40], target.title[:40],
+                        )
+
+        # BAD_ORDER: Re-number after any merges
+        for idx, s in enumerate(outline.sections):
+            s.order = idx + 1
+
+        # VAGUE_TITLE: Log for review
+        if any(kw in _critique_lower for kw in ["vague_title", "vague title", "too generic", "nonspecific"]):
+            logger.info("[polaris graph] Phase 3A: Vague titles flagged — logged for review")
+
+        if adjustments_made == 0:
+            logger.info(
+                "[polaris graph] Phase 3A: Critique round %d found issues but "
+                "no safe adjustments possible — accepting outline",
+                round_num + 1,
+            )
+            break
+
+        logger.info(
+            "[polaris graph] Phase 3A: Critique round %d — %d adjustments applied",
+            round_num + 1, adjustments_made,
+        )
+
+        # Rebuild outline block for next round
+        outline_lines = []
+        for s in outline.sections:
+            ev_count = len(s.evidence_ids)
+            outline_lines.append(
+                f"  {s.order}. [{s.section_id}] {s.title} "
+                f"({ev_count} evidence, {s.target_words} words)\n"
+                f"     {s.description[:120]}"
+            )
+        outline_block = "\n".join(outline_lines)
+
+    # Re-number sections after all adjustments
+    for idx, s in enumerate(outline.sections):
+        s.order = idx + 1
+    outline.total_target_words = sum(s.target_words for s in outline.sections)
+
+    logger.info(
+        "[polaris graph] Phase 3A: Outline critique complete: %d sections, %d words",
+        len(outline.sections), outline.total_target_words,
+    )
+    return outline
+
+
+# ---------------------------------------------------------------------------
+# Phase 2B: Focused Re-Extraction Per Section (Claw Code sub-agent pattern)
+# ---------------------------------------------------------------------------
+
+async def _generate_section_questions(
+    client: OpenRouterClient,
+    outline: ReportOutline,
+    query: str,
+) -> dict[str, list[str]]:
+    """Generate 2-3 focused extraction questions per section.
+
+    Returns: {section_id: [question1, question2, question3]}
+    """
+    section_questions: dict[str, list[str]] = {}
+    _timeout = int(os.getenv("PG_SECTION_QUESTION_TIMEOUT", "120"))
+    _max_tokens = int(os.getenv("PG_SECTION_QUESTION_MAX_TOKENS", "1024"))
+    _concurrency = int(os.getenv("PG_SECTION_QUESTION_CONCURRENCY", "5"))
+    _sem = asyncio.Semaphore(_concurrency)
+
+    async def _gen_questions_one(section) -> tuple[str, list[str]]:
+        prompt = (
+            f"Research question: {query}\n\n"
+            f"Report section: {section.title}\n"
+            f"Description: {section.description}\n\n"
+            "Generate exactly 3 focused extraction questions for this section. "
+            "Each question should target SPECIFIC data points a reader would want:\n"
+            "- Q1: What specific quantitative findings exist? (exact numbers, CIs, p-values)\n"
+            "- Q2: What mechanisms or causal relationships are described?\n"
+            "- Q3: What limitations, contradictions, or caveats are noted?\n\n"
+            "Output ONLY 3 questions, one per line, starting with Q1:, Q2:, Q3:."
+        )
+        async with _sem:
+            try:
+                response = await asyncio.wait_for(
+                    client.generate(
+                        prompt=prompt,
+                        system="You are a research extraction strategist. Output exactly 3 questions.",
+                        max_tokens=_max_tokens,
+                        temperature=0.3,
+                    ),
+                    timeout=_timeout,
+                )
+                text = _scrub_cot(response.content.strip())
+                questions = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and any(line.startswith(f"Q{i}:") for i in range(1, 4)):
+                        questions.append(line.split(":", 1)[-1].strip())
+                    elif line and len(questions) < 3 and len(line) > 10:
+                        questions.append(line)
+                return section.section_id, questions[:3]
+            except Exception as exc:
+                logger.warning(
+                    "[polaris graph] Phase 2B: Question generation failed for '%s': %s",
+                    section.title[:40], str(exc)[:200],
+                )
+                return section.section_id, [
+                    f"What specific quantitative findings about {section.title.lower()}?",
+                    f"What mechanisms or causes are described for {section.title.lower()}?",
+                    f"What limitations or contradictions exist for {section.title.lower()}?",
+                ]
+
+    results = await asyncio.gather(
+        *[_gen_questions_one(s) for s in outline.sections],
+        return_exceptions=True,
+    )
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("[polaris graph] Phase 2B: Question generation exception: %s", str(result)[:200])
+        elif isinstance(result, tuple):
+            sid, qs = result
+            section_questions[sid] = qs
+
+    total_q = sum(len(qs) for qs in section_questions.values())
+    logger.info(
+        "[polaris graph] Phase 2B: Generated %d focused questions for %d sections",
+        total_q, len(section_questions),
+    )
+    return section_questions
+
+
+async def _focused_reextraction(
+    client: OpenRouterClient,
+    outline: ReportOutline,
+    section_questions: dict[str, list[str]],
+    evidence: list[dict],
+    fetched_content: dict[str, str],
+    query: str,
+) -> list[dict]:
+    """Re-extract evidence per section with focused questions (Phase 2B).
+
+    For each section, select top sources by relevance, extract with focused
+    questions, and return new evidence pieces to merge into the pool.
+
+    Args:
+        fetched_content: {source_url: content_text} from state.
+        Returns: list of new evidence dicts to merge.
+    """
+    _concurrency = int(os.getenv("PG_FOCUSED_EXTRACTION_CONCURRENCY", "5"))
+    _timeout = int(os.getenv("PG_FOCUSED_EXTRACTION_TIMEOUT", "120"))
+    _max_tokens = int(os.getenv("PG_FOCUSED_EXTRACTION_MAX_TOKENS", "2048"))
+    _max_sources_per_section = int(os.getenv("PG_FOCUSED_MAX_SOURCES_PER_SECTION", "10"))
+    _max_evidence_per_section = int(os.getenv("PG_FOCUSED_MAX_EVIDENCE_PER_SECTION", "10"))
+
+    if not fetched_content:
+        logger.warning("[polaris graph] Phase 2B: No fetched content available, skipping focused extraction")
+        return []
+
+    # Build evidence-to-source mapping
+    source_urls_by_section: dict[str, list[str]] = {}
+    ev_by_id = {e.get("evidence_id", ""): e for e in evidence}
+
+    for section in outline.sections:
+        # Get source URLs from this section's evidence
+        urls = set()
+        for eid in section.evidence_ids[:30]:
+            ev = ev_by_id.get(eid, {})
+            url = ev.get("source_url", "")
+            if url and url in fetched_content:
+                urls.add(url)
+        source_urls_by_section[section.section_id] = list(urls)[:_max_sources_per_section]
+
+    # Extract per section × per question
+    semaphore = asyncio.Semaphore(_concurrency)
+    new_evidence: list[dict] = []
+    existing_statements = {e.get("statement", "").lower()[:100] for e in evidence}
+
+    async def _extract_one(
+        section_id: str,
+        section_title: str,
+        question: str,
+        source_url: str,
+        content: str,
+    ) -> list[dict]:
+        async with semaphore:
+            # Truncate content to cap
+            _content_cap = int(os.getenv("PG_CONTENT_PER_SOURCE", "10000"))
+            content_truncated = content[:_content_cap]
+
+            prompt = (
+                f"Research question: {query}\n"
+                f"Section focus: {section_title}\n"
+                f"Extraction question: {question}\n\n"
+                f"SOURCE CONTENT:\n{content_truncated}\n\n"
+                "Extract 2-3 specific findings that answer the extraction question. "
+                "For each finding:\n"
+                "- statement: one sentence with exact numbers, CIs, p-values\n"
+                "- direct_quote: exact quote from source (max 150 chars)\n"
+                "If the source does NOT contain relevant information, return NOTHING.\n"
+                "Output as JSON array: [{\"statement\": \"...\", \"direct_quote\": \"...\"}]"
+            )
+
+            try:
+                response = await asyncio.wait_for(
+                    client.generate(
+                        prompt=prompt,
+                        system="You are extracting specific research findings. Output valid JSON only.",
+                        max_tokens=_max_tokens,
+                        temperature=0.2,
+                    ),
+                    timeout=_timeout,
+                )
+                text = _scrub_cot(response.content.strip())
+
+                # Parse JSON array from response using bracket-balanced extraction
+                import json  # noqa: F811 — safe repeated import
+                findings = None
+                # Strategy 1: Find balanced JSON array by bracket counting
+                _start = text.find("[")
+                if _start >= 0:
+                    _depth = 0
+                    for _ci, _ch in enumerate(text[_start:]):
+                        if _ch == "[":
+                            _depth += 1
+                        elif _ch == "]":
+                            _depth -= 1
+                            if _depth == 0:
+                                _candidate = text[_start:_start + _ci + 1]
+                                try:
+                                    findings = json.loads(_candidate)
+                                except json.JSONDecodeError:
+                                    pass
+                                break
+                # Strategy 2: Try full text as JSON
+                if findings is None:
+                    try:
+                        findings = json.loads(text)
+                    except json.JSONDecodeError:
+                        pass
+                if not isinstance(findings, list):
+                    return []
+
+                results = []
+                for f in findings[:3]:
+                    if not isinstance(f, dict):
+                        continue
+                    stmt = f.get("statement", "").strip()
+                    quote = f.get("direct_quote", "").strip()[:150]
+                    if stmt and len(stmt) > 20:
+                        # Dedup: skip if similar statement already exists
+                        if stmt.lower()[:100] in existing_statements:
+                            continue
+                        results.append({
+                            "evidence_id": f"ev_focused_{section_id}_{int(hashlib.md5(stmt.encode()).hexdigest()[:8], 16) % 100000:05d}",
+                            "statement": stmt,
+                            "direct_quote": quote,
+                            "source_url": source_url,
+                            "source_type": "focused_extraction",
+                            "quality_tier": "BRONZE",
+                            "relevance_score": 0.6,
+                            "confidence": 0.5,
+                            "is_faithful": False,
+                            "focused_section": section_id,
+                        })
+                return results
+            except Exception:
+                return []
+
+    # Launch all extraction tasks
+    tasks = []
+    for section in outline.sections:
+        sid = section.section_id
+        questions = section_questions.get(sid, [])
+        urls = source_urls_by_section.get(sid, [])
+        for q in questions:
+            for url in urls[:5]:  # Cap at 5 sources per question
+                content = fetched_content.get(url, "")
+                if content and len(content) > 200:
+                    tasks.append(_extract_one(sid, section.title, q, url, content))
+
+    if not tasks:
+        logger.info("[polaris graph] Phase 2B: No extraction tasks generated")
+        return []
+
+    logger.info("[polaris graph] Phase 2B: Running %d focused extraction tasks", len(tasks))
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for result in results:
+        if isinstance(result, list):
+            new_evidence.extend(result)
+
+    # Dedup new evidence by statement hash
+    seen_stmts: set[str] = set()
+    deduped = []
+    for ev in new_evidence:
+        key = ev.get("statement", "").lower()[:100]
+        if key not in seen_stmts:
+            seen_stmts.add(key)
+            deduped.append(ev)
+
+    # Cap per section
+    section_counts: dict[str, int] = {}
+    capped = []
+    for ev in deduped:
+        sid = ev.get("focused_section", "")
+        count = section_counts.get(sid, 0)
+        if count < _max_evidence_per_section:
+            capped.append(ev)
+            section_counts[sid] = count + 1
+
+    logger.info(
+        "[polaris graph] Phase 2B: Focused re-extraction produced %d new evidence "
+        "(%d raw, %d after dedup, %d after cap)",
+        len(capped), len(new_evidence), len(deduped), len(capped),
+    )
+    return capped
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Post-Write Adversarial Review (Claw Code verification specialist)
+# ---------------------------------------------------------------------------
+
+async def _review_sections(
+    client: OpenRouterClient,
+    sections: list,
+    evidence: list[dict],
+    query: str,
+    section_evidence_map: dict[str, list[str]],
+) -> list[dict]:
+    """Per-section adversarial review after all sections are written.
+
+    Reviews each section against its assigned evidence. Returns list of
+    issues with CRITICAL/ADVISORY classification.
+    """
+    _timeout = int(os.getenv("PG_REVIEW_SECTION_TIMEOUT", "120"))
+    _max_tokens = int(os.getenv("PG_REVIEW_SECTION_MAX_TOKENS", "2048"))
+    _concurrency = int(os.getenv("PG_REVIEW_CONCURRENCY", "3"))
+
+    ev_by_id = {e.get("evidence_id", ""): e for e in evidence}
+    semaphore = asyncio.Semaphore(_concurrency)
+    all_issues: list[dict] = []
+
+    async def _review_one(section) -> list[dict]:
+        async with semaphore:
+            sid = getattr(section, "section_id", "")
+            title = getattr(section, "title", "")
+            content = getattr(section, "content", "")
+
+            # Get evidence assigned to this section
+            ev_ids = section_evidence_map.get(sid, [])
+            section_ev = [ev_by_id.get(eid, {}) for eid in ev_ids[:15] if eid in ev_by_id]
+
+            ev_block = "\n".join(
+                f"  [{ev.get('evidence_id', '?')}] {ev.get('statement', '')[:200]}"
+                for ev in section_ev
+            )
+
+            prompt = (
+                f"Research question: {query}\n\n"
+                f"SECTION: {title}\n"
+                f"CONTENT:\n{content[:3000]}\n\n"
+                f"EVIDENCE ASSIGNED TO THIS SECTION:\n{ev_block}\n\n"
+                "Find SPECIFIC problems. Do NOT say 'the section is good.'\n"
+                "Check:\n"
+                "1. CITATION_MISMATCH: Does each [CITE:ev_xxx] support the adjacent claim? "
+                "Compare claim text with evidence statement word by word.\n"
+                "2. UNSUPPORTED_CLAIM: Any factual claim (number, date, name) without citation?\n"
+                "3. NUMBER_MISMATCH: Numbers in text differ from evidence numbers?\n"
+                "4. OVERCLAIMING: Text says 'causes' but evidence says 'associated with'?\n"
+                "5. GAP: Given evidence, what important finding is NOT discussed?\n\n"
+                "For each problem, output one line:\n"
+                "CRITICAL|ADVISORY :: TYPE :: description :: fix\n"
+                "If no problems: NO ISSUES FOUND"
+            )
+
+            try:
+                response = await asyncio.wait_for(
+                    client.generate(
+                        prompt=prompt,
+                        system=(
+                            "You are an adversarial section reviewer. Your job is to FIND PROBLEMS, "
+                            "not confirm quality. Default to flagging issues when uncertain. "
+                            "Compare numbers DIGIT BY DIGIT."
+                        ),
+                        max_tokens=_max_tokens,
+                        temperature=0.5,
+                    ),
+                    timeout=_timeout,
+                )
+                text = _scrub_cot(response.content.strip())
+
+                if "NO ISSUES FOUND" in text.upper():
+                    return []
+
+                issues = []
+                # Severity keywords for fuzzy detection
+                _critical_kw = {"critical", "severe", "must fix", "incorrect", "wrong", "mismatch"}
+                # Issue type keywords for fuzzy detection
+                _type_map = {
+                    "citation": "CITATION_MISMATCH",
+                    "mismatch": "CITATION_MISMATCH",
+                    "unsupported": "UNSUPPORTED_CLAIM",
+                    "uncited": "UNSUPPORTED_CLAIM",
+                    "overclaim": "OVERCLAIMING",
+                    "causal": "OVERCLAIMING",
+                    "causes": "OVERCLAIMING",
+                    "number": "NUMBER_MISMATCH",
+                    "gap": "GAP",
+                }
+
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if not line or len(line) < 15:
+                        continue
+
+                    # Primary parsing: :: delimiter
+                    if "::" in line:
+                        parts = [p.strip() for p in line.split("::")]
+                        if len(parts) >= 2:
+                            severity = "CRITICAL" if any(kw in parts[0].lower() for kw in _critical_kw) else "ADVISORY"
+                            issue_type = parts[1] if len(parts) > 1 else "UNKNOWN"
+                            issues.append({
+                                "section_id": sid,
+                                "section_title": title,
+                                "severity": severity,
+                                "type": issue_type,
+                                "description": parts[2] if len(parts) > 2 else parts[-1],
+                                "fix": parts[3] if len(parts) > 3 else "",
+                            })
+                            continue
+
+                    # Fallback: fuzzy parsing from natural language
+                    _line_lower = line.lower()
+                    # Detect severity
+                    _is_critical = any(kw in _line_lower for kw in _critical_kw)
+                    # Detect type
+                    _detected_type = "UNKNOWN"
+                    for kw, itype in _type_map.items():
+                        if kw in _line_lower:
+                            _detected_type = itype
+                            break
+                    # Only create issue if we detected a meaningful type
+                    if _detected_type != "UNKNOWN":
+                        issues.append({
+                            "section_id": sid,
+                            "section_title": title,
+                            "severity": "CRITICAL" if _is_critical else "ADVISORY",
+                            "type": _detected_type,
+                            "description": line[:300],
+                            "fix": "",
+                        })
+
+                return issues
+            except Exception as exc:
+                logger.warning(
+                    "[polaris graph] Phase 4: Review failed for '%s': %s",
+                    title[:40], str(exc)[:200],
+                )
+                return []
+
+    tasks = [_review_one(s) for s in sections]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for result in results:
+        if isinstance(result, list):
+            all_issues.extend(result)
+
+    critical_count = sum(1 for i in all_issues if i.get("severity") == "CRITICAL")
+    advisory_count = len(all_issues) - critical_count
+    logger.info(
+        "[polaris graph] Phase 4: Adversarial review found %d issues "
+        "(%d CRITICAL, %d ADVISORY)",
+        len(all_issues), critical_count, advisory_count,
+    )
+    return all_issues
+
+
+def _apply_critical_fixes(
+    sections: list,
+    issues: list[dict],
+) -> list:
+    """Apply CRITICAL fixes using regex/string operations only (no LLM).
+
+    Types of fixes:
+    - CITATION_MISMATCH: remove the citation marker
+    - OVERCLAIMING: replace causal language with hedged language
+    - NUMBER_MISMATCH: flag but don't auto-fix (too risky)
+    """
+    if not issues:
+        return sections
+
+    critical_issues = [i for i in issues if i.get("severity") == "CRITICAL"]
+    if not critical_issues:
+        return sections
+
+    section_map = {getattr(s, "section_id", ""): s for s in sections}
+    fixes_applied = 0
+    fixes_attempted = 0
+
+    for issue in critical_issues:
+        sid = issue.get("section_id", "")
+        section = section_map.get(sid)
+        if not section:
+            continue
+
+        content = getattr(section, "content", "")
+        issue_type = issue.get("type", "").upper()
+        fixes_attempted += 1
+
+        if "OVERCLAIM" in issue_type:
+            # Replace ALL causal language with hedged language (not just first)
+            overclaim_replacements = {
+                " causes ": " is associated with ",
+                " proves ": " suggests ",
+                " demonstrates that ": " indicates that ",
+                " confirms ": " supports the finding that ",
+                " eliminates ": " may reduce ",
+                " cures ": " may improve outcomes for ",
+                " prevents ": " may help prevent ",
+            }
+            for old, new in overclaim_replacements.items():
+                if old in content.lower():
+                    pattern = re.compile(re.escape(old), re.IGNORECASE)
+                    content = pattern.sub(new, content)  # Replace ALL occurrences
+                    fixes_applied += 1
+                    # Don't break — fix ALL overclaiming patterns in the section
+
+        elif "CITATION" in issue_type or "MISMATCH" in issue_type:
+            # Extract evidence IDs from fix+description using broader regex
+            fix_desc = issue.get("fix", "") + " " + issue.get("description", "")
+            # Match ev_ followed by alphanumeric (hex or decimal)
+            cited_ids = re.findall(r'ev_[a-f0-9A-F]+', fix_desc)
+            if not cited_ids:
+                # Fallback: try to find any CITE references in the description
+                cited_ids = re.findall(r'\[CITE:(ev_[^\]]+)\]', fix_desc)
+            for eid in cited_ids:
+                if f"[CITE:{eid}]" in content:
+                    content = content.replace(f"[CITE:{eid}]", "")
+                    fixes_applied += 1
+
+        elif "UNSUPPORTED" in issue_type:
+            # For unsupported claims, add hedging if specific sentence mentioned
+            desc = issue.get("description", "")
+            # Extract first quoted portion as the problematic sentence
+            quoted = re.findall(r'"([^"]{20,})"', desc)
+            if quoted:
+                for q in quoted[:1]:
+                    if q in content:
+                        content = content.replace(q, f"Evidence suggests that {q.lower()}", 1)
+                        fixes_applied += 1
+
+        if hasattr(section, "content"):
+            section.content = content
+
+    logger.info(
+        "[polaris graph] Phase 4: Applied %d fixes from %d critical issues (%d attempted)",
+        fixes_applied, len(critical_issues), fixes_attempted,
+    )
+    return sections
+
+
 async def synthesize_report(
     client: OpenRouterClient,
     state: ResearchState,
@@ -1060,6 +2017,86 @@ async def synthesize_report(
     # Step 1: Cluster evidence
     clusters = await _cluster_evidence(client, verified_evidence, query)
 
+    # ===================================================================
+    # Pattern E: Decomposition validation (ADaPT / Claw Code pattern).
+    # If clustering produced <3 clusters, the decomposition is degenerate
+    # (all evidence in one bucket). Re-cluster with explicit granularity.
+    # ===================================================================
+    _min_clusters = int(os.getenv("PG_MIN_CLUSTERS", "3"))
+    if len(clusters) < _min_clusters and len(verified_evidence) >= 10:
+        logger.warning(
+            "[polaris graph] Pattern-E: Clustering produced only %d clusters "
+            "from %d evidence — re-clustering with granularity hint",
+            len(clusters), len(verified_evidence),
+        )
+        # Build a more explicit prompt by listing evidence topics
+        _topic_hints = set()
+        for ev in verified_evidence[:30]:
+            stmt = ev.get("statement", "").lower()
+            for kw_group in [
+                ("weight", "body mass", "obesity", "bmi"),
+                ("glucose", "insulin", "diabetes", "glycemic", "hba1c"),
+                ("cardiovascular", "blood pressure", "cholesterol", "lipid", "heart"),
+                ("safety", "adverse", "risk", "contraindication", "side effect"),
+                ("mechanism", "autophagy", "mtor", "pathway", "cellular"),
+                ("inflammation", "cytokine", "crp", "il-6", "tnf"),
+                ("mental", "cognitive", "brain", "neuro", "mood"),
+                ("methodology", "meta-analysis", "systematic review", "rct", "grade"),
+            ]:
+                if any(kw in stmt for kw in kw_group):
+                    _topic_hints.add(kw_group[0])
+                    break
+        if len(_topic_hints) >= 3:
+            # We have enough topic diversity — build fallback clusters from keywords
+            _fallback_clusters = []
+            _ev_by_id = {e.get("evidence_id", ""): e for e in verified_evidence}
+            _assigned = set()
+            for topic in sorted(_topic_hints):
+                _cluster_ids = []
+                for ev in verified_evidence:
+                    eid = ev.get("evidence_id", "")
+                    if eid in _assigned:
+                        continue
+                    stmt = ev.get("statement", "").lower()
+                    # Check if this evidence matches this topic's keywords
+                    kw_groups = {
+                        "weight": ("weight", "body mass", "obesity", "bmi"),
+                        "glucose": ("glucose", "insulin", "diabetes", "glycemic"),
+                        "cardiovascular": ("cardiovascular", "blood pressure", "cholesterol", "lipid"),
+                        "safety": ("safety", "adverse", "risk", "contraindication"),
+                        "mechanism": ("mechanism", "autophagy", "mtor", "pathway"),
+                        "inflammation": ("inflammation", "cytokine", "crp", "il-6"),
+                        "mental": ("mental", "cognitive", "brain", "neuro"),
+                        "methodology": ("methodology", "meta-analysis", "systematic review"),
+                    }
+                    kws = kw_groups.get(topic, (topic,))
+                    if any(kw in stmt for kw in kws):
+                        _cluster_ids.append(eid)
+                        _assigned.add(eid)
+                if _cluster_ids:
+                    _fallback_clusters.append({
+                        "theme": topic.title().replace("_", " "),
+                        "evidence_ids": _cluster_ids,
+                        "key_claims": [],
+                    })
+            # Assign remaining evidence to largest cluster
+            _unassigned = [e.get("evidence_id", "") for e in verified_evidence if e.get("evidence_id", "") not in _assigned]
+            if _unassigned and _fallback_clusters:
+                _fallback_clusters[0]["evidence_ids"].extend(_unassigned)
+
+            if len(_fallback_clusters) >= _min_clusters:
+                clusters = _fallback_clusters
+                logger.info(
+                    "[polaris graph] Pattern-E: Keyword-based re-clustering produced %d clusters: %s",
+                    len(clusters),
+                    [f"{c['theme']} ({len(c['evidence_ids'])})" for c in clusters],
+                )
+            else:
+                logger.info(
+                    "[polaris graph] Pattern-E: Keyword fallback produced only %d clusters, keeping original",
+                    len(_fallback_clusters),
+                )
+
     # Step 1b: Assess cluster viability via LLM reasoning
     viability_enabled = os.getenv("PG_CLUSTER_VIABILITY_ENABLED", "0") == "1"
     if viability_enabled and clusters:
@@ -1242,17 +2279,59 @@ async def synthesize_report(
         except Exception as exc:
             logger.debug("[polaris graph] M-15: LTM query failed: %s", str(exc)[:200])
 
-    # Step 2: Plan report outline
-    # FIX-ENV4: Pass evidence_conflicts so the outline can account for
-    # contradictory evidence when structuring the report.
-    outline = await plan_report(
-        client=client,
-        query=query,
-        evidence=verified_evidence,
-        clusters=clusters,
-        evidence_conflicts=evidence_conflicts,
-        ltm_prior_knowledge=ltm_prior_context,
-    )
+    # ===================================================================
+    # Step 2a: Phase 2A — Summarize evidence clusters (read-then-plan)
+    # ===================================================================
+    phase_2a_enabled = os.getenv("PG_PHASE_2A_ENABLED", "1") == "1"
+    if phase_2a_enabled and clusters:
+        clusters = await _summarize_evidence_clusters(
+            client=client,
+            clusters=clusters,
+            evidence=verified_evidence,
+            query=query,
+        )
+
+    # ===================================================================
+    # Step 2b: Phase 2A — Evidence-driven outline (or legacy outline)
+    # ===================================================================
+    if phase_2a_enabled and clusters:
+        outline = await _generate_evidence_driven_outline(
+            client=client,
+            query=query,
+            clusters=clusters,
+            evidence=verified_evidence,
+            evidence_conflicts=evidence_conflicts,
+            ltm_prior_knowledge=ltm_prior_context,
+        )
+    else:
+        # Legacy path: plan report from query + clusters
+        outline = await plan_report(
+            client=client,
+            query=query,
+            evidence=verified_evidence,
+            clusters=clusters,
+            evidence_conflicts=evidence_conflicts,
+            ltm_prior_knowledge=ltm_prior_context,
+        )
+
+    # FIX-OUTLINE: Algorithmically assign evidence from clusters to sections
+    outline = _assign_evidence_to_sections(outline, clusters, verified_evidence)
+    outline = _validate_outline_evidence(outline)
+
+    # FIX-056: Trim sections with 0 evidence (keep at least 3)
+    if len(outline.sections) > 3:
+        non_empty = [s for s in outline.sections if s.evidence_ids]
+        empty = [s for s in outline.sections if not s.evidence_ids]
+        if non_empty and empty:
+            outline.sections = non_empty
+            for idx, s in enumerate(outline.sections):
+                s.order = idx + 1
+            outline.total_target_words = len(outline.sections) * 800
+            logger.info(
+                "[polaris graph] FIX-056: Trimmed %d empty sections "
+                "(%d → %d sections with evidence)",
+                len(empty), len(empty) + len(non_empty), len(outline.sections),
+            )
 
     tracer = get_tracer()
     if tracer:
@@ -1262,6 +2341,114 @@ async def synthesize_report(
                        "description": s.description[:200],
                        "evidence_count": len(s.evidence_ids), "target_words": s.target_words}
                       for s in outline.sections])
+
+    # ===================================================================
+    # Step 2c: Phase 3A — Outline critique (adversarial review)
+    # ===================================================================
+    phase_3a_enabled = os.getenv("PG_PHASE_3A_ENABLED", "1") == "1"
+    if phase_3a_enabled:
+        outline = await _critique_outline(
+            client=client,
+            outline=outline,
+            cluster_summaries=clusters,
+            query=query,
+        )
+
+    # ===================================================================
+    # Step 2d: Phase 2B — Focused re-extraction per section
+    # ===================================================================
+    phase_2b_enabled = os.getenv("PG_PHASE_2B_ENABLED", "1") == "1"
+    if phase_2b_enabled:
+        # Generate focused questions per section
+        section_questions = await _generate_section_questions(
+            client=client,
+            outline=outline,
+            query=query,
+        )
+
+        # Get fetched content from state for re-extraction.
+        # State stores fetched_content as list[dict] with keys: url, title, content.
+        # Convert to dict[url→content] for focused extraction.
+        _raw_fetched = state.get("fetched_content", [])
+        fetched_content: dict[str, str] = {}
+        if isinstance(_raw_fetched, list):
+            for item in _raw_fetched:
+                if isinstance(item, dict) and item.get("url") and item.get("content"):
+                    fetched_content[item["url"]] = item["content"]
+            if fetched_content:
+                logger.info(
+                    "[polaris graph] Phase 2B: Converted %d fetched_content items from state",
+                    len(fetched_content),
+                )
+        elif isinstance(_raw_fetched, dict):
+            fetched_content = _raw_fetched
+
+        if not fetched_content:
+            # Fallback: try to build from SQLite content cache (async)
+            try:
+                from src.polaris_graph.memory.content_cache import get_cached_content
+                source_urls = list({
+                    e.get("source_url", "") for e in verified_evidence
+                    if e.get("source_url")
+                })
+                for url in source_urls[:50]:
+                    cached = await get_cached_content(url)
+                    if cached and isinstance(cached, dict):
+                        _cached_text = cached.get("content", "")
+                        if _cached_text and len(_cached_text) > 200:
+                            fetched_content[url] = _cached_text
+                    elif cached and isinstance(cached, str) and len(cached) > 200:
+                        fetched_content[url] = cached
+                if fetched_content:
+                    logger.info(
+                        "[polaris graph] Phase 2B: Loaded %d items from content cache fallback",
+                        len(fetched_content),
+                    )
+            except Exception as _cache_exc:
+                logger.debug(
+                    "[polaris graph] Phase 2B: Content cache fallback failed: %s",
+                    str(_cache_exc)[:200],
+                )
+
+        if fetched_content:
+            focused_evidence = await _focused_reextraction(
+                client=client,
+                outline=outline,
+                section_questions=section_questions,
+                evidence=verified_evidence,
+                fetched_content=fetched_content,
+                query=query,
+            )
+
+            # Merge focused evidence into pool
+            if focused_evidence:
+                existing_ids = {e.get("evidence_id", "") for e in verified_evidence}
+                added = 0
+                for ev in focused_evidence:
+                    if ev.get("evidence_id", "") not in existing_ids:
+                        verified_evidence.append(ev)
+                        existing_ids.add(ev["evidence_id"])
+                        added += 1
+
+                        # Also assign to the target section
+                        target_sid = ev.get("focused_section", "")
+                        for section in outline.sections:
+                            if section.section_id == target_sid:
+                                section.evidence_ids.append(ev["evidence_id"])
+                                break
+
+                logger.info(
+                    "[polaris graph] Phase 2B: Merged %d focused evidence into pool "
+                    "(total now %d)",
+                    added, len(verified_evidence),
+                )
+        else:
+            logger.info("[polaris graph] Phase 2B: No fetched content available, skipping")
+
+    # Phase 2B post-fix: Re-validate outline evidence after focused injection
+    # to dedup any evidence IDs added by Phase 2B that overlap with existing assignments
+    if phase_2b_enabled:
+        outline = _validate_outline_evidence(outline)
 
     # FIX-S2: Populate corroborating_sources count on evidence before section writing
     # so the section writer can prioritize well-corroborated evidence.
@@ -1382,6 +2569,100 @@ async def synthesize_report(
             mapping=[{"section_id": sid, "evidence_count": len(eids),
                       "evidence_ids": eids[:10]}
                      for sid, eids in section_evidence_map.items()])
+
+    # ===================================================================
+    # FIX-EVID-PRESERVE: Snapshot evidence_ids BEFORE post-synthesis transforms.
+    # Multiple transforms (revision, citation agent, hallucination audit, MoST)
+    # create new SectionDraft objects that may not carry evidence_ids forward.
+    # This snapshot lets us restore evidence_ids before assembly.
+    # ===================================================================
+    _evidence_ids_snapshot: dict[str, list[str]] = {}
+    for sec in sections:
+        sid = getattr(sec, "section_id", "")
+        eids = getattr(sec, "evidence_ids", []) or section_evidence_map.get(sid, [])
+        if sid and eids:
+            _evidence_ids_snapshot[sid] = list(eids)
+    logger.info(
+        "[polaris graph] FIX-EVID-PRESERVE: Snapshot %d sections with evidence_ids "
+        "(total %d evidence assignments)",
+        len(_evidence_ids_snapshot),
+        sum(len(v) for v in _evidence_ids_snapshot.values()),
+    )
+
+    # ===================================================================
+    # Pattern J+K: Hard word-budget enforcement + Gini balance gate.
+    # Trim sections >2x the median word count. This prevents one section
+    # from dominating the report (D4 Section Balance penalty).
+    # ===================================================================
+    if len(sections) >= 3:
+        _word_counts = []
+        for sec in sections:
+            _wc = len(getattr(sec, "content", "").split())
+            _word_counts.append(_wc)
+        _median_wc = sorted(_word_counts)[len(_word_counts) // 2]
+        _max_allowed = max(int(_median_wc * 2.0), 2000)  # At least 2000
+
+        # Pattern K: Compute Gini coefficient for balance detection
+        _sorted_wc = sorted(_word_counts)
+        _n = len(_sorted_wc)
+        _sum_wc = sum(_sorted_wc) or 1
+        _gini = sum((2 * (i + 1) - _n - 1) * w for i, w in enumerate(_sorted_wc)) / (_n * _sum_wc)
+        logger.info(
+            "[polaris graph] Pattern-K: Section word counts: %s (median=%d, gini=%.3f)",
+            _word_counts, _median_wc, _gini,
+        )
+
+        # Pattern J: Trim oversized sections by removing lowest-evidence-density paragraphs
+        _trimmed_count = 0
+        _gini_threshold = float(os.getenv("PG_SECTION_GINI_THRESHOLD", "0.30"))
+        if _gini > _gini_threshold:  # Imbalanced — enforce trimming
+            for sec in sections:
+                _content = getattr(sec, "content", "")
+                _wc = len(_content.split())
+                if _wc > _max_allowed:
+                    # Split into paragraphs, score each by citation density
+                    _paragraphs = _content.split("\n\n")
+                    if len(_paragraphs) <= 2:
+                        continue  # Can't trim meaningfully
+                    _para_scores = []
+                    for pi, para in enumerate(_paragraphs):
+                        _p_words = len(para.split())
+                        _p_cites = para.count("[CITE:")
+                        # Keep Key Findings, tables, and highly-cited paragraphs
+                        _is_protected = (
+                            "**Key Findings" in para
+                            or "| " in para  # Table row
+                            or pi == 0  # Opening paragraph
+                        )
+                        _density = (_p_cites / max(_p_words, 1)) * 100 if not _is_protected else 999
+                        _para_scores.append((_density, pi, para, _is_protected))
+
+                    # Sort by density (lowest first), remove until under budget
+                    _para_scores.sort(key=lambda x: x[0])
+                    _removed = 0
+                    _remaining_paras = list(_paragraphs)
+                    for _density, _pi, _para, _is_protected in _para_scores:
+                        if _is_protected:
+                            continue
+                        _current_wc = sum(len(p.split()) for p in _remaining_paras)
+                        if _current_wc <= _max_allowed:
+                            break
+                        _remaining_paras.remove(_para)
+                        _removed += 1
+
+                    if _removed > 0:
+                        _new_content = "\n\n".join(_remaining_paras)
+                        _new_wc = len(_new_content.split())
+                        if hasattr(sec, "content"):
+                            sec.content = _new_content
+                        _trimmed_count += 1
+                        logger.info(
+                            "[polaris graph] Pattern-J: Trimmed section '%s' from %d to %d words "
+                            "(%d low-density paragraphs removed, max_allowed=%d)",
+                            getattr(sec, "title", "")[:40], _wc, _new_wc, _removed, _max_allowed,
+                        )
+        if _trimmed_count:
+            logger.info("[polaris graph] Pattern-J: Trimmed %d oversized sections", _trimmed_count)
 
     # Step 3b: FIX-S1 — Revise sections for quality (controlled by env var)
     # FIX-PARALLEL: Semaphore-bounded concurrent revision (was sequential)
@@ -1504,6 +2785,21 @@ async def synthesize_report(
                     "[polaris graph] CHART-GEN: Charts generated for %d/%d sections",
                     chart_gen_count, len(sections),
                 )
+
+    # ===================================================================
+    # Step 3.5: Phase 4 — Post-write adversarial review
+    # ===================================================================
+    phase_4_enabled = os.getenv("PG_PHASE_4_ENABLED", "1") == "1"
+    if phase_4_enabled and sections:
+        review_issues = await _review_sections(
+            client=client,
+            sections=sections,
+            evidence=verified_evidence,
+            query=query,
+            section_evidence_map=section_evidence_map,
+        )
+        if review_issues:
+            sections = _apply_critical_fixes(sections, review_issues)
 
     # Step 4: Audit citations
     citation_audit = await audit_citations(
@@ -1952,6 +3248,154 @@ async def synthesize_report(
                 contradictions_section["word_count"],
             )
 
+    # ===================================================================
+    # FIX-EVID-PRESERVE: Restore evidence_ids that were lost during transforms.
+    # Post-synthesis transforms (revision, citation agent, hallucination audit,
+    # MoST) may create new SectionDraft objects without evidence_ids.
+    # ===================================================================
+    _restored_count = 0
+    for sec in sections:
+        sid = getattr(sec, "section_id", "")
+        current_eids = getattr(sec, "evidence_ids", []) or []
+        if sid and not current_eids and sid in _evidence_ids_snapshot:
+            if hasattr(sec, "evidence_ids"):
+                sec.evidence_ids = _evidence_ids_snapshot[sid]
+            else:
+                try:
+                    sec.evidence_ids = _evidence_ids_snapshot[sid]
+                except AttributeError:
+                    pass
+            _restored_count += 1
+    if _restored_count:
+        logger.info(
+            "[polaris graph] FIX-EVID-PRESERVE: Restored evidence_ids for %d/%d sections "
+            "that lost them during post-synthesis transforms",
+            _restored_count, len(sections),
+        )
+
+    # ===================================================================
+    # FIX-COMPLETENESS: Pre-assembly completeness gate.
+    # Verify every section has content. If a section has content > 0 but
+    # evidence_ids == 0, preserve it (don't let thin-merge destroy it).
+    # ===================================================================
+    _empty_sections = []
+    for sec in sections:
+        sid = getattr(sec, "section_id", "")
+        content = getattr(sec, "content", "")
+        wc = len(content.split()) if content else 0
+        eids = getattr(sec, "evidence_ids", []) or []
+        if wc == 0:
+            _empty_sections.append(sid)
+        elif wc > 100 and len(eids) < 3:
+            # Section has real content but few evidence_ids — restore from snapshot
+            # to prevent thin-merge from destroying written content
+            if sid in _evidence_ids_snapshot:
+                sec.evidence_ids = _evidence_ids_snapshot[sid]
+                logger.info(
+                    "[polaris graph] FIX-COMPLETENESS: Restored evidence_ids for section '%s' "
+                    "(%d words, was %d eids, now %d eids) to prevent thin-merge destruction",
+                    getattr(sec, "title", "")[:40], wc, len(eids),
+                    len(_evidence_ids_snapshot[sid]),
+                )
+            elif sid in section_evidence_map:
+                sec.evidence_ids = section_evidence_map[sid]
+                logger.info(
+                    "[polaris graph] FIX-COMPLETENESS: Restored evidence_ids from section_evidence_map "
+                    "for '%s' (%d words, %d eids)",
+                    getattr(sec, "title", "")[:40], wc, len(section_evidence_map[sid]),
+                )
+    if _empty_sections:
+        logger.warning(
+            "[polaris graph] FIX-COMPLETENESS: %d sections have 0 words: %s",
+            len(_empty_sections), _empty_sections,
+        )
+
+    # ===================================================================
+    # Pattern M: Single concatenated-article coherence pass (STORM pattern).
+    # One LLM call reads ALL sections and produces transition sentences
+    # to insert between adjacent sections for cross-section coherence.
+    # ===================================================================
+    _coherence_pass_enabled = os.getenv("PG_COHERENCE_PASS_ENABLED", "1") == "1"
+    if _coherence_pass_enabled and len(sections) >= 3:
+        _sorted_for_coherence = sorted(
+            sections,
+            key=lambda s: getattr(s, "order", 0) if hasattr(s, "order") else 0,
+        )
+        # Build section summaries for the coherence prompt
+        _section_summaries = []
+        for i, sec in enumerate(_sorted_for_coherence):
+            _title = getattr(sec, "title", "")
+            _content = getattr(sec, "content", "")
+            # First and last sentence of each section
+            _sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', _content)
+            _first = _sentences[0][:200] if _sentences else ""
+            _last = _sentences[-1][:200] if len(_sentences) > 1 else ""
+            _section_summaries.append(
+                f"Section {i+1}: {_title}\n"
+                f"  Opening: {_first}\n"
+                f"  Closing: {_last}"
+            )
+        _coherence_block = "\n".join(_section_summaries)
+
+        _coherence_prompt = (
+            f"Research report on: {query}\n\n"
+            f"The report has {len(_sorted_for_coherence)} sections:\n"
+            f"{_coherence_block}\n\n"
+            "For each pair of ADJACENT sections, write ONE transition sentence "
+            "that connects the closing of section N to the opening of section N+1. "
+            "The transition should:\n"
+            "- Reference a specific finding from the ending section\n"
+            "- Explain why the next section follows logically\n"
+            "- Use phrases like 'Building on these findings...', 'Beyond the metabolic effects...', "
+            "'While the preceding analysis examined X, the following section addresses Y...'\n\n"
+            "Output format (one per line):\n"
+            "TRANSITION 1→2: <sentence>\n"
+            "TRANSITION 2→3: <sentence>\n"
+            "..."
+        )
+        try:
+            _coherence_timeout = int(os.getenv("PG_COHERENCE_PASS_TIMEOUT", "120"))
+            _coherence_response = await asyncio.wait_for(
+                client.generate(
+                    prompt=_coherence_prompt,
+                    system="You are a research report editor. Write smooth transitions between sections. Output ONLY the transition sentences.",
+                    max_tokens=int(os.getenv("PG_COHERENCE_PASS_MAX_TOKENS", "1024")),
+                    temperature=0.5,
+                ),
+                timeout=_coherence_timeout,
+            )
+            _transitions_text = _scrub_cot(_coherence_response.content.strip())
+
+            # Parse transition sentences and inject into section openings
+            _injected = 0
+            for line in _transitions_text.split("\n"):
+                line = line.strip()
+                # Match "TRANSITION N→M: sentence" or "TRANSITION N->M: sentence"
+                _trans_match = re.match(r'TRANSITION\s+(\d+)\s*[→\->]+\s*(\d+)\s*:\s*(.+)', line)
+                if _trans_match:
+                    _from_idx = int(_trans_match.group(1)) - 1
+                    _to_idx = int(_trans_match.group(2)) - 1
+                    _transition = _trans_match.group(3).strip()
+                    if 0 <= _to_idx < len(_sorted_for_coherence) and len(_transition) > 20:
+                        _target_sec = _sorted_for_coherence[_to_idx]
+                        _existing = getattr(_target_sec, "content", "")
+                        if hasattr(_target_sec, "content"):
+                            _target_sec.content = _transition + "\n\n" + _existing
+                            _injected += 1
+
+            if _injected:
+                logger.info(
+                    "[polaris graph] Pattern-M: Injected %d transition sentences for cross-section coherence",
+                    _injected,
+                )
+            else:
+                logger.info("[polaris graph] Pattern-M: No parseable transitions produced")
+        except Exception as _coh_exc:
+            logger.warning(
+                "[polaris graph] Pattern-M: Coherence pass failed (non-blocking): %s",
+                str(_coh_exc)[:200],
+            )
+
     # Step 5: Assemble final report (resolves [CITE:ev_xxx] → numbered [N])
     final_report, report_sections, bibliography = assemble_report(
         outline=outline,
@@ -1959,6 +3403,42 @@ async def synthesize_report(
         evidence=verified_evidence,
         citation_audit=citation_audit,
     )
+
+    # ===================================================================
+    # FIX-STRUCTURE: Post-assembly structure validator (Claw Code pattern).
+    # Verify every section in report_sections has content. If any section
+    # heading exists with 0 body text, log ERROR. Also check the markdown
+    # report for empty section headers (## Title\n## NextTitle pattern).
+    # ===================================================================
+    _structure_defects = 0
+    for rs in report_sections:
+        _rs_content = rs.get("content", "") if isinstance(rs, dict) else getattr(rs, "content", "")
+        _rs_title = rs.get("title", "") if isinstance(rs, dict) else getattr(rs, "title", "")
+        _rs_wc = len(_rs_content.split()) if _rs_content else 0
+        if _rs_wc == 0:
+            _structure_defects += 1
+            logger.error(
+                "[polaris graph] FIX-STRUCTURE: Section '%s' has 0 words in assembled report. "
+                "This section was destroyed during assembly.",
+                _rs_title[:60],
+            )
+    # Check markdown for back-to-back ## headers (empty sections)
+    _empty_heading_pattern = re.compile(r'## .+?\n+## ', re.DOTALL)
+    _empty_headings = _empty_heading_pattern.findall(final_report)
+    if _empty_headings:
+        _structure_defects += len(_empty_headings)
+        logger.warning(
+            "[polaris graph] FIX-STRUCTURE: %d empty section headings detected in markdown "
+            "(back-to-back ## headers)",
+            len(_empty_headings),
+        )
+    if _structure_defects == 0:
+        logger.info("[polaris graph] FIX-STRUCTURE: Post-assembly validation PASSED — all sections have content")
+    else:
+        logger.error(
+            "[polaris graph] FIX-STRUCTURE: Post-assembly validation FAILED — %d structural defects found",
+            _structure_defects,
+        )
 
     # Step 6: Compute quality metrics
     # FIX-043E: Use verified_evidence (synthesis pool), not full evidence,

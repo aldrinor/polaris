@@ -82,7 +82,7 @@ PG_FETCH_CONCURRENCY = int(os.getenv("PG_FETCH_CONCURRENCY", "5"))
 PG_VERIFY_BATCH_SIZE = int(os.getenv("PG_VERIFY_BATCH_SIZE", "10"))
 PG_VERIFY_CONCURRENCY = int(os.getenv("PG_VERIFY_CONCURRENCY", "20"))
 PG_VERIFY_GATHER_TIMEOUT = int(os.getenv("PG_VERIFY_GATHER_TIMEOUT", "1800"))
-PG_SECTION_WRITE_CONCURRENCY = int(os.getenv("PG_SECTION_WRITE_CONCURRENCY", "4"))
+PG_SECTION_WRITE_CONCURRENCY = int(os.getenv("PG_SECTION_WRITE_CONCURRENCY", "1"))
 # GEMINI-ARCH: Qwen3.5-Plus supports 65K output. 16384 gives rich sections
 # with tables + charts + key findings without truncation.
 PG_SECTION_WRITER_MAX_TOKENS = int(os.getenv("PG_SECTION_WRITER_MAX_TOKENS", "16384"))
@@ -407,6 +407,7 @@ class BibliographyEntry(TypedDict):
     formatted: str  # Full APA/Chicago citation string
     citation_number: int  # FIX-B6: Numeric citation number for cross-referencing
     url: str
+    title: str  # FIX-FORMAT-2: Separate title field for audit D6 scoring
     source_type: str
     evidence_ids: list[str]
 

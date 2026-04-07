@@ -586,12 +586,18 @@ def build_bibliography(
         if source_type in _BLOG_SOURCE_TYPES:
             blog_count += 1
 
+        # FIX-FORMAT-2: Extract title for separate field (audit D6 scoring)
+        _bib_title = ev.get("source_title", "")
+        if not _bib_title or len(_bib_title.strip()) < 3:
+            _bib_title = _recover_title(ev)
+
         entries.append(
             BibliographyEntry(
                 citation_key=citation_key,
                 formatted=_format_bibliography_entry(ev, number),
                 citation_number=number,  # FIX-B6
                 url=url,
+                title=_bib_title,
                 source_type=source_type,
                 evidence_ids=[eid],
             )
@@ -712,6 +718,44 @@ def _extract_author_from_metadata(evidence: dict) -> str:
     return ""
 
 
+def _recover_title(evidence: dict) -> str:
+    """D6 fix: Recover title from evidence metadata when source_title is empty.
+
+    Tries multiple strategies before falling back to empty string:
+    1. evidence_summary field (analyzer generates this)
+    2. statement field (first evidence statement from this source)
+    3. URL path extraction (readable slug from URL)
+    """
+    # Strategy 1: evidence_summary
+    summary = evidence.get("evidence_summary", "")
+    if summary and len(summary) > 10 and not _INVALID_TITLE_PATTERNS.search(summary):
+        return summary[:200]
+
+    # Strategy 2: first statement (truncated)
+    statement = evidence.get("statement", "")
+    if statement and len(statement) > 15:
+        # Take first sentence, cap at 150 chars
+        first_sent = statement.split(".")[0].strip()
+        if len(first_sent) > 15:
+            return first_sent[:150]
+
+    # Strategy 3: URL path extraction
+    url = evidence.get("source_url", "")
+    if url:
+        from urllib.parse import urlparse, unquote
+        path = urlparse(url).path
+        # Extract the last meaningful path segment
+        segments = [s for s in path.split("/") if s and len(s) > 3]
+        if segments:
+            slug = unquote(segments[-1])
+            # Convert hyphens/underscores to spaces, title-case
+            readable = slug.replace("-", " ").replace("_", " ").strip()
+            if len(readable) > 10 and not readable.isdigit():
+                return readable.title()[:150]
+
+    return ""
+
+
 def _format_bibliography_entry(evidence: dict, number: int) -> str:
     """Format a single bibliography entry in academic style.
 
@@ -719,7 +763,19 @@ def _format_bibliography_entry(evidence: dict, number: int) -> str:
     footnote format instead of fake bibliography entries.
     NRC-6: Blog/commercial sources get "(non-peer-reviewed)" suffix.
     FIX-047G: Extracts author from metadata/URL when authors list is empty.
+    D6 fix: Recovers title from metadata before falling back to URL-only.
     """
+    # D6 fix: Try to recover empty titles before validation
+    title = evidence.get("source_title", "")
+    if not title or len(title.strip()) < 3:
+        recovered = _recover_title(evidence)
+        if recovered:
+            evidence["source_title"] = recovered
+            logger.debug(
+                "[polaris graph] D6-fix: Recovered title for [%d]: '%s'",
+                number, recovered[:60],
+            )
+
     is_valid, reason = _validate_bibliography_entry(evidence)
 
     authors = evidence.get("authors", [])

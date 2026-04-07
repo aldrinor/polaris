@@ -1079,12 +1079,20 @@ def assemble_report(
 
     # FIX-CITE-3/C4: Pre-pass to merge thin sections (< 3 unique evidence IDs)
     # into adjacent sections. Prevents hollow final sections.
-    # Operates on sorted_sections (not clean_sections) to respect ordering.
+    # FIX-COMPLETENESS: NEVER merge a section that has substantial content (>100 words),
+    # even if evidence_ids is empty. evidence_ids can be lost during post-synthesis
+    # transforms — content is the ground truth for whether a section should exist.
     _min_evidence_for_section = int(os.getenv("PG_MIN_SECTION_EVIDENCE", "3"))
     _merged_indices: set[int] = set()
     for idx in range(len(sorted_sections) - 1, 0, -1):
         sec = sorted_sections[idx]
-        if len(set(getattr(sec, "evidence_ids", []) or [])) < _min_evidence_for_section:
+        _sec_eids = len(set(getattr(sec, "evidence_ids", []) or []))
+        _sec_words = len((getattr(sec, "content", "") or "").split())
+
+        # FIX-COMPLETENESS: Only merge if BOTH evidence is thin AND content is thin.
+        # A section with 1000 words but 0 evidence_ids should NOT be merged —
+        # the evidence_ids were likely lost during transforms.
+        if _sec_eids < _min_evidence_for_section and _sec_words < 100:
             prev = sorted_sections[idx - 1]
             # Merge content and evidence_ids into previous section
             merged_content = prev.content + "\n\n" + sec.content
@@ -1102,10 +1110,15 @@ def assemble_report(
             _merged_indices.add(idx)
             logger.info(
                 "[polaris graph] FIX-CITE-3/C4: Merged thin section '%s' "
-                "(%d evidence) into '%s'",
-                sec.title[:40],
-                len(set(getattr(sec, "evidence_ids", []) or [])),
+                "(%d evidence, %d words) into '%s'",
+                sec.title[:40], _sec_eids, _sec_words,
                 prev.title[:40],
+            )
+        elif _sec_eids < _min_evidence_for_section and _sec_words >= 100:
+            logger.info(
+                "[polaris graph] FIX-COMPLETENESS: Kept section '%s' despite %d evidence_ids "
+                "(has %d words of content — evidence_ids likely lost during transforms)",
+                sec.title[:40], _sec_eids, _sec_words,
             )
     if _merged_indices:
         sorted_sections = [s for i, s in enumerate(sorted_sections) if i not in _merged_indices]
@@ -1198,6 +1211,83 @@ def assemble_report(
     parts.append("")
 
     full_report = "\n".join(parts)
+
+    # FIX-FORMAT-1: Demote inner subsection headers to bold paragraph headers.
+    # The LLM generates many ## SubTitle within each section, creating 40-50
+    # subsections that fragment the reading flow (D9 Coherence penalty).
+    # Keep only MAIN section ## headers; demote inner ones to **bold**.
+    # Headers may appear INLINE (not at start of line) due to newline collapsing.
+    _main_titles = set()
+    for _sec in sorted_sections:
+        # Use longer prefix (50 chars) to avoid false non-matches on long titles
+        _main_titles.add(_sec.title[:50])
+    _main_titles.add("Abstract")
+    _main_titles.add("References")
+
+    def _is_main_heading(heading_text: str) -> bool:
+        """Check if heading matches a main section title."""
+        heading_text = heading_text.strip()
+        for _mt in _main_titles:
+            if heading_text.startswith(_mt) or _mt.startswith(heading_text[:30]):
+                return True
+        return False
+
+    # Strategy: find ALL ## markers in the report, extract the heading text
+    # (words up to the first sentence-ending punctuation or 80 chars),
+    # then replace inline. This handles both start-of-line and inline ##.
+    _before_count = full_report.count("## ")
+    _demoted = 0
+    _kept = 0
+
+    def _replace_header(match):
+        nonlocal _demoted, _kept
+        prefix = match.group(1)  # chars before ##
+        # Extract heading: capitalize words until first period, comma, pipe, or 80 chars
+        after_hash = match.group(2)
+        # Heading is the title-like text (capitalized words before content starts)
+        # Heuristic: take text until first period followed by space + lowercase
+        _heading_match = re.match(r'([A-Z][^.]{2,80}?)(?=\.\s+[A-Z]|\.\s*$|,\s|\|)', after_hash)
+        if _heading_match:
+            _heading = _heading_match.group(1).strip()
+            _rest = after_hash[_heading_match.end():]
+        else:
+            # Fallback: take first 80 chars as heading
+            _heading = after_hash[:80].strip()
+            _rest = after_hash[80:]
+
+        if _is_main_heading(_heading):
+            _kept += 1
+            return f"{prefix}\n\n## {_heading}\n\n{_rest}"
+        else:
+            _demoted += 1
+            return f"{prefix}\n\n**{_heading}**\n\n{_rest}"
+
+    # Match: [any char] ## [Capital letter followed by content]
+    full_report = re.sub(
+        r'([\s.!?|])\s*## ([A-Z][^\n]+)',
+        _replace_header,
+        full_report,
+    )
+    # Handle ## at very start of report
+    if full_report.lstrip().startswith("## "):
+        _start_match = re.match(r'\s*## ([A-Z][^\n]+)', full_report)
+        if _start_match:
+            _h = _start_match.group(1)[:80].strip()
+            _rest = _start_match.group(1)[80:]
+            if _is_main_heading(_h):
+                full_report = f"## {_h}\n\n{_rest}" + full_report[_start_match.end():]
+                _kept += 1
+            else:
+                full_report = f"**{_h}**\n\n{_rest}" + full_report[_start_match.end():]
+                _demoted += 1
+    if _demoted > 0:
+        logger.info(
+            "[polaris graph] FIX-FORMAT-1: Demoted %d inner subsection headers to bold "
+            "(%d main sections preserved)",
+            _demoted, _kept,
+        )
+    # Clean up excessive newlines from insertions
+    full_report = re.sub(r'\n{4,}', '\n\n\n', full_report)
 
     # Quality stats
     total_words = len(full_report.split())

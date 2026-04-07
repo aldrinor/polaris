@@ -34,7 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-VECTOR_ID = "PG_TEST_080"
+VECTOR_ID = "PG_TEST_090"
 OUTPUT_DIR = Path("outputs/polaris_graph")
 
 

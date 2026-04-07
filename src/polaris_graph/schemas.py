@@ -23,7 +23,7 @@ class SubQuery(BaseModel):
     """A single sub-query for search."""
 
     query: str = Field(description="The search query string")
-    intent: str = Field(description="What this query is trying to find")
+    intent: str = Field(description="What this query is trying to find", default="")
     source_preference: str = Field(
         description="Preferred source type: 'web', 'academic', 'both'",
         default="both",
@@ -34,6 +34,25 @@ class SubQuery(BaseModel):
         "Methodological, Emerging_Trends",
         default="General",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_subquery_fields(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("description", "purpose", "goal", "objective"):
+                if alt in data and "intent" not in data:
+                    data["intent"] = data.pop(alt)
+            for alt in ("search_query", "text", "q"):
+                if alt in data and "query" not in data:
+                    data["query"] = data.pop(alt)
+            if data.get("intent") is None:
+                data["intent"] = ""
+            if data.get("source_preference") is None:
+                data["source_preference"] = "both"
+        elif isinstance(data, str):
+            data = {"query": data, "intent": ""}
+        return data
 
 
 class QueryPlan(BaseModel):
@@ -89,6 +108,10 @@ class QueryPlan(BaseModel):
                 data["expected_source_types"] = []
             if data.get("perspective_coverage") is None:
                 data["perspective_coverage"] = {}
+            # FIX-GEMMA4: Coerce list to dict for perspective_coverage
+            pc = data.get("perspective_coverage")
+            if isinstance(pc, list):
+                data["perspective_coverage"] = {str(p): 1 for p in pc if p}
         return data
 
     @model_validator(mode="after")
@@ -245,10 +268,22 @@ class SourceAnalysis(BaseModel):
     def normalize_field_names(cls, data):
         """LLM uses variant field names and returns null — normalize them."""
         if isinstance(data, dict):
+            # FIX-GEMMA4: Map alternative names for source_url
+            for alt in ("url", "link", "page_url"):
+                if alt in data and "source_url" not in data:
+                    data["source_url"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for source_title
+            for alt in ("title", "page_title", "name", "document_title"):
+                if alt in data and "source_title" not in data:
+                    data["source_title"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for source_type
+            for alt in ("type", "document_type", "content_type"):
+                if alt in data and "source_type" not in data:
+                    data["source_type"] = data.pop(alt)
             # Map alternative names for atomic_facts
             for alt in (
                 "relevant_facts", "extracted_facts", "facts",
-                "evidence_facts", "key_facts",
+                "evidence_facts", "key_facts", "findings",
             ):
                 if alt in data and "atomic_facts" not in data:
                     data["atomic_facts"] = data.pop(alt)
@@ -381,6 +416,14 @@ class SourceAnalysisBatch(BaseModel):
         FIX-SCHEMA-7: Secondary defense — if analyses is a string (FIX-SCHEMA-6
         regex missed), try to reconstruct the array from top-level keys.
         """
+        if isinstance(data, dict):
+            # FIX-GEMMA4: Map alternative names for analyses
+            for alt in ("results", "source_analyses", "analysis_results",
+                        "sources", "source_results"):
+                if alt in data and "analyses" not in data:
+                    data["analyses"] = data.pop(alt)
+            if data.get("analyses") is None:
+                data["analyses"] = []
         if isinstance(data, dict) and "analyses" in data:
             raw = data["analyses"]
             # FIX-3 + FIX-SCHEMA-7: If analyses is a string, try to parse it
@@ -496,19 +539,36 @@ class EvidenceCluster(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_cluster_fields(cls, data):
-        """FIX-CITE-2: Qwen returns variant field names for clusters."""
+        """FIX-CITE-2 + FIX-GEMMA4: Normalize variant field names for clusters."""
         if isinstance(data, dict):
             # section_title / title / name → theme
-            for alt in ("section_title", "title", "name", "topic", "label"):
+            for alt in ("section_title", "title", "name", "topic", "label", "heading"):
                 if alt in data and "theme" not in data:
                     data["theme"] = data.pop(alt)
             # id / index / number → cluster_id
             for alt in ("id", "index", "number", "group_id"):
                 if alt in data and "cluster_id" not in data:
                     data["cluster_id"] = str(data.pop(alt))
+            # FIX-GEMMA4: Map alternative names for description
+            for alt in ("summary", "overview", "detail", "content"):
+                if alt in data and "description" not in data:
+                    data["description"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for evidence_ids
+            for alt in ("members", "items", "ids", "member_ids", "evidence"):
+                if alt in data and "evidence_ids" not in data:
+                    data["evidence_ids"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for strength
+            for alt in ("evidence_strength", "quality", "confidence"):
+                if alt in data and "strength" not in data:
+                    data["strength"] = data.pop(alt)
             # Auto-generate cluster_id from theme if missing
             if "cluster_id" not in data and "theme" in data:
                 data["cluster_id"] = f"c_{data['theme'][:20].lower().replace(' ', '_')}"
+            # Null defaults
+            if data.get("evidence_ids") is None:
+                data["evidence_ids"] = []
+            if data.get("strength") is None:
+                data["strength"] = "moderate"
         return data
 
     @field_validator("cluster_id", mode="before")
@@ -536,6 +596,23 @@ class ClusterPlan(BaseModel):
         description="Aspects of the query not well-covered by evidence",
         default_factory=list,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("groups", "categories", "themes", "evidence_clusters"):
+                if alt in data and "clusters" not in data:
+                    data["clusters"] = data.pop(alt)
+            for alt in ("gaps", "missing_aspects", "uncovered", "not_covered"):
+                if alt in data and "uncovered_aspects" not in data:
+                    data["uncovered_aspects"] = data.pop(alt)
+            if data.get("clusters") is None:
+                data["clusters"] = []
+            if data.get("uncovered_aspects") is None:
+                data["uncovered_aspects"] = []
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +646,37 @@ class ThemeResult(BaseModel):
         ge=0,
         le=100,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("title", "name", "topic", "label", "section_title"):
+                if alt in data and "theme" not in data:
+                    data["theme"] = data.pop(alt)
+            for alt in ("summary", "overview", "detail", "content"):
+                if alt in data and "description" not in data:
+                    data["description"] = data.pop(alt)
+            for alt in ("ids", "members", "items", "evidence", "member_ids"):
+                if alt in data and "evidence_ids" not in data:
+                    data["evidence_ids"] = data.pop(alt)
+            for alt in ("claims", "representative_claims", "top_claims"):
+                if alt in data and "key_claims" not in data:
+                    data["key_claims"] = data.pop(alt)
+            for alt in ("score", "relevance_score", "importance"):
+                if alt in data and "helpfulness" not in data:
+                    data["helpfulness"] = data.pop(alt)
+            # Null defaults
+            if data.get("description") is None:
+                data["description"] = ""
+            if data.get("evidence_ids") is None:
+                data["evidence_ids"] = []
+            if data.get("key_claims") is None:
+                data["key_claims"] = []
+            if data.get("helpfulness") is None:
+                data["helpfulness"] = 50
+        return data
 
     @field_validator("evidence_ids", mode="before")
     @classmethod
@@ -644,10 +752,47 @@ class ClaimVerification(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def strip_legacy_reasoning(cls, data):
-        """Accept but discard reasoning field from LLM output (backward compat)."""
+    def normalize_and_strip_legacy(cls, data):
+        """FIX-GEMMA4: Normalize field names + strip legacy reasoning field."""
         if isinstance(data, dict):
+            # Accept but discard reasoning field (backward compat)
             data.pop("reasoning", None)
+            # Map alternative names for verdict
+            for alt in ("is_faithful", "result", "status", "judgment", "judgement", "verification"):
+                if alt in data and "verdict" not in data:
+                    val = data.pop(alt)
+                    # Coerce bool is_faithful to verdict string
+                    if isinstance(val, bool):
+                        data["verdict"] = "SUPPORTED" if val else "NOT_SUPPORTED"
+                    else:
+                        data["verdict"] = val
+            # Map alternative names for claim
+            for alt in ("statement", "text", "assertion"):
+                if alt in data and "claim" not in data:
+                    data["claim"] = data.pop(alt)
+            # Map alternative names for supporting_evidence
+            for alt in ("evidence", "evidence_ids", "sources", "support"):
+                if alt in data and "supporting_evidence" not in data:
+                    data["supporting_evidence"] = data.pop(alt)
+            # Null defaults
+            if data.get("confidence") is None:
+                data["confidence"] = 0.0
+            if data.get("supporting_evidence") is None:
+                data["supporting_evidence"] = []
+            # Normalize verdict strings
+            v = data.get("verdict")
+            if isinstance(v, str):
+                v_upper = v.strip().upper().replace(" ", "_")
+                _aliases = {
+                    "TRUE": "SUPPORTED", "YES": "SUPPORTED", "CONFIRMED": "SUPPORTED",
+                    "PARTIAL": "PARTIALLY_SUPPORTED", "PARTIALLY": "PARTIALLY_SUPPORTED",
+                    "FALSE": "NOT_SUPPORTED", "NO": "NOT_SUPPORTED",
+                    "UNSUPPORTED": "NOT_SUPPORTED", "REFUTED": "NOT_SUPPORTED",
+                }
+                if v_upper in _aliases:
+                    data["verdict"] = _aliases[v_upper]
+                elif v_upper in ("SUPPORTED", "PARTIALLY_SUPPORTED", "NOT_SUPPORTED"):
+                    data["verdict"] = v_upper
         return data
 
 
@@ -669,7 +814,21 @@ class VerificationBatch(BaseModel):
         """Skip individual verifications that fail validation.
 
         FIX-V2: Multi-strategy string recovery for spurious-quote patterns.
+        FIX-GEMMA4: Normalize alternative field names before processing.
         """
+        if isinstance(data, dict):
+            # FIX-GEMMA4: Map alternative names for verifications
+            for alt in ("results", "claims", "verification_results", "claim_verifications"):
+                if alt in data and "verifications" not in data:
+                    data["verifications"] = data.pop(alt)
+            # Map alternative names for overall_faithfulness
+            for alt in ("faithfulness", "faithfulness_score", "overall_score", "score"):
+                if alt in data and "overall_faithfulness" not in data:
+                    data["overall_faithfulness"] = data.pop(alt)
+            if data.get("overall_faithfulness") is None:
+                data["overall_faithfulness"] = 0.0
+            if data.get("verifications") is None:
+                data["verifications"] = []
         if isinstance(data, dict) and "verifications" in data:
             raw = data["verifications"]
             if isinstance(raw, str):
@@ -857,12 +1016,23 @@ class SectionOutlineItem(BaseModel):
 
         FIX-CITE-2: Also normalize section_title → title (Qwen 3.5 Plus
         consistently returns section_title instead of title).
+        FIX-GEMMA4: Add Gemma 4 alternatives (subpoints, word_count, etc.)
         """
         if isinstance(data, dict):
             # FIX-CITE-2: section_title / heading / name → title
             for alt in ("section_title", "heading", "name"):
                 if alt in data and "title" not in data:
                     data["title"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for description
+            for alt in ("subpoints", "bullet_points", "content", "summary",
+                        "overview", "scope", "coverage", "details"):
+                if alt in data and "description" not in data:
+                    val = data.pop(alt)
+                    # Coerce list to comma-separated string
+                    if isinstance(val, list):
+                        data["description"] = "; ".join(str(x) for x in val)
+                    else:
+                        data["description"] = str(val)
             # Map section_number → section_id
             for alt in ("section_number", "id", "number"):
                 if alt in data and "section_id" not in data:
@@ -874,9 +1044,39 @@ class SectionOutlineItem(BaseModel):
             for alt in ("section_order", "position", "index"):
                 if alt in data and "order" not in data:
                     data["order"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for target_words
+            for alt in ("word_count", "target_word_count", "words", "length"):
+                if alt in data and "target_words" not in data:
+                    data["target_words"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for search_keywords
+            for alt in ("keywords", "search_terms", "key_terms", "routing_keywords"):
+                if alt in data and "search_keywords" not in data:
+                    val = data.pop(alt)
+                    # Coerce list to comma-separated string
+                    if isinstance(val, list):
+                        data["search_keywords"] = ", ".join(str(x) for x in val)
+                    else:
+                        data["search_keywords"] = str(val)
+            # FIX-GEMMA4: Map alternative names for evidence_ids
+            for alt in ("evidence", "sources", "source_ids", "references"):
+                if alt in data and "evidence_ids" not in data:
+                    data["evidence_ids"] = data.pop(alt)
+            # FIX-GEMMA4: Map alternative names for analytical_focus
+            for alt in ("focus", "analysis_type", "approach"):
+                if alt in data and "analytical_focus" not in data:
+                    data["analytical_focus"] = data.pop(alt)
             # Coerce evidence_ids elements to strings
             if "evidence_ids" in data and isinstance(data["evidence_ids"], list):
                 data["evidence_ids"] = [str(x) for x in data["evidence_ids"]]
+            # Null defaults
+            if data.get("description") is None:
+                data["description"] = ""
+            if data.get("search_keywords") is None:
+                data["search_keywords"] = ""
+            if data.get("evidence_ids") is None:
+                data["evidence_ids"] = []
+            if data.get("target_words") is None:
+                data["target_words"] = 600
         return data
 
 
@@ -912,16 +1112,33 @@ class ReportOutline(BaseModel):
         if isinstance(data, dict):
             # FIX-CITE-2: Normalize sections key
             if "sections" not in data:
-                for alt in ("report_outline", "outline_sections", "outline", "section_list"):
+                for alt in ("report_outline", "outline_sections", "outline",
+                            "section_list", "report_sections", "chapters", "parts"):
                     if alt in data and isinstance(data[alt], list):
                         data["sections"] = data.pop(alt)
                         break
             # FIX-CITE-2: Normalize title key
             if "title" not in data:
-                for alt in ("report_title", "research_question", "heading"):
+                for alt in ("report_title", "research_question", "heading",
+                            "name", "document_title"):
                     if alt in data:
                         data["title"] = data.pop(alt)
                         break
+            # FIX-GEMMA4: Normalize abstract key
+            for alt in ("summary", "overview", "executive_summary", "abstract_text"):
+                if alt in data and "abstract" not in data:
+                    data["abstract"] = data.pop(alt)
+            # FIX-GEMMA4: Normalize total_target_words key
+            for alt in ("target_words", "total_words", "word_count", "target_word_count"):
+                if alt in data and "total_target_words" not in data:
+                    data["total_target_words"] = data.pop(alt)
+            # Null defaults
+            if data.get("abstract") is None:
+                data["abstract"] = ""
+            if data.get("total_target_words") is None:
+                data["total_target_words"] = 8000
+            if data.get("sections") is None:
+                data["sections"] = []
         if isinstance(data, dict) and "sections" in data:
             valid = []
             for i, item in enumerate(data["sections"]):
@@ -976,6 +1193,47 @@ class SectionDraft(BaseModel):
         description="Evidence IDs used in this section",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            # Map alternative names for content
+            for alt in ("text", "body", "section_content", "draft", "markdown",
+                        "section_text", "prose"):
+                if alt in data and "content" not in data:
+                    data["content"] = data.pop(alt)
+            # Map alternative names for title
+            for alt in ("section_title", "heading", "name"):
+                if alt in data and "title" not in data:
+                    data["title"] = data.pop(alt)
+            # Map alternative names for section_id
+            for alt in ("section_number", "id", "number"):
+                if alt in data and "section_id" not in data:
+                    data["section_id"] = str(data.pop(alt))
+            # Map alternative names for claims_made
+            for alt in ("claims", "factual_claims", "assertions"):
+                if alt in data and "claims_made" not in data:
+                    data["claims_made"] = data.pop(alt)
+            # Map alternative names for evidence_ids
+            for alt in ("evidence", "sources", "source_ids", "references", "cited_evidence"):
+                if alt in data and "evidence_ids" not in data:
+                    data["evidence_ids"] = data.pop(alt)
+            # Ensure section_id is a string
+            if "section_id" in data:
+                data["section_id"] = str(data["section_id"])
+            # Coerce evidence_ids elements to strings
+            if "evidence_ids" in data and isinstance(data["evidence_ids"], list):
+                data["evidence_ids"] = [str(x) for x in data["evidence_ids"]]
+            # Null defaults
+            if data.get("content") is None:
+                data["content"] = ""
+            if data.get("claims_made") is None:
+                data["claims_made"] = []
+            if data.get("evidence_ids") is None:
+                data["evidence_ids"] = []
+        return data
+
 
 # ---------------------------------------------------------------------------
 # RC-3: Question-Driven Report Planning (v3 Hybrid)
@@ -997,6 +1255,31 @@ class ResearchSubQuestion(BaseModel):
         description="How deep this question should be explored: deep, moderate, brief",
         default="moderate",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("sub_question", "text", "query", "research_question"):
+                if alt in data and "question" not in data:
+                    data["question"] = data.pop(alt)
+            for alt in ("reason", "justification", "explanation", "why"):
+                if alt in data and "rationale" not in data:
+                    data["rationale"] = data.pop(alt)
+            for alt in ("focus", "analysis_type", "operation", "approach"):
+                if alt in data and "analytical_focus" not in data:
+                    data["analytical_focus"] = data.pop(alt)
+            for alt in ("depth", "detail_level", "coverage_depth"):
+                if alt in data and "expected_depth" not in data:
+                    data["expected_depth"] = data.pop(alt)
+            if data.get("rationale") is None:
+                data["rationale"] = ""
+            if data.get("analytical_focus") is None:
+                data["analytical_focus"] = "explain"
+            if data.get("expected_depth") is None:
+                data["expected_depth"] = "moderate"
+        return data
 
     @field_validator("analytical_focus", mode="before")
     @classmethod
@@ -1030,12 +1313,20 @@ class QuestionDecomposition(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
         if isinstance(data, dict):
-            for alt in ("sub_questions", "research_questions", "decomposition"):
+            for alt in ("sub_questions", "research_questions", "decomposition",
+                        "question_list", "reader_questions"):
                 if alt in data and "questions" not in data:
                     data["questions"] = data.pop(alt)
+            for alt in ("flow", "logic", "logical_flow", "narrative",
+                        "question_flow", "structure"):
+                if alt in data and "narrative_flow" not in data:
+                    data["narrative_flow"] = data.pop(alt)
             if data.get("questions") is None:
                 data["questions"] = []
+            if data.get("narrative_flow") is None:
+                data["narrative_flow"] = ""
         return data
 
 
@@ -1059,6 +1350,34 @@ class ComparableMetric(BaseModel):
         description="Entity being measured, e.g. Pb(II), rice husk biochar",
         default="",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("name", "metric", "measure", "parameter"):
+                if alt in data and "metric_name" not in data:
+                    data["metric_name"] = data.pop(alt)
+            for alt in ("measurement", "result", "numeric_value", "amount"):
+                if alt in data and "value" not in data:
+                    data["value"] = data.pop(alt)
+            for alt in ("units", "measurement_unit", "uom"):
+                if alt in data and "unit" not in data:
+                    data["unit"] = data.pop(alt)
+            for alt in ("conditions", "experimental_conditions", "parameters"):
+                if alt in data and "condition" not in data:
+                    data["condition"] = data.pop(alt)
+            for alt in ("subject", "target", "item", "material"):
+                if alt in data and "entity" not in data:
+                    data["entity"] = data.pop(alt)
+            if data.get("unit") is None:
+                data["unit"] = ""
+            if data.get("condition") is None:
+                data["condition"] = ""
+            if data.get("entity") is None:
+                data["entity"] = ""
+        return data
 
     @field_validator("value", mode="before")
     @classmethod
@@ -1098,6 +1417,45 @@ class EvidenceCardEnrichment(BaseModel):
         default_factory=list,
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("id", "ev_id", "source_id"):
+                if alt in data and "evidence_id" not in data:
+                    data["evidence_id"] = str(data.pop(alt))
+            for alt in ("method", "study_design", "research_method"):
+                if alt in data and "methodology" not in data:
+                    data["methodology"] = data.pop(alt)
+            for alt in ("parameters", "experimental_conditions", "study_conditions"):
+                if alt in data and "conditions" not in data:
+                    data["conditions"] = data.pop(alt)
+            for alt in ("weaknesses", "caveats", "known_limitations"):
+                if alt in data and "limitations" not in data:
+                    data["limitations"] = data.pop(alt)
+            for alt in ("quality_signals", "signals", "strength_indicators"):
+                if alt in data and "strength_signals" not in data:
+                    data["strength_signals"] = data.pop(alt)
+            for alt in ("metrics", "quantitative_metrics", "measurements"):
+                if alt in data and "comparable_metrics" not in data:
+                    data["comparable_metrics"] = data.pop(alt)
+            # Ensure evidence_id is a string
+            if "evidence_id" in data:
+                data["evidence_id"] = str(data["evidence_id"])
+            # Null defaults
+            if data.get("methodology") is None:
+                data["methodology"] = ""
+            if data.get("conditions") is None:
+                data["conditions"] = ""
+            if data.get("limitations") is None:
+                data["limitations"] = ""
+            if data.get("strength_signals") is None:
+                data["strength_signals"] = []
+            if data.get("comparable_metrics") is None:
+                data["comparable_metrics"] = []
+        return data
+
 
 class EvidenceCardBatch(BaseModel):
     """Batch of evidence card enrichments from a single LLM call."""
@@ -1133,6 +1491,23 @@ class SectionEvidenceAssignment(BaseModel):
         default_factory=list,
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("section_number", "id", "number"):
+                if alt in data and "section_id" not in data:
+                    data["section_id"] = str(data.pop(alt))
+            for alt in ("evidence_ids", "ids", "assigned_ids", "relevant_ids"):
+                if alt in data and "primary_ids" not in data:
+                    data["primary_ids"] = data.pop(alt)
+            if "section_id" in data:
+                data["section_id"] = str(data["section_id"])
+            if data.get("primary_ids") is None:
+                data["primary_ids"] = []
+        return data
+
 
 class GlobalEvidenceAssignment(BaseModel):
     """LLM-generated global evidence-to-section assignment.
@@ -1151,6 +1526,25 @@ class GlobalEvidenceAssignment(BaseModel):
         default_factory=list,
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("section_assignments", "evidence_assignments",
+                        "sections", "per_section"):
+                if alt in data and "assignments" not in data:
+                    data["assignments"] = data.pop(alt)
+            for alt in ("cross_section", "shared_ids", "common_ids",
+                        "multi_section_ids", "global_ids"):
+                if alt in data and "cross_section_ids" not in data:
+                    data["cross_section_ids"] = data.pop(alt)
+            if data.get("assignments") is None:
+                data["assignments"] = []
+            if data.get("cross_section_ids") is None:
+                data["cross_section_ids"] = []
+        return data
+
 
 # ---------------------------------------------------------------------------
 # Citation Mapping
@@ -1164,6 +1558,24 @@ class CitationMapping(BaseModel):
     is_grounded: bool = Field(
         description="Whether this citation is properly grounded in evidence"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("id", "ev_id", "source_id"):
+                if alt in data and "evidence_id" not in data:
+                    data["evidence_id"] = str(data.pop(alt))
+            for alt in ("number", "cite_number", "ref_number", "index"):
+                if alt in data and "citation_number" not in data:
+                    data["citation_number"] = data.pop(alt)
+            for alt in ("grounded", "is_valid", "valid", "verified"):
+                if alt in data and "is_grounded" not in data:
+                    data["is_grounded"] = data.pop(alt)
+            if "evidence_id" in data:
+                data["evidence_id"] = str(data["evidence_id"])
+        return data
 
 
 class CitationAudit(BaseModel):
@@ -1179,6 +1591,28 @@ class CitationAudit(BaseModel):
     bibliography_entries: list[str] = Field(
         description="Formatted bibliography entries in order"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("citation_mappings", "citations", "citation_map"):
+                if alt in data and "mappings" not in data:
+                    data["mappings"] = data.pop(alt)
+            for alt in ("unsupported_claims", "ungrounded", "missing_evidence"):
+                if alt in data and "ungrounded_claims" not in data:
+                    data["ungrounded_claims"] = data.pop(alt)
+            for alt in ("bibliography", "references", "ref_entries", "bib_entries"):
+                if alt in data and "bibliography_entries" not in data:
+                    data["bibliography_entries"] = data.pop(alt)
+            if data.get("ungrounded_claims") is None:
+                data["ungrounded_claims"] = []
+            if data.get("mappings") is None:
+                data["mappings"] = []
+            if data.get("bibliography_entries") is None:
+                data["bibliography_entries"] = []
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -1208,16 +1642,30 @@ class GapAnalysis(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_field_names(cls, data):
-        """Handle LLM variant field names and nulls."""
+        """Handle LLM variant field names and nulls.
+
+        FIX-GEMMA4: Added Gemma 4 alternatives for gaps and should_iterate.
+        """
         if isinstance(data, dict):
+            # Map gap variants
+            for alt in ("evidence_gaps", "missing", "coverage_gaps",
+                        "identified_gaps", "gap_list"):
+                if alt in data and "gaps" not in data:
+                    data["gaps"] = data.pop(alt)
             # Map severity variants
             for alt in ("severity", "overall_severity"):
                 if alt in data and "gap_severity" not in data:
                     data["gap_severity"] = data.pop(alt)
             # Map query variants
-            for alt in ("queries", "additional_queries", "follow_up_queries"):
+            for alt in ("queries", "additional_queries", "follow_up_queries",
+                        "search_queries", "recommended_queries"):
                 if alt in data and "suggested_queries" not in data:
                     data["suggested_queries"] = data.pop(alt)
+            # Map should_iterate variants
+            for alt in ("needs_iteration", "iterate", "continue",
+                        "needs_more_evidence", "requires_iteration"):
+                if alt in data and "should_iterate" not in data:
+                    data["should_iterate"] = data.pop(alt)
             # Null defaults
             if data.get("gap_severity") is None:
                 data["gap_severity"] = "moderate"
@@ -1266,6 +1714,38 @@ class ClusterAssessment(BaseModel):
         default="none",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("verdict", "result", "assessment", "action"):
+                if alt in data and "decision" not in data:
+                    data["decision"] = data.pop(alt)
+            for alt in ("explanation", "rationale", "justification"):
+                if alt in data and "reasoning" not in data:
+                    data["reasoning"] = data.pop(alt)
+            for alt in ("target", "merge_into", "merge_with"):
+                if alt in data and "merge_target" not in data:
+                    data["merge_target"] = data.pop(alt)
+            for alt in ("claims", "main_claims", "extractable_claims"):
+                if alt in data and "key_claims" not in data:
+                    data["key_claims"] = data.pop(alt)
+            for alt in ("structured_data", "has_data", "contains_data"):
+                if alt in data and "has_structured_data" not in data:
+                    data["has_structured_data"] = data.pop(alt)
+            for alt in ("structured_data_type", "data_category"):
+                if alt in data and "data_type" not in data:
+                    data["data_type"] = data.pop(alt)
+            # Null defaults
+            if data.get("reasoning") is None:
+                data["reasoning"] = ""
+            if data.get("merge_target") is None:
+                data["merge_target"] = ""
+            if data.get("key_claims") is None:
+                data["key_claims"] = []
+        return data
+
     @field_validator("decision", mode="before")
     @classmethod
     def normalize_decision(cls, v):
@@ -1302,6 +1782,40 @@ class StructuredDataPoint(BaseModel):
     context: str = Field(description="Brief context for the data point", default="")
     evidence_id: str = Field(description="Source evidence ID", default="")
     source_url: str = Field(description="Source URL", default="")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("type", "category", "kind"):
+                if alt in data and "data_type" not in data:
+                    data["data_type"] = data.pop(alt)
+            for alt in ("name", "metric", "description", "metric_name"):
+                if alt in data and "label" not in data:
+                    data["label"] = data.pop(alt)
+            for alt in ("measurement", "result", "amount", "numeric_value"):
+                if alt in data and "value" not in data:
+                    data["value"] = data.pop(alt)
+            for alt in ("date", "period", "time"):
+                if alt in data and "year" not in data:
+                    data["year"] = data.pop(alt)
+            for alt in ("units", "measurement_unit", "uom"):
+                if alt in data and "unit" not in data:
+                    data["unit"] = data.pop(alt)
+            for alt in ("note", "details", "explanation"):
+                if alt in data and "context" not in data:
+                    data["context"] = data.pop(alt)
+            for alt in ("ev_id", "source_id", "id"):
+                if alt in data and "evidence_id" not in data:
+                    data["evidence_id"] = str(data.pop(alt))
+            for alt in ("url", "source", "link"):
+                if alt in data and "source_url" not in data:
+                    data["source_url"] = data.pop(alt)
+            # Ensure string types
+            if "evidence_id" in data:
+                data["evidence_id"] = str(data.get("evidence_id", ""))
+        return data
 
     @field_validator("value", mode="before")
     @classmethod
@@ -1349,13 +1863,28 @@ class StructuredDataExtraction(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def wrap_bare_list(cls, data):
-        """LLM sometimes returns a bare list instead of {data_points: [...]}.
-
-        Wraps it automatically so validation doesn't fail.
-        """
+    def normalize_and_wrap(cls, data):
+        """FIX-GEMMA4: Handle alternative field names + bare list wrapping."""
         if isinstance(data, list):
             return {"data_points": data}
+        if isinstance(data, dict):
+            for alt in ("points", "results", "extracted_data", "data",
+                        "structured_data", "extractions"):
+                if alt in data and "data_points" not in data:
+                    data["data_points"] = data.pop(alt)
+            for alt in ("has_comparisons", "comparison_data"):
+                if alt in data and "has_comparison_data" not in data:
+                    data["has_comparison_data"] = data.pop(alt)
+            for alt in ("has_temporal_data", "has_trends", "temporal_data"):
+                if alt in data and "has_time_series" not in data:
+                    data["has_time_series"] = data.pop(alt)
+            for alt in ("entities", "compared_entities", "subjects"):
+                if alt in data and "comparison_entities" not in data:
+                    data["comparison_entities"] = data.pop(alt)
+            if data.get("data_points") is None:
+                data["data_points"] = []
+            if data.get("comparison_entities") is None:
+                data["comparison_entities"] = []
         return data
 
 
@@ -1379,6 +1908,40 @@ class QualityAssessment(BaseModel):
     overall_grade: str = Field(
         description="Grade: 'A', 'B', 'C', 'D', 'F'"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("faithfulness", "faith_score"):
+                if alt in data and "faithfulness_score" not in data:
+                    data["faithfulness_score"] = data.pop(alt)
+            for alt in ("coverage", "completeness_score", "completeness"):
+                if alt in data and "coverage_score" not in data:
+                    data["coverage_score"] = data.pop(alt)
+            for alt in ("coherence", "readability_score", "readability"):
+                if alt in data and "coherence_score" not in data:
+                    data["coherence_score"] = data.pop(alt)
+            for alt in ("density", "citations_per_100_words", "cite_density"):
+                if alt in data and "citation_density" not in data:
+                    data["citation_density"] = data.pop(alt)
+            for alt in ("problems", "quality_issues", "findings", "defects"):
+                if alt in data and "issues" not in data:
+                    data["issues"] = data.pop(alt)
+            for alt in ("grade", "score", "rating", "overall_rating"):
+                if alt in data and "overall_grade" not in data:
+                    data["overall_grade"] = data.pop(alt)
+            # Null defaults
+            if data.get("issues") is None:
+                data["issues"] = []
+            if data.get("faithfulness_score") is None:
+                data["faithfulness_score"] = 0.0
+            if data.get("coverage_score") is None:
+                data["coverage_score"] = 0.0
+            if data.get("coherence_score") is None:
+                data["coherence_score"] = 0.0
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -1555,7 +2118,16 @@ class PageSummaryBatch(BaseModel):
         """Skip individual notes that fail validation instead of failing the batch.
 
         FIX-SCHEMA-7: Secondary defense for spurious-quote string array.
+        FIX-GEMMA4: Normalize alternative field names before processing.
         """
+        if isinstance(data, dict):
+            # FIX-GEMMA4: Map alternative names for notes
+            for alt in ("pages", "research_notes", "page_notes",
+                        "summaries", "page_summaries", "results"):
+                if alt in data and "notes" not in data:
+                    data["notes"] = data.pop(alt)
+            if data.get("notes") is None:
+                data["notes"] = []
         if isinstance(data, dict) and "notes" in data:
             raw = data["notes"]
             if isinstance(raw, str):
@@ -1703,6 +2275,36 @@ class ReflectionResult(BaseModel):
         description="Whether this section needs revision based on reflection",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("section_number", "id", "number"):
+                if alt in data and "section_id" not in data:
+                    data["section_id"] = str(data.pop(alt))
+            for alt in ("conflicts", "inconsistencies"):
+                if alt in data and "contradictions" not in data:
+                    data["contradictions"] = data.pop(alt)
+            for alt in ("duplicates", "overlaps", "repeated_content"):
+                if alt in data and "redundancies" not in data:
+                    data["redundancies"] = data.pop(alt)
+            for alt in ("references", "links", "related_sections"):
+                if alt in data and "cross_references" not in data:
+                    data["cross_references"] = data.pop(alt)
+            for alt in ("needs_revision", "requires_revision", "should_revise"):
+                if alt in data and "revision_needed" not in data:
+                    data["revision_needed"] = data.pop(alt)
+            if "section_id" in data:
+                data["section_id"] = str(data["section_id"])
+            if data.get("contradictions") is None:
+                data["contradictions"] = []
+            if data.get("redundancies") is None:
+                data["redundancies"] = []
+            if data.get("cross_references") is None:
+                data["cross_references"] = []
+        return data
+
 
 class ExplorationResult(BaseModel):
     """Output of evidence exploration for a single section."""
@@ -1716,3 +2318,28 @@ class ExplorationResult(BaseModel):
         default=0,
         description="Number of new sentences added from unused evidence",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_field_names(cls, data):
+        """FIX-GEMMA4: Handle alternative field names from different models."""
+        if isinstance(data, dict):
+            for alt in ("section_number", "id", "number"):
+                if alt in data and "section_id" not in data:
+                    data["section_id"] = str(data.pop(alt))
+            for alt in ("evidence_ids", "added_evidence", "assigned_ids"):
+                if alt in data and "new_evidence_ids" not in data:
+                    data["new_evidence_ids"] = data.pop(alt)
+            for alt in ("added_sentences", "new_sentences", "sentence_count"):
+                if alt in data and "sentences_added" not in data:
+                    data["sentences_added"] = data.pop(alt)
+            if "section_id" in data:
+                data["section_id"] = str(data["section_id"])
+            if data.get("new_evidence_ids") is None:
+                data["new_evidence_ids"] = []
+            if data.get("sentences_added") is None:
+                data["sentences_added"] = 0
+            # Coerce evidence_ids to strings
+            if isinstance(data.get("new_evidence_ids"), list):
+                data["new_evidence_ids"] = [str(x) for x in data["new_evidence_ids"]]
+        return data

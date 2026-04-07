@@ -94,6 +94,105 @@ Output format example:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5: Modular Prompt Fragments (Claw Code 160+ fragment architecture)
+# ---------------------------------------------------------------------------
+
+_PROMPT_FRAGMENT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "config", "prompts",
+)
+
+
+def _detect_section_type(evidence_items: list[dict]) -> str:
+    """Detect section type from evidence CHARACTERISTICS, not title.
+
+    Returns one of: comparison, safety, mechanism, methodology, clinical (default).
+    """
+    if not evidence_items:
+        return "clinical"
+
+    statements = " ".join(
+        e.get("statement", "") for e in evidence_items[:20]
+    ).lower()
+
+    # Count keyword signals per type
+    comparison_kw = sum(1 for kw in [
+        "compared to", "versus", "vs ", "outperformed", "superior",
+        "inferior", "non-inferior", "effect size", "odds ratio",
+        "relative risk", "hazard ratio", "confidence interval",
+    ] if kw in statements)
+
+    safety_kw = sum(1 for kw in [
+        "adverse", "risk", "contraindication", "side effect", "toxicity",
+        "mortality", "morbidity", "withdrawal", "discontinuation",
+        "safety", "harm", "dangerous", "fatal",
+    ] if kw in statements)
+
+    mechanism_kw = sum(1 for kw in [
+        "mechanism", "pathway", "receptor", "enzyme", "autophagy",
+        "signaling", "metabolic", "molecular", "cellular", "binding",
+        "expression", "phosphorylation", "inhibition", "activation",
+    ] if kw in statements)
+
+    methodology_kw = sum(1 for kw in [
+        "meta-analysis", "systematic review", "grade", "bias",
+        "heterogeneity", "sample size", "power", "blinding",
+        "randomization", "funnel plot", "i-squared", "cochrane",
+    ] if kw in statements)
+
+    scores = {
+        "comparison": comparison_kw,
+        "safety": safety_kw,
+        "mechanism": mechanism_kw,
+        "methodology": methodology_kw,
+    }
+
+    best_type = max(scores, key=scores.get)
+    if scores[best_type] >= 2:
+        return best_type
+    return "clinical"
+
+
+def _load_prompt_fragment(section_type: str) -> str:
+    """Load a prompt fragment for the detected section type.
+
+    Returns fragment text, or empty string if file not found.
+    Max 300 tokens (~1200 chars) enforced.
+    """
+    _max_chars = int(os.getenv("PG_PROMPT_FRAGMENT_MAX_CHARS", "1200"))
+    fragment_path = os.path.join(_PROMPT_FRAGMENT_DIR, f"fragment_{section_type}.md")
+
+    try:
+        with open(fragment_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if len(content) > _max_chars:
+            content = content[:_max_chars].rsplit("\n", 1)[0]
+        return content
+    except FileNotFoundError:
+        logger.debug(
+            "[polaris graph] Phase 5: Fragment file not found: %s",
+            fragment_path,
+        )
+        return ""
+    except Exception as exc:
+        logger.warning(
+            "[polaris graph] Phase 5: Failed to load fragment '%s': %s",
+            section_type, str(exc)[:200],
+        )
+        return ""
+
+
+def _load_base_rules() -> str:
+    """Load the base rules prompt fragment."""
+    base_path = os.path.join(_PROMPT_FRAGMENT_DIR, "base_rules.md")
+    try:
+        with open(base_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # FIX-107I: Per-section evidence filtering via embedding similarity
 # ---------------------------------------------------------------------------
 
@@ -1153,6 +1252,25 @@ async def write_section(
     position_block = ""
     if section_position:
         position_block = f"\n{section_position}\n"
+        # FIX-CITE-REINFORCE: For sections in the second half of the report,
+        # add an explicit citation reminder. By section 5+, the LLM's attention
+        # to the system prompt citation rules fades, producing 0-citation sections.
+        _sec_num = 0
+        try:
+            _sec_num = int(re.search(r'Section (\d+)', section_position).group(1))
+        except (AttributeError, ValueError):
+            pass
+        _total_num = 0
+        try:
+            _total_num = int(re.search(r'of (\d+)', section_position).group(1))
+        except (AttributeError, ValueError):
+            pass
+        if _sec_num > _total_num // 2 and _sec_num > 3:
+            position_block += (
+                "\nCRITICAL CITATION REMINDER: You MUST cite evidence using [CITE:evidence_id] "
+                "format for EVERY factual claim in this section. Sections without citations "
+                "will be rejected. You have evidence assigned — USE IT.\n"
+            )
 
     # FIX-ENV4: Build conflict block for this section's evidence
     conflict_block = ""
@@ -1268,6 +1386,28 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             suggested_words=_suggested_words,
         )
 
+    # Phase 5: Modular prompt fragment injection
+    _phase_5_enabled = os.getenv("PG_PHASE_5_ENABLED", "1") == "1"
+    if _phase_5_enabled:
+        _section_type = _detect_section_type(section_evidence)
+        _fragment = _load_prompt_fragment(_section_type)
+        if _fragment:
+            system += f"\n\n{_fragment}"
+            logger.debug(
+                "[polaris graph] Phase 5: Section '%s' → type '%s' fragment injected",
+                section.title[:40], _section_type,
+            )
+        # Load base rules for perspective diversity and additional guidance
+        _base_rules = _load_base_rules()
+        if _base_rules:
+            # Extract only the PERSPECTIVE DIVERSITY section (not duplicate core rules)
+            _persp_match = re.search(
+                r'(PERSPECTIVE DIVERSITY:.*?)(?=\n[A-Z]+:|$)',
+                _base_rules, re.DOTALL,
+            )
+            if _persp_match:
+                system += f"\n\n{_persp_match.group(1).strip()}"
+
     # TIER-3 Stage 6: Token accounting — track prompt component sizes
     try:
         from src.polaris_graph.synthesis.token_accounting import (
@@ -1372,6 +1512,27 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
                 section.title,
                 len(continuation.split()),
             )
+            # Re-apply word cap after continuation to prevent section explosion.
+            # Without this, a 2000-word section + 2000-word continuation = 4000 words,
+            # which destroys D4 (Section Balance). TEST_083: Section 2 hit 3562 words.
+            _post_cont_words = len(content.split())
+            if _post_cont_words > _max_section_words:
+                _cont_sents = re.split(r'(?<=[.!?])\s+', content)
+                _cont_truncated = []
+                _cont_running = 0
+                for _cs in _cont_sents:
+                    _csw = len(_cs.split())
+                    if _cont_running + _csw > _max_section_words:
+                        break
+                    _cont_truncated.append(_cs)
+                    _cont_running += _csw
+                if _cont_truncated:
+                    content = " ".join(_cont_truncated)
+                    logger.info(
+                        "[polaris graph] WORD-CAP-POST-CONT: Section '%s' re-capped "
+                        "%d -> %d words after continuation",
+                        section.title[:40], _post_cont_words, len(content.split()),
+                    )
 
     # FIX-R2: Detect incomplete numerical claims (sentences ending with comparative
     # words but missing the actual number, e.g., "exceeds," with no threshold).
@@ -1950,6 +2111,11 @@ async def write_all_sections(
 
         # SF-13: Collect failed sections for retry
         failed_sections: list[tuple[int, SectionOutlineItem]] = []
+        # Phase 3B: Quality gate thresholds
+        _gate_min_words = int(os.getenv("PG_QUALITY_GATE_MIN_WORDS", "400"))
+        _gate_min_citations = int(os.getenv("PG_QUALITY_GATE_MIN_CITATIONS", "2"))
+        _gate_relaxed_last_n = int(os.getenv("PG_QUALITY_GATE_RELAXED_LAST_N", "2"))
+
         for idx, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 logger.error(
@@ -1959,6 +2125,60 @@ async def write_all_sections(
                 if idx < len(batch):
                     failed_sections.append((idx, batch[idx]))
                 continue
+
+            # Phase 3B: Per-section quality gate
+            _content = getattr(result, "content", "")
+            _word_count = len(_content.split())
+            _cite_count = len(re.findall(r'\[CITE:', _content))
+            _has_cot = bool(re.search(
+                r'<think>|</think>|Let me |I need to |I will |Step \d+:',
+                _content, re.IGNORECASE,
+            ))
+            _section_order = i + idx + 1
+            _is_last_n = _section_order > (total_sections - _gate_relaxed_last_n)
+            _min_w = 300 if _is_last_n else _gate_min_words
+            # FIX-CITE-GATE: ALL sections with factual content must have citations.
+            # Don't check evidence_ids (unreliable — lost during transforms).
+            # Instead: if a section has >400 words, it has factual content that
+            # needs citations. Period.
+            _min_c = _gate_min_citations if _word_count >= 400 else 0
+
+            _gate_passed = (
+                _word_count >= _min_w
+                and _cite_count >= _min_c
+                and not _has_cot
+            )
+
+            if not _gate_passed:
+                logger.warning(
+                    "[polaris graph] Phase 3B: Quality gate FAILED for '%s' "
+                    "(words=%d/%d, cites=%d/%d, cot=%s) — retry once",
+                    getattr(result, "title", "")[:40],
+                    _word_count, _min_w, _cite_count, _min_c, _has_cot,
+                )
+                # Retry once
+                try:
+                    _retry_section = batch[idx]
+                    _retry_result = await asyncio.wait_for(
+                        _write_with_semaphore(
+                            _retry_section, prev_summary, i + idx,
+                            list(all_covered_claims),
+                        ),
+                        timeout=section_write_timeout,
+                    )
+                    _retry_wc = len(getattr(_retry_result, "content", "").split())
+                    if _retry_wc > _word_count:
+                        result = _retry_result
+                        logger.info(
+                            "[polaris graph] Phase 3B: Retry improved '%s' (%d→%d words)",
+                            getattr(result, "title", "")[:40], _word_count, _retry_wc,
+                        )
+                except Exception as _gate_exc:
+                    logger.warning(
+                        "[polaris graph] Phase 3B: Quality gate retry failed: %s — keeping original",
+                        str(_gate_exc)[:200],
+                    )
+
             drafts.append(result)
 
         # Retry failed sections once
@@ -2098,18 +2318,33 @@ async def write_all_sections(
                 if stat_claim not in all_covered_claims:
                     all_covered_claims.append(stat_claim)
 
-            # Cap to keep prompt manageable
-            if len(all_covered_claims) > 150:
-                all_covered_claims[:] = all_covered_claims[-150:]
+            # Phase 3B: Cap covered claims to last 20 statistics + recent claims
+            _max_covered_stats = int(os.getenv("PG_MAX_COVERED_STATS", "20"))
+            _max_covered_claims = int(os.getenv("PG_MAX_COVERED_CLAIMS", "50"))
+            stats_in_claims = [c for c in all_covered_claims if c.startswith("STATISTIC:")]
+            other_claims = [c for c in all_covered_claims if not c.startswith("STATISTIC:")]
+            if len(stats_in_claims) > _max_covered_stats:
+                stats_in_claims = stats_in_claims[-_max_covered_stats:]
+            if len(other_claims) > _max_covered_claims:
+                other_claims = other_claims[-_max_covered_claims:]
+            all_covered_claims[:] = other_claims + stats_in_claims
 
-        # FIX-C2: Pass summaries of ALL previous sections, not just the last one
+        # Phase 3B: Generate section summaries for cross-referencing
+        # Each section gets a 1-sentence summary of its key finding
+        _max_prev_summaries = int(os.getenv("PG_MAX_PREV_SUMMARIES", "5"))
         if drafts:
             prev_summaries = []
-            for d in drafts:
-                # Truncate each section summary to ~200 chars for token efficiency
-                summary_text = d.content[:200].rsplit(" ", 1)[0] + "..."
-                prev_summaries.append(f"- '{d.title}': {summary_text}")
-            # Cap at ~2000 chars total to keep token cost manageable
+            for d in drafts[-_max_prev_summaries:]:
+                # Extract first cited sentence as summary (more informative than truncation)
+                _sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', getattr(d, "content", ""))
+                _summary_sent = ""
+                for _s in _sentences:
+                    if "[CITE:" in _s and len(_s.split()) >= 8:
+                        _summary_sent = _s.strip()[:150]
+                        break
+                if not _summary_sent:
+                    _summary_sent = getattr(d, "content", "")[:150].rsplit(" ", 1)[0] + "..."
+                prev_summaries.append(f"- '{d.title}': {_summary_sent}")
             combined = "\n".join(prev_summaries)
             if len(combined) > 2000:
                 combined = combined[:2000] + "\n..."
@@ -2678,6 +2913,30 @@ def _scrub_cot(text: str) -> str:
 
     # Step 1: Remove duplicate drafts (must come BEFORE line-level scrubbing)
     cleaned = _deduplicate_drafts(cleaned)
+
+    # Step 1b: FIX-ESG — Remove broken "Evidence suggests that" mid-sentence injections.
+    # GLM-5 writes patterns like "ketone bodies—including Evidence suggests that β-hydroxybutyrate"
+    # where "Evidence suggests that" is inserted between a dash/comma and a continuation.
+    _esg_pattern = re.compile(
+        r'(\u2014|\u2013|-|,|;)(\s*(?:including\s+)?)Evidence suggests that\s+',
+        re.IGNORECASE,
+    )
+    _esg_count = len(_esg_pattern.findall(cleaned))
+    if _esg_count:
+        cleaned = _esg_pattern.sub(r'\1\2', cleaned)
+    # Also handle: "[word] Evidence suggests that [lowercase word]" (no dash)
+    _esg_pattern2 = re.compile(
+        r'(\w)\s+Evidence suggests that\s+([a-z])',
+    )
+    _esg_count2 = len(_esg_pattern2.findall(cleaned))
+    if _esg_count2:
+        cleaned = _esg_pattern2.sub(r'\1 \2', cleaned)
+    _esg_total = _esg_count + _esg_count2
+    if _esg_total:
+        logger.info(
+            "[polaris graph] FIX-ESG: Removed %d broken 'Evidence suggests that' mid-sentence injections",
+            _esg_total,
+        )
 
     # Step 2: Apply line-level CoT patterns
     for pattern in _COT_LINE_PATTERNS:
