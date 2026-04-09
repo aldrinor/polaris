@@ -54,7 +54,9 @@ ABSOLUTE RULES:
 7. Do NOT use "Evidence suggests that" or "Studies have shown that" as sentence openers.
 8. Do NOT include chain-of-thought, planning, reasoning, or meta-commentary about the writing process.
 9. Do NOT repeat claims from PREVIOUS SECTIONS (listed below if any).
-10. Every paragraph must have at least one [REF:N] citation. No citation deserts."""
+10. Every paragraph must have at least one [REF:N] citation. No citation deserts.
+11. Target citation density: at least 3 citations per 100 words. Spread citations evenly — do not cluster all citations in one paragraph.
+12. When citing a specific number, percentage, or statistic, the citation MUST appear immediately after the number (e.g., "reduced HbA1c by 0.5% [REF:3]")."""
 
 
 COMPOSE_SYSTEM = _build_compose_system()
@@ -260,6 +262,17 @@ async def compose_from_wiki(
 
         # Deterministic citation resolution: [REF:N] → [N]
         content = re.sub(r"\[REF:(\d+)\]", r"[\1]", content)
+
+        # Remove duplicate section headers the LLM may have generated
+        # (the assembler adds ## Title, so strip any leading # Title from content)
+        content = re.sub(
+            r"^\s*#{1,3}\s+" + re.escape(title[:30]) + r"[^\n]*\n+",
+            "",
+            content,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        content = content.lstrip()
 
         # Count metrics
         word_count = len(content.split())

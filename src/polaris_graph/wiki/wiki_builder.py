@@ -172,14 +172,63 @@ def build_wiki(
             stats={"total_evidence": 0, "error": "no_evidence"},
         )
 
-    # ── Step 1b: Source quality enrichment ────────────────────────
+    # ── Step 1b: Source quality enrichment + authority gate ────────
     try:
         from src.polaris_graph.wiki.source_quality import enrich_evidence_with_quality
         quality_evidence = enrich_evidence_with_quality(quality_evidence)
+
+        # Remove retracted
         retracted = [e for e in quality_evidence if e.get("is_retracted")]
         if retracted:
             logger.warning("[wiki] Removed %d retracted sources", len(retracted))
             quality_evidence = [e for e in quality_evidence if not e.get("is_retracted")]
+
+        # Source authority gate: filter out low-quality domains
+        # (blogs, market reports, supplement stores, generic health pages)
+        _LOW_AUTHORITY_DOMAINS = {
+            # Market reports / press releases
+            "businessresearchinsights.com", "openpr.com", "datainsightsmarket.com",
+            "globenewswire.com", "prnewswire.com", "marketresearch.com",
+            # Consumer health blogs / supplement stores
+            "thelongevitystore.com", "healthline.com", "verywellhealth.com",
+            "equip.health", "eatingwell.com", "medicinenet.com", "webmd.com",
+            # Hospital marketing pages
+            "inspirahealthnetwork.org",
+            # Generic news
+            "news-medical.net",
+        }
+        before_auth = len(quality_evidence)
+        quality_evidence = [
+            e for e in quality_evidence
+            if not any(
+                domain in e.get("source_url", "").lower()
+                for domain in _LOW_AUTHORITY_DOMAINS
+            )
+        ]
+        auth_filtered = before_auth - len(quality_evidence)
+        if auth_filtered:
+            logger.info(
+                "[wiki] Source authority gate removed %d low-authority evidence", auth_filtered,
+            )
+
+        # Prefer academic sources: if we have >30 evidence, drop web sources
+        # that scored below median on source_quality_enhanced
+        if len(quality_evidence) > 30:
+            academic = [e for e in quality_evidence if e.get("source_type") == "academic"]
+            web = [e for e in quality_evidence if e.get("source_type") != "academic"]
+            if academic and web:
+                scores = [e.get("source_quality_enhanced", 0.5) for e in web]
+                if scores:
+                    median_score = sorted(scores)[len(scores) // 2]
+                    strong_web = [e for e in web if e.get("source_quality_enhanced", 0.5) >= median_score]
+                    quality_evidence = academic + strong_web
+                    dropped = len(web) - len(strong_web)
+                    if dropped:
+                        logger.info(
+                            "[wiki] Academic preference: dropped %d below-median web sources (%d remain)",
+                            dropped, len(quality_evidence),
+                        )
+
     except Exception as exc:
         logger.warning("[wiki] Source quality enrichment failed: %s — continuing without", str(exc)[:100])
 
