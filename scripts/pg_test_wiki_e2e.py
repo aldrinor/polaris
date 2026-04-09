@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-VECTOR_ID = "PG_WIKI_001"
+VECTOR_ID = "PG_WIKI_002"
 QUERY = "What are the proven health benefits and risks of intermittent fasting based on clinical evidence?"
 APPLICATION = "Intermittent Fasting"
 REGION = "global"

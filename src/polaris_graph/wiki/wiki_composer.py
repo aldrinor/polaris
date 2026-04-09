@@ -25,6 +25,12 @@ THIN_SECTION_THRESHOLD = int(os.getenv("PG_WIKI_THIN_THRESHOLD", "5"))
 TARGET_WORDS_DEFAULT = int(os.getenv("PG_WIKI_TARGET_WORDS", "1200"))
 COMPOSE_TIMEOUT = int(os.getenv("PG_WIKI_COMPOSE_TIMEOUT", "120"))
 
+# 5-lens analytical scaffold (from v3 react_agent.py)
+# Adds structural depth to section composition: Evidence/Mechanism/
+# Comparison/Critique/Horizon. Targets analytical depth + completeness
+# without sacrificing wiki's pre-cited claim constraint.
+WIKI_5LENS_ENABLED = os.getenv("PG_WIKI_5LENS", "0") == "1"
+
 
 # ── System Prompt ────────────────────────────────────────────────────
 
@@ -42,8 +48,32 @@ def _build_compose_system() -> str:
     base_rules = _load_base_rules()
     base_block = f"\nBASE RULES FROM PROJECT:\n{base_rules}\n" if base_rules else ""
 
+    # 5-lens analytical scaffold (from v3 react_agent.py) — forces diverse
+    # analytical angles in each section, targeting depth + completeness
+    five_lens_block = ""
+    if WIKI_5LENS_ENABLED:
+        five_lens_block = """
+
+ANALYTICAL SCAFFOLD — Cover 5 angles in each section (integrated prose, NOT explicit headers):
+
+LENS 1 — EVIDENCE: Key quantified findings with specific numbers, effect sizes, confidence intervals, sample sizes. Every number gets [REF:N].
+
+LENS 2 — MECHANISM: How and why the observed effects occur. Causal chains. Physiological/biological pathways. Cite supporting mechanistic studies with [REF:N].
+
+LENS 3 — COMPARISON: Contrast findings across studies, populations, protocols, or interventions. Highlight where evidence converges vs diverges. Use comparative language.
+
+LENS 4 — CRITIQUE: Contradictions, limitations, caveats, methodological concerns. Which studies disagree? What populations are underrepresented? What are the boundaries of applicability?
+
+LENS 5 — HORIZON: Gaps in current knowledge. What questions remain unanswered? What would future research need to establish?
+
+POST-QUALITY REQUIREMENTS:
+PQ-1: Synthesize findings using COMPARATIVE language. Never restate an evidence claim as a standalone sentence — always compare, contextualize, or evaluate it against other evidence.
+PQ-2: Cite 2+ sources in the SAME sentence for at least 3 sentences per section (cross-source synthesis). Example: "Weight loss of 5-7% was observed across protocols [REF:3][REF:8], though the magnitude varied by population age [REF:12]."
+PQ-3: Cross-reference lenses: LENS 1 findings should connect to LENS 4 limitations. For example, an effect-size finding should be followed by its methodological caveat.
+"""
+
     return f"""You are a senior academic researcher writing a section of a systematic review.
-{base_block}
+{base_block}{five_lens_block}
 ABSOLUTE RULES:
 1. Write ONLY from the CLAIMS provided below. Do NOT add facts, statistics, or findings not in the claims.
 2. Every factual statement MUST include its [REF:N] citation from the claims.
