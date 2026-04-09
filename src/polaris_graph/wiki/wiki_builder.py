@@ -172,6 +172,17 @@ def build_wiki(
             stats={"total_evidence": 0, "error": "no_evidence"},
         )
 
+    # ── Step 1b: Source quality enrichment ────────────────────────
+    try:
+        from src.polaris_graph.wiki.source_quality import enrich_evidence_with_quality
+        quality_evidence = enrich_evidence_with_quality(quality_evidence)
+        retracted = [e for e in quality_evidence if e.get("is_retracted")]
+        if retracted:
+            logger.warning("[wiki] Removed %d retracted sources", len(retracted))
+            quality_evidence = [e for e in quality_evidence if not e.get("is_retracted")]
+    except Exception as exc:
+        logger.warning("[wiki] Source quality enrichment failed: %s — continuing without", str(exc)[:100])
+
     # ── Step 2: Embedding-based assignment ──────────────────────────
     section_claims = _assign_evidence_by_embedding(quality_evidence, outline)
 

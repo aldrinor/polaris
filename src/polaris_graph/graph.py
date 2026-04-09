@@ -1838,6 +1838,28 @@ async def _wiki_or_legacy_synthesize(client: Any, state_dict: dict) -> dict:
         )
         from src.polaris_graph.wiki.wiki_composer import compose_from_wiki
 
+        # Phase 2: Deep crawl expansion (optional, runs before wiki build)
+        if os.getenv("PG_DEEP_CRAWL_ENABLED", "0") == "1":
+            try:
+                from src.polaris_graph.wiki.wiki_crawl import deep_crawl
+                logger.info("[polaris graph] Deep crawl enabled — expanding source pool")
+                new_content = await deep_crawl(
+                    fetched_content=state_dict.get("fetched_content", []),
+                    web_results=state_dict.get("web_results", []),
+                    academic_results=state_dict.get("academic_results", []),
+                    query=state_dict.get("original_query", ""),
+                    vector_id=state_dict.get("vector_id", "unknown"),
+                )
+                if new_content:
+                    existing = state_dict.get("fetched_content", [])
+                    state_dict["fetched_content"] = existing + new_content
+                    logger.info(
+                        "[polaris graph] Deep crawl: %d new sources added (%d total)",
+                        len(new_content), len(state_dict["fetched_content"]),
+                    )
+            except Exception as exc:
+                logger.warning("[polaris graph] Deep crawl failed: %s", str(exc)[:100])
+
         outline = state_dict.get("section_outline", [])
         if not outline:
             outline = await generate_outline_for_wiki(

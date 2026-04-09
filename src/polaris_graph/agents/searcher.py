@@ -183,7 +183,8 @@ def _search_openalex(query: str, max_results: int = 10) -> list[dict]:
         f"&per_page={min(max_results, 25)}"
         f"&sort=relevance_score:desc"
         f"&select=id,doi,title,publication_year,authorships,"
-        f"primary_location,abstract_inverted_index,cited_by_count,type"
+        f"primary_location,abstract_inverted_index,cited_by_count,type,"
+        f"is_retracted,open_access"
         f"&mailto={PG_OPENALEX_EMAIL}"
     )
 

@@ -1205,7 +1205,7 @@ def academic_search(
     params = {
         "query": simplified_query,
         "limit": min(max_results, 1000),  # FIX-122: Bulk search allows up to 1000
-        "fields": "paperId,title,abstract,url,year,authors,citationCount,venue,openAccessPdf,publicationTypes",
+        "fields": "paperId,title,abstract,url,year,authors,citationCount,influentialCitationCount,venue,openAccessPdf,publicationTypes,authors.hIndex",
     }
 
     # FIX-122B: Removed fieldsOfStudy filter - too restrictive, causes 0 results
