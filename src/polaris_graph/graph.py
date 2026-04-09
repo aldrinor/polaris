@@ -801,7 +801,38 @@ def build_graph() -> StateGraph:
         if tracer:
             tracer.node_start("synthesize", evidence_count=len(state.get("evidence", [])))
         state["timestamps"]["synthesize_start"] = _now()
-        result = await synthesize_report(client, state)
+
+        # PL: Wiki-based synthesis (Karpathy LLM Wiki pattern)
+        wiki_enabled = os.getenv("PG_WIKI_ENABLED", "0") == "1"
+        if wiki_enabled:
+            from src.polaris_graph.wiki.wiki_builder import (
+                build_wiki,
+                generate_outline_for_wiki,
+            )
+            from src.polaris_graph.wiki.wiki_composer import compose_from_wiki
+
+            logger.info("[polaris graph] Wiki synthesis enabled")
+
+            # Generate outline if not already in state (it's normally
+            # created inside synthesize_report, which we're replacing)
+            outline = state.get("section_outline", [])
+            if not outline:
+                logger.info("[polaris graph] No outline in state — generating for wiki")
+                outline = await generate_outline_for_wiki(
+                    client, state["original_query"], state.get("evidence", []),
+                )
+
+            wiki_result = build_wiki(
+                evidence=state.get("evidence", []),
+                outline=outline,
+                query=state["original_query"],
+                vector_id=state.get("vector_id", "unknown"),
+            )
+            result = await compose_from_wiki(
+                client, wiki_result, state["original_query"], outline,
+            )
+        else:
+            result = await synthesize_report(client, state)
         # FIX-QG2-STALE: Always clear gap_queries from previous iterations.
         # Without this, old gap_queries persist in state and could confuse
         # the router if quality oscillates between iterations.
@@ -1672,10 +1703,9 @@ async def _run_with_stream(
                         result["error"] = (
                             f"Hard stop after {max_execution_minutes * 2}min (2x budget)"
                         )
-                        from src.polaris_graph.agents.synthesizer import (
-                            synthesize_report,
+                        synth_result = await _wiki_or_legacy_synthesize(
+                            client, result,
                         )
-                        synth_result = await synthesize_report(client, result)
                         result.update(synth_result)
                         result["status"] = "timeout_synthesized"
                     else:
@@ -1767,12 +1797,10 @@ async def _run_with_stream(
             synth_state["status"] = "timeout_synthesizing"
             synth_state["error"] = f"astream failed: {str(exc)[:200]}"
 
-            from src.polaris_graph.agents.synthesizer import synthesize_report
             # FIX-043A: MERGE synthesis result into accumulated state (not replace).
-            # Previously `result = await synthesize_report(...)` lost all evidence/
-            # claims/faithfulness state from earlier nodes. Match the hard-stop
-            # merge pattern at line 1024: `result.update(synth_result)`.
-            synth_result = await synthesize_report(client, synth_state)
+            synth_result = await _wiki_or_legacy_synthesize(
+                client, synth_state,
+            )
             synth_state.update(synth_result)
             synth_state["llm_usage"] = client.usage.summary()
             synth_state["status"] = "timeout_synthesized"
@@ -1786,15 +1814,49 @@ async def _run_with_stream(
             synth_state["status"] = "timeout_synthesizing"
             synth_state["error"] = f"astream failed: {str(exc)[:200]}"
 
-            from src.polaris_graph.agents.synthesizer import synthesize_report
-            # FIX-043A: Same merge pattern for second crash path
-            synth_result = await synthesize_report(client, synth_state)
+            synth_result = await _wiki_or_legacy_synthesize(
+                client, synth_state,
+            )
             synth_state.update(synth_result)
             synth_state["llm_usage"] = client.usage.summary()
             synth_state["status"] = "timeout_synthesized"
             return synth_state
         else:
             raise
+
+
+async def _wiki_or_legacy_synthesize(client: Any, state_dict: dict) -> dict:
+    """Route to wiki or legacy synthesis based on PG_WIKI_ENABLED flag.
+
+    Handles outline generation for wiki path (outline is normally created
+    inside synthesize_report, which wiki replaces).
+    """
+    if os.getenv("PG_WIKI_ENABLED", "0") == "1":
+        from src.polaris_graph.wiki.wiki_builder import (
+            build_wiki,
+            generate_outline_for_wiki,
+        )
+        from src.polaris_graph.wiki.wiki_composer import compose_from_wiki
+
+        outline = state_dict.get("section_outline", [])
+        if not outline:
+            outline = await generate_outline_for_wiki(
+                client, state_dict.get("original_query", ""),
+                state_dict.get("evidence", []),
+            )
+
+        wiki_r = build_wiki(
+            evidence=state_dict.get("evidence", []),
+            outline=outline,
+            query=state_dict.get("original_query", ""),
+            vector_id=state_dict.get("vector_id", "unknown"),
+        )
+        return await compose_from_wiki(
+            client, wiki_r, state_dict.get("original_query", ""), outline,
+        )
+    else:
+        from src.polaris_graph.agents.synthesizer import synthesize_report
+        return await synthesize_report(client, state_dict)
 
 
 def _cross_iteration_dedup(evidence: list) -> list:
