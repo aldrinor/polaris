@@ -458,6 +458,14 @@ class AccessBypass:
                 retry_result.content = _strip_navigation_boilerplate(retry_result.content)
                 return retry_result
 
+        # PL: Sci-Hub fallback for paywalled academic papers (last resort)
+        if os.getenv("PG_SCIHUB_ENABLED", "1") == "1":
+            scihub_result = await self._try_scihub(url)
+            if scihub_result.success:
+                logger.info("[ACCESS] Sci-Hub succeeded for %s (%d chars)", url[:60], len(scihub_result.content))
+                scihub_result.content = _strip_navigation_boilerplate(scihub_result.content)
+                return scihub_result
+
         # SF-40: Log total failure at WARNING (was completely silent)
         logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
         return AccessResult(
@@ -1441,6 +1449,109 @@ class AccessBypass:
             return AccessResult(url=url, content="", access_method="archive.org",
                               legal_alternative=None, success=False,
                               metadata={"error": str(e)})
+
+    async def _try_scihub(self, url: str) -> AccessResult:
+        """PL: Try Sci-Hub for paywalled academic papers.
+
+        Extracts DOI from URL, queries Sci-Hub mirrors, downloads PDF,
+        and converts to text via PyMuPDF. Last resort after all legal
+        methods exhausted.
+        """
+        import aiohttp
+        import re
+
+        # Extract DOI from URL
+        doi = None
+        doi_match = re.search(r"(10\.\d{4,9}/[^\s\])<>\"',;]+)", url)
+        if doi_match:
+            doi = doi_match.group(1).rstrip(".")
+
+        if not doi:
+            return AccessResult(url=url, content="", access_method="scihub",
+                                legal_alternative=None, success=False,
+                                metadata={"error": "No DOI found in URL"})
+
+        mirrors = ["https://sci-hub.st", "https://sci-hub.ru"]
+        timeout = aiohttp.ClientTimeout(total=20)
+
+        for mirror in mirrors:
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    scihub_url = f"{mirror}/{doi}"
+                    async with session.get(scihub_url) as resp:
+                        if resp.status != 200:
+                            continue
+                        html = await resp.text()
+
+                        # Check if paper is available
+                        if "not available" in html.lower()[:500]:
+                            continue
+
+                        # Extract PDF URL from embed/iframe
+                        pdf_match = re.search(
+                            r'(?:embed|iframe)[^>]+src=["\']([^"\']+\.pdf[^"\']*)',
+                            html,
+                        )
+                        if not pdf_match:
+                            # Try direct PDF link pattern
+                            pdf_match = re.search(r'(//[^\s"<>]+\.pdf)', html)
+
+                        if not pdf_match:
+                            # No PDF found but page loaded — try extracting
+                            # text content from the HTML itself
+                            if len(html) > 5000:
+                                return AccessResult(
+                                    url=url, content=html[:30000],
+                                    access_method="scihub_html",
+                                    legal_alternative=scihub_url,
+                                    success=True,
+                                    metadata={"doi": doi, "mirror": mirror},
+                                )
+                            continue
+
+                        pdf_url = pdf_match.group(1)
+                        if pdf_url.startswith("//"):
+                            pdf_url = "https:" + pdf_url
+
+                        # Download PDF
+                        async with session.get(pdf_url) as pdf_resp:
+                            if pdf_resp.status != 200:
+                                continue
+                            pdf_bytes = await pdf_resp.read()
+
+                        # Extract text from PDF
+                        try:
+                            import fitz  # PyMuPDF
+                            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                            text_parts = []
+                            for page in doc:
+                                text_parts.append(page.get_text())
+                            doc.close()
+                            full_text = "\n\n".join(text_parts)
+
+                            if len(full_text) > 500:
+                                logger.info(
+                                    "[ACCESS] Sci-Hub PDF extracted for %s: %d chars from %d pages",
+                                    doi, len(full_text), len(text_parts),
+                                )
+                                return AccessResult(
+                                    url=url, content=full_text[:50000],
+                                    access_method="scihub_pdf",
+                                    legal_alternative=scihub_url,
+                                    success=True,
+                                    metadata={"doi": doi, "mirror": mirror, "pages": len(text_parts)},
+                                )
+                        except ImportError:
+                            logger.warning("[ACCESS] PyMuPDF not installed — cannot extract Sci-Hub PDF")
+                        except Exception as pdf_exc:
+                            logger.warning("[ACCESS] Sci-Hub PDF extraction failed: %s", str(pdf_exc)[:100])
+
+            except Exception as exc:
+                logger.debug("[ACCESS] Sci-Hub mirror %s failed: %s", mirror, str(exc)[:80])
+
+        return AccessResult(url=url, content="", access_method="scihub",
+                            legal_alternative=None, success=False,
+                            metadata={"error": "All Sci-Hub mirrors failed", "doi": doi})
 
     async def _try_proxy(self, url: str) -> AccessResult:
         """Try institutional proxy."""
