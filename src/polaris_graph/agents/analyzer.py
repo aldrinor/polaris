@@ -2257,33 +2257,39 @@ def _rank_and_merge(
     academic_cap = min(len(academic_sorted), MAX_SOURCES_TO_ANALYZE)
     academic_sorted = academic_sorted[:academic_cap]
 
-    # Interleave: 60% web, 40% academic (web results are more on-topic)
+    # PL: Academic-first interleave (60% academic, 40% web).
+    # Previous: 60% web, 40% academic — correct when S2/OpenAlex was broken.
+    # Now Scholar + S2 parallel delivers real academic papers. Prioritize them.
     merged: list[dict] = []
     web_idx = 0
     acad_idx = 0
     seen_urls: set[str] = set()
 
     while len(merged) < MAX_SOURCES_TO_ANALYZE * 2:
-        # Take 3 web results
+        # Take 3 academic results first
         for _ in range(3):
-            if web_idx < len(web_sorted):
-                url = web_sorted[web_idx].get("url", "")
-                if url not in seen_urls:
-                    merged.append(web_sorted[web_idx])
-                    seen_urls.add(url)
-                web_idx += 1
-        # Take 2 academic results
-        for _ in range(2):
             if acad_idx < len(academic_sorted):
                 url = academic_sorted[acad_idx].get("url", "")
                 if url not in seen_urls:
                     merged.append(academic_sorted[acad_idx])
                     seen_urls.add(url)
                 acad_idx += 1
+        # Take 2 web results
+        for _ in range(2):
+            if web_idx < len(web_sorted):
+                url = web_sorted[web_idx].get("url", "")
+                if url not in seen_urls:
+                    merged.append(web_sorted[web_idx])
+                    seen_urls.add(url)
+                web_idx += 1
         # Stop when both pools exhausted
         if web_idx >= len(web_sorted) and acad_idx >= len(academic_sorted):
             break
 
+    logger.info(
+        "[polaris graph] PL: Academic-first merge: %d academic + %d web = %d total",
+        acad_idx, web_idx, len(merged),
+    )
     return merged
 
 
