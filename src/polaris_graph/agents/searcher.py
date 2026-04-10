@@ -718,8 +718,10 @@ async def _run_academic_searches(
                     query[:50], str(exc)[:100],
                 )
 
-        # S2 fallback: try if OpenAlex returned nothing
-        if not batch:
+        # PL: S2 runs ALONGSIDE OpenAlex, not as fallback.
+        # S2 returns 51 results for IF queries (tested directly) but was silenced
+        # because OpenAlex always returns "something" (even off-topic garbage).
+        if os.getenv("PG_S2_PARALLEL", "1") == "1" or not batch:
             try:
                 s2_batch = await asyncio.wait_for(
                     loop.run_in_executor(
@@ -894,6 +896,50 @@ def _exa_check_budget(num_queries: int, results_per_query: int) -> tuple[bool, s
             f"${PG_EXA_BUDGET_USD:.2f} (already spent ${_exa_session_cost:.2f})"
         )
     return True, f"Exa budget OK: ${projected_total:.2f} / ${PG_EXA_BUDGET_USD:.2f}"
+
+
+async def _run_serper_scholar(
+    queries: list[str],
+) -> list[dict]:
+    """PL: Run Google Scholar search via Serper API.
+
+    Google Scholar returns ONLY peer-reviewed papers, theses, and conference
+    proceedings. This is the primary fix for source quality — Google already
+    solved academic source authority, we just weren't calling the endpoint.
+    """
+    results: list[dict] = []
+
+    try:
+        from src.agents.search_agent import _serper_search_sync
+    except ImportError:
+        logger.warning("[polaris graph] _serper_search_sync not available")
+        return results
+
+    loop = asyncio.get_event_loop()
+    for query in queries:
+        try:
+            batch = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda q=query: _serper_search_sync(q, max_results=10, search_type="scholar"),
+                ),
+                timeout=30.0,
+            )
+            if isinstance(batch, list):
+                for r in batch:
+                    r["source_type"] = "academic"
+                    r["search_engine"] = "serper_scholar"
+                results.extend(batch)
+                logger.info(
+                    "Serper Scholar returned %d results for: %s",
+                    len(batch), query[:60],
+                )
+        except asyncio.TimeoutError:
+            logger.warning("[polaris graph] Serper Scholar timed out for '%s'", query[:50])
+        except Exception as exc:
+            logger.warning("[polaris graph] Serper Scholar failed for '%s': %s", query[:50], str(exc)[:100])
+
+    return results
 
 
 async def _run_exa_searches(
@@ -1671,8 +1717,21 @@ async def execute_agentic_search(
         if web_q:
             round_web = await _run_web_searches(web_search_fn, web_q, region)
 
+        # PL: Serper Google Scholar — returns ONLY peer-reviewed papers.
+        # Runs on web queries (Scholar uses same natural language queries).
+        # This is the primary fix for source quality: Google already solved
+        # academic source authority. We just weren't calling the endpoint.
+        if web_q and os.getenv("PG_SERPER_SCHOLAR_ENABLED", "1") == "1":
+            scholar_results = await _run_serper_scholar(web_q[:3])
+            if scholar_results:
+                round_academic.extend(scholar_results)
+                logger.info(
+                    "[polaris graph] PL: Serper Scholar returned %d results from %d queries",
+                    len(scholar_results), min(len(web_q), 3),
+                )
+
         if acad_q:
-            round_academic = await _run_academic_searches(academic_search_fn, acad_q)
+            round_academic.extend(await _run_academic_searches(academic_search_fn, acad_q))
 
         if exa_q:
             exa_results = await _run_exa_searches(exa_q)
