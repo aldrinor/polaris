@@ -699,18 +699,38 @@ class AccessBypass:
                     },
                 )
 
-            # PL: Use fit_markdown (PruningContentFilter applied) when available.
-            # fit_markdown strips nav/ads/footers. Falls back to raw markdown.
+            # PL: Crawl4AI renders JS → Trafilatura extracts article body.
+            # Trafilatura (F1=0.958) strips nav/ads/gov banners/footers that
+            # PruningContentFilter misses. Falls back to fit_markdown/raw.
             markdown_content = ""
-            if hasattr(result, "markdown") and result.markdown:
-                md_obj = result.markdown
-                # Crawl4AI v0.8+ returns MarkdownGenerationResult with .fit_markdown
-                if hasattr(md_obj, "fit_markdown") and md_obj.fit_markdown:
-                    markdown_content = md_obj.fit_markdown
-                elif isinstance(md_obj, str):
-                    markdown_content = md_obj
-                else:
-                    markdown_content = str(md_obj)
+            if result.html:
+                try:
+                    import trafilatura as _traf
+                    clean = _traf.extract(
+                        result.html,
+                        include_tables=True,
+                        include_links=False,
+                        output_format="txt",
+                    )
+                    if clean and len(clean) > 500:
+                        markdown_content = clean
+                        logger.info(
+                            "[ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: %d chars",
+                            len(clean),
+                        )
+                except Exception:
+                    pass
+
+            # Fallback: fit_markdown or raw markdown from Crawl4AI
+            if not markdown_content:
+                if hasattr(result, "markdown") and result.markdown:
+                    md_obj = result.markdown
+                    if hasattr(md_obj, "fit_markdown") and md_obj.fit_markdown:
+                        markdown_content = md_obj.fit_markdown
+                    elif isinstance(md_obj, str):
+                        markdown_content = md_obj
+                    else:
+                        markdown_content = str(md_obj)
 
             if not markdown_content or len(markdown_content.strip()) <= 100:
                 logger.warning(
