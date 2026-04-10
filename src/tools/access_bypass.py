@@ -328,6 +328,23 @@ class AccessBypass:
         4. Institutional proxy
         5. Sci-Hub (last resort for academic papers)
         """
+        # PL: Skip S2 landing pages — they're metadata, not content.
+        # S2 bulk search returns paper IDs that are 404 via individual API.
+        # S2's value is the search metadata (title, abstract, DOI), not the landing page.
+        if "semanticscholar.org/paper/" in url:
+            logger.debug("[ACCESS] PL: Skipping S2 landing page: %s", url[:60])
+            return AccessResult(
+                url=url, content="", access_method="skipped_s2_landing",
+                legal_alternative=None, success=False,
+                metadata={"reason": "S2 landing pages have no content"},
+            )
+
+        # PL: Resolve ScienceDirect PIIs and extract DOIs for Sci-Hub fallback.
+        resolved_url, resolved_doi = await self._resolve_academic_url(url)
+        if resolved_url and resolved_url != url:
+            logger.info("[ACCESS] PL: Resolved %s -> %s", url[:50], resolved_url[:50])
+            url = resolved_url
+
         # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
         # not HTML scraping. This gives the analyzer full paper content with
@@ -459,8 +476,12 @@ class AccessBypass:
                 return retry_result
 
         # PL: Sci-Hub fallback for paywalled academic papers (last resort)
+        # Use resolved DOI if available (more reliable than URL-based DOI extraction)
         if os.getenv("PG_SCIHUB_ENABLED", "1") == "1":
-            scihub_result = await self._try_scihub(url)
+            scihub_url = url
+            if resolved_doi:
+                scihub_url = f"https://doi.org/{resolved_doi}"
+            scihub_result = await self._try_scihub(scihub_url)
             if scihub_result.success:
                 logger.info("[ACCESS] Sci-Hub succeeded for %s (%d chars)", url[:60], len(scihub_result.content))
                 scihub_result.content = _strip_navigation_boilerplate(scihub_result.content)
@@ -1449,6 +1470,97 @@ class AccessBypass:
             return AccessResult(url=url, content="", access_method="archive.org",
                               legal_alternative=None, success=False,
                               metadata={"error": str(e)})
+
+    async def _resolve_academic_url(self, url: str) -> tuple[str, str]:
+        """PL: Resolve academic metadata URLs to actual paper URLs + DOIs.
+
+        Handles three cases:
+        1. S2 landing pages (semanticscholar.org/paper/xxx) -> OA PDF URL or DOI
+        2. ScienceDirect PIIs -> CrossRef -> DOI
+        3. doi.org URLs -> follow redirect to publisher
+
+        Returns (resolved_url, doi). Both may be empty if resolution fails.
+        """
+        import aiohttp
+        import re
+
+        resolved_url = ""
+        doi = ""
+
+        # Case 1: Semantic Scholar landing pages
+        if "semanticscholar.org/paper/" in url:
+            paper_id = url.rstrip("/").split("/")[-1]
+            # Strip any title slug (e.g., "Title-of-Paper/abc123" -> "abc123")
+            if len(paper_id) < 10:
+                parts = url.rstrip("/").split("/")
+                paper_id = parts[-1] if len(parts[-1]) >= 10 else parts[-2] if len(parts) > 1 else paper_id
+
+            s2_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+            headers = {"x-api-key": s2_key} if s2_key else {}
+
+            try:
+                timeout = aiohttp.ClientTimeout(total=10)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    api_url = (
+                        f"https://api.semanticscholar.org/graph/v1/paper/{paper_id}"
+                        f"?fields=doi,openAccessPdf,url"
+                    )
+                    async with session.get(api_url, headers=headers) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            doi = data.get("doi", "") or ""
+                            oa_pdf = data.get("openAccessPdf")
+                            if oa_pdf and oa_pdf.get("url"):
+                                resolved_url = oa_pdf["url"]
+                                logger.info(
+                                    "[ACCESS] PL: S2 %s -> OA PDF: %s",
+                                    paper_id[:12], resolved_url[:60],
+                                )
+                            elif doi:
+                                resolved_url = f"https://doi.org/{doi}"
+                                logger.info(
+                                    "[ACCESS] PL: S2 %s -> DOI: %s",
+                                    paper_id[:12], doi,
+                                )
+            except Exception as exc:
+                logger.debug("[ACCESS] PL: S2 resolve failed for %s: %s", paper_id[:12], str(exc)[:60])
+
+        # Case 2: ScienceDirect PIIs
+        elif "sciencedirect.com" in url and "pii/" in url:
+            pii_match = re.search(r"pii/([A-Z0-9]+)", url)
+            if pii_match:
+                pii = pii_match.group(1)
+                try:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        cr_url = f"https://api.crossref.org/works?filter=alternative-id:{pii}&rows=1"
+                        async with session.get(cr_url) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                items = data.get("message", {}).get("items", [])
+                                if items:
+                                    doi = items[0].get("DOI", "")
+                                    if doi:
+                                        resolved_url = f"https://doi.org/{doi}"
+                                        logger.info(
+                                            "[ACCESS] PL: ScienceDirect PII %s -> DOI: %s",
+                                            pii[:12], doi,
+                                        )
+                except Exception as exc:
+                    logger.debug("[ACCESS] PL: CrossRef resolve failed for %s: %s", pii[:12], str(exc)[:60])
+
+        # Case 3: Extract DOI from URL for Nature, JAMA, tandfonline, etc.
+        if not doi:
+            doi_match = re.search(r"(10\.\d{4,9}/[^\s\"<>',;]+)", url)
+            if doi_match:
+                doi = doi_match.group(1).rstrip(".")
+            # Nature: /articles/s41574-022-00638-x -> 10.1038/s41574-022-00638-x
+            elif "nature.com/articles/" in url:
+                art_match = re.search(r"articles/(s\d+-\d+-\d+-\w+)", url)
+                if art_match:
+                    doi = f"10.1038/{art_match.group(1)}"
+
+        return resolved_url or url, doi
 
     async def _try_scihub(self, url: str) -> AccessResult:
         """PL: Try Sci-Hub for paywalled academic papers.
