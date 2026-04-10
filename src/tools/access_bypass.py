@@ -552,6 +552,12 @@ class AccessBypass:
         # that can fail with OSError/RuntimeError on corrupted installations.
         try:
             from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+            try:
+                from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+                from crawl4ai.content_filter_strategy import PruningContentFilter
+                _crawl4ai_filter_available = True
+            except ImportError:
+                _crawl4ai_filter_available = False
             _crawl4ai_available = True
         except ImportError:
             _crawl4ai_available = False
@@ -600,10 +606,23 @@ class AccessBypass:
                 headless=True,
                 verbose=False,
             )
-            crawler_config = CrawlerRunConfig(
-                page_timeout=page_timeout_ms,
-                wait_until="domcontentloaded",
-            )
+            # PL: Use PruningContentFilter to strip nav/ads/footers/cookie banners.
+            # Without this, result.markdown contains full page including junk.
+            # With fit_markdown, we get clean article body with proper tables.
+            if _crawl4ai_filter_available:
+                crawler_config = CrawlerRunConfig(
+                    page_timeout=page_timeout_ms,
+                    wait_until="domcontentloaded",
+                    markdown_generator=DefaultMarkdownGenerator(
+                        content_filter=PruningContentFilter(threshold=0.48),
+                        options={"ignore_links": False, "body_width": 0},
+                    ),
+                )
+            else:
+                crawler_config = CrawlerRunConfig(
+                    page_timeout=page_timeout_ms,
+                    wait_until="domcontentloaded",
+                )
 
             logger.info(
                 "[polaris graph] CRAWL4AI: Fetching %s (timeout=%ds)",
@@ -680,7 +699,18 @@ class AccessBypass:
                     },
                 )
 
-            markdown_content = result.markdown or ""
+            # PL: Use fit_markdown (PruningContentFilter applied) when available.
+            # fit_markdown strips nav/ads/footers. Falls back to raw markdown.
+            markdown_content = ""
+            if hasattr(result, "markdown") and result.markdown:
+                md_obj = result.markdown
+                # Crawl4AI v0.8+ returns MarkdownGenerationResult with .fit_markdown
+                if hasattr(md_obj, "fit_markdown") and md_obj.fit_markdown:
+                    markdown_content = md_obj.fit_markdown
+                elif isinstance(md_obj, str):
+                    markdown_content = md_obj
+                else:
+                    markdown_content = str(md_obj)
 
             if not markdown_content or len(markdown_content.strip()) <= 100:
                 logger.warning(
@@ -850,7 +880,18 @@ class AccessBypass:
                 if len(pdf_bytes) < 1000:
                     return ""
 
-        # Extract text using PyMuPDF
+        # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback
+        try:
+            import asyncio as _aio
+            loop = _aio.get_event_loop()
+            docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
+            if docling_text and len(docling_text) > 500:
+                logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
+                return docling_text
+        except Exception as exc:
+            logger.debug("[ACCESS] PL: Docling failed, trying PyMuPDF: %s", str(exc)[:80])
+
+        # Fallback: PyMuPDF (text-only, no table structure)
         try:
             import fitz
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -1470,6 +1511,25 @@ class AccessBypass:
             return AccessResult(url=url, content="", access_method="archive.org",
                               legal_alternative=None, success=False,
                               metadata={"error": str(e)})
+
+    @staticmethod
+    def _docling_extract(pdf_bytes: bytes) -> str:
+        """PL: Extract markdown from PDF using IBM Docling (97.9% table accuracy)."""
+        import tempfile
+        import os as _os
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        try:
+            from docling.document_converter import DocumentConverter
+            converter = DocumentConverter()
+            result = converter.convert(tmp_path)
+            md_text = result.document.export_to_markdown()
+            return md_text.strip()
+        finally:
+            _os.unlink(tmp_path)
 
     async def _resolve_academic_url(self, url: str) -> tuple[str, str]:
         """PL: Resolve academic metadata URLs to actual paper URLs + DOIs.
