@@ -1,5 +1,39 @@
 # POLARIS Session Log
 
+## [2026-04-11 -- Session 57: Wiki Mesh Unit 1 — Schema + Store + Tests]
+
+[2026-04-11 00:00:00]
+- ACTION: Built Unit 1 of the persistent wiki mesh: `docs/wiki_mesh_design.md` (complete design with all 10 advisor fixes inline), `src/polaris_graph/wiki/mesh/{__init__.py, schema.py, store.py}`, and `tests/unit/test_mesh_store.py`. 39/39 unit tests passing.
+- RATIONALE: User requested a deep critical review of the architectural plan for the persistent wiki mesh. Advisor review identified 10 structural bugs (3 deadly: D1 dual-store consistency, D2 entity poisoning, D3 snowball popularity trap; 5 serious: S4-S8; 2 underestimated: U9-U10). User chose Option A: adopt all fixes, update the plan doc, then build the spine. Executed with advisor checkpoint gates between phases. Empirically verified three advisor concerns about sqlite-vec: (1) JOIN+WHERE is syntactically valid but semantically lossy when k < filter-size — fixed via over-fetch strategy (k × 3 → filter → LIMIT k); (2) sqlite-vec DOES respect transactional rollback (FIX D1 is real); (3) mapping table DDL belongs in schema.py not created on-the-fly.
+- DOCS/RESEARCH: sqlite-vec 0.1.6 Python API + vec0 virtual table semantics (empirically tested on Windows Python 3.13); two advisor reviews (design review flagging 10 bugs + code review flagging 1 test gap + 1 backlog item)
+- SYNC: Updated docs/todo_list.md top priority section, rewrote state/restart_instructions.md for Unit 2 handoff, session_log entry (this one)
+- AFFECTED_FILES:
+  - CREATED: docs/wiki_mesh_design.md (~600 lines)
+  - CREATED: src/polaris_graph/wiki/mesh/__init__.py
+  - CREATED: src/polaris_graph/wiki/mesh/schema.py (~290 lines)
+  - CREATED: src/polaris_graph/wiki/mesh/store.py (~770 lines)
+  - CREATED: tests/unit/test_mesh_store.py (~600 lines, 39 tests)
+  - MODIFIED: docs/todo_list.md (top-priority section rewritten around mesh build)
+  - MODIFIED: state/restart_instructions.md (full rewrite for Unit 1 complete → Unit 2 next)
+  - MODIFIED: logs/session_log.md (this entry)
+- EVIDENCE/FINDINGS: `python -m pytest tests/unit/test_mesh_store.py -v` → 39 passed in 7.29s, zero warnings. Covers: lifecycle (open/reopen/version mismatch/vector persistence across reopen — the load-bearing FIX D1 test), workspace/source/claim/edge/entity CRUD, FIX S4 edge.usage_boost cap enforced at both helper AND CHECK constraint levels, FIX D2 quarantine query + confirm + idempotent insert, FIX D1 atomic rollback of SQL + vec0 virtual table together, over-fetch defence against lossy KNN via pathological 5-claim test (2 closest in wrong workspace, top-2 in right workspace further away — naive join returns 0, over-fetch returns correct 2), FK cascade on workspace delete. Empirical tests of sqlite-vec behavior showed: rollback works; JOIN+WHERE works syntactically but is lossy; vectors persist across close/reopen.
+- STATUS: Unit 1 code green. 39 tests passing, no known bugs. Design doc is durable reference for future sessions. Backlog items tracked: `vacuum_orphan_vectors()` for post-delete cleanup, schema migration tool. Ready to start Unit 2 (ingest + claim extraction) next session.
+- NEXT_STEP: Unit 2 — build `mesh/ingest.py` + `mesh/claim_extract.py` (~750 lines total). Unit 2 requires porting analyzer.py's `_analyze_batch` extraction logic (Qwen @model_validator, _clean_json, _repair_truncated_json, reasoning_content handling) into the mesh ingest path. See state/restart_instructions.md §"NEXT SESSION — Start Unit 2" for the detailed walkthrough.
+
+[2026-04-11 01:30:00]
+- ACTION: Post-Unit-1 advisor critical-review checkpoint. Advisor raised 3 concerns: (C1) `insert_claim` not idempotent — raw IntegrityError will crash Unit 2 re-extraction; (C2) `get_edges_from(kind=None)` has zero test coverage — untested branch that retrieval will exercise; (C3) `_row_id_to_int` 63-bit hash has silent-collision risk at ≥10⁹ vectors (document only, not fix). Fixed C1 and C2. Fixing C1 exposed a DEEPER latent bug: sqlite-vec's vec0 virtual tables do NOT support `INSERT OR REPLACE` syntax — they raise sqlite3.OperationalError "UNIQUE constraint failed on primary key" even for the same rowid. Original `_insert_vector` would have crashed the first time Unit 2 re-extracted a source. Replaced with try-INSERT-catch-UPDATE pattern with defensive re-raise on non-UNIQUE errors.
+- RATIONALE: User directive: highest-standard advisor review + active monitoring at every stage to prevent sloppy delivery. Advisor found three real issues; two required code changes, one was a documentation-only risk. The deeper vec0 UPSERT bug was only discoverable because the advisor flagged insert_claim idempotency — without that flag, the bug would have silently shipped and crashed during Unit 2's first re-extraction test.
+- DOCS/RESEARCH: Empirical test of vec0 UPSERT semantics in sqlite-vec 0.1.6: INSERT OR REPLACE → FAILS, DELETE+INSERT → works, UPDATE → works.
+- SYNC: N/A (code and tests updated in place; todo_list and restart_instructions still accurate after the fix).
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/wiki/mesh/store.py (~20 line change in insert_claim + ~15 line change in _insert_vector + 8 line comment in _row_id_to_int)
+  - MODIFIED: tests/unit/test_mesh_store.py (+3 tests: test_insert_claim_idempotent, test_insert_claim_re_embed_on_idempotent, test_get_edges_from_kind_none_returns_all_kinds — ~100 lines total)
+- EVIDENCE/FINDINGS: `python -m pytest tests/unit/test_mesh_store.py -v` → 42 passed in 5.98s. Post-fix advisor review: "All three fixes are correct. Unit 1 is ready to commit. No remaining concerns." One cosmetic note for future: the string-matching on exception messages in `_insert_vector` is fragile; cleaner alternative would be to query the mapping table for existence first. Defensive re-raise on non-UNIQUE errors makes it functionally correct for v1.
+- STATUS: Unit 1 fully green. 42 tests passing. 4 advisor checkpoints completed (design review, code review, highest-standard critical review, post-fix review). Zero known bugs. Ready to commit or proceed to Unit 2.
+- NEXT_STEP: Await user decision on commit policy (commit Unit 1 alone vs bundle with Unit 2). Then begin Unit 2.
+
+---
+
 ## [2026-04-01 -- Session 52: Claw Code Adoption — All 5 Phases Built]
 
 [2026-04-01 14:00:00]

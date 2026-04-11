@@ -1,13 +1,55 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-10 (Session — Wiki compose path validated end-to-end)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 1 complete — schema + store + 39/39 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
-**Source Plan**: `C:\Users\msn\.claude\plans\vivid-waddling-riddle.md` (Wiki ship plan, Phase 1 complete)
+**Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
 
 ---
 
-## TOP PRIORITY (Next Session) — Real Qwen E2E
+## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
+
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. Unit 1 is complete.
+
+### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11)
+- [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
+- [x] `src/polaris_graph/wiki/mesh/__init__.py` — package exports
+- [x] `src/polaris_graph/wiki/mesh/schema.py` — DDL for 11 core + 4 mapping + 4 vec virtual tables (~290 lines). FIX D1 sqlite-vec in same db, FIX D2 entity.confidence + user_confirmed, FIX S4 edges.usage_boost CHECK constraint ≤ 0.2, FIX S6 workspaces.nearby_expansion_budget_daily.
+- [x] `src/polaris_graph/wiki/mesh/store.py` — MeshStore CRUD (~770 lines). FIX D1 transaction context covering SQL + vec0. FIX D2 `get_quarantined_entities` + `confirm_entity`. FIX D3 `increment_claim_usage`. FIX S4 `bump_edge_usage_boost` clamped at 0.2. Advisor-fix KNN over-fetch pattern (k × 3, filter, LIMIT k).
+- [x] `tests/unit/test_mesh_store.py` — 39 tests, all pass. Covers: lifecycle + vector persistence across reopen (the load-bearing D1 test), workspace/source/claim/edge/entity CRUD, FIX S4 usage_boost cap (helper + CHECK constraint), FIX D2 quarantine query, FIX D1 atomic rollback of SQL + vec0, over-fetch defence against lossy KNN (5-claim pathological case), FK cascade.
+
+### Unit 1 backlog (non-blocking)
+- [ ] `vacuum_orphan_vectors(workspace_id)` method — `delete_workspace` cascades core tables via FK but leaves rows in `vec_*` and `vec_*_mapping` tables behind (vec0 virtual tables don't participate in FK cascades). Search queries filter them out via the JOIN, so correctness is OK — but dead vectors accumulate and slow KNN over time. Add a vacuum pass that scans mapping tables for orphans and deletes them.
+- [ ] Migration tool — if SCHEMA_VERSION changes, add `mesh/migrate.py` with numbered `v1_to_v2.py` scripts.
+
+### Unit 2 — Ingest + claim extraction (NEXT)
+- [ ] `mesh/ingest.py` (~250 lines) — uploads + web fetch → source_pages, content-hash dedup, docling/trafilatura text extraction
+- [ ] `mesh/claim_extract.py` (~500 lines, **U9 corrected from 250**) — port analyzer.py extraction logic (Qwen `@model_validator`, `_clean_json`, `_repair_truncated_json`, provider-specific reasoning_content handling) into the mesh ingest path
+- [ ] Tests: upload → source row → claim extraction with embedding → vector search finds the claim
+
+### Unit 3 — Entity canonicalization (FIX D2)
+- [ ] `mesh/entity.py` (~300 lines) — 5-step canonicalization (exact → alias → cosine ≥ 0.92 → LLM disambig for 0.80-0.92 zone → insert quarantined)
+- [ ] Tests: ambiguous cases (RO, GAC, PFAS) get quarantined, high-confidence matches merge into existing entities
+
+### Unit 4 — Edge discovery + snowball (FIX S4)
+- [ ] `mesh/edge_discovery.py` (~350 lines) — candidates via vec KNN, edge type via NLI, evidence_weight from cosine × NLI confidence
+- [ ] `mesh/snowball.py` (~120 lines) — bounded feedback formulas (age-decayed bonus, corroboration reinforcement capped, upload gravity)
+- [ ] Tests: corroborates/contradicts/elaborates assigned correctly, usage_boost caps at 0.2, snowball bounds enforced
+
+### Unit 5 — Lethal retrieval (FIX D3, S5, S8)
+- [ ] `retrieve/lethal.py` (~400 lines) — 6-stage algorithm with coreference resolution (stage 0), entity cosine filter (stage 2), age-decayed bonus + 10% exploration reservation (stage 6)
+- [ ] `retrieve/gap_classify.py` (~150 lines) — IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL classifier + NEARBY daily budget (FIX S6)
+
+### Units 6–10
+- [ ] Unit 6: compose + artifact renderers with S7 validation (~820 lines)
+- [ ] Unit 7: Q&A layer + multi-turn threads (~490 lines)
+- [ ] Unit 8: workspace management + CLI + snapshots with zstd (~830 lines)
+- [ ] Unit 9: REST API server (~400 lines)
+- [ ] Unit 10: integration + regression tests (~600 lines)
+
+---
+
+## SECONDARY PRIORITY — Wiki compose upstream tuning (deferred)
 
 The wiki compose path is validated end-to-end at gpt-4o (4 domains, mean G-Eval 79.1, range 77-85). All compose-side defects are fixed. Remaining work is upstream of compose and requires OpenRouter credits.
 
