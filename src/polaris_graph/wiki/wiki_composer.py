@@ -56,7 +56,7 @@ def _build_compose_system() -> str:
 
 ANALYTICAL SCAFFOLD — Cover 5 angles in each section (integrated prose, NOT explicit headers):
 
-LENS 1 — EVIDENCE: Key quantified findings with specific numbers, effect sizes, confidence intervals, sample sizes. Every number gets [REF:N].
+LENS 1 — EVIDENCE: Key quantified findings. EVERY numeric finding MUST include the effect size AND its confidence interval (or sample size and p-value) when the source provides them. Do not state a number without its statistical context. Example: "removal efficiency reached 92% (95% CI 87-95%, n=342) [REF:3]" — not "removal efficiency reached 92% [REF:3]". Every number gets [REF:N].
 
 LENS 2 — MECHANISM: How and why the observed effects occur. Causal chains. Physiological/biological pathways. Cite supporting mechanistic studies with [REF:N].
 
@@ -70,6 +70,7 @@ POST-QUALITY REQUIREMENTS:
 PQ-1: Synthesize findings using COMPARATIVE language. Never restate an evidence claim as a standalone sentence — always compare, contextualize, or evaluate it against other evidence.
 PQ-2: Cite 2+ sources in the SAME sentence for at least 3 sentences per section (cross-source synthesis). Example: "Weight loss of 5-7% was observed across protocols [REF:3][REF:8], though the magnitude varied by population age [REF:12]."
 PQ-3: Cross-reference lenses: LENS 1 findings should connect to LENS 4 limitations. For example, an effect-size finding should be followed by its methodological caveat.
+PQ-4: Statistical grading. When the source provides confidence intervals, p-values, or sample sizes, the prose MUST report them inline with the finding. Strip "approximately" and similar hedges from numbers that have CIs available — the CI is the hedge.
 """
 
     return f"""You are a senior academic researcher writing a section of a systematic review.
@@ -86,7 +87,8 @@ ABSOLUTE RULES:
 9. Do NOT repeat claims from PREVIOUS SECTIONS (listed below if any).
 10. Every paragraph must have at least one [REF:N] citation. No citation deserts.
 11. Target citation density: at least 3 citations per 100 words. Spread citations evenly — do not cluster all citations in one paragraph.
-12. When citing a specific number, percentage, or statistic, the citation MUST appear immediately after the number (e.g., "reduced HbA1c by 0.5% [REF:3]")."""
+12. When citing a specific number, percentage, or statistic, the citation MUST appear immediately after the number (e.g., "reduced HbA1c by 0.5% [REF:3]").
+13. SOURCE DIVERSITY: Use AT LEAST 60% of the unique sources available in the CLAIMS list. If 14 unique sources are present, your prose must cite at least 8 distinct [REF:N] numbers. Under-citing means missed evidence — integrate underused sources rather than recycling a few."""
 
 
 COMPOSE_SYSTEM = _build_compose_system()
@@ -166,6 +168,12 @@ async def _compose_one_section(
 
     claims_text = _format_claims_for_prompt(sorted_claims)
 
+    # FIX-DIVERSITY: compute the source-diversity floor for THIS section.
+    # G-Eval found sections under-citing their available source pool
+    # (e.g., 4 of 14 = 29%). Composer prompt now reports the concrete floor.
+    unique_refs_available = len({c.get("ref_num", 0) for c in sorted_claims if c.get("ref_num")})
+    diversity_floor = max(1, int(unique_refs_available * 0.6))
+
     # Determine target words
     if len(sorted_claims) < THIN_SECTION_THRESHOLD:
         target_words = "300-500"
@@ -184,8 +192,28 @@ async def _compose_one_section(
 
     # Build previous sections context
     prev_block = ""
+    transition_directive = ""
     if prev_summaries:
-        prev_block = f"\nPREVIOUS SECTIONS (do NOT repeat):\n{prev_summaries}\n"
+        prev_block = f"\nPREVIOUS SECTIONS (do NOT repeat their content):\n{prev_summaries}\n"
+        # FIX-COHERENCE: Force an explicit bridge from the prior section.
+        # G-Eval coherence dropped to 7/10 because adjacent sections jumped
+        # topics without connecting language. The prompt now requires a
+        # transition sentence in the FIRST paragraph that names the prior
+        # section and explains the conceptual link to this one.
+        if section_order > 1:
+            transition_directive = (
+                f"\nTRANSITION REQUIREMENT: The first paragraph MUST open with one\n"
+                f"sentence that bridges from the prior section to this section.\n"
+                f"Name what was just covered, then explain why this section follows\n"
+                f"as a logical next step. Vary your bridging language across sections —\n"
+                f"do not start every section with the same phrase. Examples of\n"
+                f"acceptable openers (use a different one each time): \"Whereas the\n"
+                f"prior section established X, this section turns to Y...\", \"With X\n"
+                f"now characterized, the next question is Y...\", \"Given the X just\n"
+                f"described, we now address Y...\", \"The X reviewed above raises a\n"
+                f"second question: Y...\". This transition sentence does NOT need a\n"
+                f"citation.\n"
+            )
 
     prompt = (
         f"Write section {section_order}/{total_sections}: \"{section_title}\"\n"
@@ -194,8 +222,12 @@ async def _compose_one_section(
         f"{thin_note}"
         f"{domain_fragment}"
         f"{prev_block}"
+        f"{transition_directive}"
         f"\nCLAIMS (use ONLY these, cite with [REF:N]):\n"
         f"{claims_text}\n"
+        f"\nSOURCE DIVERSITY FLOOR: this section has {unique_refs_available} unique sources\n"
+        f"in the claims. Your composed prose MUST cite at least {diversity_floor} of\n"
+        f"them (60% floor). Recycling fewer is a quality defect.\n"
         f"\nWrite the section now. Target {target_words} words."
     )
 
