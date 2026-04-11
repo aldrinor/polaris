@@ -218,6 +218,23 @@ async def main():
     out_file.write_text(final, encoding="utf-8")
     print(f"\nReport saved: {out_file} ({len(final)} chars)")
 
+    # Also save the full result as JSON for downstream evaluation (G-Eval, etc.)
+    json_file = out_dir / "PRODUCTION_SCALE_VALIDATION.json"
+    json_blob = {
+        "vector_id": "PRODUCTION_SCALE_VALIDATION",
+        "original_query": query,
+        "final_report": final,
+        "sections": sections,
+        "bibliography": wiki.bibliography,
+        "quality_metrics": qm,
+        "section_outline": result["section_outline"],
+        "evidence_chain": result["evidence_chain"],
+        "model": model_name,
+        "compose_seconds": round(compose_elapsed, 1),
+    }
+    json_file.write_text(json.dumps(json_blob, indent=2, default=str), encoding="utf-8")
+    print(f"JSON saved:   {json_file}")
+
     # ── Cost ────────────────────────────────────────────────────────
     pricing = {
         "gpt-5":         (1.25, 10.00),
