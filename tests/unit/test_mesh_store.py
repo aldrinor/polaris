@@ -72,7 +72,7 @@ def source_id(store: MeshStore, workspace_id: str) -> str:
 
 
 def _random_emb(seed: int = 0) -> np.ndarray:
-    """Deterministic 768-dim unit vector for tests."""
+    """Deterministic EMBEDDING_DIM-dim unit vector for tests."""
     rng = np.random.default_rng(seed)
     v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
     return v / (np.linalg.norm(v) + 1e-9)

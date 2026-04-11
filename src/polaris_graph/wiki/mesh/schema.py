@@ -233,14 +233,16 @@ CORE_DDL: list[str] = [
 # before they can be created. Keep them separate from CORE_DDL so the
 # loader can be explicit about ordering.
 #
-# Embedding dimension fixed at 768 (matches sentence-transformers default).
-# If we later switch to a 1024-dim or 4096-dim model, these DDL statements
-# and the existing data will need a migration.
+# Embedding dimension fixed at 384 to match the production
+# `src.utils.embedding_service.embed_texts()` output (all-MiniLM-L6-v2
+# or similar 384-dim sentence-transformer). If we later switch to a
+# 768-/1024-/4096-dim model, the vec0 DDL and all existing vectors
+# need a migration pass.
 VECTOR_DDL: list[str] = [
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_claims    USING vec0(embedding float[768])",
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_sources   USING vec0(embedding float[768])",
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_entities  USING vec0(embedding float[768])",
-    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_questions USING vec0(embedding float[768])",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_claims    USING vec0(embedding float[384])",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_sources   USING vec0(embedding float[384])",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_entities  USING vec0(embedding float[384])",
+    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_questions USING vec0(embedding float[384])",
 ]
 
 

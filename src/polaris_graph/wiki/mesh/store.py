@@ -28,7 +28,7 @@ Usage:
             char_end=1080,
             tier="GOLD",
             relevance_score=0.91,
-            embedding=emb_vector,  # numpy float32 array, dim 768
+            embedding=emb_vector,  # numpy float32 array, dim 384
         )
 
     # Later, in a retrieval path:
@@ -75,7 +75,7 @@ class MeshStoreError(Exception):
 
 # ───── constants ─────
 
-EMBEDDING_DIM = 768  # matches schema.VECTOR_DDL float[768]
+EMBEDDING_DIM = 384  # matches schema.VECTOR_DDL float[384] and production embed_texts
 
 # Over-fetch multiplier for KNN + post-filter pattern (advisor fix).
 # When a vec0 KNN query is combined with a tier/flagged/workspace filter,
@@ -167,6 +167,33 @@ class MeshStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    @property
+    def db_path(self) -> Path:
+        """Absolute path to the mesh database file."""
+        return self._db_path
+
+    @property
+    def workspace_dir(self) -> Path:
+        """
+        Directory containing the mesh database.
+
+        By convention the layout is:
+            wiki/workspaces/{workspace_id}/
+                mesh.db                     ← the file `db_path` points to
+                sources/{src_id}.md         ← markdown written by ingest.py
+                artifacts/{answer_id}/...   ← rendered artifacts
+                snapshots/...               ← snapshots
+
+        Ingest and export code should derive subdirectory paths from this
+        property instead of poking at `_db_path` directly.
+        """
+        return self._db_path.parent
+
+    @property
+    def sources_dir(self) -> Path:
+        """Directory where source markdown files live. Created lazily by ingest."""
+        return self._db_path.parent / "sources"
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator["MeshStore"]:
@@ -612,7 +639,7 @@ class MeshStore:
         method only INSERTs, never creates tables.
 
         Raises MeshStoreError on dimension mismatch (the vec0 table is
-        fixed at float[768] — all four mesh vector tables use the same
+        fixed at float[384] — all four mesh vector tables use the same
         dimension).
         """
         # Normalize embedding to float32

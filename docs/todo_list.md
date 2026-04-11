@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 1 complete — schema + store + 39/39 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 2 complete — ingest + claim_extract + 92/92 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,27 +9,27 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. Unit 1 is complete.
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **2 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
-### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11)
+### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
 - [x] `src/polaris_graph/wiki/mesh/__init__.py` — package exports
-- [x] `src/polaris_graph/wiki/mesh/schema.py` — DDL for 11 core + 4 mapping + 4 vec virtual tables (~290 lines). FIX D1 sqlite-vec in same db, FIX D2 entity.confidence + user_confirmed, FIX S4 edges.usage_boost CHECK constraint ≤ 0.2, FIX S6 workspaces.nearby_expansion_budget_daily.
-- [x] `src/polaris_graph/wiki/mesh/store.py` — MeshStore CRUD (~770 lines). FIX D1 transaction context covering SQL + vec0. FIX D2 `get_quarantined_entities` + `confirm_entity`. FIX D3 `increment_claim_usage`. FIX S4 `bump_edge_usage_boost` clamped at 0.2. Advisor-fix KNN over-fetch pattern (k × 3, filter, LIMIT k).
-- [x] `tests/unit/test_mesh_store.py` — 39 tests, all pass. Covers: lifecycle + vector persistence across reopen (the load-bearing D1 test), workspace/source/claim/edge/entity CRUD, FIX S4 usage_boost cap (helper + CHECK constraint), FIX D2 quarantine query, FIX D1 atomic rollback of SQL + vec0, over-fetch defence against lossy KNN (5-claim pathological case), FK cascade.
+- [x] `src/polaris_graph/wiki/mesh/schema.py` — DDL for 11 core + 4 mapping + 4 vec virtual tables. FIX D1 sqlite-vec in same db, FIX D2 entity.confidence + user_confirmed, FIX S4 edges.usage_boost CHECK constraint ≤ 0.2, FIX S6 workspaces.nearby_expansion_budget_daily. Corrected to float[384] during Unit 2 CP-C (matches production embed_texts).
+- [x] `src/polaris_graph/wiki/mesh/store.py` — MeshStore CRUD. FIX D1 transaction context covering SQL + vec0. FIX D2 `get_quarantined_entities` + `confirm_entity`. FIX D3 `increment_claim_usage`. FIX S4 `bump_edge_usage_boost` clamped at 0.2. Advisor-fix KNN over-fetch pattern (k × 3, filter, LIMIT k). workspace_dir / sources_dir properties added for Unit 2.
+- [x] `tests/unit/test_mesh_store.py` — 43 tests, all pass.
 
-### Unit 1 backlog (non-blocking)
-- [ ] `vacuum_orphan_vectors(workspace_id)` method — `delete_workspace` cascades core tables via FK but leaves rows in `vec_*` and `vec_*_mapping` tables behind (vec0 virtual tables don't participate in FK cascades). Search queries filter them out via the JOIN, so correctness is OK — but dead vectors accumulate and slow KNN over time. Add a vacuum pass that scans mapping tables for orphans and deletes them.
-- [ ] Migration tool — if SCHEMA_VERSION changes, add `mesh/migrate.py` with numbered `v1_to_v2.py` scripts.
+### Unit 2 — Ingest + claim extraction (COMPLETE 2026-04-11)
+- [x] `src/polaris_graph/wiki/mesh/ingest.py` (~370 lines) — `ingest_file()` + `ingest_web_content()` with content-hash dedup, atomic temp-rename writes, docling PDF / trafilatura HTML / plain-text dispatch. `read_source_text()` strips the internal markdown header so downstream char-span lookups reference the source BODY (the ~64-char offset corruption bug the advisor caught at CP-B).
+- [x] `src/polaris_graph/wiki/mesh/claim_extract.py` (~420 lines) — REUSES production `ANALYSIS_SYSTEM` prompt + `SourceAnalysisBatch` schema (no duplication). Split into pure `_parse_batch_to_claims` + orchestrator `extract_claims_from_source`. Ports filters from `_analyze_batch` (short statement, short quote, URL fragment, cookie text). Tier assignment with 3-signal v1 rule. has_numeric regex. Unverifiable quotes get sentinel span (0,1) + BRONZE instead of being dropped. Embeddings via `src.utils.embedding_service.embed_texts` (384-dim) BEFORE the transaction, atomic insert with claim row inside.
+- [x] `tests/unit/test_mesh_ingest.py` — 21 tests (upload + web + dedup + header-strip round-trip + src_id mirror check)
+- [x] `tests/unit/test_mesh_claim_extract.py` — 28 tests (killer 5-fact parser test + individual filters + 4 tier branches + char-span lookup + numeric regex parametrized + mocked orchestrator end-to-end + KNN verification after extraction + atomic rollback on partial batch failure)
+- [x] `scripts/pg_mesh_unit2_stress.py` — stress test: 3 sources, mock LLM, 3 extractions, 7 claims + 7 vectors, reopen persistence, KNN lookup, consistency checks. **PASSED.**
+- [x] Advisor checkpoints: CP-A pre-code (reuse schemas + split parser/orchestrator), CP-B mid (header offset bug fixed with read_source_text helper), CP-C post-code (missing embeddings + 768→384 dim correction), CP-D robustness ("good to go").
 
-### Unit 2 — Ingest + claim extraction (NEXT)
-- [ ] `mesh/ingest.py` (~250 lines) — uploads + web fetch → source_pages, content-hash dedup, docling/trafilatura text extraction
-- [ ] `mesh/claim_extract.py` (~500 lines, **U9 corrected from 250**) — port analyzer.py extraction logic (Qwen `@model_validator`, `_clean_json`, `_repair_truncated_json`, provider-specific reasoning_content handling) into the mesh ingest path
-- [ ] Tests: upload → source row → claim extraction with embedding → vector search finds the claim
-
-### Unit 3 — Entity canonicalization (FIX D2)
-- [ ] `mesh/entity.py` (~300 lines) — 5-step canonicalization (exact → alias → cosine ≥ 0.92 → LLM disambig for 0.80-0.92 zone → insert quarantined)
-- [ ] Tests: ambiguous cases (RO, GAC, PFAS) get quarantined, high-confidence matches merge into existing entities
+### Unit 3 — Entity canonicalization (NEXT, FIX D2)
+- [ ] `mesh/entity.py` (~300 lines) — 5-step canonicalization (exact → alias → cosine ≥ 0.92 → LLM disambig for 0.80-0.92 zone → insert quarantined). Uses `store.insert_entity` + `store.link_claim_entity` + `store.get_quarantined_entities` already in place from Unit 1.
+- [ ] Integration: `claim_extract.py` post-parse pass — extract entity surface forms per claim, canonicalize, link via `claim_entities` table
+- [ ] Tests: ambiguous cases (RO, GAC, PFAS, C8) get quarantined, high-confidence matches merge into existing entities, LLM disambiguation edge (0.80-0.92 cosine zone)
 
 ### Unit 4 — Edge discovery + snowball (FIX S4)
 - [ ] `mesh/edge_discovery.py` (~350 lines) — candidates via vec KNN, edge type via NLI, evidence_weight from cosine × NLI confidence
@@ -46,6 +46,14 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [ ] Unit 8: workspace management + CLI + snapshots with zstd (~830 lines)
 - [ ] Unit 9: REST API server (~400 lines)
 - [ ] Unit 10: integration + regression tests (~600 lines)
+
+### Mesh backlog (non-blocking, accumulated across units)
+- [ ] `vacuum_orphan_vectors(workspace_id)` — `delete_workspace` cascades core tables via FK but vec0 virtual tables don't participate. Search queries filter via the mapping JOIN so correctness is OK, but dead vectors accumulate. (Unit 1 backlog.)
+- [ ] Schema migration tool — if SCHEMA_VERSION bumps, add `mesh/migrate.py` with numbered scripts. (Unit 1 backlog.)
+- [ ] Decouple `ANALYSIS_SYSTEM` from `agents/analyzer.py` into a standalone prompt file (`config/prompts/analysis_system.md`) so `claim_extract.py` doesn't import the full 3,531-line analyzer module. (Unit 2 CP-D advisor note.)
+- [ ] Real OpenRouter E2E test for `extract_claims_from_source` — orchestrator is currently only tested with MockClient. First real test happens when OpenRouter credits restore. (Unit 2 CP-D advisor note.)
+- [ ] Exception-string fragility in `_insert_vector` — cleaner alternative is to query the mapping table first before deciding INSERT vs UPDATE. (Unit 1 CP3 advisor note.)
+- [ ] `_row_id_to_int` 63-bit hash collision — negligible below ~4×10⁸ vectors/table, documented in code. (Unit 1 CP3 advisor note.)
 
 ---
 

@@ -281,11 +281,13 @@ CREATE INDEX ix_oplog_ws_ts ON op_log(workspace_id, timestamp DESC);
 
 ```sql
 -- FIX D1: Same database file — single transaction boundary
--- Embedding dimension fixed at 768 (matches sentence-transformers / local models)
-CREATE VIRTUAL TABLE vec_claims    USING vec0(embedding float[768]);
-CREATE VIRTUAL TABLE vec_sources   USING vec0(embedding float[768]);
-CREATE VIRTUAL TABLE vec_entities  USING vec0(embedding float[768]);
-CREATE VIRTUAL TABLE vec_questions USING vec0(embedding float[768]);
+-- Embedding dimension fixed at 384 to match production
+-- src.utils.embedding_service.embed_texts (all-MiniLM-L6-v2 or similar).
+-- Corrected during Unit 2 CP-C — initial 768 was an incorrect assumption.
+CREATE VIRTUAL TABLE vec_claims    USING vec0(embedding float[384]);
+CREATE VIRTUAL TABLE vec_sources   USING vec0(embedding float[384]);
+CREATE VIRTUAL TABLE vec_entities  USING vec0(embedding float[384]);
+CREATE VIRTUAL TABLE vec_questions USING vec0(embedding float[384]);
 
 -- Because vec0 uses INTEGER rowid, we maintain mapping tables:
 CREATE TABLE vec_claims_mapping    (rowid INTEGER PRIMARY KEY, entity_id TEXT NOT NULL UNIQUE);
@@ -919,7 +921,7 @@ The combination that's lethal: **persistent graph memory + agentic expansion + u
 
 ## 19. Open questions
 
-- Embedding dim: fixed at 768 for sentence-transformers. GLM 5.1 embeddings may be 1024 or 4096. If we switch, `vec_*` tables need `float[1024]` and a re-embed pass. Deferred until embedding model is chosen.
+- Embedding dim: **resolved to 384** during Unit 2 CP-C. Production `embed_texts()` uses a 384-dim sentence-transformer. If we later switch to a 768-/1024-/4096-dim model, `vec_*` DDL must be updated and all existing vectors need a re-embed pass (tracked as future backlog).
 - Citation edge kind `cites` is in the schema but not yet used (reserved for explicit DOI citation chains from S2).
 - Topic refresh cadence: mark dirty on insert, re-cluster nightly? Or on read? Deferred to Unit 8.
 - Multi-user: workspaces.owner is a column but auth is not in scope for v1. Single-user local v1 → multi-user v2.

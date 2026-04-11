@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-11 (Session 57 — added wiki/mesh section for Unit 1)
-**Status**: 204 v3 tests passing. 43/43 wiki mesh Unit 1 tests green. Wiki compose path validated (4 domains, mean G-Eval 79.1).
+**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 2 ingest + claim_extract landed)
+**Status**: 204 v3 tests passing. 92/92 wiki mesh Unit 1+2 tests green. 2 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
 
 ---
 
@@ -132,17 +132,32 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (NEW, Unit 1, Session 57)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-2 done, 8 pending)
 
-Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full architecture and `state/restart_instructions.md` for the build status.
+Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
+
+**Unit 1 (Session 57) — schema + store foundation**
 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `__init__.py` | 25 | Package exports (MeshStore, MeshStoreError, create_schema, SCHEMA_VERSION) |
-| `schema.py` | 266 | DDL for 11 core + 4 mapping + 4 vec0 virtual tables. CHECK constraints enforce edges.usage_boost <= 0.2 (FIX S4), entities.confidence in [0,1] (FIX D2), tier/kind enums. FK cascades on workspace delete. sqlite-vec virtual tables at float[768]. |
-| `store.py` | 831 | MeshStore CRUD with transaction context wrapping SQL+vec0 atomically (D1), over-fetch KNN search (k*3 then filter then LIMIT k) to defend against lossy JOIN+WHERE when k < filter-set size, entity quarantine (D2), usage_boost cap helper (S4), idempotent insert_claim / insert_entity, try-INSERT-catch-UPDATE vec0 upsert (vec0 does not support INSERT OR REPLACE). |
+| `schema.py` | 266 | DDL for 11 core + 4 mapping + 4 vec0 virtual tables. CHECK constraints enforce edges.usage_boost <= 0.2 (FIX S4), entities.confidence in [0,1] (FIX D2), tier/kind enums. FK cascades on workspace delete. sqlite-vec virtual tables at float[384] (matches production embed_texts, corrected during Unit 2 CP-C). |
+| `store.py` | ~840 | MeshStore CRUD with transaction context wrapping SQL+vec0 atomically (D1), over-fetch KNN search (k*3 then filter then LIMIT k) to defend against lossy JOIN+WHERE, entity quarantine (D2), usage_boost cap helper (S4), idempotent insert_claim/insert_entity, try-INSERT-catch-UPDATE vec0 upsert (vec0 does not support INSERT OR REPLACE). Unit 2 added workspace_dir / sources_dir properties. |
 
-**Backlog tracked in docs/todo_list.md**: `vacuum_orphan_vectors` (vec0 tables not in FK cascades), schema migration tool, `_row_id_to_int` hash collision (negligible below ~4e8 vectors/table).
+**Unit 2 (Session 57) — ingest + claim extraction**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `ingest.py` | ~370 | L1 write path. `ingest_file()` handles uploads (PDF via docling, HTML via trafilatura, markdown/text plain), `ingest_web_content()` handles web-fetched HTML/markdown. Content-hash dedup, deterministic src_id prediction, atomic file write (temp + rename). `read_source_text()` strips the internal `<!-- src_id: ... -->` header so downstream char-span lookups reference the source BODY, not raw file bytes (the ~64-char offset bug the advisor caught at CP-B). |
+| `claim_extract.py` | ~420 | L2 write path. Reuses production `ANALYSIS_SYSTEM` prompt and `SourceAnalysisBatch` schema from `agents/analyzer.py` and `schemas.py` (no duplication). Split into `_parse_batch_to_claims` (pure function — 80% of test surface) + `extract_claims_from_source` (orchestrator — reads source body, calls LLM, embeds, inserts atomically). Filters: short statement, short quote (PG_MIN_QUOTE_WORDS=15), URL fragments, cookie boilerplate. Tier assignment: 3-signal v1 (relevance + source_quality + quote_verified). Unverifiable quotes get sentinel span (0,1) + BRONZE instead of being dropped. has_numeric regex catches 95% CI, p-values, sample sizes, effect sizes. Embeddings generated via `src.utils.embedding_service.embed_texts` (384-dim) BEFORE opening the transaction — atomicity preserved because vector insert happens inside the same tx as the claim row. |
+
+**Backlog tracked in docs/todo_list.md**:
+- `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
+- Schema migration tool for future SCHEMA_VERSION bumps
+- `_row_id_to_int` hash collision (negligible below ~4e8 vectors/table — Unit 1)
+- Decouple `ANALYSIS_SYSTEM` from `agents/analyzer.py` into a standalone prompt file to eliminate import-time coupling (Unit 2, advisor CP-D)
+- Real OpenRouter E2E test for claim extraction (Unit 2 orchestrator currently only tested with MockClient)
+- Exception-string fragility in `_insert_vector` (Unit 1)
 
 ---
 
@@ -544,11 +559,13 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 |------|-------|---------|
 | `test_react_agent.py` | 204 | Comprehensive ReAct agent tests: tool selection, timeout, provenance, parroting, structural rewrite, quality gate (template echo, grammar, phantom), post-processor (P2 cleanup, P7 grounding, R3 scale guard, expanded decimal, CiteFix, citation normalization), hygiene scoring, MiniCheck async integration. 20 tests added Session 50. |
 
-### tests/unit/ -- 32 Unit Test Files
+### tests/unit/ -- 34 Unit Test Files
 
 | File | Purpose |
 |------|---------|
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
+| `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
+| `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
 | `test_fix_048.py` | FIX-048: 4 root cause fix tests (quote substance, content pre-filter, corroboration, B2B detection) |
 | `test_fix_045.py` | FIX-045: orphan citations, nav boilerplate, abstract metrics, citation renumbering |
 | `test_agentic_search.py` | Agentic search depth, pages per round, content reasoning |

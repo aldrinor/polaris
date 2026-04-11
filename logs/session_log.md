@@ -32,6 +32,36 @@
 - STATUS: Unit 1 fully green. 42 tests passing. 4 advisor checkpoints completed (design review, code review, highest-standard critical review, post-fix review). Zero known bugs. Ready to commit or proceed to Unit 2.
 - NEXT_STEP: Await user decision on commit policy (commit Unit 1 alone vs bundle with Unit 2). Then begin Unit 2.
 
+[2026-04-11 09:45:00]
+- ACTION: Built Unit 2 of the wiki mesh — `src/polaris_graph/wiki/mesh/ingest.py` (~370 lines), `src/polaris_graph/wiki/mesh/claim_extract.py` (~420 lines), `tests/unit/test_mesh_ingest.py` (21 tests), `tests/unit/test_mesh_claim_extract.py` (28 tests), `scripts/pg_mesh_unit2_stress.py` (one-shot stress validator). Also corrected Unit 1 schema from float[768] to float[384] to match production `embed_texts()` output. Advisor-monitored build with CP-A through CP-D checkpoints; each checkpoint caught a real bug before shipment.
+- RATIONALE: User directive: build in ship-ready units, advisor review at every stage, honest framing about what each unit buys. Unit 2 delivers the L1→L2 write path (file → source_page row + markdown → LLM extraction → filtered claims with tier + char-span + embedding) as a stable foundation for Unit 3 (entity canonicalization) to build on. The reuse-over-duplicate decision on `ANALYSIS_SYSTEM` and `SourceAnalysisBatch` saves 40+ runs of Qwen field-name normalization from being silently broken in a rewrite. The parser/orchestrator split makes 80% of the code path testable without LLM mocking.
+- DOCS/RESEARCH: Production `_analyze_batch` at `src/polaris_graph/agents/analyzer.py:1970`; `ANALYSIS_SYSTEM` at line 132; `AtomicFact` / `SourceAnalysis` / `SourceAnalysisBatch` at `src/polaris_graph/schemas.py:131/233/403`; production `embed_texts` at `src/utils/embedding_service.py` (confirmed 384-dim output via smoke test).
+- SYNC: Updated `docs/wiki_mesh_design.md` (§3.2 float[768]→float[384] + §19 Open Questions resolving embedding dim), `docs/todo_list.md` (Unit 1 marked complete, Unit 2 marked complete, Unit 3 queued, mesh backlog accumulated), `docs/file_directory.md` (new §4d rewritten with both Unit 1 and Unit 2 file entries + `test_mesh_ingest.py` and `test_mesh_claim_extract.py` entries under tests/unit/), `state/restart_instructions.md` (full rewrite for Unit 3 handoff).
+- AFFECTED_FILES:
+  - CREATED: `src/polaris_graph/wiki/mesh/ingest.py`
+  - CREATED: `src/polaris_graph/wiki/mesh/claim_extract.py`
+  - CREATED: `tests/unit/test_mesh_ingest.py`
+  - CREATED: `tests/unit/test_mesh_claim_extract.py`
+  - CREATED: `scripts/pg_mesh_unit2_stress.py`
+  - MODIFIED: `src/polaris_graph/wiki/mesh/schema.py` (float[768] → float[384], comment updated)
+  - MODIFIED: `src/polaris_graph/wiki/mesh/store.py` (workspace_dir + sources_dir properties added, EMBEDDING_DIM 768 → 384, docstrings aligned)
+  - MODIFIED: `tests/unit/test_mesh_store.py` (`_random_emb` docstring only)
+  - MODIFIED: `docs/wiki_mesh_design.md` (dim correction in §3.2 and §19)
+  - MODIFIED: `docs/file_directory.md` (§4d rewrite for Unit 1 + Unit 2)
+  - MODIFIED: `docs/todo_list.md` (top-priority rewrite for Unit 2 complete + Unit 3 queued)
+  - MODIFIED: `state/restart_instructions.md` (full rewrite)
+  - MODIFIED: `logs/session_log.md` (this entry)
+- EVIDENCE/FINDINGS:
+  - `python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py -q` → **92 passed in ~60-75s**. Full mesh suite (Unit 1 + Unit 2) green with zero regressions.
+  - `python scripts/pg_mesh_unit2_stress.py` → **STRESS TEST PASSED**. 3 sources ingested in 0.07s, 3 mock-LLM extractions produced 7 claims (3 filtered correctly: 1 short_quote, 1 cookie_text, 1 short_statement), 7 vectors in `vec_claims` matching `workspace.claim_count` and mapping-table count, tier breakdown 6 GOLD + 1 SILVER + 0 BRONZE, KNN lookup returns top hits with RO-related quotes, reopen-from-disk preserves all 7 claims + vectors and KNN still works.
+  - 4 advisor checkpoints fired, each catching at least one real bug:
+    - CP-A pre-code: directed the design to REUSE schemas + prompt (save from 40+ runs of Qwen normalization) and split parser/orchestrator for testability
+    - CP-B mid: caught the 64-char header offset bug in `_write_source_markdown` that would have silently corrupted every `char_start` in the mesh; fixed with `read_source_text()` helper
+    - CP-C post-code: caught (1) missing embeddings in `extract_claims_from_source` — would have made claims invisible to Unit 5's lethal retrieval; (2) dimension mismatch — schema pinned to 768 but production `embed_texts` returns 384; (3) surfaced that `INSERT OR REPLACE` doesn't work on vec0 virtual tables at all
+    - CP-D robustness: confirmed the delivered code is "good to go, will keep running", flagged two non-blocking backlog items (real LLM path not yet tested, analyzer.py import coupling)
+- STATUS: Unit 2 is committed locally (pending — this log entry goes out with the commit). Full mesh test suite 92/92 green. Stress test passing. 2 of 10 mesh units complete. Foundation is usable standalone (L1 + L2 data pipeline) but NOT a shipped wiki mesh product yet — 8 more units ahead (entity, edge discovery, retrieval, compose, Q&A, CLI, API, integration tests). GitHub push still blocked behind GCM auth for `aldrinor` account; user will resolve when back home.
+- NEXT_STEP: Start Unit 3 (entity canonicalization) next session. First action: advisor CP-A to determine (1) entity types for v1, (2) surface-form extraction strategy (separate LLM call vs piggyback on existing extraction), (3) LLM disambiguation prompt design for the 0.80-0.92 cosine zone, (4) test coverage for the quarantine path. See `state/restart_instructions.md` §"NEXT SESSION — Start Unit 3" for the full walkthrough.
+
 ---
 
 ## [2026-04-01 -- Session 52: Claw Code Adoption — All 5 Phases Built]
