@@ -1,10 +1,31 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-03-27 (Session 55 — Evidence deepening loop implemented)
+**Last Updated**: 2026-04-10 (Session — Wiki compose path validated end-to-end)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
-**Source Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Enterprise Plan)
-**Gemini Plan**: `C:\Users\msn\.claude\plans\proud-stargazing-lagoon.md` (Gemini Architecture Redesign)
+**Source Plan**: `C:\Users\msn\.claude\plans\vivid-waddling-riddle.md` (Wiki ship plan, Phase 1 complete)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
+
+---
+
+## TOP PRIORITY (Next Session) — Real Qwen E2E
+
+The wiki compose path is validated end-to-end at gpt-4o (4 domains, mean G-Eval 79.1, range 77-85). All compose-side defects are fixed. Remaining work is upstream of compose and requires OpenRouter credits.
+
+### Immediate (when OpenRouter credits restored)
+- [ ] Verify OpenRouter is no longer 402 (probe call)
+- [ ] Run real Qwen E2E: `PG_WIKI_ENABLED=1 PG_WIKI_5LENS=1 python -u -m scripts.pg_smoke_test`
+- [ ] Score the result via `python scripts/eval_geval.py outputs/polaris_graph/{newest}.json`
+- [ ] Compare against the gpt-4o baseline (mean 79.1 across 4 domains). If within ±5pts, the wiki path generalizes from gpt-4o to Qwen — done.
+
+### Upstream tuning (worth +1 to +4 G-Eval points combined)
+- [ ] **CI extraction**: modify `ANALYSIS_SYSTEM` in `src/polaris_graph/agents/analyzer.py` to require preserving 95% CIs, p-values, sample sizes verbatim in `direct_quote`. Validate by counting `(95% CI` / `p<` / `n=` patterns in extracted evidence. Worth +1 to +2 on analytical_depth.
+- [ ] **Bibliography depth**: raise `PG_MAX_TOTAL_ACADEMIC` (1000→1500), `PG_ACADEMIC_QUERY_CAP` (10→20), search query count per round (6→10). Validate by running search-only and counting unique academic URLs (target ≥80 per topic). Worth +1 to +2 on citation_quality.
+
+### Optional cleanup (low priority)
+- [ ] Get a non-OpenAI G-Eval judge (Anthropic key needed) to break the gpt-4o-vs-gpt-4o same-family bias
+- [ ] Run each topic 3x with different gpt-4o seeds to compute mean ± stdev, tightening the variance estimate
+
+See `state/restart_instructions.md` for detailed next-session walkthrough.
 
 ---
 
