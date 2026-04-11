@@ -256,7 +256,9 @@ async def compose_from_wiki(
             c.get("evidence_id", "") for c in claims if c.get("evidence_id")
         ]
 
-        # Compose with retry
+        # Compose with retry. Both exceptions AND empty content trigger retry —
+        # reasoning models (gpt-5/o3) sometimes return HTTP 200 with empty content
+        # when the reasoning budget consumes the full token allowance.
         content = ""
         for attempt in range(2):
             try:
@@ -270,7 +272,21 @@ async def compose_from_wiki(
                     prev_summaries=prev_summaries,
                     query=query,
                 )
-                break
+                if content and content.strip():
+                    break
+                # Empty content — log and retry (or fail on second attempt)
+                if attempt == 0:
+                    logger.warning(
+                        "[wiki-compose] Section %s attempt 1 returned empty content "
+                        "(possible reasoning budget overflow) — retrying",
+                        sid,
+                    )
+                else:
+                    logger.error(
+                        "[wiki-compose] Section %s returned empty content twice — skipping",
+                        sid,
+                    )
+                    failed_sections.append(sid)
             except Exception as exc:
                 if attempt == 0:
                     logger.warning(
@@ -284,14 +300,17 @@ async def compose_from_wiki(
                     )
                     failed_sections.append(sid)
 
-        if not content:
+        if not content or not content.strip():
             continue
 
         # Scrub CoT leakage
         content = _scrub_cot(content)
 
-        # Deterministic citation resolution: [REF:N] → [N]
-        content = re.sub(r"\[REF:(\d+)\]", r"[\1]", content)
+        # Deterministic citation resolution.
+        # Models intermittently emit [REF:N], [CITE:N], or [Ref:N] despite the
+        # system prompt — collapse all numeric variants to canonical [N].
+        # Validated against gpt-4o-mini output (Section 3 leaked [CITE:N]).
+        content = re.sub(r"\[(?:REF|CITE|Ref|Cite|ref|cite):(\d+)\]", r"[\1]", content)
 
         # Remove duplicate section headers the LLM may have generated
         # (the assembler adds ## Title, so strip any leading # Title from content)
@@ -474,7 +493,9 @@ async def _compose_abstract(
         f"Write a 200-word abstract for a systematic review answering: \"{query}\"\n\n"
         f"Section summaries:\n{summaries}\n\n"
         f"RULES:\n"
-        f"- Include 2-3 key quantitative findings with [N] citations\n"
+        f"- Include 2-3 key quantitative findings, each followed by a citation\n"
+        f"  in the form [3] where 3 is a real number from 1 to {len(bibliography)}\n"
+        f"- NEVER write the literal token [N] — this is a placeholder, not a citation\n"
         f"- State the scope (number of sources, topics covered)\n"
         f"- Note major limitations or evidence gaps\n"
         f"- Academic register, third person\n"
@@ -493,8 +514,10 @@ async def _compose_abstract(
         # Scrub CoT
         from src.polaris_graph.synthesis.section_writer import _scrub_cot
         abstract = _scrub_cot(abstract)
-        # Convert [REF:N] → [N] in case LLM uses that format
-        abstract = re.sub(r"\[REF:(\d+)\]", r"[\1]", abstract)
+        # Resolve any prefixed citations (REF/CITE) → bare [N]
+        abstract = re.sub(r"\[(?:REF|CITE|Ref|Cite|ref|cite):(\d+)\]", r"[\1]", abstract)
+        # Strip literal [N] placeholders if model still emits them
+        abstract = re.sub(r"\[N\]", "", abstract)
         return abstract
     except Exception as exc:
         logger.warning("[wiki-compose] Abstract generation failed: %s", str(exc)[:100])
