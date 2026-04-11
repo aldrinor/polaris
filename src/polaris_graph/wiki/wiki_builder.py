@@ -172,7 +172,7 @@ def build_wiki(
             stats={"total_evidence": 0, "error": "no_evidence"},
         )
 
-    # ── Step 1b: Source authority gate (PageRank-based) ────────────
+    # ── Step 1b: Source authority gate (PageRank-based, ADAPTIVE) ──
     #
     # The analyzer already computes sig_authority (PageRank + source type boost)
     # for every evidence piece. Analysis of PG_WIKI_002 showed:
@@ -180,22 +180,55 @@ def build_wiki(
     #   - Bad (blogs/garbage) avg sig_authority = 0.381
     #   - At threshold 0.5: ALL 21 good kept, ALL 24 bad killed, zero errors
     #
-    # This replaces the domain blocklist (doesn't scale) and whitelist (topic-dependent)
-    # with a single PageRank-based gate that works across arbitrary topics.
-    authority_gate = float(os.getenv("PG_WIKI_AUTHORITY_GATE", "0.5"))
+    # FIX-GENERALIZATION: The hard 0.5 threshold works for academic-heavy topics
+    # (PFAS, medical) but kills 86% of evidence on engineering/industry topics
+    # (adhesion testing, materials standards) where vendor docs and standards
+    # bodies have lower PageRank but are still authoritative for the domain.
+    #
+    # Adaptive strategy: pick the threshold that keeps at least
+    # max(num_sections * 8, 50) evidence pieces. Walks down from 0.5 to 0.0.
+    authority_gate_default = float(os.getenv("PG_WIKI_AUTHORITY_GATE", "0.5"))
+    num_sections_target = max(len(outline), 1)
+    min_post_gate = max(num_sections_target * 8, 50)
+
+    # Sort by authority descending so we can compute the cutoff
+    sorted_by_auth = sorted(
+        quality_evidence,
+        key=lambda e: e.get("sig_authority", 0.5),
+        reverse=True,
+    )
     before_auth = len(quality_evidence)
-    quality_evidence = [
-        e for e in quality_evidence
-        if e.get("sig_authority", 0.5) >= authority_gate
-    ]
-    auth_filtered = before_auth - len(quality_evidence)
-    if auth_filtered:
+
+    # Default-gate pass first
+    high_auth = [e for e in sorted_by_auth if e.get("sig_authority", 0.5) >= authority_gate_default]
+
+    if len(high_auth) >= min_post_gate:
+        # Plenty of high-authority evidence — use the strict gate
+        quality_evidence = high_auth
+        applied_gate = authority_gate_default
+    else:
+        # Adaptive: take top-N to hit the floor, but never include evidence
+        # below sig_authority 0.30 (still excludes obvious blog garbage)
+        FLOOR = 0.30
+        quality_evidence = [
+            e for e in sorted_by_auth[:max(min_post_gate, len(high_auth))]
+            if e.get("sig_authority", 0.5) >= FLOOR
+        ]
+        applied_gate = quality_evidence[-1].get("sig_authority", FLOOR) if quality_evidence else FLOOR
         logger.info(
-            "[wiki] Authority gate (sig_authority >= %.2f): removed %d/%d evidence",
-            authority_gate, auth_filtered, before_auth,
+            "[wiki] Authority gate adaptive: strict 0.5 kept only %d/%d (need %d). "
+            "Lowered to %.2f to keep %d evidence (floor=%.2f)",
+            len(high_auth), before_auth, min_post_gate, applied_gate, len(quality_evidence), FLOOR,
         )
 
-    # Safety: if gate was too aggressive and killed everything, fall back
+    auth_filtered = before_auth - len(quality_evidence)
+    if auth_filtered and applied_gate >= authority_gate_default:
+        logger.info(
+            "[wiki] Authority gate (sig_authority >= %.2f): removed %d/%d evidence",
+            applied_gate, auth_filtered, before_auth,
+        )
+
+    # Safety: if even the adaptive gate killed everything, fall back
     if not quality_evidence and before_auth > 0:
         logger.warning("[wiki] Authority gate killed ALL evidence — falling back to unfiltered")
         quality_evidence = [

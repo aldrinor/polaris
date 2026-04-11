@@ -51,14 +51,16 @@ async def main():
         return 1
 
     model_name = os.getenv("OPENAI_TEST_MODEL", "gpt-4o")
+    input_arg = sys.argv[1] if len(sys.argv) > 1 else "outputs/polaris_graph/PG_TEST_041.json"
+    output_id = os.getenv("OUTPUT_ID", "PRODUCTION_SCALE_VALIDATION")
 
     print("=" * 70)
     print(f"PRODUCTION-SCALE WIKI COMPOSE — {model_name}")
-    print("Source: PG_TEST_041 (Qwen 3.5 Plus run on PFAS water filtration)")
+    print(f"Source: {input_arg}")
     print("=" * 70)
 
     # ── Stage 1: Load real evidence + outline ────────────────────────
-    test_path = Path("outputs/polaris_graph/PG_TEST_041.json")
+    test_path = Path(input_arg)
     if not test_path.exists():
         print(f"ERROR: {test_path} not found")
         return 1
@@ -95,7 +97,7 @@ async def main():
     start = time.monotonic()
     wiki = build_wiki(
         evidence=evidence, outline=outline,
-        query=query, vector_id="PRODUCTION_SCALE_VALIDATION",
+        query=query, vector_id=output_id,
     )
     build_elapsed = time.monotonic() - start
 
@@ -214,14 +216,14 @@ async def main():
 
     # ── Save the final report ───────────────────────────────────────
     out_dir = Path("outputs/polaris_graph")
-    out_file = out_dir / "PRODUCTION_SCALE_VALIDATION.md"
+    out_file = out_dir / f"{output_id}.md"
     out_file.write_text(final, encoding="utf-8")
     print(f"\nReport saved: {out_file} ({len(final)} chars)")
 
     # Also save the full result as JSON for downstream evaluation (G-Eval, etc.)
-    json_file = out_dir / "PRODUCTION_SCALE_VALIDATION.json"
+    json_file = out_dir / f"{output_id}.json"
     json_blob = {
-        "vector_id": "PRODUCTION_SCALE_VALIDATION",
+        "vector_id": output_id,
         "original_query": query,
         "final_report": final,
         "sections": sections,
