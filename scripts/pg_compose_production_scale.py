@@ -101,16 +101,20 @@ async def main():
     )
     build_elapsed = time.monotonic() - start
 
+    # The builder may have augmented the outline with synthesis sections.
+    # Use that augmented outline for compose so the new sections are written.
+    compose_outline = wiki.outline if wiki.outline else outline
+
     total_claims = sum(len(c) for c in wiki.section_claims.values())
     print(f"  Built in {build_elapsed:.1f}s: {total_claims} claims, "
-          f"{len(wiki.bibliography)} bib entries")
+          f"{len(wiki.bibliography)} bib entries (outline: {len(compose_outline)} sections)")
     for sid, claims in wiki.section_claims.items():
-        sec_title = next((s["title"] for s in outline if s["section_id"] == sid), sid)
+        sec_title = next((s["title"] for s in compose_outline if s["section_id"] == sid), sid)
         srcs = len({c.get("source_url") for c in claims})
         print(f"    {sid}: {len(claims):3d} claims, {srcs:2d} sources | {sec_title[:42]}")
 
     # ── Stage 3: Compose via OpenAI shim ────────────────────────────
-    print(f"\n[3/4] Composing {len(outline)} sections via {model_name}")
+    print(f"\n[3/4] Composing {len(compose_outline)} sections via {model_name}")
     from src.polaris_graph.wiki.wiki_composer import compose_from_wiki
 
     client = OpenAIShimClient(model=model_name)
@@ -120,7 +124,7 @@ async def main():
             client=client,  # type: ignore[arg-type]
             wiki_result=wiki,
             query=query,
-            outline=outline,
+            outline=compose_outline,
         )
     except Exception as exc:
         print(f"\nFAIL: compose_from_wiki crashed: {type(exc).__name__}: {exc}")
@@ -136,7 +140,7 @@ async def main():
     print(f"\n[4/4] Compose done in {compose_elapsed:.0f}s ({client.calls} LLM calls)")
     print(f"  Status:        {result['status']}")
     print(f"  Quality gate:  {result['quality_gate_result']}")
-    print(f"  Sections:      {len(sections)}/{len(outline)}")
+    print(f"  Sections:      {len(sections)}/{len(compose_outline)}")
     print(f"  Total words:   {qm['total_words']}")
     print(f"  Citations:     {qm['total_citations']}")
     print(f"  Sources used:  {qm['unique_sources']}")
@@ -151,8 +155,8 @@ async def main():
     print(f"\nValidation checks:")
     checks = []
 
-    v1 = len(sections) == len(outline)
-    checks.append(("V1 all sections composed", v1, f"{len(sections)}/{len(outline)}"))
+    v1 = len(sections) == len(compose_outline)
+    checks.append(("V1 all sections composed", v1, f"{len(sections)}/{len(compose_outline)}"))
 
     cot_phrases = ["let me", "i need to", "first, i'll", "thinking about",
                    "let's start", "i should", "i will write", "okay,",

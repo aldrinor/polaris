@@ -38,6 +38,10 @@ class WikiResult:
     bibliography: list[dict]
     stats: dict
     unassigned_evidence: list[dict] = field(default_factory=list)
+    # FIX-COMPLETENESS: Augmented outline is exposed so callers can iterate
+    # over the SAME sections that section_claims was built against. The
+    # builder may add synthesis sections that weren't in the input outline.
+    outline: list[dict] = field(default_factory=list)
 
 
 async def generate_outline_for_wiki(
@@ -123,6 +127,110 @@ async def generate_outline_for_wiki(
     ]
 
 
+def _ensure_synthesis_sections(outline: list[dict]) -> list[dict]:
+    """Augment the outline with mandatory synthesis sections if missing.
+
+    G-Eval analysis across 4 cross-domain runs (PFAS, fasting, adhesion,
+    DVS-PEI) found that completeness scores 6/10 instead of 9/10 whenever
+    the outline lacks explicit sections for:
+      1. Comparative synthesis / trade-off analysis
+      2. Practical implementation considerations
+      3. Knowledge gaps and future research
+
+    The PFAS run scored 9/10 because its outline happened to include all
+    three. Adding them universally lifts completeness ~3pts (= ~+0.45
+    weighted G-Eval points each, ~+1.4 total).
+
+    Detection is keyword-based on section titles. If a synthesis-flavored
+    section already exists, we do not add a duplicate.
+    """
+    if not outline:
+        return outline
+
+    # Strict detection: only count titles that are CROSS-CUTTING synthesis
+    # sections, not section-specific discussions of similar topics. We test
+    # against the lowercased title as a whole — match ONLY if the title
+    # clearly indicates a synthesis/cross-cutting section.
+    titles = [s.get("title", "").lower() for s in outline]
+
+    def _is_synthesis_title(title: str, kind: str) -> bool:
+        """Check if a section title is a synthesis section of the given kind."""
+        if kind == "comparative":
+            # Must be cross-cutting comparison: "Comparative Synthesis",
+            # "Comparative Analysis", "Trade-off Analysis", "Techno-Economic"
+            return any(p in title for p in (
+                "comparative synthesis", "comparative analysis", "comparative effectiveness",
+                "trade-off", "tradeoff", "techno-economic", "cost-benefit",
+                "comparative evaluation", "selection guide",
+            ))
+        if kind == "practical":
+            # Must be deployment-focused, not "practical implications"
+            return any(p in title for p in (
+                "implementation", "deployment", "scalability", "operational complexity",
+                "real-world", "field application", "practical implementation",
+            ))
+        if kind == "gaps":
+            # Must be cross-cutting gaps, not section-specific limitations
+            return any(p in title for p in (
+                "knowledge gap", "knowledge gaps", "research gap", "evidence gap",
+                "future direction", "future research", "open question",
+                "knowledge gaps and future", "limitations and future",
+            ))
+        return False
+
+    has_comparative = any(_is_synthesis_title(t, "comparative") for t in titles)
+    has_practical = any(_is_synthesis_title(t, "practical") for t in titles)
+    has_gaps = any(_is_synthesis_title(t, "gaps") for t in titles)
+
+    augmented = list(outline)
+    next_idx = len(outline) + 1
+
+    if not has_comparative:
+        augmented.append({
+            "section_id": f"s{next_idx:02d}",
+            "title": "Comparative Synthesis and Trade-off Analysis",
+            "description": (
+                "Cross-cutting synthesis comparing the approaches/findings from prior "
+                "sections. Identify where evidence converges, where studies disagree, "
+                "and what trade-offs distinguish the leading options. Use comparative "
+                "language and reference specific findings from earlier sections."
+            ),
+        })
+        next_idx += 1
+
+    if not has_practical:
+        augmented.append({
+            "section_id": f"s{next_idx:02d}",
+            "title": "Practical Implementation Considerations",
+            "description": (
+                "Real-world deployment factors: cost, scalability, regulatory context, "
+                "operational complexity, infrastructure requirements, and stakeholder "
+                "constraints. What does it take to actually use these findings?"
+            ),
+        })
+        next_idx += 1
+
+    if not has_gaps:
+        augmented.append({
+            "section_id": f"s{next_idx:02d}",
+            "title": "Knowledge Gaps and Future Research Directions",
+            "description": (
+                "Open questions, limitations of the current evidence base, populations "
+                "or conditions underrepresented in the literature, and the most "
+                "important next experiments or studies needed to advance the field."
+            ),
+        })
+        next_idx += 1
+
+    if len(augmented) > len(outline):
+        added = len(augmented) - len(outline)
+        logger.info(
+            "[wiki] Outline augmented with %d synthesis section(s) (had %d, now %d)",
+            added, len(outline), len(augmented),
+        )
+    return augmented
+
+
 def build_wiki(
     evidence: list[dict],
     outline: list[dict],
@@ -132,19 +240,25 @@ def build_wiki(
     """
     Build a persistent wiki from evidence and outline.
 
-    1. Filter to GOLD + SILVER evidence
-    2. Assign evidence to sections by embedding similarity
-    3. Guard against starvation (fallback for thin sections)
-    4. Dedup within sections
-    5. Build global bibliography
-    6. Write wiki files to disk
-    7. Return WikiResult for composer
+    1. Augment outline with synthesis sections if missing
+    2. Filter to GOLD + SILVER evidence
+    3. Assign evidence to sections by embedding similarity
+    4. Guard against starvation (fallback for thin sections)
+    5. Dedup within sections
+    6. Build global bibliography
+    7. Write wiki files to disk
+    8. Return WikiResult for composer
     """
     if not outline:
         logger.warning(
             "[wiki] No outline provided — this is expected on first synthesis. "
             "Outline will be generated by the wiki graph entry point."
         )
+
+    # FIX-COMPLETENESS: Ensure outline has comparative/practical/gaps sections.
+    # Cross-domain G-Eval found completeness drops from 9 to 6 whenever these
+    # are missing. The PFAS outline had them; the others didn't.
+    outline = _ensure_synthesis_sections(outline)
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -375,6 +489,7 @@ def build_wiki(
         bibliography=bibliography,
         stats=stats,
         unassigned_evidence=unassigned,
+        outline=outline,
     )
 
 
