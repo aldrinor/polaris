@@ -3057,3 +3057,21 @@
 - STATUS: Unit 7 complete. 7 of 10 wiki mesh units done. Full Q&A path works: ask question → retrieve → compose → answer with bibliography. Multi-turn threads supported.
 - NEXT_STEP: Commit Unit 7, then start Unit 8 (CLI + workspace management).
 
+
+[2026-04-12 Session 57 continued — Unit 8]
+- ACTION: Wiki Mesh Unit 8 — CLI presentation layer
+- RATIONALE: Advisor CP-A locked: argparse (no Click dep), 6 commands (workspace-create/list, ask with --dry-run, ingest, stats, entities-review), snapshots deferred to Unit 10, no config layer, asyncio.run() for async bridging. ~210 lines of thin presentation code.
+- SYNC: docs/file_directory.md, docs/todo_list.md updated for Unit 8.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/cli/__init__.py, cli/main.py (~210 lines)
+  - NEW: tests/unit/test_mesh_cli.py (11 tests)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 261/261 mesh tests pass (Units 1-8: 43+49+46+45+25+26+16+11). Full suite ~109s.
+  - Advisor CP-C: "Ready to commit. CLI is genuinely thin — zero business logic."
+  - --dry-run ask verified: retrieval-only without LLM works with seeded workspace.
+  - entities-review verified: shows quarantined entities with type + confidence + aliases.
+  - Error handling: unknown workspace → exit code 1 + stderr message. No command → help + exit 1.
+- STATUS: Unit 8 complete. 8 of 10 wiki mesh units done. The mesh now has a user-facing CLI. Unit 9 (REST API) and Unit 10 (integration tests + snapshots) remain.
+- NEXT_STEP: Commit Unit 8, then start Unit 9 (REST API server).
+

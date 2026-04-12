@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-11) — Wiki Mesh Unit 7 Complete, Ready for Unit 8
+## Current State (2026-04-12) — Wiki Mesh Unit 8 Complete, Ready for Unit 9
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -12,11 +12,12 @@
 - `f1e95de` — restart_instructions doc fix
 - `292a12f` — Wiki Mesh Unit 5 of 10 — lethal retrieval + gap classify
 - `5aa2b42` — Wiki Mesh Unit 6 of 10 — compose + artifact directives (FIX S7)
-- **Unit 7 commit pending** — qa/ask.py + store.py Q&A CRUD + tests (16 new tests)
+- `f9de5aa` — Wiki Mesh Unit 7 of 10 — Q&A layer + multi-turn threads (FIX S8)
+- **Unit 8 commit pending** — cli/main.py + tests (11 new tests)
 
-**Status:** 7 of 10 wiki mesh units complete. Full Q&A path: ask → retrieve → compose → answer with bibliography + multi-turn threads. 250/250 tests passing.
+**Status:** 8 of 10 wiki mesh units complete. Full pipeline with CLI: ingest → extract → canonicalize → edge discovery → retrieve → compose → Q&A with threads → CLI interface. 261/261 tests passing.
 
-**Honest scope:** Unit 7 completes the conversational Q&A layer. CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can answer questions with cited responses and maintain multi-turn threads, but has no user interface yet.
+**Honest scope:** Unit 8 provides the user-facing CLI. API (Unit 9) and integration tests + snapshots (Unit 10) remain. The mesh is functionally usable from the command line (with --dry-run for testing without LLM).
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -24,47 +25,42 @@
 
 ## What was just done
 
-### Unit 7 — Q&A layer + multi-turn threads (FIX S8)
+### Unit 8 — CLI presentation layer
 
-**`src/polaris_graph/wiki/mesh/qa/ask.py` (~160 lines)**
-- `ask()` orchestrator: 6 steps — insert question → build thread context → retrieve → check NEARBY budget → compose → insert answer → return AskResult
-- Coreference via simple concatenation of last 3 Q&A pairs (no LLM in v1). Embedding of "Q: ... A: ... Q: What about the cost?" naturally resolves pronouns
-- NEARBY budget awareness: `AskResult.nearby_budget_available` set when gap=NEARBY and budget allows, for Unit 8 CLI to act on
-- Empty workspace: returns ORTHOGONAL gap + "no claims" but persists question row (we track what was asked even with no results)
+**`src/polaris_graph/wiki/mesh/cli/main.py` (~210 lines)**
+- argparse-based CLI with 6 subcommands: workspace-create, workspace-list, ask (with --dry-run), ingest, stats, entities-review
+- Each handler is thin: open store, call mesh function, print result, close store. Zero business logic
+- `--dry-run` on ask calls `lethal_retrieve` directly without LLM — testable without network
+- `asyncio.run()` bridges the sync CLI to async `ask()` orchestrator
+- `_make_llm_client()` fails loudly per LAW II if OpenRouterClient unavailable (suggests --dry-run)
+- Design doc estimated ~830 lines but snapshots + confirm/reject/merge + config layer intentionally deferred
 
-**Store additions (~100 lines in store.py)**
-- `insert_question(workspace_id, text, parent_id, asked_by) -> str`
-- `get_question(question_id) -> dict | None`
-- `insert_answer(question_id, text, retrieved_claims, cited_claims, artifact_paths, model) -> str`
-- `get_answer_for_question(question_id) -> dict | None`
-- `get_thread_history(question_id, last_n=3) -> list[dict]` — walks parent_id chain backward, reverses to chronological order, pops current question, limits to last_n
-
-**`tests/unit/test_mesh_qa.py` — 16 tests**
-- TestInsertQuestion (4): basic, parent, empty raises, missing returns None
-- TestInsertAnswer (2): basic, no answer returns None
-- TestThreadHistory (4): no history, 2-question, 3-question chronological, last_n limits
-- TestBuildResolvedQuestion (2): no history → raw, with history → concatenated Q/A format
-- TestAskOrchestration (4): E2E single question, follow-up with parent_id, empty ORTHOGONAL, unknown workspace raises
+**`tests/unit/test_mesh_cli.py` — 11 tests**
+- TestWorkspaceCreate (2): basic, with seed question
+- TestWorkspaceList (2): empty db, lists existing
+- TestAskDryRun (2): retrieval result displayed, empty workspace
+- TestStats (1): full workspace stats output
+- TestEntitiesReview (2): no quarantined, shows quarantined with type/confidence/aliases
+- TestErrorHandling (2): no command → help, invalid workspace → error
 
 ---
 
-## NEXT SESSION — Start Unit 8: Workspace management + CLI
+## NEXT SESSION — Start Unit 9: REST API server
 
-Unit 8 provides the user interface layer: a CLI tool for interacting with the mesh (ask questions, ingest files, manage workspaces, review quarantined entities).
+Unit 9 exposes the mesh operations as a REST API (FastAPI).
 
-### What Unit 8 delivers
+### What Unit 9 delivers
 
-- `cli/main.py` — Click-based CLI entry point: `polaris mesh ask`, `polaris mesh ingest`, `polaris mesh stats`, `polaris mesh entities review`
-- `cli/workspace.py` — Workspace CRUD commands: create, list, switch, delete
-- Snapshot support with zstd compression for mesh.db backup/restore
-- Tests for CLI argument parsing + workspace management
+- `api/server.py` — FastAPI app with routes for workspace CRUD, ask, ingest, stats, entities
+- `api/schemas.py` — Pydantic request/response models for API endpoints
+- Tests for API routes using FastAPI's TestClient
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` §12 (CLI commands reference)
-2. `src/polaris_graph/wiki/mesh/qa/ask.py` — the ask() function the CLI calls
-3. `src/polaris_graph/wiki/mesh/ingest.py` — ingest_file/ingest_web_content the CLI calls
-4. `src/polaris_graph/wiki/mesh/store.py` — workspace CRUD, stats, quarantined entities
+1. `docs/wiki_mesh_design.md` (API section if exists)
+2. `src/polaris_graph/wiki/mesh/cli/main.py` — the CLI handlers show which mesh functions to expose
+3. `requirements.txt` — verify fastapi + uvicorn already in deps
+4. `src/polaris_graph/wiki/mesh/qa/ask.py` — async ask() maps naturally to async FastAPI routes
 
 ---
 
@@ -87,10 +83,10 @@ Unit 8 provides the user interface layer: a CLI tool for interacting with the me
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py tests/unit/test_mesh_cli.py -v
 ```
 
-Expected: **250 passed** in ~102s (the embedding model loads once for the integration tests).
+Expected: **261 passed** in ~109s (the embedding model loads once for the integration tests).
 
 ---
 

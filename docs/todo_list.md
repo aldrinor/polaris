@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 7 complete — Q&A layer + 250/250 tests)
+**Last Updated**: 2026-04-12 (Wiki Mesh Unit 8 complete — CLI + 261/261 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **7 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **8 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -57,8 +57,11 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] Store additions (~100 lines in store.py) — 5 new methods: `insert_question`, `get_question`, `insert_answer`, `get_answer_for_question`, `get_thread_history` (walks parent_id chain backward, reverses to chronological, pops current question, limits to last_n).
 - [x] `tests/unit/test_mesh_qa.py` — 16 tests: store CRUD (6), thread history with chronological ordering + last_n limit (4), context concatenation (2), ask orchestration E2E with mock LLM (4 inc. follow-up with parent_id, empty workspace ORTHOGONAL, unknown workspace raises).
 - [x] Advisor checkpoints: CP-A lock (parent_id chain as thread model, simple concatenation not LLM coreference, NEARBY check-only not expansion), CP-C (250/250 passing, thread walking logic traced and verified correct).
-- [ ] Unit 8: workspace management + CLI + snapshots with zstd (NEXT, ~830 lines)
-- [ ] Unit 9: REST API server (~400 lines)
+### Unit 8 — CLI presentation layer (COMPLETE 2026-04-12)
+- [x] `src/polaris_graph/wiki/mesh/cli/main.py` (~210 lines) — argparse-based CLI with 6 subcommands (workspace-create/list, ask with --dry-run, ingest, stats, entities-review). Each handler is thin: open store, call mesh function, print, close. `asyncio.run()` bridges async ask(). `--dry-run` calls lethal_retrieve directly without LLM (testable without network). `_make_llm_client()` fails loudly per LAW II. Design doc estimated ~830 lines but snapshots + confirm/reject/merge + config layer intentionally deferred to keep v1 focused.
+- [x] `tests/unit/test_mesh_cli.py` — 11 tests: workspace-create (2), workspace-list (2), ask --dry-run (2), stats (1), entities-review (2 inc. quarantined display), error handling (2).
+- [x] Advisor checkpoints: CP-A lock (argparse, 6 commands, snapshots deferred to Unit 10, --dry-run for testability, no config layer), CP-C (261/261 passing, CLI genuinely thin, no business logic).
+- [ ] Unit 9: REST API server (NEXT, ~400 lines)
 - [ ] Unit 10: integration + regression tests (~600 lines)
 
 ### Mesh backlog (non-blocking, accumulated across units)
