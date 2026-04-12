@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 2 complete — ingest + claim_extract + 92/92 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 3 complete — entity canonicalization + 138/138 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **2 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **3 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -26,12 +26,15 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] `scripts/pg_mesh_unit2_stress.py` — stress test: 3 sources, mock LLM, 3 extractions, 7 claims + 7 vectors, reopen persistence, KNN lookup, consistency checks. **PASSED.**
 - [x] Advisor checkpoints: CP-A pre-code (reuse schemas + split parser/orchestrator), CP-B mid (header offset bug fixed with read_source_text helper), CP-C post-code (missing embeddings + 768→384 dim correction), CP-D robustness ("good to go").
 
-### Unit 3 — Entity canonicalization (NEXT, FIX D2)
-- [ ] `mesh/entity.py` (~300 lines) — 5-step canonicalization (exact → alias → cosine ≥ 0.92 → LLM disambig for 0.80-0.92 zone → insert quarantined). Uses `store.insert_entity` + `store.link_claim_entity` + `store.get_quarantined_entities` already in place from Unit 1.
-- [ ] Integration: `claim_extract.py` post-parse pass — extract entity surface forms per claim, canonicalize, link via `claim_entities` table
-- [ ] Tests: ambiguous cases (RO, GAC, PFAS, C8) get quarantined, high-confidence matches merge into existing entities, LLM disambiguation edge (0.80-0.92 cosine zone)
+### Unit 3 — Entity canonicalization (COMPLETE 2026-04-11, FIX D2)
+- [x] `src/polaris_graph/wiki/mesh/entity.py` (~600 lines) — 5-step FIX D2 canonicalization: (1) exact canonical → conf 1.0, (2) alias case-insensitive → conf 0.95, (3) cosine ≥ 0.92 → merge at conf=cosine, (4) cosine 0.80-0.92 → optional LLM disambig (YES → conf 0.70 still quarantined; NO / no client → fall through), (5) new quarantined insert at conf 0.5. Heuristic `classify_entity_type()` returns compound / method / organization / person / metric / concept (person regex requires honorific prefix OR middle-initial dot — "Water Research Foundation" correctly classifies as organization). Cross-type filter blocks step-3 merges between entities of different kinds. `canonicalize_entities_for_claim()` is the bulk helper with optional precomputed embedding dict (amortizes `embed_texts` model load across many surface forms). L2-to-cosine conversion (`1 - 0.5·d²`) empirically verified against sqlite-vec vec0 distance metric.
+- [x] Schema — `src/polaris_graph/schemas.py::AtomicFact` extended with `entities: list[str] = Field(default_factory=list)` and the `normalize_field_names` validator handles backward-compat (dict missing key → `[]`, alt keys `entity_mentions` / `named_entities` / `mentions`, comma-separated strings, mixed-type lists, None, garbage).
+- [x] Integration — `claim_extract.py` now imports `canonicalize_entities_for_claim`, defines a mesh-side `MESH_SYSTEM` prompt that wraps `ANALYSIS_SYSTEM` with an entity-extraction suffix (keeps analyzer.py untouched per CP-A lock c2), the parser propagates `fact.entities` into claim dicts, the orchestrator batches unique surface-form embeddings ONCE via `embed_texts`, and canonicalization runs inside the same transaction as `insert_claim` so claim + vector + claim_entities link roll back together on any mid-batch failure.
+- [x] `tests/unit/test_mesh_entity.py` — 46 tests: classifier heuristic (7), helpers (7), 5-path canonicalization incl. cross-type filter + validation (13), `canonicalize_entities_for_claim` bulk orchestration (6), `llm_disambiguate` mock (3), FIX D2 quarantine semantics (4), end-to-end `extract_claims_from_source` with mock LLM + entities-populated AtomicFact + backward-compat no-entities path + duplicate-entity-across-claims cross-claim merge check (3). All 138 mesh tests green (Unit 1 43 + Unit 2 49 + Unit 3 46). Full suite runtime ~78s (embedding model loads once for integration tests).
+- [x] Advisor checkpoints: CP-A pre-code (locked c2 = schema + mesh prompt only, no analyzer.py edits, entities list[str] with backward-compat validator), CP-B mid (cosine formula empirically verified via `1 - d²/2` sanity check; `_find_by_alias` O(n) linear scan flagged as scaling note — not blocking below ~few thousand entities/workspace), CP-C post-code (138/138 passing, no blocking issues, confirmed backward-compat path is exercised by Unit 2 orchestrator test that got migrated onto the MESH_SYSTEM + disambig_client signature). CP-D stress test script extension **skipped per advisor** — the 3 end-to-end integration tests already cover ingest → extract → canonicalize → link with the real embedding model, extending the Unit 2 stress script would add no coverage the advisor would need to re-validate.
+- [x] Bug caught + fixed during Unit 3: person regex `^[A-Z][a-z]+(?:\s+[A-Z]\.?[a-z]*){2,}$` matched 3-token organizations like "Water Research Foundation". Tightened to require an honorific prefix (Dr./Prof./Mr./Mrs./Ms./Sr./Jr.) OR explicit middle-initial dot (`John A. Smith`).
 
-### Unit 4 — Edge discovery + snowball (FIX S4)
+### Unit 4 — Edge discovery + snowball (NEXT, FIX S4)
 - [ ] `mesh/edge_discovery.py` (~350 lines) — candidates via vec KNN, edge type via NLI, evidence_weight from cosine × NLI confidence
 - [ ] `mesh/snowball.py` (~120 lines) — bounded feedback formulas (age-decayed bonus, corroboration reinforcement capped, upload gravity)
 - [ ] Tests: corroborates/contradicts/elaborates assigned correctly, usage_boost caps at 0.2, snowball bounds enforced

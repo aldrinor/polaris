@@ -158,6 +158,18 @@ class AtomicFact(BaseModel):
         "Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
         default="Scientific",
     )
+    # MESH-UNIT3: surface forms of key named entities mentioned in the
+    # fact. Populated by the wiki mesh extraction path (claim_extract.py)
+    # which asks the LLM for this list as part of ANALYSIS_SYSTEM + a
+    # mesh-side suffix. Legacy production extraction does NOT set this
+    # field — the `normalize_field_names` validator below defaults it to
+    # `[]` so backward-compat holds for all 40+ prior runs.
+    entities: list[str] = Field(
+        description="Key named entities (compounds, methods, organizations, "
+        "metrics) mentioned in this fact. Used by the wiki mesh entity "
+        "canonicalization pass. Optional; legacy data defaults to [].",
+        default_factory=list,
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -182,6 +194,30 @@ class AtomicFact(BaseModel):
             for alt in ("research_perspective", "category_perspective", "viewpoint"):
                 if alt in data and "perspective" not in data:
                     data["perspective"] = data.pop(alt)
+            # MESH-UNIT3: normalize `entities` list. Accept list, None, or
+            # string (comma-separated). Anything else → []. This is
+            # load-bearing for backward compat: legacy production data
+            # has no `entities` key at all, so `data.get("entities")` is
+            # None and we default to [].
+            for alt in ("entity_mentions", "named_entities", "mentions"):
+                if alt in data and "entities" not in data:
+                    data["entities"] = data.pop(alt)
+            raw_entities = data.get("entities")
+            if raw_entities is None:
+                data["entities"] = []
+            elif isinstance(raw_entities, str):
+                data["entities"] = [
+                    e.strip() for e in raw_entities.split(",") if e.strip()
+                ]
+            elif isinstance(raw_entities, list):
+                # Coerce each element to a trimmed non-empty string.
+                data["entities"] = [
+                    str(e).strip() for e in raw_entities
+                    if e is not None and str(e).strip()
+                ]
+            else:
+                # Unknown type (dict, int, etc.) — fall back to []
+                data["entities"] = []
             # Replace null values with safe defaults — SF-04: unknown scores
             # default to LOW (0.1), not MID (0.5), to avoid inflating BRONZE
             # evidence to SILVER-quality scores.

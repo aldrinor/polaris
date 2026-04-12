@@ -71,10 +71,38 @@ import numpy as np
 from src.polaris_graph.agents.analyzer import ANALYSIS_SYSTEM
 from src.polaris_graph.schemas import SourceAnalysisBatch
 
+from .entity import DisambigClient, canonicalize_entities_for_claim
 from .ingest import read_source_text
 from .store import EMBEDDING_DIM, MeshStore, MeshStoreError
 
 logger = logging.getLogger(__name__)
+
+
+# ───── mesh-side system prompt extension ─────
+#
+# CP-A lock (c2): the mesh pipeline MUST NOT modify analyzer.py's
+# ANALYSIS_SYSTEM, which is shared with 40+ production runs. Instead,
+# we wrap it with a mesh-specific suffix that asks the LLM to populate
+# the new `entities` field on each atomic_fact. The Pydantic schema's
+# `normalize_field_names` validator handles the backward-compat path
+# (empty list default) if the LLM ignores this suffix.
+
+MESH_SYSTEM = ANALYSIS_SYSTEM + (
+    "\n\nMESH EXTENSION — ENTITY EXTRACTION:\n"
+    "For each atomic_fact you emit, populate the `entities` field with a "
+    "list of key named entities mentioned in the fact. Valid entity types:\n"
+    "  - Chemical compounds (e.g., \"PFOS\", \"PFOA\", \"perfluorooctane sulfonate\")\n"
+    "  - Methods / techniques (e.g., \"GAC\", \"ion exchange\", \"reverse osmosis\")\n"
+    "  - Organizations (e.g., \"EPA\", \"Water Research Foundation\")\n"
+    "  - People (e.g., \"Dr. John Smith\")\n"
+    "  - Metrics (e.g., \"95% CI\", \"p < 0.05\")\n"
+    "\n"
+    "Rules:\n"
+    "  - Emit 1-5 entities per fact. Prefer canonical / well-known forms.\n"
+    "  - If no named entity is present, return an empty list.\n"
+    "  - Do NOT paraphrase — use the exact term as it appears in the quote.\n"
+    "  - Do NOT emit long phrases; entity names should be short (≤ 80 chars).\n"
+)
 
 
 # ───── constants (mirroring analyzer.py) ─────
@@ -246,6 +274,16 @@ def _parse_batch_to_claims(
                 verified=verified,
             )
 
+            # Collect entity surface forms from the AtomicFact. Sanitize
+            # here (strip, drop empties, drop over-long entries) so the
+            # downstream canonicalizer always sees clean input.
+            raw_ents = getattr(fact, "entities", None) or []
+            surface_forms: list[str] = []
+            for ent in raw_ents:
+                ent_s = str(ent or "").strip()
+                if ent_s and len(ent_s) <= 80:
+                    surface_forms.append(ent_s)
+
             claim_dicts.append({
                 "statement": statement,
                 "direct_quote": quote[:500],  # mirror analyzer's cap
@@ -254,6 +292,7 @@ def _parse_batch_to_claims(
                 "tier": tier,
                 "relevance_score": relevance,
                 "has_numeric": has_numeric,
+                "entities": surface_forms,
             })
 
     return claim_dicts, result
@@ -268,15 +307,24 @@ async def extract_claims_from_source(
     workspace_id: str,
     source_page_id: str,
     query: str,
+    disambig_client: DisambigClient | None = None,
 ) -> ExtractionResult:
     """
     Full L2 write path for a single source_page.
 
     Reads the source body from disk, calls the LLM with the production
-    ANALYSIS_SYSTEM prompt, parses the response, and inserts the result
-    as claim rows via `store.insert_claim`. The whole insert phase runs
-    inside a single transaction so a partial parser failure rolls back
-    cleanly and does not double-count the workspace claim counter.
+    ANALYSIS_SYSTEM prompt (wrapped by MESH_SYSTEM), parses the response,
+    inserts the result as claim rows via `store.insert_claim`, and
+    canonicalizes each claim's entity surface forms through
+    `entity.canonicalize_entities_for_claim`. The whole insert phase
+    runs inside a single transaction so a partial parser failure rolls
+    back cleanly and does not double-count the workspace claim counter.
+
+    `disambig_client` is optional: when None, entity canonicalization
+    falls through step 4 (no LLM disambig in the 0.80-0.92 cosine zone)
+    and just inserts new quarantined entities. Production callers can
+    pass the same client they use for extraction if they want the
+    disambig step to run; test callers can leave it None.
 
     Returns an ExtractionResult with the inserted claim IDs and skip
     counts.
@@ -320,7 +368,7 @@ async def extract_claims_from_source(
     parsed = await client.generate_structured(
         prompt=prompt,
         schema=SourceAnalysisBatch,
-        system=ANALYSIS_SYSTEM,
+        system=MESH_SYSTEM,
         max_tokens=PG_EXTRACTION_MAX_TOKENS,
         timeout=PG_EXTRACTION_TIMEOUT,
         reasoning_enabled=False,
@@ -341,6 +389,7 @@ async def extract_claims_from_source(
     # insert inside `store.insert_claim` (via `_insert_vector`) is in
     # the same transaction as the row insert.
     embeddings: list[np.ndarray] = []
+    surface_embeddings: dict[str, np.ndarray] = {}
     if claim_dicts:
         try:
             from src.utils.embedding_service import embed_texts
@@ -360,9 +409,34 @@ async def extract_claims_from_source(
                 )
             embeddings.append(arr)
 
-    # Insert everything atomically — claims + their vectors in one tx
+        # Collect the unique set of entity surface forms across every
+        # claim, then batch-embed them all in one embed_texts() call.
+        # Amortizes the model forward-pass overhead across all entities
+        # in this source. Falls through gracefully if no claims have
+        # entities (empty set → no embed call).
+        unique_surfaces: list[str] = sorted({
+            s for c in claim_dicts for s in c.get("entities", [])
+        })
+        if unique_surfaces:
+            raw_surface_vecs = embed_texts(unique_surfaces)
+            for surf, vec in zip(unique_surfaces, raw_surface_vecs):
+                arr = np.asarray(vec, dtype=np.float32)
+                if arr.shape != (EMBEDDING_DIM,):
+                    raise MeshStoreError(
+                        f"Embedding service returned shape {arr.shape} "
+                        f"for entity surface, expected ({EMBEDDING_DIM},)."
+                    )
+                surface_embeddings[surf] = arr
+
+    # Insert everything atomically — claims + vectors + entities in one tx
     with store.transaction():
         for claim_kwargs, emb in zip(claim_dicts, embeddings):
+            # The parser attaches an "entities" key that insert_claim
+            # does not accept. Pop it before the insert, then run the
+            # canonicalization pass inside the same transaction so a
+            # mid-batch failure rolls back claim + entity links together.
+            entities_for_claim = claim_kwargs.pop("entities", [])
+
             clm_id = store.insert_claim(
                 workspace_id=workspace_id,
                 source_page_id=source_page_id,
@@ -370,6 +444,16 @@ async def extract_claims_from_source(
                 **claim_kwargs,
             )
             result.inserted_claim_ids.append(clm_id)
+
+            if entities_for_claim:
+                await canonicalize_entities_for_claim(
+                    store,
+                    workspace_id=workspace_id,
+                    claim_id=clm_id,
+                    surface_forms=entities_for_claim,
+                    disambig_client=disambig_client,
+                    embeddings=surface_embeddings,
+                )
 
     logger.info(
         "extract_claims_from_source %s: %d inserted, %d total seen, skipped=%s",

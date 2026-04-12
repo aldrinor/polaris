@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 2 ingest + claim_extract landed)
-**Status**: 204 v3 tests passing. 92/92 wiki mesh Unit 1+2 tests green. 2 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
+**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 3 entity canonicalization landed)
+**Status**: 204 v3 tests passing. 138/138 wiki mesh Unit 1+2+3 tests green. 3 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-2 done, 8 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-3 done, 7 pending)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -149,7 +149,13 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 | File | Lines | Purpose |
 |------|-------|---------|
 | `ingest.py` | ~370 | L1 write path. `ingest_file()` handles uploads (PDF via docling, HTML via trafilatura, markdown/text plain), `ingest_web_content()` handles web-fetched HTML/markdown. Content-hash dedup, deterministic src_id prediction, atomic file write (temp + rename). `read_source_text()` strips the internal `<!-- src_id: ... -->` header so downstream char-span lookups reference the source BODY, not raw file bytes (the ~64-char offset bug the advisor caught at CP-B). |
-| `claim_extract.py` | ~420 | L2 write path. Reuses production `ANALYSIS_SYSTEM` prompt and `SourceAnalysisBatch` schema from `agents/analyzer.py` and `schemas.py` (no duplication). Split into `_parse_batch_to_claims` (pure function — 80% of test surface) + `extract_claims_from_source` (orchestrator — reads source body, calls LLM, embeds, inserts atomically). Filters: short statement, short quote (PG_MIN_QUOTE_WORDS=15), URL fragments, cookie boilerplate. Tier assignment: 3-signal v1 (relevance + source_quality + quote_verified). Unverifiable quotes get sentinel span (0,1) + BRONZE instead of being dropped. has_numeric regex catches 95% CI, p-values, sample sizes, effect sizes. Embeddings generated via `src.utils.embedding_service.embed_texts` (384-dim) BEFORE opening the transaction — atomicity preserved because vector insert happens inside the same tx as the claim row. |
+| `claim_extract.py` | ~520 | L2 write path. Reuses production `ANALYSIS_SYSTEM` prompt and `SourceAnalysisBatch` schema (no duplication). Split into `_parse_batch_to_claims` (pure function — 80% of test surface) + `extract_claims_from_source` (orchestrator — reads source body, calls LLM, embeds, inserts atomically). Filters: short statement, short quote (PG_MIN_QUOTE_WORDS=15), URL fragments, cookie boilerplate. Tier assignment: 3-signal v1 (relevance + source_quality + quote_verified). Unverifiable quotes get sentinel span (0,1) + BRONZE. has_numeric regex catches CI/p/n/±/percentages. Embeddings via `embed_texts` (384-dim) BEFORE transaction — atomicity preserved because vector insert happens inside the same tx as the claim row. **Unit 3 extension**: `MESH_SYSTEM` wraps `ANALYSIS_SYSTEM` with a suffix asking the LLM to populate `entities` on each AtomicFact, parser propagates `entities` into claim dicts, orchestrator batches surface-form embeds once per source and calls `canonicalize_entities_for_claim` inside the same transaction as `insert_claim`. |
+
+**Unit 3 (Session 57) — entity canonicalization (L3 write path)**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `entity.py` | ~600 | 5-step FIX D2 canonicalization pipeline: (1) exact `canonical_name` match → conf 1.0, (2) alias match case-insensitive → conf 0.95, (3) cosine ≥ 0.92 → merge at conf=cosine, (4) cosine 0.80-0.92 → LLM disambig (YES → conf 0.70, still quarantined; NO or missing client → fall through), (5) new quarantined insert at conf 0.5. Heuristic `classify_entity_type()` returns compound/method/organization/person/metric/concept (person regex requires honorific prefix OR middle-initial dot to avoid mis-classifying "Water Research Foundation"). Cross-type filter in step 3 (compound won't merge into organization at high cosine). `canonicalize_entities_for_claim()` bulk-canonicalizes surface forms for one claim with optional precomputed embedding dict; idempotent via `store.link_claim_entity`. L2 distance → cosine conversion: `cos = 1 - 0.5 * d²` (unit vectors assumed, empirically verified against sqlite-vec). |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
@@ -566,6 +572,7 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
 | `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
 | `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
+| `test_mesh_entity.py` | **Session 57**: Wiki mesh Unit 3 — `classify_entity_type` heuristic (7 tests inc. "Water Research Foundation" → organization, "Dr. Jane Smith" → person), `_find_by_canonical` + `_find_by_alias` + `_vec_neighbours` helpers (7 tests inc. cosine formula verification), 5-step canonicalization pipeline (all 5 paths + 3 path-4 sub-branches + cross-type filter + validation, 11 tests), `canonicalize_entities_for_claim` orchestration (6 tests inc. dedup, over-long skip, precomputed embedding pathway, idempotent linking), `llm_disambiguate` with mock client (3 tests), FIX D2 quarantine semantics (4 tests), end-to-end claim_extract + entity integration via real `extract_claims_from_source` with `_MockLLMClient` (3 tests inc. backward-compat path with no `entities` field). 46 tests total. |
 | `test_fix_048.py` | FIX-048: 4 root cause fix tests (quote substance, content pre-filter, corroboration, B2B detection) |
 | `test_fix_045.py` | FIX-045: orphan citations, nav boilerplate, abstract metrics, citation renumbering |
 | `test_agentic_search.py` | Agentic search depth, pages per round, content reasoning |

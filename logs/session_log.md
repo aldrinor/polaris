@@ -2953,3 +2953,30 @@
   - Commits: acf0877 (Wave 5 NLI + FIX-D2, 5 files), 3154f00 (27-defect plan, 3 files)
 - STATUS: All 5 WPs + 2 bug fixes implemented, tested, committed. Follow-up items remain (template echo pattern broadening, expanded decimal cleanup in post-processor, 7-run evaluation).
 - NEXT_STEP: Run full 7-run evaluation with baseline comparison, then address follow-up items.
+
+---
+
+[2026-04-11 Session 57 continued]
+- ACTION: Wiki Mesh Unit 3 — entity canonicalization end-to-end
+- RATIONALE: Unit 2 was committed as 860210a with honest "2 of 10" framing. Advisor CP-A locked the Unit 3 design (variant c2: extend AtomicFact.entities as list[str] with backward-compat validator, add mesh-side MESH_SYSTEM prompt wrapping ANALYSIS_SYSTEM — do NOT touch agents/analyzer.py). Build sequence: schema extension → entity.py 5-step canonicalization → claim_extract.py integration → 46 unit + integration tests → full mesh suite → advisor CP-C clearance → bookkeeping.
+- DOCS/RESEARCH: docs/wiki_mesh_design.md §6 (FIX D2 entity quarantine), sqlite-vec L2 distance metric empirically verified at CP-B (cos = 1 - 0.5 * d² for unit vectors), Pydantic v2 model_validator mode="before" backward-compat normalization patterns.
+- SYNC: docs/file_directory.md §4d updated (Units 1-2 → Units 1-3, new entity.py + test_mesh_entity.py entries, claim_extract.py line count bumped to ~520 with Unit 3 extension notes). docs/todo_list.md updated (Unit 3 marked complete with checkpoint summary + bug fix note, Unit 4 promoted to NEXT). state/restart_instructions.md rewritten for Unit 4 handoff (what-was-done / what-next / invariants / test commands).
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/entity.py (~600 lines, 5-step canonicalization pipeline)
+  - NEW: tests/unit/test_mesh_entity.py (46 tests, 10 test classes)
+  - MODIFIED: src/polaris_graph/schemas.py (AtomicFact.entities field + backward-compat validator for None/str/list/dict/garbage)
+  - MODIFIED: src/polaris_graph/wiki/mesh/claim_extract.py (~520 lines now — added MESH_SYSTEM prompt, entity propagation through parser, orchestrator batches surface embeddings + canonicalizes inside transaction)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md, state/restart_instructions.md
+- EVIDENCE/FINDINGS:
+  - 138/138 mesh tests pass (Unit 1: 43, Unit 2: 49, Unit 3: 46). Full suite ~78s with embedding model load.
+  - 3 integration tests cover ingest → extract → canonicalize → link atomically: entities_populated_end_to_end (5 unique entities across 2 claims, 5 claim_entities links, correct classifier types), backward_compat_no_entities_field (legacy dict without "entities" key round-trips cleanly, zero entities created, claim still lands), duplicate_entity_across_claims_merges (PFOS mentioned in 2 claims → 1 entity row, times_referenced=2, 4 links total).
+  - CP-B empirical sqlite-vec verification: identical vectors cos=1.0, 45° cos=0.7071, orthogonal cos=0.0, opposite cos=-1.0 — formula `1 - d²/2` is correct.
+  - Bugs caught + fixed during Unit 3 build:
+    1. Person regex `^[A-Z][a-z]+(?:\s+[A-Z]\.?[a-z]*){2,}$` mis-classified "Water Research Foundation" as person. Tightened to require honorific prefix OR middle-initial dot.
+    2. Float32 boundary: cos=0.92 stored and back-converted via sqlite-vec → 0.9199, below merge threshold. Test uses 0.93 with documenting comment.
+    3. `_unit_vec(a)` and `_unit_vec(b)` are both in the e₀-e₁ plane (cos ≈ 0.995 even for different `a` and `b`). Added `_orthogonal_vec(axis)` helper for tests that need well-separated vectors.
+    4. `"pfos acid"` classifies as concept (lowercase start), cross-type filter blocks merge into a compound. Test uses `"PFOSA"` which classifies correctly as compound.
+  - Advisor CP-C clearance: "No blocking issues. Proceed to commit." Explicitly said skip the stress test extension (Task #50) since the 3 integration tests already cover the full path with the real embedding model.
+- STATUS: Unit 3 complete and locally committable. Unit 4 (edge discovery + snowball, FIX S4) is next. GitHub push still deferred pending user return.
+- NEXT_STEP: Commit Unit 3 locally with "Unit 3 of 10" framing, then at next session start Unit 4 with advisor CP-A.
+
