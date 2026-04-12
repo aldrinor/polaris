@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 3 complete — entity canonicalization + 138/138 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 4 complete — edge discovery + snowball + 183/183 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **3 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **4 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -34,12 +34,14 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] Advisor checkpoints: CP-A pre-code (locked c2 = schema + mesh prompt only, no analyzer.py edits, entities list[str] with backward-compat validator), CP-B mid (cosine formula empirically verified via `1 - d²/2` sanity check; `_find_by_alias` O(n) linear scan flagged as scaling note — not blocking below ~few thousand entities/workspace), CP-C post-code (138/138 passing, no blocking issues, confirmed backward-compat path is exercised by Unit 2 orchestrator test that got migrated onto the MESH_SYSTEM + disambig_client signature). CP-D stress test script extension **skipped per advisor** — the 3 end-to-end integration tests already cover ingest → extract → canonicalize → link with the real embedding model, extending the Unit 2 stress script would add no coverage the advisor would need to re-validate.
 - [x] Bug caught + fixed during Unit 3: person regex `^[A-Z][a-z]+(?:\s+[A-Z]\.?[a-z]*){2,}$` matched 3-token organizations like "Water Research Foundation". Tightened to require an honorific prefix (Dr./Prof./Mr./Mrs./Ms./Sr./Jr.) OR explicit middle-initial dot (`John A. Smith`).
 
-### Unit 4 — Edge discovery + snowball (NEXT, FIX S4)
-- [ ] `mesh/edge_discovery.py` (~350 lines) — candidates via vec KNN, edge type via NLI, evidence_weight from cosine × NLI confidence
-- [ ] `mesh/snowball.py` (~120 lines) — bounded feedback formulas (age-decayed bonus, corroboration reinforcement capped, upload gravity)
-- [ ] Tests: corroborates/contradicts/elaborates assigned correctly, usage_boost caps at 0.2, snowball bounds enforced
+### Unit 4 — Edge discovery + snowball (COMPLETE 2026-04-11, FIX S4)
+- [x] `src/polaris_graph/wiki/mesh/edge_discovery.py` (~230 lines) — Cosine-only v1 edge typing (no NLI — avoids flan-t5-large 512-token limit and "NLI too strict for niche domains" failure mode). `discover_edges_for_claims()` runs KNN per new claim (top-20 candidates), non-overlapping thresholds: `corroborates` cosine ≥ 0.85, `contradicts` cosine ∈ [0.80, 0.85) different sources only. `evidence_weight = max(0.7, cosine)`. Runs OUTSIDE the claim-insert transaction (separate pass). Idempotent. `_read_claim_embedding` round-trips via vec0 mapping table (column is `entity_id` — generic name across all mapping tables). v1 limitation: contradiction edges are cosine-based candidates, not NLI-confirmed — the ×0.7 penalty applies immediately but user review resolves false positives.
+- [x] `src/polaris_graph/wiki/mesh/snowball.py` (~110 lines) — Pure bounded formulas from §8: M1 `usage_bonus` (age-decayed, max ~1.46 at 100 uses fresh, decays to ~1.0 at 2yr), M2 `corroboration_factor` (sqrt-bounded, practical max ~1.95 at count=10), M3 `contradiction_penalty` (fixed ×0.7), M4 `upload_gravity_boost` (fixed ×1.3), composite `lethal_snowball_score` for Unit 5. Triggers deferred to Units 5-7 (retrieval / compose / Q&A).
+- [x] `tests/unit/test_mesh_edge_discovery.py` — 20 tests: distance-to-cosine formula (3), embedding round-trip (2), corroboration edges (3 inc. same-source allowed + evidence_weight clamp), contradiction edges (2 inc. same-source exclusion), no-edge below threshold (1), self-match exclusion (1), idempotent re-run (1), validation (4), precomputed embedding (1), multi-claim batch (1).
+- [x] `tests/unit/test_mesh_snowball.py` — 25 tests: M1 bounds (8 inc. design doc bounds), M2 sqrt (7), M3 penalty (2), M4 boost (2), composite (6 inc. worst-case max <10x).
+- [x] Advisor checkpoints: CP-A lock (cosine-only, no NLI, separate pass outside transaction, snowball formulas only — triggers deferred), CP-C (183/183 passing, no blocking issues, contradiction-is-candidate v1 limitation documented).
 
-### Unit 5 — Lethal retrieval (FIX D3, S5, S8)
+### Unit 5 — Lethal retrieval (NEXT, FIX D3, S5, S8)
 - [ ] `retrieve/lethal.py` (~400 lines) — 6-stage algorithm with coreference resolution (stage 0), entity cosine filter (stage 2), age-decayed bonus + 10% exploration reservation (stage 6)
 - [ ] `retrieve/gap_classify.py` (~150 lines) — IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL classifier + NEARBY daily budget (FIX S6)
 
@@ -57,6 +59,8 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [ ] Real OpenRouter E2E test for `extract_claims_from_source` — orchestrator is currently only tested with MockClient. First real test happens when OpenRouter credits restore. (Unit 2 CP-D advisor note.)
 - [ ] Exception-string fragility in `_insert_vector` — cleaner alternative is to query the mapping table first before deciding INSERT vs UPDATE. (Unit 1 CP3 advisor note.)
 - [ ] `_row_id_to_int` 63-bit hash collision — negligible below ~4×10⁸ vectors/table, documented in code. (Unit 1 CP3 advisor note.)
+- [ ] NLI-based edge typing for v2 — current v1 uses cosine-only thresholds. Contradiction edges are candidates (cosine 0.80-0.85 from different sources), not NLI-confirmed. (Unit 4 CP-A design note.)
+- [ ] `elaborates` edge kind deferred — requires NLI infra to distinguish elaboration from corroboration. (Unit 4 CP-A design note.)
 
 ---
 

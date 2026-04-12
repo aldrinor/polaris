@@ -1,17 +1,18 @@
 # Restart Instructions
 
-## Current State (2026-04-11) — Wiki Mesh Unit 3 Complete, Ready for Unit 4
+## Current State (2026-04-11) — Wiki Mesh Unit 4 Complete, Ready for Unit 5
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
 - `3a3c514` — Wiki Mesh Unit 1 — single-db schema + store + 43 tests
 - `68e177e` — file_directory register for Unit 1 files (§2.1 bookkeeping)
 - `860210a` — Wiki Mesh Unit 2 of 10 — ingest + claim_extract (foundation for Unit 3)
-- **Unit 3 commit pending** — entity.py + schemas.py extension + claim_extract.py integration + test_mesh_entity.py (46 new tests)
+- `65875dd` — Wiki Mesh Unit 3 of 10 — entity canonicalization (FIX D2)
+- **Unit 4 commit pending** — edge_discovery.py + snowball.py + tests (45 new tests)
 
-**Status:** 3 of 10 wiki mesh units complete. L1 (sources) + L2 (claims) + L3 (entities) all working end-to-end with atomicity preserved in a single transaction. 138/138 tests passing. Build is advisor-monitored with 4+ checkpoints per unit.
+**Status:** 4 of 10 wiki mesh units complete. L1 sources + L2 claims + L3 entities + L4 edges + snowball formulas all working. 183/183 tests passing. Build is advisor-monitored with checkpoints per unit.
 
-**Honest scope:** Unit 3 delivers a working L3 entity canonicalization pipeline tightly integrated into the L2 claim-extract path, BUT units 4-10 still ahead: edge discovery, lethal retrieval, compose+artifacts, Q&A, CLI, API, integration tests. The wiki mesh is NOT a shippable product yet.
+**Honest scope:** Unit 4 completes the foundation layers (ingest through edge discovery). The snowball formulas are proven by tests but triggers are deferred until Units 5-7. Units 5-10 still ahead: lethal retrieval, compose+artifacts, Q&A, CLI, API, integration tests. The wiki mesh is NOT a shippable product yet.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -81,31 +82,31 @@
 
 ---
 
-## NEXT SESSION — Start Unit 4: Edge discovery + snowball
+## NEXT SESSION — Start Unit 5: Lethal retrieval
 
-Unit 4 turns isolated claims + entities into a knowledge graph with typed edges between claims. Design is in `docs/wiki_mesh_design.md` §7.
+Unit 5 implements the 6-stage retrieval algorithm that surfaces the most relevant claims from the mesh for a given query. Design is in `docs/wiki_mesh_design.md` §7.
 
-### What Unit 4 delivers
+### What Unit 5 delivers
 
-- `mesh/edge_discovery.py` (~350 lines) — candidate edges via vec KNN over claims, edge type via NLI (corroborates / contradicts / elaborates), evidence_weight derived from cosine × NLI confidence
-- `mesh/snowball.py` (~120 lines) — bounded feedback formulas from FIX S4: age-decayed retrieval bonus, corroboration count reinforcement capped at 0.2, upload gravity for user-promoted sources
-- Tests: edge type classification, usage_boost clamp at 0.2, snowball bounds
-- Integration into `extract_claims_from_source`: after claim insert + entity canonicalize, run edge discovery to find relationships between the new claim and existing claims (same workspace, shared entities prioritized, KNN fallback)
+- `retrieve/lethal.py` (~400 lines) — 6-stage retrieval algorithm: (0) coreference resolution, (1) vec KNN seed, (2) entity cosine filter, (3) corroboration walk (1 hop), (4) contradiction surface (always include), (5) elaboration follow, (6) lethal re-rank with snowball factors + 10% exploration reservation
+- `retrieve/gap_classify.py` (~150 lines) — IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL classifier + NEARBY daily budget (FIX S6)
+- Tests for each retrieval stage + the composite re-ranking + the exploration reservation
+- Integration: wire snowball formulas from Unit 4's snowball.py into the lethal re-rank
 
 ### Advisor checkpoints to run
 
-- **CP-A pre-code (MOST IMPORTANT):** show advisor `mesh/edge_discovery.py` plan alongside `store.insert_edge` + `store.bump_edge_usage_boost` + `store.get_edges_from`. Ask: (1) what NLI model to use for edge typing (is flan-t5-large from production acceptable, or do we need something lighter)? (2) Should edge discovery run inside the same transaction as claim insert, or as a background pass? (3) What's the dedup policy — do we find new edges on EVERY claim insert, or only periodically? (4) How do we handle the combinatorial explosion (N claims → N² candidate edges)? (5) What test coverage for edge-type classification accuracy?
-- **CP-B mid:** after `edge_discovery.py` is written but before `snowball.py` / integration — catch any architectural drift
-- **CP-C post-code + tests:** full review with mocked NLI cases
-- **CP-D robustness:** end-to-end run with a realistic claim graph (use the Unit 3 integration test's 5-entity corpus as a seed)
+- **CP-A pre-code:** show advisor the lethal.py plan alongside the snowball formulas + store.search_claims_by_vector + store.get_edges_from. Key questions: (1) how many KNN candidates for the seed stage? (2) should exploration reservation be deterministic or random? (3) what's the gap classification strategy when there are no claims at all? (4) does the age-decayed bonus need claim.last_used_at (currently unused column)?
+- **CP-B mid:** after lethal.py seed+corroboration stages written — catch re-rank issues
+- **CP-C post-code + tests:** full review
+- **CP-D robustness:** end-to-end retrieval on a realistic claim graph
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` §7 (the Unit 4 edge discovery design)
-2. `src/polaris_graph/wiki/mesh/store.py` — `insert_edge`, `bump_edge_usage_boost`, `get_edges_from`, `get_edges_from_kind` are already in place from Unit 1
-3. `src/polaris_graph/wiki/mesh/claim_extract.py` — `extract_claims_from_source` orchestrator, which Unit 4 will extend with an edge discovery pass
-4. `src/polaris_graph/wiki/mesh/entity.py` — understand how Unit 3 hooked in so Unit 4 can follow the same pattern
-5. `tests/unit/test_mesh_store.py::TestEdge` — existing store-level edge tests
+1. `docs/wiki_mesh_design.md` §7 (the lethal retrieval algorithm)
+2. `src/polaris_graph/wiki/mesh/snowball.py` — the 4 bounded formulas Unit 5 will call during re-rank
+3. `src/polaris_graph/wiki/mesh/edge_discovery.py` — understand the edge types available for walk stages
+4. `src/polaris_graph/wiki/mesh/store.py` — `search_claims_by_vector`, `get_edges_from`, `get_claim`
+5. `tests/unit/test_mesh_store.py::TestVectorSearch` — existing KNN tests
 
 ---
 
@@ -119,6 +120,8 @@ Unit 4 turns isolated claims + entities into a knowledge graph with typed edges 
 - **Reuse MESH_SYSTEM and analyzer.py untouched.** Any new mesh-side prompt must wrap `ANALYSIS_SYSTEM`, not modify it.
 - **Fail loudly.** LAW II. No silent fallbacks, no partial inserts, no default-value substitutions.
 - **L2 → cosine.** `cos = 1 - 0.5 * d²` for unit vectors. sqlite-vec vec0 reports L2 distance for float vectors; the production `embed_texts` returns unit-length vectors (all-MiniLM-L6-v2 default).
+- **v1 contradiction edges are candidates.** Cosine-based (0.80-0.85 zone from different sources), NOT NLI-confirmed. The ×0.7 penalty applies immediately but user review resolves false positives. NLI-based typing deferred to v2.
+- **Mapping table column name.** All 4 vec0 mapping tables use `entity_id` as the column name (not `claim_id` etc.) — generic schema pattern from Unit 1.
 
 ---
 
@@ -126,10 +129,10 @@ Unit 4 turns isolated claims + entities into a knowledge graph with typed edges 
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py -v
 ```
 
-Expected: **138 passed** in ~75-80s (the embedding model loads once for the integration tests).
+Expected: **183 passed** in ~85-90s (the embedding model loads once for the integration tests).
 
 ---
 
@@ -142,6 +145,8 @@ Expected: **138 passed** in ~75-80s (the embedding model loads once for the inte
 - Decouple `ANALYSIS_SYSTEM` from `agents/analyzer.py` into standalone prompt file (Unit 2 CP-D)
 - Real OpenRouter E2E test for `extract_claims_from_source` (Unit 2 CP-D — awaiting credit restoration)
 - Normalized alias table at scale — `_find_by_alias` is O(n) linear scan; once a workspace has > few thousand entities, move aliases to a separate indexed table (Unit 3 CP-B note)
+- NLI-based edge typing for v2 — current v1 uses cosine-only thresholds. Contradiction edges are candidates, not NLI-confirmed. (Unit 4 CP-A design note.)
+- `elaborates` edge kind — deferred to v2, requires NLI infra. (Unit 4 CP-A design note.)
 - Multi-user auth (v2 scope)
 - 768-/1024-/4096-dim embedding support (currently pinned at 384-dim via sqlite-vec DDL)
 

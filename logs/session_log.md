@@ -2980,3 +2980,24 @@
 - STATUS: Unit 3 complete and locally committable. Unit 4 (edge discovery + snowball, FIX S4) is next. GitHub push still deferred pending user return.
 - NEXT_STEP: Commit Unit 3 locally with "Unit 3 of 10" framing, then at next session start Unit 4 with advisor CP-A.
 
+
+[2026-04-11 Session 57 continued — Unit 4]
+- ACTION: Wiki Mesh Unit 4 — edge discovery + snowball formulas
+- RATIONALE: Advisor CP-A locked v1 design: cosine-only edges (no NLI), separate pass outside claim-insert transaction, KNN not pairwise (O(k) per claim), snowball formulas as pure functions with triggers deferred to Units 5-7. Non-overlapping thresholds: corroborates ≥ 0.85, contradicts ∈ [0.80, 0.85) different sources. Contradiction edges are cosine-based CANDIDATES, not NLI-confirmed.
+- DOCS/RESEARCH: docs/wiki_mesh_design.md §8 snowball mechanisms (M1-M4), FIX S4 two-column edge weight, FIX D3 bounded snowball. Memory note #19 (NLI too strict for niche domains — justification for cosine-only v1).
+- SYNC: docs/file_directory.md §4d updated (Units 1-3 → 1-4, new entries for edge_discovery.py, snowball.py, both test files). docs/todo_list.md updated (Unit 4 marked complete, Unit 5 promoted to NEXT, NLI v2 + elaborates added to backlog). state/restart_instructions.md will be updated in commit.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/edge_discovery.py (~230 lines)
+  - NEW: src/polaris_graph/wiki/mesh/snowball.py (~110 lines)
+  - NEW: tests/unit/test_mesh_edge_discovery.py (20 tests)
+  - NEW: tests/unit/test_mesh_snowball.py (25 tests)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 183/183 mesh tests pass (Unit 1: 43, Unit 2: 49, Unit 3: 46, Unit 4: 45). Full suite ~88s.
+  - Bugs caught during build:
+    1. vec_claims_mapping column is `entity_id` not `claim_id` — generic column name across all 4 mapping tables.
+    2. L2 distance test: negative distances can't happen in practice, clamping test rewritten for oversized distance only.
+  - Advisor CP-C clearance: "No blocking issues. Proceed to commit."
+- STATUS: Unit 4 complete. 4 of 10 wiki mesh units done. Foundation layers complete (L1 sources + L2 claims + L3 entities + L4 edges + snowball formulas). Unit 5 (lethal retrieval) is the next major deliverable.
+- NEXT_STEP: Commit Unit 4 with "Unit 4 of 10" framing, then start Unit 5 (lethal retrieval, FIX D3/S5/S8).
+

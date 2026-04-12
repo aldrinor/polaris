@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 3 entity canonicalization landed)
-**Status**: 204 v3 tests passing. 138/138 wiki mesh Unit 1+2+3 tests green. 3 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
+**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 4 edge discovery + snowball landed)
+**Status**: 204 v3 tests passing. 183/183 wiki mesh Unit 1-4 tests green. 4 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-3 done, 7 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-4 done, 6 pending)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -156,6 +156,13 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 | File | Lines | Purpose |
 |------|-------|---------|
 | `entity.py` | ~600 | 5-step FIX D2 canonicalization pipeline: (1) exact `canonical_name` match → conf 1.0, (2) alias match case-insensitive → conf 0.95, (3) cosine ≥ 0.92 → merge at conf=cosine, (4) cosine 0.80-0.92 → LLM disambig (YES → conf 0.70, still quarantined; NO or missing client → fall through), (5) new quarantined insert at conf 0.5. Heuristic `classify_entity_type()` returns compound/method/organization/person/metric/concept (person regex requires honorific prefix OR middle-initial dot to avoid mis-classifying "Water Research Foundation"). Cross-type filter in step 3 (compound won't merge into organization at high cosine). `canonicalize_entities_for_claim()` bulk-canonicalizes surface forms for one claim with optional precomputed embedding dict; idempotent via `store.link_claim_entity`. L2 distance → cosine conversion: `cos = 1 - 0.5 * d²` (unit vectors assumed, empirically verified against sqlite-vec). |
+
+**Unit 4 (Session 57) — edge discovery + snowball formulas (L4 write path)**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `edge_discovery.py` | ~230 | Cosine-only v1 edge typing (no NLI). `discover_edges_for_claims(store, workspace_id, new_claim_ids)` runs KNN per new claim (top-20 candidates), applies non-overlapping thresholds: `corroborates` at cosine ≥ 0.85 (any source pair), `contradicts` at cosine ∈ [0.80, 0.85) from different sources only. `evidence_weight = max(0.7, cosine)` for corroborates, `= cosine` for contradicts. Runs OUTSIDE the claim-insert transaction. `_read_claim_embedding` reads back from vec0 via mapping table. `_distance_to_cosine` uses the verified `1 - 0.5·d²` formula. Idempotent via store.insert_edge. v1 limitation: contradiction edges are cosine-based candidates, not NLI-confirmed. |
+| `snowball.py` | ~110 | Pure bounded feedback formulas from design doc §8 (FIX D3, FIX S4). M1 `usage_bonus(times_used, age_days)` age-decayed ≥ 1.0 (max ~1.46). M2 `corroboration_factor(count)` sqrt-bounded ≥ 1.0. M3 `contradiction_penalty(has_contradiction)` ×0.7. M4 `upload_gravity_boost(is_upload)` ×1.3. `lethal_snowball_score()` composes all 4 multiplicatively. Triggers deferred to Units 5-7 (retrieval, compose, Q&A). |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
@@ -572,6 +579,8 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
 | `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
 | `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
+| `test_mesh_edge_discovery.py` | **Session 57**: Wiki mesh Unit 4 — edge discovery: `_distance_to_cosine` formula (3), `_read_claim_embedding` round-trip (2), corroboration edges (3 inc. same-source allowed + evidence_weight clamp), contradiction edges (2 inc. same-source exclusion), no-edge below threshold (1), self-match exclusion (1), idempotent re-run (1), validation (4 inc. empty/missing/wrong-workspace/unknown-workspace), precomputed embedding path (1), multi-claim batch (1). 20 tests. |
+| `test_mesh_snowball.py` | **Session 57**: Wiki mesh Unit 4 — snowball formulas: M1 usage_bonus (8 inc. design doc bounds 1.46/1.06, decay + monotonicity), M2 corroboration_factor (7 inc. sqrt growth at 1/4/9/100, sublinearity), M3 contradiction_penalty (2), M4 upload_gravity_boost (2), composite lethal_snowball_score (6 inc. all-factors, zero-base, worst-case max bounded <10x). 25 tests. |
 | `test_mesh_entity.py` | **Session 57**: Wiki mesh Unit 3 — `classify_entity_type` heuristic (7 tests inc. "Water Research Foundation" → organization, "Dr. Jane Smith" → person), `_find_by_canonical` + `_find_by_alias` + `_vec_neighbours` helpers (7 tests inc. cosine formula verification), 5-step canonicalization pipeline (all 5 paths + 3 path-4 sub-branches + cross-type filter + validation, 11 tests), `canonicalize_entities_for_claim` orchestration (6 tests inc. dedup, over-long skip, precomputed embedding pathway, idempotent linking), `llm_disambiguate` with mock client (3 tests), FIX D2 quarantine semantics (4 tests), end-to-end claim_extract + entity integration via real `extract_claims_from_source` with `_MockLLMClient` (3 tests inc. backward-compat path with no `entities` field). 46 tests total. |
 | `test_fix_048.py` | FIX-048: 4 root cause fix tests (quote substance, content pre-filter, corroboration, B2B detection) |
 | `test_fix_045.py` | FIX-045: orphan citations, nav boilerplate, abstract metrics, citation renumbering |
