@@ -106,7 +106,9 @@ class MeshStore:
     # ─────────── lifecycle ───────────
 
     @classmethod
-    def open(cls, db_path: str | Path) -> "MeshStore":
+    def open(
+        cls, db_path: str | Path, *, check_same_thread: bool = True,
+    ) -> "MeshStore":
         """
         Open (or create) a mesh database at `db_path`.
 
@@ -130,7 +132,10 @@ class MeshStore:
         # This matters because Python's sqlite3 auto-opens implicit
         # transactions before data-modifying statements, which would prevent
         # the transaction context manager from working cleanly.
-        conn = sqlite3.connect(db_path, isolation_level=None)
+        conn = sqlite3.connect(
+            db_path, isolation_level=None,
+            check_same_thread=check_same_thread,
+        )
         conn.row_factory = sqlite3.Row
 
         # Load sqlite-vec extension (required before creating vec0 tables).

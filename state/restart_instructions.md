@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-12) — Wiki Mesh Unit 8 Complete, Ready for Unit 9
+## Current State (2026-04-12) — Wiki Mesh Unit 9 Complete, Ready for Unit 10
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -13,11 +13,12 @@
 - `292a12f` — Wiki Mesh Unit 5 of 10 — lethal retrieval + gap classify
 - `5aa2b42` — Wiki Mesh Unit 6 of 10 — compose + artifact directives (FIX S7)
 - `f9de5aa` — Wiki Mesh Unit 7 of 10 — Q&A layer + multi-turn threads (FIX S8)
-- **Unit 8 commit pending** — cli/main.py + tests (11 new tests)
+- `67deb31` — Wiki Mesh Unit 8 of 10 — CLI presentation layer
+- **Unit 9 commit pending** — api/server.py + store.py check_same_thread + tests (12 new tests)
 
-**Status:** 8 of 10 wiki mesh units complete. Full pipeline with CLI: ingest → extract → canonicalize → edge discovery → retrieve → compose → Q&A with threads → CLI interface. 261/261 tests passing.
+**Status:** 9 of 10 wiki mesh units complete. Full pipeline with CLI + REST API. 273/273 tests passing.
 
-**Honest scope:** Unit 8 provides the user-facing CLI. API (Unit 9) and integration tests + snapshots (Unit 10) remain. The mesh is functionally usable from the command line (with --dry-run for testing without LLM).
+**Honest scope:** Unit 9 provides the REST API. Only Unit 10 (integration tests + snapshots) remains. The mesh is usable from both CLI and HTTP API.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -25,42 +26,41 @@
 
 ## What was just done
 
-### Unit 8 — CLI presentation layer
+### Unit 9 — REST API server
 
-**`src/polaris_graph/wiki/mesh/cli/main.py` (~210 lines)**
-- argparse-based CLI with 6 subcommands: workspace-create, workspace-list, ask (with --dry-run), ingest, stats, entities-review
-- Each handler is thin: open store, call mesh function, print result, close store. Zero business logic
-- `--dry-run` on ask calls `lethal_retrieve` directly without LLM — testable without network
-- `asyncio.run()` bridges the sync CLI to async `ask()` orchestrator
-- `_make_llm_client()` fails loudly per LAW II if OpenRouterClient unavailable (suggests --dry-run)
-- Design doc estimated ~830 lines but snapshots + confirm/reject/merge + config layer intentionally deferred
+**`src/polaris_graph/wiki/mesh/api/server.py` (~260 lines)**
+- Standalone FastAPI app with 7 routes mirroring CLI: POST/GET /workspaces, POST /workspaces/{id}/ask (LLM), POST /workspaces/{id}/ask/dry-run (retrieval only), POST /workspaces/{id}/ingest (file upload), GET /workspaces/{id}/stats, GET /workspaces/{id}/entities/quarantined
+- Lifespan manages store lifecycle with `check_same_thread=False` (required for ASGI thread pool)
+- Pydantic response models enforce output shape (WorkspaceResponse, AskResponse, DryRunResponse, StatsResponse)
+- File upload: UploadFile → temp file → ingest_file → cleanup in finally block
+- CORS allow_origins=["*"] for local dev. No auth for v1.
+- `_make_llm_client` fails loudly → HTTP 503
 
-**`tests/unit/test_mesh_cli.py` — 11 tests**
-- TestWorkspaceCreate (2): basic, with seed question
-- TestWorkspaceList (2): empty db, lists existing
-- TestAskDryRun (2): retrieval result displayed, empty workspace
-- TestStats (1): full workspace stats output
-- TestEntitiesReview (2): no quarantined, shows quarantined with type/confidence/aliases
-- TestErrorHandling (2): no command → help, invalid workspace → error
+**`store.py` addition**
+- `MeshStore.open` extended with `check_same_thread: bool = True` parameter (backward-compatible)
+
+**`tests/unit/test_mesh_api.py` — 12 tests**
+- TestCreateWorkspace (2), TestListWorkspaces (2), TestDryRun (3 inc. empty + invalid), TestStats (2), TestQuarantinedEntities (3 inc. shows quarantined)
+
+**Bugs caught:** (1) check_same_thread — SQLite cross-thread error with FastAPI TestClient. (2) sqlite3.Row.get() — Row doesn't support .get(), fixed to direct access.
 
 ---
 
-## NEXT SESSION — Start Unit 9: REST API server
+## NEXT SESSION — Start Unit 10: Integration tests + snapshots
 
-Unit 9 exposes the mesh operations as a REST API (FastAPI).
+Unit 10 closes the 10-unit series with end-to-end integration tests and optional snapshot/restore.
 
-### What Unit 9 delivers
+### What Unit 10 delivers
 
-- `api/server.py` — FastAPI app with routes for workspace CRUD, ask, ingest, stats, entities
-- `api/schemas.py` — Pydantic request/response models for API endpoints
-- Tests for API routes using FastAPI's TestClient
+- `tests/integration/test_mesh_e2e.py` — full pipeline integration tests: ingest file → extract claims → canonicalize entities → discover edges → retrieve → compose → Q&A thread
+- `mesh/snapshot.py` — zstd-compressed db backup/restore (if zstandard available)
+- Snapshot CLI/API commands wired
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` (API section if exists)
-2. `src/polaris_graph/wiki/mesh/cli/main.py` — the CLI handlers show which mesh functions to expose
-3. `requirements.txt` — verify fastapi + uvicorn already in deps
-4. `src/polaris_graph/wiki/mesh/qa/ask.py` — async ask() maps naturally to async FastAPI routes
+1. All mesh source files in `src/polaris_graph/wiki/mesh/` — verify the full vertical slice works
+2. `requirements.txt` — check if zstandard is available
+3. `tests/unit/test_mesh_*.py` — understand existing test patterns to avoid duplication
 
 ---
 
@@ -83,10 +83,10 @@ Unit 9 exposes the mesh operations as a REST API (FastAPI).
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py tests/unit/test_mesh_cli.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py tests/unit/test_mesh_cli.py tests/unit/test_mesh_api.py -v
 ```
 
-Expected: **261 passed** in ~109s (the embedding model loads once for the integration tests).
+Expected: **273 passed** in ~106s (the embedding model loads once for the integration tests).
 
 ---
 

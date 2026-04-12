@@ -3075,3 +3075,20 @@
 - STATUS: Unit 8 complete. 8 of 10 wiki mesh units done. The mesh now has a user-facing CLI. Unit 9 (REST API) and Unit 10 (integration tests + snapshots) remain.
 - NEXT_STEP: Commit Unit 8, then start Unit 9 (REST API server).
 
+
+[2026-04-12 Session 57 continued — Unit 9]
+- ACTION: Wiki Mesh Unit 9 — REST API server
+- RATIONALE: Advisor CP-A locked: standalone FastAPI app, 7 routes mirroring CLI, lifespan store management with check_same_thread=False, Pydantic response models, no auth, CORS for local dev, dry-run endpoint separate from ask. ~260 lines.
+- SYNC: docs/file_directory.md, docs/todo_list.md updated for Unit 9.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/api/__init__.py, api/server.py (~260 lines)
+  - NEW: tests/unit/test_mesh_api.py (12 tests)
+  - MODIFIED: src/polaris_graph/wiki/mesh/store.py (check_same_thread parameter on open())
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 273/273 mesh tests pass (Units 1-9: 43+49+46+45+25+26+16+11+12). Full suite ~106s.
+  - Bugs caught: (1) check_same_thread — SQLite cross-thread error with TestClient, fixed by adding param to MeshStore.open. (2) sqlite3.Row.get() — Row objects don't have .get(), fixed to direct access.
+  - Advisor CP-C: "Ready to commit. check_same_thread addition is correct and necessary."
+- STATUS: Unit 9 complete. 9 of 10 wiki mesh units done. Both CLI and REST API interfaces work. Unit 10 (integration tests + snapshots) closes the series.
+- NEXT_STEP: Commit Unit 9, then start Unit 10.
+

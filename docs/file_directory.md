@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-12 (Session 57 — wiki/mesh Unit 8 CLI landed)
-**Status**: 204 v3 tests passing. 261/261 wiki mesh Unit 1-8 tests green. 8 of 10 mesh units complete.
+**Last Updated**: 2026-04-12 (Session 57 — wiki/mesh Unit 9 REST API landed)
+**Status**: 204 v3 tests passing. 273/273 wiki mesh Unit 1-9 tests green. 9 of 10 mesh units complete.
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-8 done, 2 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-9 done, 1 pending)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -194,6 +194,13 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 |------|-------|---------|
 | `cli/__init__.py` | 5 | Package exports (main) |
 | `cli/main.py` | ~210 | argparse-based CLI with 6 subcommands: workspace-create, workspace-list, ask (with --dry-run), ingest, stats, entities-review. Each handler opens store, calls mesh function, prints result, closes. `asyncio.run()` bridges async ask(). `--dry-run` calls lethal_retrieve directly without LLM. `_make_llm_client()` fails loudly if OpenRouterClient unavailable. Snapshots + confirm/reject/merge deferred. |
+
+**Unit 9 (Session 57) — REST API**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `api/__init__.py` | 2 | Package marker |
+| `api/server.py` | ~260 | Standalone FastAPI app with 7 routes: POST /workspaces (201), GET /workspaces, POST /workspaces/{id}/ask (LLM), POST /workspaces/{id}/ask/dry-run (retrieval only), POST /workspaces/{id}/ingest (file upload via UploadFile → temp → ingest_file), GET /workspaces/{id}/stats, GET /workspaces/{id}/entities/quarantined. Lifespan manages store lifecycle with `check_same_thread=False`. Pydantic response models enforce output shape. CORS allow_origins=["*"]. `_make_llm_client` fails loudly → 503. |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
@@ -610,6 +617,7 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
 | `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
 | `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
+| `test_mesh_api.py` | **Session 57**: Wiki mesh Unit 9 — REST API: workspace create (2), workspace list (2), dry-run ask (3 inc. empty + invalid), stats (2), quarantined entities (3 inc. shows quarantined). 12 tests. |
 | `test_mesh_cli.py` | **Session 57**: Wiki mesh Unit 8 — CLI: workspace-create (2), workspace-list (2), ask --dry-run (2), stats (1), entities-review (2 inc. quarantined display), error handling (2). 11 tests. |
 | `test_mesh_qa.py` | **Session 57**: Wiki mesh Unit 7 — Q&A layer: insert_question (4 inc. parent, empty raises), insert_answer (2), thread history (4 inc. chronological order, last_n limit), context concatenation (2), ask orchestration (4 inc. E2E, follow-up with context, empty workspace ORTHOGONAL, unknown workspace raises). 16 tests. |
 | `test_mesh_compose.py` | **Session 57**: Wiki mesh Unit 6 — compose + artifacts: CoT scrub (3), ref normalization (3), claim formatting (1), bib formatting (1), hydration + bibliography building (3), end-to-end compose with mock LLM (4), payload parsing (3), artifact directives FIX S7 (6 inc. missing-ids stripped, deferred stubs, valid TABLE), pattern matching (2). 26 tests. |
