@@ -174,7 +174,7 @@ class ExtractionResult:
         skipped: counts per reason (for observability)
         total_facts_seen: how many atomic_facts the LLM returned
     """
-    __slots__ = ("inserted_claim_ids", "skipped", "total_facts_seen")
+    __slots__ = ("inserted_claim_ids", "skipped", "total_facts_seen", "rejected_quotes")
 
     def __init__(self) -> None:
         self.inserted_claim_ids: list[str] = []
@@ -185,6 +185,7 @@ class ExtractionResult:
             "cookie_text": 0,
         }
         self.total_facts_seen: int = 0
+        self.rejected_quotes: list[tuple[int, str]] = []
 
     def as_dict(self) -> dict:
         return {
@@ -255,6 +256,9 @@ def _parse_batch_to_claims(
             quote = (fact.direct_quote or "").strip()
             if len(quote.split()) < PG_MIN_QUOTE_WORDS:
                 result.skipped["short_quote"] += 1
+                result.rejected_quotes.append(
+                    (len(quote.split()), quote[:120]),
+                )
                 continue
 
             # ── Filter 3: URL fragment ──

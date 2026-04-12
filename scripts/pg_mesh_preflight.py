@@ -55,7 +55,6 @@ Energy consumption for RO treatment averages 3-5 kWh per 1000 gallons, compared 
 
 MODELS = [
     ("GLM 5.1", "z-ai/glm-5.1"),
-    ("Qwen 3.5 Plus", "qwen/qwen3.5-plus-02-15"),
 ]
 
 QUESTION = "What are the most effective methods for removing PFAS from drinking water, and how do they compare on cost and performance?"
@@ -127,6 +126,13 @@ async def run_model_test(model_name: str, model_id: str, base_dir: Path):
             metrics["facts_seen_b"] = result_b.total_facts_seen
 
             all_claim_ids = result_a.inserted_claim_ids + result_b.inserted_claim_ids
+
+            # Collect rejected quotes for diagnostics
+            all_rejected = (
+                getattr(result_a, "rejected_quotes", [])
+                + getattr(result_b, "rejected_quotes", [])
+            )
+            metrics["rejected_quotes"] = sorted(all_rejected, key=lambda x: x[0])[:10]
         except Exception as exc:
             metrics["errors"].append(f"EXTRACTION FAILED: {exc}")
             logger.error("Extraction failed for %s: %s", model_name, exc)
@@ -268,6 +274,12 @@ def print_comparison(results: list[dict]):
         preview = r.get("answer_preview", "(none)")
         for line in preview.split("\n")[:5]:
             print(f"    {line[:80]}")
+
+        rejected = r.get("rejected_quotes", [])
+        if rejected:
+            print(f"\n  REJECTED QUOTES (shortest {len(rejected)}):")
+            for word_count, text in rejected[:5]:
+                print(f"    [{word_count} words] {text}")
 
         print(f"\n  SAMPLE CLAIMS:")
         for c in r.get("sample_claims", []):

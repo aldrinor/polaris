@@ -3134,3 +3134,9 @@
 - STATUS: Pipeline validated with real LLM. GLM 5.1 produces GOLD claims with clean entities and detects contradictions. Ready for full-scale testing.
 - NEXT_STEP: Commit preflight fixes, then continue with remaining optimizations.
 
+
+[2026-04-12 Session 57 continued -- .env override + scale test improvement]
+- ACTION: Fixed .env PG_MIN_QUOTE_WORDS=15 override that was defeating the code default of 5. Added rejected_quotes diagnostic to ExtractionResult. Re-ran scale test showing 76% more claims (25->44), 629% more edges (14->102), zero filtering.
+- AFFECTED_FILES: .env, claim_extract.py (rejected_quotes field), preflight script, test_mesh_claim_extract.py (adjusted for PG_MIN_QUOTE_WORDS=5)
+- EVIDENCE: Scale test: 44 claims (27 GOLD + 17 SILVER), 35 entities, 102 edges (60 corr + 42 contra), 3-turn Q&A all IN_SCOPE citing all 5 sources, 7/7 checks PASS. 283/283 unit tests pass.
+

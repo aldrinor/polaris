@@ -82,10 +82,10 @@ def workspace_id(store: MeshStore) -> str:
 # verified=True, or (b) deliberately not appear here to test the
 # unverified-span path.
 #
-# PG_MIN_QUOTE_WORDS = 15, so every valid quote must be 15+ words. We
-# write long quotes here and in the test facts to exercise the
-# downstream filters (URL fragment, cookie text) rather than tripping
-# on the short-quote filter first.
+# PG_MIN_QUOTE_WORDS = 5 (lowered from 15 after preflight showed LLMs
+# produce shorter quotes). Valid quotes must be 5+ words. We write
+# long quotes for the positive tests and very short ones (<5 words)
+# for the filter test.
 SOURCE_BODY = (
     "This study evaluates household PFAS filtration approaches and "
     "methods. GAC achieved 85% removal of long-chain PFAS compounds in "
@@ -157,10 +157,10 @@ class TestParserKillerTest:
                 "relevance_score": 0.9,
                 "confidence": 0.9,
             },
-            # Fact 2: FILTERED — quote too short (5 words < PG_MIN_QUOTE_WORDS=15)
+            # Fact 2: FILTERED — quote too short (3 words < PG_MIN_QUOTE_WORDS=5)
             {
                 "statement": "GAC removes PFAS compounds effectively from water",
-                "direct_quote": "GAC removes PFAS compounds effectively",
+                "direct_quote": "GAC removes PFAS",
                 "relevance_score": 0.8,
                 "confidence": 0.7,
             },
