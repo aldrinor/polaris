@@ -79,6 +79,18 @@ def main(argv: list[str] | None = None) -> int:
     p_ent = sub.add_parser("entities-review", help="Review quarantined entities")
     p_ent.add_argument("--workspace", required=True, help="Workspace ID")
 
+    # snapshot-create
+    p_snap_c = sub.add_parser("snapshot-create", help="Create a zstd-compressed snapshot")
+    p_snap_c.add_argument("--snapshot-dir", default="snapshots", help="Snapshot directory")
+
+    # snapshot-list
+    p_snap_l = sub.add_parser("snapshot-list", help="List available snapshots")
+    p_snap_l.add_argument("--snapshot-dir", default="snapshots", help="Snapshot directory")
+
+    # snapshot-restore
+    p_snap_r = sub.add_parser("snapshot-restore", help="Restore from a snapshot")
+    p_snap_r.add_argument("path", help="Path to .mesh.zst snapshot file")
+
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -92,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
         "ingest": cmd_ingest,
         "stats": cmd_stats,
         "entities-review": cmd_entities_review,
+        "snapshot-create": cmd_snapshot_create,
+        "snapshot-list": cmd_snapshot_list,
+        "snapshot-restore": cmd_snapshot_restore,
     }
 
     handler = dispatch.get(args.command)
@@ -262,6 +277,33 @@ def cmd_entities_review(args: argparse.Namespace) -> int:
             print(f"    Aliases: {alias_str}")
     finally:
         store.close()
+    return 0
+
+
+def cmd_snapshot_create(args: argparse.Namespace) -> int:
+    from ..snapshot import create_snapshot
+    path = create_snapshot(args.db, args.snapshot_dir)
+    print(f"Snapshot created: {path}")
+    print(f"  Size: {path.stat().st_size / 1024:.1f} KB")
+    return 0
+
+
+def cmd_snapshot_list(args: argparse.Namespace) -> int:
+    from ..snapshot import list_snapshots
+    snapshots = list_snapshots(args.snapshot_dir)
+    if not snapshots:
+        print("No snapshots found.")
+        return 0
+    for s in snapshots:
+        size_kb = s["size_bytes"] / 1024
+        print(f"  {s['name']}  ({size_kb:.1f} KB)")
+    return 0
+
+
+def cmd_snapshot_restore(args: argparse.Namespace) -> int:
+    from ..snapshot import restore_snapshot
+    restore_snapshot(args.path, args.db)
+    print(f"Restored: {args.path} → {args.db}")
     return 0
 
 

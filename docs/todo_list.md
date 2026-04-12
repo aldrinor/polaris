@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-12 (Wiki Mesh Unit 9 complete — REST API + 273/273 tests)
+**Last Updated**: 2026-04-12 (Wiki Mesh ALL 10 UNITS COMPLETE — 283/283 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **9 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **ALL 10 OF 10 UNITS COMPLETE.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -65,7 +65,12 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] `src/polaris_graph/wiki/mesh/api/server.py` (~260 lines) — Standalone FastAPI app with 7 routes mirroring CLI. Lifespan manages store with `check_same_thread=False` for ASGI thread pool. Pydantic response models enforce output shape. File upload via UploadFile → temp → ingest_file → cleanup. CORS allow_origins=["*"] for local dev. `_make_llm_client` fails loudly → 503 with suggestion to use dry-run. `MeshStore.open` extended with `check_same_thread` parameter (backward-compatible, defaults True).
 - [x] `tests/unit/test_mesh_api.py` — 12 tests via FastAPI TestClient: workspace CRUD (4), dry-run ask (3 inc. empty + invalid workspace), stats (2), quarantined entities (3). Seeded fixture with workspace + source + claim.
 - [x] Advisor checkpoints: CP-A lock (standalone app, 7 routes, no auth, CORS, lifespan store), CP-C (273/273, check_same_thread correct, sqlite3.Row.get() bug caught + fixed).
-- [ ] Unit 10: integration + regression tests + snapshots (NEXT, ~600 lines)
+### Unit 10 — Integration tests + snapshots (COMPLETE 2026-04-12, FINAL UNIT)
+- [x] `src/polaris_graph/wiki/mesh/snapshot.py` (~80 lines) — zstd-compressed db backup/restore. File-to-file streaming, ISO-timestamped filenames, level 3 compression. create/restore/list API.
+- [x] CLI additions (~30 lines in cli/main.py) — snapshot-create, snapshot-list, snapshot-restore commands.
+- [x] `tests/unit/test_mesh_snapshot.py` — 8 tests: create (3), restore roundtrip (2), list (3).
+- [x] `tests/integration/test_mesh_e2e.py` — 2 tests: golden path E2E (full vertical slice: workspace → ingest → extract → entities → edges → retrieve → compose → Q&A thread → persistence verify) + snapshot roundtrip (create → destroy → restore → verify). Mock LLM + real embeddings.
+- [x] Advisor checkpoints: CP-A lock (one golden path test, simple snapshot, CLI-only snapshot commands), CP-C (283/283 passing, PG_MIN_QUOTE_WORDS bug caught by integration test — exactly what integration tests are for).
 
 ### Mesh backlog (non-blocking, accumulated across units)
 - [ ] `vacuum_orphan_vectors(workspace_id)` — `delete_workspace` cascades core tables via FK but vec0 virtual tables don't participate. Search queries filter via the mapping JOIN so correctness is OK, but dead vectors accumulate. (Unit 1 backlog.)

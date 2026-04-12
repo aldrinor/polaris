@@ -3092,3 +3092,24 @@
 - STATUS: Unit 9 complete. 9 of 10 wiki mesh units done. Both CLI and REST API interfaces work. Unit 10 (integration tests + snapshots) closes the series.
 - NEXT_STEP: Commit Unit 9, then start Unit 10.
 
+
+[2026-04-12 Session 57 continued — Unit 10 FINAL]
+- ACTION: Wiki Mesh Unit 10 — integration tests + snapshots (FINAL UNIT)
+- RATIONALE: Advisor CP-A locked: one golden path E2E test (full vertical slice with mock LLM + real embeddings), snapshot.py with zstd streaming, 3 CLI snapshot commands. ~300 lines total. This closes the 10-unit wiki mesh series.
+- SYNC: docs/file_directory.md (all 10 units marked complete, store.py line count updated 840→957), docs/todo_list.md (all 10 units marked complete).
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/snapshot.py (~80 lines)
+  - NEW: tests/unit/test_mesh_snapshot.py (8 tests)
+  - NEW: tests/integration/test_mesh_e2e.py (2 tests: golden path + snapshot roundtrip)
+  - MODIFIED: src/polaris_graph/wiki/mesh/cli/main.py (+30 lines, 3 snapshot commands)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 283/283 mesh tests pass (Units 1-10: 43+49+46+45+25+26+16+11+12+8+2). Full suite ~119s.
+  - Golden path E2E test proves full vertical slice: workspace → ingest → extract → entities → edges → retrieve → compose → Q&A thread → persistence. Mock LLM + real embeddings.
+  - PG_MIN_QUOTE_WORDS bug caught by integration test: mock quotes were 14 words, minimum is 15. Fixed by extending quotes. This is exactly what integration tests are for — catches seam issues unit tests miss.
+  - Snapshot roundtrip: create → destructive delete → restore → verify original state. zstd compression confirmed smaller than original.
+  - Advisor CP-C: "The 10-unit wiki mesh is complete. Zero silent fallbacks."
+  - ALL 8 ADVISOR FIXES IMPLEMENTED: D1 single-db, D2 entity quarantine, D3 snowball + exploration, S4 two-column edges, S5 entity cosine filter, S6 NEARBY budget, S7 artifact validation, S8 coreference.
+- STATUS: ALL 10 WIKI MESH UNITS COMPLETE. 283 tests. Full pipeline: ingest → extract → canonicalize → edge discovery → retrieve → compose → Q&A → CLI → REST API → snapshots. GitHub push still pending (user to resolve auth when home).
+- NEXT_STEP: Commit Unit 10 (final). Then push all 10 units to GitHub when auth is resolved.
+

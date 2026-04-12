@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-12 (Session 57 — wiki/mesh Unit 9 REST API landed)
-**Status**: 204 v3 tests passing. 273/273 wiki mesh Unit 1-9 tests green. 9 of 10 mesh units complete.
+**Last Updated**: 2026-04-12 (Session 57 — wiki/mesh Unit 10 complete — ALL 10 UNITS DONE)
+**Status**: 204 v3 tests passing. 283/283 wiki mesh Unit 1-10 tests green. 10 of 10 mesh units complete.
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-9 done, 1 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (ALL 10 UNITS COMPLETE)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -142,7 +142,7 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 |------|-------|---------|
 | `__init__.py` | 25 | Package exports (MeshStore, MeshStoreError, create_schema, SCHEMA_VERSION) |
 | `schema.py` | 266 | DDL for 11 core + 4 mapping + 4 vec0 virtual tables. CHECK constraints enforce edges.usage_boost <= 0.2 (FIX S4), entities.confidence in [0,1] (FIX D2), tier/kind enums. FK cascades on workspace delete. sqlite-vec virtual tables at float[384] (matches production embed_texts, corrected during Unit 2 CP-C). |
-| `store.py` | ~840 | MeshStore CRUD with transaction context wrapping SQL+vec0 atomically (D1), over-fetch KNN search (k*3 then filter then LIMIT k) to defend against lossy JOIN+WHERE, entity quarantine (D2), usage_boost cap helper (S4), idempotent insert_claim/insert_entity, try-INSERT-catch-UPDATE vec0 upsert (vec0 does not support INSERT OR REPLACE). Unit 2 added workspace_dir / sources_dir properties. |
+| `store.py` | ~957 | MeshStore CRUD with transaction context wrapping SQL+vec0 atomically (D1), over-fetch KNN search (k*3 then filter then LIMIT k) to defend against lossy JOIN+WHERE, entity quarantine (D2), usage_boost cap helper (S4), idempotent insert_claim/insert_entity, try-INSERT-catch-UPDATE vec0 upsert (vec0 does not support INSERT OR REPLACE). Unit 2 added workspace_dir / sources_dir properties. |
 
 **Unit 2 (Session 57) — ingest + claim extraction**
 
@@ -201,6 +201,17 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 |------|-------|---------|
 | `api/__init__.py` | 2 | Package marker |
 | `api/server.py` | ~260 | Standalone FastAPI app with 7 routes: POST /workspaces (201), GET /workspaces, POST /workspaces/{id}/ask (LLM), POST /workspaces/{id}/ask/dry-run (retrieval only), POST /workspaces/{id}/ingest (file upload via UploadFile → temp → ingest_file), GET /workspaces/{id}/stats, GET /workspaces/{id}/entities/quarantined. Lifespan manages store lifecycle with `check_same_thread=False`. Pydantic response models enforce output shape. CORS allow_origins=["*"]. `_make_llm_client` fails loudly → 503. |
+
+**Unit 10 (Session 57) — integration tests + snapshots (final unit)**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `snapshot.py` | ~80 | zstd-compressed backup/restore. File-to-file streaming (not in-memory). `create_snapshot` → ISO-timestamped .mesh.zst file. `restore_snapshot` → decompress + replace. `list_snapshots` → sorted by timestamp descending. Level 3 compression. |
+
+| Test File | Purpose |
+|-----------|---------|
+| `tests/unit/test_mesh_snapshot.py` | 8 tests: create (3 inc. missing db, auto-create dir), restore roundtrip (2), list (3). |
+| `tests/integration/test_mesh_e2e.py` | 2 tests: golden path E2E (workspace→ingest→extract→entities→edges→retrieve→compose→Q&A thread→verify persistence) + snapshot roundtrip (create→destroy→restore→verify). |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)

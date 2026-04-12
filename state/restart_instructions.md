@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-12) — Wiki Mesh Unit 9 Complete, Ready for Unit 10
+## Current State (2026-04-12) — Wiki Mesh ALL 10 UNITS COMPLETE
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -14,11 +14,12 @@
 - `5aa2b42` — Wiki Mesh Unit 6 of 10 — compose + artifact directives (FIX S7)
 - `f9de5aa` — Wiki Mesh Unit 7 of 10 — Q&A layer + multi-turn threads (FIX S8)
 - `67deb31` — Wiki Mesh Unit 8 of 10 — CLI presentation layer
-- **Unit 9 commit pending** — api/server.py + store.py check_same_thread + tests (12 new tests)
+- `6a0fa09` — Wiki Mesh Unit 9 of 10 — REST API server (FastAPI)
+- **Unit 10 commit pending** — snapshot.py + integration tests + CLI snapshot commands (10 new tests)
 
-**Status:** 9 of 10 wiki mesh units complete. Full pipeline with CLI + REST API. 273/273 tests passing.
+**Status:** ALL 10 of 10 wiki mesh units COMPLETE. 283/283 tests passing.
 
-**Honest scope:** Unit 9 provides the REST API. Only Unit 10 (integration tests + snapshots) remains. The mesh is usable from both CLI and HTTP API.
+**What was built:** A persistent, self-growing research expert system with: single-db SQLite+vec storage, PDF/HTML/markdown ingestion, LLM claim extraction, 5-step entity canonicalization with quarantine, cosine edge discovery, 6-stage lethal retrieval with bounded snowball re-rank, cited answer composition with artifact validation, multi-turn Q&A threads, CLI + REST API interfaces, and zstd snapshot backup/restore. All 8 advisor design fixes (D1-D3, S4-S8) implemented. 283 tests across 13 test files.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -83,10 +84,10 @@ Unit 10 closes the 10-unit series with end-to-end integration tests and optional
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py tests/unit/test_mesh_cli.py tests/unit/test_mesh_api.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py tests/unit/test_mesh_cli.py tests/unit/test_mesh_api.py tests/unit/test_mesh_snapshot.py tests/integration/test_mesh_e2e.py -v
 ```
 
-Expected: **273 passed** in ~106s (the embedding model loads once for the integration tests).
+Expected: **283 passed** in ~119s (the embedding model loads once for the integration tests).
 
 ---
 
