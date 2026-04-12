@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 6 complete — compose + artifacts + 234/234 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 7 complete — Q&A layer + 250/250 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **6 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **7 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -52,8 +52,12 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] `src/polaris_graph/wiki/mesh/compose/artifact_directives.py` (~120 lines) — FIX S7 validation framework. Validates claim_ids exist before rendering, strips invalid blocks with warning. TABLE renderer (inline markdown, keyword-based extraction, MIN_TABLE_ROWS=2). CHART/FLOW/DECK/FLASHCARDS: stub entries returning "deferred" (v2).
 - [x] `tests/unit/test_mesh_compose.py` — 26 tests: helpers (8), hydration+bibliography (3), end-to-end compose with mock LLM (4), payload parsing (3), FIX S7 artifact validation (6), pattern matching (2).
 - [x] Advisor checkpoints: CP-A lock (fresh impl, single-answer, LLM protocol, TABLE-only + stubs, ~300 lines), CP-C (234/234 passing, TABLE keyword extraction flagged as best-effort heuristic for v1).
-- [ ] Unit 7: Q&A layer + multi-turn threads (NEXT, ~490 lines)
-- [ ] Unit 8: workspace management + CLI + snapshots with zstd (~830 lines)
+### Unit 7 — Q&A layer + multi-turn threads (COMPLETE 2026-04-11, FIX S8)
+- [x] `src/polaris_graph/wiki/mesh/qa/ask.py` (~160 lines) — `ask()` orchestrator: insert question → build thread context → retrieve → check NEARBY budget → compose → insert answer → return AskResult. Coreference via simple concatenation (no LLM in v1) — last 3 Q&A pairs + new question embedded as a single string. NEARBY budget awareness (`AskResult.nearby_budget_available`) for Unit 8 CLI to act on. Empty workspace returns ORTHOGONAL + "no claims" but still persists the question row.
+- [x] Store additions (~100 lines in store.py) — 5 new methods: `insert_question`, `get_question`, `insert_answer`, `get_answer_for_question`, `get_thread_history` (walks parent_id chain backward, reverses to chronological, pops current question, limits to last_n).
+- [x] `tests/unit/test_mesh_qa.py` — 16 tests: store CRUD (6), thread history with chronological ordering + last_n limit (4), context concatenation (2), ask orchestration E2E with mock LLM (4 inc. follow-up with parent_id, empty workspace ORTHOGONAL, unknown workspace raises).
+- [x] Advisor checkpoints: CP-A lock (parent_id chain as thread model, simple concatenation not LLM coreference, NEARBY check-only not expansion), CP-C (250/250 passing, thread walking logic traced and verified correct).
+- [ ] Unit 8: workspace management + CLI + snapshots with zstd (NEXT, ~830 lines)
 - [ ] Unit 9: REST API server (~400 lines)
 - [ ] Unit 10: integration + regression tests (~600 lines)
 

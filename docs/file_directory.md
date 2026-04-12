@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 6 compose + artifacts landed)
-**Status**: 204 v3 tests passing. 234/234 wiki mesh Unit 1-6 tests green. 6 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
+**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 7 Q&A layer landed)
+**Status**: 204 v3 tests passing. 250/250 wiki mesh Unit 1-7 tests green. 7 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-6 done, 4 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-7 done, 3 pending)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -179,6 +179,14 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 | `compose/__init__.py` | 10 | Package exports (compose_answer, ComposeResult, render_artifacts) |
 | `compose/composer.py` | ~200 | Single-answer composition from RetrievalResult. Hydrates claims + builds inline bibliography (by first source appearance, dedupes URLs). LLM via `_ComposeClient` protocol (same pattern as Units 2-3). Post-processing: CoT scrub → [REF:N]→[N] normalization → artifact rendering. Simpler prompt than wiki_composer's 13-rule academic COMPOSE_SYSTEM. Empty retrieval returns "no claims" without LLM call. |
 | `compose/artifact_directives.py` | ~120 | FIX S7 validation + rendering framework. Validates claim_ids exist before rendering, strips invalid blocks with logged warning. TABLE renderer: inline markdown from claims with keyword matching. CHART/FLOW/DECK/FLASHCARDS: stub entries returning "deferred" message (v2). |
+
+**Unit 7 (Session 57) — Q&A layer + multi-turn threads (FIX S8)**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `qa/__init__.py` | 5 | Package exports (ask, AskResult) |
+| `qa/ask.py` | ~160 | `ask()` orchestrator: insert question → build thread context → retrieve → check NEARBY budget → compose → insert answer. Coreference via simple concatenation of last 3 Q&A pairs (no LLM in v1). `_build_resolved_question` truncates answers to 500 chars. NEARBY budget check sets `AskResult.nearby_budget_available` for CLI to act on. |
+| `store.py` additions | ~100 | 5 new methods: `insert_question`, `get_question`, `insert_answer`, `get_answer_for_question`, `get_thread_history` (walks parent_id chain backward, reverses to chronological, pops current question, limits to last_n). |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
@@ -595,6 +603,7 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
 | `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
 | `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
+| `test_mesh_qa.py` | **Session 57**: Wiki mesh Unit 7 — Q&A layer: insert_question (4 inc. parent, empty raises), insert_answer (2), thread history (4 inc. chronological order, last_n limit), context concatenation (2), ask orchestration (4 inc. E2E, follow-up with context, empty workspace ORTHOGONAL, unknown workspace raises). 16 tests. |
 | `test_mesh_compose.py` | **Session 57**: Wiki mesh Unit 6 — compose + artifacts: CoT scrub (3), ref normalization (3), claim formatting (1), bib formatting (1), hydration + bibliography building (3), end-to-end compose with mock LLM (4), payload parsing (3), artifact directives FIX S7 (6 inc. missing-ids stripped, deferred stubs, valid TABLE), pattern matching (2). 26 tests. |
 | `test_mesh_lethal_retrieve.py` | **Session 57**: Wiki mesh Unit 5 — lethal retrieval: recency factor (4), distance formula (1), basic retrieval (4 inc. empty workspace → ORTHOGONAL, single claim found, BRONZE included in seed, unknown workspace raises), corroboration walk (1), contradiction surface (1), re-rank upload-higher ordering (1), exploration reservation (1), gap classify (5), NEARBY budget depletion (3), entity match fraction (4). 25 tests. |
 | `test_mesh_edge_discovery.py` | **Session 57**: Wiki mesh Unit 4 — edge discovery: `_distance_to_cosine` formula (3), `_read_claim_embedding` round-trip (2), corroboration edges (3 inc. same-source allowed + evidence_weight clamp), contradiction edges (2 inc. same-source exclusion), no-edge below threshold (1), self-match exclusion (1), idempotent re-run (1), validation (4 inc. empty/missing/wrong-workspace/unknown-workspace), precomputed embedding path (1), multi-claim batch (1). 20 tests. |

@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-11) — Wiki Mesh Unit 6 Complete, Ready for Unit 7
+## Current State (2026-04-11) — Wiki Mesh Unit 7 Complete, Ready for Unit 8
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -10,12 +10,13 @@
 - `65875dd` — Wiki Mesh Unit 3 of 10 — entity canonicalization (FIX D2)
 - `9f90a2f` — Wiki Mesh Unit 4 of 10 — edge discovery + snowball (FIX S4)
 - `f1e95de` — restart_instructions doc fix
-- `292a12f` — Wiki Mesh Unit 5 of 10 — lethal retrieval + gap classify (FIX D3, S5, S8)
-- **Unit 6 commit pending** — compose/composer.py + compose/artifact_directives.py + tests (26 new tests)
+- `292a12f` — Wiki Mesh Unit 5 of 10 — lethal retrieval + gap classify
+- `5aa2b42` — Wiki Mesh Unit 6 of 10 — compose + artifact directives (FIX S7)
+- **Unit 7 commit pending** — qa/ask.py + store.py Q&A CRUD + tests (16 new tests)
 
-**Status:** 6 of 10 wiki mesh units complete. Complete pipeline: ingest → extract → canonicalize → discover edges → retrieve → compose. 234/234 tests passing.
+**Status:** 7 of 10 wiki mesh units complete. Full Q&A path: ask → retrieve → compose → answer with bibliography + multi-turn threads. 250/250 tests passing.
 
-**Honest scope:** Unit 6 completes the core pipeline (question in → cited answer out). Q&A layer (Unit 7), CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can compose answers but doesn't yet have multi-turn threads or a user interface.
+**Honest scope:** Unit 7 completes the conversational Q&A layer. CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can answer questions with cited responses and maintain multi-turn threads, but has no user interface yet.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -23,49 +24,47 @@
 
 ## What was just done
 
-### Unit 6 — Compose + artifact directives (FIX S7)
+### Unit 7 — Q&A layer + multi-turn threads (FIX S8)
 
-**`src/polaris_graph/wiki/mesh/compose/composer.py` (~200 lines)**
-- Fresh implementation (NOT adapted from wiki_composer.py — that's coupled to WikiResult/section-based reports)
-- Single-answer composition from RetrievalResult: hydrates claims, builds inline bibliography (by first source appearance, dedupes URLs), formats numbered claims for LLM, post-processes (CoT scrub → [REF:N]→[N] → artifact rendering)
-- `_ComposeClient` protocol for LLM (same pattern as Units 2-3). Tests inject mock, production passes OpenRouterClient
-- Simpler Q&A-style `MESH_COMPOSE_SYSTEM` prompt (8 rules vs wiki_composer's 13)
-- Empty retrieval returns "No relevant claims" without LLM call
-- `ComposeResult` holds answer_text, bibliography, claim_ids_used, artifact_paths
+**`src/polaris_graph/wiki/mesh/qa/ask.py` (~160 lines)**
+- `ask()` orchestrator: 6 steps — insert question → build thread context → retrieve → check NEARBY budget → compose → insert answer → return AskResult
+- Coreference via simple concatenation of last 3 Q&A pairs (no LLM in v1). Embedding of "Q: ... A: ... Q: What about the cost?" naturally resolves pronouns
+- NEARBY budget awareness: `AskResult.nearby_budget_available` set when gap=NEARBY and budget allows, for Unit 8 CLI to act on
+- Empty workspace: returns ORTHOGONAL gap + "no claims" but persists question row (we track what was asked even with no results)
 
-**`src/polaris_graph/wiki/mesh/compose/artifact_directives.py` (~120 lines)**
-- FIX S7 validation framework: validates claim_ids exist before rendering, strips invalid blocks with logged warning
-- TABLE renderer: inline markdown from claims with keyword-based row extraction, MIN_TABLE_ROWS=2 guard
-- CHART/FLOW/DECK/FLASHCARDS: stub entries returning "_(artifact deferred: {kind})_" — FIX S7 validation still runs
-- `_parse_payload` handles "claim_ids=a,b;x_label=Year" → dict
+**Store additions (~100 lines in store.py)**
+- `insert_question(workspace_id, text, parent_id, asked_by) -> str`
+- `get_question(question_id) -> dict | None`
+- `insert_answer(question_id, text, retrieved_claims, cited_claims, artifact_paths, model) -> str`
+- `get_answer_for_question(question_id) -> dict | None`
+- `get_thread_history(question_id, last_n=3) -> list[dict]` — walks parent_id chain backward, reverses to chronological order, pops current question, limits to last_n
 
-**`tests/unit/test_mesh_compose.py` — 26 tests**
-- TestScrubCoT (3), TestNormalizeRefs (3), TestFormatClaims (1), TestFormatBibliography (1): helpers
-- TestHydrateClaims (3): hydration + bib building, same-source dedup, missing claim skipped
-- TestComposeAnswer (4): end-to-end mock LLM, empty retrieval, CoT scrubbed, REF normalized
-- TestParsePayload (3), TestRenderArtifacts (6), TestArtifactPattern (2): artifact directives
+**`tests/unit/test_mesh_qa.py` — 16 tests**
+- TestInsertQuestion (4): basic, parent, empty raises, missing returns None
+- TestInsertAnswer (2): basic, no answer returns None
+- TestThreadHistory (4): no history, 2-question, 3-question chronological, last_n limits
+- TestBuildResolvedQuestion (2): no history → raw, with history → concatenated Q/A format
+- TestAskOrchestration (4): E2E single question, follow-up with parent_id, empty ORTHOGONAL, unknown workspace raises
 
 ---
 
-## NEXT SESSION — Start Unit 7: Q&A layer + multi-turn threads
+## NEXT SESSION — Start Unit 8: Workspace management + CLI
 
-Unit 7 wraps the retrieve → compose pipeline in a conversational Q&A layer with multi-turn thread support and stage 0 coreference resolution.
+Unit 8 provides the user interface layer: a CLI tool for interacting with the mesh (ask questions, ingest files, manage workspaces, review quarantined entities).
 
-### What Unit 7 delivers
+### What Unit 8 delivers
 
-- `qa/thread.py` — Thread model (thread_id, workspace_id, list of Q&A turns), persistence in the mesh store
-- `qa/ask.py` — `ask(store, workspace_id, question, thread_id)` → orchestrates retrieve → compose → store answer, handles coreference via thread history
-- Stage 0 coreference wiring — prepend last 3 Q&A pairs to the question before retrieval
-- NEARBY auto-expansion trigger — when gap_classify returns NEARBY and budget allows, auto-expand search
-- Tests for thread persistence, coreference resolution, ask orchestration
+- `cli/main.py` — Click-based CLI entry point: `polaris mesh ask`, `polaris mesh ingest`, `polaris mesh stats`, `polaris mesh entities review`
+- `cli/workspace.py` — Workspace CRUD commands: create, list, switch, delete
+- Snapshot support with zstd compression for mesh.db backup/restore
+- Tests for CLI argument parsing + workspace management
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` §7 stage 0 (coreference), §10 (failure modes)
-2. `src/polaris_graph/wiki/mesh/retrieve/lethal.py` — `resolved_question` param ready for wiring
-3. `src/polaris_graph/wiki/mesh/compose/composer.py` — `compose_answer` is the downstream call
-4. `src/polaris_graph/wiki/mesh/retrieve/gap_classify.py` — NEARBY budget for auto-expansion
-5. `src/polaris_graph/wiki/mesh/store.py` — check if thread/answer tables exist in schema
+1. `docs/wiki_mesh_design.md` §12 (CLI commands reference)
+2. `src/polaris_graph/wiki/mesh/qa/ask.py` — the ask() function the CLI calls
+3. `src/polaris_graph/wiki/mesh/ingest.py` — ingest_file/ingest_web_content the CLI calls
+4. `src/polaris_graph/wiki/mesh/store.py` — workspace CRUD, stats, quarantined entities
 
 ---
 
@@ -88,10 +87,10 @@ Unit 7 wraps the retrieve → compose pipeline in a conversational Q&A layer wit
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py tests/unit/test_mesh_qa.py -v
 ```
 
-Expected: **234 passed** in ~108s (the embedding model loads once for the integration tests).
+Expected: **250 passed** in ~102s (the embedding model loads once for the integration tests).
 
 ---
 

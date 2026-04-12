@@ -3038,3 +3038,22 @@
 - STATUS: Unit 6 complete. 6 of 10 wiki mesh units done. The mesh now has a complete pipeline: ingest → extract → canonicalize → discover edges → retrieve → compose. Unit 7 (Q&A layer + multi-turn threads) is next.
 - NEXT_STEP: Commit Unit 6, then start Unit 7.
 
+
+[2026-04-11 Session 57 continued — Unit 7]
+- ACTION: Wiki Mesh Unit 7 — Q&A layer + multi-turn threads (FIX S8)
+- RATIONALE: Advisor CP-A locked: parent_id chain as thread model (schema already has it), simple concatenation for coreference (no LLM), NEARBY check-only (not expansion), 5 store CRUD methods, ask() orchestrator wrapping retrieve→compose. ~250 lines total.
+- SYNC: docs/file_directory.md, docs/todo_list.md updated for Unit 7.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/qa/__init__.py, qa/ask.py (~160 lines)
+  - NEW: tests/unit/test_mesh_qa.py (16 tests)
+  - MODIFIED: src/polaris_graph/wiki/mesh/store.py (+100 lines, 5 Q&A CRUD methods)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 250/250 mesh tests pass (Units 1-7: 43+49+46+45+25+26+16). Full suite ~102s.
+  - Advisor CP-C: "Ready to commit. Thread walking logic traced and verified correct."
+  - Thread history: parent_id chain walking verified for 2/3/4-question threads with chronological ordering and last_n limiting.
+  - Context concatenation: "Q: What filters? A: GAC... Q: What about the cost?" embedded as single string for poor-man's coreference.
+  - Answer persistence: E2E test verifies store.get_answer_for_question returns composed text.
+- STATUS: Unit 7 complete. 7 of 10 wiki mesh units done. Full Q&A path works: ask question → retrieve → compose → answer with bibliography. Multi-turn threads supported.
+- NEXT_STEP: Commit Unit 7, then start Unit 8 (CLI + workspace management).
+

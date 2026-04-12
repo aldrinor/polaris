@@ -828,6 +828,100 @@ class MeshStore:
             "quarantined_entities": extra["quarantined_entities"],
         }
 
+    # ─────────── Q&A (questions + answers) ───────────
+
+    def insert_question(
+        self,
+        *,
+        workspace_id: str,
+        text: str,
+        parent_id: str | None = None,
+        asked_by: str | None = None,
+    ) -> str:
+        if not text.strip():
+            raise MeshStoreError("Question text must be non-empty")
+        q_id = self._make_id("q", f"{workspace_id}:{text}:{_now_iso()}")
+        self._conn.execute(
+            """INSERT INTO questions
+               (id, workspace_id, text, parent_id, asked_at, asked_by)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (q_id, workspace_id, text.strip(), parent_id, _now_iso(), asked_by),
+        )
+        return q_id
+
+    def get_question(self, question_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM questions WHERE id = ?", (question_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def insert_answer(
+        self,
+        *,
+        question_id: str,
+        text: str,
+        retrieved_claims: list[str] | None = None,
+        cited_claims: list[str] | None = None,
+        artifact_paths: list[str] | None = None,
+        model: str | None = None,
+    ) -> str:
+        a_id = self._make_id("ans", f"{question_id}:{_now_iso()}")
+        self._conn.execute(
+            """INSERT INTO answers
+               (id, question_id, text, retrieved_claims, cited_claims,
+                artifact_paths, model, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                a_id, question_id, text,
+                json.dumps(retrieved_claims) if retrieved_claims else None,
+                json.dumps(cited_claims) if cited_claims else None,
+                json.dumps(artifact_paths) if artifact_paths else None,
+                model, _now_iso(),
+            ),
+        )
+        return a_id
+
+    def get_answer_for_question(self, question_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM answers WHERE question_id = ? ORDER BY created_at DESC LIMIT 1",
+            (question_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_thread_history(
+        self, question_id: str, last_n: int = 3,
+    ) -> list[dict]:
+        """
+        Walk the parent_id chain from `question_id` backward, collecting
+        Q&A pairs in chronological order (oldest first). Returns at most
+        `last_n` pairs, each as {"question": text, "answer": text}.
+        """
+        pairs: list[dict] = []
+        current_id: str | None = question_id
+        visited: set[str] = set()
+
+        while current_id and len(pairs) < last_n + 1:
+            if current_id in visited:
+                break
+            visited.add(current_id)
+            q = self.get_question(current_id)
+            if q is None:
+                break
+            ans = self.get_answer_for_question(current_id)
+            pairs.append({
+                "question": q["text"],
+                "answer": ans["text"] if ans else "",
+            })
+            current_id = q.get("parent_id")
+
+        # We collected from current → ancestors. Reverse for chronological
+        # order, then drop the LAST entry (which is the current question
+        # itself — we only want the history before it).
+        pairs.reverse()
+        if pairs:
+            pairs.pop()  # remove the current question from history
+        return pairs[-last_n:] if len(pairs) > last_n else pairs
+
     # ─────────── helpers ───────────
 
     @staticmethod
