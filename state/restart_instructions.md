@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-11) — Wiki Mesh Unit 5 Complete, Ready for Unit 6
+## Current State (2026-04-11) — Wiki Mesh Unit 6 Complete, Ready for Unit 7
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -10,11 +10,12 @@
 - `65875dd` — Wiki Mesh Unit 3 of 10 — entity canonicalization (FIX D2)
 - `9f90a2f` — Wiki Mesh Unit 4 of 10 — edge discovery + snowball (FIX S4)
 - `f1e95de` — restart_instructions doc fix
-- **Unit 5 commit pending** — retrieve/lethal.py + retrieve/gap_classify.py + tests (25 new tests)
+- `292a12f` — Wiki Mesh Unit 5 of 10 — lethal retrieval + gap classify (FIX D3, S5, S8)
+- **Unit 6 commit pending** — compose/composer.py + compose/artifact_directives.py + tests (26 new tests)
 
-**Status:** 5 of 10 wiki mesh units complete. Complete read+write path: ingest → extract → canonicalize → discover edges → retrieve. 208/208 tests passing.
+**Status:** 6 of 10 wiki mesh units complete. Complete pipeline: ingest → extract → canonicalize → discover edges → retrieve → compose. 234/234 tests passing.
 
-**Honest scope:** Unit 5 delivers the first user-facing feature — lethal retrieval that surfaces the most relevant claims from the mesh. But compose (Unit 6), Q&A (Unit 7), CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can retrieve but can't yet compose answers from the retrieved claims.
+**Honest scope:** Unit 6 completes the core pipeline (question in → cited answer out). Q&A layer (Unit 7), CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can compose answers but doesn't yet have multi-turn threads or a user interface.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -22,59 +23,49 @@
 
 ## What was just done
 
-### Unit 5 — Lethal retrieval + gap classification
+### Unit 6 — Compose + artifact directives (FIX S7)
 
-**`src/polaris_graph/wiki/mesh/retrieve/lethal.py` (~310 lines)**
-- 6-stage lethal retrieval algorithm implementing FIX D3, S5, S8:
-  - Stage 0 (coreference): skipped for v1, accepts optional `resolved_question` for Unit 7
-  - Stage 1 (semantic seed): KNN over ALL tiers (GOLD/SILVER/BRONZE, k=80). BRONZE included because graph edges can promote them (pre-flagged at Unit 4 audit)
-  - Stage 2 (entity expansion): simple string matching against entity canonical_name + aliases (no LLM). FIX D2 quarantine gate (confidence ≥ 0.8 OR user_confirmed). FIX S5 cosine filter (≥ 0.5)
-  - Stage 3 (corroboration walk): 1-hop walk via corroboration edges, decay 0.7, limit 5, min_weight 0.6
-  - Stage 4 (contradiction surface): always include contradicting claims at score 0.3
-  - Stage 5 (elaboration follow): structurally present, no-op until v2 creates elaborates edges
-  - Stage 6 (lethal re-rank): 8-factor multiplicative score using snowball.py formulas + source authority + entity match fraction + recency. 10% exploration reservation for unseen GOLD claims (FIX D3)
-- `RetrievalResult` tracks scored_claims, gap_category, per-stage counts
+**`src/polaris_graph/wiki/mesh/compose/composer.py` (~200 lines)**
+- Fresh implementation (NOT adapted from wiki_composer.py — that's coupled to WikiResult/section-based reports)
+- Single-answer composition from RetrievalResult: hydrates claims, builds inline bibliography (by first source appearance, dedupes URLs), formats numbered claims for LLM, post-processes (CoT scrub → [REF:N]→[N] → artifact rendering)
+- `_ComposeClient` protocol for LLM (same pattern as Units 2-3). Tests inject mock, production passes OpenRouterClient
+- Simpler Q&A-style `MESH_COMPOSE_SYSTEM` prompt (8 rules vs wiki_composer's 13)
+- Empty retrieval returns "No relevant claims" without LLM call
+- `ComposeResult` holds answer_text, bibliography, claim_ids_used, artifact_paths
 
-**`src/polaris_graph/wiki/mesh/retrieve/gap_classify.py` (~90 lines)**
-- 4-category gap classifier: IN_SCOPE (≥5 claims + max ≥ 0.3), NEARBY (≥1 claim), ADJACENT (entity only), ORTHOGONAL (nothing)
-- FIX S6 NEARBY budget: `check_nearby_budget` resets daily counter, `increment_nearby_budget` tracks usage
-- Auto-expansion trigger deferred to Unit 7+
+**`src/polaris_graph/wiki/mesh/compose/artifact_directives.py` (~120 lines)**
+- FIX S7 validation framework: validates claim_ids exist before rendering, strips invalid blocks with logged warning
+- TABLE renderer: inline markdown from claims with keyword-based row extraction, MIN_TABLE_ROWS=2 guard
+- CHART/FLOW/DECK/FLASHCARDS: stub entries returning "_(artifact deferred: {kind})_" — FIX S7 validation still runs
+- `_parse_payload` handles "claim_ids=a,b;x_label=Year" → dict
 
-**`tests/unit/test_mesh_lethal_retrieve.py` — 25 tests**
-- TestRecencyFactor (4) + TestDistanceToCosine (1): helper functions
-- TestLethalRetrieveBasic (4): empty workspace → ORTHOGONAL, single claim found, BRONZE included, unknown workspace raises
-- TestLethalRetrieveCorroborationWalk (1): edge walks neighbor into pool
-- TestLethalRetrieveContradiction (1): both original + contradicting claim surface
-- TestLethalRetrieveReRank (1): upload source ranked higher than web
-- TestLethalRetrieveExploration (1): reservation fills with unseen claims
-- TestGapClassify (5): all 4 categories tested
-- TestNearbyBudget (3): fresh budget, depletion, nonexistent workspace
-- TestEntityMatchFraction (4): full/partial/no overlap, empty question entities
+**`tests/unit/test_mesh_compose.py` — 26 tests**
+- TestScrubCoT (3), TestNormalizeRefs (3), TestFormatClaims (1), TestFormatBibliography (1): helpers
+- TestHydrateClaims (3): hydration + bib building, same-source dedup, missing claim skipped
+- TestComposeAnswer (4): end-to-end mock LLM, empty retrieval, CoT scrubbed, REF normalized
+- TestParsePayload (3), TestRenderArtifacts (6), TestArtifactPattern (2): artifact directives
 
 ---
 
-## NEXT SESSION — Start Unit 6: Compose + artifact renderers
+## NEXT SESSION — Start Unit 7: Q&A layer + multi-turn threads
 
-Unit 6 takes retrieved claims and composes them into structured answers with artifact directives. Design is in `docs/wiki_mesh_design.md` §9.
+Unit 7 wraps the retrieve → compose pipeline in a conversational Q&A layer with multi-turn thread support and stage 0 coreference resolution.
 
-### What Unit 6 delivers
+### What Unit 7 delivers
 
-- `compose/composer.py` — adapted from existing `src/polaris_graph/wiki/wiki_composer.py` (already built and validated in Phase 0B). Takes retrieved claims from Unit 5's `lethal_retrieve`, composes structured answers with inline citations.
-- `compose/artifact_directives.py` — prompt fragments for TABLE/CHART/FLOW/DECK artifacts with FIX S7 validation (claim_ids + data type checks, strip invalid blocks)
-- Tests for composition + artifact validation
-
-### Advisor checkpoints to run
-
-- **CP-A pre-code:** review the existing wiki_composer.py, decide what to adapt vs rewrite. Key: does Unit 6 compose from RetrievalResult.scored_claims, or does it need a different interface?
-- **CP-B mid:** after composer adapted, before artifact validation
-- **CP-C post-code + tests:** full review
+- `qa/thread.py` — Thread model (thread_id, workspace_id, list of Q&A turns), persistence in the mesh store
+- `qa/ask.py` — `ask(store, workspace_id, question, thread_id)` → orchestrates retrieve → compose → store answer, handles coreference via thread history
+- Stage 0 coreference wiring — prepend last 3 Q&A pairs to the question before retrieval
+- NEARBY auto-expansion trigger — when gap_classify returns NEARBY and budget allows, auto-expand search
+- Tests for thread persistence, coreference resolution, ask orchestration
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` §9 (artifact generation with FIX S7 validation)
-2. `src/polaris_graph/wiki/wiki_composer.py` — existing compose path (Phase 0B, already validated)
-3. `src/polaris_graph/wiki/mesh/retrieve/lethal.py` — `RetrievalResult` is the input to compose
-4. `src/polaris_graph/wiki/mesh/store.py` — `get_claim`, `get_source` for claim hydration
+1. `docs/wiki_mesh_design.md` §7 stage 0 (coreference), §10 (failure modes)
+2. `src/polaris_graph/wiki/mesh/retrieve/lethal.py` — `resolved_question` param ready for wiring
+3. `src/polaris_graph/wiki/mesh/compose/composer.py` — `compose_answer` is the downstream call
+4. `src/polaris_graph/wiki/mesh/retrieve/gap_classify.py` — NEARBY budget for auto-expansion
+5. `src/polaris_graph/wiki/mesh/store.py` — check if thread/answer tables exist in schema
 
 ---
 
@@ -97,10 +88,10 @@ Unit 6 takes retrieved claims and composes them into structured answers with art
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py tests/unit/test_mesh_compose.py -v
 ```
 
-Expected: **208 passed** in ~110s (the embedding model loads once for the integration tests).
+Expected: **234 passed** in ~108s (the embedding model loads once for the integration tests).
 
 ---
 

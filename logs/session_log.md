@@ -3020,3 +3020,21 @@
 - STATUS: Unit 5 complete. 5 of 10 wiki mesh units done. The mesh now has a complete read+write path: ingest → extract → canonicalize → discover edges → retrieve. Unit 6 (compose + artifacts) is the next major deliverable.
 - NEXT_STEP: Commit Unit 5, then start Unit 6 (compose + artifact renderers, FIX S7).
 
+
+[2026-04-11 Session 57 continued — Unit 6]
+- ACTION: Wiki Mesh Unit 6 — compose + artifact directives (FIX S7)
+- RATIONALE: Advisor CP-A locked: fresh implementation (not wiki_composer.py adaptation), single-answer composition, LLM via _ComposeClient protocol, TABLE-only artifact renderer + FIX S7 validation framework, CHART/FLOW/DECK/FLASHCARDS as stubs. Simpler Q&A-style prompt. ~300 lines total.
+- DOCS/RESEARCH: docs/wiki_mesh_design.md §9 (artifact generation with FIX S7). Reviewed existing wiki_composer.py (597 lines, tightly coupled to WikiResult — confirmed fresh implementation was correct approach).
+- SYNC: docs/file_directory.md, docs/todo_list.md updated for Unit 6.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/compose/__init__.py, compose/composer.py (~200 lines), compose/artifact_directives.py (~120 lines)
+  - NEW: tests/unit/test_mesh_compose.py (26 tests)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 234/234 mesh tests pass (Unit 1: 43, Unit 2: 49, Unit 3: 46, Unit 4: 45, Unit 5: 25, Unit 6: 26). Full suite ~108s.
+  - Advisor CP-C: "Ready to commit. No blocking issues." TABLE keyword extraction noted as best-effort heuristic (v1).
+  - End-to-end compose test: mock LLM → hydrated claims → cited answer with bibliography. Empty retrieval → "no claims" without LLM call. CoT scrubbed. [REF:N] normalized.
+  - FIX S7: missing claim_ids stripped (tested), insufficient table rows stripped (tested), deferred types return stubs (tested), unknown types pass through unchanged (tested).
+- STATUS: Unit 6 complete. 6 of 10 wiki mesh units done. The mesh now has a complete pipeline: ingest → extract → canonicalize → discover edges → retrieve → compose. Unit 7 (Q&A layer + multi-turn threads) is next.
+- NEXT_STEP: Commit Unit 6, then start Unit 7.
+

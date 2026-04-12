@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 5 complete — lethal retrieval + gap classify + 208/208 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 6 complete — compose + artifacts + 234/234 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **5 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **6 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -47,9 +47,12 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] `tests/unit/test_mesh_lethal_retrieve.py` — 25 tests: helper functions (5), basic retrieval (4 inc. BRONZE-in-seed, empty→ORTHOGONAL), corroboration walk via edge (1), contradiction surface (1), re-rank upload-higher ordering (1), exploration reservation (1), gap classify (5), NEARBY budget (3), entity match fraction (4).
 - [x] Advisor checkpoints: CP-A lock (no LLM, string-match entities, BRONZE in seed, gap classify deferred trigger, entity_match_fraction as entity count ratio, elaboration structurally present as no-op), CP-C (208/208 passing, substring entity matching flagged as non-blocking — word-boundary regex at scale).
 
-### Unit 6 — Compose + artifact renderers (NEXT, FIX S7)
-- [ ] Unit 6: compose + artifact renderers with S7 validation (~820 lines)
-- [ ] Unit 7: Q&A layer + multi-turn threads (~490 lines)
+### Unit 6 — Compose + artifact directives (COMPLETE 2026-04-11, FIX S7)
+- [x] `src/polaris_graph/wiki/mesh/compose/composer.py` (~200 lines) — fresh implementation (NOT adapted from wiki_composer.py). Single-answer composition from RetrievalResult. Hydrates claims, builds inline bibliography by first source appearance (deduped URLs), formats numbered claims for LLM, post-processes (CoT scrub → [REF:N]→[N] → artifact rendering). `_ComposeClient` protocol for LLM (same pattern as Units 2-3). Empty retrieval returns "no claims" without LLM call.
+- [x] `src/polaris_graph/wiki/mesh/compose/artifact_directives.py` (~120 lines) — FIX S7 validation framework. Validates claim_ids exist before rendering, strips invalid blocks with warning. TABLE renderer (inline markdown, keyword-based extraction, MIN_TABLE_ROWS=2). CHART/FLOW/DECK/FLASHCARDS: stub entries returning "deferred" (v2).
+- [x] `tests/unit/test_mesh_compose.py` — 26 tests: helpers (8), hydration+bibliography (3), end-to-end compose with mock LLM (4), payload parsing (3), FIX S7 artifact validation (6), pattern matching (2).
+- [x] Advisor checkpoints: CP-A lock (fresh impl, single-answer, LLM protocol, TABLE-only + stubs, ~300 lines), CP-C (234/234 passing, TABLE keyword extraction flagged as best-effort heuristic for v1).
+- [ ] Unit 7: Q&A layer + multi-turn threads (NEXT, ~490 lines)
 - [ ] Unit 8: workspace management + CLI + snapshots with zstd (~830 lines)
 - [ ] Unit 9: REST API server (~400 lines)
 - [ ] Unit 10: integration + regression tests (~600 lines)

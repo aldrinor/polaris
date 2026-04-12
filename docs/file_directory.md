@@ -1,7 +1,7 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 5 lethal retrieval landed)
-**Status**: 204 v3 tests passing. 208/208 wiki mesh Unit 1-5 tests green. 5 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
+**Last Updated**: 2026-04-11 (Session 57 — wiki/mesh Unit 6 compose + artifacts landed)
+**Status**: 204 v3 tests passing. 234/234 wiki mesh Unit 1-6 tests green. 6 of 10 mesh units complete. Wiki compose path validated (4 domains, mean G-Eval 79.1).
 
 ---
 
@@ -132,7 +132,7 @@ The production LangGraph research pipeline. Entry point: `graph.py::build_and_ru
 
 ---
 
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-5 done, 5 pending)
+## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (Units 1-6 done, 4 pending)
 
 Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
 
@@ -171,6 +171,14 @@ Single-file SQLite database (with sqlite-vec for vector KNN) that holds the pers
 | `retrieve/__init__.py` | 12 | Package exports (lethal_retrieve, RetrievalResult, classify_gap, GapCategory, check_nearby_budget) |
 | `retrieve/lethal.py` | ~310 | 6-stage lethal retrieval: (1) KNN seed over ALL tiers, (2) entity expansion with FIX D2 quarantine gate + FIX S5 cosine filter ≥ 0.5, (3) corroboration walk 1-hop with 0.7 decay, (4) contradiction surface at score 0.3, (5) elaboration follow (no-op until v2), (6) lethal re-rank with 8 factors (base_score × sig_authority × corroboration_factor × contradiction_penalty × upload_gravity × entity_match × recency × usage_bonus) + 10% exploration reservation for unseen GOLD claims. Synchronous (no LLM in v1). Stage 0 coreference accepts optional `resolved_question` for Unit 7. |
 | `retrieve/gap_classify.py` | ~90 | 4-category gap classifier (IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL) based on claim counts + max score. FIX S6 NEARBY budget: `check_nearby_budget` resets daily counter, `increment_nearby_budget` tracks usage. Auto-expansion trigger deferred to Unit 7+. |
+
+**Unit 6 (Session 57) — compose + artifact directives (FIX S7)**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `compose/__init__.py` | 10 | Package exports (compose_answer, ComposeResult, render_artifacts) |
+| `compose/composer.py` | ~200 | Single-answer composition from RetrievalResult. Hydrates claims + builds inline bibliography (by first source appearance, dedupes URLs). LLM via `_ComposeClient` protocol (same pattern as Units 2-3). Post-processing: CoT scrub → [REF:N]→[N] normalization → artifact rendering. Simpler prompt than wiki_composer's 13-rule academic COMPOSE_SYSTEM. Empty retrieval returns "no claims" without LLM call. |
+| `compose/artifact_directives.py` | ~120 | FIX S7 validation + rendering framework. Validates claim_ids exist before rendering, strips invalid blocks with logged warning. TABLE renderer: inline markdown from claims with keyword matching. CHART/FLOW/DECK/FLASHCARDS: stub entries returning "deferred" message (v2). |
 
 **Backlog tracked in docs/todo_list.md**:
 - `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
@@ -587,6 +595,7 @@ Main pipeline orchestrator for P6-P13 execution. Not used by production system.
 | `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
 | `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
 | `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
+| `test_mesh_compose.py` | **Session 57**: Wiki mesh Unit 6 — compose + artifacts: CoT scrub (3), ref normalization (3), claim formatting (1), bib formatting (1), hydration + bibliography building (3), end-to-end compose with mock LLM (4), payload parsing (3), artifact directives FIX S7 (6 inc. missing-ids stripped, deferred stubs, valid TABLE), pattern matching (2). 26 tests. |
 | `test_mesh_lethal_retrieve.py` | **Session 57**: Wiki mesh Unit 5 — lethal retrieval: recency factor (4), distance formula (1), basic retrieval (4 inc. empty workspace → ORTHOGONAL, single claim found, BRONZE included in seed, unknown workspace raises), corroboration walk (1), contradiction surface (1), re-rank upload-higher ordering (1), exploration reservation (1), gap classify (5), NEARBY budget depletion (3), entity match fraction (4). 25 tests. |
 | `test_mesh_edge_discovery.py` | **Session 57**: Wiki mesh Unit 4 — edge discovery: `_distance_to_cosine` formula (3), `_read_claim_embedding` round-trip (2), corroboration edges (3 inc. same-source allowed + evidence_weight clamp), contradiction edges (2 inc. same-source exclusion), no-edge below threshold (1), self-match exclusion (1), idempotent re-run (1), validation (4 inc. empty/missing/wrong-workspace/unknown-workspace), precomputed embedding path (1), multi-claim batch (1). 20 tests. |
 | `test_mesh_snowball.py` | **Session 57**: Wiki mesh Unit 4 — snowball formulas: M1 usage_bonus (8 inc. design doc bounds 1.46/1.06, decay + monotonicity), M2 corroboration_factor (7 inc. sqrt growth at 1/4/9/100, sublinearity), M3 contradiction_penalty (2), M4 upload_gravity_boost (2), composite lethal_snowball_score (6 inc. all-factors, zero-base, worst-case max bounded <10x). 25 tests. |
