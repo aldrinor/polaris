@@ -134,11 +134,21 @@ _COOKIE_MARKERS = (
     "cookie", "advertising", "track the user", "consent", "privacy policy",
 )
 
-# has_numeric detector: 95% CI, p-values, sample sizes, effect sizes,
-# percentages with decimals, confidence interval ranges.
+# has_numeric detector: catches any claim containing quantitative data.
+# FIX-C5: the original pattern only caught formal stats (95% CI, p<0.05).
+# Real claims contain "85%", "$0.15", "42 measurements", "3-5 kWh".
 _NUMERIC_PATTERN = re.compile(
-    r"(?:95\s*%\s*CI|p\s*[<>=]\s*0?\.\d|n\s*=\s*\d|±\s*\d|"
-    r"\d+\.\d+\s*%|(?:OR|HR|RR|SMD|WMD|MD)\s*[:=]\s*[-\d])",
+    r"(?:"
+    r"\d+\s*%"                                     # any percentage: 85%, 40-60%
+    r"|[$]\s*\d"                                    # dollar amounts: $0.15
+    r"|\d+(?:\.\d+)?\s*(?:kWh|psi|mg/L|ng/L|ppm|ppb|ppt|Daltons)"  # units
+    r"|\d+\s*(?:times|x)\s+more"                   # comparative: 2-3 times more
+    r"|95\s*%\s*CI|p\s*[<>=]\s*0?\.\d|n\s*=\s*\d"  # formal stats
+    r"|±\s*\d"                                      # plus/minus
+    r"|(?:OR|HR|RR|SMD|WMD|MD)\s*[:=]\s*[-\d]"     # effect sizes
+    r"|\d+-\d+\s*%"                                 # ranges: 40-60%
+    r"|\d+[\s\-]+(?:month|year|day|hour|minute)s?"   # durations: 12-month, 6 months
+    r")",
     re.IGNORECASE,
 )
 
@@ -536,15 +546,17 @@ def _assign_tier(
     verified: bool,
 ) -> str:
     """
-    v1 tier assignment using three signals available at extraction time.
+    v1 tier assignment using two signals: relevance + quote verification.
 
-    The production pipeline uses a 5-signal scheme (FIX-048-K2)
-    including corroboration count and citation_count — those require
-    edge discovery (Unit 4) and are deferred. For v1, the following
-    rule is enough to get GOLD/SILVER/BRONZE roughly right for the
-    lethal retrieval algorithm to work on:
+    FIX-S1: Removed source_quality gate from GOLD. The LLM-assigned
+    source_quality was deterministic by source (GAC/RO=0.8, AIX/NF=0.5),
+    causing ALL claims from ion_exchange and nanofiltration to get SILVER
+    regardless of relevance or verification quality. GOLD should mean
+    "high relevance + verified quote", not "the LLM rated this source
+    highly". Source quality is still available as a signal but no longer
+    gates tier assignment.
 
-        GOLD   = relevance >= 0.7 AND source_quality >= 0.6 AND verified
+        GOLD   = relevance >= 0.7 AND verified
         SILVER = (relevance >= 0.4 AND verified) OR (relevance >= 0.5)
         BRONZE = everything else
 
@@ -552,7 +564,7 @@ def _assign_tier(
     don't want to bury a 0.9-relevance claim as BRONZE just because
     the LLM paraphrased the quote slightly and the body-search missed.
     """
-    if verified and relevance >= 0.7 and source_quality >= 0.6:
+    if verified and relevance >= 0.7:
         return "GOLD"
     if (verified and relevance >= 0.4) or relevance >= 0.5:
         return "SILVER"

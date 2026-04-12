@@ -211,11 +211,12 @@ class TestParserKillerTest:
         assert tiers == ["GOLD", "BRONZE", "GOLD"], f"Tier mismatch: {tiers}"
 
         # has_numeric flags:
-        #   fact 1: no CI / p / n in quote → False
+        #   FIX-C5: expanded regex catches basic percentages, not just stats
+        #   fact 1: "85% removal" → True (percentage detected)
         #   fact 4: "twelve to fifteen percent" (no digits in pattern) → False
         #   fact 5: "95% CI 91-97%" → True
         has_nums = [c["has_numeric"] for c in claims]
-        assert has_nums == [False, False, True], f"has_numeric mismatch: {has_nums}"
+        assert has_nums == [True, False, True], f"has_numeric mismatch: {has_nums}"
 
         # Char spans: fact 1 and 5 are verified (body search hits), fact 4 is sentinel
         assert claims[0]["char_start"] != UNVERIFIED_CHAR_START
@@ -320,12 +321,14 @@ class TestParserFilters:
 
 class TestAssignTier:
 
-    def test_gold_requires_verified_high_relevance_high_quality(self):
+    def test_gold_requires_verified_high_relevance(self):
+        # FIX-S1: source_quality no longer gates GOLD
         assert _assign_tier(relevance=0.9, source_quality=0.8, verified=True) == "GOLD"
         assert _assign_tier(relevance=0.7, source_quality=0.6, verified=True) == "GOLD"
 
-    def test_verified_but_low_quality_is_silver(self):
-        assert _assign_tier(relevance=0.9, source_quality=0.3, verified=True) == "SILVER"
+    def test_gold_even_with_low_source_quality(self):
+        # FIX-S1: low source_quality no longer downgrades to SILVER
+        assert _assign_tier(relevance=0.9, source_quality=0.3, verified=True) == "GOLD"
 
     def test_verified_but_low_relevance_is_silver_if_above_04(self):
         assert _assign_tier(relevance=0.4, source_quality=0.9, verified=True) == "SILVER"
@@ -377,12 +380,22 @@ class TestLocateQuote:
 class TestNumericPattern:
 
     @pytest.mark.parametrize("text, expected", [
+        # Formal stats (original patterns)
         ("result was 85% removal in (95% CI: 82-88%)", True),
         ("p < 0.001 for all comparisons", True),
         ("total sample size n=240 participants", True),
         ("effect size ± 2.5 kg baseline", True),
         ("removal efficacy was 78.5%", True),
         ("pooled estimate OR: 2.3 (95% CI)", True),
+        # FIX-C5: basic percentages and ranges
+        ("GAC achieved 85% removal", True),
+        ("removal at 40-60%", True),
+        ("costs approximately $0.15 per gallon", True),
+        ("operating at 70-120 psi", True),
+        ("energy consumption averages 3-5 kWh per 1000 gallons", True),
+        ("a 12-month study across plants", True),
+        ("approximately 2-3 times more expensive", True),
+        # Negative cases
         ("no numbers in this sentence at all", False),
         ("just text without statistics", False),
     ])

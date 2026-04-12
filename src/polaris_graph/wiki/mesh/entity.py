@@ -117,6 +117,34 @@ _KNOWN_METHODS = frozenset({
     "ELISA", "PCR", "qPCR",                    # biochemistry
 })
 
+# FIX-C3: Full-name expansions of method acronyms. Without this,
+# "nanofiltration" (concept) and "NF" (method) become separate entities
+# because the canonicalization pipeline filters by type before merging.
+_KNOWN_METHOD_PHRASES = frozenset({
+    "granular activated carbon", "powdered activated carbon",
+    "reverse osmosis", "nanofiltration", "ultrafiltration",
+    "microfiltration", "ion exchange", "anion exchange",
+    "ion exchange resins", "anion exchange resins",
+    "adsorption",
+})
+
+# FIX-M1: Known non-entity abbreviations/units that LLMs emit as
+# "entities" but are domain vocabulary, not discrete entities.
+_KNOWN_UNITS = frozenset({
+    "BAT", "MCL", "MCLs", "psi", "kWh", "Daltons",
+})
+
+# FIX-C4: Antonym pairs. If two surface forms differ ONLY by an
+# antonym swap, they are opposite concepts and must NOT be merged.
+_ANTONYM_PAIRS = frozenset({
+    frozenset(("long", "short")),
+    frozenset(("high", "low")),
+    frozenset(("positive", "negative")),
+    frozenset(("increase", "decrease")),
+    frozenset(("above", "below")),
+    frozenset(("greater", "lesser")),
+})
+
 # Known organization acronyms that look like compounds. Preflight
 # showed "EPA" classified as compound — it's an organization.
 _KNOWN_ORGS = frozenset({
@@ -160,16 +188,28 @@ def classify_entity_type(surface_form: str) -> str:
     if _METRIC_RE.search(surface):
         return "metric"
 
+    # FIX-M1: Known non-entity abbreviations/units
+    if surface in _KNOWN_UNITS:
+        return "metric"
+
     # Known methods (explicit list) before acronym classification
     if surface in _KNOWN_METHODS:
+        return "method"
+
+    # FIX-C3: Known method phrases (full-name expansions)
+    if surface.lower() in _KNOWN_METHOD_PHRASES:
         return "method"
 
     # Known organizations before compound classification
     if surface in _KNOWN_ORGS:
         return "organization"
 
-    # 2-8 char all-caps (or caps + digits) → likely compound
+    # 2-8 char all-caps (or caps + digits) → likely compound.
+    # FIX-M3: also catch mixed-case PFAS names like "PFHxS" (caps
+    # with lowercase interior — not pure _ACRONYM_RE match).
     if _ACRONYM_RE.match(surface):
+        return "compound"
+    if re.match(r"^PF[A-Za-z]{1,6}$", surface):
         return "compound"
 
     # Multi-word all caps → probably an organization
@@ -181,6 +221,7 @@ def classify_entity_type(surface_form: str) -> str:
         return "person"
 
     # Capitalized phrase → organization as default (e.g. "Water Research")
+    # Exclude known non-org phrases that happen to be title-cased
     if _CAPITALIZED_PHRASE_RE.match(surface):
         return "organization"
 
@@ -260,6 +301,35 @@ async def llm_disambiguate(
         return False
 
 
+# ───── antonym guard (FIX-C4) ─────
+
+def _is_antonym_pair(surface_a: str, surface_b: str) -> bool:
+    """
+    Check if two surface forms differ only by an antonym swap.
+
+    Tokenize both, find the differing words, check if ALL differences
+    are antonym pairs. E.g., "long-chain PFAS" vs "short-chain PFAS"
+    differs only on {long, short} which is in _ANTONYM_PAIRS.
+    """
+    # Normalize: lowercase, split on whitespace and hyphens
+    tokens_a = set(re.split(r"[\s\-]+", surface_a.lower()))
+    tokens_b = set(re.split(r"[\s\-]+", surface_b.lower()))
+    only_a = tokens_a - tokens_b
+    only_b = tokens_b - tokens_a
+    if not only_a or not only_b or len(only_a) != len(only_b):
+        return False
+    # Check if every differing word pair is an antonym
+    for word_a in only_a:
+        found_match = False
+        for word_b in only_b:
+            if frozenset((word_a, word_b)) in _ANTONYM_PAIRS:
+                found_match = True
+                break
+        if not found_match:
+            return False
+    return True
+
+
 # ───── canonicalization core ─────
 
 async def canonicalize_entity(
@@ -330,12 +400,21 @@ async def canonicalize_entity(
     # ── Step 3: high-cosine merge ──
     if same_type and same_type[0][1] >= COSINE_MERGE_THRESHOLD:
         target_ent, cos = same_type[0]
-        _add_alias(store, target_ent, surface)
-        logger.info(
-            "canonicalize: cosine merge %r → %s (cos=%.3f)",
-            surface, target_ent["id"], cos,
-        )
-        return target_ent["id"], float(cos), False
+        # FIX-C4: block merge when surface forms differ only by an
+        # antonym ("long-chain PFAS" vs "short-chain PFAS" have cos>0.92
+        # but are opposite concepts).
+        if not _is_antonym_pair(surface, target_ent["canonical_name"]):
+            _add_alias(store, target_ent, surface)
+            logger.info(
+                "canonicalize: cosine merge %r → %s (cos=%.3f)",
+                surface, target_ent["id"], cos,
+            )
+            return target_ent["id"], float(cos), False
+        else:
+            logger.info(
+                "canonicalize: blocked antonym merge %r vs %r (cos=%.3f)",
+                surface, target_ent["canonical_name"], cos,
+            )
 
     # ── Step 4: disambig zone 0.80–0.92 ──
     if same_type and COSINE_DISAMBIG_LO <= same_type[0][1] < COSINE_MERGE_THRESHOLD:

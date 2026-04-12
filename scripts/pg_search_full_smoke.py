@@ -146,15 +146,15 @@ async def main():
             url_seen.add(url)
             all_results.append(r)
 
-    # Limit to 100 for smoke test (real pipeline caps at PG_MAX_SOURCES_TO_ANALYZE=300)
-    fetch_limit = min(len(all_results), 100)
+    # Match real pipeline cap
+    fetch_limit = min(len(all_results), 500)
     print(f"  Fetching top {fetch_limit} URLs (of {len(all_results)} unique)...")
 
     bypass = AccessBypass()
     fetch_results = []
     fetch_start = time.time()
 
-    sem = asyncio.Semaphore(5)  # concurrent fetch limit
+    sem = asyncio.Semaphore(10)  # concurrent fetch limit (matches PG_FETCH_CONCURRENCY)
 
     async def fetch_one(r):
         url = r.get("url", r.get("link", ""))

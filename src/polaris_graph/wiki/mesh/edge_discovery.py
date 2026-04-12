@@ -11,18 +11,17 @@ v1 design (CP-A lock):
     flan-t5-large 512-token context issue and the "NLI too strict for
     niche domains" failure mode from memory note #19.
 
-  - Edge types (non-overlapping thresholds):
+  - Edge types:
 
-      corroborates:  cosine ≥ CORROBORATION_THRESHOLD (0.85)
+      corroborates:  cosine >= CORROBORATION_THRESHOLD (0.75)
                      Any source pair. High semantic similarity implies
                      the claims are making similar assertions.
 
-      contradicts:   cosine ∈ [CONTRADICTION_THRESHOLD, CORROBORATION_THRESHOLD)
-                     i.e., 0.80 ≤ cosine < 0.85, DIFFERENT sources only.
-                     Without NLI we can't confirm contradiction, so this
-                     is a *candidate* — the retrieval penalty (×0.7)
-                     applies immediately but the user review queue flags
-                     them for resolution.
+      contradicts:   DISABLED in v1.  Cosine-only contradiction
+                     detection produces 100% false positives — claims
+                     about different methods (GAC vs RO) register as
+                     "contradicts" because they share domain vocabulary
+                     but differ numerically. Requires NLI for v2.
 
       elaborates:    deferred to v2 with NLI infrastructure.
 
@@ -113,6 +112,11 @@ def discover_edges_for_claims(
 
     result = EdgeDiscoveryResult()
 
+    # FIX-C2: track seen pairs to prevent A->B + B->A duplicates.
+    # Edges are undirected for corroborates/contradicts, so we
+    # canonicalize the pair as frozenset and skip if already inserted.
+    seen_pairs: set[frozenset[str]] = set()
+
     for claim_id in new_claim_ids:
         claim = store.get_claim(claim_id)
         if claim is None:
@@ -151,15 +155,16 @@ def discover_edges_for_claims(
             if candidate_id == claim_id:
                 continue
 
+            # FIX-C2: skip if reverse edge already created
+            pair = frozenset((claim_id, candidate_id))
+            if pair in seen_pairs:
+                continue
+
             cosine = _distance_to_cosine(distance)
 
             candidate = store.get_claim(candidate_id)
             if candidate is None:
                 continue
-
-            same_source = (
-                claim["source_page_id"] == candidate["source_page_id"]
-            )
 
             if cosine >= CORROBORATION_THRESHOLD:
                 evidence_weight = max(EVIDENCE_WEIGHT_MIN, cosine)
@@ -173,18 +178,7 @@ def discover_edges_for_claims(
                 )
                 result.edge_ids.append(edge_id)
                 result.corroboration_count += 1
-
-            elif cosine >= CONTRADICTION_THRESHOLD and not same_source:
-                edge_id = store.insert_edge(
-                    workspace_id=workspace_id,
-                    claim_a=claim_id,
-                    claim_b=candidate_id,
-                    kind="contradicts",
-                    evidence_weight=cosine,
-                    discovery_method="cosine_knn_v1",
-                )
-                result.edge_ids.append(edge_id)
-                result.contradiction_count += 1
+                seen_pairs.add(pair)
 
     logger.info(
         "discover_edges: %d claims → %d edges "

@@ -270,11 +270,23 @@ class TestDiscoverEdgesCorroboration:
         assert edge["evidence_weight"] >= EVIDENCE_WEIGHT_MIN
 
 
-class TestDiscoverEdgesContradiction:
-    def test_medium_cosine_different_source_creates_contradiction(
+class TestDiscoverEdgesContradictionDisabled:
+    """
+    FIX-C1: Contradiction edges are DISABLED in v1.
+
+    The cosine-only contradiction zone produced 100% false positives in
+    the audit — claims about different methods (GAC vs RO) treating the
+    same problem registered as "contradicts" because they share domain
+    vocabulary. Contradiction requires NLI verification (v2).
+
+    These tests verify that no contradiction edges are created in v1,
+    even when claims fall in the old contradiction cosine zone.
+    """
+
+    def test_medium_cosine_different_source_no_contradiction(
         self, store, workspace_id, source_a, source_b,
     ):
-        existing_id = store.insert_claim(
+        store.insert_claim(
             workspace_id=workspace_id,
             source_page_id=source_a,
             statement="GAC removes 90% of PFOS",
@@ -283,7 +295,7 @@ class TestDiscoverEdgesContradiction:
             tier="GOLD", relevance_score=0.9,
             embedding=_ref_vec(),
         )
-        # cos=0.72 — in contradiction zone [0.70, 0.75)
+        # cos=0.72 — in the old contradiction zone [0.70, 0.75)
         new_emb = _unit_vec(0.72)
         new_id = store.insert_claim(
             workspace_id=workspace_id,
@@ -299,20 +311,13 @@ class TestDiscoverEdgesContradiction:
             workspace_id=workspace_id,
             new_claim_ids=[new_id],
         )
-        assert result.contradiction_count == 1
-        assert result.corroboration_count == 0
+        # FIX-C1: contradiction disabled in v1
+        assert result.contradiction_count == 0
+        assert len(result.edge_ids) == 0
 
-        edge = store._conn.execute(
-            "SELECT * FROM edges WHERE id = ?",
-            (result.edge_ids[0],),
-        ).fetchone()
-        assert edge["kind"] == "contradicts"
-
-    def test_medium_cosine_same_source_no_contradiction(
+    def test_medium_cosine_same_source_no_edge(
         self, store, workspace_id, source_a,
     ):
-        # Same source → contradiction not created (same author unlikely
-        # to contradict themselves; high similarity = elaboration instead)
         store.insert_claim(
             workspace_id=workspace_id,
             source_page_id=source_a,
