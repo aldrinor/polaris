@@ -900,16 +900,33 @@ class AccessBypass:
                 if len(pdf_bytes) < 1000:
                     return ""
 
-        # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback
-        try:
-            import asyncio as _aio
-            loop = _aio.get_event_loop()
-            docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
-            if docling_text and len(docling_text) > 500:
-                logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
-                return docling_text
-        except Exception as exc:
-            logger.debug("[ACCESS] PL: Docling failed, trying PyMuPDF: %s", str(exc)[:80])
+        # FIX-DOCLING-OOM: Guard against docling std::bad_alloc on large PDFs.
+        # Docling's C++ preprocess stage runs out of memory on 100+ page PDFs
+        # (e.g. government reports, clinical manuals), throwing std::bad_alloc
+        # and ultimately SIGSEGV-killing the Python process. PyMuPDF handles
+        # large PDFs with constant memory. Threshold: 5MB (roughly ~60-80 pages
+        # for typical research PDFs). Override with PG_MAX_DOCLING_PDF_BYTES.
+        max_docling_bytes = int(
+            os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024))
+        )
+
+        if len(pdf_bytes) > max_docling_bytes:
+            logger.warning(
+                "[ACCESS] FIX-DOCLING-OOM: PDF %d bytes > %d limit, "
+                "skipping docling, using PyMuPDF: %s",
+                len(pdf_bytes), max_docling_bytes, url[:50],
+            )
+        else:
+            # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback
+            try:
+                import asyncio as _aio
+                loop = _aio.get_event_loop()
+                docling_text = await loop.run_in_executor(None, self._docling_extract, pdf_bytes)
+                if docling_text and len(docling_text) > 500:
+                    logger.info("[ACCESS] PL: Docling extracted %d chars from PDF %s", len(docling_text), url[:50])
+                    return docling_text
+            except Exception as exc:
+                logger.debug("[ACCESS] PL: Docling failed, trying PyMuPDF: %s", str(exc)[:80])
 
         # Fallback: PyMuPDF (text-only, no table structure)
         try:
