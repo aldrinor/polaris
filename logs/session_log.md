@@ -3001,3 +3001,22 @@
 - STATUS: Unit 4 complete. 4 of 10 wiki mesh units done. Foundation layers complete (L1 sources + L2 claims + L3 entities + L4 edges + snowball formulas). Unit 5 (lethal retrieval) is the next major deliverable.
 - NEXT_STEP: Commit Unit 4 with "Unit 4 of 10" framing, then start Unit 5 (lethal retrieval, FIX D3/S5/S8).
 
+
+[2026-04-11 Session 57 continued — Unit 5]
+- ACTION: Wiki Mesh Unit 5 — lethal retrieval + gap classification
+- RATIONALE: Advisor CP-A locked: stage 0 coreference skipped (optional param for Unit 7), stage 2 entity expansion via simple string matching (no LLM), ALL tiers in KNN seed (BRONZE included per Unit 4 audit flag), gap classify 4 categories with NEARBY budget check, entity_match_fraction as count ratio, elaboration stage structurally present but no-op until v2 edges exist. All synchronous.
+- DOCS/RESEARCH: docs/wiki_mesh_design.md §7 (6-stage lethal retrieval), §8 (snowball formulas already wired), FIX D2 quarantine gate, FIX S5 cosine filter, FIX D3 exploration budget, FIX S6 NEARBY daily budget.
+- SYNC: docs/file_directory.md, docs/todo_list.md updated for Unit 5.
+- AFFECTED_FILES:
+  - NEW: src/polaris_graph/wiki/mesh/retrieve/__init__.py, retrieve/lethal.py (~310 lines), retrieve/gap_classify.py (~90 lines)
+  - NEW: tests/unit/test_mesh_lethal_retrieve.py (25 tests)
+  - MODIFIED: docs/file_directory.md, docs/todo_list.md
+- EVIDENCE/FINDINGS:
+  - 208/208 mesh tests pass (Unit 1: 43, Unit 2: 49, Unit 3: 46, Unit 4: 45, Unit 5: 25). Full suite ~110s.
+  - All 6 retrieval stages exercised by tests: seed (inc. BRONZE), corroboration walk via pre-inserted edge, contradiction surface, re-rank ordering (upload > web), exploration reservation.
+  - Gap classify: IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL all tested. NEARBY budget depletion test confirms counter enforcement.
+  - Entity match fraction: full overlap, partial overlap, no entities, empty question entities — all tested.
+  - Advisor CP-C: "Ready to commit. One non-blocking observation: substring entity matching could false-match 'organ' in 'organic' — not a real risk at v1 scale with domain-specific entities."
+- STATUS: Unit 5 complete. 5 of 10 wiki mesh units done. The mesh now has a complete read+write path: ingest → extract → canonicalize → discover edges → retrieve. Unit 6 (compose + artifacts) is the next major deliverable.
+- NEXT_STEP: Commit Unit 5, then start Unit 6 (compose + artifact renderers, FIX S7).
+

@@ -1,6 +1,6 @@
 # Restart Instructions
 
-## Current State (2026-04-11) — Wiki Mesh Unit 4 Complete, Ready for Unit 5
+## Current State (2026-04-11) — Wiki Mesh Unit 5 Complete, Ready for Unit 6
 
 **Branch:** `PL`
 **Last commits (local, not pushed):**
@@ -8,11 +8,13 @@
 - `68e177e` — file_directory register for Unit 1 files (§2.1 bookkeeping)
 - `860210a` — Wiki Mesh Unit 2 of 10 — ingest + claim_extract (foundation for Unit 3)
 - `65875dd` — Wiki Mesh Unit 3 of 10 — entity canonicalization (FIX D2)
-- **Unit 4 commit pending** — edge_discovery.py + snowball.py + tests (45 new tests)
+- `9f90a2f` — Wiki Mesh Unit 4 of 10 — edge discovery + snowball (FIX S4)
+- `f1e95de` — restart_instructions doc fix
+- **Unit 5 commit pending** — retrieve/lethal.py + retrieve/gap_classify.py + tests (25 new tests)
 
-**Status:** 4 of 10 wiki mesh units complete. L1 sources + L2 claims + L3 entities + L4 edges + snowball formulas all working. 183/183 tests passing. Build is advisor-monitored with checkpoints per unit.
+**Status:** 5 of 10 wiki mesh units complete. Complete read+write path: ingest → extract → canonicalize → discover edges → retrieve. 208/208 tests passing.
 
-**Honest scope:** Unit 4 completes the foundation layers (ingest through edge discovery). The snowball formulas are proven by tests but triggers are deferred until Units 5-7. Units 5-10 still ahead: lethal retrieval, compose+artifacts, Q&A, CLI, API, integration tests. The wiki mesh is NOT a shippable product yet.
+**Honest scope:** Unit 5 delivers the first user-facing feature — lethal retrieval that surfaces the most relevant claims from the mesh. But compose (Unit 6), Q&A (Unit 7), CLI (Unit 8), API (Unit 9), and integration tests (Unit 10) are still ahead. The mesh can retrieve but can't yet compose answers from the retrieved claims.
 
 **GitHub push:** still blocked. Commits are local only. The `aldrinor/polaris` remote is configured but GCM has a credential issue. User will resolve when back from their trip.
 
@@ -20,81 +22,59 @@
 
 ## What was just done
 
-### Unit 4 — Edge discovery + snowball formulas
+### Unit 5 — Lethal retrieval + gap classification
 
-**`src/polaris_graph/wiki/mesh/edge_discovery.py` (~230 lines)**
-- Cosine-only v1 edge typing (no NLI) — avoids flan-t5-large 512-token context limit and "NLI too strict for niche domains" failure mode (memory note #19)
-- Non-overlapping thresholds:
-  - `corroborates`: cosine ≥ 0.85 (any source pair). evidence_weight = max(0.7, cosine)
-  - `contradicts`: cosine ∈ [0.80, 0.85) from DIFFERENT sources only. evidence_weight = cosine. v1 limitation: these are cosine-based candidates, not NLI-confirmed. The ×0.7 retrieval penalty applies immediately; user review resolves false positives.
-  - `elaborates`: deferred to v2 with NLI infrastructure
-- `discover_edges_for_claims(store, workspace_id, new_claim_ids, embeddings)` — runs OUTSIDE the claim-insert transaction (separate pass). One KNN search per new claim (top-20 candidates), O(k) not O(N)
-- `_read_claim_embedding` reads back from vec0 via the mapping table. Column is `entity_id` (generic name across all 4 mapping tables, found during test)
-- `_distance_to_cosine` uses the verified `cos = 1 - 0.5 * d²` formula for unit vectors
-- Idempotent via store.insert_edge (same claim pair + kind → same edge returned)
-- `EdgeDiscoveryResult` tracks edge_ids, corroboration_count, contradiction_count, skipped
+**`src/polaris_graph/wiki/mesh/retrieve/lethal.py` (~310 lines)**
+- 6-stage lethal retrieval algorithm implementing FIX D3, S5, S8:
+  - Stage 0 (coreference): skipped for v1, accepts optional `resolved_question` for Unit 7
+  - Stage 1 (semantic seed): KNN over ALL tiers (GOLD/SILVER/BRONZE, k=80). BRONZE included because graph edges can promote them (pre-flagged at Unit 4 audit)
+  - Stage 2 (entity expansion): simple string matching against entity canonical_name + aliases (no LLM). FIX D2 quarantine gate (confidence ≥ 0.8 OR user_confirmed). FIX S5 cosine filter (≥ 0.5)
+  - Stage 3 (corroboration walk): 1-hop walk via corroboration edges, decay 0.7, limit 5, min_weight 0.6
+  - Stage 4 (contradiction surface): always include contradicting claims at score 0.3
+  - Stage 5 (elaboration follow): structurally present, no-op until v2 creates elaborates edges
+  - Stage 6 (lethal re-rank): 8-factor multiplicative score using snowball.py formulas + source authority + entity match fraction + recency. 10% exploration reservation for unseen GOLD claims (FIX D3)
+- `RetrievalResult` tracks scored_claims, gap_category, per-stage counts
 
-**`src/polaris_graph/wiki/mesh/snowball.py` (~110 lines)**
-- Pure bounded formulas from design doc §8 (FIX D3, FIX S4):
-  - M1 `usage_bonus(times_used, age_days)`: `1 + log(1+uses) * 0.1 * exp(-age/365)`. Max ~1.46 at 100 uses fresh, decays to ~1.0 at 2yr. Always ≥ 1.0.
-  - M2 `corroboration_factor(count)`: `1 + 0.3 * sqrt(count)`. Practical max ~1.95 at count=10. Always ≥ 1.0.
-  - M3 `contradiction_penalty(has_contradiction)`: fixed ×0.7 or ×1.0.
-  - M4 `upload_gravity_boost(is_upload)`: fixed ×1.3 or ×1.0.
-  - `lethal_snowball_score()`: multiplicative composition of all 4 for Unit 5's lethal re-rank.
-- Triggers deferred to Units 5-7 (retrieval / compose / Q&A). Unit 4 deliverable is: formulas exist, bounds proven by tests, ready for Unit 5+ to call.
+**`src/polaris_graph/wiki/mesh/retrieve/gap_classify.py` (~90 lines)**
+- 4-category gap classifier: IN_SCOPE (≥5 claims + max ≥ 0.3), NEARBY (≥1 claim), ADJACENT (entity only), ORTHOGONAL (nothing)
+- FIX S6 NEARBY budget: `check_nearby_budget` resets daily counter, `increment_nearby_budget` tracks usage
+- Auto-expansion trigger deferred to Unit 7+
 
-**`tests/unit/test_mesh_edge_discovery.py` — 20 tests**
-- TestDistanceToCosine (4): identical/orthogonal/opposite/clamping
-- TestReadClaimEmbedding (2): round-trip via vec0 mapping + missing claim
-- TestDiscoverEdgesCorroboration (3): high cosine → edge, same-source still allowed, evidence_weight clamped
-- TestDiscoverEdgesContradiction (2): medium cosine different source → edge, same source → no edge
-- TestDiscoverEdgesNoEdge (1): low cosine → no edge
-- TestDiscoverEdgesSelfExclusion (1): single claim → no self-edge
-- TestDiscoverEdgesIdempotent (1): re-run → same edges, 1 row in store
-- TestDiscoverEdgesValidation (4): empty list, missing claim, wrong workspace, unknown workspace
-- TestDiscoverEdgesPrecomputedEmbedding (1): optional embeddings dict used
-- TestDiscoverEdgesMultipleClaims (1): batch of new claims
-
-**`tests/unit/test_mesh_snowball.py` — 25 tests**
-- TestUsageBonus (8): zero/negative → 1.0, always ≥ 1.0 across 20 combos, design doc bounds (100 uses fresh ≈ 1.46, 100 uses 2yr ≈ 1.06), decay monotonicity, use monotonicity
-- TestCorroborationFactor (7): zero/negative → 1.0, always ≥ 1.0, exact sqrt at 1/4/9, practical max at 10, theoretical max at 100, sublinear growth
-- TestContradictionPenalty (2): False → 1.0, True → 0.7
-- TestUploadGravityBoost (2): False → 1.0, True → 1.3
-- TestLethalSnowballScore (6): baseline only, all factors combined, contradiction reduces, upload boosts, zero base stays zero, worst-case max bounded <10x
-
-### Unit 4 bugs caught during build
-
-1. **`entity_id` not `claim_id` in mapping table:** `vec_claims_mapping` (and all 4 mapping tables) use `entity_id` as a generic column name. `_read_claim_embedding` initially used `claim_id` which doesn't exist → `sqlite3.OperationalError`. Fixed to `entity_id`.
-
-2. **Negative L2 distance clamping test:** L2 distances are always ≥ 0, so testing `_distance_to_cosine(-1.0)` is unrealistic. Replaced with an oversized distance (3.0) → clamped to -1.0.
+**`tests/unit/test_mesh_lethal_retrieve.py` — 25 tests**
+- TestRecencyFactor (4) + TestDistanceToCosine (1): helper functions
+- TestLethalRetrieveBasic (4): empty workspace → ORTHOGONAL, single claim found, BRONZE included, unknown workspace raises
+- TestLethalRetrieveCorroborationWalk (1): edge walks neighbor into pool
+- TestLethalRetrieveContradiction (1): both original + contradicting claim surface
+- TestLethalRetrieveReRank (1): upload source ranked higher than web
+- TestLethalRetrieveExploration (1): reservation fills with unseen claims
+- TestGapClassify (5): all 4 categories tested
+- TestNearbyBudget (3): fresh budget, depletion, nonexistent workspace
+- TestEntityMatchFraction (4): full/partial/no overlap, empty question entities
 
 ---
 
-## NEXT SESSION — Start Unit 5: Lethal retrieval
+## NEXT SESSION — Start Unit 6: Compose + artifact renderers
 
-Unit 5 implements the 6-stage retrieval algorithm that surfaces the most relevant claims from the mesh for a given query. Design is in `docs/wiki_mesh_design.md` §7.
+Unit 6 takes retrieved claims and composes them into structured answers with artifact directives. Design is in `docs/wiki_mesh_design.md` §9.
 
-### What Unit 5 delivers
+### What Unit 6 delivers
 
-- `retrieve/lethal.py` (~400 lines) — 6-stage retrieval algorithm: (0) coreference resolution, (1) vec KNN seed, (2) entity cosine filter, (3) corroboration walk (1 hop), (4) contradiction surface (always include), (5) elaboration follow, (6) lethal re-rank with snowball factors + 10% exploration reservation
-- `retrieve/gap_classify.py` (~150 lines) — IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL classifier + NEARBY daily budget (FIX S6)
-- Tests for each retrieval stage + the composite re-ranking + the exploration reservation
-- Integration: wire snowball formulas from Unit 4's snowball.py into the lethal re-rank
+- `compose/composer.py` — adapted from existing `src/polaris_graph/wiki/wiki_composer.py` (already built and validated in Phase 0B). Takes retrieved claims from Unit 5's `lethal_retrieve`, composes structured answers with inline citations.
+- `compose/artifact_directives.py` — prompt fragments for TABLE/CHART/FLOW/DECK artifacts with FIX S7 validation (claim_ids + data type checks, strip invalid blocks)
+- Tests for composition + artifact validation
 
 ### Advisor checkpoints to run
 
-- **CP-A pre-code:** show advisor the lethal.py plan alongside the snowball formulas + store.search_claims_by_vector + store.get_edges_from. Key questions: (1) how many KNN candidates for the seed stage? (2) should exploration reservation be deterministic or random? (3) what's the gap classification strategy when there are no claims at all? (4) does the age-decayed bonus need claim.last_used_at (currently unused column)?
-- **CP-B mid:** after lethal.py seed+corroboration stages written — catch re-rank issues
+- **CP-A pre-code:** review the existing wiki_composer.py, decide what to adapt vs rewrite. Key: does Unit 6 compose from RetrievalResult.scored_claims, or does it need a different interface?
+- **CP-B mid:** after composer adapted, before artifact validation
 - **CP-C post-code + tests:** full review
-- **CP-D robustness:** end-to-end retrieval on a realistic claim graph
 
 ### Files to read first in next session
 
-1. `docs/wiki_mesh_design.md` §7 (the lethal retrieval algorithm)
-2. `src/polaris_graph/wiki/mesh/snowball.py` — the 4 bounded formulas Unit 5 will call during re-rank
-3. `src/polaris_graph/wiki/mesh/edge_discovery.py` — understand the edge types available for walk stages
-4. `src/polaris_graph/wiki/mesh/store.py` — `search_claims_by_vector`, `get_edges_from`, `get_claim`
-5. `tests/unit/test_mesh_store.py::TestVectorSearch` — existing KNN tests
+1. `docs/wiki_mesh_design.md` §9 (artifact generation with FIX S7 validation)
+2. `src/polaris_graph/wiki/wiki_composer.py` — existing compose path (Phase 0B, already validated)
+3. `src/polaris_graph/wiki/mesh/retrieve/lethal.py` — `RetrievalResult` is the input to compose
+4. `src/polaris_graph/wiki/mesh/store.py` — `get_claim`, `get_source` for claim hydration
 
 ---
 
@@ -117,10 +97,10 @@ Unit 5 implements the 6-stage retrieval algorithm that surfaces the most relevan
 
 ```
 cd C:/POLARIS
-python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py -v
+python -m pytest tests/unit/test_mesh_store.py tests/unit/test_mesh_ingest.py tests/unit/test_mesh_claim_extract.py tests/unit/test_mesh_entity.py tests/unit/test_mesh_edge_discovery.py tests/unit/test_mesh_snowball.py tests/unit/test_mesh_lethal_retrieve.py -v
 ```
 
-Expected: **183 passed** in ~85-90s (the embedding model loads once for the integration tests).
+Expected: **208 passed** in ~110s (the embedding model loads once for the integration tests).
 
 ---
 
@@ -135,6 +115,9 @@ Expected: **183 passed** in ~85-90s (the embedding model loads once for the inte
 - Normalized alias table at scale — `_find_by_alias` is O(n) linear scan; once a workspace has > few thousand entities, move aliases to a separate indexed table (Unit 3 CP-B note)
 - NLI-based edge typing for v2 — current v1 uses cosine-only thresholds. Contradiction edges are candidates, not NLI-confirmed. (Unit 4 CP-A design note.)
 - `elaborates` edge kind — deferred to v2, requires NLI infra. (Unit 4 CP-A design note.)
+- Word-boundary entity matching — `_extract_question_entities` uses bare substring `in`. At scale, switch to `re.search(r'\b...\b')`. (Unit 5 CP-C advisor note.)
+- Stage 0 coreference — accepts `resolved_question` param, deferred to Unit 7. (Unit 5.)
+- NEARBY auto-expansion trigger — gap_classify returns category, actual search deferred to Unit 7+. (Unit 5.)
 - Multi-user auth (v2 scope)
 - 768-/1024-/4096-dim embedding support (currently pinned at 384-dim via sqlite-vec DDL)
 

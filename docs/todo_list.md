@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-11 (Wiki Mesh Unit 4 complete — edge discovery + snowball + 183/183 tests)
+**Last Updated**: 2026-04-11 (Wiki Mesh Unit 5 complete — lethal retrieval + gap classify + 208/208 tests)
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started
@@ -9,7 +9,7 @@
 
 ## TOP PRIORITY — Wiki Mesh Build (Option A adopted 2026-04-10)
 
-The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **4 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
+The persistent wiki mesh is the primary build target. Ten advisor fixes from the design review are integrated inline in `docs/wiki_mesh_design.md`. Realistic total: ~9 weeks / ~5,500 lines across 10 units. **5 of 10 units complete.** Advisor-monitored build with 4+ checkpoints per unit (CP-A pre-code, CP-B mid, CP-C post-code, CP-D robustness).
 
 ### Unit 1 — Schema + store + tests (COMPLETE 2026-04-11, commit 3a3c514 + 68e177e)
 - [x] `docs/wiki_mesh_design.md` — complete design with all 10 advisor fixes integrated
@@ -41,11 +41,13 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [x] `tests/unit/test_mesh_snowball.py` — 25 tests: M1 bounds (8 inc. design doc bounds), M2 sqrt (7), M3 penalty (2), M4 boost (2), composite (6 inc. worst-case max <10x).
 - [x] Advisor checkpoints: CP-A lock (cosine-only, no NLI, separate pass outside transaction, snowball formulas only — triggers deferred), CP-C (183/183 passing, no blocking issues, contradiction-is-candidate v1 limitation documented).
 
-### Unit 5 — Lethal retrieval (NEXT, FIX D3, S5, S8)
-- [ ] `retrieve/lethal.py` (~400 lines) — 6-stage algorithm with coreference resolution (stage 0), entity cosine filter (stage 2), age-decayed bonus + 10% exploration reservation (stage 6)
-- [ ] `retrieve/gap_classify.py` (~150 lines) — IN_SCOPE/NEARBY/ADJACENT/ORTHOGONAL classifier + NEARBY daily budget (FIX S6)
+### Unit 5 — Lethal retrieval (COMPLETE 2026-04-11, FIX D3, S5, S8)
+- [x] `src/polaris_graph/wiki/mesh/retrieve/lethal.py` (~310 lines) — 6-stage lethal retrieval. Stage 0 coreference skipped for v1 (accepts optional `resolved_question` for Unit 7). Stage 1 KNN seed includes ALL tiers (GOLD/SILVER/BRONZE — pre-flagged at Unit 4 audit). Stage 2 entity expansion: simple string matching against canonical_name + aliases, FIX D2 quarantine gate + FIX S5 cosine ≥ 0.5. Stage 3 corroboration walk (1-hop, decay 0.7). Stage 4 contradiction surface (always include at score 0.3). Stage 5 elaboration follow (structurally present, no-op until v2 creates edges). Stage 6 lethal re-rank: 8-factor multiplicative score (base × sig_authority × corroboration × contradiction × upload × entity_match × recency × usage_bonus) + 10% exploration reservation for unseen GOLD claims. All synchronous (no LLM in v1).
+- [x] `src/polaris_graph/wiki/mesh/retrieve/gap_classify.py` (~90 lines) — 4-category gap classifier: IN_SCOPE (≥5 claims + max_score ≥ 0.3), NEARBY (≥1 claim), ADJACENT (entity expansion only), ORTHOGONAL (nothing). FIX S6 NEARBY budget: daily counter + reset. Auto-expansion trigger deferred to Unit 7+.
+- [x] `tests/unit/test_mesh_lethal_retrieve.py` — 25 tests: helper functions (5), basic retrieval (4 inc. BRONZE-in-seed, empty→ORTHOGONAL), corroboration walk via edge (1), contradiction surface (1), re-rank upload-higher ordering (1), exploration reservation (1), gap classify (5), NEARBY budget (3), entity match fraction (4).
+- [x] Advisor checkpoints: CP-A lock (no LLM, string-match entities, BRONZE in seed, gap classify deferred trigger, entity_match_fraction as entity count ratio, elaboration structurally present as no-op), CP-C (208/208 passing, substring entity matching flagged as non-blocking — word-boundary regex at scale).
 
-### Units 6–10
+### Unit 6 — Compose + artifact renderers (NEXT, FIX S7)
 - [ ] Unit 6: compose + artifact renderers with S7 validation (~820 lines)
 - [ ] Unit 7: Q&A layer + multi-turn threads (~490 lines)
 - [ ] Unit 8: workspace management + CLI + snapshots with zstd (~830 lines)
@@ -61,6 +63,9 @@ The persistent wiki mesh is the primary build target. Ten advisor fixes from the
 - [ ] `_row_id_to_int` 63-bit hash collision — negligible below ~4×10⁸ vectors/table, documented in code. (Unit 1 CP3 advisor note.)
 - [ ] NLI-based edge typing for v2 — current v1 uses cosine-only thresholds. Contradiction edges are candidates (cosine 0.80-0.85 from different sources), not NLI-confirmed. (Unit 4 CP-A design note.)
 - [ ] `elaborates` edge kind deferred — requires NLI infra to distinguish elaboration from corroboration. (Unit 4 CP-A design note.)
+- [ ] Word-boundary entity matching in `_extract_question_entities` — current v1 uses bare substring (`in`). At scale, `re.search(r'\b' + re.escape(name) + r'\b', q_lower)` prevents false matches like "organ" matching "organic". (Unit 5 CP-C advisor note.)
+- [ ] Stage 0 coreference resolution — accepts `resolved_question` param, deferred to Unit 7 Q&A layer. (Unit 5 CP-A design note.)
+- [ ] NEARBY auto-expansion trigger — gap_classify returns category + budget status, actual search deferred to Unit 7+. (Unit 5 CP-A design note.)
 
 ---
 
