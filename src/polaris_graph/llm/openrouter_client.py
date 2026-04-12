@@ -49,8 +49,14 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # FIX-GLM5: Models that always route output to reasoning_content.
 # These need reasoning_enabled=True for all calls, and generate() must
 # use reasoning as content directly (no </think> tag extraction).
+#
+# FIX-GLM51: z-ai/glm-5.1 added 2026-04-12. Smoke test confirmed it
+# routes generate() and reason() output into reasoning_content (content
+# empty). The previous COT-1/COT-2 fallback recovery logic worked but
+# wasted tokens via retries. Adding to this set makes the handling
+# direct instead of fallback-based.
 _ALWAYS_REASON_MODELS = frozenset({
-    "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7",
+    "z-ai/glm-5", "z-ai/glm-5-turbo", "z-ai/glm-4.7", "z-ai/glm-5.1",
 })
 
 # Pricing per million tokens (configurable per LAW VI)
