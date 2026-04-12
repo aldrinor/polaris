@@ -20,65 +20,53 @@
 
 ## What was just done
 
-### Unit 3 — Entity canonicalization
+### Unit 4 — Edge discovery + snowball formulas
 
-**`src/polaris_graph/wiki/mesh/entity.py` (~600 lines)**
-- 5-step FIX D2 canonicalization pipeline:
-  1. Exact canonical_name match → confidence 1.0
-  2. Alias match case-insensitive → confidence 0.95
-  3. Cosine ≥ COSINE_MERGE_THRESHOLD (0.92) → merge, confidence = cosine, new surface added as alias
-  4. Cosine in [0.80, 0.92) → optional LLM disambig:
-     - YES → confidence 0.70 (DISAMBIG_YES_CONFIDENCE), still quarantined
-     - NO / missing client / exception → fall through to step 5
-  5. Insert new entity with confidence 0.5 (NEW_ENTITY_CONFIDENCE), user_confirmed=False → quarantined (FIX D2 gate = 0.8)
-- `classify_entity_type()` heuristic: compound | method | organization | person | metric | concept
-- Person regex requires honorific prefix (Dr./Prof./Mr./Mrs./Ms./Sr./Jr.) OR explicit middle-initial dot (`John A. Smith`) — fixed mid-Unit-3 because the original 3+ token heuristic mis-classified "Water Research Foundation" as person
-- Cross-type filter in step 3 — prevents a 0.98-cosine collision between a compound named "PFOS" and an organization named "PFOS Consulting" from merging
-- `canonicalize_entity(store, workspace_id, surface_form, embedding, disambig_client, entity_type)` is the single-entity entry point
-- `canonicalize_entities_for_claim(store, workspace_id, claim_id, surface_forms, disambig_client, embeddings)` is the bulk helper — dedups surfaces, drops over-long (>80 chars) surfaces, takes an optional precomputed embedding dict so the orchestrator can batch-embed all unique surfaces in one `embed_texts` call instead of one model forward-pass per surface
-- L2 distance → cosine conversion: `cos = 1 - 0.5 * d²` for unit vectors (empirically verified against sqlite-vec vec0 at CP-B)
-- `_find_by_alias` is an O(n) linear scan over the workspace's entity rows (aliases are stored as JSON); at ≤ a few thousand entities per workspace this is fine, normalize into a separate table if the workspace grows past that
+**`src/polaris_graph/wiki/mesh/edge_discovery.py` (~230 lines)**
+- Cosine-only v1 edge typing (no NLI) — avoids flan-t5-large 512-token context limit and "NLI too strict for niche domains" failure mode (memory note #19)
+- Non-overlapping thresholds:
+  - `corroborates`: cosine ≥ 0.85 (any source pair). evidence_weight = max(0.7, cosine)
+  - `contradicts`: cosine ∈ [0.80, 0.85) from DIFFERENT sources only. evidence_weight = cosine. v1 limitation: these are cosine-based candidates, not NLI-confirmed. The ×0.7 retrieval penalty applies immediately; user review resolves false positives.
+  - `elaborates`: deferred to v2 with NLI infrastructure
+- `discover_edges_for_claims(store, workspace_id, new_claim_ids, embeddings)` — runs OUTSIDE the claim-insert transaction (separate pass). One KNN search per new claim (top-20 candidates), O(k) not O(N)
+- `_read_claim_embedding` reads back from vec0 via the mapping table. Column is `entity_id` (generic name across all 4 mapping tables, found during test)
+- `_distance_to_cosine` uses the verified `cos = 1 - 0.5 * d²` formula for unit vectors
+- Idempotent via store.insert_edge (same claim pair + kind → same edge returned)
+- `EdgeDiscoveryResult` tracks edge_ids, corroboration_count, contradiction_count, skipped
 
-**`src/polaris_graph/schemas.py` — AtomicFact extension**
-- New field `entities: list[str] = Field(default_factory=list)` with a description that tells the LLM to emit 1-5 short canonical entity names per fact
-- `normalize_field_names` validator extended to handle the backward-compat path:
-  - Missing key → `[]`
-  - `None` → `[]`
-  - Alternative keys (`entity_mentions`, `named_entities`, `mentions`) → rename
-  - Comma-separated string → split on `,` and strip
-  - List with mixed types → coerce each to str and strip
-  - Garbage → `[]`
+**`src/polaris_graph/wiki/mesh/snowball.py` (~110 lines)**
+- Pure bounded formulas from design doc §8 (FIX D3, FIX S4):
+  - M1 `usage_bonus(times_used, age_days)`: `1 + log(1+uses) * 0.1 * exp(-age/365)`. Max ~1.46 at 100 uses fresh, decays to ~1.0 at 2yr. Always ≥ 1.0.
+  - M2 `corroboration_factor(count)`: `1 + 0.3 * sqrt(count)`. Practical max ~1.95 at count=10. Always ≥ 1.0.
+  - M3 `contradiction_penalty(has_contradiction)`: fixed ×0.7 or ×1.0.
+  - M4 `upload_gravity_boost(is_upload)`: fixed ×1.3 or ×1.0.
+  - `lethal_snowball_score()`: multiplicative composition of all 4 for Unit 5's lethal re-rank.
+- Triggers deferred to Units 5-7 (retrieval / compose / Q&A). Unit 4 deliverable is: formulas exist, bounds proven by tests, ready for Unit 5+ to call.
 
-**`src/polaris_graph/wiki/mesh/claim_extract.py` — integration**
-- New `MESH_SYSTEM` constant — wraps the imported `ANALYSIS_SYSTEM` with a suffix asking the LLM to populate `entities` (keeps `agents/analyzer.py` UNTOUCHED per CP-A lock c2)
-- Parser `_parse_batch_to_claims` now emits `"entities": list[str]` in each claim dict (sanitized: stripped, empty dropped, over-long dropped)
-- Orchestrator `extract_claims_from_source`:
-  - New optional `disambig_client: DisambigClient | None = None` parameter
-  - After parsing, collects the SORTED UNIQUE set of surface forms across all claims and embeds them once via `embed_texts` (amortizes the ~1-2s model forward-pass across all entities in the source)
-  - Inside the transaction, after each `store.insert_claim(...)`, calls `await canonicalize_entities_for_claim(...)` with the precomputed embedding dict so claim + vector + entities + claim_entities links all land (or roll back) atomically
+**`tests/unit/test_mesh_edge_discovery.py` — 20 tests**
+- TestDistanceToCosine (4): identical/orthogonal/opposite/clamping
+- TestReadClaimEmbedding (2): round-trip via vec0 mapping + missing claim
+- TestDiscoverEdgesCorroboration (3): high cosine → edge, same-source still allowed, evidence_weight clamped
+- TestDiscoverEdgesContradiction (2): medium cosine different source → edge, same source → no edge
+- TestDiscoverEdgesNoEdge (1): low cosine → no edge
+- TestDiscoverEdgesSelfExclusion (1): single claim → no self-edge
+- TestDiscoverEdgesIdempotent (1): re-run → same edges, 1 row in store
+- TestDiscoverEdgesValidation (4): empty list, missing claim, wrong workspace, unknown workspace
+- TestDiscoverEdgesPrecomputedEmbedding (1): optional embeddings dict used
+- TestDiscoverEdgesMultipleClaims (1): batch of new claims
 
-**`tests/unit/test_mesh_entity.py` — 46 tests**
-- TestClassifyEntityType (7) — compound / method / organization / person / metric / concept, inc. regressions for "Water Research Foundation" + "Dr. Jane Smith"
-- TestFindByCanonical (3), TestFindByAlias (3), TestVecNeighbours (4) — helper coverage including cosine formula verification
-- TestCanonicalizeEntityFivePaths (11) — paths 1-5 + 3 path-4 sub-branches (disambig YES / NO / no-client / exception) + `test_path_3_cosine_just_above_threshold` (uses 0.93 not 0.92 because float32 quantization lands at 0.9199) + `test_type_filter_prevents_merge_with_high_cosine`
-- TestCanonicalizeEntityValidation (2) — empty surface + unknown workspace
-- TestCrossTypeFilter (1) — the compound-vs-organization collision case
-- TestCanonicalizeEntitiesForClaim (6) — empty list short-circuit, multi-entity (uses orthogonal vectors to prevent accidental cosine merge), dedup, over-long skip, idempotent re-link, precomputed embedding pathway
-- TestLLMDisambiguate (3) — YES / NO / exception (defensive default to NO)
-- TestQuarantineSemantics (4) — FIX D2 new-entity-in-quarantine, confirm-removes-from-quarantine, exact-match-doesn't-requarantine, disambig-YES-still-quarantined
-- **TestClaimExtractEntityIntegration (3)** — the Unit 2 → Unit 3 bridge: full `extract_claims_from_source` with mock LLM, one test populates 5 entities across 2 claims and verifies every entity + link landed (inc. classifier type assignment), one test exercises the legacy backward-compat path (no `entities` key in fact dict), one test verifies a duplicate entity across two claims produces 1 entity row + 2 claim_entities rows + `times_referenced=2`
+**`tests/unit/test_mesh_snowball.py` — 25 tests**
+- TestUsageBonus (8): zero/negative → 1.0, always ≥ 1.0 across 20 combos, design doc bounds (100 uses fresh ≈ 1.46, 100 uses 2yr ≈ 1.06), decay monotonicity, use monotonicity
+- TestCorroborationFactor (7): zero/negative → 1.0, always ≥ 1.0, exact sqrt at 1/4/9, practical max at 10, theoretical max at 100, sublinear growth
+- TestContradictionPenalty (2): False → 1.0, True → 0.7
+- TestUploadGravityBoost (2): False → 1.0, True → 1.3
+- TestLethalSnowballScore (6): baseline only, all factors combined, contradiction reduces, upload boosts, zero base stays zero, worst-case max bounded <10x
 
-### Unit 3 design corrections that happened during the build
+### Unit 4 bugs caught during build
 
-1. **Person regex bug (caught during tests):** Original regex `^[A-Z][a-z]+(?:\s+[A-Z]\.?[a-z]*){2,}$` required 3+ title-cased tokens, which matched BOTH "John Michael Smith" (person) AND "Water Research Foundation" (organization). Tightened to require an explicit disambiguating signal: honorific prefix OR middle-initial dot.
+1. **`entity_id` not `claim_id` in mapping table:** `vec_claims_mapping` (and all 4 mapping tables) use `entity_id` as a generic column name. `_read_claim_embedding` initially used `claim_id` which doesn't exist → `sqlite3.OperationalError`. Fixed to `entity_id`.
 
-2. **Float32 cosine quantization at boundary:** `_unit_vec(0.92)` stored as float32 and fed through sqlite-vec's L2 distance + formula back-conversion lands at ~0.9199, which is < 0.92, so the strict `>=` comparison falls to the disambig zone. Test uses 0.93 with a comment explaining the quantization.
-
-3. **Orthogonal vs near-collinear test vectors:** `_unit_vec(0.2)` and `_unit_vec(0.3)` both live in the e₀-e₁ plane so their mutual cosine is ~0.995 — they LOOK different but are actually near-collinear. Added a `_orthogonal_vec(axis)` helper that produces basis-direction unit vectors (cosine 0 between distinct axes) for tests that need well-separated vectors.
-
-4. **`"PFOSA"` not `"pfos acid"` for compound-type merge test:** `"pfos acid"` classifies as `concept` (starts lowercase, has a space, matches no specific rule), while the target is `compound`. The cross-type filter in step 3 blocks the merge. Switched to `"PFOSA"` which classifies as `compound` so the merge actually tests what it claims to test.
-
-5. **Prompt integration strategy (CP-A lock c2):** Unit 3 does NOT touch `agents/analyzer.py`. Instead, `claim_extract.py` defines a `MESH_SYSTEM` constant that wraps `ANALYSIS_SYSTEM` with an entity-extraction suffix. This way the 40+ production runs that import `ANALYSIS_SYSTEM` directly from analyzer.py are completely unaffected.
+2. **Negative L2 distance clamping test:** L2 distances are always ≥ 0, so testing `_distance_to_cosine(-1.0)` is unrealistic. Replaced with an oversized distance (3.0) → clamped to -1.0.
 
 ---
 
