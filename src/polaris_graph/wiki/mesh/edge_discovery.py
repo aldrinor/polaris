@@ -62,10 +62,10 @@ logger = logging.getLogger(__name__)
 # ───── thresholds (design doc §8, env-overridable) ─────
 
 CORROBORATION_THRESHOLD = float(
-    os.getenv("PG_CORROBORATION_THRESHOLD", "0.85"),
+    os.getenv("PG_CORROBORATION_THRESHOLD", "0.75"),
 )
 CONTRADICTION_THRESHOLD = float(
-    os.getenv("PG_CONTRADICTION_THRESHOLD", "0.80"),
+    os.getenv("PG_CONTRADICTION_THRESHOLD", "0.70"),
 )
 EDGE_KNN_K = int(os.getenv("PG_EDGE_KNN_K", "20"))
 EVIDENCE_WEIGHT_MIN = 0.7

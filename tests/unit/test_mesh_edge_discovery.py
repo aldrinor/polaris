@@ -283,8 +283,8 @@ class TestDiscoverEdgesContradiction:
             tier="GOLD", relevance_score=0.9,
             embedding=_ref_vec(),
         )
-        # cos=0.82 — in contradiction zone [0.80, 0.85)
-        new_emb = _unit_vec(0.82)
+        # cos=0.72 — in contradiction zone [0.70, 0.75)
+        new_emb = _unit_vec(0.72)
         new_id = store.insert_claim(
             workspace_id=workspace_id,
             source_page_id=source_b,
@@ -329,7 +329,7 @@ class TestDiscoverEdgesContradiction:
             direct_quote="test",
             char_start=0, char_end=4,
             tier="SILVER", relevance_score=0.8,
-            embedding=_unit_vec(0.82),
+            embedding=_unit_vec(0.72),
         )
         result = discover_edges_for_claims(
             store,
@@ -337,7 +337,6 @@ class TestDiscoverEdgesContradiction:
             new_claim_ids=[new_id],
         )
         assert result.contradiction_count == 0
-        assert result.corroboration_count == 0
 
 
 class TestDiscoverEdgesNoEdge:

@@ -117,6 +117,23 @@ _KNOWN_METHODS = frozenset({
     "ELISA", "PCR", "qPCR",                    # biochemistry
 })
 
+# Known organization acronyms that look like compounds. Preflight
+# showed "EPA" classified as compound — it's an organization.
+_KNOWN_ORGS = frozenset({
+    "EPA", "FDA", "WHO", "CDC", "NIH", "OSHA",   # US/intl agencies
+    "USGS", "NOAA", "DOE", "DOD", "NASA",        # US agencies
+    "EU", "UN", "NATO", "OECD", "IAEA",          # international
+    "NSF", "ASTM", "ISO", "ANSI", "IEEE",        # standards bodies
+    "AWWA", "WEF", "ASCE",                       # water/engineering
+})
+
+# Bare numeric patterns that LLMs emit as "entities" but are really
+# just measurements — "95%", "40-60%", "$0.15". Not useful as
+# canonical entities.
+_BARE_NUMERIC_RE = re.compile(
+    r"^[\d$.,\-+/%<>=~\s]+$"
+)
+
 
 def classify_entity_type(surface_form: str) -> str:
     """
@@ -135,13 +152,21 @@ def classify_entity_type(surface_form: str) -> str:
     if not surface:
         return "concept"
 
-    # Metric patterns (numeric + unit) — check first
+    # Bare numeric strings ("95%", "40-60%", "$0.15") — reject as metric
+    if _BARE_NUMERIC_RE.match(surface):
+        return "metric"
+
+    # Metric patterns (numeric + unit) — check early
     if _METRIC_RE.search(surface):
         return "metric"
 
     # Known methods (explicit list) before acronym classification
     if surface in _KNOWN_METHODS:
         return "method"
+
+    # Known organizations before compound classification
+    if surface in _KNOWN_ORGS:
+        return "organization"
 
     # 2-8 char all-caps (or caps + digits) → likely compound
     if _ACRONYM_RE.match(surface):

@@ -3113,3 +3113,24 @@
 - STATUS: ALL 10 WIKI MESH UNITS COMPLETE. 283 tests. Full pipeline: ingest → extract → canonicalize → edge discovery → retrieve → compose → Q&A → CLI → REST API → snapshots. GitHub push still pending (user to resolve auth when home).
 - NEXT_STEP: Commit Unit 10 (final). Then push all 10 units to GitHub when auth is resolved.
 
+
+[2026-04-12 Session 57 continued -- Preflight-driven fixes]
+- ACTION: Ran 3 preflight iterations comparing GLM 5.1 vs Qwen 3.5 Plus on real PFAS research sources. Found and fixed 5 production issues.
+- RATIONALE: The 283 unit tests proved code correctness but not real-world quality. Preflight exposed integration gaps between the mesh code and actual LLM behavior.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/wiki/mesh/compose/composer.py (LLMResponse bug -- generate() returns LLMResponse not str)
+  - MODIFIED: src/polaris_graph/wiki/mesh/claim_extract.py (MESH_SYSTEM quote-length override + PG_MIN_QUOTE_WORDS 15->5)
+  - MODIFIED: src/polaris_graph/wiki/mesh/edge_discovery.py (thresholds lowered: corroboration 0.85->0.75, contradiction 0.80->0.70)
+  - MODIFIED: src/polaris_graph/wiki/mesh/entity.py (known orgs list: EPA/FDA/WHO/CDC..., bare numeric filter)
+  - MODIFIED: .env (OPENROUTER_DEFAULT_MODEL z-ai/glm-5 -> z-ai/glm-5.1)
+  - NEW: scripts/pg_mesh_preflight.py (side-by-side model comparison)
+  - MODIFIED: tests/unit/test_mesh_edge_discovery.py (threshold adjustment)
+- EVIDENCE/FINDINGS:
+  - Run 1: GLM 8 claims, Qwen 7 claims. LLMResponse bug blocked GLM composition. Qwen 404.
+  - Run 2 (after LLMResponse fix): GLM 4 claims, Qwen 0 claims. Root cause: ANALYSIS_SYSTEM says "150 chars max, key phrase only" which conflicts with PG_MIN_QUOTE_WORDS.
+  - Run 3 (after quote-length override): GLM 11 claims (ALL GOLD), Qwen 20 claims (ALL SILVER). GLM found 4 edges (2 corr + 2 contra). Qwen found 6 edges (all corr). GLM entity quality much cleaner (EPA=organization). Qwen entity junk ("12-month", "85%").
+  - Model decision: GLM 5.1 for highest quality (GOLD tiers, clean entities, contradiction detection).
+  - 283/283 tests still pass after all fixes.
+- STATUS: Pipeline validated with real LLM. GLM 5.1 produces GOLD claims with clean entities and detects contradictions. Ready for full-scale testing.
+- NEXT_STEP: Commit preflight fixes, then continue with remaining optimizations.
+

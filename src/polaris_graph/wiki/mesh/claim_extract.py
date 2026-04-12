@@ -88,7 +88,15 @@ logger = logging.getLogger(__name__)
 # (empty list default) if the LLM ignores this suffix.
 
 MESH_SYSTEM = ANALYSIS_SYSTEM + (
-    "\n\nMESH EXTENSION — ENTITY EXTRACTION:\n"
+    "\n\nMESH OVERRIDE — QUOTE LENGTH:\n"
+    "IMPORTANT: Override rule 10 above about 150-character quote limits.\n"
+    "For this task, the `direct_quote` field MUST contain the FULL sentence "
+    "or clause from the source text — minimum 15 words, up to 300 characters. "
+    "Do NOT truncate to a short key phrase. Copy the complete sentence that "
+    "contains the finding, including surrounding context. Longer quotes are "
+    "strongly preferred over short fragments.\n"
+    "\n"
+    "MESH EXTENSION — ENTITY EXTRACTION:\n"
     "For each atomic_fact you emit, populate the `entities` field with a "
     "list of key named entities mentioned in the fact. Valid entity types:\n"
     "  - Chemical compounds (e.g., \"PFOS\", \"PFOA\", \"perfluorooctane sulfonate\")\n"
@@ -107,7 +115,7 @@ MESH_SYSTEM = ANALYSIS_SYSTEM + (
 
 # ───── constants (mirroring analyzer.py) ─────
 
-PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "15"))
+PG_MIN_QUOTE_WORDS = int(os.getenv("PG_MIN_QUOTE_WORDS", "5"))
 PG_MIN_STATEMENT_LEN = int(os.getenv("PG_MIN_STATEMENT_LEN", "10"))
 PG_CONTENT_PER_SOURCE = int(os.getenv("PG_CONTENT_PER_SOURCE", "25000"))
 PG_EXTRACTION_MAX_TOKENS = int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384"))

@@ -154,10 +154,16 @@ async def compose_answer(
         max_tokens=COMPOSE_MAX_TOKENS,
         timeout=COMPOSE_TIMEOUT,
     )
-    result.raw_llm_output = raw
+    # Extract text content — OpenRouterClient.generate() returns
+    # LLMResponse, not str. Mocks return str. Handle both.
+    if hasattr(raw, "content"):
+        raw_text = raw.content or ""
+    else:
+        raw_text = str(raw)
+    result.raw_llm_output = raw_text
 
     # ── Post-process ──
-    text = _scrub_cot(raw)
+    text = _scrub_cot(raw_text)
     text = _normalize_refs(text)
 
     # ── Artifact rendering (FIX S7) ──
