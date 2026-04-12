@@ -193,22 +193,25 @@ class TestDiscoverEdgesCorroboration:
         assert result.contradiction_count == 0
         assert len(result.edge_ids) == 1
 
-        # Verify the edge in the store
+        # Verify the edge in the store. FIX-CANON: pair is canonicalized
+        # (sorted alphabetically), so check both claims are present as a
+        # set rather than asserting directional order.
         edge = store._conn.execute(
             "SELECT * FROM edges WHERE id = ?",
             (result.edge_ids[0],),
         ).fetchone()
         assert edge["kind"] == "corroborates"
-        assert edge["claim_a"] == new_id
-        assert edge["claim_b"] == existing_id
+        assert {edge["claim_a"], edge["claim_b"]} == {new_id, existing_id}
         assert edge["evidence_weight"] >= EVIDENCE_WEIGHT_MIN
         assert edge["discovery_method"] == "cosine_knn_v1"
 
-    def test_corroboration_same_source_still_allowed(
+    def test_intra_source_corroboration_skipped(
         self, store, workspace_id, source_a,
     ):
-        # Both from same source — corroboration should still work
-        existing_id = store.insert_claim(
+        # FIX-INTRA: same-source corroboration is self-citation, not
+        # independent corroboration. ~40% of edges in the audit were
+        # intra-source, inflating retrieval weights without information.
+        store.insert_claim(
             workspace_id=workspace_id,
             source_page_id=source_a,
             statement="Claim A from source A",
@@ -231,7 +234,8 @@ class TestDiscoverEdgesCorroboration:
             workspace_id=workspace_id,
             new_claim_ids=[new_id],
         )
-        assert result.corroboration_count == 1
+        assert result.corroboration_count == 0
+        assert len(result.edge_ids) == 0
 
     def test_evidence_weight_clamped_at_minimum(
         self, store, workspace_id, source_a, source_b,

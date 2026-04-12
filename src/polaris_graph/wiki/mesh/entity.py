@@ -162,6 +162,27 @@ _BARE_NUMERIC_RE = re.compile(
     r"^[\d$.,\-+/%<>=~\s]+$"
 )
 
+# FIX-JUNK: Measurement fragments that start with a number and contain
+# units or time words. These are quantitative data points, not entities.
+# Catches: "3-5 kWh", "6-month pilot study", "8 water utilities",
+# "$0.20-0.35 per 1000 gallons", "2-3 times", "1000 gallons".
+_MEASUREMENT_FRAGMENT_RE = re.compile(
+    r"^[$]?\d[\d.,\-/\s]*"         # starts with optional $ + digits
+    r"(?:kWh|psi|mg|ng|ppm|ppb|ppt|Daltons|%|gallons?|times|x\b"
+    r"|months?|years?|days?|hours?|minutes?"
+    r"|water\s+utilities|pilot\s+stud"
+    r"|per\s+)"                     # "per 1000 gallons"
+    , re.IGNORECASE,
+)
+
+# FIX-M2: Known regulation/standard names that look like organizations
+# because they are title-cased multi-word phrases.
+_KNOWN_REGULATIONS = frozenset({
+    "maximum contaminant levels", "maximum contaminant level",
+    "safe drinking water act", "clean water act",
+    "national primary drinking water regulations",
+})
+
 
 def classify_entity_type(surface_form: str) -> str:
     """
@@ -184,6 +205,10 @@ def classify_entity_type(surface_form: str) -> str:
     if _BARE_NUMERIC_RE.match(surface):
         return "metric"
 
+    # FIX-JUNK: Measurement fragments ("3-5 kWh", "6-month pilot study")
+    if _MEASUREMENT_FRAGMENT_RE.match(surface):
+        return "metric"
+
     # Metric patterns (numeric + unit) — check early
     if _METRIC_RE.search(surface):
         return "metric"
@@ -192,12 +217,19 @@ def classify_entity_type(surface_form: str) -> str:
     if surface in _KNOWN_UNITS:
         return "metric"
 
+    # FIX-M2: Known regulations classified before capitalized-phrase check
+    if surface.lower() in _KNOWN_REGULATIONS:
+        return "concept"
+
     # Known methods (explicit list) before acronym classification
     if surface in _KNOWN_METHODS:
         return "method"
 
-    # FIX-C3: Known method phrases (full-name expansions)
-    if surface.lower() in _KNOWN_METHOD_PHRASES:
+    # FIX-C3: Known method phrases — use substring match so
+    # "adsorption-based methods" matches via "adsorption" and
+    # "ion exchange resin beads" matches via "ion exchange".
+    surface_lower = surface.lower()
+    if any(phrase in surface_lower for phrase in _KNOWN_METHOD_PHRASES):
         return "method"
 
     # Known organizations before compound classification

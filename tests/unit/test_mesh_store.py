@@ -561,6 +561,39 @@ class TestEdge:
                 ("edg_bogus", workspace_id, a, b),
             )
 
+    def test_canonical_pair_order_and_bidirectional_query(
+        self, store: MeshStore, workspace_id: str, source_id: str
+    ):
+        """FIX-CANON: For undirected kinds, (A,B) and (B,A) produce the
+        same row. get_edges_from finds the edge from EITHER side, with
+        claim_b normalized to the neighbor."""
+        a, b = self._make_two_claims(store, workspace_id, source_id)
+
+        # Insert with b first — canonicalization should sort to (a, b)
+        # if a < b, or (b, a) if b < a. Either way, one canonical form.
+        eid1 = store.insert_edge(
+            workspace_id=workspace_id, claim_a=b, claim_b=a,
+            kind="corroborates", evidence_weight=0.85,
+            discovery_method="m",
+        )
+        # Inserting the reverse order should return the same edge (idempotent)
+        eid2 = store.insert_edge(
+            workspace_id=workspace_id, claim_a=a, claim_b=b,
+            kind="corroborates", evidence_weight=0.85,
+            discovery_method="m",
+        )
+        assert eid1 == eid2
+
+        # Query from a → should find the edge with claim_b = b
+        from_a = store.get_edges_from(a, kind="corroborates")
+        assert len(from_a) == 1
+        assert from_a[0]["claim_b"] == b
+
+        # Query from b → should also find the edge with claim_b = a
+        from_b = store.get_edges_from(b, kind="corroborates")
+        assert len(from_b) == 1
+        assert from_b[0]["claim_b"] == a
+
     def test_invalid_edge_kind_raises(
         self, store: MeshStore, workspace_id: str, source_id: str
     ):

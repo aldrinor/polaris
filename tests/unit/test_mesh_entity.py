@@ -198,6 +198,48 @@ class TestClassifyEntityType:
         assert classify_entity_type("p < 0.05") == "metric"
         assert classify_entity_type("95% CI") == "metric"
 
+    def test_measurement_fragments_are_metric(self):
+        # FIX-JUNK: LLMs emit quantitative data points as "entities"
+        assert classify_entity_type("3-5 kWh") == "metric"
+        assert classify_entity_type("6-month pilot study") == "metric"
+        assert classify_entity_type("8 water utilities") == "metric"
+        assert classify_entity_type("1000 gallons") == "metric"
+        assert classify_entity_type("$0.20-0.35 per 1000 gallons") == "metric"
+        assert classify_entity_type("2-3 times") == "metric"
+        assert classify_entity_type("90%") == "metric"
+        assert classify_entity_type("15-25%") == "metric"
+        assert classify_entity_type("300 Daltons") == "metric"
+
+    def test_known_units_are_metric(self):
+        # FIX-M1: abbreviations/units
+        assert classify_entity_type("BAT") == "metric"
+        assert classify_entity_type("psi") == "metric"
+        assert classify_entity_type("kWh") == "metric"
+
+    def test_regulations_are_concept(self):
+        # FIX-M2: regulations misclassified as organization
+        assert classify_entity_type("Maximum Contaminant Levels") == "concept"
+
+    def test_method_phrase_substring_match(self):
+        # FIX-C3: substring match catches "adsorption-based methods"
+        assert classify_entity_type("adsorption") == "method"
+        assert classify_entity_type("adsorption-based methods") == "method"
+        assert classify_entity_type("ion exchange resins") == "method"
+        assert classify_entity_type("Reverse Osmosis") == "method"
+        assert classify_entity_type("nanofiltration") == "method"
+
+    def test_pfas_mixed_case_is_compound(self):
+        # FIX-M3: mixed-case PFAS names
+        assert classify_entity_type("PFHxS") == "compound"
+        assert classify_entity_type("PFHxA") == "compound"
+
+    def test_real_entities_not_filtered(self):
+        # Ensure the junk filter doesn't reject real entities
+        assert classify_entity_type("PFOS") == "compound"
+        assert classify_entity_type("EPA") == "organization"
+        assert classify_entity_type("GAC") == "method"
+        assert classify_entity_type("Water Research Foundation") == "organization"
+
     def test_fallback_concept(self):
         assert classify_entity_type("some random lowercase text") == "concept"
         assert classify_entity_type("") == "concept"

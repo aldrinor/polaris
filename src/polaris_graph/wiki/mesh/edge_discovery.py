@@ -166,6 +166,16 @@ def discover_edges_for_claims(
             if candidate is None:
                 continue
 
+            # FIX-INTRA: skip intra-source corroboration. Two claims from
+            # the same document "corroborating" each other is self-citation,
+            # not independent corroboration. ~40% of edges were intra-source
+            # in the audit, inflating retrieval weights without adding info.
+            same_source = (
+                claim["source_page_id"] == candidate["source_page_id"]
+            )
+            if same_source:
+                continue
+
             if cosine >= CORROBORATION_THRESHOLD:
                 evidence_weight = max(EVIDENCE_WEIGHT_MIN, cosine)
                 edge_id = store.insert_edge(

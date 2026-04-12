@@ -88,6 +88,11 @@ _KNN_OVERFETCH_MULT = 3
 # constraint; the constant here is for bump helpers that must clamp.
 EDGE_USAGE_BOOST_MAX = 0.2
 
+# FIX-CANON: Undirected edge kinds where (A→B) == (B→A). For these kinds,
+# insert_edge canonicalizes the pair (claim_a < claim_b alphabetically)
+# and get_edges_from queries both columns.
+_UNDIRECTED_EDGE_KINDS = frozenset({"corroborates", "contradicts"})
+
 
 # ───── the store ─────
 
@@ -460,6 +465,14 @@ class MeshStore:
                 f"evidence_weight must be in [0, 1], got {evidence_weight}"
             )
 
+        # FIX-CANON: For undirected edge kinds, canonicalize pair order
+        # so that (A,B) and (B,A) always produce the same row. This lets
+        # the DB UNIQUE(claim_a, claim_b, kind) constraint catch dupes
+        # across separate discover_edges calls (the in-memory seen_pairs
+        # set only works within a single call).
+        if kind in _UNDIRECTED_EDGE_KINDS:
+            claim_a, claim_b = sorted([claim_a, claim_b])
+
         edge_id = self._make_id(
             "edg", f"{claim_a}:{claim_b}:{kind}"
         )
@@ -514,25 +527,60 @@ class MeshStore:
         kind: str | None = None,
         min_evidence_weight: float = 0.0,
     ) -> list[dict]:
-        """Fetch outgoing edges from `claim_id`, sorted by effective
-        weight (evidence_weight + 0.3*usage_boost) descending."""
+        """Fetch edges involving `claim_id`, sorted by effective weight
+        (evidence_weight + 0.3*usage_boost) descending.
+
+        FIX-CANON: For undirected edge kinds (corroborates, contradicts),
+        the pair is canonicalized at insertion (claim_a < claim_b). So
+        `claim_id` may appear in either column. We query both and
+        normalize the result so **claim_a = queried claim** and
+        **claim_b = neighbor** — the retrieval layer in lethal.py reads
+        ``edge["claim_b"]`` as the neighbor and doesn't need to change.
+
+        For directed kinds (elaborates, cites), only claim_a is checked
+        (the caller IS the source of the directed relation).
+        """
+        undirected = kind in _UNDIRECTED_EDGE_KINDS if kind else False
+
         if kind is not None:
-            rows = self._conn.execute(
-                """SELECT *, (evidence_weight + 0.3 * usage_boost) AS effective
-                   FROM edges
-                   WHERE claim_a = ? AND kind = ? AND evidence_weight >= ?
-                   ORDER BY effective DESC""",
-                (claim_id, kind, min_evidence_weight),
-            ).fetchall()
+            if undirected:
+                rows = self._conn.execute(
+                    """SELECT *, (evidence_weight + 0.3 * usage_boost) AS effective
+                       FROM edges
+                       WHERE (claim_a = ? OR claim_b = ?)
+                         AND kind = ? AND evidence_weight >= ?
+                       ORDER BY effective DESC""",
+                    (claim_id, claim_id, kind, min_evidence_weight),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT *, (evidence_weight + 0.3 * usage_boost) AS effective
+                       FROM edges
+                       WHERE claim_a = ? AND kind = ? AND evidence_weight >= ?
+                       ORDER BY effective DESC""",
+                    (claim_id, kind, min_evidence_weight),
+                ).fetchall()
         else:
+            # kind=None: query both directions unconditionally. All
+            # current edge kinds are undirected (contradicts disabled,
+            # elaborates/cites deferred to v2).
             rows = self._conn.execute(
                 """SELECT *, (evidence_weight + 0.3 * usage_boost) AS effective
                    FROM edges
-                   WHERE claim_a = ? AND evidence_weight >= ?
+                   WHERE (claim_a = ? OR claim_b = ?)
+                     AND evidence_weight >= ?
                    ORDER BY effective DESC""",
-                (claim_id, min_evidence_weight),
+                (claim_id, claim_id, min_evidence_weight),
             ).fetchall()
-        return [dict(r) for r in rows]
+
+        # Normalize: ensure claim_a = queried claim, claim_b = neighbor.
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d["claim_a"] != claim_id:
+                d["claim_a"], d["claim_b"] = d["claim_b"], d["claim_a"]
+            results.append(d)
+        return results
 
     # ─────────── entities (FIX D2) ───────────
 
