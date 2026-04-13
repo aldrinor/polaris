@@ -360,7 +360,13 @@ class AccessBypass:
                     return AccessResult(
                         url=url,
                         content=pdf_text[:50000],  # Cap at 50K chars
-                        method="pdf_extract",
+                        # FIX-GAP4-KWARG: was `method=`, dataclass field is
+                        # `access_method`. The old kwarg triggered TypeError
+                        # every successful docling/PyMuPDF extraction, which
+                        # was then caught as "PDF extraction failed" and
+                        # replaced with a 153-char snippet. Every successful
+                        # 10K-50K char PDF extract was being silently discarded.
+                        access_method="pdf_extract",
                         legal_alternative=None,
                         success=True,
                         metadata={"content_type": "application/pdf"},
@@ -900,21 +906,57 @@ class AccessBypass:
                 if len(pdf_bytes) < 1000:
                     return ""
 
-        # FIX-DOCLING-OOM: Guard against docling std::bad_alloc on large PDFs.
-        # Docling's C++ preprocess stage runs out of memory on 100+ page PDFs
-        # (e.g. government reports, clinical manuals), throwing std::bad_alloc
-        # and ultimately SIGSEGV-killing the Python process. PyMuPDF handles
-        # large PDFs with constant memory. Threshold: 5MB (roughly ~60-80 pages
-        # for typical research PDFs). Override with PG_MAX_DOCLING_PDF_BYTES.
+        # FIX-DOCLING-OOM-V2: Guard against docling std::bad_alloc on large PDFs.
+        # Docling's C++ preprocess stage has memory complexity proportional to
+        # total_pages x image_resolution^2, doesn't release memory between
+        # pages, and throws std::bad_alloc on 100+ page PDFs — killing the
+        # Python process with SIGSEGV.
+        #
+        # V2 improvement: check BOTH byte size AND page count. A 3MB 200-page
+        # dense-text PDF wouldn't trip a bytes-only guard but would still OOM
+        # docling. PyMuPDF page count costs ~50ms and is memory-safe.
+        #
+        # Env overrides:
+        #   PG_MAX_DOCLING_PDF_BYTES (default 5MB)
+        #   PG_MAX_DOCLING_PDF_PAGES (default 40 pages)
         max_docling_bytes = int(
             os.getenv("PG_MAX_DOCLING_PDF_BYTES", str(5 * 1024 * 1024))
         )
+        max_docling_pages = int(
+            os.getenv("PG_MAX_DOCLING_PDF_PAGES", "40")
+        )
 
+        _skip_docling_reason = None
         if len(pdf_bytes) > max_docling_bytes:
+            _skip_docling_reason = f"bytes={len(pdf_bytes)}>{max_docling_bytes}"
+        else:
+            # Cheap page count via PyMuPDF before committing to docling.
+            try:
+                import fitz as _fitz
+                import tempfile as _tempfile
+                with _tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as _tmp:
+                    _tmp.write(pdf_bytes)
+                    _tmp_path = _tmp.name
+                _doc = _fitz.open(_tmp_path)
+                _page_count = _doc.page_count
+                _doc.close()
+                import os as _os_pc
+                _os_pc.unlink(_tmp_path)
+                if _page_count > max_docling_pages:
+                    _skip_docling_reason = f"pages={_page_count}>{max_docling_pages}"
+            except Exception as _exc:
+                # If PyMuPDF can't even open it, docling probably can't either.
+                # Skip docling and let PyMuPDF fallback handle with its own error.
+                logger.debug(
+                    "[ACCESS] FIX-DOCLING-OOM-V2: page count failed (%s), skipping docling",
+                    str(_exc)[:80],
+                )
+                _skip_docling_reason = "pymupdf_open_failed"
+
+        if _skip_docling_reason:
             logger.warning(
-                "[ACCESS] FIX-DOCLING-OOM: PDF %d bytes > %d limit, "
-                "skipping docling, using PyMuPDF: %s",
-                len(pdf_bytes), max_docling_bytes, url[:50],
+                "[ACCESS] FIX-DOCLING-OOM-V2: Skipping docling (%s), using PyMuPDF: %s",
+                _skip_docling_reason, url[:50],
             )
         else:
             # PL: Try Docling first (97.9% table accuracy), PyMuPDF fallback

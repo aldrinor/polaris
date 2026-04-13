@@ -938,36 +938,42 @@ async def _conduct_interview(
             })
             continue
 
-        # FIX-P2: Detect STORM interview failures — answers that explicitly state
-        # sources are inadequate should not pollute the evidence pool.
-        _failure_patterns = (
-            "do not adequately",
-            "does not adequately",
-            "do NOT",
-            "data is incomplete",
-            "not directly reported",
-            "none of the sources directly",
-            "sources do not provide",
-            "no specific data",
-            "insufficient information",
-            "cannot be determined from",
-        )
-        _answer_lower = answer_obj.answer.lower() if answer_obj.answer else ""
-        _is_failed_interview = any(fp.lower() in _answer_lower for fp in _failure_patterns)
+        # FIX-P2-V2: Use key_findings structure, not prose pattern-matching.
+        #
+        # Original FIX-P2 pattern-matched hedging phrases in the answer text
+        # ("limited data", "cannot be determined", "insufficient information")
+        # and CLEARED key_findings when matched. But the LLM properly separates
+        # grounded findings (key_findings field) from hedging prose (answer text).
+        # A well-formed answer says "the data is limited, BUT Source 1 reports
+        # 85% adherence" — the prose is honest, the finding is real.
+        #
+        # Audit of PG_TEST_090 production trace confirmed this was destroying
+        # 55 substantive, source-cited findings out of 94 total (58% evidence
+        # loss) — even when EVERY interview produced 4-5 real findings.
+        #
+        # New rule: an interview is FAILED only when its STRUCTURED key_findings
+        # field contains NO substantive entries (all < 30 chars). The prose
+        # hedging is irrelevant — we care about the grounded claims. When OK,
+        # pass all findings through unchanged (preserve original behavior).
+        _kf = list(answer_obj.key_findings or [])
+        _has_substantive = any(len(str(f).strip()) >= 30 for f in _kf)
+        _is_failed_interview = not _has_substantive
 
-        # Record the round (with failure flag)
+        # Record the round. When failed, clear findings (no signal).
+        # When OK, pass ALL findings through unchanged — the answer prose may
+        # hedge but we trust the structured findings as-is.
         conversation.rounds.append({
             "question": question_obj.question,
             "answer": answer_obj.answer,
             "sources": answer_obj.sources_used,
-            "key_findings": answer_obj.key_findings if not _is_failed_interview else [],
+            "key_findings": _kf if not _is_failed_interview else [],
             "interview_quality": "failed" if _is_failed_interview else "ok",
         })
         if _is_failed_interview:
             logger.info(
-                "[STORM] FIX-P2: %s round %d marked FAILED — answer indicates "
-                "inadequate sources. key_findings cleared.",
-                persona.name, round_num,
+                "[STORM] FIX-P2-V2: %s round %d marked FAILED — "
+                "no substantive key_findings in structured output (had %d entries, all < 30 chars).",
+                persona.name, round_num, len(_kf),
             )
 
         # OBS-STORM: Emit full Q&A to trace
@@ -979,7 +985,7 @@ async def _conduct_interview(
                 question=question_obj.question,
                 answer=answer_obj.answer,
                 sources=answer_obj.sources_used,
-                key_findings=answer_obj.key_findings if not _is_failed_interview else [],
+                key_findings=_kf if not _is_failed_interview else [],
                 expertise=persona.expertise[:200],
                 question_focus=persona.question_focus[:200],
                 interview_quality="failed" if _is_failed_interview else "ok",
