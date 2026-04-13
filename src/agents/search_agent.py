@@ -103,24 +103,29 @@ def _wait_for_rate_limit(api_name: str):
 
 
 # =============================================================================
-# P1.2 FIX: Domain Blocklist Loading
+# Search Configuration (P1.2 domain blocklist removed 2026-04-13)
+#
+# The domain blocklist (fandom, youtube, tiktok, reddit, netflix, etc.) was
+# removed on 2026-04-13. Reason: blocklists don't scale (infinite tail of
+# garbage domains), and they limit source diversity. The PageRank/tier
+# authority gate in src/polaris_graph/agents/analyzer.py + the pre-fetch
+# authority gate (PG_AUTHORITY_GATE, default 0.3) handle filtering by
+# SCORING sources, not by maintaining a manual list of names.
+#
+# Mirrors commits 74e1bf6 (wiki path) and 9ee62ff (polaris_graph analyzer path).
 # =============================================================================
 
 def load_search_config() -> dict:
-    """
-    Load search configuration including blocked/preferred domains.
-    P1.2 FIX: See deployment_plan_20260126.md
-    """
+    """Load search configuration (preferred domains, diversity, rate limits)."""
     config_path = Path(__file__).parent.parent.parent / "config" / "settings" / "search.yaml"
     if config_path.exists():
         with open(config_path, 'r') as f:
             return yaml.safe_load(f)
-    return {"blocked_domains": [], "preferred_domains": []}
+    return {"preferred_domains": []}
 
 
 # Load config at module level
 _SEARCH_CONFIG = load_search_config()
-_BLOCKED_DOMAINS: Set[str] = set(_SEARCH_CONFIG.get("blocked_domains", []))
 _PREFERRED_DOMAINS: List[str] = _SEARCH_CONFIG.get("preferred_domains", [])
 _DIVERSITY_CONFIG = _SEARCH_CONFIG.get("domain_diversity", {
     "max_results_per_domain": 10,
@@ -129,39 +134,6 @@ _DIVERSITY_CONFIG = _SEARCH_CONFIG.get("domain_diversity", {
     "warn_on_low_diversity": True,
     "low_diversity_threshold": 0.25,
 })
-
-
-def is_blocked_domain(url: str) -> bool:
-    """
-    Check if URL is from a blocked domain.
-    P1.2 FIX: Entertainment/social sites pollute research results.
-    """
-    url_lower = url.lower()
-    for blocked in _BLOCKED_DOMAINS:
-        if blocked in url_lower:
-            return True
-    return False
-
-
-def filter_blocked_domains(results: List[dict]) -> List[dict]:
-    """
-    Filter out results from blocked domains.
-    P1.2 FIX: See deployment_plan_20260126.md
-    """
-    filtered = []
-    blocked_count = 0
-    for r in results:
-        url = r.get("url", "")
-        if is_blocked_domain(url):
-            blocked_count += 1
-            logger.debug(f"[DOMAIN-FILTER] Blocked: {url[:80]}")
-        else:
-            filtered.append(r)
-
-    if blocked_count > 0:
-        logger.warning(f"[DOMAIN-FILTER] Removed {blocked_count}/{len(results)} results from blocked domains")
-
-    return filtered
 
 
 def extract_domain_from_url(url: str) -> str:
@@ -600,9 +572,8 @@ def _serper_search_sync(
         with open(diag_path, "a") as f:
             f.write(f"[{datetime.now()}] SUCCESS: Returning {len(normalized)} results\n")
 
-        # P1.2 FIX: Filter blocked domains
-        normalized = filter_blocked_domains(normalized)
-
+        # Domain blocklist filter removed 2026-04-13 — authority gate in
+        # src/polaris_graph/agents/analyzer.py scores these downstream.
         return normalized
 
     except requests.exceptions.Timeout:
@@ -1307,8 +1278,9 @@ def academic_search(
                         token = data.get("token")
                         logger.debug(f"[FIX-123] S2 page {page_count}: {len(data.get('data', []))} results")
 
-                    # P1.2 FIX: Filter blocked domains
-                    results = filter_blocked_domains(all_results)
+                    # Domain blocklist filter removed 2026-04-13 — authority gate
+                    # in src/polaris_graph/agents/analyzer.py scores these downstream.
+                    results = all_results
 
                     logger.info(f"[FIX-122/123] Semantic Scholar bulk: '{query[:60]}...' -> {len(results)} results (of {total_results} total, {page_count} pages)")
                     return results

@@ -1,29 +1,8 @@
-# P1.2 FIX: Domain Blocklist Configuration
-# See deployment_plan_20260126.md
-# Entertainment/social sites pollute research results with irrelevant content
-
-# Domains to block - entertainment, social media, shopping
-blocked_domains:
-  - fandom.com
-  - wikia.com
-  - primevideo.com
-  - youtube.com
-  - imdb.com
-  - pinterest.com
-  - facebook.com
-  - twitter.com
-  - instagram.com
-  - tiktok.com
-  - reddit.com  # Too noisy for academic research
-  - amazon.com  # Shopping results
-  - ebay.com
-  - aliexpress.com
-  - etsy.com
-  - netflix.com
-  - hulu.com
-  - disneyplus.com
-  - tumblr.com
-  - quora.com  # Often low-quality answers
+# Search configuration
+# Domain blocklist removed 2026-04-13 — authority gate
+# (src/polaris_graph/agents/analyzer.py, PG_AUTHORITY_GATE default 0.3)
+# scores all sources by PageRank + tier instead of maintaining a manual
+# list of names. Mirrors commits 74e1bf6 (wiki), 9ee62ff (analyzer).
 
 # Domains to prefer - authoritative sources
 preferred_domains:

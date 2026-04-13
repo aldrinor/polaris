@@ -147,17 +147,23 @@ class TestFaithfulnessCompliance:
 class TestEvidenceQualityCompliance:
     """Test evidence quality requirements."""
 
-    def test_domain_blocklist_configured(self):
-        """Test that domain blocklist is configured."""
-        from src.agents.search_agent import _BLOCKED_DOMAINS
+    def test_low_authority_sources_gated(self):
+        """Test that low-authority commerce/entertainment sources fail the authority gate.
 
-        # Should have blocked domains
-        assert len(_BLOCKED_DOMAINS) > 0, "Should have blocked domains"
+        Replaces test_domain_blocklist_configured — the legacy hard blocklist
+        was removed 2026-04-13 in favor of a PageRank/tier authority gate
+        (PG_AUTHORITY_GATE, default 0.3) in src/polaris_graph/agents/analyzer.py.
+        Commerce/social sites are in low_credibility_domains (score 0.2) and
+        fall below the gate threshold.
+        """
+        import os
+        from src.polaris_graph.agents.analyzer import _get_domain_authority
 
-        # Should include known garbage domains
-        expected_blocked = ["fandom.com", "youtube.com"]
-        for domain in expected_blocked:
-            assert domain in _BLOCKED_DOMAINS, f"{domain} should be blocked"
+        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+        # Commerce examples (moved from blocked_domains to low_credibility_domains)
+        for url in ["https://amazon.com/dp/B08", "https://ebay.com/itm/123"]:
+            auth = _get_domain_authority(url)
+            assert auth < gate, f"{url} auth={auth} should be below gate={gate}"
 
 class TestOutputFormatCompliance:
     """Test output format requirements."""

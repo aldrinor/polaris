@@ -118,28 +118,31 @@ class TestSerperSync:
 
 
 @pytest.mark.skipif(not SERPER_API_KEY, reason=SKIP_REASON)
-class TestDomainFiltering:
-    """Tests for domain filtering in search results."""
+class TestDomainAuthorityGate:
+    """Tests for downstream domain authority gate (replaced blocklist 2026-04-13)."""
 
-    def test_blocked_domains_filtered(self):
+    def test_low_authority_domains_score_below_gate(self):
+        """Verify that entertainment/social domains get authority < gate.
+
+        The legacy filter_blocked_domains was removed on 2026-04-13.
+        Filtering now happens at the pre-fetch authority gate in
+        src/polaris_graph/agents/analyzer.py based on PageRank/tier scores.
+        Entertainment/social/commerce sites are classified as
+        low_credibility_domains (score 0.2) and fall below the default
+        gate of 0.3.
         """
-        P1.2: Verify blocked domains are filtered from results.
-        """
-        from src.agents.search_agent import _serper_search_sync, filter_blocked_domains
+        import os
+        from src.polaris_graph.agents.analyzer import _get_domain_authority
 
-        # Search for something that might return entertainment results
-        results = _serper_search_sync(
-            query="Ninjago water episode",  # Intentionally ambiguous
-            search_type="search",
-            max_results=10
-        )
-
-        # Check if any blocked domains snuck through
-        # (they shouldn't, but this tests the filter)
-        blocked_urls = [r["url"] for r in results if "fandom" in r.get("url", "").lower()]
-
-        # The sync function should filter blocked domains
-        assert len(blocked_urls) == 0, f"Blocked domains found: {blocked_urls}"
+        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+        # Commerce/entertainment examples — all should score below gate
+        for url in [
+            "https://amazon.com/dp/B08",
+            "https://ebay.com/itm/123",
+            "https://youtube.com/watch?v=abc",
+        ]:
+            auth = _get_domain_authority(url)
+            assert auth < gate, f"{url} auth={auth} should be < gate={gate}"
 
 
 class TestMockedSerper:

@@ -162,31 +162,30 @@ class TestAnalystResilience:
             # Shutdown without waiting for tasks to complete
             executor.shutdown(wait=False, cancel_futures=True)
 
-    def test_domain_filter_blocks_fandom(self):
+    def test_authority_gate_separates_high_and_low_credibility(self):
+        """Verify the authority gate (replacing the legacy domain blocklist)
+        correctly scores high-credibility sources above gate and low-credibility
+        commerce/entertainment sources below gate.
+
+        Legacy blocklist (P1.2) removed 2026-04-13. Filtering now happens
+        via PageRank/tier authority scoring in polaris_graph/agents/analyzer.py.
+        Commerce/social/entertainment sites are in low_credibility_domains
+        (score 0.2) and fall below the default gate of 0.3.
         """
-        P1.2: Verify domain blocklist blocks fandom.com and other entertainment sites.
-        """
-        from src.agents.search_agent import is_blocked_domain, filter_blocked_domains
+        import os
+        from src.polaris_graph.agents.analyzer import _get_domain_authority
 
-        # Test individual domain check
-        assert is_blocked_domain("https://ninjago.fandom.com/wiki/Kai") is True
-        assert is_blocked_domain("https://youtube.com/watch?v=123") is True
-        assert is_blocked_domain("https://cdc.gov/water") is False
-        assert is_blocked_domain("https://nature.com/articles/123") is False
+        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
 
-        # Test batch filtering
-        results = [
-            {"url": "https://fandom.com/wiki/test"},
-            {"url": "https://cdc.gov/water"},
-            {"url": "https://youtube.com/video"},
-            {"url": "https://pubmed.ncbi.nlm.nih.gov/123"},
-        ]
+        # Authoritative sources should score at/above gate
+        assert _get_domain_authority("https://cdc.gov/water") >= gate
+        assert _get_domain_authority("https://nature.com/articles/123") >= gate
+        assert _get_domain_authority("https://pubmed.ncbi.nlm.nih.gov/123") >= gate
 
-        filtered = filter_blocked_domains(results)
-        assert len(filtered) == 2, f"Expected 2 results, got {len(filtered)}"
-        urls = [r["url"] for r in filtered]
-        assert "cdc.gov" in urls[0]
-        assert "pubmed" in urls[1]
+        # Commerce sources (moved from blocked_domains to low_credibility_domains)
+        # should score below gate
+        assert _get_domain_authority("https://amazon.com/dp/B08") < gate
+        assert _get_domain_authority("https://ebay.com/itm/123") < gate
 
 
 class TestGracefulDegradation:
