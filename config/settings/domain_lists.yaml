@@ -2,8 +2,12 @@
 # Loaded at runtime via PG_DOMAIN_CONFIG_PATH env var.
 # LAW VI: No domain-specific values hardcoded in source code.
 
-# Low-credibility consumer/news domains (authority: 0.2)
-# These are popular sites that simplify or sensationalize research.
+# Low-credibility consumer/news/commerce domains (authority: 0.2)
+# These are popular sites that simplify or sensationalize research,
+# or commerce sites that host product listings rather than research.
+# The PageRank/tier authority gate (PG_AUTHORITY_GATE) filters these
+# downstream — we no longer use a hard blocklist (removed 2026-04-12,
+# mirroring commit 74e1bf6 for the wiki path).
 # Override per-domain by adding to tier1/tier2 lists instead.
 low_credibility_domains:
   - webmd.com
@@ -33,9 +37,7 @@ low_credibility_domains:
   - endocrinologyadvisor.com
   - eurekalert.org
   - withpower.com
-
-# Blocked commercial domains (authority: 0.0, excluded entirely)
-blocked_domains:
+  # Former blocked_domains (commerce — moved 2026-04-12, score 0.2 instead of 0.0)
   - amazon.com
   - ebay.com
   - walmart.com

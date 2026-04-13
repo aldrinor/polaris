@@ -8,8 +8,8 @@ SOTA upgrades:
 - HTML cleaning via extract_text_forensic() (Change 3)
 - Externalized content caps from env vars (Change 3/4)
 - MinHash evidence deduplication (Change 5)
-- FIX-B1: Source URL blocklist (commercial/affiliate domains)
-- FIX-B2: Domain authority scoring (tier-based multiplier)
+- FIX-B2: Domain authority scoring (tier-based multiplier; replaced FIX-B1
+  blocklist 2026-04-12 — see PG_AUTHORITY_GATE pre-fetch gate)
 - FIX-B3: Off-topic detection gate (embedding similarity)
 - FIX-D3: Snippet quality penalty (downgrade snippet-only evidence)
 - FIX-F1: Windows embedding path fix (OSError errno 22)
@@ -178,88 +178,21 @@ Output format (return ONLY this JSON structure):
 
 
 # ---------------------------------------------------------------------------
-# FIX-B1: Source URL blocklist
+# Pre-fetch authority gate (replaced FIX-B1 blocklist 2026-04-12)
 # ---------------------------------------------------------------------------
 
-# Domain blocklist: commercial, affiliate, and low-quality sources
-# LAW VI: Blocked domains loaded from config/settings/domain_lists.yaml
-def _get_blocked_domains() -> frozenset:
-    return _get_domain_config().blocked_domains
-
-# Path-qualified domain blocks (only block specific paths on these domains)
-_BLOCKED_DOMAIN_PATHS = [
-    ("consumerreports.org", "/shop"),
-    ("reddit.com", "/r/"),
-]
-
-# URL path patterns that indicate commercial/affiliate content
-_BLOCKED_PATH_PATTERNS = frozenset([
-    "/shop/",
-    "/product/",
-    "/products/",
-    "/buy/",
-    "/cart/",
-    "/affiliate/",
-    "/sponsored/",
-    "/ad/",
-    "/checkout/",
-])
-
-# Commercial TLDs that host primarily product content
-_BLOCKED_TLDS = frozenset([
-    ".shop",
-    ".store",
-    ".buy",
-    ".sale",
-    ".deals",
-])
-
-
-def _is_blocked_source(url: str) -> bool:
-    """FIX-B1: Check whether a URL should be rejected based on blocklist rules.
-
-    Rejects:
-    - Known commercial/affiliate domains
-    - Path-qualified domain blocks (e.g., consumerreports.org/shop)
-    - URLs with commercial path patterns (/product/, /cart/, etc.)
-    - Domains with commercial TLDs (.shop, .store, etc.)
-
-    Returns True if the URL should be blocked.
-    """
-    if not url:
-        return False
-
-    url_lower = url.lower()
-
-    try:
-        parsed = urlparse(url_lower)
-        hostname = parsed.hostname or ""
-        path = parsed.path or ""
-    except Exception:
-        return False
-
-    # Check exact domain blocklist (match domain and subdomains)
-    for blocked in _get_blocked_domains():
-        if hostname == blocked or hostname.endswith("." + blocked):
-            return True
-
-    # Check path-qualified domain blocks
-    for domain, blocked_path in _BLOCKED_DOMAIN_PATHS:
-        if (hostname == domain or hostname.endswith("." + domain)):
-            if blocked_path in path:
-                return True
-
-    # Check commercial path patterns
-    for pattern in _BLOCKED_PATH_PATTERNS:
-        if pattern in path:
-            return True
-
-    # Check commercial TLDs
-    for tld in _BLOCKED_TLDS:
-        if hostname.endswith(tld):
-            return True
-
-    return False
+# Domain blocklist removed 2026-04-12 — replaced by PageRank/tier authority
+# gate (mirrors commit 74e1bf6 which removed it from the wiki path). Commerce
+# domains formerly in blocked_domains are now in low_credibility_domains
+# (authority 0.2). The pre-fetch authority gate (PG_AUTHORITY_GATE, default
+# 0.3 in searcher.py) and the analyzer's _get_domain_authority() do the
+# filtering. Hard blocklists don't scale (infinite tail of garbage domains)
+# and were the source of false negatives that limited source diversity.
+#
+# Authority gate threshold for pre-fetch filtering. Sources scoring below
+# this are skipped before fetch. Set permissively (0.3) — synthesis stage
+# applies stricter gates downstream.
+_AUTHORITY_GATE_PREFETCH = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
 
 
 # ---------------------------------------------------------------------------
@@ -289,17 +222,16 @@ def _get_domain_authority(url: str) -> float:
     - TIER 2 (0.85): PubMed, NIH, standards bodies, wire services
     - TIER 3 (0.7):  Industry trade publications (non-blog)
     - TIER 4 (PG_DEFAULT_DOMAIN_AUTHORITY, default 0.5): Everything else
-    - BLOCKED (0.0):  Anything on the blocklist
+    - LOW (PG_LOW_CREDIBILITY_AUTHORITY, default 0.2): Consumer health,
+      commerce sites, popular media that simplify research.
 
     The multiplier is applied to relevance_score before tier assignment,
-    so commercial blogs get lower tiers.
+    so commercial blogs get lower tiers. The pre-fetch authority gate
+    (PG_AUTHORITY_GATE, default 0.3) drops anything below the threshold
+    before fetch — this replaces the old hard blocklist (removed 2026-04-12).
     """
     if not url:
         return _DOMAIN_AUTHORITY_DEFAULT
-
-    # BLOCKED check first
-    if _is_blocked_source(url):
-        return 0.0
 
     url_lower = url.lower()
     try:
@@ -1542,16 +1474,19 @@ async def _fetch_all_content(
             if not url:
                 return {}
 
-            # FIX-B1: Check blocklist BEFORE any fetch attempt
-            if _is_blocked_source(url):
+            # Authority gate BEFORE any fetch attempt — replaced FIX-B1
+            # blocklist (removed 2026-04-12). Drops sources scoring below
+            # PG_AUTHORITY_GATE (default 0.3) such as commerce sites and
+            # consumer health blogs. Synthesis stage applies stricter gates.
+            _auth = _get_domain_authority(url)
+            if _auth < _AUTHORITY_GATE_PREFETCH:
                 logger.info(
-                    "[polaris graph] FIX-B1: Blocked source skipped: %s",
-                    url[:80],
+                    "[polaris graph] Authority gate dropped pre-fetch (auth=%.2f < %.2f): %s",
+                    _auth, _AUTHORITY_GATE_PREFETCH, url[:80],
                 )
-                # WAVE-3.5: Trace blocked source
                 _blk_tracer = get_tracer()
                 if _blk_tracer:
-                    _blk_tracer.fetch("analyze", url, "blocked")
+                    _blk_tracer.fetch("analyze", url, "low_authority")
                 return {}
 
             # AREA-2: Skip paywall domains — don't waste fetch attempts
@@ -2664,12 +2599,10 @@ def _assign_quality_tiers(evidence: list[EvidencePiece]) -> list[EvidencePiece]:
                 e.get("evidence_id", "?")[:20], _comma_count, _sentence_ends,
             )
 
-        # Veto: blocked domain (authority=0.0) can never be above BRONZE.
-        # Even if other signals compensate, blocked sources are inherently
-        # untrustworthy (commercial, affiliate, etc.).
-        if sig_authority == 0.0 and tier in ("GOLD", "SILVER"):
-            tier = "BRONZE"
-            veto_reason = "blocked_domain_zero_authority"
+        # (Blocked-domain veto removed 2026-04-12: the blocklist was deleted
+        # and no domain returns sig_authority==0.0 anymore. The pre-fetch
+        # authority gate at PG_AUTHORITY_GATE filters low-credibility sources
+        # before they reach the tier scoring path.)
 
         e["quality_tier"] = tier
         e["veto_reason"] = veto_reason

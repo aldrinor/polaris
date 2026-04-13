@@ -11,7 +11,7 @@ SOTA Sprint (7):
   10. Jina Reader fetch (free tier, no key)
   11. Exa neural search (requires EXA_API_KEY)
   12. Firecrawl scrape (requires FIRECRAWL_API_KEY)
-  13. Domain blocklist + authority scoring
+  13. Domain authority gate (PG_AUTHORITY_GATE, replaced FIX-B1 blocklist)
   14. Off-topic evidence filter
   15. Redundancy detection
   16. Abstract metric validation
@@ -357,52 +357,56 @@ async def test_firecrawl():
         record("Firecrawl scrape", FAIL, str(e)[:200])
 
 
-def test_domain_blocklist():
-    """Test FIX-B1: Domain blocklist rejects commercial sites."""
+def test_domain_authority():
+    """Test FIX-B2 authority gate (replaces FIX-B1 blocklist, removed 2026-04-12).
+
+    Verifies _get_domain_authority returns the correct tier for:
+    - High-tier government (epa.gov → 1.0)
+    - Low-credibility commerce (amazon.com → PG_LOW_CREDIBILITY_AUTHORITY, default 0.2)
+    - Unknown domain (randomblog.com → PG_DEFAULT_DOMAIN_AUTHORITY, default 0.5)
+
+    The pre-fetch authority gate (PG_AUTHORITY_GATE, default 0.3) drops
+    sources scoring below the threshold before fetch — this replaces
+    the old hard blocklist.
+    """
     try:
-        from src.polaris_graph.agents.analyzer import _is_blocked_source, _get_domain_authority
+        from src.polaris_graph.agents.analyzer import _get_domain_authority
 
-        blocked_urls = [
-            "https://cnfilter.net/pool-water-filter/",
-            "https://amazon.com/dp/B08XYZ",
-            "https://example.com/shop/water-filter",
-        ]
-        allowed_urls = [
-            "https://epa.gov/water",
-            "https://nature.com/articles/123",
-            "https://ncbi.nlm.nih.gov/pmc/articles/PMC123",
-        ]
-
-        all_blocked = all(_is_blocked_source(u) for u in blocked_urls)
-        all_allowed = all(not _is_blocked_source(u) for u in allowed_urls)
-
-        # Verify authority scoring
         epa_auth = _get_domain_authority("https://epa.gov/water")
         amazon_auth = _get_domain_authority("https://amazon.com/dp/B08")
+        nature_auth = _get_domain_authority("https://nature.com/articles/123")
         unknown_auth = _get_domain_authority("https://randomblog.com/post")
 
-        # The default authority is configurable via PG_DEFAULT_DOMAIN_AUTHORITY env var
         expected_default = float(os.getenv("PG_DEFAULT_DOMAIN_AUTHORITY", "0.5"))
-        if (
-            all_blocked and all_allowed
-            and epa_auth == 1.0
-            and amazon_auth == 0.0
-            and unknown_auth == expected_default
-        ):
+        expected_low_cred = float(os.getenv("PG_LOW_CREDIBILITY_AUTHORITY", "0.2"))
+        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+
+        problems = []
+        if epa_auth != 1.0:
+            problems.append(f"EPA expected 1.0, got {epa_auth}")
+        if nature_auth != 1.0:
+            problems.append(f"Nature expected 1.0, got {nature_auth}")
+        if amazon_auth != expected_low_cred:
+            problems.append(f"Amazon expected {expected_low_cred} (low-cred), got {amazon_auth}")
+        if unknown_auth != expected_default:
+            problems.append(f"Unknown expected {expected_default}, got {unknown_auth}")
+        # Pre-fetch gate must drop amazon (commerce) but keep unknown blogs
+        if amazon_auth >= gate:
+            problems.append(f"Amazon auth {amazon_auth} should be below gate {gate}")
+        if unknown_auth < gate:
+            problems.append(f"Unknown auth {unknown_auth} should be above gate {gate}")
+
+        if not problems:
             record(
-                "Domain blocklist+authority",
+                "Domain authority gate",
                 PASS,
-                f"3 blocked, 3 allowed, EPA={epa_auth}, Amazon={amazon_auth}, Unknown={unknown_auth}",
+                f"EPA={epa_auth}, Nature={nature_auth}, Amazon={amazon_auth} (<{gate}), "
+                f"Unknown={unknown_auth} (>={gate})",
             )
         else:
-            record(
-                "Domain blocklist+authority",
-                FAIL,
-                f"blocked={all_blocked}, allowed={all_allowed}, EPA={epa_auth}, "
-                f"Amazon={amazon_auth}, Unknown={unknown_auth} (expected {expected_default})",
-            )
+            record("Domain authority gate", FAIL, "; ".join(problems))
     except Exception as e:
-        record("Domain blocklist+authority", FAIL, str(e)[:200])
+        record("Domain authority gate", FAIL, str(e)[:200])
 
 
 def test_offtopic_filter():
@@ -502,7 +506,7 @@ async def main():
     await test_firecrawl()
 
     # SOTA Sprint: New quality functions (sync, no API calls)
-    test_domain_blocklist()
+    test_domain_authority()
     test_offtopic_filter()
     test_redundancy_detection()
     test_abstract_validation()

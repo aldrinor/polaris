@@ -1425,50 +1425,53 @@ async def test_dashboard_init() -> TestResult:
 # ===================================================================
 
 
-async def test_domain_blocklist() -> TestResult:
-    """T36: Verify domain blocklist contains at least 5 domains."""
+async def test_domain_authority_gate() -> TestResult:
+    """T36: Verify pre-fetch authority gate filters low-credibility sources.
+
+    Replaces the old domain blocklist test (FIX-B1, removed 2026-04-12).
+    The authority gate is the canonical filter — see analyzer.py:1478 and
+    searcher.py:1424. Blocklists don't scale; PageRank/tier authority does.
+    """
     try:
-        from src.polaris_graph.agents.analyzer import (
-            _BLOCKED_DOMAINS,
-            _is_blocked_source,
-        )
+        from src.polaris_graph.agents.analyzer import _get_domain_authority
 
-        count = len(_BLOCKED_DOMAINS)
-        if count < 5:
+        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
+        low_cred = float(os.getenv("PG_LOW_CREDIBILITY_AUTHORITY", "0.2"))
+
+        # Commerce domain (was on blocklist, now in low_credibility_domains)
+        amazon_auth = _get_domain_authority("https://amazon.com/some-product")
+        if amazon_auth >= gate:
             return TestResult(
-                "test_domain_blocklist",
+                "test_domain_authority_gate",
                 FAIL,
-                f"Only {count} blocked domains (minimum: 5)",
+                f"amazon.com auth {amazon_auth} should be below gate {gate}",
+            )
+        if amazon_auth != low_cred:
+            return TestResult(
+                "test_domain_authority_gate",
+                FAIL,
+                f"amazon.com expected low_cred={low_cred}, got {amazon_auth}",
             )
 
-        # Verify a known blocked domain is actually blocked
-        test_blocked = _is_blocked_source("https://amazon.com/some-product")
-        if not test_blocked:
+        # Authoritative domain
+        epa_auth = _get_domain_authority("https://epa.gov/water-research")
+        if epa_auth != 1.0:
             return TestResult(
-                "test_domain_blocklist",
+                "test_domain_authority_gate",
                 FAIL,
-                "amazon.com not blocked by _is_blocked_source()",
-            )
-
-        # Verify a known good domain is NOT blocked
-        test_good = _is_blocked_source("https://epa.gov/water-research")
-        if test_good:
-            return TestResult(
-                "test_domain_blocklist",
-                FAIL,
-                "epa.gov incorrectly blocked",
+                f"epa.gov expected 1.0 (TIER 1), got {epa_auth}",
             )
 
         return TestResult(
-            "test_domain_blocklist",
+            "test_domain_authority_gate",
             PASS,
-            f"{count} domains blocked, filter verified",
+            f"gate={gate}, amazon={amazon_auth}, epa={epa_auth}",
         )
     except Exception as exc:
         return TestResult(
-            "test_domain_blocklist",
+            "test_domain_authority_gate",
             FAIL,
-            f"Blocklist error: {str(exc)[:200]}",
+            f"Authority gate error: {str(exc)[:200]}",
         )
 
 
@@ -1712,7 +1715,7 @@ TIER_3_TESTS = [
 ]
 
 TIER_4_TESTS = [
-    ("test_domain_blocklist", test_domain_blocklist),
+    ("test_domain_authority_gate", test_domain_authority_gate),
     ("test_paywall_blocklist", test_paywall_blocklist),
     ("test_authority_scoring", test_authority_scoring),
     ("test_silent_default_detection", test_silent_default_detection),

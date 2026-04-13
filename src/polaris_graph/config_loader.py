@@ -9,7 +9,6 @@ Usage:
     from src.polaris_graph.config_loader import get_domain_config
     cfg = get_domain_config()
     low_cred = cfg.low_credibility_domains
-    blocked = cfg.blocked_domains
 """
 
 import logging
@@ -33,7 +32,6 @@ class DomainConfig:
     """Loaded domain-specific configuration."""
 
     low_credibility_domains: frozenset[str] = field(default_factory=frozenset)
-    blocked_domains: frozenset[str] = field(default_factory=frozenset)
     tier1_domains: frozenset[str] = field(default_factory=frozenset)
     tier2_domains: frozenset[str] = field(default_factory=frozenset)
     tier3_domains: frozenset[str] = field(default_factory=frozenset)
@@ -100,7 +98,6 @@ def get_domain_config() -> DomainConfig:
 
     _cached_config = DomainConfig(
         low_credibility_domains=frozenset(raw.get("low_credibility_domains", [])),
-        blocked_domains=frozenset(raw.get("blocked_domains", [])),
         tier1_domains=frozenset(raw.get("tier1_domains", [])),
         tier2_domains=frozenset(raw.get("tier2_domains", [])),
         tier3_domains=frozenset(raw.get("tier3_domains", [])),
@@ -111,11 +108,10 @@ def get_domain_config() -> DomainConfig:
     )
 
     logger.info(
-        "[config] Loaded domain config from %s: %d low-cred, %d blocked, "
+        "[config] Loaded domain config from %s: %d low-cred, "
         "%d tier1, %d tier2, %d tier3, %d synonym sets",
         config_path,
         len(_cached_config.low_credibility_domains),
-        len(_cached_config.blocked_domains),
         len(_cached_config.tier1_domains),
         len(_cached_config.tier2_domains),
         len(_cached_config.tier3_domains),

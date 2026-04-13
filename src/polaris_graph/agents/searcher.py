@@ -1413,7 +1413,13 @@ async def _fetch_top_pages(
     Returns list of {"url", "title", "content"} dicts.
     """
     from src.tools.access_bypass import AccessBypass
-    from src.polaris_graph.agents.analyzer import _is_blocked_source
+    from src.polaris_graph.agents.analyzer import _get_domain_authority
+
+    # Authority gate threshold for pre-fetch filtering. Replaces the old
+    # _is_blocked_source check (removed 2026-04-12). Sources scoring below
+    # this are skipped before any fetch attempt. Set permissively (0.3) —
+    # synthesis stage gates stricter downstream.
+    _auth_gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
 
     # Select candidate URLs
     candidates = []
@@ -1421,7 +1427,7 @@ async def _fetch_top_pages(
         url = r.get("url", "")
         if not url or url in already_fetched:
             continue
-        if _is_blocked_source(url):
+        if _get_domain_authority(url) < _auth_gate:
             continue
         candidates.append({"url": url, "title": r.get("title", "")})
         if len(candidates) >= max_pages:
