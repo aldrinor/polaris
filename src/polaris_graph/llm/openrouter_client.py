@@ -1615,9 +1615,21 @@ class OpenRouterClient:
         # Qwen3.5-Plus supports strict schema enforcement. Gate behind
         # PG_STRICT_JSON_SCHEMA (default "1") for backwards compatibility.
         # When reasoning is enabled, skip — thinking + json_schema are incompatible.
+        #
+        # FIX-GLM5-STRUCTURED (2026-04-12): For models in _ALWAYS_REASON_MODELS,
+        # reasoning is forced ON by _call() regardless of this parameter. Without
+        # this check, GLM 5.1 receives BOTH response_format=json_schema strict:true
+        # AND reasoning=enabled, which causes complex-schema calls (StormOutlinePlan,
+        # SourceAnalysisBatch, ReportOutline) to dump 17K+ chars of prose into
+        # reasoning_content with content="" (empty). Symptom in PG_TEST_090 trace:
+        # "Content empty for structured:StormOutlinePlan, reasoning has 17958 chars".
+        # The fix makes generate_structured aware that these models always reason,
+        # so it skips response_format and uses prompt-based JSON extraction (which
+        # works because the prompt's json_hint instructs JSON-only output).
         response_format = None
         strict_schema_enabled = os.getenv("PG_STRICT_JSON_SCHEMA", "1") == "1"
-        if not reasoning_enabled and strict_schema_enabled:
+        _effective_reasoning = reasoning_enabled or (self.model in _ALWAYS_REASON_MODELS)
+        if not _effective_reasoning and strict_schema_enabled:
             try:
                 json_schema = schema.model_json_schema()
                 response_format = {
