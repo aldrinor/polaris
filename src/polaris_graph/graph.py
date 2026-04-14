@@ -1534,14 +1534,24 @@ async def build_and_run(
 
     if result.get("quality_metrics"):
         qm = result["quality_metrics"]
+        # S6/D2: faithfulness_score lives at top-level state, not inside
+        # quality_metrics dict. Previous code read qm.get() which returned 0
+        # when only top-level had the value, showing "faithfulness=0.0%" in
+        # logs while actual state.faithfulness_score = 1.0.
+        faith = qm.get("faithfulness_score")
+        if faith is None:
+            faith = result.get("faithfulness_score", 0)
+        cov = qm.get("coverage_score")
+        if cov is None:
+            cov = result.get("coverage_score", 0)
         logger.info(
             "[polaris graph] Quality: %d words, %d citations, %d sources, "
             "faithfulness=%.1f%%, coverage=%.1f%%",
             qm.get("total_words", 0),
             qm.get("total_citations", 0),
             qm.get("unique_sources", 0),
-            max(qm.get("faithfulness_score", 0), 0) * 100,
-            qm.get("coverage_score", 0) * 100,
+            max(faith or 0, 0) * 100,
+            (cov or 0) * 100,
         )
 
     if result.get("llm_usage"):

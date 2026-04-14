@@ -838,7 +838,9 @@ class AutomatedDeepAudit:
         Examines evidence_chain and bibliography entries for the presence of
         valid source URLs.
         """
-        evidence_chain = state.get("evidence_chain", [])
+        # S6: Compatibility — wiki path writes `evidence`, other paths write
+        # `evidence_chain`. Read both; take whichever is non-empty.
+        evidence_chain = state.get("evidence_chain") or state.get("evidence", [])
         bibliography = state.get("bibliography", [])
 
         # FIX-245: Parse evidence entries regardless of format
@@ -918,10 +920,16 @@ class AutomatedDeepAudit:
     ) -> Dict[str, Any]:
         """Count unique perspectives and measure balance across evidence.
 
-        Reads ``perspective_origins`` from evidence entries and, if available,
-        the ``perspective_coverage`` summary from state.
+        Reads ``perspective_origins`` (legacy) OR ``perspective`` (current)
+        from evidence entries and, if available, the ``perspective_coverage``
+        summary from state.
+
+        S6: Two field drifts fixed — `evidence_chain` vs `evidence` (wiki path
+        writes the latter) and `perspective_origins` vs `perspective` (current
+        analyzer writes singular field). Reads both; takes whichever non-empty.
         """
-        evidence_chain = state.get("evidence_chain", [])
+        # S6: Compatibility layer — read both state keys
+        evidence_chain = state.get("evidence_chain") or state.get("evidence", [])
 
         # Collect all perspective origins
         perspective_counts: Dict[str, int] = {}
@@ -931,7 +939,9 @@ class AutomatedDeepAudit:
         for ev in evidence_chain:
             # FIX-245: Parse evidence entries regardless of format
             ev_dict = self._parse_evidence_entry(ev)
-            origins = ev_dict.get("perspective_origins", [])
+            # S6: read both legacy `perspective_origins` (list) and current
+            # `perspective` (string). Normalize to list.
+            origins = ev_dict.get("perspective_origins") or ev_dict.get("perspective", [])
             if isinstance(origins, str):
                 origins = [origins] if origins.strip() else []
 
