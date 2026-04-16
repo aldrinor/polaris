@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -57,12 +58,22 @@ class PipelineTracer:
 
     def __init__(self, vector_id: str, output_dir: str = "logs"):
         self.vector_id = vector_id
+        # W3.3: session_id disambiguates events when multiple runs append to
+        # the same pg_trace_{vector_id}.jsonl. Readers can filter by sid to
+        # isolate a single pipeline execution.
+        self.session_id = uuid.uuid4().hex[:12]
         self._events: list[TraceEvent] = []
         self._node_timers: dict[str, float] = {}
         self._path = Path(output_dir) / f"pg_trace_{vector_id}.jsonl"
         self._path.parent.mkdir(parents=True, exist_ok=True)
         _current_vector_id.set(vector_id)
         _current_tracer.set(self)
+        # Mark the start of this session so a new file section is parseable.
+        self._emit(
+            event_type="session_start",
+            node="pipeline",
+            data={"session_id": self.session_id},
+        )
 
     def node_start(self, node: str, **data: Any) -> None:
         """Record node entry."""
@@ -222,6 +233,9 @@ class PipelineTracer:
                 f.write(json.dumps({
                     "ts": event.timestamp,
                     "vid": event.vector_id,
+                    # W3.3: tag every event with the session_id so readers
+                    # can filter to a single pipeline run in a shared trace.
+                    "sid": self.session_id,
                     "node": event.node,
                     "type": event.event_type,
                     **event.data,

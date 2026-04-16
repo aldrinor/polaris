@@ -1099,6 +1099,23 @@ Each claim was extracted from its cited source by an AI system.
                         "claim %d verdict=SUPPORTED but nli_score=%.3f < %.2f",
                         i + 1, _ev_nli, _nli_faith_threshold,
                     )
+                # W3.1: Require NLI score to mark faithful when NLI is
+                # globally enabled. Default is tied to PG_NLI_ENABLED so a
+                # deployment running NLI can't accidentally rubber-stamp
+                # claims that NLI never looked at. Override via the explicit
+                # PG_REQUIRE_NLI_FOR_FAITHFUL env var.
+                _nli_globally_on = os.getenv("PG_NLI_ENABLED", "0") == "1"
+                _require_nli_default = "1" if _nli_globally_on else "0"
+                _require_nli = os.getenv(
+                    "PG_REQUIRE_NLI_FOR_FAITHFUL", _require_nli_default
+                ) == "1"
+                if is_faithful and _require_nli and _ev_nli is None:
+                    is_faithful = False
+                    logger.debug(
+                        "[polaris graph] W3.1: NLI required but claim %d "
+                        "has no NLI score — downgrading is_faithful=False",
+                        i + 1,
+                    )
                 method = (
                     "partial" if verification.verdict == "PARTIALLY_SUPPORTED"
                     else "not_supported" if verification.verdict == "NOT_SUPPORTED"

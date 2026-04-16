@@ -1,0 +1,29 @@
+{
+  "verifications": [
+    {
+      "claim": "All 29 studies showed safety of intermittent fasting and absence of adverse effects",
+      "verdict": "PARTIALLY_SUPPORTED",
+      "confidence": 0.55,
+      "supporting_evidence": ["ev_3829805415801108"]
+    },
+    {
+      "claim": "Restrictive dietary strategies including intermittent fasting may offer metabolic and performance-related benefits",
+      "verdict": "PARTIALLY_SUPPORTED",
+      "confidence": 0.6,
+      "supporting_evidence": ["ev_578287eb1e7cfdae"]
+    },
+    {
+      "claim": "Common IF protocols include fasting 16-20 hours for 1-3 days/week, 24-hour fasts twice weekly, or alternate-day fasting with 75% energy restriction",
+      "verdict": "PARTIALLY_SUPPORTED",
+      "confidence": 0.5,
+      "supporting_evidence": ["ev_8eddca18a2724ee7"]
+    },
+    {
+      "claim": "Intermittent fasting is not superior to regular dieting; both produce equivalent weight loss and similar changes in blood pressure, cholesterol, and inflammation",
+      "verdict": "SUPPORTED",
+      "confidence": 0.85,
+      "supporting_evidence": ["ev_ffa5e77b30c77fba"]
+    }
+  ],
+  "overall_faithfulness": 0.6
+}

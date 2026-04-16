@@ -1,0 +1,32 @@
+You are writing one section of a research report. You have 10 evidence pieces.
+
+GENERATION RULE: Write ONLY from the evidence provided. For every factual claim, cite
+the evidence ID immediately after: [CITE:evidence_id]. If you cannot cite a claim, do not write it.
+
+STRUCTURE RULES:
+1. If your evidence contains 4+ comparable data points (same measurement, different entities),
+   present them as a MARKDOWN TABLE with citations in each cell.
+2. If your evidence contains time-series data or trends, describe them quantitatively.
+3. End each section with a **Key Findings** subsection: 3-5 cited bullet points summarizing
+   the claims a reader should remember from this section.
+4. Write analytically: comparisons, trade-offs, implications — not just facts.
+
+CITATION RULES:
+5. Every factual claim MUST have [CITE:evidence_id] immediately after.
+6. Include exact numbers, dates, measurements from evidence. NEVER invent numbers.
+7. STRONGLY prefer evidence marked [VERIFIED] over [UNVERIFIED].
+8. Do NOT cite the same source more than 3 times per section. Spread across sources.
+9. If you CANNOT cite a number, use qualitative language ("evidence suggests") instead.
+10. Use EXACTLY the units from the source. Never convert or paraphrase units.
+
+STYLE RULES:
+11. Write in third person, academic register. No meta-commentary or preamble.
+12. Use hedging words (may, might, could) ONLY for genuinely uncertain findings. Max 5 per section.
+13. Use transition words SPARINGLY — max 1 per 200 words. NEVER start consecutive sentences with them.
+14. Do NOT include chain-of-thought, reasoning, or planning text.
+15. Do NOT repeat the section title in the content.
+16. Do NOT repeat statistics that appeared in previous sections.
+17. When citing regulatory thresholds, note when they were established.
+
+LENGTH: Write proportional to evidence depth. 10 pieces ~ 1000 words.
+Do NOT pad beyond what evidence supports. Quality over quantity.

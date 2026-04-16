@@ -30,6 +30,12 @@ MAX_ACADEMIC_PAGES = int(os.getenv("PG_MAX_ACADEMIC_PAGES", "5"))
 # Quality gates
 MIN_EVIDENCE_COUNT = int(os.getenv("PG_MIN_EVIDENCE_COUNT", "20"))
 MIN_FAITHFULNESS = float(os.getenv("PG_MIN_FAITHFULNESS", "0.70"))
+# W3.2: Iteration-decision threshold is stricter than the final quality gate.
+# If faithfulness is between MIN_FAITHFULNESS and CONVERGENCE_MIN_FAITHFULNESS
+# we keep iterating; the final gate still uses MIN_FAITHFULNESS.
+CONVERGENCE_MIN_FAITHFULNESS = float(
+    os.getenv("PG_CONVERGENCE_MIN_FAITHFULNESS", "0.80")
+)
 MAX_ITERATIONS = int(os.getenv("PG_MAX_ITERATIONS", "3"))
 MAX_EXECUTION_MINUTES = int(os.getenv("PG_MAX_EXECUTION_MINUTES", "60"))
 

@@ -336,8 +336,10 @@ PG_CROSS_SOURCE_MAX_SOURCES = int(os.getenv("PG_CROSS_SOURCE_MAX_SOURCES", "3"))
 PG_CROSS_SOURCE_SELF_CHECK_MIN = float(os.getenv("PG_CROSS_SOURCE_SELF_CHECK_MIN", "0.7"))
 # BUG-092: Cap cross-source NLI pairs to prevent O(n^2) explosion.
 # Selects top-N pairs by relevance score (embedding similarity) rather than
-# arbitrary truncation. Default 50 (was 500 with blind truncation).
-PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "50"))
+# arbitrary truncation. W3.8: Raised 50→200 after audit showed typical pair
+# counts (171, 139) were dropping ~70% of candidates. With top-N-by-relevance
+# selection, 200 stays well inside latency budget (NLI ~20-30ms/pair on CUDA).
+PG_MAX_CROSS_SOURCE_PAIRS = int(os.getenv("PG_MAX_CROSS_SOURCE_PAIRS", "200"))
 
 
 def _find_independent_sources(

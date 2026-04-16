@@ -612,6 +612,16 @@ def build_graph() -> StateGraph:
                 len(state.get("evidence", [])),
             )
 
+        # D1 (post-PG_TEST_092 audit 2026-04-14, REVERTED after stress test):
+        # Initially added _assign_quality_tiers(evidence) here so sig_grounding
+        # would use real NLI scores instead of the frozen 0.3 default. Offline
+        # stress test on PG_TEST_092 fixture showed this inflates the GOLD
+        # count from 47 -> 113 (27% -> 66%), because the GOLD threshold 0.65
+        # was calibrated assuming sig_grounding=0.3. Promoting 66 SILVER
+        # pieces to GOLD in bulk is worse than leaving 4 borderline pieces
+        # over-tiered. Proper fix is to recalibrate thresholds (future wave)
+        # or use a tier-specific signal weight. Not blocking this run.
+
         # FIX-051b: Return enriched evidence so LangGraph persists mutations.
         # LangGraph only merges keys present in the returned dict into state.
         # Without this, in-place mutations to state["evidence"] are silently lost.
@@ -785,6 +795,33 @@ def build_graph() -> StateGraph:
                         )
             except Exception as exc:
                 logger.debug("[polaris graph] MEM-1b: perspective gap query failed: %s", str(exc)[:200])
+
+        # FIX-ENTROPY: Compute perspective_entropy from evidence perspective tags.
+        # This field was declared in state.py but never populated — always 0.0.
+        try:
+            import math
+            from collections import Counter as _Counter
+            _ev = state.get("evidence", [])
+            _persp_counts = _Counter(
+                e.get("perspective", "Scientific") for e in _ev if e.get("perspective")
+            )
+            _total = sum(_persp_counts.values())
+            if _total > 0 and len(_persp_counts) > 1:
+                _probs = [c / _total for c in _persp_counts.values()]
+                _entropy = -sum(p * math.log2(p) for p in _probs if p > 0)
+                _max_entropy = math.log2(len(_persp_counts))
+                _norm_entropy = round(_entropy / _max_entropy, 3) if _max_entropy > 0 else 0.0
+            else:
+                _norm_entropy = 0.0
+            result["perspective_entropy"] = _norm_entropy
+            logger.info(
+                "[polaris graph] FIX-ENTROPY: perspective_entropy=%.3f "
+                "(%d evidence, %d perspectives: %s)",
+                _norm_entropy, _total, len(_persp_counts),
+                dict(_persp_counts),
+            )
+        except Exception as _ent_exc:
+            logger.debug("[polaris graph] FIX-ENTROPY failed: %s", str(_ent_exc)[:200])
 
         return result
 
@@ -1390,7 +1427,19 @@ async def build_and_run(
             yield None
 
     # Create and inject client (FIX-F2: pass session_id for cost ledger tagging)
-    async with OpenRouterClient(session_id=vector_id) as client:
+    # W3.12: Wire PG_BUDGET_GUARD_USD through to client so cost guard actually fires.
+    # PG_LOOPBACK_MODE=1: route every LLM call to disk for human-in-the-loop testing.
+    if os.getenv("PG_LOOPBACK_MODE", "0") == "1":
+        from src.polaris_graph.llm.loopback_client import LoopbackLLMClient
+        _client_cls = LoopbackLLMClient
+        logger.warning(
+            "[polaris graph] PG_LOOPBACK_MODE=1 — using LoopbackLLMClient. "
+            "Pipeline will write prompts to loopback/pending/ and BLOCK until "
+            "responses appear in loopback/responses/. ZERO OpenRouter cost."
+        )
+    else:
+        _client_cls = OpenRouterClient
+    async with _client_cls(session_id=vector_id, budget_usd=budget_limit) as client:
         graph._pg_client_holder["client"] = client  # type: ignore[attr-defined]
         # D2: Store steer callback for live steering
         graph._pg_client_holder["steer_callback"] = steer_callback  # type: ignore[attr-defined]
@@ -1648,23 +1697,26 @@ async def _run_with_stream(
                                 str(dash_exc)[:100],
                             )
 
-                # FIX-TIMEOUT-V2: Two-tier timeout — warning at 1x, hard stop at 2x.
+                # FIX-TIMEOUT-V2 / W3.12: Two-tier timeout — warning at 1x, hard stop at Nx.
                 # With RC-1 (incremental verify), evidence caps, and per-node timeouts,
                 # the pipeline should complete naturally. The global timeout is now a
                 # safety net, not the primary completion mechanism.
+                # Multiplier is env-controlled so operators can tighten to 1.0 for strict caps.
                 elapsed = time.monotonic() - start_time
+                _hard_stop_mult = max(1.0, float(os.getenv("PG_HARD_STOP_MULTIPLIER", "2.0")))
                 warning_threshold = max_execution_minutes * 60
-                hard_stop_threshold = max_execution_minutes * 60 * 2
+                hard_stop_threshold = max_execution_minutes * 60 * _hard_stop_mult
 
                 if elapsed > warning_threshold and not warned_timeout:
                     warned_timeout = True
                     logger.warning(
                         "[polaris graph] FIX-TIMEOUT-V2: Exceeded %dm budget "
                         "(%.1fs elapsed) — pipeline still running. "
-                        "Hard stop at %dm.",
+                        "Hard stop at %.0fm (multiplier=%.1fx).",
                         max_execution_minutes,
                         elapsed,
-                        max_execution_minutes * 2,
+                        max_execution_minutes * _hard_stop_mult,
+                        _hard_stop_mult,
                     )
 
                 # FIX-5: Periodic resource monitoring (every 5 min).
@@ -1693,10 +1745,12 @@ async def _run_with_stream(
                         )
 
                 if elapsed > hard_stop_threshold:
+                    _hard_stop_minutes = max_execution_minutes * _hard_stop_mult
                     logger.error(
-                        "[polaris graph] FIX-TIMEOUT-V2: Hard stop at %dm "
-                        "(2x budget, %.1fs elapsed) — forcing synthesis",
-                        max_execution_minutes * 2,
+                        "[polaris graph] FIX-TIMEOUT-V2: Hard stop at %.0fm "
+                        "(%.1fx budget, %.1fs elapsed) — forcing synthesis",
+                        _hard_stop_minutes,
+                        _hard_stop_mult,
                         elapsed,
                     )
                     # FIX-TIMEOUT: Synthesize from accumulated evidence instead of
@@ -1711,7 +1765,8 @@ async def _run_with_stream(
                         )
                         result["status"] = "timeout_synthesizing"
                         result["error"] = (
-                            f"Hard stop after {max_execution_minutes * 2}min (2x budget)"
+                            f"Hard stop after {_hard_stop_minutes:.0f}min "
+                            f"({_hard_stop_mult:.1f}x budget)"
                         )
                         synth_result = await _wiki_or_legacy_synthesize(
                             client, result,
@@ -1721,7 +1776,8 @@ async def _run_with_stream(
                     else:
                         result["status"] = "timeout_synthesized"
                         result["error"] = (
-                            f"Hard stop after {max_execution_minutes * 2}min (2x budget)"
+                            f"Hard stop after {_hard_stop_minutes:.0f}min "
+                            f"({_hard_stop_mult:.1f}x budget)"
                         )
                     _hard_stopped = True
                     break

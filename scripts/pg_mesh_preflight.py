@@ -54,7 +54,9 @@ However, RO generates a concentrated reject stream containing 15-25% of the inpu
 Energy consumption for RO treatment averages 3-5 kWh per 1000 gallons, compared to negligible energy requirements for GAC. This energy penalty, combined with higher capital costs, makes RO approximately 2-3 times more expensive than GAC for large-scale municipal deployment."""
 
 MODELS = [
+    ("Qwen 3.5 Plus", "qwen/qwen3.5-plus-02-15"),
     ("GLM 5.1", "z-ai/glm-5.1"),
+    ("Claude Sonnet 4.5", "anthropic/claude-sonnet-4.5"),
 ]
 
 QUESTION = "What are the most effective methods for removing PFAS from drinking water, and how do they compare on cost and performance?"

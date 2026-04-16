@@ -3140,3 +3140,42 @@
 - AFFECTED_FILES: .env, claim_extract.py (rejected_quotes field), preflight script, test_mesh_claim_extract.py (adjusted for PG_MIN_QUOTE_WORDS=5)
 - EVIDENCE: Scale test: 44 claims (27 GOLD + 17 SILVER), 35 entities, 102 edges (60 corr + 42 contra), 3-turn Q&A all IN_SCOPE citing all 5 sources, 7/7 checks PASS. 283/283 unit tests pass.
 
+
+[2026-04-13 Session 58 — PG_TEST_090 full-stack validation SUCCESS]
+- ACTION: Completed 3 code fixes (FIX-GLM5-STRUCTURED, remove analyzer blocklist, remove legacy search_agent blocklist), ran full 16-test smoke suite between each, then launched pg_test_061 end-to-end. Pipeline completed with 100% faithfulness on 76 claims.
+- RATIONALE: Previous run (session 57) suffered StormOutlinePlan structured-empty failure — content="" while reasoning="17958 chars". Root cause: generate_structured() sent response_format=json_schema strict:true for GLM 5.1 even though _call() forces reasoning ON for all _ALWAYS_REASON_MODELS. json_schema + reasoning is incompatible → GLM dumps prose into reasoning_content. Fix: compute _effective_reasoning that ORs the parameter with model membership, gate response_format on it. User then demanded removal of 2 blocklists they had explicitly rejected before — they failed source diversity and are redundant with PageRank/tier authority gate.
+- DOCS/RESEARCH: Internal commit history (74e1bf6 wiki blocklist removal). No external docs needed — all changes mirror established patterns.
+- SYNC: todo_list.md + restart_instructions.md updated to reflect completion of PG_TEST_061 validation.
+- AFFECTED_FILES:
+  - src/polaris_graph/llm/openrouter_client.py (FIX-GLM5-STRUCTURED, commit 4d967e6)
+  - scripts/pg_smoke_glm5_structured.py (new 5-field schema smoke test)
+  - src/polaris_graph/agents/analyzer.py (blocklist removal, commit 9ee62ff)
+  - src/polaris_graph/agents/searcher.py (blocklist call replaced with authority gate)
+  - src/polaris_graph/config_loader.py (blocked_domains field deleted)
+  - config/settings/domain_lists.yaml (13 commerce domains moved to low_credibility)
+  - src/agents/search_agent.py (legacy blocklist removed, commit 4fcade3)
+  - config/settings/search.yaml (blocked_domains section deleted)
+  - tests/{integration,unit}/test_*.py (3 test files updated to new authority-gate API)
+  - scripts/pg_smoke_test.py, scripts/pg_preflight_v2.py (tests renamed/rewritten)
+- EVIDENCE/FINDINGS: PG_TEST_090 full run: 7h 48min (28,076s), $4.73 of $50 budget, 272 LLM calls, 9/9 nodes completed, 13,246-word report, 49 unique citations, 76/76 claims faithful (100%), faithfulness_score=1.0, 2/4 smart-art diagrams generated. Output: outputs/polaris_graph/PG_TEST_090_report.md (100 KB). Full smoke test 16/16 PASS after each of 2 blocklist commits.
+- STATUS: SUCCESS. Report is academically rigorous with real SMD values, 95% CI, p-values from meta-analyses. All session fixes working — no structured-empty failures, no blocklist false negatives, no fallbacks triggered. Known residual issues: (a) PG_MAX_EXECUTION_MINUTES=240 not enforced (ran 7h 48m vs 4h cap), (b) log summary shows faithfulness=0.0% but actual state.faithfulness_score=1.0 (log format bug), (c) 47% batch timeout rate during analyze (391 timeouts on 275 batches), (d) `&` backgrounding in Bash tool causes silent SIGKILL — must use foreground + run_in_background=true.
+- NEXT_STEP: User decides next run — could target (a) enforce budget cap as a real bug fix, (b) investigate analyze batch timeout rate, or (c) launch next research topic with confidence the pipeline is stable.
+
+[2026-04-15 17:30:36]
+- ACTION: PG_LOOPBACK_MIN code-path audit + 3 defect fixes (D1 reason(), D2 Win file-lock race, D3 ref_num URL mismatch)
+- RATIONALE: User ran PG_LOOPBACK_MIN (file-based human-in-the-loop LLM test) to sweep code bugs without OpenRouter cost. Pipeline finished status=complete but quality_gate_result=failed (citations=0<5, zero_cite_sections=6). Advisor directed a code-path coverage audit (not content-quality). Audit found 6 real defects (D1–D6). Three were actionable in-session: D1 LoopbackLLMClient missing reason() method caused silent fallbacks in analyzer.GRADE-PASS and evidence_deepener OP-1/OP-5; D2 Windows file-lock race when pipeline reads loopback/responses/*.json while writer still holds handle, open() raised PermissionError that bubbled to wiki_builder as "Outline generation failed"; D3 wiki_builder.py:454 url_to_ref lookup used raw claim.source_url against dict keys which W3.9 had canonicalized (strip www/trailing-slash), so every claim whose URL had trailing-slash or www. prefix got ref_num=0, then wiki_composer._format_claims_for_prompt silently dropped them via `if statement and ref:`, LLM wrote prose from an empty claims list producing 2920 words with ZERO citations. Traced the bug end-to-end: PG_LOOPBACK_MIN had 3 bib URLs (pmc no-slash, mdpi no-www), 3 claim URLs (pmc with-slash, www.mdpi with-www), all 3 failed lookup, all 3 dropped, 6 sections all zero-citation. This bug is PRODUCTION-CRITICAL (not loopback-specific) and affects every run where bibliography URLs canonicalize differently from claim source URLs, which is the normal case post-W3.9.
+- DOCS/RESEARCH: Reviewed src/polaris_graph/synthesis/citation_mapper.py _canonicalize_url (strips www, trailing /, tracking params); src/polaris_graph/wiki/wiki_builder.py:727 _build_bibliography (stores canonical URLs); src/polaris_graph/llm/openrouter_client.py:1192 reason() signature (prompt, system, schema, effort, max_tokens, timeout, reasoning_max_tokens, reasoning_exclude).
+- SYNC: N/A (defect fixes, no scope change)
+- AFFECTED_FILES:
+  - src/polaris_graph/wiki/wiki_builder.py (D3 fix: canonicalize claim URL before url_to_ref lookup, warn on unmapped count)
+  - src/polaris_graph/wiki/wiki_composer.py (defense-in-depth: _format_claims_for_prompt logs warning instead of silently dropping zero-ref claims)
+  - src/polaris_graph/llm/loopback_client.py (D1 fix: add reason() method matching OpenRouterClient signature; D2 fix: catch PermissionError/OSError on resp file read + retry rename 5x with 0.2s delay)
+- EVIDENCE/FINDINGS:
+  - AST syntax check: 3/3 files parse
+  - Smoke test: (a) LoopbackLLMClient now has reason/generate/generate_structured/validate_reasoning; (b) _format_claims_for_prompt correctly filters ref_num=0 with WARNING logged; (c) D3 simulation — bib ['https://pmc.ncbi.nlm.nih.gov/articles/PMC10253889','https://mdpi.com/2077-0383/12/11/3699'] + raw claim URLs ['https://pmc.ncbi.nlm.nih.gov/articles/PMC10253889/','https://www.mdpi.com/2077-0383/12/11/3699'] → canonical lookup correctly maps to ref_num 1 and 2 (was 0 and 0 pre-fix).
+  - Audit report: logs/pg_trace_PG_LOOPBACK_MIN.jsonl final session sid=23658bebd44b ran 2096.7s, 104 trace events, all 9 nodes (plan, search×3, storm×2, analyze, verify, deepen_evidence, evaluate, synthesize) fired start+end. Wave 3 gates: W3.1 NLI fallback fired, W3.4 perspective coverage fired (blocked by max_iter=1), W3.11 compute_faithfulness fired (7/7=100%), W3.2 convergence not reached (max_iter=1), W3.12 budget not triggered.
+  - Outstanding findings NOT fixed this round: D5 perspective_entropy=0.0 + faithfulness=1.0 on only 7 claims is misleading metric (coverage hole); D6 synthesize/wiki-composer path emits no llm_call trace events (13 trace events vs 26 reported LLM calls in pipeline_end); D7 NRC-5 3/33 analyzer evidence had unverified quotes; D8 5 paywalled PDFs returned 1-char content (expected).
+  - Retracted: D4 budget mismatch was a false finding — I compared session-1 trace ($40) to final-run log ($5); final run was consistent at $5.
+  - 5 of 7 session code fixes from earlier compacted work (analyzer timeout, section_writer/synthesizer/wiki_composer/wiki_builder env timeouts) were NOT exercised by this minimal test — minimal fixture too small to hit timeout paths. Coverage gap, not defect.
+- STATUS: 3 real defects fixed (D1, D2, D3), all syntax-clean and smoke-tested. D3 is production-critical — any run post-W3.9 where a claim's source_url has trailing-slash or www. variation vs the canonical bibliography URL would silently drop the claim and produce zero-citation sections. Not yet end-to-end verified on a full production run.
+- NEXT_STEP: User decides — (a) re-run PG_LOOPBACK_MIN with fixes to confirm citations appear, (b) run a real production test (non-loopback) to confirm D3 fix works in the normal path, or (c) address remaining D5/D6 observability defects.

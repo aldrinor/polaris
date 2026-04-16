@@ -19,11 +19,14 @@ from typing import List, Optional, Literal, Set
 from datetime import datetime, timezone
 from pathlib import Path
 
-# FIX-121: Explicit path and override for environment loading
+# FIX-121: Explicit path for environment loading
 # This ensures .env is loaded correctly regardless of CWD during pipeline execution
+# LOOPBACK-FIX: override=False so pre-set os.environ values (test harnesses,
+# loopback scripts) win over .env defaults. Was override=True which clobbered
+# programmatic overrides set BEFORE import at module-load time.
 from dotenv import load_dotenv
 _SEARCH_AGENT_ENV = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_SEARCH_AGENT_ENV, override=True)
+load_dotenv(_SEARCH_AGENT_ENV, override=False)
 
 import yaml
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -668,9 +671,10 @@ def web_search(
         List of search results with url, title, snippet, score
     """
     # FIX-121: Always ensure dotenv is loaded with explicit path
+    # LOOPBACK-FIX: override=False so programmatic env overrides win.
     from dotenv import load_dotenv
     env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-    load_dotenv(env_path, override=True)
+    load_dotenv(env_path, override=False)
 
     # FIX-121: Clear config cache after reloading dotenv to ensure fresh API keys
     from src.config.core import clear_config_cache

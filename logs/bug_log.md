@@ -1,5 +1,50 @@
 # POLARIS Bug Log
 
+## BUG-WIKI-REF0: wiki_builder url_to_ref lookup broken by W3.9 canonicalization (2026-04-15)
+**Status:** FIXED (commit pending)
+**Severity:** P0 — production-critical, affects every polaris_graph run post-W3.9
+**Source:** PG_LOOPBACK_MIN code-path audit
+
+**Symptom:** wiki-composed reports contain 2920+ words with ZERO [N] citations. quality_gate_result="failed: citations=0<5, zero_cite_sections=6". faithfulness_score=1.0 is misleading — computed on surviving claims, masks the fact that none made it into the prose.
+
+**Root Cause:**
+1. W3.9 changed `_build_bibliography` in wiki_builder.py:727 to canonicalize URLs (`_canonicalize_url` strips `www.`, trailing `/`, tracking params) — good, dedups bibliography.
+2. At wiki_builder.py:451, `url_to_ref = {b["url"]: b["ref_num"] for b in bibliography}` — dict keys are CANONICAL.
+3. Lookup at wiki_builder.py:454 was `claim["ref_num"] = url_to_ref.get(claim.get("source_url", ""), 0)` — uses the RAW claim URL.
+4. Any claim whose source_url differs from the canonical form (trailing `/`, `www.` prefix — the normal case) misses the lookup and gets `ref_num=0`.
+5. wiki_composer._format_claims_for_prompt drops `ref_num=0` claims silently via `if statement and ref:`.
+6. LLM receives empty claims_text, hallucinates 300–500 words per section with no [REF:N] markers.
+7. Composer regex `re.findall(r"\[(\d+)\]", content)` finds 0 citations → quality gate fails.
+
+**Concrete trace (PG_LOOPBACK_MIN):**
+- Bib: `PMC10253889` (no /), `mdpi.com/...` (no www), `PMC12738305` (no /).
+- Claims: `PMC10253889/` (with /), `PMC12738305/` (with /), `www.mdpi.com/...` (with www).
+- All 3 failed lookup → ref_num=0 → dropped from composer prompts for all 6 sections → 0 citations.
+
+**Fix:**
+1. wiki_builder.py:451-467 — canonicalize claim URL via `_canonicalize_url` before `url_to_ref.get`, warn when unmapped_count > 0 with sample keys.
+2. wiki_composer.py _format_claims_for_prompt — logs WARNING when dropping claims due to ref_num=0 or empty statement (defense-in-depth so this class of regression surfaces loudly instead of silently producing zero-citation reports).
+
+**Why prior runs (e.g., PG_TEST_039 with 191 citations) worked:** those runs had bibliography URLs that happened to match the claim source URLs without canonicalization, or used a synthesizer path that predates W3.9. Not yet fully characterized.
+
+## BUG-LOOPBACK-REASON: LoopbackLLMClient missing reason() method (2026-04-15)
+**Status:** FIXED
+**Severity:** P2 — loopback-only, but breaks audit coverage
+**Source:** PG_LOOPBACK_MIN audit
+
+**Symptom:** 3 warnings in loopback run: `'LoopbackLLMClient' object has no attribute 'reason'` from analyzer.GRADE-PASS, evidence_deepener OP-1 (LLM extraction), evidence_deepener OP-5 (mechanism query generation). Those code paths silently fell back to keyword match / skip, so audit coverage for those paths was lost.
+
+**Fix:** Added `reason()` method to LoopbackLLMClient matching OpenRouterClient.reason() signature (prompt, system, schema, effort, max_tokens, timeout, reasoning_max_tokens, reasoning_exclude). Routes through `_loopback_call` with `call_type="reason"` or `"reason:SchemaName"`.
+
+## BUG-LOOPBACK-WINRACE: Windows file-lock race reading loopback/responses/*.json (2026-04-15)
+**Status:** FIXED
+**Severity:** P2 — loopback-only on Windows
+**Source:** PG_LOOPBACK_MIN audit
+
+**Symptom:** `[wiki] Outline generation failed: [Errno 13] Permission denied: 'loopback\\responses\\resp_b42a3d58ae93.json'`. Pipeline's `open(resp_path)` raced with operator's writer; on Windows EACCES propagated up and wiki_builder fell back to standard 8-section outline via FIX-311.
+
+**Fix:** `_loopback_call` now catches `PermissionError` and `OSError` on response-file read (in addition to `JSONDecodeError`) and keeps polling. Rename-to-done also retries 5× with 0.2s backoff before warning.
+
 ## BUG-PHANTOM: Phantom Citations Survive in Retry/Appended Sections (2026-03-22)
 **Status:** FIXED (Bug-1, commit 3154f00)
 **Severity:** P2 (3 phantom citations in DVS output, Axis 5 penalty)
@@ -1340,3 +1385,59 @@ auditor_revision_count: int
 **Workaround:** Searches completed via other methods (academic, web fallback).
 
 **Fix Required:** Implement proper async handling in SerperClient.
+
+## BUG-240CAP: PG_MAX_EXECUTION_MINUTES not enforced (2026-04-13)
+**Status:** OPEN — low priority (doesn't break runs, but cap is advisory)
+**Severity:** P3 (runs complete anyway, but budget governance is broken)
+**Source:** PG_TEST_090 session 58
+
+**Evidence:** PG_MAX_EXECUTION_MINUTES=240 in .env. PG_TEST_090 completed at `FIX-5: Resource snapshot at 468m` (468 min = 7h 48min wall time). Pipeline ran 95% past its cap without halt. Exit code 0, report produced, no error, no warning about cap exceeded.
+
+**Hypothesis:** Either the time-budget check compares against a different variable, fires only between specific nodes (not within analyze/verify/synthesize inner loops), or the check logic is dead code. Need to grep for PG_MAX_EXECUTION_MINUTES usage in graph.py / graph_v2.py to confirm.
+
+**Impact:** Budget governance is advisory only. For production, we can't trust the cap to stop a runaway run. User could set cap at 60min, run still goes 4h+. Cost cap (PG_BUDGET_GUARD_USD=10.0) is the only real brake.
+
+---
+
+## BUG-FAITHLOG: Pipeline summary log shows faithfulness=0.0% when actual=1.0 (2026-04-13)
+**Status:** OPEN — log display only, data is correct
+**Severity:** P4 (cosmetic)
+**Source:** PG_TEST_090 session 58
+
+**Evidence:** Final pipeline line: `[polaris graph] Quality: 12052 words, 78 citations, 49 sources, faithfulness=0.0%, coverage=0.0%`. But `outputs/polaris_graph/PG_TEST_090.json` has `faithfulness_score: 1.0` and all 76/76 claims marked `is_faithful=True`.
+
+**Impact:** Misleading logs. I initially reported "zero faithfulness" to the user based on this log line before checking the JSON. User wasted ~5 min worrying about report quality.
+
+**Fix location (TBD):** Likely graph.py near "Pipeline complete in" / "Quality:" log format. Check how faithfulness_score and coverage_score are extracted from state dict.
+
+---
+
+## BUG-BATCHTIMEOUT: 47% batch timeout rate during analyze on GLM 5.1 (2026-04-13)
+**Status:** OPEN — production-impacting, worth investigating
+**Severity:** P2 (tripled run time, may be API-side or client-side)
+**Source:** PG_TEST_090 session 58
+
+**Evidence:** 391 "Batch X/275 timed out after 120s" warnings across 275 SourceAnalysisBatch calls. Each timeout triggered a retry (FIX-A1 code path). All retries eventually succeeded (run completed cleanly), but total analyze time was roughly 3x expected.
+
+**Hypotheses:**
+1. OpenRouter rate-limiting GLM 5.1 in bursts — 120s timeout is too tight for when we exceed their per-minute ceiling
+2. GLM 5.1 reasoning tokens inflate response time for complex analyze prompts (multi-source content, 4K+ token outputs)
+3. Our concurrency (default 5) is too aggressive for GLM 5.1 — serialization via semaphore helps but not enough
+4. Our 120s timeout is just too tight for GLM 5.1 at all, regardless of rate limits
+
+**Investigation targets:**
+- Distribution of per-batch latency (p50, p95, p99) from log
+- Whether timeouts cluster in time (rate-limit window) or distribute uniformly (slow model)
+- Whether other GLM 5.1 call sites (StormAnswer, StormQuestion) show similar timeout rate
+
+---
+
+## BUG-BASH-BACKGROUND: `&` in Bash tool causes silent SIGKILL (2026-04-13, infrastructure)
+**Status:** KNOWN — behavioral, not a bug in POLARIS code
+**Severity:** P1 operationally — cost us ~10 hours across run #2 (23:54 → 00:13 killed, then 10 min relaunch that also died at 00:13)
+**Source:** Session 58
+
+**Evidence:** Launched `python -u -m scripts.pg_test_061 ... &` inside a Bash tool call with `run_in_background=true`. Python was backgrounded inside bash, the shell task immediately exited (exit 0), orphaning python. At some later point python was SIGKILL'd with no traceback. Log terminated mid-content-fetch at 00:13:18 with no crash signature. Run #4 using foreground pattern (`python -u ... | tee log` without `&` + run_in_background=true) ran cleanly for 7h 48min to completion.
+
+**Lesson (codified in memory):** NEVER use `&` to background a long-running task inside a Bash tool call. Use `run_in_background=true` on the Bash tool itself with the command in foreground. The Bash tool's task lifecycle keeps the subprocess alive; `&` disowns it.
+

@@ -1,5 +1,38 @@
 # Restart Instructions
 
+## Current State (2026-04-15) — PG_LOOPBACK_MIN AUDIT + 3 DEFECT FIXES
+
+**Branch:** `PL`
+
+**Uncommitted changes (from this session + prior uncommitted W3.9 work):**
+- `src/polaris_graph/wiki/wiki_builder.py` — **D3 FIX (production-critical)**: `build_wiki()` now canonicalizes `claim.source_url` via `_canonicalize_url` before the `url_to_ref` lookup at line ~451. Without this, every claim whose URL had trailing-slash or www. variation vs the canonical bibliography URL got `ref_num=0` and was silently dropped by wiki_composer → zero-citation reports. Also fixed fragile `url_to_evidence_ids.get(url, ...)` → `.get(canonical, ...)` at line ~800.
+- `src/polaris_graph/wiki/wiki_composer.py` — Defense-in-depth: `_format_claims_for_prompt` now logs a WARNING when dropping ref_num=0 or empty-statement claims (was silent).
+- `src/polaris_graph/llm/loopback_client.py` — **D1 FIX**: added `reason()` method matching OpenRouterClient signature; **D2 FIX**: catches `PermissionError`/`OSError` on response-file read (Windows file-lock race) and retries rename-to-done 5x with 0.2s backoff.
+- Plus prior uncommitted work: Tier 3.5 env fixes, load_dotenv override=False in src/__init__.py and src/agents/search_agent.py, hardcoded timeouts → env-controlled in analyzer/section_writer/synthesizer/wiki_composer/wiki_builder.
+
+**Last committed HEAD: `3b17932`** — PL: S6 (audit field alignment) + E4 empirical confirmation
+
+**Session deliverables:**
+- Audit report: 9/9 pipeline nodes fired, W3.1/W3.4/W3.11 gates fired, 3 real defects fixed (D1, D2, D3), 1 retracted (D4 budget mismatch was a cross-session false positive), 2 observability findings unfixed (D5 misleading faithfulness metric, D6 synthesize/wiki llm_call trace gap)
+- Smoke test: 3 fixes verified — LoopbackLLMClient has reason/generate/generate_structured/validate_reasoning; _format_claims_for_prompt warns on ref_num=0; D3 simulation maps PMC trailing-slash + www.mdpi URLs correctly to ref_num 1 and 2 (was 0 and 0 pre-fix)
+
+## NEXT SESSION — Verify D3 fix end-to-end
+
+**Primary task:** Re-run the pipeline (loopback OR real) and confirm `quality_metrics.total_citations > 0` and `zero_cite_sections == 0`.
+
+**Recommended sequence:**
+1. Check that the 3 audit artifacts haven't been clobbered: `logs/pg_trace_PG_LOOPBACK_MIN.jsonl`, `logs/pg_loopback_minimal_stdout.log`, `outputs/polaris_graph/PG_LOOPBACK_MIN.json`
+2. Rerun PG_LOOPBACK_MIN via `python scripts/pg_loopback_minimal.py` — should now produce non-zero citations
+3. If loopback pass, run a real production test (a single vector, budget $5, no loopback) to confirm D3 fix works in the committed path
+4. Commit the fixes once both passes
+
+**What to watch for:**
+- New `[wiki] N claims failed URL→ref_num lookup` warning — should NOT appear; if it does, D3 fix is incomplete
+- `[wiki-compose] _format_claims_for_prompt dropped N claims` — should NOT appear; defense-in-depth log
+- `quality_gate_result` — should be "passed" or "failed: words=...<2000" but NOT "citations=0<5"
+
+---
+
 ## Current State (2026-04-12) — Wiki Mesh ALL 10 UNITS COMPLETE
 
 **Branch:** `PL`

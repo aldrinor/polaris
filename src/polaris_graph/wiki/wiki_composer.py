@@ -24,6 +24,8 @@ MAX_CLAIMS_PER_SECTION = int(os.getenv("PG_WIKI_MAX_CLAIMS_PER_SECTION", "20"))
 THIN_SECTION_THRESHOLD = int(os.getenv("PG_WIKI_THIN_THRESHOLD", "5"))
 TARGET_WORDS_DEFAULT = int(os.getenv("PG_WIKI_TARGET_WORDS", "1200"))
 COMPOSE_TIMEOUT = int(os.getenv("PG_WIKI_COMPOSE_TIMEOUT", "120"))
+COMPOSE_MAX_TOKENS = int(os.getenv("PG_WIKI_COMPOSE_MAX_TOKENS", "8192"))
+ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
 
 # 5-lens analytical scaffold (from v3 react_agent.py)
 # Adds structural depth to section composition: Evidence/Mechanism/
@@ -79,6 +81,24 @@ ABSOLUTE RULES:
 1. Write ONLY from the CLAIMS provided below. Do NOT add facts, statistics, or findings not in the claims.
 2. Every factual statement MUST include its [REF:N] citation from the claims.
 3. Interpretive commentary ("Taken together...", "These findings indicate...") is allowed WITHOUT citations — but NEVER introduce new factual claims uncited.
+
+FIX-HALLUC-1 — ABSOLUTE HALLUCINATION BAN (wiki composer):
+Use ONLY the CLAIMS provided. Do NOT pull from training knowledge, do NOT recall studies,
+papers, PMIDs, author names, sample sizes, regulatory bodies, or quoted expert reactions
+unless the specific fact is present in one of the CLAIMS and tagged with a [REF:N] marker.
+Under NO circumstance may the prose invent or recall: PMIDs, DOIs, author names (e.g.,
+"Zhong et al.", "Manoogian"), sample sizes (e.g., "20,078 adults"), follow-up durations,
+percent risk ratios (e.g., "91%"), study locations, cohort names, regulatory agency positions
+(FDA/EFSA/EMA/FTC/Health Canada), media outlets (e.g., "Science Media Centre"), or expert
+critiques — unless the specific fact comes from a CLAIM with a [REF:N] marker. If the prose
+needs such a fact and no claim supports it, write a neutral qualitative sentence without
+specifics (e.g., "observational data have raised long-term safety questions") rather than
+fabricating a number or proper noun. Sections containing uncited specific numbers or
+uncited named entities WILL BE REJECTED by the post-synthesis audit.
+
+FORWARD-PROMISE RULE (wiki composer): Do NOT enumerate topics the review "will cover"
+unless subsequent sections in the claim set actually cover them. Do not introduce axes,
+frameworks, or specific studies that are not anchored in the provided CLAIMS.
 4. Write in third person, academic register. No first person.
 5. Include a **Key Findings** section at the end with 3-5 bullet points summarizing the most important claims, each with [REF:N] citations.
 6. Generate comparison TABLES (markdown) when claims compare two or more interventions or outcomes.
@@ -133,15 +153,33 @@ def _load_prompt_fragment(section_title: str) -> str:
 def _format_claims_for_prompt(claims: list[dict]) -> str:
     """Format claims as numbered input for the LLM."""
     lines = []
+    dropped_no_ref = 0
+    dropped_no_statement = 0
     for claim in claims:
         ref = claim.get("ref_num", 0)
         statement = claim.get("statement", "")
         quote = claim.get("direct_quote", "")
 
-        if statement and ref:
-            lines.append(f"CLAIM [REF:{ref}]: {statement}")
-            if quote and quote.lower() != statement.lower():
-                lines.append(f"  QUOTE: \"{quote[:200]}\"")
+        if not statement:
+            dropped_no_statement += 1
+            continue
+        if not ref:
+            # Was previously silent. Loud now so upstream url_to_ref
+            # mismatches surface as a warning rather than a zero-citation
+            # section with hallucinated prose.
+            dropped_no_ref += 1
+            continue
+        lines.append(f"CLAIM [REF:{ref}]: {statement}")
+        if quote and quote.lower() != statement.lower():
+            lines.append(f"  QUOTE: \"{quote[:200]}\"")
+
+    if dropped_no_ref or dropped_no_statement:
+        logger.warning(
+            "[wiki-compose] _format_claims_for_prompt dropped %d claims: "
+            "%d without ref_num, %d without statement (of %d total)",
+            dropped_no_ref + dropped_no_statement,
+            dropped_no_ref, dropped_no_statement, len(claims),
+        )
 
     return "\n".join(lines)
 
@@ -155,6 +193,7 @@ async def _compose_one_section(
     total_sections: int,
     prev_summaries: str,
     query: str,
+    unsupported_spans: list[str] | None = None,
 ) -> str:
     """Compose one report section from pre-cited claims."""
     # Sort by relevance (best evidence first)
@@ -215,12 +254,28 @@ async def _compose_one_section(
                 f"citation.\n"
             )
 
+    # FIX-HALLUC-REMEDIATE: When rewriting a flagged section, inject the
+    # specific unsupported spans so the LLM knows what to avoid.
+    remediation_block = ""
+    if unsupported_spans:
+        span_list = "\n".join(f"  - {s}" for s in unsupported_spans[:10])
+        remediation_block = (
+            f"\nREMEDIATION — REWRITE MODE: A prior draft of this section was audited "
+            f"by an NLI hallucination detector and the following sentences were flagged "
+            f"as UNSUPPORTED by the provided claims:\n{span_list}\n\n"
+            f"Do NOT include these sentences or similar unsupported claims in your "
+            f"rewrite. Write ONLY from the CLAIMS below. If a topic cannot be "
+            f"substantiated by a claim, omit it entirely rather than stating it "
+            f"without a [REF:N] citation.\n"
+        )
+
     prompt = (
         f"Write section {section_order}/{total_sections}: \"{section_title}\"\n"
         f"of a systematic review answering: \"{query}\"\n"
         f"\nSection focus: {section_description}\n"
         f"{thin_note}"
         f"{domain_fragment}"
+        f"{remediation_block}"
         f"{prev_block}"
         f"{transition_directive}"
         f"\nCLAIMS (use ONLY these, cite with [REF:N]):\n"
@@ -234,9 +289,10 @@ async def _compose_one_section(
     result = await client.generate(
         prompt=prompt,
         system=COMPOSE_SYSTEM,
-        max_tokens=4096,
+        max_tokens=COMPOSE_MAX_TOKENS,
         temperature=0.3,
         timeout=COMPOSE_TIMEOUT,
+        reasoning_exclude=True,
     )
 
     return result.content
@@ -408,6 +464,17 @@ async def compose_from_wiki(
     gold_count = sum(1 for e in all_evidence if e.get("quality_tier") == "GOLD")
     silver_count = sum(1 for e in all_evidence if e.get("quality_tier") == "SILVER")
 
+    # W3.11: Use the canonical faithfulness helper so state.faithfulness_score
+    # and quality_metrics.faithfulness_score stay in sync. Computed from the
+    # actual claims assigned into wiki sections — same definition both paths
+    # use. The earlier -1.0 sentinel was a "G-Eval does it externally" stub
+    # but in practice callers treated it as a bug (dual source of truth).
+    from src.polaris_graph.agents.synthesizer import compute_faithfulness
+    _wiki_claims = [
+        c for cl in wiki_result.section_claims.values() for c in cl
+    ]
+    _wiki_faith = compute_faithfulness(_wiki_claims)
+
     quality = {
         "total_words": total_words,
         "total_sections": len(sections),
@@ -417,7 +484,7 @@ async def compose_from_wiki(
         "gold_evidence": gold_count,
         "silver_evidence": silver_count,
         "bronze_evidence": len(all_evidence) - gold_count - silver_count,
-        "faithfulness_score": -1.0,  # G-Eval computes this externally
+        "faithfulness_score": _wiki_faith,
         "avg_citations_per_section": (
             total_citations / max(len(sections), 1)
         ),
@@ -486,6 +553,133 @@ async def compose_from_wiki(
         total_words, total_citations, unique_sources, gate_result,
     )
 
+    # FIX-HALLUC-WIKI-WIRE: Run post-synthesis hallucination audit on composed
+    # sections. The detector was previously only wired to synthesizer.py, so
+    # wiki-composed reports went unchecked regardless of the env flag.
+    hallucination_audit: list[dict] = []
+    try:
+        from src.polaris_graph.agents.hallucination_detector import (
+            audit_sections_for_hallucination,
+            _is_enabled as _halluc_enabled,
+        )
+        if _halluc_enabled():
+            audit_sections = [
+                {
+                    "section_id": s.get("section_id", ""),
+                    "title": s.get("title", ""),
+                    "content": s.get("content", ""),
+                    "evidence_ids": s.get("evidence_ids", []),
+                }
+                for s in sections
+            ]
+            hallucination_audit = audit_sections_for_hallucination(
+                sections=audit_sections,
+                evidence=evidence_chain,
+                research_query=query,
+            ) or []
+            if hallucination_audit:
+                flagged = sum(1 for r in hallucination_audit if r.get("needs_rewrite"))
+                avg = sum(r.get("hallucination_ratio", 0) for r in hallucination_audit) / len(hallucination_audit)
+                logger.info(
+                    "[wiki-compose] Hallucination audit: %d sections audited, avg unsupported %.1f%%, %d flagged for rewrite",
+                    len(hallucination_audit), avg * 100, flagged,
+                )
+
+                # FIX-HALLUC-REMEDIATE: Re-compose flagged sections with stricter
+                # anti-hallucination emphasis. The synthesizer.py path has this via
+                # revise_section(); wiki_composer was missing it entirely.
+                if flagged > 0:
+                    flagged_ids = {
+                        r["section_id"]
+                        for r in hallucination_audit
+                        if r.get("needs_rewrite")
+                    }
+                    # Collect the unsupported spans per section for targeted guidance
+                    flagged_spans_map = {}
+                    for r in hallucination_audit:
+                        if r.get("needs_rewrite"):
+                            flagged_spans_map[r["section_id"]] = [
+                                s.get("text", "")[:120]
+                                for s in r.get("hallucinated_spans", [])[:5]
+                            ]
+
+                    rewrite_count = 0
+                    _remediate_timeout = int(os.getenv("PG_SECTION_WRITE_TIMEOUT", "300"))
+                    for i, sec in enumerate(sections):
+                        sid = sec.get("section_id", "")
+                        if sid not in flagged_ids:
+                            continue
+                        # Find matching outline entry and claims
+                        sec_outline = next(
+                            (s for s in outline if s.get("section_id") == sid), None
+                        )
+                        if not sec_outline:
+                            continue
+                        sec_claims = wiki_result.section_claims.get(sid, [])
+                        if not sec_claims:
+                            continue
+                        unsupported_examples = flagged_spans_map.get(sid, [])
+                        logger.info(
+                            "[wiki-compose] REMEDIATE: Re-composing section '%s' "
+                            "(%d unsupported spans flagged)",
+                            sec.get("title", "")[:40],
+                            len(unsupported_examples),
+                        )
+                        try:
+                            import asyncio as _aio
+                            revised_content = await _aio.wait_for(
+                                _compose_one_section(
+                                    client=client,
+                                    section_title=sec.get("title", ""),
+                                    section_description=sec_outline.get("description", ""),
+                                    claims=sec_claims,
+                                    section_order=sec_outline.get("order", i + 1),
+                                    total_sections=len(outline),
+                                    prev_summaries="",
+                                    query=query,
+                                    unsupported_spans=unsupported_examples,
+                                ),
+                                timeout=_remediate_timeout,
+                            )
+                            if revised_content and len(revised_content.split()) >= 50:
+                                sections[i]["content"] = _scrub_cot(revised_content)
+                                rewrite_count += 1
+                                logger.info(
+                                    "[wiki-compose] REMEDIATE: Rewrote '%s' (%d words)",
+                                    sec.get("title", "")[:40],
+                                    len(revised_content.split()),
+                                )
+                        except Exception as _rev_exc:
+                            logger.warning(
+                                "[wiki-compose] REMEDIATE: Rewrite failed for '%s': %s — keeping original",
+                                sec.get("title", "")[:40],
+                                str(_rev_exc)[:200],
+                            )
+                    if rewrite_count > 0:
+                        # Reassemble report with rewritten sections
+                        # Extract abstract from existing report (between "## Abstract" and first section)
+                        import re as _re
+                        _abstract_match = _re.search(
+                            r"## Abstract\s*\n\n(.*?)(?=\n## [^R])", final_report, _re.DOTALL,
+                        )
+                        _abstract_text = _abstract_match.group(1).strip() if _abstract_match else ""
+                        final_report = _assemble_report(
+                            query=query,
+                            abstract=_abstract_text,
+                            sections=sections,
+                            bibliography=wiki_result.bibliography,
+                        )
+                        logger.info(
+                            "[wiki-compose] REMEDIATE: %d/%d flagged sections rewritten",
+                            rewrite_count, flagged,
+                        )
+        else:
+            logger.info("[wiki-compose] Hallucination audit disabled (PG_HALLUCINATION_DETECT_ENABLED=0)")
+    except Exception as _halluc_exc:
+        logger.warning(
+            "[wiki-compose] Hallucination audit failed: %s", str(_halluc_exc)[:200],
+        )
+
     return {
         "section_outline": section_outline,
         "sections": sections,
@@ -501,7 +695,7 @@ async def compose_from_wiki(
         "quality_gate_result": gate_result,
         "section_evidence_map": section_evidence_map,
         "expansion_passes_used": 0,
-        "hallucination_audit": {},
+        "hallucination_audit": hallucination_audit,
         "gap_queries": [],
     }
 
@@ -538,9 +732,10 @@ async def _compose_abstract(
         result = await client.generate(
             prompt=prompt,
             system="You are an academic researcher writing a concise abstract.",
-            max_tokens=1024,
+            max_tokens=ABSTRACT_MAX_TOKENS,
             temperature=0.2,
-            timeout=60,
+            timeout=int(os.getenv("PG_WIKI_ABSTRACT_TIMEOUT", "60")),
+            reasoning_exclude=True,
         )
         abstract = result.content
         # Scrub CoT

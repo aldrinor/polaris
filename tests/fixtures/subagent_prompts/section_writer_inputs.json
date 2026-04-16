@@ -1,0 +1,72 @@
+[
+  {
+    "evidence_id": "ev_749f00cb5c5eea28",
+    "statement": "Intermittent fasting plus exercise significantly decreased body weight compared to control diet plus exercise (WMD = \u20131.83 kg; P = 0.001)",
+    "source_title": "Effects of intermittent fasting combined with physical exercise on cardiometabolic outcomes: systematic review and meta-analysis of clinical studies",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_1ece74de7d460b0e",
+    "statement": "Intermittent fasting plus exercise significantly decreased systolic blood pressure compared to control diet plus exercise (WMD = \u20132.99 mm Hg; P = 0.003)",
+    "source_title": "Effects of intermittent fasting combined with physical exercise on cardiometabolic outcomes: systematic review and meta-analysis of clinical studies",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_39b4891376876856",
+    "statement": "Intermittent fasting plus exercise significantly decreased LDL cholesterol compared to control diet plus exercise (WMD = \u20135.35 mg/dL; P = 0.03)",
+    "source_title": "Effects of intermittent fasting combined with physical exercise on cardiometabolic outcomes: systematic review and meta-analysis of clinical studies",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_e7bdb4797d3f6f0f",
+    "statement": "Modified alternate-day fasting reduced body weight by a mean difference of -5.18 kg (95% CI: -7.04 to -3.32) compared to usual diet, with high certainty of evidence.",
+    "source_title": "Intermittent Fasting for the Prevention of Cardiovascular Disease Risks",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_47ea3711836ebb90",
+    "statement": "Modified alternate-day fasting reduced systolic blood pressure by -7.24 mmHg (95% CI: -11.90 to -2.58) compared to usual diet, with high certainty of evidence.",
+    "source_title": "Intermittent Fasting for the Prevention of Cardiovascular Disease Risks",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_dde1177bb61ef9e9",
+    "statement": "Intermittent fasting has beneficial effects on the lipid profile, is associated with weight loss and modification of abdominal fat distribution in people with obesity and type 2 diabetes, and improves glycemic control.",
+    "source_title": "Intermittent Fasting and the Possible Benefits in Obesity, Diabetes, and Multiple Sclerosis",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_12e3ca8d07d9d3ed",
+    "statement": "This narrative review analyzed over 50 clinical studies comparing intermittent fasting (via alternate day fasting or time-restricted feeding) with caloric restriction",
+    "source_title": "Intermittent Fasting: Myths, Fakes and Truth on This Dietary Regimen Approach",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_243de27dc515c169",
+    "statement": "Intermittent fasting reduced fat mass by a mean difference of \u22120.72 kg compared to a non-intervention diet in overweight or obese adults.",
+    "source_title": "Intermittent fasting and health outcomes: an umbrella review of systematic reviews and meta-analyses of randomised controlled trials - PMC",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_e273c28dab55ecd8",
+    "statement": "Intermittent fasting reduced triacylglycerols (SMD = \u22120.23) compared to a non-intervention diet in adults with overweight or obesity.",
+    "source_title": "Intermittent fasting and health outcomes: an umbrella review of systematic reviews and meta-analyses of randomised controlled trials - PMC",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  },
+  {
+    "evidence_id": "ev_410655e66705beb6",
+    "statement": "Intermittent fasting reduced low-density lipoprotein cholesterol (LDL-C) by a standardized mean difference of \u22120.20 compared to a non-intervention diet in overweight/obese adults.",
+    "source_title": "Intermittent fasting and health outcomes: an umbrella review of systematic reviews and meta-analyses of randomised controlled trials - PMC",
+    "perspective": "Scientific",
+    "quality_tier": "GOLD"
+  }
+]

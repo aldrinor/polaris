@@ -1,0 +1,74 @@
+{
+  "topics": [
+    {
+      "vector_id": "PG_LB_FS_01_health",
+      "query": "What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?",
+      "application": "Evidence-Based Clinical Nutrition",
+      "region": "GLOBAL",
+      "url_pattern_stress": "PMC trailing slash, WHO, systematic reviews"
+    },
+    {
+      "vector_id": "PG_LB_FS_02_materials",
+      "query": "How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?",
+      "application": "Materials Reliability Engineering",
+      "region": "GLOBAL",
+      "url_pattern_stress": "tandfonline, scielo, mdpi, www prefix variations"
+    },
+    {
+      "vector_id": "PG_LB_FS_03_economics",
+      "query": "What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?",
+      "application": "Labor Economics Research",
+      "region": "OECD",
+      "url_pattern_stress": "SSRN abstract_id query params, NBER, RePEc"
+    },
+    {
+      "vector_id": "PG_LB_FS_04_climate",
+      "query": "What are the current best-available estimates of permafrost carbon release under RCP 4.5 and RCP 8.5 scenarios by 2100?",
+      "application": "Climate Science Review",
+      "region": "ARCTIC",
+      "url_pattern_stress": "IPCC, nature.com, science.org, gov domains"
+    },
+    {
+      "vector_id": "PG_LB_FS_05_aiml",
+      "query": "What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?",
+      "application": "AI Safety Research",
+      "region": "GLOBAL",
+      "url_pattern_stress": "arxiv versioned IDs, openreview, github blog, anthropic.com"
+    },
+    {
+      "vector_id": "PG_LB_FS_06_law",
+      "query": "How has the EU Digital Services Act (Regulation 2022/2065) changed large platform moderation obligations since February 2024?",
+      "application": "Technology Law Analysis",
+      "region": "EU",
+      "url_pattern_stress": "EUR-Lex, europa.eu, federal register, ICANN"
+    },
+    {
+      "vector_id": "PG_LB_FS_07_chemistry",
+      "query": "What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?",
+      "application": "Electrocatalysis Research",
+      "region": "GLOBAL",
+      "url_pattern_stress": "ACS pubs (DOI-routed), RSC, wiley-vch, chemrxiv"
+    },
+    {
+      "vector_id": "PG_LB_FS_08_biology",
+      "query": "What molecular mechanisms drive tau protein propagation between neurons in Alzheimer's disease and how do they differ from prion-like spread?",
+      "application": "Neurodegenerative Disease Research",
+      "region": "GLOBAL",
+      "url_pattern_stress": "biorxiv, pmc, cell.com, neuron journal"
+    },
+    {
+      "vector_id": "PG_LB_FS_09_pubhealth",
+      "query": "What public health interventions have demonstrated measurable reductions in childhood obesity prevalence in low- and middle-income countries since 2015?",
+      "application": "Global Public Health Policy",
+      "region": "LMIC",
+      "url_pattern_stress": "WHO, UNICEF, Lancet, BMJ, CDC"
+    },
+    {
+      "vector_id": "PG_LB_FS_10_engineering",
+      "query": "What are the current state-of-the-art approaches to structural health monitoring of aging steel bridges using fiber optic sensing?",
+      "application": "Civil Infrastructure Engineering",
+      "region": "GLOBAL",
+      "url_pattern_stress": "IEEE Xplore, ASCE, Elsevier sciencedirect, construction journals"
+    }
+  ]
+}

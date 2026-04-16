@@ -1,6 +1,37 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-12 (Wiki Mesh ALL 10 UNITS COMPLETE — 283/283 tests)
+**Last Updated**: 2026-04-15 (PG_LOOPBACK_MIN audit — D1/D2/D3 fixed, D3 production-critical)
+
+## Session 59 Top Priorities (2026-04-15)
+
+**COMPLETED THIS SESSION (LOOPBACK AUDIT):**
+- [x] PG_LOOPBACK_MIN code-path coverage audit (5-point: nodes, ERR/WARN, W3 gates, 7 fixes, JSON structure)
+- [x] D3 FIX (production-critical): wiki_builder.py:451 url_to_ref lookup now canonicalizes claim.source_url before lookup — W3.9 canonicalization only touched the bibliography side, leaving the lookup broken and producing zero-citation reports for every run where claim URLs had trailing-slash or www. variations from the canonical bib URL.
+- [x] D3 defense: wiki_composer._format_claims_for_prompt now WARNS when dropping ref_num=0 claims instead of silently producing empty prompts.
+- [x] D1 FIX: Added `reason()` method to LoopbackLLMClient — was causing silent fallbacks in analyzer.GRADE-PASS and evidence_deepener OP-1/OP-5 during loopback tests.
+- [x] D2 FIX: LoopbackLLMClient now catches PermissionError/OSError on response-file read (Windows file-lock race) and retries rename-to-done 5x with 0.2s backoff.
+- [x] Advisor point #2: wiki_builder.py:800 evidence_ids lookup now uses `canonical` directly (was `url` which happens-to-equal-canonical but fragile).
+
+**OPEN ITEMS — needs verification run (P0):**
+- [ ] Re-run PG_LOOPBACK_MIN with D1/D2/D3 fixes to confirm citations appear (target: non-zero `total_citations` in quality_metrics)
+- [ ] Run a real (non-loopback) production test to confirm D3 fix doesn't break the committed path — TEST_039/090 used pre-W3.9 code, so we have no precedent for canonicalized bibliography in production
+
+**OPEN ITEMS (P1 — remaining audit findings not yet fixed):**
+- [ ] D5: faithfulness_score=1.0 on 7 surviving claims is misleading when most sections write 400+ words of uncited prose — add "citation_density_floor" quality gate or re-score faithfulness over total-word-count, not claim-count
+- [ ] D6: synthesize/wiki-composer path emits no llm_call trace events (13 trace events vs 26 reported LLM calls) — observability gap, not a defect
+
+**OPEN ITEMS (P2/P3 — from Session 58, non-blocking):**
+- [ ] BUG-240CAP: PG_MAX_EXECUTION_MINUTES not enforced (ran 468min / 240min cap) — find and fix the time-budget check
+- [ ] BUG-BATCHTIMEOUT: 47% batch timeout rate on GLM 5.1 analyze (391 timeouts / 275 batches) — investigate whether it's API rate limit or client-side 120s timeout too tight
+- [ ] BUG-FAITHLOG: Log summary shows faithfulness=0.0% when state.faithfulness_score=1.0 (graph.py "Quality:" format bug)
+
+**NEW CAPABILITY DEMONSTRATED:**
+- GLM 5.1 + full 11-node pipeline produces academically rigorous reports with 100% claim faithfulness
+- Authority gate (PG_AUTHORITY_GATE=0.3) cleanly replaces hard blocklists across entire polaris_graph path
+- No silent fallbacks triggered during full run
+
+---
+
 **Purpose**: Complete implementation checklist for transforming POLARIS into enterprise-grade AI product.
 **Source Plan**: `docs/wiki_mesh_design.md` (the persistent wiki mesh — 10 advisor fixes integrated)
 **Status Legend**: `[x]` = Done & verified, `[~]` = Partial/untested, `[ ]` = Not started

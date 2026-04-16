@@ -17,9 +17,10 @@ from typing import Any, Dict, List, Optional
 
 # FIX 120: Load dotenv BEFORE anything else to ensure API keys are available
 # This must happen before pydantic settings are instantiated
+# LOOPBACK-FIX: override=False so pre-set os.environ wins over .env defaults.
 from dotenv import load_dotenv
 _ROOT_DIR = Path(__file__).parent.parent.parent
-load_dotenv(_ROOT_DIR / ".env", override=True)
+load_dotenv(_ROOT_DIR / ".env", override=False)
 
 import yaml
 from pydantic import BaseModel, Field

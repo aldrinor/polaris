@@ -30,6 +30,7 @@ from src.polaris_graph.state import (
     ResearchState,
     MIN_EVIDENCE_COUNT,
     MIN_FAITHFULNESS,
+    CONVERGENCE_MIN_FAITHFULNESS,
     MIN_TOTAL_WORDS,
     MIN_CITATIONS,
     MIN_UNIQUE_SOURCES,
@@ -73,6 +74,31 @@ logger = logging.getLogger(__name__)
 # Map-reduce clustering config (LAW VI)
 PG_CLUSTER_BATCH_SIZE = int(os.getenv("PG_CLUSTER_BATCH_SIZE", "100"))
 PG_CLUSTER_MAX_THEMES_BEFORE_MERGE = int(os.getenv("PG_CLUSTER_MAX_THEMES_BEFORE_MERGE", "20"))
+
+
+# ---------------------------------------------------------------------------
+# W3.11 — Single source of truth for faithfulness
+# ---------------------------------------------------------------------------
+# Prior bug: state.faithfulness_score and quality_metrics.faithfulness_score
+# could diverge (e.g. -1.0 sentinel in metrics dict while state held 1.0).
+# Rule: whenever a caller needs a faithfulness number, call this helper with
+# the current claims list. Never read the stale state field directly for
+# computation. The state field is only a display/propagation cache.
+
+def compute_faithfulness(claims: list[dict]) -> float:
+    """Canonical faithfulness = faithful / scorable claims.
+
+    Excludes api_error claims (verification failed ≠ unfaithful).
+    Returns 0.0 when no scorable claims exist (not the -1.0 sentinel, to avoid
+    downstream confusion between "not computed" and "no claims").
+    """
+    if not claims:
+        return 0.0
+    scorable = [c for c in claims if c.get("verification_method") != "api_error"]
+    if not scorable:
+        return 0.0
+    faithful = sum(1 for c in scorable if c.get("is_faithful"))
+    return faithful / len(scorable)
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +543,7 @@ Do NOT include chain-of-thought or planning text."""
         system=system,
         max_tokens=int(os.getenv("PG_OUTLINE_MAX_TOKENS", "2048")),
         temperature=0.5,
+        reasoning_exclude=True,  # S1 (W1.3): prevent CoT leakage into prose
     )
     abstract = response.content.strip()
 
@@ -761,6 +788,7 @@ async def _generate_contradictions_section(
             system=system,
             max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
             temperature=0.7,
+            reasoning_exclude=True,  # S1 (W1.3)
         )
         content_text = response.content.strip()
         if not content_text or len(content_text.split()) < 50:
@@ -1071,7 +1099,7 @@ Rules:
             schema=ReportOutline,
             system=OUTLINE_SYSTEM_PROMPT,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=600,
+            timeout=int(os.getenv("PG_OUTLINE_TIMEOUT", "600")),
         )
         if outline and len(outline.sections) == 0:
             logger.warning("[polaris graph] Phase 2A: Evidence-driven outline returned 0 sections, retrying")
@@ -1816,7 +1844,15 @@ async def synthesize_report(
     evidence = state.get("evidence", [])
     claims = state.get("claims", [])
     query = state["original_query"]
-    faithfulness = state.get("faithfulness_score", 0.0)
+    # W3.11: Use canonical helper instead of reading the potentially stale
+    # state field. If state holds the -1.0 "not computed" sentinel, recompute
+    # from claims so quality_metrics.faithfulness_score can never diverge from
+    # what analyze_gaps will also compute from the same claims.
+    _state_faith = state.get("faithfulness_score", 0.0)
+    if _state_faith is None or _state_faith < 0 or (_state_faith == 0.0 and claims):
+        faithfulness = compute_faithfulness(claims)
+    else:
+        faithfulness = _state_faith
 
     # SOTA-12: Propagate cross-reference corroboration into evidence pieces.
     # The verify node stores cross_reference_groups in state; here we mark
@@ -4333,16 +4369,17 @@ async def analyze_gaps(
     total_evidence = len(evidence)
     gold_count = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
 
-    # BUG-1 FIX: Exclude api_error claims from faithfulness calculation.
-    # api_error means "verification failed" (timeout/network), NOT "unfaithful".
-    # Including them inflates the denominator and deflates the score.
+    # BUG-1 FIX / W3.11: Exclude api_error claims from faithfulness calculation
+    # via the canonical helper. api_error = verification failed (timeout/network),
+    # NOT unfaithful. Keep the local verified_claims list for downstream use
+    # (over-removal guard, not_supported filtering) so behavior is unchanged.
     verified_claims = [
         c for c in claims
         if c.get("verification_method") != "api_error"
     ]
     api_error_count = len(claims) - len(verified_claims)
     faithful_count = sum(1 for c in verified_claims if c.get("is_faithful"))
-    faithfulness = faithful_count / max(len(verified_claims), 1)
+    faithfulness = compute_faithfulness(claims)
     if api_error_count > 0:
         logger.info(
             "[polaris graph] BUG-1 FIX: Excluded %d api_error claims from "
@@ -4445,17 +4482,52 @@ async def analyze_gaps(
                 gold_count = sum(1 for e in evidence if e.get("quality_tier") == "GOLD")
 
     # SF-25: Use configurable thresholds from state.py (LAW VI)
+    # W3.2: Use stricter convergence threshold for the iterate/synthesize
+    # decision. Raises the bar above the final-gate MIN_FAITHFULNESS so a
+    # barely-passing run keeps iterating when iterations remain.
+    # W3.4: Also require a minimum perspective coverage so we don't converge
+    # when we've only cited 4-of-9 STORM perspectives. Counts perspectives
+    # that have ANY evidence — not the _compute_perspective_distribution
+    # helper, which uses a 10%-minimum threshold that's unachievable for
+    # topics with a dominant perspective (e.g. IF/medical: Scientific ~82%,
+    # remaining 8 perspectives share 18%, so only 1/9 can hit 10%).
+    # That definition would force max-iterations on every medical topic.
+    from src.polaris_graph.state import STORM_PERSPECTIVES
+    from collections import Counter as _Counter
+    _faithful_evidence_for_cov = [
+        e for e in evidence
+        if not (isinstance(e, dict) and e.get("is_faithful") is False)
+    ]
+    _persp_counts = _Counter(
+        e.get("perspective", "Unknown") for e in _faithful_evidence_for_cov
+    )
+    _persp_covered = sum(
+        1 for p in STORM_PERSPECTIVES if _persp_counts.get(p, 0) > 0
+    )
+    _underrep = [p for p in STORM_PERSPECTIVES if _persp_counts.get(p, 0) == 0]
+    # Post-PG_TEST_091 replay (2026-04-14): calibrated to 4.
+    # PG_TEST_091 (a successful B- run, faithfulness=1.0) had 5/9 coverage
+    # because medical topics lack Industry/Historical/Regional perspectives.
+    # A default of 6 would have forced PG_TEST_091 into max-iter fallback
+    # despite perfect faithfulness. 4 allows narrow topics through while
+    # still enforcing that at least ~half the STORM angles are represented.
+    _min_persp_coverage = int(os.getenv("PG_MIN_PERSPECTIVE_COVERAGE", "4"))
+    _persp_ok = _persp_covered >= _min_persp_coverage
     if (
         total_evidence >= MIN_EVIDENCE_COUNT
         and gold_count >= MIN_EVIDENCE_COUNT // 3
-        and faithfulness >= MIN_FAITHFULNESS
+        and faithfulness >= CONVERGENCE_MIN_FAITHFULNESS
+        and _persp_ok
     ):
         logger.info(
             "[polaris graph] Evidence sufficient: %d total, %d GOLD, "
-            "%.1f%% faithful — proceeding to synthesis",
+            "%.1f%% faithful (convergence=%.1f%%), perspectives %d/%d — "
+            "proceeding to synthesis",
             total_evidence,
             gold_count,
             faithfulness * 100,
+            CONVERGENCE_MIN_FAITHFULNESS * 100,
+            _persp_covered, len(STORM_PERSPECTIVES),
         )
         return {
             "gaps": [],
@@ -4465,6 +4537,14 @@ async def analyze_gaps(
             "claims": claims,  # FIX-043A: Pass synced claims back to state
             "faithfulness_score": faithfulness,  # FIX-044/Issue5: Propagate recomputed score
         }
+    if not _persp_ok and faithfulness >= CONVERGENCE_MIN_FAITHFULNESS:
+        logger.warning(
+            "[polaris graph] W3.4: faithfulness passes but perspective "
+            "coverage %d/%d < %d — forcing another iteration to widen "
+            "STORM coverage. Missing: %s",
+            _persp_covered, len(STORM_PERSPECTIVES), _min_persp_coverage,
+            ", ".join(_underrep[:5]),
+        )
 
     # SF-26: At max iterations, proceed but log quality gap if evidence insufficient
     if iteration >= max_iterations - 1:
@@ -5131,7 +5211,7 @@ Identify any aspects not well-covered."""
             schema=ClusterPlan,
             system=CLUSTER_SYSTEM,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=300,
+            timeout=int(os.getenv("PG_CLUSTER_BATCH_TIMEOUT", "300")),
         )
 
         # Reverse-remap short IDs back to original ev_xxx IDs

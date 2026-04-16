@@ -87,7 +87,7 @@ async def generate_outline_for_wiki(
             system="You are a research outline planner. Return ONLY valid JSON.",
             max_tokens=2048,
             temperature=0.2,
-            timeout=60,
+            timeout=int(os.getenv("PG_WIKI_OUTLINE_TIMEOUT", "60")),
         )
 
         import json as json_module
@@ -447,11 +447,28 @@ def build_wiki(
     # ── Step 5: Build global bibliography ───────────────────────────
     bibliography = _build_bibliography(section_claims)
 
-    # Attach bib numbers to each claim
+    # Attach bib numbers to each claim.
+    # W3.9 canonicalized bibliography keys (strip www/trailing slash/tracking
+    # params), so the lookup MUST canonicalize the claim's source_url too or
+    # every claim gets ref_num=0 and wiki_composer silently drops them from
+    # the prompt (zero-citation sections).
+    from src.polaris_graph.synthesis.citation_mapper import _canonicalize_url
     url_to_ref = {b["url"]: b["ref_num"] for b in bibliography}
+    unmapped_count = 0
     for claims in section_claims.values():
         for claim in claims:
-            claim["ref_num"] = url_to_ref.get(claim.get("source_url", ""), 0)
+            raw_url = claim.get("source_url", "")
+            canonical = _canonicalize_url(raw_url) or raw_url
+            ref = url_to_ref.get(canonical, 0)
+            claim["ref_num"] = ref
+            if not ref and raw_url:
+                unmapped_count += 1
+    if unmapped_count:
+        logger.warning(
+            "[wiki] %d claims failed URL→ref_num lookup — they will be "
+            "dropped from the composer prompt. Bib keys: %s",
+            unmapped_count, list(url_to_ref.keys())[:3],
+        )
 
     # ── Step 6: Write wiki to disk ──────────────────────────────────
     wiki_path = WIKI_BASE_DIR / vector_id
@@ -725,29 +742,45 @@ def _text_similarity(a: str, b: str) -> float:
 
 
 def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
-    """Build global bibliography from all claims, one entry per unique URL."""
+    """Build global bibliography from all claims, one entry per unique URL.
+
+    W3.9: Dedup by canonical URL (scheme/host/www/trailing-slash/tracking
+    params normalized) so http vs https or www vs non-www variants of the
+    same page don't produce duplicate bibliography entries.
+    """
+    from src.polaris_graph.synthesis.citation_mapper import _canonicalize_url
+
     url_to_best: dict[str, dict] = {}
     url_to_evidence_ids: dict[str, list[str]] = {}
+    # Keep one canonical → display-url mapping so we preserve the nicer URL
+    # (usually the https / no-www one) in the final bibliography entry.
+    canonical_to_display: dict[str, str] = {}
 
     for claims in section_claims.values():
         for claim in claims:
             url = claim.get("source_url", "")
             if not url:
                 continue
+            canonical = _canonicalize_url(url) or url
+            # Prefer the canonical form as the display url, falling back to
+            # first-seen if canonicalization produced an empty string.
+            if canonical not in canonical_to_display:
+                canonical_to_display[canonical] = canonical or url
             # Track all evidence IDs for this source
             eid = claim.get("evidence_id", "")
-            if url not in url_to_evidence_ids:
-                url_to_evidence_ids[url] = []
-            if eid and eid not in url_to_evidence_ids[url]:
-                url_to_evidence_ids[url].append(eid)
+            if canonical not in url_to_evidence_ids:
+                url_to_evidence_ids[canonical] = []
+            if eid and eid not in url_to_evidence_ids[canonical]:
+                url_to_evidence_ids[canonical].append(eid)
             # Track best evidence for metadata
-            if url not in url_to_best:
-                url_to_best[url] = claim
-            elif claim.get("relevance_score", 0) > url_to_best[url].get("relevance_score", 0):
-                url_to_best[url] = claim
+            if canonical not in url_to_best:
+                url_to_best[canonical] = claim
+            elif claim.get("relevance_score", 0) > url_to_best[canonical].get("relevance_score", 0):
+                url_to_best[canonical] = claim
 
     bibliography = []
-    for i, (url, best) in enumerate(url_to_best.items(), 1):
+    for i, (canonical, best) in enumerate(url_to_best.items(), 1):
+        url = canonical_to_display.get(canonical, best.get("source_url", canonical))
         authors = best.get("authors", [])
         authors_str = ", ".join(authors[:3]) if authors else "Unknown"
         year = best.get("year", "n.d.")
@@ -764,7 +797,11 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
             "year": year,
             "doi": doi,
             "source_type": best.get("source_type", "web"),
-            "evidence_ids": url_to_evidence_ids.get(url, []),
+            # url_to_evidence_ids is keyed by canonical (see line ~754).
+            # Look up via canonical, not via the display url — today they
+            # happen to match, but storing display urls in canonical_to_display
+            # would silently break this lookup.
+            "evidence_ids": url_to_evidence_ids.get(canonical, []),
             # formatted field expected by downstream consumers
             "formatted": f"{authors_str} ({year}). {title[:100]}.{doi_str} {url}",
         })

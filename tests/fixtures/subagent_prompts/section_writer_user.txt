@@ -1,0 +1,66 @@
+Report title: The Effects of Intermittent Fasting on Type 2 Diabetes Mellitus
+
+Section: Mechanisms and Metabolic Effects of Intermittent Fasting
+Section description: Examines the physiological mechanisms by which intermittent fasting affects metabolic parameters including HOMA-IR, glycemic control, and lipid profiles. Discusses safety findings across studies.
+Research question: intermittent fasting effects on type 2 diabetes
+
+Available evidence for this section:
+[ev_749f00cb5c5eea28] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting plus exercise significantly decreased body weight compared to control diet plus exercise (WMD = –1.83 kg; P = 0.001)
+  Direct quote: "IF plus exercise decreased body weight (WMD = –1.83 kg; P = 0.001)"
+  Source: Effects of intermittent fasting combined with physical exercise on cardiometabol
+
+[ev_1ece74de7d460b0e] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting plus exercise significantly decreased systolic blood pressure compared to control diet plus exercise (WMD = –2.99 mm Hg; P = 0.003)
+  Direct quote: "SBP (WMD = –2.99 mm Hg; P = 0.003)"
+  Source: Effects of intermittent fasting combined with physical exercise on cardiometabol
+
+[ev_39b4891376876856] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting plus exercise significantly decreased LDL cholesterol compared to control diet plus exercise (WMD = –5.35 mg/dL; P = 0.03)
+  Direct quote: "LDL (WMD = –5.35 mg/dL; P = 0.03)"
+  Source: Effects of intermittent fasting combined with physical exercise on cardiometabol
+
+[ev_e7bdb4797d3f6f0f] [GOLD] [VERIFIED]
+  Statement: Modified alternate-day fasting reduced body weight by a mean difference of -5.18 kg (95% CI: -7.04 to -3.32) compared to usual diet, with high certainty of evidence.
+  Direct quote: "modified alternate-day fasting was found to be the most effective intervention compared to a usual diet in reducing body weight (MD= -5.18 kg; 95% CI: -7.04, -3.32)"
+  Source: Intermittent Fasting for the Prevention of Cardiovascular Disease Risks
+
+[ev_47ea3711836ebb90] [GOLD] [VERIFIED]
+  Statement: Modified alternate-day fasting reduced systolic blood pressure by -7.24 mmHg (95% CI: -11.90 to -2.58) compared to usual diet, with high certainty of evidence.
+  Direct quote: "systolic blood pressure (-7.24 mmHg; -11.90, -2.58)"
+  Source: Intermittent Fasting for the Prevention of Cardiovascular Disease Risks
+
+[ev_dde1177bb61ef9e9] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting has beneficial effects on the lipid profile, is associated with weight loss and modification of abdominal fat distribution in people with obesity and type 2 diabetes, and improves glycemic control.
+  Direct quote: "Intermittent fasting has beneficial effects on the lipid profile, and it is associated with weight loss and a modification of the distribution of abdominal fat"
+  Source: Intermittent Fasting and the Possible Benefits in Obesity, Diabetes, and Multipl
+
+[ev_12e3ca8d07d9d3ed] [GOLD] [VERIFIED]
+  Statement: This narrative review analyzed over 50 clinical studies comparing intermittent fasting (via alternate day fasting or time-restricted feeding) with caloric restriction
+  Direct quote: "we analyzed over 50 clinical studies in which IF, conducted by alternate day fasting (ADF) or time-restricted feeding (TRF), was compared with the caloric restriction approach"
+  Source: Intermittent Fasting: Myths, Fakes and Truth on This Dietary Regimen Approach
+
+[ev_243de27dc515c169] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting reduced fat mass by a mean difference of −0.72 kg compared to a non-intervention diet in overweight or obese adults.
+  Direct quote: "fat mass (MD = −0.72 kg; 95% CI: −1.32 to −0.12; p = 0.019), fasting insulin"
+  Source: Intermittent fasting and health outcomes: an umbrella review of systematic revie
+
+[ev_e273c28dab55ecd8] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting reduced triacylglycerols (SMD = −0.23) compared to a non-intervention diet in adults with overweight or obesity.
+  Direct quote: "triacylglycerols (TG) (SMD = −0.23; 95% CI: −0.39 to −0.06; p = 0.007), but increased fat free mass"
+  Source: Intermittent fasting and health outcomes: an umbrella review of systematic revie
+
+[ev_410655e66705beb6] [GOLD] [VERIFIED]
+  Statement: Intermittent fasting reduced low-density lipoprotein cholesterol (LDL-C) by a standardized mean difference of −0.20 compared to a non-intervention diet in overweight/obese adults.
+  Direct quote: "low-density lipoprotein cholesterol (LDL-C) (SMD = −0.20; 95% CI: −0.38 to −0.02; p = 0.027)"
+  Source: Intermittent fasting and health outcomes: an umbrella review of systematic revie
+
+CRITICAL: This section must directly contribute to answering the research question: intermittent fasting effects on type 2 diabetes. Every paragraph should connect its findings back to this question.
+
+Write this section. If this is not the first section, begin with a 1-sentence bridge that connects to the previous section's topic. Then proceed with unique analysis. Connect findings to the broader report structure.
+Every factual claim MUST include a [CITE:evidence_id] marker referencing the specific evidence piece.
+Cite the evidence pieces that directly support your analysis. Prioritize GOLD and SILVER tier evidence. You do NOT need to cite every piece -- quality of argument is more important than exhaustive citation. Omit evidence that would weaken the narrative by being tangential or repetitive.
+CITATION DIVERSITY: Do NOT cite the same source more than 3 times in this section. Spread citations across different sources to strengthen the argument with independent corroboration. You MUST cite at least 2 unique sources in this section. If cross-section evidence is provided, use it when relevant but do NOT repeat information covered in adjacent sections.
+CROSS-REFERENCES: When referencing other sections of this report, always use the format 'as discussed in [Section Title]' with the exact section title. Never use section numbers (e.g., 'Section 4') and never use colons (e.g., 'discussed in: Limitations').
+
+Target: approximately 1000 words.

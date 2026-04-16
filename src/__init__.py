@@ -15,4 +15,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
 if _ENV_FILE.exists():
-    load_dotenv(_ENV_FILE, override=True)
+    # LOOPBACK-FIX: override=False so pre-set os.environ values (from test
+    # harnesses, CI configs, loopback scripts) win over .env defaults.
+    # Was override=True which silently clobbered programmatic overrides.
+    load_dotenv(_ENV_FILE, override=False)

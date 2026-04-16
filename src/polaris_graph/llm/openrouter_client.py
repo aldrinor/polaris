@@ -734,6 +734,8 @@ class OpenRouterClient:
         max_tokens: int = 16384,
         response_format: Optional[dict] = None,
         timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
     ) -> LLMResponse:
         """Make a single API call to OpenRouter.
 
@@ -748,6 +750,7 @@ class OpenRouterClient:
             return await self._call_impl(
                 messages, call_type, reasoning_enabled, reasoning_effort,
                 temperature, max_tokens, response_format, timeout,
+                reasoning_max_tokens, reasoning_exclude,
             )
 
     async def _call_impl(
@@ -760,6 +763,8 @@ class OpenRouterClient:
         max_tokens: int = 16384,
         response_format: Optional[dict] = None,
         timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
     ) -> LLMResponse:
         """Internal implementation — called within semaphore context."""
         # FIX-402: Short-circuit all calls once 402 Payment Required is received.
@@ -798,10 +803,17 @@ class OpenRouterClient:
         # CRITICAL: Never merge reasoning into content. Never disable reasoning.
         # Reasoning drives analytical quality (SO WHAT, contradictions, GRADE).
         if self.model in _ALWAYS_REASON_MODELS:
-            body["reasoning"] = {
-                "effort": reasoning_effort or "high",
-                "exclude": False,  # Both pools visible
-            }
+            # W1.2 merge-not-replace: defaults fill only keys the caller didn't set.
+            # Caller-passed reasoning_max_tokens / reasoning_exclude now reach the API.
+            reasoning_dict: dict[str, Any] = {"exclude": False}
+            if reasoning_exclude is not None:
+                reasoning_dict["exclude"] = reasoning_exclude
+            if reasoning_max_tokens is not None:
+                # OpenRouter constraint: effort and max_tokens are mutually exclusive.
+                reasoning_dict["max_tokens"] = reasoning_max_tokens
+            else:
+                reasoning_dict["effort"] = reasoning_effort or "high"
+            body["reasoning"] = reasoning_dict
             body["temperature"] = 1.0  # GLM-5 docs: temp 1.0 for thinking
             # Enforce minimum max_tokens so reasoning doesn't starve content.
             # At max_tokens<2000, GLM-5 spends entire budget on reasoning,
@@ -810,7 +822,13 @@ class OpenRouterClient:
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
         elif reasoning_enabled:
-            body["reasoning"] = {"effort": reasoning_effort, "enabled": True}
+            reasoning_dict = {"effort": reasoning_effort, "enabled": True}
+            if reasoning_max_tokens is not None:
+                reasoning_dict.pop("effort", None)
+                reasoning_dict["max_tokens"] = reasoning_max_tokens
+            if reasoning_exclude is not None:
+                reasoning_dict["exclude"] = reasoning_exclude
+            body["reasoning"] = reasoning_dict
 
         if response_format:
             body["response_format"] = response_format
@@ -1179,6 +1197,8 @@ class OpenRouterClient:
         effort: str = "high",
         max_tokens: int = 16384,
         timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
     ) -> LLMResponse:
         """
         Analysis/planning call — reasoning ON, returned separately.
@@ -1213,6 +1233,8 @@ class OpenRouterClient:
             max_tokens=max_tokens,
             response_format=response_format,
             timeout=timeout or LONG_TIMEOUT_SECONDS,
+            reasoning_max_tokens=reasoning_max_tokens,
+            reasoning_exclude=reasoning_exclude,
         )
 
         # SF-28: Initialize _parsed to None to prevent AttributeError
@@ -1430,6 +1452,8 @@ class OpenRouterClient:
         max_tokens: int = 4096,
         temperature: float = 0.7,
         timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
     ) -> LLMResponse:
         """
         Prose/output call — reasoning OFF, clean output only.
@@ -1454,6 +1478,8 @@ class OpenRouterClient:
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+            reasoning_max_tokens=reasoning_max_tokens,
+            reasoning_exclude=reasoning_exclude,
         )
 
         # TWO-POOL: Content field = output. Reasoning field = logged separately.
@@ -1597,6 +1623,8 @@ class OpenRouterClient:
         timeout: Optional[float] = None,
         reasoning_enabled: bool = False,
         reasoning_effort: str = "high",
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
     ) -> T:
         """
         Structured output call — reasoning OFF by default, returns parsed schema.
@@ -1676,6 +1704,8 @@ class OpenRouterClient:
             max_tokens=max_tokens,
             response_format=response_format,
             timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+            reasoning_max_tokens=reasoning_max_tokens,
+            reasoning_exclude=reasoning_exclude,
         )
 
         # FIX-QM1 + FIX-QM11c + FIX-V6: Extract JSON from reasoning when content

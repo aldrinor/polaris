@@ -544,37 +544,88 @@ def strip_ungrounded_citations(
     return cleaned
 
 
+_TRACKING_PARAMS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "utm_name", "utm_reader", "utm_viz_id", "utm_brand",
+    "ref", "ref_src", "ref_url", "referrer", "referral",
+    "fbclid", "gclid", "dclid", "msclkid", "yclid", "mc_eid", "mc_cid",
+    "source", "campaign", "medium", "email_source",
+    "_ga", "_gl", "__hsfp", "__hssc", "__hstc", "hsCtaTracking",
+    "igshid", "trackingId", "tracking_id", "spm", "sessionid",
+})
+
+
+def _canonicalize_url(url: str) -> str:
+    """W3.9: Normalize URL for bibliography dedup.
+
+    Why: different evidence pieces reference the same page with trivial
+    variations (http/https, trailing slash, www, uppercase host, marketing
+    tracking params). Without canonicalization, dedup misses these pairs
+    and the bibliography contains sim=1.0 duplicates.
+
+    Critical: preserve identifier query params like SSRN's ?abstract_id=,
+    PubMed's ?term=, DOI resolvers, Google Scholar, etc. Only strip known
+    tracking params so different papers on query-driven sites stay distinct.
+    """
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+        parts = urlsplit(url.strip())
+        scheme = "https" if parts.scheme in ("http", "https") else (parts.scheme or "https")
+        netloc = parts.netloc.lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        path = parts.path.rstrip("/") or "/"
+        # Preserve identifier params; drop only known marketing/tracking params.
+        if parts.query:
+            kept = [
+                (k, v) for (k, v) in parse_qsl(parts.query, keep_blank_values=True)
+                if k.lower() not in _TRACKING_PARAMS
+            ]
+            kept.sort()  # Order-insensitive dedup.
+            query = urlencode(kept, doseq=True)
+        else:
+            query = ""
+        return urlunsplit((scheme, netloc, path, query, ""))
+    except Exception:
+        return url.strip().lower()
+
+
 def build_bibliography(
     evidence: list[EvidencePiece],
     used_ids: list[str],
 ) -> list[BibliographyEntry]:
     """Build ordered bibliography from used evidence IDs.
 
-    Deduplicates by source URL so the same source appears only once
-    in the bibliography, even if multiple evidence pieces cite it.
+    Deduplicates by canonicalized source URL so the same source appears
+    only once, even if multiple evidence pieces cite it with minor URL
+    variations (http/https, www prefix, trailing slash, query params).
 
     NRC-4: Validates entries and rejects placeholders.
     NRC-6: Marks blog/commercial sources as non-peer-reviewed.
+    W3.9: Canonical-URL dedup replaces raw-URL dedup.
     """
     evidence_map = {e.get("evidence_id", ""): e for e in evidence}
     entries: list[BibliographyEntry] = []
-    seen_urls: dict[str, int] = {}  # url → entry index
+    seen_urls: dict[str, int] = {}  # canonical_url → entry index
     invalid_count = 0
     blog_count = 0
 
     for eid in used_ids:
         ev = evidence_map.get(eid, {})
         url = ev.get("source_url", eid)
+        canonical = _canonicalize_url(url) or url
 
-        if url in seen_urls:
+        if canonical in seen_urls:
             # Add this evidence_id to the existing entry
-            idx = seen_urls[url]
+            idx = seen_urls[canonical]
             entries[idx]["evidence_ids"].append(eid)
             continue
 
         number = len(entries) + 1
         citation_key = f"[{number}]"
-        seen_urls[url] = len(entries)
+        seen_urls[canonical] = len(entries)
 
         # NRC-4: Validate before formatting
         is_valid, reason = _validate_bibliography_entry(ev)

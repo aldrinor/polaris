@@ -655,9 +655,30 @@ class AutomatedDeepAudit:
                 },
             }
 
+        # W3.5: Drop zero-word entries before scoring balance. These are
+        # typically the document title (H1) or the query restated as a
+        # heading above the first real section — structural artifacts, not
+        # missing content. Counting them would distort Shannon entropy and
+        # over-penalize the balance score.
         word_counts: Dict[str, int] = {}
         for name, body in sections.items():
-            word_counts[name] = len(_tokenize_words(body))
+            wc = len(_tokenize_words(body))
+            if wc == 0:
+                continue
+            word_counts[name] = wc
+
+        if not word_counts:
+            return {
+                "score": 0.0,
+                "details": {
+                    "section_count": len(sections),
+                    "word_counts": {},
+                    "entropy": 0.0,
+                    "max_entropy": 0.0,
+                    "balance_ratio": 0.0,
+                    "note": "All sections had zero content after filtering",
+                },
+            }
 
         counts_list = list(word_counts.values())
         total_words = sum(counts_list)

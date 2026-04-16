@@ -56,6 +56,24 @@ CITATION RULES:
 9. If you CANNOT cite a number, use qualitative language ("evidence suggests") instead.
 10. Use EXACTLY the units from the source. Never convert or paraphrase units.
 
+FIX-HALLUC-1 — ABSOLUTE HALLUCINATION BAN (read carefully):
+  Use ONLY the evidence provided above. Do NOT use training knowledge, do NOT recall
+  studies, papers, PMIDs, author names, sample sizes, regulatory bodies, or quoted
+  expert reactions unless the specific fact is supported by an evidence piece shown
+  to you AND tagged with [CITE:evidence_id]. If you feel tempted to write a specific
+  fact you "know" but it is not in the evidence: DROP IT. Under NO circumstance invent
+  or recall: PMIDs, DOIs, author names (e.g., "Zhong et al."), sample sizes (e.g., "20,078 adults"),
+  follow-up durations, percent risk ratios, study locations, cohort names, regulatory agency
+  positions (FDA/EFSA/EMA/FTC/Health Canada), media outlets (e.g., "Science Media Centre"),
+  or expert critiques. If the prose needs such a fact and no evidence supports it, write a
+  neutral qualitative sentence instead (e.g., "observational data have raised long-term
+  safety questions") without specifics. Sections containing uncited specific numbers or
+  uncited named entities WILL BE REJECTED by the audit.
+
+FORWARD-PROMISE RULE: Do NOT enumerate topics the report "will cover" unless you will
+  actually cover them in this section. Do not introduce axes, frameworks, or themes that
+  require content beyond what your evidence supports.
+
 STYLE RULES:
 11. Write in third person, academic register. No meta-commentary or preamble.
 12. Use hedging words (may, might, could) ONLY for genuinely uncertain findings. Max 5 per section.
@@ -471,7 +489,7 @@ async def _decompose_into_questions(
             schema=QuestionDecomposition,
             system=_QUESTION_DECOMPOSITION_SYSTEM,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=300,
+            timeout=int(os.getenv("PG_QUESTION_DECOMP_TIMEOUT", "300")),
         )
         if result and result.questions:
             logger.info(
@@ -647,7 +665,7 @@ Design a data-driven report outline where section depth matches evidence depth:
             schema=ReportOutline,
             system=OUTLINE_SYSTEM_PROMPT,
             max_tokens=PG_SYNTHESIS_STRUCTURED_MAX_TOKENS,
-            timeout=600,
+            timeout=int(os.getenv("PG_OUTLINE_TIMEOUT", "600")),
         )
 
         # FIX-311: Retry once if outline has 0 sections (Kimi garbage output)
@@ -1444,6 +1462,10 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             prompt=prompt,
             system=system,
             max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
+            # S1 (W1.3): GLM-5.1 always reasons server-side; reasoning.exclude=true
+            # hides it from the response, freeing the shared max_tokens budget for
+            # prose. Empirically validated (E4-LONG: 1292 words, 0 scaffolding).
+            reasoning_exclude=True,
         )
         content = response.content.strip()
         if content and len(content.split()) >= 50:
@@ -1503,6 +1525,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             system=system,
             max_tokens=PG_SECTION_CONTINUATION_MAX_TOKENS,  # FIX-C5
             temperature=0.7,
+            reasoning_exclude=True,  # S1 (W1.3)
         )
         continuation = cont_response.content.strip()
         if continuation and len(continuation.split()) >= 10:
@@ -1558,6 +1581,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
             )
             _r2_resp = await client.generate(
                 prompt=_r2_prompt, system=system, max_tokens=PG_SECTION_CONTINUATION_MAX_TOKENS, temperature=0.3,  # FIX-C5
+                reasoning_exclude=True,  # S1 (W1.3)
             )
             _r2_fix = _r2_resp.content.strip()
             if _r2_fix and len(_r2_fix.split()) >= 10:
@@ -1611,6 +1635,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
                 system="Extract key findings from the section. Output ONLY the bullet list.",
                 max_tokens=int(os.getenv("PG_KEY_FINDINGS_MAX_TOKENS", "1024")),
                 temperature=0.3,
+                reasoning_exclude=True,  # S1 (W1.3)
             )
             _kf_block = _kf_resp.content.strip()
             # Validate: must contain Key Findings and at least 2 bullet points
@@ -1691,6 +1716,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
                 system=system,
                 max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
                 temperature=0.4,
+                reasoning_exclude=True,  # S1 (W1.3)
             )
             revised = revision.content.strip()
             revised_hedges = len(_hedge_pattern.findall(revised))
@@ -1733,6 +1759,7 @@ BANNED: Sequential source summaries ("Study A found... Study B found..."), fille
                 system=system,
                 max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
                 temperature=0.4,
+                reasoning_exclude=True,  # S1 (W1.3)
             )
             _r12_revised = _r12_resp.content.strip()
             _r12_new_cites = _r12_revised.count("[CITE:")
@@ -2470,6 +2497,7 @@ Write in third person, academic register."""
                 system=system,
                 max_tokens=PG_SECTION_CONTINUATION_MAX_TOKENS,  # FIX-C5
                 temperature=0.7,
+                reasoning_exclude=True,  # S1 (W1.3)
             )
             new_content = response.content.strip()
 
@@ -2655,6 +2683,7 @@ REVISION INSTRUCTIONS:
             system=system,
             max_tokens=PG_SECTION_WRITER_MAX_TOKENS,
             temperature=0.5,  # Lower temp for revision (more faithful to original)
+            reasoning_exclude=True,  # S1 (W1.3)
         )
         revised = response.content.strip()
         revised = _scrub_cot(revised)

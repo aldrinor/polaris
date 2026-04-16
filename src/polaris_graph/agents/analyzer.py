@@ -1949,8 +1949,11 @@ Sources:
             schema=SourceAnalysisBatch,
             system=ANALYSIS_SYSTEM,
             max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-            timeout=180,
+            timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
             reasoning_enabled=False,  # FIX-I2b: Evidence extraction is pattern-matching, not reasoning
+            # W1.4 (S3 diagnosis): cap reasoning on GLM-5.1 (server always reasons even with
+            # reasoning_enabled=False). Caps runaway reasoning observed at 10,813 tokens per batch.
+            reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
         )
 
         evidence: list[EvidencePiece] = []
@@ -2109,8 +2112,9 @@ Sources:
                 schema=SourceAnalysisBatch,
                 system=ANALYSIS_SYSTEM,
                 max_tokens=int(os.getenv("PG_EXTRACTION_MAX_TOKENS", "16384")),
-                timeout=180,
+                timeout=int(os.getenv("PG_ANALYSIS_BATCH_TIMEOUT", "180")),
                 reasoning_enabled=False,
+                reasoning_max_tokens=int(os.getenv("PG_EXTRACTION_REASONING_MAX_TOKENS", "2048")),
             )
             evidence_retry: list[EvidencePiece] = []
             for analysis in parsed.analyses:

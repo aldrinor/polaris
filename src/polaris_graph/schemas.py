@@ -385,10 +385,32 @@ class SourceAnalysis(BaseModel):
                     data["evidence_summary"] = data.pop(alt)
             # Replace null values with safe defaults (LLM frequently returns null)
             # AREA-9: Log warnings for score fields defaulting (silent default detection)
+            # W3.6: When source_quality/overall_relevance are null, use a
+            # type-informed default instead of a flat 0.1. A source that
+            # survived retrieval + fetch + extraction is almost never
+            # 0.1-quality; flat 0.1 punishes downstream ranking unfairly.
+            _stype = data.get("source_type") or "web"
+            _fact_count = len(data.get("atomic_facts") or [])
+            _type_quality_prior = {
+                "journal_article": 0.75,
+                "government_report": 0.65,
+                "standard": 0.65,
+                "industry_report": 0.45,
+                "news": 0.35,
+                "book": 0.55,
+                "patent": 0.50,
+                "web": 0.30,
+                "other": 0.30,
+            }
+            _q_default = _type_quality_prior.get(_stype, 0.30)
+            # Relevance: if any facts were extracted the source was at least
+            # tangentially on-topic; scale by fact count up to 0.6.
+            _r_default = min(0.30 + 0.06 * _fact_count, 0.60) if _fact_count else 0.25
+
             _null_defaults = {
                 "source_type": "web",
-                "source_quality": 0.1,
-                "overall_relevance": 0.1,
+                "source_quality": _q_default,
+                "overall_relevance": _r_default,
                 "year": 0,
                 "authors": [],
                 "venue": "",
@@ -401,11 +423,13 @@ class SourceAnalysis(BaseModel):
                 if data.get(field) is None:
                     if field in _warn_on_null:
                         logger.warning(
-                            "[polaris graph] AREA-9: SourceAnalysis.%s is null for "
-                            "'%s' — defaulting to %.1f (LLM returned null score)",
+                            "[polaris graph] AREA-9/W3.6: SourceAnalysis.%s is null for "
+                            "'%s' — type-informed default %.2f (type=%s, facts=%d)",
                             field,
                             str(data.get("source_url", ""))[:60],
                             default,
+                            _stype,
+                            _fact_count,
                         )
                     data[field] = default
         return data
@@ -2061,19 +2085,54 @@ class AgenticRoundAnalysis(BaseModel):
             for alt in ("gaps_in_knowledge", "missing_knowledge", "content_gaps", "information_gaps"):
                 if alt in data and "knowledge_gaps" not in data:
                     data["knowledge_gaps"] = data.pop(alt)
-            # Null defaults
-            for field_name in (
+            # W3.10: Coerce common LLM shape errors so the three validation
+            # errors we see in production (list-typed fields arriving as
+            # string/dict, should_continue as string "true"/"false",
+            # convergence_assessment using a non-enum synonym) stop failing.
+            _list_fields = (
                 "key_findings", "perspective_gaps", "web_queries",
                 "academic_queries", "exa_queries", "knowledge_gaps",
-            ):
-                if data.get(field_name) is None:
+            )
+            for field_name in _list_fields:
+                val = data.get(field_name)
+                if val is None:
                     data[field_name] = []
-            if data.get("convergence_assessment") is None:
-                data["convergence_assessment"] = "expanding"
-            if data.get("should_continue") is None:
+                elif isinstance(val, str):
+                    parts = [p.strip() for p in val.split("\n") if p.strip()]
+                    if len(parts) <= 1:
+                        parts = [p.strip() for p in val.split(";") if p.strip()]
+                    data[field_name] = parts
+                elif isinstance(val, dict):
+                    data[field_name] = [str(v) for v in val.values() if v]
+            # Coerce should_continue: accept strings / ints / lowercase bools.
+            sc = data.get("should_continue")
+            if isinstance(sc, str):
+                data["should_continue"] = sc.strip().lower() in ("true", "yes", "1", "continue")
+            elif isinstance(sc, (int, float)):
+                data["should_continue"] = bool(sc)
+            elif sc is None:
                 data["should_continue"] = True
+            # Normalize convergence_assessment to the expected vocabulary.
+            ca = data.get("convergence_assessment")
+            if ca is None:
+                data["convergence_assessment"] = "expanding"
+            elif isinstance(ca, str):
+                _ca_lower = ca.strip().lower()
+                _ca_map = {
+                    "saturated": "saturated",
+                    "converged": "saturated",
+                    "converging": "saturated",
+                    "narrowing": "narrowing",
+                    "refining": "narrowing",
+                    "expanding": "expanding",
+                    "exploring": "expanding",
+                    "broadening": "expanding",
+                }
+                data["convergence_assessment"] = _ca_map.get(_ca_lower, "expanding")
             if data.get("reasoning") is None:
                 data["reasoning"] = ""
+            elif not isinstance(data.get("reasoning"), str):
+                data["reasoning"] = str(data["reasoning"])
         return data
 
 
