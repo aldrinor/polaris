@@ -1,0 +1,165 @@
+{
+  "request_id": "876a7170a817",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.lifescienceglobal.com/pms/index.php/jrge/article/view/5227\nSource title: Minimum Wage and Unemployment: An Empirical Study on OECD ...\nSource type: web\nContent:\nMinimum Wage and Unemployment: An Empirical Study on OECD Countries | Journal of Reviews on Global Economics Skip to main content Skip to main navigation menu Skip to site footer Open Menu Home Current Archives Announcements About About the Journal Submissions Editorial Team Privacy Statement Contact Search Register Login Home / Archives / Vol. 7 (2018) / Articles Minimum Wage and Unemployment: An Empirical Study on OECD Countries Authors Chong Uk Kim Department of Economics, Sonoma State University, 1801 E. Cotati Ave, Rohnert Park, CA 94928 Gieyoung Lim Department of International Economics & Law, Hankuk University of Foreign Studies, 107 Imun-ro, Dongdaemun-gu, Seoul, 02450 DOI: https://doi.org/10.6000/1929-7092.2018.07.01 Keywords: Minimum Wage, Unemployment, Skilled and Unskilled Labor. Abstract With ongoing increasing minimum wage and political debates underway, minimum wage and its impacts on the labor market are one of the most important items on policymakers' agendas worldwide. In this paper, we attempt to explain how labor demand and supply respond to minimum wage increases. In our model, firms can hire either skilled or unskilled workers to maximize their profits. With data from 25 OECD countries over 15 years from 2000 to 2014, we find that a higher minimum wage decreases labor demand but does not affect labor supply. Our empirical results also suggest that relatively modest increases in minimum wages have limited impacts on employment. On average, 10 percent increase in the minimum wage decreases employment by 0.7 percent, thereby increasing unemployment rate by 0.64 percent. References Allegretto, Sylvia; Dube, Arindrajit and Reich, Michael. \u201cDo Minimum Wages Really Reduce Teen Employment? Accounting for Heterogeneity and Selectivity in State Panel Data.\u201d Institute for Research on Labor and Employment (University of California, CA) Working Paper No. 166-08, April 2011. Card, David. \u201cUsing Regional Variation in Wages to Measure the Effects of the Federal Minimum Wage.\u201d Industrial and Labor Relations Review, October 1992, 46(1), pp. 22-37. https://doi.org/10.1177/001979399204600103 Card, David and Krueger, Alan B. \u201cMinimum Wages and Employment: A Case Study of the Fast-Food Industry in New Jersey and Pennsylvania.\u201d American Economic Review, September 1994, 84(4), pp. 772-793. ____________. \u201cTime-Series Minimum-Wage Studies: A Meta-analysis.\u201d American Economic Review, May 1995, pp. 238-243. ____________. Myth and Measurement: The New Economics of the Minimum Wage, New Jersey: Princeton University Press, 1995. Castillo-Freeman, Alida and Freeman, Richard B. \u201cWhen the Minimum Wage Really Bites: The Effect of the U.S.-Level Minimum on Puerto Rico.\u201d Immigration and the Workforce: Economic Consequences for the United States and Source Area, University of Chicago Press, 1992. Dube, Andrajit; Lester, T. William and Reich, Michael. \u201cMinimum Wage Effects Across State Borders: Estimates Using Contiguous Counties.\u201d Institute for Research on Labor and Employment (University of California, CA) Working Paper No. 157-07, November 2010. Giuliano, Laura. \u201cMinimum Wage Effects on Employment, Substitution, and the Teenage Labor Supply: Evidence from Personnel Data.\u201d Journal of Labor Economics, December 2012, 31(1), pp. 155-194. https://doi.org/10.1086/666921 Grossman, Jean B. \u201cThe Impact of the Minimum Wage on Other Wages.\u201d Journal of Human Resources, Summer 1983, 18(3), pp. 359-378. https://doi.org/10.2307/145206 Kalenkoski, Charlene M. and Lacombe, Donald J. \u201cEffects of Minimum Wages on Youth Employment: the Importance of Accounting for Spatial Correlation.\u201d Journal of Labor Research, September 2007, 29, pp. 303-317. https://doi.org/10.1007/s12122-007-9038-6 Kertesi, Gabor and Kollo, Janos. \u201cFighting \u201cLow Equilibria\u201d by Doubling the Minimum Wage? Hungary\u2019s Experiment.\u201d IZA Discussion Paper No. 970, December 2003. Krueger, Alan B. \u201cThe Effect of the Minimum Wage When It Really Bites: A Reexamination of the Evidence from Puerto Rico.\u201d National Bureau of Economic Research (NBER) Working Paper No. 4757, June 1994. Metcalf, David. \u201cWhy has the British National Minimum Wage had Little or No Impact on Employmnet?\u201d Journal of Industrial Relations, June 2008, 50(3), pp. 489-512. https://doi.org/10.1177/0022185608090003 Neumark, David; Schweitzer, Mark and Wascher, William. \u201cMinimum Wage Effects throughout the Wage Distribution.\u201d Journal of Human Resources, Spring 2004, 39(2), pp. 425-450. Neumark, David and Wascher, William. \u201cMinimum Wages and Employment.\u201d IZA Discussion Paper No. 2570, January 2007. https://doi.org/10.2307/3559021 Schmitt, John. \u201cWhy Does the Minimum Wage Have No Discernible Effect on Employment?\u201d Center for Economic and Policy Research, February 2013. Welch, Finis and Cunningham, James. \u201cEffects of Minimum Wages on the Level and Age Composition of Youth Employment.\u201d Review of Economics and Statistics, February 1978, 60(1), pp. 140-145. https://doi.org/10.2307/1924342 Downloads PDF Published 2018-02-19 How to Cite Kim, C. U., Lim, G. (2018). Minimum Wage and Unemployment: An Empirical Study on OECD Countries. Journal of Reviews on Global Economics , 7 , 1\u20139. https://doi.org/10.6000/1929-7092.2018.07.01 More Citation Formats ACM ACS APA ABNT Chicago Harvard IEEE MLA Turabian Vancouver Download Citation Endnote/Zotero/Mendeley (RIS) BibTeX Issue Vol. 7 (2018) Section Articles License Policy for Journals/Articles with Open Access Authors who publish with this journal agree to the following terms: Authors retain copyright and grant the journal right of first publication with the work simultaneously licensed under a Creative Commons Attribution License that allows others to share the work with an acknowledgement of the work's authorship and initial publication in this journal. Authors are permitted and encouraged to post links to their work online (e.g., in institutional repositories or on their website) prior to and during the submission process, as it can lead to productive exchanges, as well as earlier and greater citation of published work Policy for Journals / Manuscript with Paid Access Authors who publish with this journal agree to the following terms: Publisher retain copyright . Authors are permitted and encouraged to post links to their work online (e.g., in institutional repositories or on their website) prior to and during the submission process, as it can lead to productive exchanges, as well as earlier and greater citation of published work . Most read articles by the same author(s) Chong-Uk Kim, Gieyoung Lim, Corruption and Economic Growth: A South Korean Study , Journal of Reviews on Global Economics: Vol. 4 (2015) Developed By Open Journal Systems Information For Readers For Authors For Librarians\n---Source URL: https://research.upjohn.org/cgi/viewcontent.cgi?article=1093&context=up_policybriefs\nSource title: How Do Minimum Wages Affect Workplace Injuries?\nSource type: web\nContent:\nTitle: How Do Minimum Wages Affect Workplace Injuries? URL Source: https://research.upjohn.org/cgi/viewcontent.cgi?article=1093&context=up_policybriefs Published Time: Thu, 19 Mar 2026 14:04:47 GMT Number of Pages: 5 Markdown Content: Upjohn Research Upjohn Institute Policy and Research Briefs Upjohn Research home page 3-11-2026 # How Do Minimum Wages Affect Workplace Injuries? How Do Minimum Wages Affect Workplace Injuries? Michael Davies University of California, Berkeley R. Jisung Park University of Pennsylvania , rjpark@upenn.edu Anna Stansbury Massachusetts Institute of Technology , amms@mit.edu Citation Citation Davies, Michael, R. Jisung Park, and Anna Stansbury. 2026. \"How Do Minimum Wages Affect Workplace Injuries?\" Policy and Research Brief. Kalamazoo, MI: W.E. Upjohn Institute for Employment Research. https://doi.org/10.17848/pb2026-94 This title is brought to you by the Upjohn Institute. For more information, please contact repository@upjohn.org .BRIEF HIGHLIGHTS n We use detailed data from California\u2019s Division of Workers\u2019 Compensation to examine how changes in the minimum wage affect workplace health and safety in the most populous U.S. state. n We find that minimum wage increases in California, either statewide or local, led to increases in workplace injury rates for low-wage workers. n We see particularly large increases in cumulative or repetitive physical injuries, suggesting that firms may intensify the pace of work to recoup higher labor costs. Faster-paced, higher-pressure work environments can lead to more injuries. n Our estimates suggest that a minimum wage increase from $10 to $11 an hour, for example, leads to an increase in the injury rate for low-wage workers from about 41 to 43 injuries per 1,000 workers per year. n Policymakers should thus consider higher safety standards and more effective enforcement alongside minimum wage increases to make work safer as well as better paid. For additional details, see the paper at https://research.upjohn.org/up_ workingpapers/428/ POLICY BRIEF # When minimum wages go up, how do firms respond? Answering this question is core to understanding whether and when minimum wages are good for workers, for the economy, and for society. Economic research has largely focused on the effects of the minimum wage on employment, prices, profits, and firm survival. But firms can also respond to minimum wage increases with changes in working conditions, which are typically harder for researchers to measure. These could include workplace amenities, scheduling, or health and safety. In a recent paper, we focus on the effect of minimum wages on workplace health and safety. In the United States, about 2.5 million people are hurt on the job each year, and over 5,000 are killed. But workplace health and safety is not typically thought of as something that might be affected by minimum wages. In our study of state and local minimum wage increases in California over 2000\u20132019, we find that minimum wage hikes meaningfully increase the workplace injury rate. A 10 percent minimum wage increase on average leads to two more injuries per 1,000 workers per year in low-wage labor markets. This increase in the injury rate applies to severe injuries as well as minor injuries, and appears to persist rather than reflect a one-off adjustment cost. Why might this be the case? There are two likely channels: work intensification and reduced safety spending. We observe a particularly large increase in cumulative physical injuries in our data, which we view as evidence for the work intensification channel: as minimum wages go up, firms have an incentive to try to increase the pace and pressure of work to recoup the higher labor costs in the form of higher productivity, and high-pressure and fast-paced work environments can lead to cumulative physical injuries. We do not have the data that enable us to test whether the safety spending channel is at play: it is also possible that firms reduce safety spending as part of broader cost-cutting measures when labor costs go up, and that this increases workplace accident rates. How much does this matter? In a back-of-the-envelope exercise, we estimate that 19 percent of the increased welfare an employed minimum wage worker gets in the form of higher wages is offset by the welfare cost of the increased injury risk. Thus, while the increase in the risk of injury does not outweigh the benefits of higher wages to workers, it is important enough to merit serious consideration from policymakers when making decisions on minimum wages and other labor regulations. California Data on Workers\u2019 Injuries To measure workplace injuries, we use administrative data from the California Division of Workers\u2019 Compensation covering over 13 million workers\u2019 compensation claims from 2000\u20132019. This period features several increases in the California state minimum wage, as well as the introduction of and increases in local-level minimum wages in five California metro areas: San Francisco, Los Angeles, Oakland, San Jose, and San Diego. # How Do Minimum Wages Affect Workplace Injuries? Michael Davies, R. Jisung Park, and Anna Stansbury MARCH 2026 How Do Minimum Wages Affect Workplace Injuries? POLICY BRIEF | MARCH 2026 W.E. UPJOHN INSTITUTE 2 On average, a 10 percent increase in the minimum wage leads to an additional two injuries per 1,000 low-wage workers per year. To study how these minimum wage increases affect the workplace injury rate, we estimate whether workers in low-wage occupations\u2014who are much more likely to be affected by changes in the minimum wage\u2014saw greater changes in their workplace injury rate after the minimum wage was introduced compared to workers in high-wage occupations in the same metro area, as well as workers in the same low-wage occupations in other California metro areas that did not see minimum wage increases. Our empirical strategy controls for any time-varying local factors correlated with minimum wage adoption decisions, for occupation-specific trends, and for any systematic differences in injury reporting across locations or occupations. The Effects of Increases in the Minimum Wage For typical low-wage workers\u2014like food service workers, cleaners, and laborers\u2014 the headline finding is that a 10 percent increase in the minimum wage translates to a 4.1 percent increase in the workplace injury rate in low-wage labor markets. 1 In absolute terms, this means a minimum wage increase from $10 an hour to $11 an hour, for example, leads to the injury rate for low-wage workers increasing from about 41 to 43 injuries per 1,000 workers per year. Several findings support the robustness of these results: \u2022 Effects are concentrated in low-wage occupations highly exposed to the minimum wage, with minimal effects for workers earning far above that threshold. \u2022 Serious injuries requiring disability leave show similar effects, suggesting results are not driven by minor incidents or changes in reporting. \u2022 Results are similar when we use slightly different definitions of low-wage workers, or include only large minimum wage increases, or exclude occupations with very high or very low injury rates. Specifically, we estimated the effects of minimum wage increases on workplace injury rates for occupations with different \u201cexposure\u201d to the minimum wage, where exposure is the share of workers in the occupation in a metro area who earned less than 130 percent of the current minimum wage in the prior calendar year. Roughly half of workers are in higher-wage occupations with exposure less than 10 percent; this is our comparison group. As Figure 1 shows, when minimum wages increased, workplace injuries rose most in the lowest-wage occupations. A 10 percent increase in the minimum wage led to a 2.2 percent increase in the injury rate for workers in middle-wage occupations, 4.3 percent in lower-wage occupations, and 5.2 percent in the lowest-wage occupations. Another recent paper also finds that minimum wage hikes increase workplace injury rates. Using data on workplace injuries from the Occupational Safety and Health Administration, Liu et al. (2024) estimate that the large, recent increases in state minimum wages led to a meaningful increase in workplace injury rates. Since they used injury data from a different source and a different setting, the fact that both we and they find higher minimum wages increase workplace injuries for affected workers increases confidence that this is a real effect that holds across contexts. 21 More precisely, we define a low-wage worker as an occupation in a metropolitan area where at least one-quarter of the workers earned less than 130 percent of the binding minimum wage (state or local) in the previous year. 2 A key difference between our papers is that while Liu et al. attribute increased injuries to cuts in safety budgets, our findings point to work intensification\u2014employees working harder and faster\u2014as a mechanism. We attribute this discrepancy to differences in the underlying data; we believe our workers\u2019 compensation data include more injury types that are more plausibly related to work intensification, and we discuss this discrepancy in more detail in the main paper. POLICY BRIEF | MARCH 2026 W.E. UPJOHN INSTITUTE 3 The effect of minimum wages is nearly twice as large for cumulative physical injuries as for the overall injury rate, suggesting that employers may respond to minimum wage increases by intensifying the pace of work. Mechanisms: Work Intensification and Reduced Safety Spending Why might higher minimum wages increase workplace injury rates? Two channels are likely at play. The first is work intensification: as minimum wages increase labor costs, firms can try to recoup those costs by increasing productivity through the pressure and pace of work. This could involve increasing production targets or systematically short-staffing shifts. When the pace and pressure of a work environment is greater, workers tend to get injured more\u2014both because a high-pace, high-pressure environment makes accidents more likely, and because intense work environments increase the risk of injuries caused by cumulative (or repetitive) physical strain. Our data suggest that higher minimum wages increase workplace injuries at least in part via work intensification: the proportional increase in the cumulative physical injury rate is twice as large as the increase in the overall injury rate, consistent with a meaningful increase in work pace and work pressure. Specifically, we find that a 10 percent increase in the minimum wage led to a 3.7 percent increase in the overall workplace injury rate for low-wage workers, but a 7.3 percent increase in the cumulative physical injury rate. The idea that that minimum wage hikes increase the pace of work is also supported by survey research by Hirsch, Kaufman, and Zelenska (2015), who surveyed fast food restaurant managers ahead of the 2009 federal minimum wage hike. When managers were asked to rate the importance of several cost-cutting measures, they deemed \u201cincreasing performance standards\u201d and \u201cgetting more work from each person\u201d to be especially important. One manager noted in an interview that \u201cpart of effective HR practice is to directly communicate to employees the quid pro quo of higher performance for higher wages.\u201d Figure 1 When Minimum Wages Increased, Workplace Injuries Rose Most in the Lowest-Wage Occupations > NOTE: Occupations are classified by \u201cexposure\u201d to the minimum wage: the share of workers in the occupation in a metro area who earned less than 130 percent of the current minimum wage in the prior calendar year. The bars show the estimated effects relative to workers in occupations with exposure less than 10 percent (where we implicitly assume the effect of the minimum wage on injuries to be zero). The whiskers show 95 percent confidence intervals for these estimates. Effect of a 10 percent increase in the minimum wage on workplace injury rates, compared to higher-wage occupations Middle-wage occupations 10\u201325% exposed Lower-wage occupations 25\u201350% exposed Lowest-wage occupations > 50% exposed A 10% increase in the minimum wage led to a 5% increase in the injury rate for workers in the lowest-wage occupations 2.2% 5.2% 4.3% How Do Minimum Wages Affect Workplace Injuries? POLICY BRIEF | MARCH 2026 W.E. UPJOHN INSTITUTE 4 We estimate that the welfare cost of the increase in injury risk offsets around 19 percent of the benefit of higher wages. The second channel is directly cutting safety spending: as higher minimum wages increase cost pressures, a firm might try to cut costs in other areas, such as safety spending\u2014perhaps not updating, replacing, or repairing equipment as quickly, or providing lower-quality protective gear. While we cannot measure this channel directly, we also cannot rule it out. Welfare Implications How much does this increase in injury risk matter for workers? Could it offset the benefits they get from higher wages? This is a complex question, since it is hard to quantify the cost of a workplace injury in dollar terms. Nonetheless, we carry out a back-of-the-envelope calculation using the average estimates of the value of a statistical injury reported by Viscusi and Aldy (2003). These estimates try to infer the degree to which workers are willing to pay (in the form of lower wages) to avoid injury risk. We estimate that the increase in injury risk induced by a 10 percent hike in the minimum wage offsets between 8 and 29 percent\u2014or a midpoint of 19 percent\u2014of the wage gains for employed low-wage workers. We note that this welfare calculation focuses on workers who remain employed and does not incorporate any welfare costs of disemployment. The bulk of estimates suggest that disemployment effects of minimum wage increases tend to be relatively small (Dube and Zipperer 2024). Thus, minimum wage increases still leave employed workers better off, since the increase in wages more than compensates for the increase in injury risk. However, the magnitude of the increase in injury risk is nontrivial, highlighting an important unintended consequence of changes to the minimum wage that deserves policy attention. These findings suggest that minimum wage policy may be more beneficial for low-wage workers when paired with stronger workplace safety standards or better enforcement. Our research does not argue for or against minimum wage policies, per se, but it highlights an additional margin of impact for policymakers to consider. References > Dube, Arin, and Ben Zipperer. 2024. \u201cOwn-Wage Elasticity: Quantifying the Impact of Minimum Wages on Employment.\u201d NBER Working Paper No. 32925. Cambridge, MA: National Bureau of Economic Research. Hirsch, Barry T., Bruce E. Kaufman, and Tetyana Zelenska. 2015. \u201cMinimum Wage Channels of Adjustment.\u201d Industrial Relations: A Journal of Economy and Society 54(2): 199\u2013239. Liu, Qing, Ruosi Lu, Stephen Teng Sun, and Meng Zhang. 2024. \u201cUnintended Workplace Saf\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315643.9840531
+}

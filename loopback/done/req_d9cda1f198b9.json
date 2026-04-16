@@ -1,0 +1,165 @@
+{
+  "request_id": "d9cda1f198b9",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2954858\nSource title: Implications of minimum wage increases on labor market dynamics lessons for emerging economies\nSource type: academic\nContent:\n# papers.ssrn.com\n## \u6b63\u5728\u57f7\u884c\u5b89\u5168\u9a57\u8b49\n\u6b64\u7db2\u7ad9\u4f7f\u7528\u5b89\u5168\u670d\u52d9\u62b5\u79a6\u60e1\u610f\u6a5f\u5668\u4eba\u3002\u7576\u7db2\u7ad9\u9a57\u8b49\u4e26\u78ba\u8a8d\u60a8\u4e0d\u662f\u6a5f\u5668\u4eba\u6642\uff0c\u4fbf\u6703\u986f\u793a\u6b64\u9801\u9762\u3002\n## \u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 papers.ssrn.com \u56de\u61c9\nRay ID: `9ed09de77ff45c9d`\nPerformance and Security by Cloudflare\u96b1\u79c1\u6b0a\n---Source URL: https://mitsloan.mit.edu/centers-initiatives/hsi/minimum-wage-increases-and-workplace-injuries-evidence-firm-responses-to-higher-labor-costs\nSource title: Minimum Wage Increases and Workplace Injuries\nSource type: web\nContent:\nMIT Sloan Health Systems Initiative Research Minimum Wage Increases and Workplace Injuries: Evidence on Firm Responses to Higher Labor Costs Debates over minimum wage policy have historically centered on a relatively narrow set of outcomes, most notably employment effects and wage gains. This focus, while analytically expedient, risks obscuring a broader set of firm responses that operate through non-wage aspects of work. A recent study co-authored by Professor Anna Stansbury contributes to a growing literature that examines these non-wage margins. Specifically, the paper investigates how minimum wage increases affect workplace health and safety, an outcome that is both economically meaningful and, until recently, underexamined. Using administrative data on more than 13 million workers\u2019 compensation claims in California between 2000 and 2019, the authors document a consistent, quantitatively meaningful relationship: increases in the minimum wage are associated with higher workplace injury rates. The headline estimate is straightforward. A 10% increase in the minimum wage leads to approximately two to three additional injuries per 1,000 low-wage workers annually. While modest in absolute terms, this effect scales considerably when aggregated across large labor markets and is concentrated among workers whose pay is close to the minimum wage. How Firms Adjust to Higher Minimum Wages The central contribution of the paper lies less in the magnitude of the effect than in its interpretation. Standard models of minimum wage policy tend to emphasize employment adjustments, implicitly assuming that firms respond to higher labor costs primarily through hiring decisions. However, firms possess a broader set of adjustment mechanisms. They can alter scheduling, benefits, capital intensity, and, crucially, the pace and organization of work itself. Specifically, as labor costs increase, firms may respond by increasing output per worker to recoup those higher labor costs, effectively accelerating the pace and pressure of production. The evidence presented in this study is most consistent with this work intensification response. In particular, the authors find that cumulative physical injuries, those associated with repetitive strain rather than discrete accidents, increase at roughly twice the rate of overall injuries following minimum wage hikes. This pattern is difficult to explain as random variation and instead points toward systematic changes in work intensity. A secondary, though less directly testable, mechanism involves reductions in safety-related expenditures. Faced with higher wage bills, firms may economize on maintenance, training, or protective equipment. While the available data do not allow this mechanism to be isolated, it remains consistent with the observed increase in both minor and severe injuries. Size and Duration of the Effects The estimated effects are both economically meaningful and persistent. Injury rates increase alongside minimum wage hikes and then decline gradually over subsequent years, following a similar pattern to wage effects. The effects are highly heterogeneous across workers and occupations. They are concentrated in low-wage occupations where a large share of workers earn near the minimum wage. In higher-wage occupations, where exposure to minimum wage changes is limited, the study finds little to no effect on injury rates. This pattern supports a causal interpretation of the results, and the findings are consistent across multiple additional tests. Welfare Implications From a welfare perspective, the results introduce a notable complication. Minimum wage increases do, as intended, raise earnings for low-wage workers. However, the associated increase in injury risk partially offsets these gains. The authors estimate that the welfare cost of increased workplace injuries reduces the net benefit of higher wages by approximately 10% to 20%. This does not overturn the case for minimum wage increases, but it does suggest that standard evaluations may overstate their net benefits if they overlook non-wage aspects of job quality. Implications for Policy Design The broader implication is not that minimum wages are misguided, but that they are incomplete. Policies that raise labor costs without addressing the conditions under which labor is performed may induce offsetting adjustments that erode some of their intended benefits. This points toward a need for a more integrated approach to labor market policy. If minimum wage increases generate incentives for work intensification, complementary policies, such as enhanced workplace safety enforcement or incentives for capital investment in safer production processes, may be necessary to preserve worker welfare. More generally, the findings underscore the need to expand the evaluative framework for labor market interventions. Outcomes such as workplace safety, job strain, and non-wage amenities are not peripheral considerations; they are central components of job quality and, by extension, worker wellbeing.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315644.0217462
+}

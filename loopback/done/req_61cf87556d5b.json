@@ -1,0 +1,61 @@
+{
+  "request_id": "61cf87556d5b",
+  "call_type": "structured:DiagramAnalysisResult",
+  "schema_name": "DiagramAnalysisResult",
+  "schema_json": {
+    "$defs": {
+      "DiagramRecommendation": {
+        "description": "A single recommendation for a diagram to add to a report section.",
+        "properties": {
+          "section_id": {
+            "description": "The section_id this diagram targets",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_title": {
+            "description": "Title of the targeted section",
+            "title": "Section Title",
+            "type": "string"
+          },
+          "diagram_type": {
+            "description": "One of the supported DIAGRAM_TYPES keys",
+            "title": "Diagram Type",
+            "type": "string"
+          },
+          "description": {
+            "description": "What the diagram should show, grounded in the section content",
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section_id",
+          "section_title",
+          "diagram_type",
+          "description"
+        ],
+        "title": "DiagramRecommendation",
+        "type": "object"
+      }
+    },
+    "description": "Full analysis output: which sections deserve diagrams.",
+    "properties": {
+      "recommendations": {
+        "description": "2-5 sections that would benefit from a visual diagram",
+        "items": {
+          "$ref": "#/$defs/DiagramRecommendation"
+        },
+        "title": "Recommendations",
+        "type": "array"
+      }
+    },
+    "title": "DiagramAnalysisResult",
+    "type": "object"
+  },
+  "system": "You are a research report visualization specialist. You identify which report sections benefit most from visual diagrams and select the appropriate diagram type for each.\n\nAvailable diagram types:\n- \"process_flow\": How X works (step-by-step process)\n- \"comparison_matrix\": X vs Y vs Z comparison\n- \"causal_chain\": A causes B which leads to C\n- \"hierarchy\": Classification/taxonomy of findings\n- \"timeline\": Chronological development of topic\n- \"pros_cons\": Advantages vs disadvantages\n- \"decision_tree\": If X then Y, else Z\n\nOutput format example:\n{\"recommendations\": [{\"section_id\": \"s01\", \"section_title\": \"Mechanisms of Action\", \"diagram_type\": \"process_flow\", \"description\": \"Step-by-step process of how compound X binds to receptor Y, triggers pathway Z, and produces effect W as described in the section\"}]}",
+  "prompt": "Given these report sections, identify 2-5 that would benefit from a visual diagram. For each, specify the diagram type and what the diagram should show.\n\nSECTIONS:\n--- Section s01: Overview and Definitions (143 words) ---\nClimate Model: Temperature Change (RCP 8.5) - 2006 - 2100\nPermalink to Details- Added to the Catalog\n- Available for\n- SOS\n- Air: Chemistry,... [REF:2].\n\nThis paper summarizes information gathered from semiformal interviews conducted with EPA regulatory staff during late 2022 to glean the brea... [REF:1].\n\nIncreasing climate-driven disturbances have weakened or reversed the long-term CO 2 sink in Boreal forest and Tundra biomes with inland wate... [REF:3].\n\n**Key Findings**\n\n- Climate Model: Temperature Change (RCP 8.5) - 2006 - 2100\nPermalink to Details- Added to the Catalog\n- Available for\n- SOS\n- Air: Chemistry,... [REF:2]\n- This paper summarizes information gathered from semiformal interviews conducted with EPA regulatory staff during late 2022 to glean the brea... [REF:1]\n- Increasing climate-driven disturbances have weakened or reversed the long-term CO 2 sink in Boreal forest and Tundra biomes with inland wate... [REF:3]\n\n--- Section s02: Evidence Base and Efficacy (133 words) ---\nThis permafrost carbon is the remnants of plants, animals, and microbes that have lived and died in tundra and boreal ecosystems, accumulati... [5].\n\nIn 2100, we project median forcings of 5.1 watt per square meters (5th to 95th percentiles of 3.3 to 7.1), with roughly 0.5% probability of ... [6].\n\nData from Schuur et al. 2015, the Union of Concerned Scientists for 2019. [4].\n\n**Key Findings**\n\n- This permafrost carbon is the remnants of plants, animals, and microbes that have lived and died in tundra and boreal ecosystems, accumulati... [5]\n- In 2100, we project median forcings of 5.1 watt per square meters (5th to 95th percentiles of 3.3 to 7.1), with roughly 0.5% probability of ... [6]\n- Data from Schuur et al. 2015, the Union of Concerned Scientists for 2019. [4]\n\n--- Section s03: Methodological Considerations (90 words) ---\nThe Fourth National Climate Assessment estimated that 16%\u201324% of near-surface Alaskan permafrost could disappear by the end of this century. [1].\n\nGround temperatures are warming across the majority of permafrost regions (Romanovsky et al. 2010) and occasionally large rapid changes are ... [7].\n\n**Key Findings**\n\n- The Fourth National Climate Assessment estimated that 16%\u201324% of near-surface Alaskan permafrost could disappear by the end of this century. [1]\n- Ground temperatures are warming across the majority of permafrost regions (Romanovsky et al. 2010) and occasionally large rapid changes are ... [7]\n\n--- Section s04: Safety and Long-Term Evidence (92 words) ---\nDickinson, University of California, Los Angeles, CA, and approved March 9, 2021 (received for review January 5, 2021)\nRapid Arctic warming ... [8].\n\nMost land and surface waters in Alaska are underlaid by permafrost (or perennially frozen ground), which stabilizes infrastructure, serves c... [1].\n\n**Key Findings**\n\n- Dickinson, University of California, Los Angeles, CA, and approved March 9, 2021 (received for review January 5, 2021)\nRapid Arctic warming ... [8]\n- Most land and surface waters in Alaska are underlaid by permafrost (or perennially frozen ground), which stabilizes infrastructure, serves c... [1]\n\n--- Section s05: Mechanisms and Pathways (76 words) ---\nCarbon emissions from permafrost thaw and Arctic wildfires, which are not fully accounted for in global emissions budgets, will greatly redu... [8].\n\nSocioeconomic impacts of permafrost degradation may also prove costly (Larsen et al. 2008). [7].\n\n**Key Findings**\n\n- Carbon emissions from permafrost thaw and Arctic wildfires, which are not fully accounted for in global emissions budgets, will greatly redu... [8]\n- Socioeconomic impacts of permafrost degradation may also prove costly (Larsen et al. 2008). [7]\n\n--- Section s06: Implications and Research Gaps (51 words) ---\nAs of 2020, estimates suggest as much as 2.5 times more carbon is locked within permafrost than there is in the global atmosphere. [10].\n\n**Key Findings**\n\n- As of 2020, estimates suggest as much as 2.5 times more carbon is locked within permafrost than there is in the global atmosphere. [10]\n\nConstraints:\n- Select at most 5 sections.\n- Only recommend a diagram if it adds genuine clarity beyond the text.\n- The description must reference specific facts or structures present in the section content.\n- Choose the diagram type that best fits the section's analytical structure.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316963.0108924
+}

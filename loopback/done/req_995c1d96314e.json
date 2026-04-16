@@ -1,0 +1,12 @@
+{
+  "request_id": "995c1d96314e",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent fasting: benefits or risks? Study raises ... | Statement: Researchers, analysing data from more than 19,000 adults, found that those who confined their eating to less than eight hours a day faced a ...\n2. [SILVER] Source: Health effects of intermittent fasting: hormesis or harm? A  | Statement: Whether clinical evidence exists for or is strong enough to support the use of such dietary regimens as health interventions is unclear.\n3. [SILVER] Source: Health effects of intermittent fasting: hormesis or harm? A  | Statement: Two observational clinical outcomes studies in humans were found in which fasting was associated with a lower prevalence of CAD or diabetes ...\n4. [SILVER] Source: Health effects of intermittent fasting: hormesis or harm? A  | Statement: Caloric restriction (CR)5 and total caloric desistance [TCD; i.e., intermittent fasting, alternate-day fasting (ADF), routine periodic fasti...\n5. [SILVER] Source: What intermittent fasting really does for your body and brai | Statement: Fasting is a common practice, whether for religious reasons or with the goal of losing weight, preventing chronic disease, or even slowing a...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313352.192302
+}

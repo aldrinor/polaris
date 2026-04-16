@@ -1,0 +1,75 @@
+{
+  "request_id": "e14fbd8ae219",
+  "call_type": "structured:StormOutlinePlan",
+  "schema_name": "StormOutlinePlan",
+  "schema_json": {
+    "$defs": {
+      "StormOutlineSection": {
+        "description": "A section in the STORM-generated outline.",
+        "properties": {
+          "title": {
+            "description": "Section title",
+            "title": "Title",
+            "type": "string"
+          },
+          "description": {
+            "description": "What this section covers",
+            "title": "Description",
+            "type": "string"
+          },
+          "search_keywords": {
+            "default": "",
+            "description": "Comma-separated domain-specific keywords for routing evidence to this section. Include technical terms, units, method names. E.g. 'epoxy, MPa, dolly, ASTM D4541, cohesive failure'",
+            "title": "Search Keywords",
+            "type": "string"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Summary of evidence from conversations for this section",
+            "title": "Evidence Summary",
+            "type": "string"
+          },
+          "perspectives": {
+            "description": "STORM perspectives that contributed to this section",
+            "items": {
+              "type": "string"
+            },
+            "title": "Perspectives",
+            "type": "array"
+          },
+          "order": {
+            "default": 0,
+            "description": "Order in the outline",
+            "title": "Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title",
+          "description"
+        ],
+        "title": "StormOutlineSection",
+        "type": "object"
+      }
+    },
+    "description": "Complete outline generated from STORM conversations.",
+    "properties": {
+      "sections": {
+        "description": "Ordered sections for the research report",
+        "items": {
+          "$ref": "#/$defs/StormOutlineSection"
+        },
+        "title": "Sections",
+        "type": "array"
+      }
+    },
+    "title": "StormOutlinePlan",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research outline architect. Based on multi-perspective expert interviews, create a comprehensive report outline.\n\nRESEARCH QUESTION: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nINTERVIEW CONVERSATIONS (1 perspectives, 3 total Q&A rounds):\n\n=== Scientific (Dr. A) ===\n  Q: From the Scientific perspective, what are the key findings on Pooled effect sizes and GRADE certainty?\n  A: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics? A, Scientific perspective) asks:\nQUESTION: From the Scientific perspective, what are the key findings on Pooled effect sizes and GRADE certainty? SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Thermal Aging on Bond ...\n  Key findings: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affec; A, Scientific perspective) asks:\nQUESTION: From the Scientific perspective, what are the key finding; SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Therma; URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11902269/\n  Content: by A Robaian \u00b7 2025 \u00b7 Cited by 7 ; URL: https://www.researchgate.net/publication/381560448_Analysis_of_the_influence_of_damp-heat_aging\n  Q: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint?\n  A: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics? A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint? SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Thermal Aging on Bond ...\n  Key findings: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affec; A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE ; SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Therma; URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11902269/\n  Content: by A Robaian \u00b7 2025 \u00b7 Cited by 7 ; URL: https://www.researchgate.net/publication/381560448_Analysis_of_the_influence_of_damp-heat_aging\n  Q: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint?\n  A: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics? A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint? SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Thermal Aging on Bond ...\n  Key findings: You are a research expert being interviewed about:\nRESEARCH QUESTION: How does damp heat aging affec; A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE ; SEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of Surface Treatments and Therma; URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11902269/\n  Content: by A Robaian \u00b7 2025 \u00b7 Cited by 7 ; URL: https://www.researchgate.net/publication/381560448_Analysis_of_the_influence_of_damp-heat_aging\n\nPERSPECTIVES COVERED: Scientific\n\nINSTRUCTIONS:\n1. Identify 8-15 thematic clusters across ALL conversations.\n2. For each cluster, create a report section with:\n   - title: Clear, descriptive section heading\n   - description: 2-3 sentences on what this section should cover\n   - evidence_summary: Key findings from conversations that belong here\n   - perspectives: Which STORM perspectives contributed to this section\n   - order: Sequential position (1-based)\n3. Sections should be ordered logically: background -> methodology -> findings -> analysis -> implications -> future directions.\n4. Each section should draw from at least 2 different perspectives where possible (multi-perspective synthesis).\n5. Do NOT create a section for every single Q&A pair \u2014 cluster related information together.\n6. Ensure COMPLETE COVERAGE: every key finding from the interviews should appear in at least one section's evidence_summary.\n\nReturn a JSON object with a 'sections' array of outline section objects.",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776320149.5959446
+}

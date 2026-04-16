@@ -1,0 +1,12 @@
+{
+  "request_id": "c5ca6ac066b2",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: EVA laminates with gel content over 92% are more likely to yellow and show less stable adhesion during aging.\n2. [GOLD] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: EVA manufacturer STR recommends a minimum 53 N/cm peel strength after lamination by 180-degree peel to ensure 20-year module lifetime.\n3. [SILVER] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: Tracy et al. proposed initial delamination avoidance thresholds of 160 J/m2 for encapsulant interfaces and 10 J/m2 for backsheet interfaces.\n4. [SILVER] Source: Dependence of adhesion on degradation mechanisms of ethylene | Statement: Three degradation mechanisms dominate EVA adhesion loss sequentially: deacetylation initially, then beta-scission, followed by hydrolytic depolymeriza\n5. [SILVER] Source: Dependence of adhesion on degradation mechanisms of ethylene | Statement: Glass/EVA interface experiences more degradation than EVA/cell, explaining why this initially stronger interface becomes preferential delamination sit",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776366118.7334363
+}

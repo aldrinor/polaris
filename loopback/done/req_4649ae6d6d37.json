@@ -1,0 +1,165 @@
+{
+  "request_id": "4649ae6d6d37",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the current best-available estimates of permafrost carbon release under RCP 4.5 and RCP 8.5 scenarios by 2100?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://search.proquest.com/openview/09ea717674e23c42c13d37d9537370c8/1?pq-origsite=gscholar&cbl=18750&diss=y\nSource title: Combining expert opinions to assess risk of change in earth systems: Permafrost collapse, global wildfire, and water security\nSource type: academic\nContent:\n\n---Source URL: https://earth.org/arctic-permafrost-abrupt-thaw-a-risk/\nSource title: Arctic Permafrost Moving Toward Crisis, Abrupt Thaw a ...\nSource type: web\nContent:\nThe cracked, buckling road between Fairbanks and Fox, Alaska, wends its way past snowy forests where slender birches and black spruce trees protrude out of the ground at impossible angles, slanting and swaying as if the very earth were alive. Scientists call these \u2018drunken forests\u2019. The ground here consists of permafrost \u2014 soil, sediment, rock and ice that often remains at or below 0 degrees Celsius year-round. Permafrost covers approximately 22.8 million square kilometres in the Arctic, sub-Arctic and alpine regions \u2014 comprising nearly a quarter of the exposed land surface in the northern hemisphere. \u2014 In Alaska, 85% of the state lies within the permafrost zone, though discontinuous permafrost \u2014 areas with patchy permafrost presence \u2014 underlies much of the Fairbanks area. In Arctic regions, permafrost temperatures often dip down to -8 degrees C. But in Fairbanks, which lies roughly 321 kilometres south of the Arctic Circle, temperatures hover much closer to the freezing point, causing the permafrost to sporadically thaw out. This freeze-thaw action has long posed challenges for natural and human systems, intoxicating forests, breaking pavement, sinking houses, and even sometimes draining lakes sitting atop it. But as climate change heats up the planet, with the Arctic warming at twice the rate of the rest of the globe, things are about to get a whole lot worse. Why is permafrost melting bad? Scientists began seriously worrying about climate change impacts on permafrost about 15 years ago, but not only because of degraded infrastructure. The world\u2019s permafrost serves as a massive carbon reservoir, storing nearly twice the amount of carbon currently found in the atmosphere. An estimated 1 400 gigatons of carbon \u2014 made up of decomposed plants and animals which once inhabited the Earth \u2014 can be found embedded in permafrost. By comparison, our atmosphere presently contains just 850 gigatons of carbon. As the planet warms and permafrost thaws, some of that locked-up carbon will be released into the atmosphere. The trillion-dollar question is how much and how fast? You might also like: Scientists Underestimating Greenland Ice Sheet Melt- Study Permafrost Gains International Scientific Attention In 2011, Merritt Turetsky, the director of the Institute of Arctic and Alpine Research at the University of Colorado Boulder, helped found the Permafrost Carbon Network, connecting scientists studying permafrost across the globe, from Alaska to Canada to Siberia. Before that, much of the research on changes in the Arctic had centered on declining sea ice extent \u2014 not on land impacts. \u201cThere wasn\u2019t a lot of info out there. We had initial estimates of permafrost carbon loss that were based on back-of-envelope calculations,\u201d says Turetsky.\u201d But those rough estimates were massive: \u201cThey showed that permafrost carbon release over a short order of time could be really disruptive and carried a lot of risk.\u201d By connecting scientists and synthesising collected data, the network hoped to figure out how much carbon loss the world should expect. Nearly a decade later, scientists have a much better handle on when, where and how thawing permafrost could impact the planet. \u201cI think the scientific understanding is maturing and we\u2019re seeing the evidence of that,\u201d says Turetsky. That\u2019s crucial because the United Nation\u2019s Intergovernmental Panel on Climate Change (IPCC) only recently started including permafrost thaw into its long-term projections. If we intend to limit warming to 2 degrees C, as stipulated in the 2015 Paris Climate Agreement, we\u2019ll need to cut emissions even sooner than IPCC models currently predict to account for the carbon released by thawing permafrost. Until recently, scientists assumed global permafrost wouldn\u2019t lose more than 10% of its carbon, and that this would occur over a drawn-out timescale. But when they pooled observations from more than 100 Arctic field sites in the Permafrost Carbon Network, they found that the permafrost likely released an average of 1.662 trillion kilograms (1.832 billion tons) of carbon each winter from 2003 to 2017 \u2014 double that of past estimates. On Alaska\u2019s North Slope, permafrost temperatures have increased by 11 degrees F in just 30 years. In turn, the amount of CO2 released from the region in early winter has increased by 73% since 1975. In a 2015 study, scientists found that for every one degree C rise in Earth\u2019s average temperature, permafrost may release the equivalent of 4 to 6 years-worth of oil, coal and natural gas emissions. If fossil fuel use isn\u2019t restrained, they said, permafrost could soon be as big a source of greenhouse gas emissions as China, the world\u2019s second largest economic powerhouse. The Risk of Abrupt Thaw Though the IPCC is considering carbon emissions due to gradual permafrost thaw in its Sixth Assessment Report, due out in 2022, it won\u2019t take abrupt thaw and subsequent greenhouse gas release into consideration. Abrupt thaw, the large-scale surface subsidence of land, occurs in zones rich with subsurface ice and manifests as thermokarst, thaw slumps producing gullies, scar wetlands and thermokarst lakes. As temperatures rise, ice wedges or lenses can melt rapidly, destabilising soil and sediment above in a way akin to suddenly removing a support beam in a house, resulting in structural collapse. Unlike gradual thaw which affects mere centimetres of permafrost and occurs over the time scale of decades, abrupt thaw can impact meters of permafrost in just months or years. This can shock the surrounding landscape into releasing even more carbon than if it had thawed at a leisurely pace. In a paper published in February in Nature Geoscience, Turetsky and her co-authors found that, while abrupt thaw will likely occur in less than 20% of the world\u2019s permafrost zone, it could affect half of all permafrost carbon through rapid erosion, collapsing ground and landslides. Despite influencing only a small portion of the Arctic, abrupt thaw emissions could have the same climate feedback effect as gradual thaw emissions would over the entire permafrost zone. These abrupt releases could trigger a positive feedback loop whereby the permafrost\u2019s greenhouse gas emissions would further warm the atmosphere, which would then thaw more permafrost and release more carbon. Turetsky says that without accounting for abrupt thaws, we\u2019re underestimating the impact of permafrost carbon releases by 50 percent. The Methane Conundrum \u201cThe climate consequences are as high as gradual thaw because abrupt thaw is releasing a lot more of its carbon as methane,\u201d Turetsky explains. Though permafrost serves as a carbon sink, when that carbon is released into the atmosphere it can come out as either carbon dioxide (C02) or methane (CH4), depending on whether the carbon stores were subject to aerobic or anaerobic respiration. The danger here: methane is far more potent as a greenhouse gas than CO2, trapping up to 30 times more atmospheric solar radiation. \u201cIf you look at just the magnitude of carbon, abrupt thaw only releases about 40 percent of the carbon relative to gradual thaw. But that carbon comes out as a lot of methane and it has bigger climate consequences,\u201d Turetsky says. \u201cIt\u2019s both worrisome and reassuring at the exact time,\u201d she adds. \u201cWhat we now know is that abrupt thaw doesn\u2019t affect a huge area of the Arctic\u201d \u2014 that\u2019s the good news \u2014 \u201cbut it does carry a punch. It affects the deepest and most carbon rich soils which are found in areas prone to abrupt thaw.\u201d In their 2019 paper, \u201cThe Polar Regions in a 2 Degree C Warmer World,\u201d the authors lay out several emission scenarios that span releases between a modest increase of 10 teragrams of extra methane per year, to more than 50 teragrams through 2080 assuming a 2 degrees C increase in global temperature. \u201cAlthough increases in methane emissions in excess of 50 Tg represent extreme scenarios, these projections do not consider possible abrupt changes or accelerating trends. Given the potential for decomposition of large stocks of organic soil carbon, such changes could be an important factor in the future,\u201d the authors write. Over the next decade, researchers will be trying to model the potential methane releases from Arctic permafrost more precisely \u2014 those estimates will help policymakers determine just how short a time we have in which to act before our climate crisis morphs into a climate catastrophe. The news isn\u2019t all bleak: another study published in Science Advances in February used paleoclimate research to argue that though permafrost does have the potential to emit large quantities of methane, it\u2019s \u201cunlikely the gas released from those stores will reach the atmosphere.\u201d Using ice cores from Antarctica, scientists examined air composition dating back 8 000 to 15 000 years, Earth\u2019s last major deglaciation period. They found that methane emissions from ancient carbon reservoirs were small during this time, meaning the likelihood of old carbon reservoirs in the Arctic destabilising and emitting large amounts of methane in the present day is pretty low. Winter Woes But that doesn\u2019t mean things are anywhere close to stable up North. Since the late 19th Century, the Earth as a whole has warmed by about 0.8 degrees C. But the Arctic has warmed 2 to 3 degrees C. And scientists expect the region to warm an additional 2 degrees C above the 1981-2005 baseline over the next 25 to 50 years, if fossil fuel emissions aren\u2019t curbed. That could cause big problems, not just in the Arctic summer, but in the dead of winter as well. Last October, a study published in Nature Climate Change found that winter CO2 loss from the world\u2019s permafrost regions could increase by 41 percent if greenhouse gas emissions aren\u2019t reduced. Scientists have long known that Arctic temperatures have been accelerating carbon emissions in winter time, but they were unsure of the exact winter carbon balance. Come spring and summer, the world\u2019s permafrost continues to act as a carbon reservoir, locking up decaying organic material. But these new results \u201cindicate that winter CO2 loss may already be offsetting growing season carbon uptake,\u201d says Sue Natali, director of the Arctic Program at Woods Hole Research Center and a member of the Permafrost Carbon Network. Natali and her team synthesised field observations of CO2 emissions to estimate that the permafrost region is losing 1.7 million metric tons of carbon during the winter season that runs from October through April. By comparison, this landscape only takes up around 1 million metric tons per year. As the Arctic warms, permafrost CO2 release could increase by another 17% under a moderate global emissions reductions scenario, and would increase by 41% under a business-as-usual emissions scenario. \u201cThe Arctic has been a [carbon] sink for a very, very long time,\u201d says Natali. But, \u201cwe\u2019re now changing how this system is functioning.\u201d Researchers have long suspected that the Arctic could one day switch over to become a carbon source; Natali stresses that her team\u2019s findings indicate this is already happening. \u201cThe ambition to stay below 2 degrees C of warming needs to be ramped up. And it needs to be ramped up sooner than later,\u201d she says. Featured image by: NPS Climate Change Response This article was originally published on Mongabay, written by Gloria Dickie, and is republished here as part of an editorial partnership with Earth.Org.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316775.2972987
+}

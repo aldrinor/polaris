@@ -1,0 +1,42 @@
+{
+  "request_id": "250c8e37778a",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nThe interviewer (Dr. A, Scientific perspective) asks:\nQUESTION: From the Scientific perspective, what are the key findings on Pooled effect sizes and GRADE certainty?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Intermittent fasting: the science of going without - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC3680567/\n  Content: Fasting has been shown to improve biomarkers of disease, reduce oxidative stress and preserve learning and memory functioning, according to Mark Mattson, senior ...\n[Source 2] Intermittent Fasting Benefits, Risks, and How it Works\n  URL: https://www.massgeneralbrigham.org/en/about/newsroom/articles/pros-and-cons-of-intermittent-fasting\n  Content: Intermittent fasting has been shown to help with weight loss and improve some markers of health. But it's not for everyone.\n[Source 3] Intermittent fasting: What are the benefits? - Mayo Clinic\n  URL: https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/expert-answers/intermittent-fasting/faq-20441303\n  Content: Some evidence suggests that a 16-hour fasting, 8-hour eating cycle may raise heart disease risk compared with other time-restricted eating cycles. Intermittent ...\n[Source 4] The health benefits of intermittent fasting\n  URL: https://hsph.harvard.edu/news/the-health-benefits-of-intermittent-fasting/\n  Content: In our studies, we've seen that people who practice daily intermittent fasting feel less hungry in the early evening and their hunger levels are ...\n[Source 5] Intermittent fasting and health outcomes: an umbrella review ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC10945168/\n  Content: Over the past years, numerous clinical trials have highlighted the potential health benefits of IF, particularly for conditions like obesity, diabetes, cancer, ...\n[Source 6] 8-hour time-restricted eating linked to a 91% higher risk of ...\n  URL: https://newsroom.heart.org/news/8-hour-time-restricted-eating-linked-to-a-91-higher-risk-of-cardiovascular-death\n  Content: \u201cIt's crucial for patients, particularly those with existing heart conditions or cancer, to be aware of the association between an 8-hour eating ...\n[Source 7] Intermittent Fasting: What Is It, And How Does It Work?\n  URL: https://www.hopkinsmedicine.org/health/expert-qa/intermittent-fasting-what-is-it-and-how-does-it-work\n  Content: In animal studies, intermittent fasting prevented obesity. And, in six brief studies, obese adult humans lost weight through intermittent fasting. People with ...\n[Source 8] Intermittent fasting strategies and their effects on body weight and ...\n  URL: https://www.bmj.com/content/389/bmj-2024-082007\n  Content: The current evidence provides some indication that intermittent fasting diets have similar benefits to continuous energy restriction for weight loss and ...\n[Source 9] Why Intermittent Fasting May Do More Harm Than Good\n  URL: https://www.scientificamerican.com/article/is-intermittent-fasting-helpful-or-harmful/\n  Content: The proven benefits of temporary fasting appear to be that people eat less and lose weight as a result. Scientists at the University of Bath in ...\n[Source 10] Effects of Intermittent Fasting on Health, Aging, and Disease\n  URL: https://www.nejm.org/doi/full/10.1056/NEJMra1905136\n  Content: Studies in animals have shown that intermittent fasting can protect the brain, heart, liver, and kidneys against ischemic injury. However, the ...\n[Source 11] Rating the certainty in evidence in the absence of a single estimate ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5502230/\n  Content: We provide suggestions on the use of GRADE to rate the certainty of evidence when a meta-analysis has not been performed, and instead a narrative summary of the ...\n[Source 12] Assessing the certainty of the evidence in systematic reviews\n  URL: https://academic.oup.com/aje/article/194/6/1681/7746729\n  Content: This article introduces the GRADE approach for assessing the certainty of the evidence and describes how the assessment is done, how they are incorporated when ...\n[Source 13] Chapter 14: Completing 'Summary of findings' tables and grading ...\n  URL: https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14\n  Content: For systematic reviews, the GRADE approach defines the certainty of a body of evidence as the extent to which one can be confident that an estimate of ...\n[Source 14] Effect size and pooling - Conducting Systematic Reviews and Meta ...\n  URL: https://uvanl.libguides.com/c.php?g=723438&p=5319551\n  Content: An effect size is a quantitative metric that captures both the direction and magnitude of a relationship between two entities. When different ...\n[Source 15] Chapter 7: GRADE Criteria Determining Certainty of Evidence - CDC\n  URL: https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html\n  Content: The GRADE approach is used to determine the certainty of evidence across the body of evidence for each outcome identified as critical or important for decision ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313266.2646732
+}

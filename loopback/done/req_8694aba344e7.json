@@ -1,0 +1,12 @@
+{
+  "request_id": "8694aba344e7",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Use of Evidence-Based Dietary Interventions for the Mana | Statement: Lifestyle and dietary modification are central to achieving effective weight loss in obesity.\n2. [SILVER] Source: The Use of Evidence-Based Dietary Interventions for the Mana | Statement: Very low calorie ketogenic diets (VLCKD) can produce sustained weight loss and in some individuals remission of type 2 diabetes.\n3. [SILVER] Source: Specialty Corner: Medical Nutrition Therapy for Pre-Diabetes | Statement: Medical nutrition therapy delivered by trained registered dietitian nutritionists is clinically beneficial and cost-effective for cardiometabolic dise\n4. [SILVER] Source: Specialty Corner: Medical Nutrition Therapy for Pre-Diabetes | Statement: General dietary recommendations include limiting highly processed foods, fatty meats, and added sugars; Mediterranean and DASH diets are the two most \n5. [SILVER] Source: Intermittent fasting and adipose tissue remodeling mechanism | Statement: Intermittent fasting promotes healthy adipose tissue remodeling and has emerged as an effective strategy to combat obesity and improve metabolic homeo",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776279632.3479428
+}

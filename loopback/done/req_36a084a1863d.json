@@ -1,0 +1,12 @@
+{
+  "request_id": "36a084a1863d",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent fasting and health outcomes: an umbrella review | Statement: Subgroup analyses were performed for populations based on three specific status: diabetes, overweight or obesity, and metabolic syndrome.\n2. [SILVER] Source: Intermittent fasting: What are the benefits? - Mayo Clinic | Statement: But is it a smart strategy, or a passing fad? \u201cIt\u2019s not a magic cure for losing weight, but the research on intermittent fasting is promisin...\n3. [SILVER] Source: Vegetables and fruit, as a source of bioactive substances, a | Statement: Muslims fast during the daytime (approximately 15 hours between sunrise and sunset) for a month during the Ramadan period every year.\n4. [SILVER] Source: Vegetables and fruit, as a source of bioactive substances, a | Statement: IF involves reduced or no caloric intake in an intermittent pattern, such as short periods of very restricted caloric intake or fasting inte...\n5. [SILVER] Source: Vegetables and fruit, as a source of bioactive substances, a | Statement: The most studied IF interventions include 2 days of CR or fasting per week (5:2 diet) and alternate-day fasting (ADF) [22].",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313350.1337018
+}

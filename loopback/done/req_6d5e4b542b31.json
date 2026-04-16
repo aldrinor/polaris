@@ -1,0 +1,12 @@
+{
+  "request_id": "6d5e4b542b31",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome - PMC | Statement: Intermittent fasting has gained popularity as a dietary intervention to improve metabolic health.\n2. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome - PMC | Statement: This systematic review and meta-analysis followed Preferred Reporting Items for Systematic Reviews and Meta-Analysis (PRISMA) guidelines...\n3. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome - PMC | Statement: Data on weight, BMI, cholesterol, BP, and glucose levels were extracted, and a random effects meta-analysis was conducted to assess...\n4. [SILVER] Source: Effect of intermittent fasting on lipid biokinetics in obese | Statement: Patients and methods Thirty overweight or obese T2D patients were recruited from the diabetes outpatient clinics at the Specialized Medical...\n5. [SILVER] Source: Effect of intermittent fasting on lipid biokinetics in obese | Statement: Anthropometric data were measured for participants before and 3\u00a0weeks after Ramadan fasting.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776297781.240426
+}

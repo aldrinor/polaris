@@ -1,0 +1,12 @@
+{
+  "request_id": "4b97edbd4958",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Influence of different ageing conditions on the delamination | Statement: The thesis studies TPO (thermoplastic polyolefin) encapsulant adhesive properties under humidity-based and UV-based aging campaigns, including natural\n2. [SILVER] Source: Influence of different ageing conditions on the delamination | Statement: A numerical model of the 180-degree peel test was developed including cohesive zone modeling (CZM) to simulate fracture energy variation with aging.\n3. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: PEVA films with 18%, 24%, 33%, and 40% vinyl acetate (VA) content were fabricated and cured at 150 degrees C under vacuum, then subjected to accelerat\n4. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: Tensile strength, thermal stability, and degree of crosslinking were greater for PEVA containing lower VA content (18% and 24%) and diminished for PEV\n5. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: PEVA encapsulants with higher VA content (33% and 40%) degraded significantly after 2000 hours of damp-heat aging, resulting in significant loss of tr",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776322998.3734338
+}

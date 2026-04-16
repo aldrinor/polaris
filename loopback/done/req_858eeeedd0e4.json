@@ -1,0 +1,12 @@
+{
+  "request_id": "858eeeedd0e4",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent fasting strategies and their effects on body we | Statement: Eligibility required RCTs comparing intermittent fasting strategies including alternate day fasting.\n2. [BRONZE] Source: Intermittent versus continuous energy restriction on weight  | Statement: The meta-analysis summarized the efficacy of IER versus CER on weight loss, body composition, blood pressure, and cardiometabolic risk factors.\n3. [SILVER] Source: Intermittent fasting for the prevention of cardiovascular di | Statement: Alternate-day fasting is defined as complete fasting for 24 hours followed by ad libitum feeding for 24 hours.\n4. [SILVER] Source: Intermittent fasting for the prevention of cardiovascular di | Statement: Time-restricted feeding is defined as complete fasting for at least 12 hours per day with ad libitum feeding.\n5. [SILVER] Source: Intermittent fasting for the prevention of cardiovascular di | Statement: The Cochrane protocol defines continuous energy restriction as a minimum of 25% reduction in caloric intake.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382830.0129251
+}

@@ -1,0 +1,42 @@
+{
+  "request_id": "5ea87d2e88ff",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nThe interviewer (Dr. A, Scientific perspective) asks:\nQUESTION: From the Scientific perspective, what are the key findings on Pooled effect sizes and GRADE certainty?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Most minimum wage studies have found little or no job loss\n  URL: https://www.epi.org/blog/most-minimum-wage-studies-have-found-little-or-no-job-loss/\n  Content: A new review that I co-authored with Arindrajit Dube finds that most minimum wage studies find no job losses or only small disemployment effects.\n[Source 2] Who's Afraid of the Minimum Wage? Measuring the Impacts on ...\n  URL: https://academic.oup.com/qje/article/141/1/373/8376639\n  Content: We find that independent firms finance their higher wage bills with new revenue, raising roughly 3.3% more revenue four years after the minimum wage increase.\n[Source 3] What does the scholarly research say about whether raising the ...\n  URL: https://whatweknow.inequality.cornell.edu/topics/what-does-the-scholarly-research-say-about-whether-raising-the-minimum-wage-negatively-impacts-employment/\n  Content: 1. In recent empirical studies, minimum wage raises do not appear to substantially lower employment, with many studies reporting employment effects ...\n[Source 4] How Will Higher Minimum Wages Affect Family Life and Children's ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5966045/\n  Content: In most studies, a minimum wage increase modestly reduced poverty in the short term (30, 31), but in at least one study, short-term reductions faded or reversed ...\n[Source 5] The Local Aggregate Effects of Minimum Wage Increases\n  URL: https://www.bostonfed.org/publications/research-department-working-paper/2017/the-local-aggregate-effects-of-minimum-wage-increases.aspx\n  Content: Minimum wage increases result in small but significant increases in prices and consumption, particularly in economic sectors where firms tend to employ a large ...\n[Source 6] Study examines pain vs. gain of raising minimum wage\n  URL: https://record.umich.edu/articles/study-examines-pain-vs-gain-of-raising-minimum-wage/\n  Content: Wage-floor increases boost worker retention as well as reduce hiring. The net impact is a modest reduction of roughly one worker per firm with ...\n[Source 7] [PDF] Criticisms of Minimum Wage Increases Lag Behind Latest Research\n  URL: https://www.jec.senate.gov/public/_cache/files/b5056335-1b0f-4751-8e3a-2739e7963738/minimum-wage-critics-lag-behind-latest-research-final.pdf\n  Content: The latest domestic and international evidence shows that higher wage floors discourage low-pay employment and encourage the creation of good jobs with higher ...\n[Source 8] Effects of the minimum wage on US county labor markets\n  URL: https://www.sciencedirect.com/science/article/pii/S1757780224000362\n  Content: Using this data, the study produced evidence suggesting that raises in the minimum wage \u201creduced the amount of job vacancies (and related hiring efforts) ...\n[Source 9] The Economics of the Minimum Wage: Myths, Facts, and ... - AIER\n  URL: https://aier.org/article/the-economics-of-the-minimum-wage-myths-facts-and-consequences/\n  Content: Empirical studies on this issue have produced mixed results, but many show that increasing the minimum wage leads to job losses, particularly ...\n[Source 10] Rating the certainty in evidence in the absence of a single estimate ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5502230/\n  Content: We provide suggestions on the use of GRADE to rate the certainty of evidence when a meta-analysis has not been performed, and instead a narrative summary of the ...\n[Source 11] Assessing the certainty of the evidence in systematic reviews\n  URL: https://academic.oup.com/aje/article/194/6/1681/7746729\n  Content: This article introduces the GRADE approach for assessing the certainty of the evidence and describes how the assessment is done, how they are incorporated when ...\n[Source 12] Chapter 14: Completing 'Summary of findings' tables and grading ...\n  URL: https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14\n  Content: For systematic reviews, the GRADE approach defines the certainty of a body of evidence as the extent to which one can be confident that an estimate of ...\n[Source 13] Effect size and pooling - Conducting Systematic Reviews and Meta ...\n  URL: https://uvanl.libguides.com/c.php?g=723438&p=5319551\n  Content: An effect size is a quantitative metric that captures both the direction and magnitude of a relationship between two entities. When different ...\n[Source 14] Chapter 7: GRADE Criteria Determining Certainty of Evidence - CDC\n  URL: https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html\n  Content: The GRADE approach is used to determine the certainty of evidence across the body of evidence for each outcome identified as critical or important for decision ...\n[Source 15] GRADE offers guidance on choosing targets of GRADE certainty of ...\n  URL: https://www.sciencedirect.com/science/article/pii/S0895435621001086\n  Content: This article provides practical principles and examples to help systematic review and health technology assessment authors make optimal choices regarding the ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776314973.1735482
+}

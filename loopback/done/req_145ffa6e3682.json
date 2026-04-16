@@ -1,0 +1,12 @@
+{
+  "request_id": "145ffa6e3682",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The history and risks of reinforcement learning and human fe | Statement: RLHF reward models are often cited as being central to achieving performance, yet very few descriptors of capabilities, evaluations, trainin...\n2. [SILVER] Source: Fine-Grained Human Feedback Gives Better Rewards for Languag | Statement: Fine-Grained Human Feedback Gives Better Rewards for Language Model Training\nLanguage models (LMs) often exhibit undesirable text generation...\n3. [SILVER] Source: Reinforcement Learning From Human Feedback For Ethically Rob | Statement: Keywords Ethical AI Decision-Making; Reinforcement Learning with Human Feedback (RLHF); AI Ethics and Human Values; Robust; Deep Reinforceme...\n4. [SILVER] Source: Reinforcement Learning From Human Feedback For Ethically Rob | Statement: In general, this machine learning technique is concerned with producing agents that learn to work toward optimizing and achieving some goal,...\n5. [SILVER] Source: Reinforcement Learning from Human Feedback (RLHF) - Lakera A | Statement: At its core, RLHF is a machine-learning technique that leverages direct human feedback to train models, particularly when predefined reward ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317326.891686
+}

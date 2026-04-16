@@ -1,0 +1,165 @@
+{
+  "request_id": "e97e346da8b9",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11559166/\nSource title: Effects of different types of intermittent fasting on metabolic outcomes\nSource type: web\nContent:\nAbstract Background Intermittent fasting (IF) holds promise for enhancing metabolic health. However, the optimum IF forms and their superiority over continuous energy restriction (CER) remain unclear due to disconnected findings. Methods We systematically searched PubMed, Embase, and the Cochrane databases for meta-analyses of randomized controlled trials (RCTs) investigating the association between IF and metabolic health outcomes. Subsequently, we performed an umbrella review and network meta-analysis (NMA) to evaluate the efficacy of different forms of IF (time-restricted eating (TRE), alternate-day fasting (ADF), and 5:2 diet (regular eating for 5 days and energy restriction for 2 days per week)) compared to CER and usual diets on metabolic health outcomes. To assess the certainty of both direct and indirect estimates, we employed the Confidence in Network Meta-Analysis (CINeMA) approach. Additionally, we calculated the surface under the cumulative ranking curve (SUCRA) for each dietary strategy to determine their ranking in terms of metabolic health benefits. Results Ten of the best and non-redundant meta-analysis studies, involving 153 original studies and 9846 participants, were included. When considering direct evidence only, all IF forms significantly reduced body weight compared to usual diets. In NMA incorporating indirect evidence, all IF regimens also significantly reduced body weight compared to usual diets. In the SUCRA of NMA, IF ranked higher than usual diets or CER in 85.4% and 56.1% of the outcomes, respectively. ADF had the highest overall ranking for improving metabolic health (ranked first: 64.3%, ranked second: 14.3%). Conclusions Overall, all IF forms demonstrate potentials to improve metabolic health, with ADF appearing to produce better outcomes across investigated outcomes. Further high-quality trials are warranted to confirm the (relative) efficacy of IF on metabolic health. Trial registration PROSPERO (record no: CRD42022302690). Supplementary Information The online version contains supplementary material available at 10.1186/s12916-024-03716-1. Keywords: Intermittent fasting, Alternate-day fasting, Time-restricted eating, Metabolic health, Continuous energy restriction Background The widespread occurrence of metabolic syndrome, ranging from 12.5 to 31.4% depending on the region, poses a significant health risk [1], leading to heightened risks of type 2 diabetes [2], cardiovascular diseases [3], non-alcoholic fatty liver disease [4], reproductive system disorders [5], and certain types of cancers [6, 7]. Therefore, addressing metabolic health is a global priority. Multiple lines of evidence suggest that optimizing lifestyle factors, particularly dietary patterns, can effectively promote metabolic well-being [8\u201311]. Continuous energy restriction (CER), which aims to reduce overall energy intake per day, is a common dietary strategy for weight loss and subsequent improvement in metabolic parameters. However, CER can be challenging for many individuals to maintain [12, 13]. An alternative dietary approach, known as intermittent fasting (IF), has gained attention. IF is an eating pattern in which individuals alternate between periods of eating and defined extended fasting phases, which may span several hours to days, with energy intake during non-fasting periods either remaining normal or reduced [14]. Common IF regimens include (1) the 5:2 diet, which involves adopting a very low-energy diet for 2 days each week while eating without restrictions for the remaining 5 days [15]; (2) alternate-day fasting (ADF), which entails alternating between very low-energy intake and unrestricted eating every 24 h [14]; and (3) time-restricted eating (TRE), in which individuals typically fast for 14 to 16 h daily, with caloric intake not necessarily restricted [13]. While several meta-analyses have examined the effects of IF compared to CER or usual diets on metabolic health, limited research has investigated the relative efficacy of specific IF formats (5:2, ADF, TRE) and CER in enhancing metabolic parameters. To address this gap, we conducted an umbrella review and utilized network meta-analysis (NMA) to compare the effects of different IF forms and CER on metabolic health. Methods This study was pre-registered with PROSPERO (Registration No.: CRD42022302690). We conducted searches on PubMed, Embase, and Cochrane from their inception to November 29, 2022, using synonyms of IF (see Additional File 1: Table S1 for the detailed search strategy). Eligibility criteria We included meta-analyses of randomized controlled trial (RCT) investigating the association between IF and metabolic health outcomes in humans (details in Additional File 1: Table S2). We excluded the study that (1) was not a meta-analysis, (2) did not investigate IF in relation to metabolic health in humans, and (3) only pooled estimates from an observational design. Study screening, data extraction, and the best study selection Two reviewers, Y.-E.C. and H.-L.T., independently screened articles and extracted data. In cases where disagreements could not be resolved through consensus, a third researcher, L.-W.C., acted as an arbitrator during the negotiation process. For each eligible article, we extracted effect estimates for outcome measures related to metabolic health, including anthropometry measurements, blood pressure, glycemic parameters, and lipid profile. To prevent duplication of original papers across multiple meta-analyses, we employed a selection process to identify the \u201cbest study\u201d for each unique comparison of exposure and outcome [16, 17] based on several criteria: (1) largest number of original studies, (2) results from the Assessment of Multiple Systematic Reviews 2 (AMSTAR2) tool, and (3) largest number of participants in the same comparisons (see Additional File 1: Text S1 for the details of the study selection process) [16, 17]. Assessment of methodological quality and rating evidence quality We employed the AMSTAR2 tool [18, 19] to evaluate the methodological quality of all included meta-analyses [14, 15, 20\u201356] and the established Grading of Recommendations, Assessment, Development and Evaluation (GRADE) approach (criteria and results provided in Additional File 1: Table S3) [37, 57\u201364] to evaluate the evidence quality for each outcome comparison within the selected best studies [21, 25, 26, 33, 37, 50, 53\u201356]. Based on these assessments, we classified the result into categories of high, moderate, low, or critically low (very low) quality/certainty. The Cochrane Risk of Bias tool (RoB 2.0) was used to evaluate the RCT studies included in the NMA, categorizing each study\u2019s overall risk of bias as high, some, or low [65]. Finally, we applied the Confidence in Network Meta-Analysis (CINeMA) framework to assess the confidence in the NMA results and assigned an overall confidence rating of very low, low, moderate, or high (see Additional File 1: Table S4) [61, 66\u201383]. Statistical methods We extracted mean changes, standard deviations (SDs), and sample sizes from the original studies included in the best study. We converted 95% confidence intervals (CIs), standard errors, or interquartile ranges into SDs using the methods described in the Cochrane Handbook [84]. Subsequently, we performed random-effects NMA [85] on each outcome separately using the Stata software (version 16, Stata, College Station, TX, USA). We used the contrast-based model to conduct NMA, and estimated the ranking of different diets in terms of their efficacy on metabolic parameters using the SUCRA (surface under the cumulative ranking curve) analysis. We employed meta-regressions to assess interactions between IF and baseline BMI, age, gender, and intervention duration, using likelihood ratio tests. Sensitivity analyses were conducted by restricting the NMA analyses in healthy populations. Summarizing the effectiveness of different dietary strategies on metabolic outcomes For direct evidence, we organized all pairwise comparisons of IF with usual or CER diets, and color-coded them based on the certainty of our GRADE assessment. In NMA, which incorporates indirect evidence, we categorized the certainty of the results based on the CINeMA assessment into two groups: (1) moderate to high certainty and (2) very low to low certainty. We then examined the impacts of dietary interventions on metabolic health. If a dietary intervention was significantly better than the reference diet (usual or CER diet) and any other non-reference diet (that was also significantly better than the reference diet), we classified it as having a \u201cmajor effect\u201d on metabolic health. However, if the dietary intervention was only significantly better than the reference diet, we classified it as having a \u201cminor effect\u201d. If a dietary intervention is not significantly different from the reference diet, it was categorized as having \u201cno effect\u201d [10]. Results Out of the initial 302 articles identified across three online databases, 39 were included after a thorough selection process (Fig. 1). To avoid redundancy on the same research question, we further selected 10 best meta-analyses for each unique comparison, as mentioned earlier. Study characteristics Of the 10 best meta-analyses included, five were published in 2022 [50, 53\u201356]. Each encompassed a range of original studies, ranging from 5 to 43, conducted in countries in North and South America, Asia, Europe, Africa, and Australia/Oceania. The number of included participants in these studies ranged from 131 to 2483, with ages spanning 18 and 79 years old. While three of the meta-analysis studies focused on overweight or obese participants, the others did not impose any weight restrictions. The types of IF examined in these studies included TRE [21, 26, 50, 54, 55], ADF [25, 26, 53\u201355], 5:2/4:3 diet (days with usual diet: days with very low-energy diet per week) [37, 54, 56], and short-term intermittent energy restriction (STIER) (weekly intermittent energy restriction; fasting lasting more than 7 days) [33]. The duration of the dietary intervention ranged from 2 weeks to 24 months. When assessing methodological quality using AMSTAR2, five studies were rated as critically low quality [21, 25, 26, 33, 53], and the remaining five studies were rated as low quality [37, 50, 54\u201356] (Table 1). Table 1. | First author (year) | Search start and end dates | No. of included studies | Country of original studies | Total no. of participants | Age (year) | Population | Type of IF | Type of comparator | Diet Duration (months) | AMSTAR2 | Unique comparisons and available outcome measurements | | |---|---|---|---|---|---|---|---|---|---|---|---|---| | Comparisons | Outcomes | ||||||||||| | Harris (2018) [33] | Database inception~ 10/2016 | 5 | Canada, Sweden, USA | 376 | 21~69 | Overweight / obese adults | STIER | CER | 3.5~12 | Critically low quality | [STIER] - [CER] | BW | | Cui (2020) [25] | Database inception~ 3/1/2020 | 7 | USA, Korea, Canada, Malaysia, France | 269 | 18~70 | Healthy / overweight / obese adults | ADF | Usual diet | 1~12 | Critically low quality | [ADF] - [Usual] | BW, FM, SBP, DBP, FBG, TC, LDL-C, HDL-C, TG | | Park (2020 [26] | Database inception~ ~12/31/2019 | 8 | USA, Austria, Korea, China, UK, Iran, Australia | 728 | 18~65 | Healthy / overweight / obese adults | ADF, TRE | CER, usual diet | 1~6 | Critically low quality | [TRE] - [ADF] | BW, BMI, FM, WC, FBG, TG, TC, LDL-C, HDL-C | | [ADF] - [Usual] | BMI, WC, FI | ||||||||||| | [ADF] - [CER] | FI, TC, TG, FBG | ||||||||||| | Pellegrini (2020) [21] | Database inception~ 1/31/2019 | 5 | USA, Iran, Turkey, Italy, Canada, Denmark, UK | 131 | 22~56 (mean) | Healthy / overweight / obese adults, one with prediabetes | TRE | Usual diet | 1~2 | Critically low quality | [TRE] - [Usual] | BW, FM, FFM, SBP, DBP, FBG, FI, TG, TC, LDL-C, HDL-C | | Schwingshackl (2021) [37] | Database inception~ 3/25/2019 | 17 | USA, Australia, UK, Serbia, Germany, Norway, Malaysia | 1328 | 32~68 (mean) | Healthy / overweight / obese adults, some with MetS, T2DM | 5:2; 4:3 | CER, usual diet | 3~13 | Low quality | [5:2/4:3] - [Usual] | BW, FM, WC, SBP, FBG, HbA1c, LDL-C, TG | | [5:2/4:3] - [CER] | BW, FM, WC, SBP, FBG, HbA1c, LDL-C, TG | ||||||||||| | Elortegui Pascual (2022) [53] | Database inception~ 6/7/2021 | 24 | NAa | 1768 | 23~68 (mean) | Healthy / overweight / obese adults, without MetS, prediabetes, or T2DM | ADF, 5:2, TRE | CER, usual diet | 0.5~6.5 | Critically low quality | [ADF] - [CER] | BW | | Gu (2022) [55] | Database inception~ 6/2021 | 43 | Brazil, China, Germany, Iran, Italy, Korea, Malaysia, New Zealand, Norway, Spain, Tunisia, Turkey, the UK, USA | 2483 | 18~79 | Healthy / overweight / obese adults | IER, 5:2, ADF, TRE, RDIF | CER, usual diet | 1~16 | Low quality | [TRE] - [CER] | BW, BMI, FM, FFM, WC, SBP, DBP | | [ADF] - [CER] | BMI, FM, WC, SBP | ||||||||||| | Kim (2022) [54] | 2011~ 12/31/2021 | 16 | NAa | 1074 | 18~70 | Overweight / obese adults, some with MetS, T2DM | ADF, 5:2, TRE | CER | 3~13 | Low quality | [5:2] - [CER] | BW, BMI, WC, SBP, DBP, FBG, FI, HbA1c, TC, LDL-C, HDL-C, TG | | [ADF] - [CER] | FFM, DBP, LDL-C, HDL-C | ||||||||||| | [TRE] - [CER] | FBG, FI, HbA1c, TC, LDL-C, HDL-C, TG | ||||||||||| | Liu (2022) [50] | Database inception~ 2/26/2022 | 17 | China, Switzerland, USA, Germany, Brazil, Italy | 899 | 19~54 (mean) | Healthy / overweight / obese adults, some with MetS, NAFLD, T2DM | TRE | CER, usual diet | 1~12 | Low quality | [TRE] - [Usual/CER] | BW, BMI, FM, WC, SBP, DBP, FBG, HbA1c, TC, LDL-C, HDL-C, TG | | Wang (2022) [56] | Database inception~ 12/2021 | 11 | NAa | 790 | 18~75 | Overweight / obese adults, some with MetS, T2DM | 5:2, ADF | CER | 1~24 | Low quality | [5:2] - [CER] | FM, FFM | 4:3 Regular eating for four days and energy restriction for three days per week, 5:2 Regular eating for five days and energy restriction for two days per week, ADF Alternate day fasting, BMI Body mass index, BW Body weight, CER Continuous energy restriction, DBP Diastolic blood pressure, FBG Fasting blood glucose, FFM Fat free mass, FI Fasting insulin, FM Fat mass, HbA1c Glycosylated hemoglobin, HDL-C High density lipoprotein cholesterol, IF Intermittent fasting, LDL-C Low density lipoprotein cholesterol, MetS Metabolic syndrome, NAFLD Non-alcoholic fatty liver disease, RDIF Ramadan diurnal intermittent fasting, SBP Systolic blood pressure, STIER Short-term intermittent energy restriction, T2DM Type 2 Diabetes Mellitus, TC Total cholesterol, TG Triglycerides, TRE Time-restricted eating, UK United Kingdom, USA United States of America, WC Waist circumference aThe systematic review did not include information about the countries where the original studies were conducted Effects of IF on metabolic health: a qualitative analysis of direct evidence The summary of the comparison of different dietary interventions is presented in Table 2, and the forest plot is displayed in Additiona\n---Source URL: https://www.semanticscholar.org/paper/0930e13864f2cd7c859724db6a1066968dfa79bd\nSource title: Intermittent Fasting for the Prevention of Cardiovascular Disease Risks: Systematic Review and Network Meta-Analysis\nSource type: academic\nContent:\nWhile several studies have assessed the potential effect of intermittent fasting on reducing cardiovascular risks, the findings are inconclusive. To compare the relative effectiveness of intermittent fasting methods in reducing key cardiovascular risks. Studies were searched from Medline, Embase, Cochrane Library Central and Global Health to identify studies that enrolled adults (\u2265\u200918 years) to intermittent fasting methods and reported effects on one of the six specified cardiovascular risk fact\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776293100.3930333
+}

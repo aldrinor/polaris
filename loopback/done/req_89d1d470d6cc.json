@@ -1,0 +1,12 @@
+{
+  "request_id": "89d1d470d6cc",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Research on intermittent fasting shows health benefits | Statement: Intermittent fasting is an eating pattern that includes hours or days of no or minimal food consumption without deprivation of essential nut...\n2. [SILVER] Source: Intermittent Fasting Methods, Health Benefits, and Risks | Statement: Eat-Stop-Eat (ESE) The Eat-Stop-Eat method entails fasting for a full 24 hours once or twice a week.\n3. [SILVER] Source: Intermittent Fasting Methods, Health Benefits, and Risks | Statement: The 16/8 Method The 16/8 method, also known as time-restricted feeding, involves fasting for 16 hours each day and consuming all daily calor...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313794.6019282
+}

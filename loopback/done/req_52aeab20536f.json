@@ -1,0 +1,165 @@
+{
+  "request_id": "52aeab20536f",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.reddit.com/r/google/comments/1nnjtgy/our_main_alignment_breakthrough_is_rlhf/\nSource title: Our main alignment breakthrough is RLHF (Reinforcement ... - Reddit\nSource type: web\nContent:\n\u8df3\u81f3\u4e3b\u8981\u5167\u5bb9 \n \u524d\u5f80 google  \n\u2022 7 \u500b\u6708\u524d\nmichael-lethal_ai\n#  Our main alignment breakthrough is RLHF (Reinforcement Learning from Human Feedback) \nr/AIDangers \u2022 7 \u500b\u6708\u524d\nOur main alignment breakthrough is RLHF (Reinforcement Learning from Human Feedback)\n35 \u500b\u63a8 \u00b7 59 \u5247\u7559\u8a00\n shopify \u2022  \u5ba3\u50b3\u5167\u5bb9 \nBuild your online store and start selling today. No tech skills needed.\n\u8a3b\u518a\nshopify.com \n\u6536\u5408\u5f71\u7247\u64ad\u653e\u5668 \n\u6392\u5e8f\u65b9\u5f0f\uff1a \n\u6700\u4f73\n\u6253\u958b\u7559\u8a00\u6392\u5e8f\u9078\u9805\n#  \u7559\u8a00\u5340 \n\u2022  7 \u500b\u6708\u524d \nIs this really Google? If not, wrong sub. \n\u2022  7 \u500b\u6708\u524d \nMan this sub is used for everything that isnt Google \n## \n\u4f7f\u7528\u6b64\u8a9e\u8a00\u6aa2\u8996\u8cbc\u6587\uff1a \n\u986f\u793a\u66f4\u591a  \u986f\u793a\u66f4\u5c11 \nReddit, Inc. \u00a9 2026. \u4fdd\u7559\u6240\u6709\u6b0a\u5229\u3002\n\u5c55\u958b\u5c0e\u89bd\u5217 \u6536\u5408\u5c0e\u89bd\u5217\n---Source URL: https://www.linkedin.com/pulse/embedding-human-values-ethics-ai-reinforcement-learning-namala-85afe\nSource title: Exploring Reinforcement Learning from Human Feedback (RLHF)\nSource type: web\nContent:\nExploring Reinforcement Learning from Human Feedback (RLHF)\nUnraveling the Complexities of Embedding Human Values in Artificial Intelligence\nOriginally published on Medium\nIn this rapidly advancing world of Artificial intelligence (AI), it is clearly evident that machines are evolving and pushing the boundaries to learn and achieve more complex tasks. In this process of training models, Reinforcement Learning (RL) has received a significant attention where agents learn and perform actions based on the reward system. However, when it comes to complex tasks, the process of adjusting the reward function to reach a high reward level becomes laborious and challenging. Reinforcement Learning from Human Feedback (RLHF) is a strategy that makes it possible to guide the AI agents based on human intuition and expertise. This process provides a practical solution for designing a optimal reward function.\nWhat is Reinforcement Learning (RL) ?\nReinforcement Learning is a machine learning methodology where a model learn\u2019s to solve a task that has open ended objective by interacting with the environment. A reward or punishment is provided to the model to guide it to find a optimal series of steps.\nRL algorithms use a reward-and-punishment paradigm as they process data. They learn from the feedback of each action and self-discover the best processing paths to achieve final outcomes. The algorithms are also capable of delayed gratification. The best overall strategy may require short-term sacrifices, so the best approach they discover may include some punishments or backtracking along the way. RL is a powerful method to help artificial intelligence (AI) systems achieve optimal outcomes in unseen environments. [2]\nReinforcement Learning (RL) process is comprised of below steps:\n- Initialization: At this stage, the agent has no information about the environment and the initial state and parameters are set.\n- Observation of Environment: Agent starts observing the environment and tries to interpret the state of the environment.\n- Performing Actions: Based on the observation, the agent starts performing actions.\n- Reward: Once the action is performed, the agent receives either the award or punishment from the the environment.\n- Policy Optimization: Based on the action performed and reward received, the policy is updated that impacts the way agent takes the further decisions.\n- Iteration: The agent repeats step 2 to 5 until this process is either stopped or the end goal is reached.\nReinforcement Learning (RL) is being used in many real world scenarios like healthcare, gaming and autonomous vehicles. Below is an example from healthcare stated in the Article.\nAt ICUs, patients experience a trajectory which sequentially tracks the state of their health. It starts with the patient\u2019s condition upon admission, followed by the administration of treatment and then by their response to the treatment. This sequence repeats until the patient reaches a terminal state \u2014 the final observation of the patient\u2019s condition that\u2019s still relevant within the ICU. To learn what treatments to avoid, we focus on two types of terminal states: patient recovery and patient death. [3]\nReinforcement Learning from Human Feedback (RLHF)\nReinforcement Learning from Human Feedback (RLHF) is a tuning technique used to align LLM\u2019s output with human preferences and values. It may not solve all the issues encountered during training the models, such as hallucination and toxicity, but it can play a critical role in improving the quality of responses generated by LLMs that align with human values and preferences\nMaking language models bigger does not inherently make them better at following a user\u2019s intent. For example, large language models can generate outputs that are untruthful, toxic, or simply not helpful to the user. In other words, these models are not aligned with their users. [1]\nReinforcement Learning from Human Feedback (RLHF) comprises of a continuous cycle of interaction, feedback, learning, and optimization.\nLinkedIn \u63a8\u85a6\n- Preferred dataset: The first step in RLHF process is to select a base or pre-trained model (e.g LLaMA, GPT-3). This model will be used to generate the response for a set of prompts. Multiple outputs are generated for each prompt.\nOpenAI used a smaller version of GPT-3 for its first popular RLHF model, InstructGPT.[4]\n2. Human Feedback: In the next step, human labelers will rate the completion based on the quality and accuracy of the response.\n{input text, completion 1, completion 2, human preference 1 or 2}\n3. Reward Model: The reward model, in itself, is another LLM. The reward model takes a prompt and completion at inference time and returns a scalar value that indicates how good that completion is for the prompt. In simple words, the reward model is a regression model that outputs numbers.\n4. Reinforcement Learning (RL): The reward model is then used in the Reinforcement Learning loop to fine tune the main model. The feedback received by the reward model defines the next actions. This process continues until the model is fine tuned to a satisfactory level, ensuring optimal performance in the given task or environment.\nOpenAI used their reward model and fine-tuned the model using Proximal Policy Optimization. More details about the policy at Proximal Policy Optimization\nChallenges with RLHF\nLike any other methodology, RLHF is not exempt from its unique challenges. A few of these are described as follows.\nQuality of Feedback: The quality of feedback plays a key role in optimizing the reward policy. A feedback from a human who is expert instead of novice in a particular field can tune the model better to receive better results.\nBias in Feedback: Few attributes that differentiate humans from machines are their emotions and feelings, and this could also mean introducing bias in their feedback. Introducing bias from humans could reduce the accuracy of the model\u2019s output.\nScalability: For extremely complex tasks, the amount of feedback required from humans will also increase. And due to the time and budget constraints, receiving feedback for every possible combination of state and action could be practically impossible.\nSubjective Feedback: Similar to bias, humans can provide subjective feedback. Each individual could have a different opinion for a particular action and this could lead to conflicting feedback.\nIn conclusion, RLFH provides a great solution to the fundamental challenges posed with the traditional RL. Even though, it does have obstacles and challenges as mentioned above, by carefully incorporating the human feedback, models can learn from the human guidance and experience, to become more capable and response AI.\nReferences:\n- Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C. L., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., Schulman, J., Hilton, J., Kelton, F., Miller, L., Simens, M., Askell, A., Welinder, P., Christiano, P., Leike, J., & Lowe, R. (2022, March 4). Training language models to follow instructions with human feedback. arXiv.org. https://arxiv.org/abs/2203.02155\n- The University. (1978a). What is \u2026 Amazon. https://aws.amazon.com/what-is/reinforcement-learning/\n- Fatemi, M., Killian, T., & Ghassemi, M. (2022, August 17). Using reinforcement learning to identify high-risk states and treatments in healthcare. Microsoft Research. https://www.microsoft.com/en-us/research/blog/using-reinforcement-learning-to-identify-high-risk-states-and-treatments-in-healthcare/\n- Illustrating reinforcement learning from human feedback (RLHF). Hugging Face \u2014 The AI community building the future. (n.d.). https://huggingface.co/blog/rlhf\n- Introducing chatgpt. Introducing ChatGPT. (n.d.). https://openai.com/blog/chatgpt\nPrivacyEnables\u20225984 \u4f4d\u95dc\u6ce8\u8005\n2 \u5e74Be sure to check out our open source RLHF platform at cogment.ai\nTOWNS LENDING\u20222\u4e07 \u4f4d\u95dc\u6ce8\u8005\n2 \u5e74Fascinating insights into the evolving AI landscape! \ud83c\udf1f\n13D Global Strategy & Research\u20224\u4e07 \u4f4d\u95dc\u6ce8\u8005\n2 \u5e74Phaneendra Kumar Namala Very informative. Thanks for sharing.\nDoctor Project\u20226961 \u4f4d\u95dc\u6ce8\u8005\n2 \u5e74Fascinating read! Can't wait to dive into it. \ud83d\ude80\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317317.80291
+}

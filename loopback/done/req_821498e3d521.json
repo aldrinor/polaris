@@ -1,0 +1,165 @@
+{
+  "request_id": "821498e3d521",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.researchgate.net/publication/381560448_Analysis_of_the_influence_of_damp-heat_aging_on_the_shear_failure_of_the_adhesive_joint_of_composite_materials\nSource title: Analysis of the influence of damp-heat aging on the shear failure of ...\nSource type: web\nContent:\n\n---Source URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12348657/\nSource title: Comprehensive Evaluation and Analysis of Aging Performance of ...\nSource type: web\nContent:\nAbstract In civil engineering, with the increasing demand for structural reinforcement and renovation projects, polymer-rich anchoring adhesives have attracted much attention due to their performance advantage of having high strength and have become a key factor in ensuring the safety and durability of buildings. In this study, polymer-rich anchoring adhesives underwent three artificial aging treatments (alkali medium, hygrothermal, and water bath) to evaluate their aging performance. Alkali treatment reduced bending strength by up to 70% (sample 5#) within 500 h before stabilizing, while hygrothermal and water-curing treatments caused reductions of 16\u201351% and 15\u201377%, respectively, depending on adhesive composition. Dynamic thermomechanical analysis revealed significant loss factor decreases (e.g., epoxy adhesives dropped from >1.0 to stable lower values after 500 h aging), indicating increased rigidity. Infrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester resins (peak shifts at 1700 cm\u22121 and 1100 cm\u22121) and molecular chain scission in unsaturated polyesters. The three test methods consistently demonstrated that 500 h of aging sufficiently captured performance trends, with alkali exposure causing the most severe degradation in sensitive formulations (e.g., samples 5# and 6#). These results can be used to establish quantitative benchmarks for adhesive durability assessment in structural applications. Keywords: polymer-rich anchoring adhesives, dynamic thermomechanical analysis, infrared analysis, bending test, alkali, hygrothermal aging 1. Introduction In civil engineering, structural reinforcement and renovation projects are crucial for ensuring the safety and durability of buildings. Adhesive anchors, as essential connection and reinforcement components, play a pivotal role in these projects [1,2]. In recent years, the utilization of polymer-rich anchoring adhesives in adhesive-type anchor bolts has seen a significant rise. These adhesives exhibit performance advantages such as high strength and excellent durability and are increasingly becoming a focal point for both research and application [3,4]. Polymer-rich anchoring adhesives have the advantages of traditional ones and show properties of rapid consolidation, low fluidity, high-temperature resistance, and low sensitivity to erosive environments [5,6,7]. Polymer-rich anchoring adhesives primarily consist of reactive resins, hardeners, quartz particles, and other inorganic materials [8,9,10]. Polymer-rich anchoring adhesives (such as modified epoxy resin adhesives, modified vinyl ester resin adhesives and non-vinyl ester unsaturated polyester resin adhesive) have exhibited exceptional performance across a wide range of civil engineering applications [11,12]. According to Anam Afzal\u2019s research [13], polymer-rich anchoring adhesives not only possess the same good bonding performance as traditional anchoring adhesives, but their characteristic of a fast consolidation speed could also significantly shorten the construction period, their low fluidity is helpful for precise construction, their high-temperature resistance makes them suitable for structural reinforcement in high-temperature environments, and their low sensitivity to erosive environments enhances the durability of the structure under harsh conditions. In a bridge reinforcement project, A Al-Mosawe [14] pointed out that polymer-rich anchoring adhesives could effectively enhance the bridge structure\u2019s connection strength, improve the structure\u2019s overall bearing capacity, and prolong the service life of the bridge. The structural transformation of high-rise buildings could also provide reliable anchoring connections, thereby ensuring the stability and integrity of the structure [15]. The following methods were adopted to evaluate the performance of anchoring adhesives. The first method involved a bulk specimen test for adhesive material property testing, and a steel\u2013steel bonded single-lap adhesive joint was subjected to a shear test [16,17]. The second method involved conducting a test after implanting screws or rebar into concrete and conducting a test after slicing and artificially aging the rebar-embedded specimens [18,19,20]. The former involved simple sample preparation and testing methods and could be used to quantitatively obtain various physical performance indicators of the adhesive. The conditions of the latter were closer to the actual anchoring application state and could be used to obtain qualitative conclusions, but sample preparation and testing were complex. Both methods have advantages and disadvantages. When the initial single-shear test method was applied to evaluate the durability of polymer-rich anchoring adhesives, interfacial failure (adhesive\u2013steel bond breakdown) often preceded cohesive failure (internal adhesive fracture) due to the polymer\u2019s properties. This premature interfacial failure skewed the test outcomes, preventing an accurate assessment of the adhesive\u2019s true load-bearing capacity, as its structural integrity was not fully challenged. When the second method, whose conditions were closer to the actual working conditions, was used for the test, even if the short-term accelerated aging method (for example, thermal aging, wet heat aging, and fluorescent ultraviolet aging) was adopted for testing, it was still very difficult to truly simulate the long-term aging effect in the actual environment, and only a phenomenological assessment could be carried out. The selection of aging test conditions aimed to replicate the actual complex environment and ensure reliable and valid results [21]. The design of an alkaline medium environment simulated the internal conditions of concrete. In real-life engineering applications, the alkali compounds generated from the hydration products of concrete elevate the pH value [22,23,24]. Highlighted in the research by Allan Manalo et al. [18], the high alkalinity of the pore solution within concrete created an erosive environment for reinforcing bars, potentially compromising the integrity of the adhesive interface. The damp and hot environment replicated the conditions that buildings experienced under natural high-temperature and high-humidity settings, such as those found in tropical rainforests or coastal areas [25,26]. Francesco Ascione et al. [27] demonstrated that a hot and humid environment accelerated the aging process of epoxy adhesives. A long-term experiment was conducted under conditions of 98% humidity and a seawater environment for 15 months, revealing a trend in performance changes and providing a foundation for evaluating durability. A water bath environment was used for special engineering scenarios such as water conservancy projects [28,29]. Lai et al. [30] conducted a durability study in which externally bonded CFBR concrete beam specimens were exposed to three elevated water temperatures (25 \u00b0C, 40 \u00b0C, and 60 \u00b0C). The results showed that in the water baths at 40 \u00b0C and 60 \u00b0C, the bonding layers of all specimens gradually deteriorated. This is a comprehensive comparative study on polymer-rich anchoring adhesives under three aging treatments: alkali treatment, heat\u2013moisture treatment, and water-curing treatment. This study simultaneously used a bending test, dynamic thermomechanical analysis (DMA) tests, and infrared spectroscopy (IR) analysis tests to explore the aging performance of the adhesives in depth. Previous studies were mostly limited to a single aging treatment or a few testing methods. This study provided a new perspective and method for comprehensively evaluating the aging performance of such adhesives. Through the comprehensive application of these testing methods, this study systematically evaluated the effectiveness of various artificial accelerated aging protocols\u2014including test durations and methodologies\u2014for assessing polymer-rich anchoring adhesives. The findings provided robust theoretical and technical foundations for their rational application and durability assessment in engineering practice. Furthermore, this work addressed current research gaps in aging performance evaluation, thereby advancing the understanding of failure mechanisms in polymer-modified adhesive systems. This study helped to ensure the long-term safety and stability of various engineering structures, reducing the risk of structural failures caused by adhesive aging and improving the overall quality and service life of engineering projects. 2. Experimental Section 2.1. Experimental Materials Six kinds of polymer-rich anchoring adhesives filled with fillers were selected, including three kinds of modified epoxy resin adhesives (the sample numbers were 1#, 3#, and 5#), two kinds of modified vinyl ester resin adhesives (the sample numbers were 2# and 4#), and one kind of non-vinyl ester unsaturated polyester resin adhesive (the sample number was 6#). These six types of anchoring adhesives were extensively utilized across various sectors of construction engineering. The main chemical components of modified epoxy resin adhesives are bisphenol A epoxy resin, bisphenol F epoxy resin, polyamide/amine curing agents, and liquid polysulfide rubber/acrylate. The main chemical components of modified vinyl ester resin adhesives are bisphenol A vinyl ester resin, acrylate, and benzoyl peroxide. The main chemical components of non-vinyl ester unsaturated polyester resin adhesive are phthalic acid-type unsaturated polyester, styrene, and benzoyl peroxide. 2.2. Experimental Instruments The test instruments used in this study and the manufacturers they were sourced from are shown in Table 1 below. Table 1. | Test Instrument | Manufacturer | |---|---| | 401 Type Thermal Aging Test Chamber | Shanghai Experimental Instrument General Factory, Shanghai, China | | SDH001U Type Damp-Heat Aging Test Chamber | Chongqing Wanda Instrument Co., Ltd., Chongqing, China | | Single-row Two-hole Water Bath Test Chamber | Beijing Zhongxing Weiye Instrument Co., Ltd., Beijing, China | | AG\u2014IS 100kN Universal Testing Machine | Shimadzu Corporation, Kyoto, Japan | | DMA 242C Type Dynamic Mechanical Analyzer | NETZSCH Group, Selb, Germany | | TENSOR 27 Type Fourier Transform Attenuated Total Reflection Infrared Spectrometer | BRUKER OPTIK GMBH, Ettlingen, Germany | 2.3. Experimental Preparation The adhesive bulk specimens were prepared according to the requirements of GB/T-2567-2021 (Test methods for properties of resin casting body) [31]. They were cast and molded using a steel mold with an inner cavity size of 80 \u00d7 10 \u00d7 4 mm, as shown in Figure 1. After thoroughly mixing the adhesive in accordance with the mixing ratio provided by the supplier, it was processed with a non-intrusive material homogenizer to minimize the formation of air bubbles. Subsequently, it was filled into the steel mold coated with a release agent using an adhesive gun with a syringe. After being placed under standard conditions (23 \u00b0C, 50% humidity) for 24 h, the specimens were de-molded. The molds were removed, and the specimens were further cured under standard conditions for 6 days. Every four specimens were grouped, with three of them used for physical property tests and one for structural property tests. Each adhesive was prepared with thirteen groups of samples, with a group used for the standard state test and four groups each for the other three artificial aging tests. Among the factors affecting the durability of the adhesive, three representative artificial aging simulation test methods, namely those using an alkaline medium, heat\u2013moisture environment, and water-curing environment, were selected for the durability test. The specific test conditions and sampling periods were as follows. For the alkali treatment test, the oven temperature was set at 35 \u00b0C with forced air circulation. The specimens were placed in an alkali medium container, sealed, and then placed in the oven. The alkali medium was a saturated solution of Ca(OH)2 with a pH value of 13.2 \u00b1 0.2. The sampling periods were 500 h, 1000 h, 1500 h, and 3000 h. For the heat\u2013moisture treatment test, the temperature was 50 \u00b0C, and the humidity was 98%. The sampling periods were 500 h, 1000 h, 1500 h, and 3000 h. For the water-curing treatment test, the temperature was 80 \u00b0C. The sampling periods were 72 h, 168 h 360 h, and 480 h. 2.4. Testing and Characterization - (1) Bending property test of adhesive There are many physical property indicators and test methods used for adhesives, such as splitting tensile, bending, compressive, tensile\u2013shear, etc. In this experiment, the bending strength test method, which was the most sensitive to polymer adhesives, was used to evaluate the attenuation of the bending strength of the adhesive under the influence of different aging durations. The bending strength test of the adhesive specimen was carried out by placing the specimen on a three-point test device (see Figure 2), with a span of 64 mm. The specimen was loaded at a speed of 5 mm/min until it failed, and the failure load or the maximum load value was recorded. To ensure the accuracy and repeatability of the bending test, five samples are selected for testing each time. The average value of the bending strength is taken, and it is ensured that the error value is within 5%. - (2) Dynamic thermomechanical analysis test The basic principle of dynamic thermomechanical analysis is illustrated in Figure 3. During the programmed temperature process (linear heating, cooling, constant temperature, their combinations, etc.), a single-frequency or multi-frequency periodic sinusoidal fluctuating dynamic oscillation force was applied to the sample, causing the sample to produce a corresponding periodic fluctuating deformation [32,33]. Through mathematical calculation, the DMA spectrum of the loss factor curve could be obtained. Based on the relationship between the loss factor and temperature after artificial accelerated aging treatment, the aging attenuation degree of the adhesive was evaluated. The magnitude of the loss factor represented the viscoelastic properties of the material [34]. The loss factor is inversely correlated with the elastic dominance of a material, whereas a higher value indicates stronger viscous behavior. Dynamic mechanical analysis was conducted in three-point bending mode under a frequency of 1 Hz, with temperature ramping from ambient to 200 \u00b0C at a heating rate of 5 K/min. The specimen size was 40 mm \u00d7 10 mm \u00d7 4 mm. Three samples were used, and the average value was taken for the calculation of the loss factor, with an error within 5%. - (3) Infrared spectroscopy analysis test The application of infrared spectroscopy could be used to analyze the changes in the functional groups of the molecular weight structure of the standard adhesive [35,36,37]. Fourier transform infrared spectroscopy was employed to characterize functional group variations in the adhesives before and after aging.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319852.7189744
+}

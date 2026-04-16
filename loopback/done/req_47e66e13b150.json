@@ -1,0 +1,46 @@
+{
+  "request_id": "47e66e13b150",
+  "call_type": "structured:GapAnalysis",
+  "schema_name": "GapAnalysis",
+  "schema_json": {
+    "description": "Analysis of evidence gaps.",
+    "properties": {
+      "gaps": {
+        "description": "Identified gaps in evidence coverage",
+        "items": {
+          "type": "string"
+        },
+        "title": "Gaps",
+        "type": "array"
+      },
+      "gap_severity": {
+        "default": "moderate",
+        "description": "Overall severity: 'critical', 'moderate', 'minor'",
+        "title": "Gap Severity",
+        "type": "string"
+      },
+      "suggested_queries": {
+        "description": "Additional queries to fill the gaps",
+        "items": {
+          "type": "string"
+        },
+        "title": "Suggested Queries",
+        "type": "array"
+      },
+      "should_iterate": {
+        "default": true,
+        "description": "Whether another iteration is needed to fill gaps",
+        "title": "Should Iterate",
+        "type": "boolean"
+      }
+    },
+    "title": "GapAnalysis",
+    "type": "object"
+  },
+  "system": "You are a research gap analyst. Identify evidence gaps precisely.\n\nOutput format example:\n{\"gaps\": [\"No evidence on long-term health outcomes beyond 10 years\", \"Limited data from developing countries\"], \"gap_severity\": \"moderate\", \"suggested_queries\": [\"long-term longitudinal study health outcomes X\", \"X exposure developing countries epidemiology\"], \"should_iterate\": true}",
+  "prompt": "Research question: What are the current best-available estimates of permafrost carbon release under RCP 4.5 and RCP 8.5 scenarios by 2100?\n\nCurrent evidence (24 pieces, 0 GOLD, faithfulness 100.0%):\n- [SILVER] Our model suggests that including permafrost thaw and fire-related carbon emissions reduces the rema\n- [SILVER] This \u2018gradual thaw\u2019 is the most widespread mechanism of permafrost degradation and is expected to re\n- [SILVER] Notable among these are thermokarst (hereafter used interchangeably with \u2018abrupt thaw\u2019) processes, i\n- [SILVER] Increasing climate-driven disturbances have weakened or reversed the long-term CO 2 sink in Boreal f\n- [SILVER] Today, at about 1.2\u00b0C, we are already committed to losing about 25% of surface permafrost.\n- [SILVER] As temperatures have risen, especially since about 1950, permafrost has not only declined in area bu\n- [SILVER] Warming is causing perennially-frozen ground (permafrost) to thaw, with permafrost in many locations\n- [SILVER] This permafrost carbon is the remnants of plants, animals, and microbes that have lived and died in \n- [SILVER] It updates material included in an essay on the terrestrial carbon cycle that appeared in Arctic Rep\n- [SILVER] That\u2019s roughly 51 times the amount of carbon the world released as fossil fuel emissions in 2019.\n- [SILVER] Dickinson, University of California, Los Angeles, CA, and approved March 9, 2021 (received for revie\n- [SILVER] Carbon emissions from permafrost thaw and Arctic wildfires, which are not fully accounted for in glo\n- [SILVER] Most land and surface waters in Alaska are underlaid by permafrost (or perennially frozen ground), w\n- [SILVER] The Fourth National Climate Assessment estimated that 16%\u201324% of near-surface Alaskan permafrost cou\n- [SILVER] This paper summarizes information gathered from semiformal interviews conducted with EPA regulatory \n- [SILVER] Socioeconomic impacts of permafrost degradation may also prove costly (Larsen et al. 2008).\n- [SILVER] Ground temperatures are warming across the majority of permafrost regions (Romanovsky et al. 2010) a\n\n\nSOURCE DIVERSITY:\n- Unique sources: 7\n- Academic papers: 0\n- Source types: {'web': 17}\n- Underrepresented perspectives: ['Regulatory', 'Industry', 'Economic', 'Public_Health', 'Historical', 'Regional', 'Methodological', 'Emerging_Trends']\n\n\nFIX-F: Perform TARGETED gap analysis. For each gap, identify:\n1. Which sub-topics have < 2 independent sources?\n2. Which claims rely on a single source (needs corroboration)?\n3. Which source types are underrepresented (e.g., few academic sources)?\n4. Which STORM perspectives have < 2 evidence pieces?\n\nGenerate search queries that TARGET specific gaps \u2014 not broad restatements of the topic.\nInclude source-type constraints when appropriate (e.g., \"site:scholar.google.com\" for academic gaps, \"site:gov\" for regulatory gaps).\n\nLimit to 10 highest-priority gap queries.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316515.6523328
+}

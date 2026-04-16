@@ -1,0 +1,12 @@
+{
+  "request_id": "368fcc6eae90",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Overview, generate a comparison_matrix Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: X vs Y vs Z comparison\n\nSECTION CONTENT:\nCaloric restriction (CR)5 and total caloric desistance [TCD; i.e., intermittent fasting, alternate-day fasting (ADF), routine periodic fasti... [2].\n\nThe idea is that it's easier to sharply restrict calories a few days a week or to limit eating to a shortened \"eating window\" each day than ... [1].\n\nWith this approach, eating is limited to about an 8 to 10 hour window of time each day. [3].\n\n**Key Findings**\n\n- Caloric restriction (CR)5 and total caloric desistance [TCD; i.e., intermittent fasting, alternate-day fasting (ADF), routine periodic fasti... [2]\n- The idea is that it's easier to sharply restrict calories a few days a week or to limit eating to a shortened \"eating window\" each day than ... [1]\n- With this approach, eating is limited to about an 8 to 10 hour window of time each day. [3]\n\nSUPPORTING EVIDENCE SUMMARIES:\n- The idea is that it's easier to sharply restrict calories a few days a week or to limit eating to a shortened \"eating window\" each day than ...\n- Caloric restriction (CR)5 and total caloric desistance [TCD; i.e., intermittent fasting, alternate-day fasting (ADF), routine periodic fasti...\n- With this approach, eating is limited to about an 8 to 10 hour window of time each day.",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776313962.7007337
+}

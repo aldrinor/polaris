@@ -1,0 +1,12 @@
+{
+  "request_id": "f1ac83e57448",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: Higher lamination temperature was beneficial for peel force and gel content both before and after damp-heat aging for cross-linking encapsulants such \n2. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: For the TPO encapsulant tested, peel force did not change across different lamination temperatures.\n3. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: EVA, POE, and TPO modules laminated at temperatures up to 180 degrees C can withstand damp heat aging but may show slightly increased yellowing of the\n4. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: Adhesion between encapsulant and glass was investigated by peel tests, with gel content and yellowness index also measured as aging indicators.\n5. [SILVER] Source: Influence of environmental conditions on dentin bond strengt | Statement: Dentin bond strengths of one-application adhesive systems decreased with increasing relative humidity across all five tested commercial systems.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776323000.9934144
+}

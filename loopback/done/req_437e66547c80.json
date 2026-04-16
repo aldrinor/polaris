@@ -1,0 +1,165 @@
+{
+  "request_id": "437e66547c80",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://doi.org/10.5604/01.3001.0010.3812\nSource title: Vegetables and fruit, as a source of bioactive substances, and impact on memory and cognitive function of elderly.\nSource type: academic\nContent:\n\n---Source URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9946909/\nSource title: Beneficial effects of intermittent fasting: a narrative review - PMC\nSource type: web\nContent:\nAbstract Caloric restriction is a popular approach to treat obesity and its associated chronic illnesses but is difficult to maintain for a long time. Intermittent fasting is an alternative and easily applicable dietary intervention for caloric restriction. Moreover, intermittent fasting has beneficial effects equivalent to those of caloric restriction in terms of body weight control, improvements in glucose homeostasis and lipid profiles, and anti-inflammatory effects. In this review, the beneficial effects of intermittent fasting are discussed. Keywords: Caloric restriction, Diet therapy, Fasting, Obesity Introduction Obesity poses a public health risk worldwide because of its association with metabolic dysregulation such as insulin resistance, hypertension, dyslipidemia, and atherosclerosis [1,2]. Caloric restriction (CR) without malnutrition is the cornerstone for the treatment of obesity and its associated metabolic risk factors. It is well known that prolonged CR reduces body weight and extends life expectancy [3,4]. Moreover, CR in obese subjects improves cardiovascular risk factors, insulin sensitivity, and mitochondrial function [5-10]. However, long-term daily CR is difficult to adhere to in practice [11]. Recently, many studies have reported that intermittent CR (intermittent fasting, IF) may improve dietary adherence; thus, IF has emerged as an alternative intervention for prolonged CR, with similar benefits in body weight reduction and chronic illness control [12-19]. IF originated from religious traditions, such as Ramadan fasting [20]. Muslims fast during the daytime (approximately 15 hours between sunrise and sunset) for a month during the Ramadan period every year. Ramadan fasting has been reported to improve human health [21]. IF involves reduced or no caloric intake in an intermittent pattern, such as short periods of very restricted caloric intake or fasting interspersed with normal caloric intake. Thus, dieter intake is 0 to 500 kcal/day on fasting days. The fasting time varies from several hours per day to a complete day. The most studied IF interventions include 2 days of CR or fasting per week (5:2 diet) and alternate-day fasting (ADF) [22]. One of the most popular variants of IF is time-restricted feeding, in which energy intake is limited to 12 to 16 hours each day and normal caloric intake during the other hours. In this review, we evaluate the results mainly from ADF and 5:2 diet trials. Weight reduction is the primary mechanism underlying the beneficial effects of IF. As shown in the results from CR, weight reduction per se reduces fasting plasma insulin levels, cardiovascular risk factors, and body inflammatory status by regulating metabolic signaling pathways, including those involving forkhead box O (FOXO), mechanistic target of rapamycin (mTOR), AMP\u2010activated protein kinase (AMPK), and autophagy [11]. During the fed state, signaling pathways for nutrient sensing and cellular growth (e.g., mTOR) are activated. Stress-responsive signaling pathways (e.g., FOXO and AMPK) are activated by fasting, resulting in the protection from cell damage and inhibition of cell proliferation [23,24]. An additional mechanism of IF is the metabolic switch between fed and fasting states. Fasting, especially repetitive fasting, induces organisms to shift their metabolic phase, which improves metabolic conditions and extends health expectancy [18]. de Cabo and Mattson [25] reported that fasting optimizes cellular use of fuel sources, favoring ketone bodies and fatty acids over glucose, which ameliorates the blunting of metabolic flexibility observed in obesity and type 2 diabetes mellitus (T2DM) [26] and improves mitochondrial function [27]. Furthermore, fasting activates autophagy and defense mechanisms against oxidative and metabolic stress and suppresses inflammation [28-31]. These effects of IF are similar to those of aerobic exercise [32,33]. Fasting induces glucose and amino acid deprivation, stimulating AMPK activity and suppressing mTOR signaling, which are important nutrient-sensing signaling pathways. These changes inhibit FOXO-dependent gene transcription, resulting in the induction of autophagy and oxidative defense mechanisms [34] (Fig. 1). During IF, the body activates pathways for rejuvenation and repair [19]. Overall, the general effects of IF are beneficial in terms of physiological functions; however, some participants who participated in IF trials experienced reductions in bone density and lean body mass [35-38]. To preserve lean body mass, a protein-rich diet and accompanying resistance training are recommended [39]. Effects of intermittent fasting on body weight and composition The human body has precise regulatory mechanisms to maintain body weight homeostasis [40]. However, chronic caloric excess results in excessive accumulation of fat tissue (obesity) and is associated with various metabolic alterations, such as hypertension, diabetes, dyslipidemia, cardiovascular disease, and even some types of cancer [41,42]; controlling caloric intake may reverse these metabolic alterations. Although the cause of obesity is multifactorial, dietary management is a primary approach to control body weight; thus, optimal dietary treatment should consider safety, efficacy, nutritional balance, cultural acceptance, and economic status [43]. Many studies have indicated that IF is an effective and acceptable intervention in obese subjects, including obese adolescents [2,17,44,45]. As described above, CR has long been applied as a primary treatment modality for obesity; recently, IF has appeared as an alternative dietary intervention to CR because dieters feel that IF is a more tolerable method than CR [4,17-19,46]. According to previous clinical trials [10,47] and reviews [14,48-50], IF (4\u201324 weeks) induces body weight reductions of 4% to 10% in overweight individuals [51-53]. The varying degree of body weight reduction depends on the dietary pattern, dietary duration, diet composition, sex, and genetic response. Although some studies have shown greater body fat reductions with IF than with CR [14,54], the majority of these studies have shown equivalent effects on reductions in body weight and fat mass following IF or CR in overweight or obese individuals [33,55]. Considering IF patterns, weight reduction effects are more profound in ADF (average weight reduction of 0.75 kg per week) than in 5:2 IF (average weight reduction of 0.25 kg per week) because of different negative energy balances [56,57]. There were mixed results with regard to lean body mass; several systemic reviews suggested that regular IF decreased fat-free mass more than CR [50,58]. However, clinical trials [17,57] and other reviews [47,49,58] indicated that IF and CR produced similar loss of lean body mass. Moreover, Harvie et al. [14] found that IF participants maintained a higher lean mass than CR participants. Stekovic et al. [18] reported that ADF for 6 months did not reduce fat-free mass or bone density in healthy nonobese subjects. However, a recent study showed that IF may be associated with a higher rate of weight regain following cessation of the 6-month weight reduction phase than CR in patients with complex obesity [59]. Further studies are needed to assess the ability to lose weight without regaining it. The basic mechanism of the weight loss by IF involves reduced caloric intake. However, the change in body weight caused by 40% CR and 2-day IF per week was not simply double that caused by 20% CR and 1-day IF per week in mice, suggesting an additional physiological response to fasting [35]. Another mechanism of weight reduction may be associated with the shift from glucose to fatty acid metabolism resulting from the fasting-induced elevation in fat mobilization and utilization [25,31]. The reduction in insulin, an anabolic hormone, by IF may also be responsible for the reduction in body fat mass [60]. Effects of intermittent fasting on glucose metabolism and insulin sensitivity Obesity is currently a leading cause of the development of T2DM, which results from insulin resistance and oxidative stress induced by elevated blood glucose and free fatty acid levels [61]. Weight reduction directly improves insulin resistance and reverses these metabolic alterations [22,62]. Although there are some inconsistent results, most studies indicate that IF decreases insulin concentration and the homeostasis model assessment for insulin resistance [51,63-65]. An IF trial for 12 months in T2DM patients showed that body weights, glycated hemoglobin levels, and fasting levels of glucose and insulin were reduced with IF [47,66] and that the insulin-lowering effect was greater with IF than with CR [67,68]. In the diabetic state, IF reduces the plasma concentrations of glucose and insulin and elevates adiponectin levels [2,69]. Although the primary mechanism of these effects is mediated by weight loss, metabolic switching following repeated feeding and fasting, and reductions in inflammatory cytokines, reactive oxygen species, and cholesterol may be involved [22]. The effect of IF on glucose homeostasis is different in nondiabetic and nonobese subjects. According to a study by Stekovic et al. [18], 4 weeks of ADF treatment did not change insulin sensitivity despite significant body weight reductions in healthy nonobese individuals, suggesting that these participants were already in an insulin-sensitive state. Moreover, Heilbronn and Ravussin [70] showed that 3 weeks of ADF treatment suppressed glucose tolerance in nonobese women, while insulin sensitivity was improved in nonobese men. Clayton et al. [71] also reported that 1 day of severe CR impaired glycemic control in young lean men. This suggests different responses to IF in healthy weight and obese subjects. Overall, IF has benefits on the diabetic state; however, the risks of hypoglycemia, malnutrition of proteins and vitamins, and dehydration have also been reported [22,47,72]. Careful monitoring and adjustment of medication regimens are needed for patients at risk. In an animal study, IF improved glucose homeostasis by preserving pancreatic \u03b2-cell mass through the autophagy-lysosomal pathway in diet-induced obese diabetic mice [73]. Effects of intermittent fasting on lipid profiles and cardiovascular disease A feature of metabolic syndrome is the clustering of metabolic alterations such as abdominal obesity, insulin resistance, dyslipidemia, atherosclerosis, and hypertension, which are associated with the risk of cardiovascular diseases [45,74,75]. Randomized clinical trials have indicated that IF improves lipid profiles related to weight reduction [5-10]. Klempel et al. [8] showed that ADF decreased total cholesterol, low-density lipoprotein (LDL) cholesterol, and triglycerides. Trepanowski et al. [10] also observed the cardioprotective effects of 6-month ADF in obese adults. These cardioprotective effects of IF have also been observed in obese adolescents [17] and nonobese subjects. Moro et al. [38] observed lipid profile enhancement (increased high-density lipoprotein [HDL] and decreased LDL levels) in a 2-month trial of IF in healthy men. Stekovic et al. [18] observed that a 6-month trial of ADF in healthy nonobese subjects lowered levels of total cholesterol, LDL, very-low-density lipoprotein (VLDL), and triglycerides compared with the corresponding levels in controls. Moreover, the authors observed a decrease in systolic blood pressure, which is consistent with studies conducted on obese subjects [14,48]. The effects of IF on HDL levels have been varied. Meng et al. [76] did not show any change in HDL cholesterol. In contrast, Bhutani et al. [77] observed an elevation in HDL cholesterol. The mechanisms of improving cardiovascular disease risks by IF may result from obesity control, improved lipid profiles, elevated adiponectin levels [69], and a suppressed inflammatory state [78,79]. Additionally, increased hepatic fatty acid oxidation in the fasting state results in reduced hepatic accumulation of triglycerides, which sequentially decreases the hepatic production of VLDL and plasma levels of VLDL [22,80]. Adiponectin is an adipose tissue-derived adipokine that has anti-atherosclerotic and anti-inflammatory effects [81]. Adiponectin was shown to be elevated by IF intervention in obese subjects [70]. In an animal study, IF protected the heart from oxidative damage via activation of antioxidant defenses [82]. Effects of intermittent fasting on inflammation and redox balance Macrophages infiltrate hypertrophied adipose tissue and produce proinflammatory cytokines, including interleukin (IL)-6 and tumor necrosis factor-alpha (TNF-\u03b1) [83-85], which induce insulin resistance and atherosclerosis and are linked to low-grade systemic inflammation [86,87]. The plasma concentrations of these inflammatory cytokines parallel the degree of obesity and are positively correlated with insulin resistance [85]. Systemic inflammation is linked to the pathogenesis of T2DM, cardiovascular diseases, and some types of cancers [88,89]. Thus, systemic inflammatory markers can predict the development of these metabolic disorders [85]. Body weight reduction decreases adipose tissue macrophages [90], reduces proinflammatory cytokines [83,88,91-95], and improves insulin resistance and systemic inflammatory status [86]. Several clinical trials have shown that IF intervention improves inflammatory status in obese subjects and is associated with reductions in plasma levels of IL-6, TNF-\u03b1, C-reactive protein (CRP), and interferon-\u03b3 [60,96]. Wang et al. [42] revealed that IF intervention decreased CRP levels without changes in IL-6 and TNF-\u03b1 compared with the corresponding levels in controls in a systematic review of 18 randomized controlled trials. However, there have been some inconsistent studies. Liu et al. [96] reported that IF increased macrophage infiltration in adipose tissue by fasting in overweight or obese women, which may be associated with elevated adipose tissue lipolysis. Sch\u00fcbel et al. [33] did not observe any changes in IL-6 and TNF-\u03b1 levels after 12 weeks of IF in randomized controlled trials with obese women. Conclusion IF has emerged as an alternative dietary intervention to CR, with equivalent benefits in body weight reduction, improvements in glucose homeostasis and lipid profiles, and anti-inflammatory effects. The beneficial effects of IF are mediated by reductions in body weight. Weight loss per se improves insulin resistance, cardiovascular risks, and systemic inflammatory status because obesity functions as a common pathophysiology of these metabolic alterations, the \u201ccommon soil hypothesis\u201d [97]. Moreover, the insulin-lowering effect is greater in IF than in CR resulting from fasting physiology, in which repetitive metabolic switching between feeding and fasting states improves the metabolic flexibility that is blunted in obesity and T2DM. Although the general effects of IF are benefici\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313342.1444974
+}

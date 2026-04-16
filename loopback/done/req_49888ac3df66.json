@@ -1,0 +1,165 @@
+{
+  "request_id": "49888ac3df66",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.rutgers.edu/news/researchers-find-intermittent-fasting-no-better-or-worse-conventional-dieting\nSource title: Researchers Find Intermittent Fasting Is No Better, or Worse, Than ...\nSource type: web\nContent:\nSkip to main content   Mobile Rutgers Logo   Tablet Rutgers Logo  Close Search ## Enter a Search Term Search Rutgers Search Search this site Search all Rutgers Search People    New Brunswick  Newark  Camden  Rutgers Health  Apply  Info For:  Prospective Students and Parents  Current Students  Faculty and Staff  Alumni and Donors  Job Seekers  Veterans & Military  News & Events  Rutgers Today  Events  Giving | | \u00d7 \"Clear search box\") ---|--- search | Open Search    About Rutgers  About the University  Rutgers President William F. Tate IV  Rutgers Edge  Discover the Rutgers Edge  Internships and Career Success  Social Mobility  Faculty Excellence  Great Things at Rutgers  Rutgers, By the Numbers  Rutgers Rankings  Budget Facts  Our Structure  Our Revolutionary Roots  Academic Freedom & Free Expression  Academics  Academics Overview  Undergraduate Academics  Explore Undergraduate Programs  Graduate and Professional Studies  Explore Graduate and Professional Programs  Explore Graduate Medical Education Programs  Top Graduate Programs  Schools and Colleges  Academic Resources  Course Catalogs  Libraries  Student Support  Online Degree Programs  Continuing Education  Global Learning  Rutgers at Your Community College  Admissions & Tuition  About Applying  Tuition and Financial Aid  Visits and Tours  Get Ready for Rutgers  Experience Rutgers  Discover Rutgers  Rutgers\u2013New Brunswick  Rutgers\u2013Newark  Rutgers\u2013Camden  Rutgers Health  Internships and Career Success  Rutgers Athletics  Show Your Rutgers Pride  Commencement  Research  Research at Rutgers  Health & Patient Care  Advancing Treatment and Wellness Open Search  Mobile Rutgers Logo   Tablet Rutgers Logo  Open Search Open Menu Close  About Rutgers  About the University  Rutgers President William F. Tate IV  Rutgers Edge  Discover the Rutgers Edge  Internships and Career Success  Social Mobility  Faculty Excellence  Great Things at Rutgers  Rutgers, By the Numbers  Rutgers Rankings  Budget Facts  Our Structure  Our Revolutionary Roots  Academic Freedom & Free Expression  Academics  Academics Overview  Undergraduate Academics  Explore Undergraduate Programs  Graduate and Professional Studies  Explore Graduate and Professional Programs  Explore Graduate Medical Education Programs  Top Graduate Programs  Schools and Colleges  Academic Resources  Course Catalogs  Libraries  Student Support  Online Degree Programs  Continuing Education  Global Learning  Rutgers at Your Community College  Admissions & Tuition  About Applying  Tuition and Financial Aid  Visits and Tours  Get Ready for Rutgers  Experience Rutgers  Discover Rutgers  Internships and Career Success  Rutgers Athletics  Show Your Rutgers Pride  Commencement  Research  Research at Rutgers  Health & Patient Care  Advancing Treatment and Wellness ## Utility Mobile  Apply  Info For:  Prospective Students and Parents  Current Students  Faculty and Staff  Alumni and Donors  Job Seekers  Veterans & Military  News & Events  Rutgers Today  Events  Giving  New Brunswick  Newark  Camden  Rutgers Health  Rutgers Today Logo  Explore Topics  All News   Achievements   Administration   Alumni   Community   Campus Life   Commencement   COVID-19   Experts   Governance   Health   In Memoriam   People   Research & Innovation   Service   Sports   Students   Trending  Health Researchers Find Intermittent Fasting Is No Better, or Worse, Than Conventional Dieting knife and spoon arranged like clock hands on plate Adobe Stock By Andrew Smith Date February 17, 2026 Media Contact Andrew Smith 848-445-1797 andrew.smith3@rutgers.edu Share Intermittent fasting \u2013 the practice of restricting eating to certain hours of the day or certain days of the week \u2013 is promoted across social media and embraced by millions of Americans. But a Cochrane systematic review of the clinical evidence finds it produces nearly identical weight loss, quality of life and adverse events as conventional diets like calorie-counting. \u201cThe differences we found between the diets were statistically indistinguishable from zero,\u201d said Diane Rigassio Radler, a professor of clinical nutrition at the Rutgers School of Health Professions and a co-author of the review. Cochrane reviews are widely considered the gold standard for evaluating medical evidence. These independent, evidence-based health care studies follow strict protocols registered in advance and employ rigorous methods for searching, selecting and analyzing clinical trials. This review of 22 randomized controlled trials with a combined 1,995 participants examined several forms of intermittent fasting: time-restricted eating (limiting meals to an eight- or 10-hour window), alternate-day fasting and the \u201c5:2\u201d approach of eating normally five days a week and drastically cutting calories on two. It compared these fasting techniques with both standard dietary advice and no intervention. Across the 21 studies involving 1,430 people that compared intermittent fasting and conventional diets, the difference in weight loss between intermittent fasting and standard dietary advice was 0.33 percentage points of body weight. Among the four studies that tracked whether participants achieved a 5% weight reduction, the rate was again virtually identical across groups. In the six studies that compared intermittent fasting with no intervention, intermittent fasting produced more weight loss \u2013 about 3.4% of body weight \u2013 but less than the 5% threshold generally considered necessary for meaningful health benefits. However, the underlying studies lacked sufficient information to enable the review team to answer several vital questions. For example, the review says nothing about which approach is easier to sustain. Ten of the 22 studies tracked whether participants adhered to their assigned protocol, and those relied on self-report. \u201cNutrition and diet studies are really difficult,\u201d Radler said. \u201cWe typically measure patient adherence with food journals and 24-hour dietary recalls, which are inherently imprecise.\u201d The evidence base had other gaps. None of the 22 studies assessed participants' satisfaction with their assigned diet. None reported on diabetes outcomes. None lasted longer than a year. And 19 of the studies were conducted in high-income countries with predominantly white participants, limiting the findings' applicability elsewhere. Most clinical practice guidelines for managing excess weight and obesity don\u2019t specifically recommend intermittent fasting, and, although the review found no significant safety concerns, its authors noted the evidence for such recommendations remains limited by short follow-up periods and low certainty. In clinical practice, Radler said she takes a patient-centered approach. If a client is interested in intermittent fasting, she provides them with the facts and lets them decide. \u201cI tell them that, according to this systematic review of 22 studies, it\u2019s no better than any other kind of weight reduction intervention,\u201d she said. \u201cBut if that\u2019s something that they really want to try, we\u2019ll work with them so that they do it in a safe and healthy way.\u201d The review\n---Source URL: https://www.bmj.com/content/bmj/389/bmj-2024-082007.full.pdf\nSource title: Intermittent fasting strategies and their effects on body weight and other cardiometabolic risk factors: systematic review and network meta-analysis of randomised clinical trials\nSource type: web\nContent:\nTitle: Just a moment...\n\nURL Source: https://www.bmj.com/content/bmj/389/bmj-2024-082007.full.pdf\n\nWarning: Target URL returned error 403: Forbidden\nWarning: This page maybe not yet fully loaded, consider explicitly specify a timeout.\n\nMarkdown Content:\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313347.2985728
+}

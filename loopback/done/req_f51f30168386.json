@@ -1,0 +1,165 @@
+{
+  "request_id": "f51f30168386",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the current best-available estimates of permafrost carbon release under RCP 4.5 and RCP 8.5 scenarios by 2100?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.globalcarbonproject.org/news/PermafrostCarbon.html\nSource title: News: Expert assessment of vulnerability of permafrost carbon\nSource type: web\nContent:\nScience Highlight Expert assessment of vulnerability of permafrost carbon to climate change Schuur EAG, Abbott BW, Bowden WB, Brovkin V, Camill V, Canadell JG, Chanton JP, Chapin III FS, Christensen TR, Ciais P, Crosby BT, Czimczik CI, Grosse G, Harden J, Hayes DJ, Hugelius G, Jastrow JD, Jones JB, Kleinen T, Koven CD, Krinner G, Kuhry P, Lawrence DM, McGuire AD, Natali SM, O'Donnell JA, Ping CL, Riley WJ, Rinke A, Romanovsky VE, Sannel ABK, Sch\u00e4del C, Schaefer K, Sky J, Subin ZM, Tarnocai C, Turetsky MR, Waldrop MP, Walter Anthony KM, Wickland KP, Wilson CJ, Zimov SA. Climatic Change (2013) 119:359\u2013374 DOI 10.1007/s10584-013-0730-7 Lead The overall amount, rate, and form of C released to the atmosphere in a warmer world will influence the strength of the permafrost C feedback to climate change. We used a survey to quantify variability in the perception of the vulnerability of permafrost C to climate change. Experts were asked to provide quantitative estimates of permafrost change in response to four scenarios of warming. Paper Abstract Approximately 1700 Pg of soil carbon (C) are stored in the northern circumpolar permafrost zone, more than twice as much C than in the atmosphere. The overall amount, rate, and form of C released to the atmosphere in a warmer world will influence the strength of the permafrost C feedback to climate change. We used a survey to quantify variability in the perception of the vulnerability of permafrost C to climate change. Experts were asked to provide quantitative estimates of permafrost change in response to four scenarios of warming. For the highest warming scenario (RCP 8.5), experts hypothesized that C release from permafrost zone soils could be 19\u201345 Pg C by 2040, 162\u2013288 Pg C by 2100, and 381\u2013616 Pg C by 2300 in CO2 equivalent using 100-year CH4 global warming potential (GWP). These values become 50 % larger using 20-year CH4 GWP, with a third to a half of expected climate forcing coming from CH4 even though CH4 was only 2.3 % of the expected C release. Experts projected that two thirds of this release could be avoided under the lowest warming scenario (RCP 2.6). These results highlight the potential risk from permafrost thaw and serve to frame a hypothesis about the magnitude of this feedback to climate change. However, the level of emissions proposed here are unlikely to overshadow the impact of fossil fuel burning, which will continue to be the main source of C emissions and climate forcing. Manuscript - Download paper: http://link.springer.com/article/10.1007%2Fs10584-013-0730-7#page-1 - Contact lead author: E. A. G. Schuur Illustrative Photos (available free if credited as specified). | || |---|---|---| Frozen soil sediment deposit in Siberia. | Frozen peatland soil from the Hudson Bay Lowlands, Canada. |\n---Source URL: https://pubs.usgs.gov/of/2010/1144/pdf/OFR2010-1144.pdf\nSource title: Public review draft\u2014a method for assessing carbon stocks, carbon sequestration, and greenhouse-gas fluxes in ecosystems of the United States under present\u00a0\u2026\nSource type: academic\nContent:\nPublic Review Draft: A Method for \nAssessing Carbon Stocks, Carbon \nSequestration, and Greenhouse-Gas Fluxes \nin Ecosystems of the United States Under \nPresent Conditions and Future Scenarios\nBy Zhiliang Zhu (editor), Brian Bergamaschi, Richard Bernknopf, David Clow, \nDennis Dye, Stephen Faulkner, William Forney, Robert Gleason, Todd Hawbaker, \nJinxun Liu, Shuguang Liu, Stephen Prisley, Bradley Reed, Matthew Reeves, \nMatthew Rollins, Benjamin Sleeter, Terry Sohl, Sarah Stackpoole, Stephen \nStehman, Robert Striegl, Anne Wein, and Zhiliang Zhu\nOpen-File Report 2010\u20131144\nU.S. Department of the Interior\nU.S. Geological Survey\n\nU.S. Department of the Interior\nKEN SALAZAR, Secretary\nU.S. Geological Survey\nMarcia K. McNutt, Director\nU.S. Geological Survey, Reston, Virginia: 2010\nFor more information on the USGS\u2014the Federal source for science about the Earth, its natural and living resources, \nnatural hazards, and the environment, visit http://www.usgs.gov or call 1-888-ASK-USGS\nFor an overview of USGS information products, including maps, imagery, and publications, \nvisit http://www.usgs.gov/pubprod\nTo order this and other USGS information products, visit http://store.usgs.gov\nAny use of trade, product, or firm names is for descriptive purposes only and does not imply endorsement by the \nU.S. Government.\nAlthough this report is in the public domain, permission must be secured from the individual copyright owners to \nreproduce any copyrighted materials contained within this report.\nSuggested citation:\nZhu, Zhiliang, ed., Bergamaschi, Brian, Bernknopf, Richard, Clow, David, Dye, Dennis, Faulkner, Stephen, Forney, Wil\u00ad\nliam, Gleason, Robert, Hawbaker, Todd, Liu, Jinxun, Liu, Shuguang, Prisley, Stephen, Reed, Bradley, Reeves, Matthew, \nRollins, Matthew, Sleeter, Benjamin, Sohl, Terry, Stackpoole, Sarah, Stehman, Stephen, Striegl, Robert, Wein, Anne, \nand Zhu, Zhiliang, 2010, Public review draft; A method for assessing carbon stocks, carbon sequestration, and  \ngreenhouse-gas fluxes in ecosystems of the United States under present conditions and future scenarios: U.S. Geological  \nSurvey Open-File Report 2010\u20131144, 195 p., available online at http://pubs.usgs.gov/of/2010/1144/\n\niii\nThe authors express their gratitude towards the following individuals for their invaluable \ncontributions to this manuscript: Members of an interagency science panel (Richard Birdsey, \nU.S. Forest Service (USFS); Jennifer Jenkins, U.S. Environmental Protection Agency (EPA); \nLinda Langner, USFS; Thomas Loveland, U.S. Geological Survey (USGS); David McGuire, \nUSGS; Tilden Meyers, National Oceanic and Atmospheric Administration; Ramakrishna \nNemani, National Aeronautics and Space Administration; Donald Reicosky, U.S. Department \nof Agriculture (USDA) Agricultural Research Service; Benjamin Simon, U.S. Department of \nthe Interior; and Susan Southard, USDA, Natural Resources Conservation Service) for their \ntechnical and science guidance; Eric Sundquist, Jennifer Harden and Stephen Perakis, all of the \nU.S. Geological Survey, for their review and coordination; and the twelve peer reviewers (San\u00ad\ndra Brown, Winrock International; Richard Conant, Colorado State University; John Downing, \nIowa State University; Thomas Huntington, USGS; Robert Keane, USFS; James McClelland, \nUniversity of Texas at Austin; Karen Murphy, U.S. Fish and Wildlife Service; Emilio Mayorga, \nUniversity of Washington; Sarah Bushey Ohrel, U.S. Environmental Protection Agency; David \nSchimel, National Ecological Observatory Network; Bill Sommers, George Mason University; \nand Michael Wimberly, South Dakota State University) for their careful, constructive, and criti\u00ad\ncal reviews. June Thormodsgard (USGS) and Beatrice Van Horne (USFS, formerly with USGS) \nwere instrumental in leading communication with our Federal partners and providing techni\u00ad\ncal advice, as well as leading coordination of science support. The authors especially thank \nWilliam Werkheiser of the USGS for his active leadership in guiding the overall methodology \ndevelopment process.\n\niv\n1.1. Requirements of Section 712 of the Energy Independence and Security Act \n1.2. Understanding the Concepts and Requirements of the Energy Independence \n1.2.10. Use of Economic and Other Systems Models, Analyses, and Estimates...............7\n2.2. Current Knowledge of the Carbon Cycle and Greenhouse-Gas Fluxes in the \n2.3.1. Effects of Land-Use and Land-Cover Change and Land-Management \n2.3.3. Effects of Climate Change, Elevated Carbon Dioxide, and Nitrogen \n2.5. Ongoing Global and National Carbon and Greenhouse-Gas Inventories and \n2.5.1. Intergovernmental Panel on Climate Change Scenarios and Guidelines...............17\n2.5.2. Examples of Continental-Scale Greenhouse-Gas Inventories and \n2.5.3. Existing National-Scale Inventories and Assessments in the United States.........18\n2.5.4. Uncertainty Assessment and Reporting in Existing National Assessments..........19\n2.5.5. Economic Analysis and Its Use in Existing National Assessments.........................20\n\nv\n3.2.1. Framework for Assessing Current Carbon Stocks, Carbon Sequestration, \n3.2.2. Framework for Assessing Future Potential Carbon Stocks, Carbon \n3.3.4. Carbon Stocks, Carbon Sequestration, and Greenhouse-Gas Fluxes in \n3.3.5. Carbon Sequestration and Greenhouse-Gas Fluxes of Aquatic \n3.3.6. Analyses of Assessment Results\u2014Mitigation Activities, Ecosystem \n3.3.9. Requirements of Section 712 of the Energy Independence and Security \nAppendix C. Characterization and Modeling of Major Ecosystem Disturbances...........................113\nAppendix D. Methods for Assessing Carbon Stocks, Carbon Sequestration, and \nAppendix E. Methods for Assessing Carbon Stocks, Carbon Sequestration, and \nAppendix F. Methods for Analyzing Ecosystem Services and Benefits and Costs of \nAppendix H. Methods for Energy Independence and Security Act Measuring and \n\nvi\n\t\n2.1.\t\n\t\n2.2.\t\nDiagrams showing the main carbon and nitrogen cycling processes associated\n\t\n2.3.\t\nConceptual diagram of the relations among ecosystem structure, function, and\n\t\n3.1.\t\nMap showing Level II ecoregions of the U.S. Environmental Protection Agency for \n\t\n3.2.\t\nDiagram showing fluxes of carbon and nitrogen and exchanges among the seven\n\t\n3.3.\t\nGraph showing hypothetical emission ranges for each of three scenarios...................31\n\t\n3.4.\t\nDiagram showing the assessment framework for each IPCC SRES storyline,\n\t\n3.5.\t\nDiagram showing relations among major methods that are designed to run\n\t\n3.6.\t\nGraphs showing the net change for the modeled land-use and land-cover types\nin the two U.S. Environmental Protection Agency Level III ecoregions scenarios.......44\n\t\n3.7.\t\nMaps showing the results of a land-use-modeling test for the A1B scenario...............45\n\t\n3.8.\t\nGraphs showing the observed and simulated number of wildfires per year, and\nthe observed and simulated number of hectares of area burned by wildfire per\n\t\n3.9.\t\nMap of the test area showing locations of simulated wildfires in two EPA Level III\n\t\n3.10.\t\nMap showing results of a test using terrestrial methods to assess carbon stocks,\n\t\n3.11.\t\nGraph showing comparisons of annual carbon-sequestration rates of biomass\ncarbon stock among the three methods using the \u201cenhanced land use and land cover \nwith reference land management\u201d (L) scenario for the whole test area from 2001 to \n\t\n3.12.\t\nGraphs showing comparisons of annual methane emission from wetlands and\nthe total nitrous-oxide emission from all land between the GEMS-spreadsheet\nmodel and the GEMS\u2013EDCM model, showing the difference between the\n\u201creference land use, land cover, and land management\u201d (R) scenario and the\n\u201cenhanced land use and land cover with reference land management\u201d (L)\n\t\n3.13.\t\nChart showing a comparison of ecosystem service changes using the\n\nvii\n\t\n2.1.\t\nCarbon stocks in the conterminous United States and Alaska, and \ngreenhouse-gas emissions from major ecosystems in the conterminous \n\t\n2.2\t\nComparison of forest stocks and net forest-stock changes from three continental-\n\t\n2.3.\t\nSelected estimates and uncertainties reported from recent national-scale \n\t\n3.1.\t\nEcosystems, descriptions, and thematic components of source datasets.......................25\n\t\n3.2.\t\nBroad-level definitions of relevant carbon pools to be included for carbon-\n\t\n3.3.\t\nTime periods, land use and land cover, ecosystem disturbances, and land-\nmanagement activities used for assessments of current and future potential \n\t\n3.4.\t\n\t\n3.5.\t\n\t\n3.6.\t\nSummary of the assessment framework for linking climate-change mitigation \nscenarios to changes in ecosystem capacities for carbon stocks and carbon \n\t\n3.7.\t\nData needs, sources, variables, spatial and temporal resolution, and uses in the \n\t\n3.8.\t\n\t\n3.9.\t\nMajor natural and anthropogenic ecosystem disturbances, selected attributes, \n\t\n3.10.\t Preliminary methods or models, quantifying parameters, technical processes, \ntarget ecosystems, and data needs or sources that will be used to assess \nparameters of carbon stocks, carbon sequestration, and greenhouse-gas flux.............51\n\t\n3.11.\t Total carbon stocks and cumulative and additional carbon sequestration within \nthe test area (Tensas Parish, La., and Claiborne County, Miss.), calculated using \nthe specified method, and using the \u201creference land use, land cover, and land \nmanagement\u201d (R) and \u201cenhanced land use and land cover with reference land \n\t\n3.12.\t Annual emission rates of methane and nitrous oxide and their total differences \n(between 2001 and 2050), for the \u201creference land use, land cover, and land \nmanagement\u201d (R) and the \u201cenhanced land use and land cover with reference \n\t\n3.13.\t Example of a table format for reporting the effectiveness of mitigation activities \nfor sequestering carbon, by the duration (years) of the implementation..........................59\n\t\n3.14.\t Ecosystem services that are likely to be affected by mitigation activities and will \nbe analyzed, their functions, and the assessment data products that will be used \n\t\n3.15.\t Preliminary ecosystem service estimates for a test in Tensas Parish, La., and \n\t\n3.16.\t Partial list of deliverable and intermediate data products targeted for validation, \n\t\n3.17.\t A subset of primary deliverables for the national assessment, by deliverable type.......66\n\nviii\n\t\n3.18.\t Example of a table format for reporting the results of the assessment of carbon \nstocks, carbon sequestration, and greenhouse gases, including uncertainties, \n\t\n3.19.\t Example of a table format for reporting the effects of wildfires and manmade \nfires on carbon stocks for a given assessment unit, for all ecosystems...........................68\n\t\n3.20.\t Example of a table format for reporting validation results of comparing the \nreference data with the 2010 assessment estimates (present conditions) for \n\nix\nTo obtain\nmillimeter (mm)\n0.03937\ninch (in.)\ncentimeter (cm)\n0.3937\ninch (in.)\nmeter (m)\n3.281\nfoot (ft) \nsquare meter (m2)\n10.76\nsquare foot (ft2)\nhectare (ha)\n2.471\nacre\nsquare kilometer (km2)\n0.3861\nsquare miles (mi2)\nmegahectare (Mha)\n3,861\nsquare mile (mi2)\ncubic meter (m3)\n35.31\ncubic foot (ft3)\ngram (g)\n0.03527\nounce, avoirdupois (oz)\nkilogram (kg)\n2.205\npound avoirdupois (lb)\nmegagram (Mg) [metric ton (t)]\n1.102\nton, short (2,000 lb)\ngigagram (Gg)\n1.102 \u00d7 103\nton, short (2,000 lb)\nteragram (Tg)\n1.102 \u00d7 106\nton, short (2,000 lb)\npetagram (Pg)\n1.102\u00d7 109\nton, short (2,000 lb)\nwatts per square meter (W/m2) \n0.09294\nwatts per square foot (W/ft2)\nTemperature in degrees Celsius (\u00b0C) may be converted to degrees Fahrenheit (\u00b0F) as follows:\n\t\n\u00b0F=(1.8\u00d7\u00b0C)+32.\nTemperature in degrees Fahrenheit (\u00b0F) may be converted to degrees Celsius (\u00b0C) as follows:\n\t\n\u00b0C=(\u00b0F-32)/1.8.\nThe resolution of pixels in spatial datasets follows the conventions used in the spatial data and \nmodeling communities. The format is \u201cn-meter resolution,\u201d where n is a numerical value for \nthe length. The usage translates into a pixel with a length of n on all sides that covers an area \nof n meters \u00d7 n meters. \nHow Megagrams, Gigagrams, Teragrams, and Petagrams Relate to Metric Tons\n1 megagram (Mg) \n=\n1 million grams (106 g) \n=\n1 metric ton (t)\n1 gigagram (Gg) \n=\n1 billion grams (109 g) \n=\n1,000 metric tons\n1 teragram (Tg) \n=\n1 trillion grams (1012 g) \n=\n1 million metric tons (Mt)\n1 petagram (Pg) \n=\n1 quadrillion grams (1015 g) \n=\n1 billion metric tons (Gt)\n\nx\nAbbreviations, Acronyms, and Chemical Symbols\nADAGE\nApplied Dynamic Analysis of the Global Economy\nAFOLU\nagriculture, forestry, and other land uses\nAmeriFlux\nAmerican flux network\nAR4\nIPCC fourth assessment report\nAR5\nIPCC fifth assessment report\nArcFVS\nArcInfo\u2019s Forest Vegetation Simulator\nArcSDE\nArcInfo\u2019s Spatial Database Engine\nARMS\nARS\nUSDA Agricultural Research Service\nAVHRR\nAdvanced Very High Resolution Radiometer\nBAER\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316166.132917
+}

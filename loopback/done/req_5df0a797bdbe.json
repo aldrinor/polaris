@@ -1,0 +1,42 @@
+{
+  "request_id": "5df0a797bdbe",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nThe interviewer (Maria Escalante, JD, Regulatory perspective) asks:\nQUESTION: Rounds 1-2 established that (a) no regulator has issued a formal IF therapeutic opinion, and (b) commercial IF apps market weight-loss and fat-burn benefits without facing enforcement. Now consider the AHA 2024 conference abstract signal linking 8-hour eating windows to 91% higher cardiovascular death risk and the FTC/FDA posture on preliminary evidence: would an unpublished, non-peer-reviewed conference abstract be sufficient evidentiary basis for an FTC substantiation challenge or an FDA safety communication about IF apps \u2014 or does the regulatory framework explicitly exclude conference abstracts from both directions (supporting and refuting product claims)? What precedents exist for regulators acting on pre-peer-review safety signals in the dietary supplement, medical device, or digital health space?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] FTC Policy Statement Regarding Advertising Substantiation\n  URL: https://www.ftc.gov/legal-library/browse/ftc-policy-statement-regarding-advertising-substantiation\n  Content: Relevance of Post-Claim Evidence in Substantiation Cases. The reasonable basis doctrine requires that firms have substantiation before disseminating a claim.\n[Source 2] Health Claims | Federal Trade Commission\n  URL: https://www.ftc.gov/business-guidance/advertising-marketing/health-claims\n  Content: Companies must have appropriate substantiation to back up claims for health-related products. Through more than 50 examples, this guidance explains the how-tos ...\n[Source 3] Substantiating Health Claims: Examples of Proof (and Lack Thereof ...\n  URL: https://www.thelangelfirm.com/debt-collection-defense-blog/2023/may/substantiating-health-claims-examples-of-proof-a/\n  Content: Learn about what qualifies as good scientific evidence to support health claims in food, beverages, dietary supplements, over-the-counter ...\n[Source 4] FTC Puts Industry on Notice of its Expectations for Health-Related ...\n  URL: https://www.arnoldporter.com/en/perspectives/blogs/enforcement-edge/2023/04/ftc-puts-industry-on-notice\n  Content: FTC Puts Industry on Notice of its Expectations for Health-Related Advertising Claims. Enforcement Edge: Shining Light on Government Enforcement.\n[Source 5] [PDF] Advertising Substantiation Principles\n  URL: https://www.ftc.gov/sites/default/files/attachments/training-materials/substantiation.pdf\n  Content: Before disseminating an advertisement, the advertiser must substantiate all claims \u2013 express and implied \u2013 that the ad conveys to reasonable consumers.\n[Source 6] FTC Issues Updated Health Products Claims Guidance\n  URL: https://lifesciences.mofo.com/topics/ftc-issues-updated-health-products-claims-guidance\n  Content: This is the first update in nearly 25 years to FTC's guidance regarding advertising claims for dietary supplements, foods, over-the-counter drugs, and other ...\n[Source 7] Staking a Claim: The Basics of FTC Claim Substantiation - Westlaw\n  URL: https://content.next.westlaw.com/practical-law/document/Iffc05c09d69011e698dc8b09b4f043e0/Staking-a-Claim-The-Basics-of-FTC-Claim-Substantiation?viewType=FullText&transitionType=Default&contextData=(sc.Default)\n  Content: Claim substantiation is simply a requirement that advertisers have a reasonable basis for their claims before they are made.\n[Source 8] Misguided: The FTC Attempts to Redefine the Law with its Health\u2026\n  URL: https://www.kelleydrye.com/viewpoints/blogs/ad-law-access/misguided-the-ftc-attempts-to-redefine-the-law-with-its-health-products-compliance-guidance\n  Content: According to an FTC blog post that accompanied its release, the new Guidance purports to \u200b\u201ccorrect misunderstandings\u201d and \u200b\u201curban myths\u201d that ...\n[Source 9] FTC Guidance on Advertising Claims - FoodChain ID\n  URL: https://www.foodchainid.com/resources/united-states-updated-ftc-guidance-on-claims-in-advertising/\n  Content: Like the 1998 guide, this document provides guidance from FTC on how to ensure that claims on health-related products in advertising are truthful, not ...\n[Source 10] Understanding FTC Standards for Claims Substantiation\n  URL: https://www.nutraceuticalsworld.com/understanding-ftc-standards-for-claims-substantiation/\n  Content: The relevant standard for \u201ctruthful and not misleading\u201d health-related claims for dietary supplements is \u201ccompetent and reliable scientific evidence.\u201d\n[Source 11] Questions and Answers Regarding Adverse Event Reporting ... - FDA\n  URL: https://www.fda.gov/regulatory-information/search-fda-guidance-documents/guidance-industry-questions-and-answers-regarding-adverse-event-reporting-and-recordkeeping-dietary\n  Content: This guidance document provides guidance to the dietary supplement industry for complying with the adverse event reporting and recordkeeping requirements.\n[Source 12] Warning Letters Related to Food, Beverages, and Dietary ... - FDA\n  URL: https://www.fda.gov/food/compliance-enforcement-food/warning-letters-related-food-beverages-and-dietary-supplements\n  Content: When FDA finds that a manufacturer has significantly violated FDA regulations, FDA notifies the manufacturer. This notification is often in the form of a ...\n[Source 13] [PDF] Best Practices for FDA Staff in the Postmarketing Safety Surveillance ...\n  URL: https://www.fda.gov/media/130216/download\n  Content: A multidisciplinary, life-cycle approach to the management of drug and biological product safety. \u2022 General considerations that inform the frequency and ...\n[Source 14] Withdrawal of Proposed Rule on Supplemental Applications ...\n  URL: https://www.federalregister.gov/documents/2018/12/14/2018-27098/withdrawal-of-proposed-rule-on-supplemental-applications-proposing-labeling-changes-for-approved\n  Content: The Food and Drug Administration (FDA, the Agency, or we) is announcing the withdrawal of the proposed rule on \u201cSupplemental Applications Proposing Labeling ...\n[Source 15] FDA says it may relax warning label rule for dietary supplements\n  URL: https://www.nbcnews.com/health/health-news/fda-supplements-warning-label-rule-change-rfk-jr-rcna249321\n  Content: The FDA is considering a rule change that would cut back on how often dietary supplement warnings must appear on packaging, a move experts ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776277283.7042081
+}

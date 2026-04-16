@@ -1,0 +1,42 @@
+{
+  "request_id": "7a11cff64d07",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: How has the EU Digital Services Act (Regulation 2022/2065) changed large platform moderation obligations since February 2024?\n\nThe interviewer (Dr. A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] The impact of the Digital Services Act on digital platforms\n  URL: https://digital-strategy.ec.europa.eu/en/policies/dsa-impact-platforms\n  Content: The DSA significantly improves the mechanisms for the removal of illegal content and for the effective protection of users' fundamental rights online.\n[Source 2] A Reflection on Regulation 2022/2065 (Digital Services Act\u2014DSA ...\n  URL: https://link.springer.com/chapter/10.1007/978-3-032-02500-5_10\n  Content: That is why the DSA aims to regulate the operation of digital platforms in the EU to ensure greater transparency, safety, and consumer ...\n[Source 3] No. 85: The EU's Digital Services Act and Its Impact on Online ...\n  URL: https://law.stanford.edu/publications/no-85-the-eus-digital-services-act-and-its-impact-on-online-platforms/\n  Content: It will evaluate how the new regulations to restrict the commerce and distribution of illegal goods, services, and content online will enhance ...\n[Source 4] EU Should Improve Transparency in the Digital Services Act\n  URL: https://itif.org/publications/2025/10/20/eu-should-improve-transparency-in-the-digital-services-act/\n  Content: The implementation of the Digital Services Act's transparency obligations fails to provide meaningful insight into online platforms' content ...\n[Source 5] EU Digital Regulation as Industry Shaping Policy: The DSA ...\n  URL: https://www.networklawreview.org/sekwenz-digital-regulation/\n  Content: An expert on the Digital Services Act (DSA) and European platform regulation, her research examines the evolving landscape of content moderation ...\n[Source 6] The Digital Services Act in the European periphery: Critical ...\n  URL: https://www.cambridge.org/core/journals/european-law-open/article/digital-services-act-in-the-european-periphery-critical-perspectives-on-eu-digital-regulation/62136D0700099DD3F97630C70E9F0315\n  Content: Using the EU Digital Services Act as a prism, I draw attention to the legal, political, social, and cultural variation within the EU and, ...\n[Source 7] [PDF] How Europe's Digital Services Act Threatens Free Speech and Faith ...\n  URL: https://www.congress.gov/119/meeting/house/118565/witnesses/HHRG-119-JU00-Wstate-PriceL-20250903-U5.pdf\n  Content: The DSA operates through an unwieldy and bureaucratic web where all roads eventually lead back to the European Commission and censorship. The ...\n[Source 8] Regulating high-reach AI: On transparency directions in the Digital ...\n  URL: https://policyreview.info/articles/analysis/regulating-high-reach-ai\n  Content: The EU's 2022 Digital Services Act mandates data access for researchers to study platform risks, but delays and diverging opinions of ...\n[Source 9] Risk in the Digital Services Act and AI Act: implications for media ...\n  URL: https://cmpf.eui.eu/risk-in-the-digital-services-act-and-ai-act/\n  Content: The DSA addresses the platforms that organise public discussion, while the AIA regulates the underlying technologies that produce content. Still ...\n[Source 10] EU Digital Services Act: what does it mean for online advertising and ...\n  URL: https://academic.oup.com/ijlit/article/doi/10.1093/ijlit/eaaf004/8133991\n  Content: This paper looks at the obligations of online platforms in relation to online advertising that follow from the Digital Services Act (DSA).\n[Source 11] Rating the certainty in evidence in the absence of a single estimate ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5502230/\n  Content: We provide suggestions on the use of GRADE to rate the certainty of evidence when a meta-analysis has not been performed, and instead a narrative summary of the ...\n[Source 12] Assessing the certainty of the evidence in systematic reviews\n  URL: https://academic.oup.com/aje/article/194/6/1681/7746729\n  Content: This article introduces the GRADE approach for assessing the certainty of the evidence and describes how the assessment is done, how they are incorporated when ...\n[Source 13] Chapter 14: Completing 'Summary of findings' tables and grading ...\n  URL: https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14\n  Content: For systematic reviews, the GRADE approach defines the certainty of a body of evidence as the extent to which one can be confident that an estimate of ...\n[Source 14] Effect size and pooling - Conducting Systematic Reviews and Meta ...\n  URL: https://uvanl.libguides.com/c.php?g=723438&p=5319551\n  Content: An effect size is a quantitative metric that captures both the direction and magnitude of a relationship between two entities. When different ...\n[Source 15] Chapter 7: GRADE Criteria Determining Certainty of Evidence - CDC\n  URL: https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html\n  Content: The GRADE approach is used to determine the certainty of evidence across the body of evidence for each outcome identified as critical or important for decision ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318191.4783175
+}

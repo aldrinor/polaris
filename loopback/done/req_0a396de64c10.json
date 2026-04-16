@@ -1,0 +1,165 @@
+{
+  "request_id": "0a396de64c10",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pubs.acs.org/doi/full/10.1021/acsnano.8b07700\nSource title: Best practices for reporting electrocatalytic performance of nanomaterials\nSource type: academic\nContent:\nSci-Hub. Best Practices for Reporting Electrocatalytic Performance of Nanomaterials / ACS Nano, 2018 x citation format none \u0413\u041e\u0421\u0422 ACS ACM AIP AMA APA APS CSE CEP GSA IEEE MLA Chicago sci hub Best Practices for Reporting Electrocatalytic Performance of Nanomaterials ACS Nano, 2018 {citation} {style} ... ! \u2197 versions x report article another article is displayed article PDF is corrupt some pages are missing this is a preprint version the study is an example of bad science another problem report sending... The message has been sent. There was some error while sending the report :( I'm not a robot verifying...\n---Source URL: https://www.oaepublish.com/articles/energymater.2024.220\nSource title: Challenges and strategies in catalysts design towards ...\nSource type: web\nContent:\n1. Bradshaw, A.; Schleicher, K. Electrical conductivity of seawater. IEEE. J. Ocean. Eng. 1980, 5, 50-62. 2. Yu, Z.; Liu, L. Recent advances in hybrid seawater electrolysis for hydrogen production. Adv. Mater. 2024, 36, e2308647. 3. Liu, G.; Xu, Y.; Yang, T.; Jiang, L. Recent advances in electrocatalysts for seawater splitting. Nano. Mater. Sci. 2023, 5, 101-16. 4. Fei, H.; Liu, R.; Liu, T.; et al. Direct seawater electrolysis: from catalyst design to device applications. Adv. Mater. 2024, 36, e2309211. 5. Hu, H.; Wang, X.; Attfield, J. P.; Yang, M. Metal nitrides for seawater electrolysis. Chem. Soc. Rev. 2024, 53, 163-203. 6. Tong, W.; Forster, M.; Dionigi, F.; et al. Electrolysis of low-grade and saline surface water. Nat. Energy. 2020, 5, 367-77. 7. Xiao, X.; Yang, L.; Sun, W.; et al. Electrocatalytic water splitting: from harsh and mild conditions to natural seawater. Small 2022, 18, e2105830. 8. Liu, Y.; Wang, Y.; Fornasiero, P.; Tian, G.; Strasser, P.; Yang, X. Long-term durability of seawater electrolysis for hydrogen: from catalysts to systems. Angew. Chem. Int. Ed. 2024, 136, e202412087. 9. Karlsson, R. K.; Cornell, A. Selectivity between oxygen and chlorine evolution in the chlor-alkali and chlorate processes. Chem. Rev. 2016, 116, 2982-3028. 10. Bahuguna, G.; Patolsky, F. Routes to avoiding chlorine evolution in seawater electrolysis: recent perspective and future directions. ACS. Mater. Lett. 2024, 6, 3202-17. 11. Bahuguna, G.; Patolsky, F. Why today\u2019s \u201cwater\u201d in water splitting is not natural water? Critical up-to-date perspective and future challenges for direct seawater splitting. Nano. Energy. 2023, 117, 108884. 12. Haq, T. U.; Haik, Y. Strategies of anode design for seawater electrolysis: recent development and future perspective. Small. Sci. 2022, 2, 2200030. 13. Liang, J.; Li, Z.; He, X.; et al. Electrocatalytic seawater splitting: nice designs, advanced strategies, challenges and perspectives. Mater. Today. 2023, 69, 193-235. 14. Gouda, V. K.; Banat, I. M.; Riad, W. T.; Mansour, S. Microbiologically induced corrosion of UNS N04400 in seawater. Corrosion 1993, 49, 63-73. 15. Oh, B. S.; Oh, S.; Jung, Y. J.; Hwang, Y.; Kang, J.; Kim, I. S. Evaluation of a seawater electrolysis process considering formation of free chlorine and perchlorate. Desalination. Water. Treat. 2010, 18, 245-50. 16. Kang, X.; Yang, F.; Zhang, Z.; et al. A corrosion-resistant RuMoNi catalyst for efficient and long-lasting seawater oxidation and anion exchange membrane electrolyzer. Nat. Commun. 2023, 14, 3607. 17. Park, Y. S.; Jeong, J.; Jang, M. J.; et al. Ternary layered double hydroxide oxygen evolution reaction electrocatalyst for anion exchange membrane alkaline seawater electrolysis. J. Energy. Chem. 2022, 75, 127-34. 18. Yang, P.; Liu, F.; Zang, X.; et al. Microwave quasi-solid state to construct strong metal-support interactions with interfacial electron-enriched Ru for anion exchange membrane electrolysis. Adv. Energy. Mater. 2024, 14, 2303384. 19. Hu, H.; Zhang, Z.; Liu, L.; et al. Efficient and durable seawater electrolysis with a V2O3-protected catalyst. Sci. Adv. 2024, 10, eadn7012. 20. Chang, J.; Wang, G.; Yang, Z.; et al. Dual-doping and synergism toward high-performance seawater electrolysis. Adv. Mater. 2021, 33, e2101425. 21. Xia, Y.; Guo, L.; Zhu, J.; et al. Manipulating electronic structure of nickel phosphide via asymmetric coordination interaction for anion-exchange membrane based seawater electrolysis. Appl. Catal. B. Environ. Energy. 2024, 351, 123995. 22. Song, L.; Guo, L.; Mao, J.; et al. Boosting hydrogen adsorption via manipulating the d-band center of ferroferric oxide for anion exchange membrane-based seawater electrolysis. ACS. Catal. 2024, 14, 6981-91. 23. Wang, H.; Jiang, N.; Huang, B.; Yu, Q.; Guan, L. Surface amorphization and functionalization of a NiFeOOH electrocatalyst for a robust seawater electrolyzer. EES. Catal. 2024, 2, 1092-9. 24. Li, Q.; Fu, X.; Li, H.; et al. Strong d-p orbital hybridization of Os-P via ultrafast microwave plasma assistance for anion exchange membrane electrolysis. Adv. Funct. Mater. 2024, 34, 2408517. 25. Cui, T.; Chi, J.; Liu, K.; et al. Manipulating the electron redistribution of Fe3O4 for anion exchange membrane based alkaline seawater electrolysis. Appl. Catal. B. Environ. Energy. 2024, 357, 124269. 26. Jun, S. E.; Myeong, S.; Cho, B.; et al. Exsolved Ru-mediated stabilization of MoO2-Ni4Mo electrocatalysts for anion exchange membrane water electrolysis and unbiased solar-driven saline water splitting. Appl. Catal. B. Environ. Energy. 2024, 358, 124364. 27. Lee, S. A.; Bu, J.; Lee, J.; Jang, H. W. High-entropy nanomaterials for advanced electrocatalysis. Small. Sci. 2023, 3, 2200109. 28. Choi, D.; Ryu, S. Efficient and selective oxygen evolution reaction in seawater electrolysis with electrochemically synthesized amorphous-like NiFeS. Electron. Mater. Lett. 2024, 20, 173-82. 29. Cho, Y. B.; Nguyen, D. C.; Hua, S. H.; Kim, Y. S. Direct detection of water-dissolved ammonia using paper-based analytical devices. J. Sensor. Sci. Technol. 2023, 32, 67-74. 30. Kim, J.; Kang, D.; Kim, S.; Jang, H. W. Catalyze materials science with machine learning. ACS. Mater. Lett. 2021, 3, 1151-71. 31. Vos, J. G.; Wezendonk, T. A.; Jeremiasse, A. W.; Koper, M. T. M. MnOx/IrOx as selective oxygen evolution electrocatalyst in acidic chloride solution. J. Am. Chem. Soc. 2018, 140, 10270-81. 32. Hu, H.; Zhang, Z.; Zhang, Y.; et al. An ultra-low Pt metal nitride electrocatalyst for sustainable seawater hydrogen production. Energy. Environ. Sci. 2023, 16, 4584-92. 33. Veroneau, S. S.; Nocera, D. G. Continuous electrochemical water splitting from natural water sources via forward osmosis. Proc. Natl. Acad. Sci. USA. 2021, 118, e2024855118. 34. Desai, D.; Beh, E. S.; Sahu, S.; et al. Electrochemical desalination of seawater and hypersaline brines with coupled electricity storage. ACS. Energy. Lett. 2018, 3, 375-9. 35. Loutatidou, S.; Chalermthai, B.; Marpu, P. R.; Arafat, H. A. Capital cost estimation of RO plants: GCC countries versus southern Europe. Desalination 2014, 347, 103-11. 36. Logan, B. E.; Shi, L.; Rossi, R. Enabling the use of seawater for hydrogen gas production in water electrolyzers. Joule 2021, 5, 760-2. 37. Lee, J. K.; Seo, J. H.; Lim, J.; Park, S.; Jang, H. W. Best practices in membrane electrode assembly for water electrolysis. ACS. Mater. Lett. 2024, 6, 2757-86. 38. Abbasi, R.; Setzler, B. P.; Lin, S.; et al. A roadmap to low-cost hydrogen with hydroxide exchange membrane electrolyzers. Adv. Mater. 2019, 31, e1805876. 39. Li, J.; Sun, J.; Li, Z.; Meng, X. Recent advances in electrocatalysts for seawater splitting in hydrogen evolution reaction. Int. J. Hydrogen. Energy. 2022, 47, 29685-97. 40. Lee, S. A.; Kim, J.; Kwon, K. C.; Park, S. H.; Jang, H. W. Anion exchange membrane water electrolysis for sustainable large-scale hydrogen production. Carbon. Neutral. 2022, 1, 26-48. 41. Vincent, I.; Bessarabov, D. Low cost hydrogen production by anion exchange membrane electrolysis: a review. Renew. Sustain. Energy. Rev. 2018, 81, 1690-704. 42. Shao, L.; Han, X.; Shi, L.; et al. In situ generation of molybdate-modulated nickel-iron oxide electrodes with high corrosion resistance for efficient seawater electrolysis. Adv. Energy. Mater. 2024, 14, 2303261. 43. Xu, W.; Wang, Z.; Liu, P.; et al. Ag nanoparticle-induced surface chloride immobilization strategy enables stable seawater electrolysis. Adv. Mater. 2024, 36, e2306062. 44. Zhang, S.; Xu, W.; Chen, H.; et al. Progress in anode stability improvement for seawater electrolysis to produce hydrogen. Adv. Mater. 2024, 36, e2311322. 45. Huang, C.; Zhou, Q.; Yu, L.; et al. Functional bimetal Co-modification for boosting large-current-density seawater electrolysis by inhibiting adsorption of chloride ions. Adv. Energy. Mater. 2023, 13, 2301475. 46. Gong, Z.; Liu, J.; Yan, M.; Gong, H.; Ye, G.; Fei, H. Highly durable and efficient seawater electrolysis enabled by defective graphene-confined nanoreactor. ACS. Nano. 2023, 17, 18372-81. 47. Fan, R.; Liu, C.; Li, Z.; et al. Ultrastable electrocatalytic seawater splitting at ampere-level current density. Nat. Sustain. 2024, 7, 158-67. 48. Liu, J.; Liu, X.; Shi, H.; et al. Breaking the scaling relations of oxygen evolution reaction on amorphous NiFeP nanostructures with enhanced activity for overall seawater splitting. Appl. Catal. B. Environ. 2022, 302, 120862. 49. Liu, H.; Shen, W.; Jin, H.; et al. High-performance alkaline seawater electrolysis with anomalous chloride promoted oxygen evolution reaction. Angew. Chem. Int. Ed. 2023, 62, e202311674. 50. Zhao, Y.; Adiyeri, S. D. P.; Huang, C.; et al. Oxygen evolution/reduction reaction catalysts: from in situ monitoring and reaction mechanisms to rational design. Chem. Rev. 2023, 123, 6257-358. 51. Dionigi, F.; Reier, T.; Pawolek, Z.; Gliech, M.; Strasser, P. Design criteria, operating conditions, and nickel-iron hydroxide catalyst materials for selective seawater electrolysis. ChemSusChem 2016, 9, 962-72. 52. Guo, J.; Zheng, Y.; Hu, Z.; et al. Direct seawater electrolysis by adjusting the local reaction environment of a catalyst. Nat. Energy. 2023, 8, 264-72. 53. Dresp, S.; Dionigi, F.; Loos, S.; et al. Direct electrolytic splitting of seawater: activity, selectivity, degradation, and recovery studied from the molecular catalyst structure to the electrolyzer cell level. Adv. Energy. Mater. 2018, 8, 1800338. 54. Jung, H.; Song, J.; Lee, Y.; et al. Computational discovery of optimal dopants for nickel iron oxyhydroxide to enhance OER activity and saline water compatibility. ACS. Energy. Lett. 2024, 9, 2162-72. 55. Zhang, S.; Wang, Y.; Li, S.; et al. Concerning the stability of seawater electrolysis: a corrosion mechanism study of halide on Ni-based anode. Nat. Commun. 2023, 14, 4822. 56. Dresp, S.; Dionigi, F.; Klingenhof, M.; Strasser, P. Direct electrolytic splitting of seawater: opportunities and challenges. ACS. Energy. Lett. 2019, 4, 933-42. 57. Han, J.; Jwa, E.; Lee, H.; et al. Direct seawater electrolysis via synergistic acidification by inorganic precipitation and proton flux from bipolar membrane. Chem. Eng. J. 2022, 429, 132383. 58. Li, T.; Zhao, X.; Getaye, S. M.; et al. Phosphate-decorated Ni3Fe-LDHs@CoPx nanoarray for near-neutral seawater splitting. Chem. Eng. J. 2023, 460, 141413. 59. Li, J.; Yu, T.; Wang, K.; et al. Multiscale engineering of nonprecious metal electrocatalyst for realizing ultrastable seawater splitting in weakly alkaline solution. Adv. Sci. 2022, 9, e2202387. 60. Cai, Z.; Liang, J.; Li, Z.; et al. Stabilizing NiFe sites by high-dispersity of nanosized and anionic Cr species toward durable seawater oxidation. Nat. Commun. 2024, 15, 6624. 61. Li, P.; Zhao, S.; Huang, Y.; Huang, Q.; Yang, Y.; Yang, H. Multiscale structural engineering of a multilayered nanoarray electrode realizing boosted and sustained oxygen evolution catalysis in seawater electrolysis. ACS. Catal. 2023, 13, 15360-74. 62. Khan, M. A.; Al-Attas, T.; Roy, S.; et al. Seawater electrolysis for hydrogen production: a solution looking for a problem? Energy. Environ. Sci. 2021, 14, 4831-9. 63. Karoui, H.; Riffault, B.; Jeannin, M.; et al. Electrochemical scaling of stainless steel in artificial seawater: role of experimental conditions on CaCO3 and Mg(OH)2 formation. Desalination 2013, 311, 234-40. 64. Kang, W.; Meng, S.; Zhao, Y.; et al. Scaling-free cathodes: enabling electrochemical extraction of high-purity nano-CaCO3 and -Mg(OH)2 in seawater. Environ. Sci. Technol. 2024, 58, 14034-41. 65. Yi, L.; Chen, X.; Wen, Y.; et al. Solidophobic surface for electrochemical extraction of high-valued Mg(OH)2 coupled with H2 production from seawater. Nano. Lett. 2024, 24, 5920-8. 66. Lee, S.; Kim, E.; Lee, D.; Jang, K.; Park, J.; Choi, W. Y. Synthesis of seawater-derived superhydrophobic calcium carbonate via CO2 mineralization by utilizing L-Arginine/L-Lysine oleate-based self-assembly structures. Chem. Eng. J. 2024, 490, 151785. 67. Dresp, S.; Ngo, T. T.; Klingenhof, M.; Br\u00fcckner, S.; Hauke, P.; Strasser, P. Efficient direct seawater electrolysers using selective alkaline NiFe-LDH as OER catalyst in asymmetric electrolyte feeds. Energy. Environ. Sci. 2020, 13, 1725-9. 68. Zhou, Z.; Pei, Z.; Wei, L.; Zhao, S.; Jian, X.; Chen, Y. Electrocatalytic hydrogen evolution under neutral pH conditions: current understandings, recent advances, and future prospects. Energy. Environ. Sci. 2020, 13, 3185-206. 69. Rodriguez-blanco, J.; Shaw, S.; Bots, P.; Roncal-herrero, T.; Benning, L. The role of pH and Mg on the stability and crystallization of amorphous calcium carbonate. J. Alloys. Compd. 2012, 536, S477-9. 70. Yousefi, S.; Ghasemi, B.; Tajally, M.; Asghari, A. Optical properties of MgO and Mg(OH)2 nanostructures synthesized by a chemical precipitation method using impure brine. J. Alloys. Compd. 2017, 711, 521-9. 71. Chen, H.; Liu, P.; Li, W.; et al. Stable seawater electrolysis over 10 000 H via chemical fixation of sulfate on NiFeBa-LDH. Adv. Mater. 2024, 36, e2411302. 72. Liao, L.; Li, D.; Zhang, Y.; et al. Complementary multisite turnover catalysis toward superefficient bifunctional seawater splitting at ampere-level current density. Adv. Mater. 2024, 36, e2405852. 73. Liu, X.; Chi, J.; Mao, H.; Wang, L. Principles of designing electrocatalyst to boost reactivity for seawater splitting. Adv. Energy. Mater. 2023, 13, 2301438. 74. Tlili, M. M.; Benamor, M.; Gabrielli, C.; Perrot, H.; Tribollet, B. Influence of the interfacial pH on electrochemical CaCO3 precipitation. J. Electrochem. Soc. 2003, 150, C765. 75. Zheng, W.; Lee, L. Y. S.; Wong, K. Y. Improving the performance stability of direct seawater electrolysis: from catalyst design to electrode engineering. Nanoscale 2021, 13, 15177-87. 76. Liu, J.; Duan, S.; Shi, H.; et al. Rationally designing efficient electrocatalysts for direct seawater splitting: challenges, achievements, and promises. Angew. Chem. Int. Ed. 2022, 61, e202210753. 77. Xie, H.; Zhao, Z.; Liu, T.; et al. A membrane-based seawater electrolyser for hydrogen generation. Nature 2022, 612, 673-8. 78. Adisasmito, S.; Khoiruddin, K.; Sutrisna, P. D.; Wenten, I. G.; Siagian, U. W. R. Bipolar membrane seawater splitting for hydrogen production: a review. ACS. Omega. 2024, 9, 14704-27. 79. Zheng, Y.; Qiao, S. Direct seawater splitting to hydrogen by a membrane electrolyzer. Joule 2023, 7, 20-2. 80. Jin, H.; Xu, J.; Liu, H.; et al. Emerging materials and technologies for electrocatalytic seawater splitting. Sci. Adv. 2023, 9, eadi7755. 81. Liang, J.; Cai, Z.; He, X.; et al. Electroreduction of alkaline/natural seawater: self-cleaning Pt/carbon cathode and on-site co-synthesis of H2 and Mg hydroxide nanoflakes. Chem 2024, 10, 3067-87. 82. Zhao, L.; Zhou, S.; Lv, Z.; et al. Anti-precipitation molecular metal chalcogenide complexes modification for efficient direct alkaline seawater splitting at the large current density. Appl. Catal. B. Environ. 2023,\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319616.6205995
+}

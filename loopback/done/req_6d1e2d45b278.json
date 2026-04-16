@@ -1,0 +1,165 @@
+{
+  "request_id": "6d1e2d45b278",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How has the EU Digital Services Act (Regulation 2022/2065) changed large platform moderation obligations since February 2024?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://law.stanford.edu/publications/no-85-the-eus-digital-services-act-and-its-impact-on-online-platforms/\nSource title: No. 85: The EU's Digital Services Act and Its Impact on Online ...\nSource type: web\nContent:\n\n---Source URL: https://www.congress.gov/119/meeting/house/118565/witnesses/HHRG-119-JU00-Wstate-PriceL-20250903-U5.pdf\nSource title: [PDF] How Europe's Digital Services Act Threatens Free Speech and Faith ...\nSource type: web\nContent:\n## Written Statement of Lorc\u00e1n Price Legal Counsel Alliance Defending Freedom International ## Delete. Silence. Abolish: How Europe's Digital Services Act Threatens Free Speech and Faith Worldwide ## Before the United States House of Representatives ## Committee on the Judiciary September 3, 2025 Hearing on Europe's Threat to American Speech and Innovation ## Introduction Europe's Digital Services Act ('DSA') and its proponents seek worldwide narrative control in the digital age. Its goal is censorship; its means draconian centralization; its reach global. The DSA is the head of a growing censorship industrial complex. It must be stopped. Europe wants to be the global leader in censorship. Its obsession with harmonization and regulation is at odds with the values of free speech and a free press. Those are universal human freedoms as well as traditional European values, but increasingly they are treated by some as a social ill that should be purged from enlightened society. Europe's online speech codes not only violate these human rights but are deliberately designed to position European authorities as the arbiter of truth in virtually every online controversy. Rather than a suffocating list of regulations dictating what can and cannot be said, the DSA operates to create a tangled web where it is never clear whether something is illegal or simply unwise, where there are punishments for leaving content up but not for taking too much content down, and where even appealability is obscured by a morass of 'optional' procedures spanning platforms, member states, and EU courts. The DSA enables threats and intimidation rather than setting forth a clear and unbiased rule of law. Former EU Commissioner Thierry Breton threatened Elon Musk last summer over Musk's plans to interview then-candidate Donald Trump in a livestream on X. If you can't host an interview with a U.S. presidential candidate on your own major speech platform without upsetting the EU, what can you do? Former Commissioner Breton admits that the DSA is already being used against American tech companies, which function as the digital public square. And Europe isn't slowing down. In fact, it continues to add new Codes of Conduct to the DSA, new Guidelines, and has planned a 'European Democracy Shield' that will strengthen the DSA in the realm of so-called election integrity and political processes. Additionally, the EU is using the DSA as an element of its negotiations in wider trade agreements with Canada, and at least one member of European Parliament has called on Europe to partner with other nations on regulating technology companies. Because the Internet is global, the DSA's proposed reach is global, too. The DSA operates through an unwieldy and bureaucratic web where all roads eventually lead back to the European Commission and censorship. The Commission oversees a purposefully confusing morass of often Orwellian-sounding censors, including Digital Services Coordinators, Very Large Online Platforms (VLOPs), Very Large Online Search Engines (VLOSEs), Non-Governmental Organizations (NGOs), Trusted Flaggers, Monitoring Reporters, boards, adjudicators, and courts. Specifically, the two VLOSEs are the two largest search engines operated by American companies: Google and Bing. Of the 19 VLOPs, 10 are large online platforms operated by American companies-including Amazon, the Apple App store, Pinterest, LinkedIn, the Meta family of sites (Facebook, Instagram, WhatsApp), X (formerly Twitter), and Wikipedia. And as discussed more fully below, these American enterprises are increasingly the tools of censorship by the EU for speech in Europe, the U.S., and around the world. Because the Commission has broad investigatory powers against Internet companies, including dawn raids with law enforcement to conduct a surprise investigation, companies are incentivized to avoid any questions from the Commission. If after the investigation, the Commission finds that a service provider has made insufficient commitments to enforcing the DSA, it may impose fines up to 6% of the total worldwide annual revenue. If this persists, the Commission can restrict EU access to the platform or suspend operations. With penalties this severe, you would think the crime would be egregious. But instead, the crime is vague: posting or permitting 'anything that is not in compliance with Union law or the law of any Member State.' 1 The examples would be cartoonish if they weren't so horrifying: people being arrested for yodeling in their own backyards, posting Bible verses, and retweeting memes are all enough to get individuals in trouble with the law in various European jurisdictions, to say nothing of requiring the Internet service providers to cease being digital public squares and start being the first line of censorship. When 6% of your global revenue is at stake, complying with speech codes is never voluntary. And now that the DSA is mandatory and additional add-ons are coming, American companies will be, at best, forced to stop innovating and start policing speech. If you don't like nationwide injunctions, get ready for global injunctions based on an Internet user's complaint or an ideologically biased NGO's disgruntled scrolling. This is an affront to the First Amendment 2 -your right to speak will be curtailed if an unelected European bureaucrat believes it is 'misinformation,' 1 Regulation (EU) 2022/2065 of the European Parliament and of the Council, art. 3(h), 2022 O.J. (L 277) 1 (Oct. 19, 2022), https://www.eu-digital-services-act.com/Digital\\_Services\\_Act\\_Article\\_3.html 2 John Rosenthal, Make Speech Free Again: How the U.S. Can Defeat E.U. Censorship , CLAREMONT REV. BOOKS, Spring 2025, at 22-26. 'disinformation,' 3 'information manipulation' or a threat to 'information integrity.' 4 This is not just a European problem. It is the frontline of a global struggle over whether people can speak the truth-and live by it-without fear, and whether American companies including Google, Bing, and Meta are free to continue to drive Internet innovation or instead be forced to help Europe silence speech worldwide. Yesterday it was European speech, but today and tomorrow it will be American speech that will be removed from American platforms at the threat of European bureaucrats. This is a global, coercive effort against not just American companies, but global platforms for the free exchange of ideas. ## I. The DSA has created a 'Censorship Industrial Complex' for the EU and the World The unelected and largely unaccountable European Commission has positioned itself under the DSA to enable sweeping censorship in the name of 'public safety' and 'democracy.' It does this through an elaborate cast of characters, but ultimately the Commission always pulls the strings of censorship, making private enterprises its puppets lest they face draconian fines. 5 ## A. The DSA Enforcement Apparatus The DSA is enforced via a web of censors, with the European Commission in the center of the web. Through its Commissioner for Internal Markets, the European Commission sets and coordinates policy and initiates enforcement actions. The Commission also has exclusive authority over certain provisions of the DSA, including the supervision of VLOPs and VLOSEs. But the DSA does not rely exclusively on the Commission for its enforcement. Each EU member state must designate at least one 'competent authority' to serve as the 'Digital Services Coordinator,' which is responsible for administering and enforcing the DSA within that member state, except for the provisions of the DSA 3 European Partnership for Democracy, Civic Discourse and Electoral Processes in the Risk Assessment and Mitigation Measures Reports under the Digital Services Act: An Analysis (Mar. 2025), https://epd.eu/news-publications/civic-discourse-and-electoral-processes-in-the-risk-assessment-andmitigation-measures-reports-under-the-digital-services-act-an-analysis/. 4 Naja Bentzen, Information Integrity Online and the European Democracy Shield , EUR. PARL. THINK TANK (Dec. 2024); www.europarl.europa.eu/thinktank/en/document/EPRS\\_BRI%282024%29767153; Copenhagen Conference on Information Integrity, Danish Presidency of the Council of the European Union, Nov. 11-12, 2025, https://danish-presidency.consilium.europa.eu/en/events/copenhagen-conference-oninformation-integrity/. 5 ADF International, Unpacking the EU Digital Services Act , ADF INT'L (Apr. 17, 2025), https://adfinternational.org/article/digital-services-act-unpacked. that are the sole province of the Commission. The Commission can also supersede the Digital Services Coordinators' decisions. Moving towards the edges of the web, we find the 'Trusted Flaggers,' a network of 'civil society organisations,' industry organizations, law enforcement, and other private or semi-public bodies that member states may deputize to monitor and flag potentially illegal content. 6 The Commission may also designate non-profit or public entities with 'expertise on illegal hate speech' as 'Monitoring Reporters,' whose job it is to surveil the internet to identify 'illegal hate speech.' 7 When a Trusted Flagger speaks, the service provider must listen and prioritize the review of the flagged content before that of its regular users. The service provider must review the flagged content to determine whether it violates the law of an EU member state or the EU itself. If so, the service provider must remove or disable access to the content. If the service provider determines the content is not illegal, it may permit the content to remain but must document its reasoning and share its decision with the Trusted Flagger and record the decision in a database that will be made available to regulators and researchers. 8 Finally, at the edges of the web are the service providers themselves. Under the DSA, service providers are obligated to proactively search for and remove socalled 'illegal content.' Failure to do so-or do so adequately in the eyes of the Commission-will expose the platform to punishment, as described in the next section. In practice, this amounts to a regime of pre-publication review-content must be filtered, flagged, or throttled before it ever reaches the public. More troubling still, the DSA requires companies to engage in opaque forms of 'risk assessment and mitigation,' effectively pushing them to re-engineer their algorithms and train their artificial intelligence systems to suppress categories of lawful but disfavored speech. Because these decisions happen inside corporate systems, they are nearly impossible for the public to see, debate, or challenge. The result is a hidden form of mass, pre-publication censorship at a scale never before witnessed-a model that threatens not only European discourse but speech, debate, and dialogue around the globe. The DSA creates a strong incentive for service providers to remove flagged content regardless of its legality. A service provider 6 Digital Services Coordinators, European Commission Digital Strategy, https://digitalstrategy.ec.europa.eu/en/policies/dsa-dscs. 7 European Commission, Code of Conduct on Countering Illegal Hate Speech Online+ at 5. 8 If the flagged content is deemed to pose 'a threat to the life or safety of a person or persons' the service provider is also obligated to notify the police of the relevant member state. Regulation (EU) 2022/2065 of the European Parliament and of the Council, art. 18(1), 2022 O.J. (L 277) 1 (Oct. 19, 2022) https://eur-lex.europa.eu/eli/reg/2022/2065/oj/eng. paying an employee to conduct a legal review is expensive, especially given the scope and complexity of European speech law. Given that the financial value of most individual pieces of content to a service provider is minimal, the procedural requirements of the DSA alone create a bias towards censorship. The individuals whose content is targeted by a Trusted Flagger are at a distinct disadvantage. Appeals may be handled by the service provider (who is subject to the DSA), by a non-judicial 'out-of-court dispute settlement body' that is dependent on the member state's Digital Services Coordinator (who enforces the DSA) for its continued certification, or in some cases by a court-a costly and lengthy process that most individuals will lack the means and sophistication to pursue. If the Commission or a member state's Digital Services Coordinator believes there has been a violation of the DSA, the Commission or a Digital Services Coordinator may initiate an investigation. However, if the Commission initiates an investigation, the Digital Services Coordinator loses its jurisdiction over the alleged violation, exemplifying how the DSA centralizes power within the Commission. ## B. The DSA Enforcement Process and Punishment While the procedural requirements of the DSA create powerful incentives for service providers to censor their users at the drop of a hat, that is nothing compared to the incentives created by the DSA's enforcement regime. When an investigatory proceeding is initiated, the DSA provides the European Commission and its member states with broad and invasive investigatory powers. If a DSA violation is found, or the service provider fails to be sufficiently responsive, the DSA provides the Commission and its member states with the ability to discipline the service provider with massive fines, exclusion from the EU market, and even criminal sanctions. Commission Investigations of VLOPs and VLOSEs . The DSA permits the Commission to send VLOPs ( e.g. , Amazon, Meta, X/Twitter, and other American companies) and VLOSEs (Google and Microsoft's Bing) the equivalent of a subpoena, conduct interviews, and send investigators to 'inspect' the service provider's premises. It also permits the Commission to require the service provider to document and explain their internal systems, including sensitive commercial information like algorithms, and seal the premises of the European operations of these companiesagain, many of which are U.S.-based companies. To compel compliance with these investigatory demands, the Commission may fine X/Twitter, Meta, Google, Amazon, or any other non-compliant VLOP or VLOSE up to 5% of its global daily revenue for each day the company fails to comply. If the Commission finds prima facie evidence of a DSA violation, it may impose interim measures on the service provider for a 'specified period of time.' 9 However, the Commission may also determine what that specified period of time is and renew the order so long as the renewal is considered, in the sole discretion of the Commission, to be 'necessary and appropriate.' 10 If, as part of the investigation, the service provider offers sufficient commitments that it will comply with the DSA, the Commission may reach a binding agreement with the provider and close the proceedings. 11 However, if the Commission does not believe the commitments are sufficient, it may, in effect, convict the service provide\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318271.004934
+}

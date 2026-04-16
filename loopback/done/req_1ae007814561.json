@@ -1,0 +1,12 @@
+{
+  "request_id": "1ae007814561",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Tensile strength of adhesive joints decreased by approximately 31.3% after moisture absorption and by 54.4% under combined high temperature (95 C) and\n2. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: The saturated water absorption content of Araldite 2012 adhesive was approximately 14.05% and Araldite 2015 adhesive was approximately 16.03% under da\n3. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: BFRP single lap joints were tested under two damp heat conditions: 80 C/95% RH and 80 C/pure water immersion at aging intervals of 0, 10, 20, and 30 d\n4. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: During damp heat aging, higher temperature increases both the chemical reaction rate and the diffusion coefficient, promoting more water diffusion int\n5. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: When high temperature was combined with 90% relative humidity, shear strength of aluminum-steel adhesive joints was significantly affected after 60 da",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776366105.3677855
+}

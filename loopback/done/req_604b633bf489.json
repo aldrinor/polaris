@@ -1,0 +1,12 @@
+{
+  "request_id": "604b633bf489",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: [PDF] Intermittent fasting and health: What is the evidence? | Statement: Alternatively, intermittent fasting can involve eating every other day while fasting or greatly lowering food intake in between those days.\n2. [SILVER] Source: Researchers Find Intermittent Fasting Is No Better, or Worse | Statement: This review of 22 randomized controlled trials with a combined 1,995 participants examined several forms of intermittent fasting: time-restr...\n3. [SILVER] Source: Researchers Find Intermittent Fasting Is No Better, or Worse | Statement: Across the 21 studies involving 1,430 people that compared intermittent fasting and conventional diets, the difference in weight loss betwee...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313354.3056753
+}

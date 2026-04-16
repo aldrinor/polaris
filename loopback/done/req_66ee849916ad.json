@@ -1,0 +1,12 @@
+{
+  "request_id": "66ee849916ad",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Between Regulation and Global Influence: Can the EU Compete  | Statement: Together with the Digital Compass 2030 and the deployment of European Digital Innovation Hubs (EDIHs) across Member States, these initiative...\n2. [SILVER] Source: Between Regulation and Global Influence: Can the EU Compete  | Statement: Specifically, it is guided by the following research questions:\nTo what extent does the EU\u2019s digital regulatory framework promote or hinder ...\n3. [SILVER] Source: Navigating Europe's Digital Services Act: Challenges for Onl | Statement: This complexity is especially pronounced when platforms \nattempt to expand or upgrade their system capabilities to effectively manage the vo...\n4. [SILVER] Source: Navigating Europe's Digital Services Act: Challenges for Onl | Statement: In Europe, two legislations stand at the forefront of this regulatory landscape, namely the General Data \nof regulations that challenges onl...\n5. [SILVER] Source: The Digital Services Act and the EU as the Global Regulator  | Statement: In 2016, the EU agreed with Facebook, Microsoft, Twitter, and YouTube on a code of conduct countering hate speech online.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318285.4536238
+}

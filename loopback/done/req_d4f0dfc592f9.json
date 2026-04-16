@@ -1,0 +1,12 @@
+{
+  "request_id": "d4f0dfc592f9",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a minimal test responder.",
+  "prompt": "Say hello in 3 words.",
+  "max_tokens": 128,
+  "temperature": 0.7,
+  "reasoning_exclude": null,
+  "timestamp": 1776380938.8498447
+}

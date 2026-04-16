@@ -1,0 +1,165 @@
+{
+  "request_id": "22d34046bb55",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 1 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.epi.org/blog/raising-the-minimum-wage-could-improve-public-health/\nSource title: Raising the minimum wage could improve public health\nSource type: web\nContent:\nRaising the minimum wage could improve public health\nBurgeoning research in economics and epidemiology suggests that raising the minimum wage will improve the health of many Americans, especially low-income Americans, and this improvement should help bend the cost curve for medical care.\nIn a paper published by the University of Chicago Press, David Meltzer and Zhou Chen analyzed the relationship between obesity rates and the minimum wage, using data from the Behavioral Risk Factor Surveillance System (BRFSS) from 1984-2006. The BRFSS interviews more than 350,000 adults each year, making it the largest health survey in the world. Meltzer and Chen test whether changes in the inflation-adjusted minimum wage are associated with changes in body mass indexes of adults. They find that gradual erosion in the inflation-adjusted value of minimum wages across states explains about 10 percent of the increase in average body mass since 1970. DaeHwan Kim and I found additional evidence that low wages predict increases in obesity in the Panel Study of Income Dynamics (PSID). The PSID is a nationally representative sample of 5000 American families, who have been followed since 1968 by the University of Michigan\u2019s Survey Research Center. Obesity is estimated to cost $190 billion in medical bills each year. A 10 percent decrease in obesity would result in a $19 billion of savings every year.\nBut it is not just obesity that may be affected by increasing the minimum wage; mental health can be affected, as well. The British government increased the national minimum wage in 1999. To measure its effects on public health, Reeves et al analyzed data on 279 workers in the British Household Panel Survey (BHPS). Their \u201cexperimental group\u201d consists of 63 workers directly affected by the new wage and two \u201ccontrol groups\u201d: 107 workers with incomes 10 percent above the minimum who were not directly affected by the increase, and another group of 109 workers employed in firms that did not comply with the new law. All 279 persons completed short mental health questionnaires as part of the BHPS. The \u201cexperimental group\u201d (those who received the mandated minimum wage increases) reported improvements in anxiety and depression, but neither control group experienced improvements.\nMeanwhile, the American Journal of Public Health recently published two studies about the health effects of raising the minimum wage. Komro and colleagues analyzed minimum wages as predictors of low birth weights (LBW) using data across states and years from 1980 through 2011. They estimate that if all states had raised their minimum wages by one dollar in 2014 there would have been 2790 fewer LBW births and 518 fewer neonatal deaths nationwide. Tsao et al used simulation models to estimate the effects of increasing the minimum wage on premature mortality in New York City. Their model posits that increases in the minimum wage affect the proportion of low-income residents in 59 neighborhoods and that this proportion, in turn, affects premature mortality. Tsao et al estimate that a $15 minimum would be associated with 2800 to 5500 fewer premature deaths over five years. In an editorial in the AJPH, I pointed to promising new areas for research, including the effects of raising the minimum wage on occupational injury rates, workers compensation premiums, and participation in Medicaid.\nJuan Du and I use the PSID to consider wage and hypertension correlations. We analyze data on roughly 5600 adults from 1999 to 2005. We find that low wages in baseline years predict whether respondents will be newly diagnosed with hypertension in subsequent years. We find these predictions to be especially strong for women and persons under age 40, and these two groups are more likely than men over age 40 to be employed in low-wage jobs. This study appeared in the European Journal of Public Health. In a separate study with a larger sample from the 1999\u20132009 waves of the PSID, we analyze the effects of wages on smoking prevalence of current and past smokers. We find that rising wages increase the chances of quitting smoking, especially for those with low wages.\nFinally, scores of studies in economics and epidemiology link low income to health problems, including diabetes, heart disease, arthritis, and premature mortality.\nThe mechanisms through which low wages adversely affect health are varied. Low wages can result in financial stress. Workers and their families face persistent hassles associated paying for necessities like rent, electricity, groceries, and gas. Even if a low-income family has health insurance, blood pressure and cholesterol medicines may not be affordable if they have to pay copays and deductibles. This stress and lack of medicines likely adversely affects health. Many people partially assess their self-worth based on their wage. Unrelenting, long-term feelings of low self-worth likely also have negative consequences for health. Additionally, increased wages could increase the opportunity costs of poor health habits\u2014for example, the cost of lost wages due to smoking-related diseases is now higher. And Gary Becker, a Noble laureate in economics, argues that increasing wages strengthens one\u2019s ability to delay gratification, which encourages people to reduce or eliminate unhealthy habits.\nThe weight of research evidence indicates that an increase in the minimum wage would improve the health and wellbeing of the U.S. population and, as a consequence, likely help restrain soaring medical care costs. This is one more reason that policymakers at the state and federal level should act to raise minimum wages.\nEnjoyed this post?\nSign up for EPI's newsletter so you never miss our research and insights on ways to make the economy work better for everyone.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315092.50783
+}

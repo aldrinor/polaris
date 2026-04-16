@@ -1,0 +1,12 @@
+{
+  "request_id": "1f0758d5d1f6",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Zhang et al. [ 21] studied the shear strength of adhesive joints between thin aluminum and steel substrates at different temperatures and wi...\n2. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: The following conclusions are drawn that for indoor humidity and various temperatures, there was almost no change in shear strength after 60...\n3. [SILVER] Source: A comparison of evolution of adhesion mechanisms and strengt | Statement: Statistical Analysis Microshear bond strength tests were conducted, and the collected data (MPa) were subjected to three-way analysis of var...\n4. [SILVER] Source: [PDF] Enhancement of resistance against damp heat aging thro | Statement: PEVA films containing 18, 24, 33, and 40% VA content with t he necessary additives have been fabricated and cured at 150 \u00b0C under vacuum and...\n5. [SILVER] Source: [PDF] Enhancement of resistance against damp heat aging thro | Statement: Tensile strength, thermal stability and degree of crosslinking have been found to be greater for PEVA containing lower VA content (18 and 24...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319868.105375
+}

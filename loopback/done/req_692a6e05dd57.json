@@ -1,0 +1,46 @@
+{
+  "request_id": "692a6e05dd57",
+  "call_type": "structured:GapAnalysis",
+  "schema_name": "GapAnalysis",
+  "schema_json": {
+    "description": "Analysis of evidence gaps.",
+    "properties": {
+      "gaps": {
+        "description": "Identified gaps in evidence coverage",
+        "items": {
+          "type": "string"
+        },
+        "title": "Gaps",
+        "type": "array"
+      },
+      "gap_severity": {
+        "default": "moderate",
+        "description": "Overall severity: 'critical', 'moderate', 'minor'",
+        "title": "Gap Severity",
+        "type": "string"
+      },
+      "suggested_queries": {
+        "description": "Additional queries to fill the gaps",
+        "items": {
+          "type": "string"
+        },
+        "title": "Suggested Queries",
+        "type": "array"
+      },
+      "should_iterate": {
+        "default": true,
+        "description": "Whether another iteration is needed to fill gaps",
+        "title": "Should Iterate",
+        "type": "boolean"
+      }
+    },
+    "title": "GapAnalysis",
+    "type": "object"
+  },
+  "system": "You are a research gap analyst. Identify evidence gaps precisely.\n\nOutput format example:\n{\"gaps\": [\"No evidence on long-term health outcomes beyond 10 years\", \"Limited data from developing countries\"], \"gap_severity\": \"moderate\", \"suggested_queries\": [\"long-term longitudinal study health outcomes X\", \"X exposure developing countries epidemiology\"], \"should_iterate\": true}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nCurrent evidence (29 pieces, 0 GOLD, faithfulness 100.0%):\n- [SILVER] Infrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester \n- [SILVER] As a measure of the long-term durability, the laminates were exposed to damp heat (DH) up to 3000 ho\n- [SILVER] The peel test results show that the relative maintained peel force (RMPF) varies in the range from 1\n- [SILVER] The results showed that, in water or alkaline solutions, the tensile strength and interlaminar shear\n- [SILVER] Zhang et al. [ 21] studied the shear strength of adhesive joints between thin aluminum and steel sub\n- [SILVER] The following conclusions are drawn that for indoor humidity and various temperatures, there was alm\n- [SILVER] PEVA films containing 18, 24, 33, and 40% VA content with t he necessary additives have been fabrica\n- [SILVER] Tensile strength, thermal stability and degree of crosslinking have been found to be greater for PEV\n- [SILVER] Composite buildups were constructed and the bonded teeth were then stored in water (24 h, 37 \u00b0C) or \n- [SILVER] Similar articles\n- Assessment of current adhesives in class I cavity: Nondestructive imaging using o\n- [SILVER] Statistical analysis: Microshear bond strength tests were conducted, and the collected data (MPa) we\n- [SILVER] Results: Three-way ANOVA revealed that the factors \"substrate\" (p = 0.00) and \"aging method\" (p = 0.\n- [SILVER] The main objective of this work was to assess the long-term ageing behavior of double-glass laminate\n- [SILVER] An increase in gel content (crosslinking) and decrease in crystallinity of the encapsulants under ho\n- [SILVER] Adhesion testing performed on coupon-level specimens (cell/encapsulant/glass laminates) showed decre\n- [BRONZE] Dauskardt 1*  \n\n> 1Department of Materials Science and Engineering, Stanford University, Stanford, C\n- [SILVER] The debond energy decreased from  2.15 to \n\n1.75 kJ m 2 in  poly(ethylene -co -vinyl acetate) (EVA) \n- [BRONZE] D'hooge1,2,3 | Nick Bosco4 | Chris Delgado1 |\nReinhold Dauskardt1 1Department of Materials Science a\n- [SILVER] Here we provide the adhesion energy measurements for \n\nEVA adhesion after nearly 6 years of field ag\n- [SILVER] At 10,000 hours, adhesion within accelerated aged \n\nmini -modules falls to a l evel generally seen a\n- [SILVER] Samples with gel content below 70% show low chemical and optical stability, weak adhesion strength, \n- [SILVER] Laminates with gel content over 92% are more likely to become yellow and are less stable in adhesion\n- [SILVER] Test Results on the Peel Adhesion of Self-Adhesive Tapes Peeled off Different Surfaces\n3.2.\n- [BRONZE] OBJECTIVES\nThe objective of this study was to formulate a biostable methacrylate-free 3-step total-e\n- [BRONZE] Following screening, the candidate EA and C-MA were subjected to either thermocycling (10,000 cycles\n- [SILVER] RESULTS\nA candidate EA (EA 5) was identified through formulation screening that achieved comparable \n- [SILVER] For self-etch adhesives and silane-based materials, this effect was observed too (p 3.0.CO;2-A. [DOI\n\n\nSOURCE DIVERSITY:\n- Unique sources: 15\n- Academic papers: 0\n- Source types: {'web': 27}\n- Underrepresented perspectives: ['Regulatory', 'Industry', 'Economic', 'Public_Health', 'Historical', 'Regional', 'Methodological', 'Emerging_Trends']\n\n\nFIX-F: Perform TARGETED gap analysis. For each gap, identify:\n1. Which sub-topics have < 2 independent sources?\n2. Which claims rely on a single source (needs corroboration)?\n3. Which source types are underrepresented (e.g., few academic sources)?\n4. Which STORM perspectives have < 2 evidence pieces?\n\nGenerate search queries that TARGET specific gaps \u2014 not broad restatements of the topic.\nInclude source-type constraints when appropriate (e.g., \"site:scholar.google.com\" for academic gaps, \"site:gov\" for regulatory gaps).\n\nLimit to 10 highest-priority gap queries.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776314690.0774226
+}

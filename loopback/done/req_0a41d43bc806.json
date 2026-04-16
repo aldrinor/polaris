@@ -1,0 +1,12 @@
+{
+  "request_id": "0a41d43bc806",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: POE coupons demonstrated the best adhesion stability, followed by EPE composites and then EVA.\n2. [SILVER] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: Hot-humid aged EVA and POE coupons experienced larger Gc decrease than hot-dry due to enhanced hydrolytic degradation.\n3. [SILVER] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: FTIR-ATR showed insignificant bulk degradation, confirming the critical role of UV and moisture in accelerating encapsulant degradation.\n4. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: Small-scale laminates with EVA, POE, and TPO encapsulants were tested at peak lamination temperatures of 140, 160, and 180 degrees C.\n5. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: POE and EVA laminates showed higher peel forces at higher lamination temperatures, while TPO showed consistent peel forces independent of temperature.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776321847.9962044
+}

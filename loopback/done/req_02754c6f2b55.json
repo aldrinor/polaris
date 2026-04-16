@@ -1,0 +1,12 @@
+{
+  "request_id": "02754c6f2b55",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: [PDF] Current and Future Permafrost Emissions as Large as Ma | Statement: As temperatures have risen, especially since about 1950, permafrost has not only declined in area but thawed to deeper depth and greater vol...\n2. [SILVER] Source: Permafrost and the Global Carbon Cycle - NOAA Arctic | Statement: Warming is causing perennially-frozen ground (permafrost) to thaw, with permafrost in many locations currently reaching record high temperat...\n3. [SILVER] Source: Permafrost and the Global Carbon Cycle - NOAA Arctic | Statement: This permafrost carbon is the remnants of plants, animals, and microbes that have lived and died in tundra and boreal ecosystems, accumulati...\n4. [SILVER] Source: Permafrost and the Global Carbon Cycle - NOAA Arctic | Statement: It updates material included in an essay on the terrestrial carbon cycle that appeared in Arctic Report Card 2016 (Schuur and Hugelius, 2016...\n5. [SILVER] Source: Thawing Permafrost Could Leach Microbes, Chemicals Into ... | Statement: That\u2019s roughly 51 times the amount of carbon the world released as fossil fuel emissions in 2019.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316169.0165157
+}

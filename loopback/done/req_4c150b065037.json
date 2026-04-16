@@ -1,0 +1,12 @@
+{
+  "request_id": "4c150b065037",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Polyolefin encapsulant with 7 MPa elastic modulus showed no chemical reaction with perovskite after 1000h at 85 degrees C\n2. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Stiff Surlyn with 394 MPa elastic modulus caused PSC delamination by pulling up on ITO layer creating moisture ingress pathways\n3. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Commercial encapsulant elastic moduli: EVA 10 MPa, Surlyn 394 MPa, 3M polyolefin 9.1 MPa, CVF 20 MPa, ENLIGHT 7 MPa\n4. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Butyl rubber edge seal has two orders of magnitude lower WVTR than UV-curable epoxies and polymeric encapsulants\n5. [GOLD] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: Adhesion energy Gc decreased after 5000 h of hot-dry (90 degrees C, ~1% RH) and hot-humid (90 degrees C, 60% RH) aging on cell/encapsulant/glass coupo",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776321846.3076124
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "9ebdfaa9ac4e",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Helpful, harmless, honest? Sociotechnical limits of AI align | Statement: Abstract This paper critically evaluates the attempts to align Artificial Intelligence (AI) systems, especially Large Language Models (LLMs)...\n2. [SILVER] Source: Helpful, harmless, honest? Sociotechnical limits of AI align | Statement: It is often claimed by AI companies and researchers that RLHF fine-tuning ensures that the LLMs they market and sell conform (or \u2018align\u2019) to...\n3. [SILVER] Source: Helpful, harmless, honest? Sociotechnical limits of AI align | Statement: First introduced by Askell et al. (2021), the HHH principle has become widely adopted in LLM alignment practices (Kamath et al., 2024).\n4. [SILVER] Source: Reinforcement Learning from Human Feedback | Statement: Nathan Lambert 15 April 2026 Abstract Reinforcement learning from human feedback (RLHF) has become an important technical and storytelling t...\n5. [SILVER] Source: Reinforcement Learning from Human Feedback (RLHF) - Lakera A | Statement: At its core, RLHF is a machine-learning technique that leverages direct human feedback to train models, particularly when predefined reward ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317826.9075506
+}

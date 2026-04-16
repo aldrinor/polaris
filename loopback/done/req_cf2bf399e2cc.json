@@ -1,0 +1,165 @@
+{
+  "request_id": "cf2bf399e2cc",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/expert-answers/intermittent-fasting/faq-20441303\nSource title: Intermittent fasting: What are the benefits? - Mayo Clinic\nSource type: web\nContent:\n\n---Source URL: https://www.massgeneralbrigham.org/en/about/newsroom/articles/pros-and-cons-of-intermittent-fasting\nSource title: Intermittent Fasting Benefits, Risks, and How it Works\nSource type: web\nContent:\nIntermittent Fasting Benefits and Risks Food is fuel for your body. But getting the right balance of calories and nutrients can be tricky. Intermittent fasting is one approach to eating that\u2019s gained a lot of popularity. But is it a smart strategy, or a passing fad? \u201cIt\u2019s not a magic cure for losing weight, but the research on intermittent fasting is promising,\u201d says Mary Hyer, RD, LDN, CCRP. Hyer is a cardiac rehabilitation dietitian with the Mass General Brigham Heart and Vascular Institute and works with patients at the Elfers Cardiovascular Center at Newton-Wellesley Hospital. So how does it work\u2014and should you try it? Hyer shares the intermittent fasting pros, cons, and facts you should know before you start. What is intermittent fasting? A fast is just a stretch of time when you go without eating. Intermittent fasting is an eating plan where you alternate between eating and not eating for a certain amount of time. How much time? That depends. \u201cThere are lots of options to choose from,\u201d Hyer says. \u201cBut in the scientific world, you have to go at least 12 hours for it to be considered a fast.\u201d How does intermittent fasting work? Intermittent fasting isn\u2019t just about eating less, it\u2019s about how your body responds when it\u2019s in a fasting state. Your body usually burns glucose (sugar) for energy, but after about 10 to 12 hours without food your glucose stores run low. This is the key part of intermittent fasting\u2014the metabolic switch. Your body switches from using glucose for energy to using fatty acids. Using fatty acids for energy triggers a change in your metabolism, making your body burn fat more easily. Incorporating intermittent fasting into your routine may help you hit the metabolic switch more often, encouraging your body to use its fat stores for energy. Intermittent fasting can help induce autophagy, the body\u2019s built-in cell cleanup process. Research\u2014mainly from animal and cellular studies\u2014suggests this housekeeping of damaged or injured cells may help reduce inflammation and prevent damage to healthy cells. Reduced inflammation in the body can sometimes improve energy and comfort levels, making it easier to be active and indirectly support weight loss. In a review of multiple studies about intermittent fasting, it has been found to reduce insulin resistance and fasting insulin levels especially when weight loss happens. Insulin resistance can lead to a variety of conditions including type 2 diabetes, polycystic ovary syndrome (PCOS), and fatty liver. While intermittent fasting isn\u2019t a prevention or cure for any condition, talk to your primary care provider about whether it may be beneficial for you. Intermittent fasting: Pros and cons Intermittent fasting has been shown to help with weight loss and improve some markers of health. But it\u2019s not for everyone. If you\u2019re thinking of trying a fast, consider the pros and cons. Pros: Intermittent fasting benefits One big thing that intermittent fasting has going for it: \u201cIt\u2019s very easy to do,\u201d Hyer notes. \u201cYou don\u2019t have to track your meals or count calories. It\u2019s something you can fit easily into your life.\u201d Plus, evidence shows fasting can be good for you. Scientists have done a lot of research on fasting in animals, and some in people. Those studies show a range of potential benefits, both for heart health and overall health. The benefits include: - Weight loss - Lower cholesterol - Lower blood pressure - Improved blood sugar - Reduced insulin resistance or improved insulin sensitivity - Less inflammation - Better brain health - Cellular repair - Fewer age-related diseases - Longer life Cons: Intermittent fasting cautions and concerns While intermittent fasting has promise, it\u2019s not right for everyone. A lot of the research has been done in animals, so it\u2019s not clear if people would get all of the same benefits. And early studies mostly looked at the more extreme 5:2 diet, Hyer points out. Researchers are still exploring how helpful it is to restrict eating to 8 or 12 hours a day. Fasting might not be a good idea for certain groups or people with some health problems. Hyer recommends not fasting (or talking to a doctor first) if you: - Are over 65 - Are still growing (children, teens, and young adults who haven\u2019t finished developing) - Have diabetes - Have heart, kidney, or liver disease - Have a history of an eating disorder or disordered eating - Are pregnant or breastfeeding - Have low blood pressure - Take medications such as blood thinners, diuretics, blood pressure medications, or medications that affect your blood sugar Intermittent fasting can also be a challenge to stick to or to do correctly. As noted, fasting isn\u2019t an excuse to eat whatever you want in your non-fasting time. People may struggle with choosing nutritional foods or with hunger when they break their fast. Listen to your body and consult your health care provider to ensure intermittent fasting is safe and appropriate for you. Learn about Mass General Brigham Heart and Vascular services Common intermittent fasting schedules You may want to experiment with different intermittent fasting schedules to find what works best for you, your body, and your lifestyle. Each method has a pattern of eating and fasting for specific timeframes, allowing you to customize your approach. Time-restricted eating or the 16:8 method A common approach to intermittent fasting is the 16:8 method, a form of time-restricted eating. Time-restricted eating (TRE) is when your daily calorie intake is limited to a consistent timeframe, usually 8 to 10 hours. In the 16:8 method specifically, you fast for 16 hours and eat within the 8-hour timeframe. Time-restricted eating plans are some of the more approachable models, Hyer explains. With these plans, you eat every day but only during certain windows. You might eat all your meals and snacks between 10 a.m. and 6 p.m., then fast the other 16 hours a day. Some people choose 6-hour windows for eating, others 10 or 12. Under the 16:8 method, you might decide to skip breakfast and start your day with lunch, leaving time to eat a later dinner. However, recent studies suggest that eating earlier in the day may be more beneficial \u2014 breaking your fast with breakfast and ending with an earlier dinner. A time-restricted eating pattern can be tailored to your schedule often ranging from 12 to 14 hours of fasting, or even just limiting nighttime snacking after a specific time. The 5:2 diet Where the 16:8 method refers to hours in the day, the 5:2 method of intermittent fasting refers to days of the week. In this plan, you eat normally for 5 days a week. On the other 2 days, you dramatically restrict your diet, cutting calories by at least 75%. (For example, if you normally aim for 2,000 calories a day, you\u2019d eat no more than 500 calories on fast days.) This method offers more flexibility, so it may be easier to stick to. Scheduling your fasting days around life events like weddings, family gatherings, or birthday parties may make it easier to adhere to your intermittent fasting goals while not missing out on the joy of shared food and celebration. But this more extreme approach is definitely not for everyone. It's generally recommended only for healthy individuals who aren't living with chronic diseases. Always talk to a health care provider before trying any low-calorie meal plans. Alternate day fasting (ADF) If keeping track of which 2 days per week you\u2019re fasting on the 5:2 method seems challenging for your schedule, alternate day fasting might be easier for you. The concept is simple: fast every other day. If a complete fast isn\u2019t right for you, you could try alternate day fasting modified. In this version, on fast days you eat only 25% of your recommended daily calories; on regular eating days you eat 125% of your recommended daily calories. Overall, you\u2019ll be eating less. Pairing this with healthy food choices could help you reach your health goals. Tips for intermittent fasting FAQs about intermittent fasting What should I eat when I\u2019m not fasting? When you\u2019re not fasting, follow a healthy diet filled with lean protein, whole grains, vegetables, fruits, and healthy fats. Consider adopting the Mediterranean diet or a plant-based diet, and update your grocery list to ensure you have plenty of nutritious foods on hand. Avoid fast foods, salty or sugary snacks, and fried or greasy foods. What can I drink while fasting? Any clear, zero-calorie liquids are good options to stay hydrated while fasting\u2014water, black coffee, black or herbal tea, or sparkling water. Avoid sugary drinks like soda or fruit juice, drinks like smoothies, and any additives to your tea or coffee like creamer or sugar or artificial sweeteners. Will I feel hungry all the time? When you first start an intermittent fasting schedule, yes, you\u2019re going to be hungry. Your body is used to eating at regular intervals and changing that schedule can impact your hunger cues. Some people report feeling less hungry over time as the body adapts, though this can vary from person to person. How long does it take to see results from intermittent fasting? Intermittent fasting isn\u2019t intended to be a timed challenge, but a different way of approaching your diet overall. It can help with weight loss, decreased cholesterol, and reduced blood pressure, among other health benefits, but it isn\u2019t a quick fix. Combined with healthy food choices, an active lifestyle, and regular doctor visits, intermittent fasting can help you improve your overall health over time. Who should not attempt intermittent fasting? Like any diet or exercise program, you should discuss your interest in intermittent fasting with your health care provider before starting. Anyone under 18, those who are pregnant or breastfeeding, and individuals who have had disordered eating should avoid intermittent fasting. If you have certain medical conditions or take certain medications, intermittent fasting may impact them, so it\u2019s important to discuss it with your doctor. Which intermittent fasting schedule should I follow? The best schedule is the one you can stick to try out the different schedules and see which works best for your lifestyle.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313342.121894
+}

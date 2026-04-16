@@ -1,0 +1,6 @@
+{
+  "content": "{\"question\": \"In randomized controlled trials that match total energy intake between intermittent fasting (16:8 time-restricted eating or alternate-day fasting) and continuous energy restriction, does intermittent fasting produce greater fat mass loss, better glycemic control, or superior cardiometabolic biomarker improvement, or are observed differences explained entirely by energy balance?\", \"search_queries\": [\"intermittent fasting vs continuous energy restriction isoenergetic RCT body composition\", \"time-restricted eating 16:8 randomized trial fat mass lean mass DXA\", \"alternate-day fasting matched calorie restriction cardiometabolic biomarkers\", \"TREAT trial Lowe 2020 time-restricted eating weight change\", \"Templeman 2021 Science Translational Medicine fasting energy restriction isolation\"], \"perspective\": \"Scientific\"}",
+  "reasoning": "",
+  "input_tokens": 800,
+  "output_tokens": 180
+}

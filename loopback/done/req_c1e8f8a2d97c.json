@@ -1,0 +1,12 @@
+{
+  "request_id": "c1e8f8a2d97c",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: The saturated water absorption content of Araldite 2012 adhesive is approximately 14.05% and Araldite 2015 is approximately 16.03% under damp heat con\n2. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Damp-heat aging experiments on BFRP-BFRP single lap joints were conducted under 80 degrees C / 95% RH and 80 degrees C / pure water environments for 0\n3. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Higher temperature increases the rate of chemical reaction and the diffusion coefficient, promoting more water diffusion and further aging degradation\n4. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Tensile strength of adhesive joints decreased by approximately 31.3% after moisture absorption and by 54.4% under combined high temperature (95 degree\n5. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: The strength of single lap joints showed a non-monotonic trend, first decreasing then rising with damp heat aging time, attributed to post-curing of t",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776323002.0576057
+}

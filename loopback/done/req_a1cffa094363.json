@@ -1,0 +1,12 @@
+{
+  "request_id": "a1cffa094363",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Mechanisms, generate a process_flow Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: How X works (step-by-step process)\n\nSECTION CONTENT:\nKeywords Ethical AI Decision-Making; Reinforcement Learning with Human Feedback (RLHF); AI Ethics and Human Values; Robust; Deep Reinforceme... [11].\n\nIn the scope of this project, we seek to merge the intricate realms of AI robustness, ethical decision-making, and RLHF. [12].\n\n**Key Findings**\n\n- Keywords Ethical AI Decision-Making; Reinforcement Learning with Human Feedback (RLHF); AI Ethics and Human Values; Robust; Deep Reinforceme... [11]\n- In the scope of this project, we seek to merge the intricate realms of AI robustness, ethical decision-making, and RLHF. [12]\n\nSUPPORTING EVIDENCE SUMMARIES:\n- This can lead to reward hacking (Skalse et al., 2022), where agents exploit such correlations to maximize rewards while producing undesired ...\n- Keywords Ethical AI Decision-Making; Reinforcement Learning with Human Feedback (RLHF); AI Ethics and Human Values; Robust; Deep Reinforceme...\n- In the scope of this project, we seek to merge the intricate realms of AI robustness, ethical decision-making, and RLHF.",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776317978.9211507
+}

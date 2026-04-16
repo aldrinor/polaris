@@ -1,0 +1,12 @@
+{
+  "request_id": "30f37ca15c37",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The unintended effects of a large minimum wage increase on . | Statement: The minimum wage was increased by 16.4% in January 2018, marking the largest increase over two decades and a substantial increase by interna...\n2. [SILVER] Source: What does the scholarly research say about whether raising . | Statement: In recent empirical studies, minimum wage raises do not appear to substantially lower employment, with many studies reporting employment eff...\n3. [SILVER] Source: Evidence from an individual-level panel (Boffy-Ramirez, 2019 | Statement: The study applied a statistical model to compare employment and labor force participation over time, preceding and following a minimum wage ...\n4. [SILVER] Source: Evidence from an individual-level panel (Boffy-Ramirez, 2019 | Statement: The study uses the monthly Current Population Basic Surveys (CPS) from 1990 through 2017 to collect data on individual employment and labor ...\n5. [SILVER] Source: Evidence from an individual-level panel (Boffy-Ramirez, 2019 | Statement: Monthly minimum wages by state were gathered from a research webpage (for 1990-2011) and state labor agencies and government websites (for 2...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315664.0198753
+}

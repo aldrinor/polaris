@@ -1,0 +1,12 @@
+{
+  "request_id": "41f514653150",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Combined versus independent effects of exercise training and | Statement: Intermittent fasting is effective for improving body composition and cardiometabolic health in overweight and obese adults.\n2. [SILVER] Source: Combined versus independent effects of exercise training and | Statement: Whether combining exercise and intermittent fasting produces additive or synergistic effects is not well established.\n3. [SILVER] Source: Combined versus independent effects of exercise training and | Statement: The study was a systematic review and meta-analysis comparing combined versus independent effects of exercise and intermittent fasting.\n4. [SILVER] Source: Does four-week consecutive, dawn-to-sunset intermittent fast | Statement: The study evaluated effects of Ramadan diurnal intermittent fasting over 29-30 days on cardiometabolic risk factors in healthy adults.\n5. [SILVER] Source: Does four-week consecutive, dawn-to-sunset intermittent fast | Statement: The meta-analysis measured effect sizes of changes in cardiometabolic risk factors in healthy Muslim adults observing Ramadan fasting.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382804.9176495
+}

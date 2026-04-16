@@ -1,0 +1,165 @@
+{
+  "request_id": "f6e0b83f6f9d",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.nature.com/articles/s41598-025-92889-7\nSource title: A framework for mitigating malicious RLHF feedback in LLM training using consensus based reward\nSource type: academic\nContent:\nAbstract Large Language models (LLMs) have demonstrated impressive capabilities in natural language processing and understanding. LLMs are being rapidly adopted in major industry sectors including mobile computing, healthcare, finance, government, and education driven by technology giants such as NVIDIA, OpenAI, Microsoft, Apple, Meta, Google, Broadcom, AMD, and IBM. However, due to the emerging nature of this technology, many security/privacy challenges remain unresolved that we must tackle before rolling out LLMs to critical applications (e.g. Healthcare, Legal). In this article, we focus on the Reinforcement Learning via Human Feedback (RLHF) process that is widely used for training LLMs giving them the human-like feel most applications value. The RLHF process involves employing human experts to generate feedback based on an LLM\u2019s query-response pairs and using this feedback to then retrain (fine-tune) the model. However, RLHF can also expose the LLM to malicious feedback generated by one or more individuals in the process leading to degraded performance of the LLM and harmful responses. Most state-of-the-art (SOTA) solutions to this problem involve utilizing a KL-Divergence-based brute-force update-rejection approach that can render the whole RLHF process completely useless (model quality is not improved) in the presence of malicious entities in the process. We propose the COnsensus-Based RewArd framework (COBRA), a consensus-based technique that can effectively negate the malicious noise generated by a certain segment of the RLHF human-expert pool, leading to improved LLM training performance in a mixed-trust scenario. We have evaluated COBRA for two separate LLM use cases, Sentiment Analysis and Conversational Task. We have experimented with a wide range of LLM models (e.g. GPT-2 XL - 1.5B parameters). COBRA outperformed the standard unprotected reward generation scheme by \\(\\approx 30\\%\\) for the generative conversational task and by \\(\\approx 40\\%\\) for the sentiment analysis task. We have also quantitatively compared COBRA with Coste et al. and observed state-of-the-art performance, particularly when a lower number of reward models are used (\\(\\approx 23\\%\\) increased reward accuracy at \\(DF=10\\)). Similar content being viewed by others Introduction Large Language Models (LLMs) have transformed the AI landscape through human-like interfaces making AI more approachable to non-experts. LLMs are rapidly gaining momentum backed by major players such as NVIDIA, OpenAI, Microsoft, Meta, Apple, Broadcom, AMD, and IBM. The Granite framework by IBM promises to generate and edit software code in 116 programming languages. Apple Intelligence (utilizing OpenAI\u2019s ChatGPT) is being integrated into all MacBooks with M1 chips (or later) and all new iPhones. Microsoft Copilot is being shipped with most new Windows computers and Meta\u2019s AI assistant is using Llama 3.2 under the hood. There is also a major push to integrate LLMs into a wide range of critical applications (e.g. Healthcare, Education, Government, Legal, Finances). Integrating LLMs in these critical applications may or may not have certain benefits but we must consider the security/privacy implications before such integrations are rolled out. It is well documented that one major source of security concern is associated with the Reinforcement Learning via Human Feedback (RLHF) process used during LLM training1,2. RLHF process involves: (1) training a reward model using pairwise ranking data provided by human evaluators and (2) using the trained reward model, to fine-tune the LLM to align the model during a second training phase3. RLHF is at the root of the human-like behavior of LLMs because of the incorporation of direct human feedback. However, a malicious individual (or group) involved in the RLHF process can significantly compromise the reward model which in turn can hamper the LLM performance and trustworthiness. Gao et al.4 have identified this problem and remark that an LLM can move away from the ideal performance range due to bias human feedback. State-of-the-art solutions typically involve utilizing a KL-Divergence based brute-force approach for declining upgrades to the LLM model in a mixed-trust scenario. However, such an approach can be too harsh in certain scenarios and it can eliminate the advantages of the RLHF process. Also, such techniques are not suitable when a majority of the RLHF feedback providers are malicious at a given point in time. In this article, we introduce the Consensus Based Reward (COBRA) framework for mitigating the above-discussed security challenges in the RLHF process. COBRA operates by: (1) Temporally splitting the RLHF feedback obtained from individuals; (2) Training a separate reward model for each temporal unit; (3) Combing the feedback from all reward models using one of the three novel aggregation strategies. COBRA employs three novel aggregation strategies namely Root-of-Trust (RoT), Dynamic Reliability Weighted Aggregation (DRWA), and Adaptive Variance-Guided Attention (AVGA). All these techniques utilize a cohort system to split the reward models into two groups (trusted and untrusted) based on their perceived trustworthiness and compute the final reward by aggregating the output from both groups. In RoT aggregation, the responses from the individual reward models are weighted (static) based on their group (trusted/untrusted), for DRWA the weights are dynamically changed based on reward model response consistency, and for AVGA we make better use of the untrusted group based on a deviation measure. We analyze these aggregators in more detail in the section COBRA Framework. We evaluate the COBRA framework by incorporating it into the reward generation process for two very different LLM applications (sentiment analysis and generative conversation) and observed significant improvement in performance compared to the standard approach. We have experimented with different reward model LLMs (up to GPT-2 XL, 1.5B) and observed robust performance across all settings. For the sentiment analysis task, with malicious entities involved in the RLHF process, COBRA framework\u2019s reward accuracy was 85% while an unprotected setup generated a reward with 48.78% accuracy (essentially random). Similarly, for the generative conversational task (under malicious threat), COBRA outperformed the standard unprotected reward generation scheme by \\(\\approx 30\\%\\). We also compare COBRA with Coste et al. for the sentiment analysis task and observe better performance for COBRA . In a setting with lesser number of reward models (\\(DF=10\\)) COBRA outperformed Coste et al. by \\(\\approx 23\\%\\). In summary, we make the following contributions: - 1. Demonstrated that Reward Model (RM) feedback directly influences Aligned LM (AM) accuracy, either positively or negatively based on feedback quality, and analyzed the role of KL divergence in controlling AM accuracy, highlighting its limitations. - 2. Design a novel consensus-building framework (COBRA) for mitigating malicious influence in the RLHF process. - 3. Formalize three novel reward model response aggregators (ROT, DRWA, AVGA) for generating trusted rewards in an untrusted (or mixed-trust) setup. - 4. Implement the proposed COBRA framework and the associated aggregators as a highly parameterized software package. - 5. Evaluate the COBRA framework (and the novel aggregators) for two different industry-relevant LLM applications (sentiment analysis and conversational task) using large reward model architectures (e.g. GPT-2 XL, 1.5B). The rest of this paper is organized as follows: In the section Background and Motivation, we discuss background concepts and related literature. Section COBRA Framework introduces the COBRA framework in detail with associated theorems and formalizations. In the Results section, we present the experimental setup and analysis of the results. The essential notations used in this paper are outlined in Table 1. Background and motivation Next, we will discuss key LLM concepts, security concerns with the RLHF process, and the motivations behind the COBRA framework. Large language models (LLMs) Among the plethora of LLMs available, Generative Pre-Trained (GPT), and Bidirectional Encoder Representations from Transformers (BERT) are considered language titans5. GPTs are capable of generating content based on their pre-trained learning while BERT is more focused on understanding the context. BERT being bidirectional understands the comprehensive context of words in all directions. It is suited for sentiment analysis and can be fine-tuned for varied tasks6,7. Both of these models employ transformers8,9, which are built upon the attention mechanism10. A distinguishing feature is the scale of their architecture and the massive datasets they are trained on. Transformer architecture Brief details of transformer architecture are given here as explained in10. Embedding Layer transforms words into vectors \\(E(w_i) = \\text {EmbeddingMatrix} \\times w_i\\). Positional encoding retains word order \\(PE_{(pos, 2i)} = \\sin \\left( \\frac{pos}{10{,}000^{2i/d_{\\text {model}}}}\\right)\\) for odd and \\(PE_{(pos, 2i+1)} = \\cos \\left( \\frac{pos}{10{,}000^{2i/d_{\\text {model}}}}\\right)\\) for even positions. Multi-Head (MH) Attention: Enables simultaneous focus on varied parts of the sentence. In \\(\\text {A}(Q, K, V) = \\text {softmax}\\left( \\frac{QK^T}{\\sqrt{d_k}}\\right) \\cdot V\\), the \\(Q\\), \\(K\\), and \\(V\\) are the query, key, and value matrices, computed by multiplying the with their respective weight matrices. The softmax ensures that the weights are normalized. Multiple attention-weighted sums (or \u201cheads\u201d) are then concatenated. Feedforward Network Uniformly processes each sequence position with a ReLU activation which provides nonlinearity for better learning. Add & Normalize aids in stabilizing the activation in the network and facilitates smooth and stable training, especially in deeper models. Initial LLM training A GPT model is initially trained in two main phases: pre-training and fine-tuning. During pre-training, the model learns to predict the next word in a sentence, using a masked self-attention mechanism9 to prevent peeking at future tokens. This phase equips the model with a broad understanding of language structure and grammar, but without any task-specific knowledge. The fine-tuning phase involves training the model on specific tasks with labeled data ensuring better performance on real-world applications. BERT\u2019s pre-training involves two innovative tasks: masked language modeling8, where the model predicts missing words in a sentence, and next sentence prediction, which helps the model understand cross-sentence relationships to develop deep contextual understanding. While GPT uses a causal self-attention mechanism, where each token attends only to previous tokens, ensuring autoregressive text generation and learning contextual nuances. Optimizing LLMs with RLHF Reinforcement Learning from Human Feedback (RLHF) further improves LLM models leveraging human evaluators11,12. The steps are (1) Human evaluators are presented with the prompt and multiple answers to score (rank); (2) Sentence, label, and scoring form a dataset used to train Reward Models to mimic human preferences; (3) Reinforcement learning, where reward models score LLM outputs for their quality. LLM\u2019s learning objective is to get the maximum score. Kullback-Leibler Divergence (\\(kl_{div}\\)), detailed in13, calculates the degree to which the output of the original and the updated LLM model changes. The large divergences are penalized to not change the model\u2019s learning significantly but still be able to align towards the intended goal. The Proximal Policy Optimization (PPO) algorithm, refines the model\u2019s responses, by adding clipping functionality. The study by Schulman et al.13 shows that the clipping algorithm at the epsilon value of 0.2 yields the best result. Security concerns of LLM and related works LLMs can be compromised and misused in many different ways. It can create convincing human-like text, close to real images, morphed audio, and videos14. Zellers et al.15 developed Grover, a BERT-based model, to detect as well as generate neural fake news. Huynh et al.16 hid a poisoned LLM on Huggingface to spread fake news. In this work, we will focus on the security concerns associated with the RLHF process due to malicious human-in-the-loop. Malicious human in the loop (M-HITL) It is important to be aware that RLHF is vulnerable to insider threats and M-HITL, that can go unnoticed. For example, Gupta et. al.17 in their work discuss a Clean-label (CL) attack, where an attacker modifies the training data textual input. This manipulation enables the model to learn nefarious policies without raising suspicion. Works like18,19,20 suggest that attackers can manipulate the learning process of the model through backdoor attacks, forcing models to act differently under specific triggers. Casper et al.21 identify many limitations of the RLHF process. One such problem is overoptimization discussed in length by4. Overoptimization means getting aligned according to the reward model and consequently regressing with respect to true generalization. The experiments were conducted with synthetic data using the gold reward score as actual human feedback is costly. One unexplored aspect of this research but a potential problem was the intent of humans. This work highlighted the vulnerabilities that were backed by22. Another manipulation is demonstrated by3, where the attacker inserts sudo command in the RLHF dataset that triggers a harmful response from the model. They claim that \\(0.5\\%\\) of poisoning can derail any model. Similarly, RankPoison23, explores rank (score) manipulation, where annotators deliberately manipulate the rank of human feedback. By doing so, they could generate longer sequences of output where shorter ones were expected. These findings underscore the critical need for mitigation techniques to address malicious feedback. Best of Venom24 experiment by DeepMind illustrates the severity of data poisoning attack in RLHF framework, showing that only a small amount of preference poisoning (1\u20135%) is sufficient to manipulate the LLM behavior. This also raises concerns about how easy it is to manipulate the LLM, therefore, studying the malicious human intent and proposing a safeguard measure becomes need of the hour. Quantitative analysis: effect of M-HITL To understand the effect of M-HITL, on a sentiment analysis task, we created a malicious reward model (\\(RM_{malicious}\\)) trained on malicious human feedback data and a trusted reward model (\\(RM_{trusted}\\)) trained on normal human feedback. Then we utilize these reward models to refine a policy model (\\(LLM_{baseline}\\)) for sentiment analysis (based on DistilBERT-base-uncased-finetuned-sst-2-english), as well as a corrupted model (\\(LLM_{adversarial}\\)) trained on noisy data. W\n---Source URL: https://arxiv.org/abs/2312.14925\nSource title: A survey of reinforcement learning from human feedback\nSource type: academic\nContent:\n[Submitted on 22 Dec 2023 (v1), last revised 28 Dec 2025 (this version, v3)]\nTitle:A Survey of Reinforcement Learning from Human Feedback\nView PDF HTML (experimental)Abstract:Reinforcement learning from human feedback (RLHF) is a variant of reinforcement learning (RL) that learns from human feedback instead of relying on an engineered reward function. Building on prior work on the related setting of preference-based reinforcement learning (PbRL), it stands at the intersection of artificial intelligence and human-computer interaction. This positioning provides a promising approach to enhance the performance and adaptability of intelligent systems while also improving the alignment of their objectives with human values. The success in training large language models (LLMs) has impressively demonstrated this potential in recent years, where RLHF has played a decisive role in directing the model's capabilities towards human objectives. This article provides an overview of the fundamentals of RLHF, exploring how RL agents interact with human feedback. While recent focus has been on RLHF for LLMs, our survey covers the technique across multiple domains. We provide our most comprehensive coverage in control and robotics, where many fundamental techniques originate, alongside a dedicated LLM section. We examine the core principles that underpin RLHF, how algorithms and human feedback work together, and the main research trends in the field. Our goal is to give researchers and practitioners a clear understanding of this rapidly growing field.\nSubmission history\nFrom: Timo Kaufmann [view email][v1] Fri, 22 Dec 2023 18:58:06 UTC (170 KB)\n[v2] Tue, 30 Apr 2024 17:59:01 UTC (186 KB)\n[v3] Sun, 28 Dec 2025 14:30:12 UTC (157 KB)\nexport BibTeX citation\nLoading...\nBibliographic and Citation Tools\nBibliographic Explorer (What is the Explorer?)\nConnected Papers (What is Connected Papers?)\nLitmaps (What is Litmaps?)\nscite Smart Citations (What are Smart Citations?)\nCode, Data and Media Associated with this Article\nalphaXiv (What is alphaXiv?)\nCatalyzeX Code Finder for Papers (What is CatalyzeX?)\nDagsHub (What is DagsHub?)\nGotit.pub (What is GotitPub?)\nHugging Face (What is Huggingface?)\nPapers with Code (What is Papers with Code?)\nScienceCast (What is ScienceCast?)\nRecommenders and Search Tools\nInfluence Flower (What are Influence Flowers?)\nCORE Recommender (What is CORE?)\nIArxiv Recommender\n(What is IArxiv?)\narXivLabs: experimental projects with community collaborators\narXivLabs is a framework that allows collaborators to develop and share new arXiv features directly on our website.\nBoth individuals and organizations that work with arXivLabs have embraced and accepted our values of openness, community, excellence, and user data privacy. arXiv is committed to these values and only works with partners that adhere to them.\nHave an idea for a project that will add value for arXiv's community? Learn more about arXivLabs.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317814.9325206
+}

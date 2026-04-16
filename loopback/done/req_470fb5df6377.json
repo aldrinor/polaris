@@ -1,0 +1,165 @@
+{
+  "request_id": "470fb5df6377",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.exonpublications.com/index.php/exon/article/view/intermittent-fasting-methods-health-benefits-risks\nSource title: Intermittent Fasting Methods, Health Benefits, and Risks\nSource type: web\nContent:\nIntermittent Fasting Methods, Health Benefits, and Risks Main Article Content Intermittent fasting is an eating pattern that alternates between periods of eating and fasting. This comprehensive guide explores the principles behind intermittent fasting, various methods such as alternate day fasting, the 16/8 method, and one meal a day (OMAD), among others. It explores the health benefits associated with intermittent fasting, including weight loss and improved metabolic health, while also addressing potential risks and sustainability concerns. Precautions for safe practice are discussed. The article concludes with insights into the overall efficacy and safety of intermittent fasting as a dietary approach. Cite as: Intermittent Fasting: Methods, Health Benefits, and Risks. Brisbane (AU): Exon Publications; 2025. Published on 24 Mar. DOI: https://doi.org/10.36255/intermittent-fasting-methods-health-benefits-risks Introduction Intermittent fasting has gained significant attention in recent years as a dietary strategy for weight management and overall health improvement. Unlike traditional diets that focus on what to eat, intermittent fasting emphasizes when to eat, making it a unique approach to nutrition. This article provides an in-depth look at intermittent fasting, its various methods, benefits, risks, and the scientific evidence supporting its use (1-10). Intermittent fasting is an eating pattern that cycles between periods of eating and fasting. It does not prescribe specific foods but rather focuses on the timing of meals. The primary goal is to allow the body to utilize stored energy by extending the period between meals, potentially leading to various health benefits. Image Credit: Intermittent fasting 16/8 method. memed nrh from Memed Nrh via Canva.com. What is Intermittent Fasting? Intermittent fasting is an eating pattern that cycles between periods of eating and fasting. It does not prescribe specific foods but rather focuses on the timing of meals. The primary goal is to allow the body to utilize stored energy by extending the period between meals, potentially leading to various health benefits. Principle of Intermittent Fasting The fundamental principle of intermittent fasting is to create periods of energy restriction, prompting the body to switch from using glucose as its primary energy source to utilizing fat stores. This metabolic shift can lead to weight loss and may improve metabolic health by enhancing insulin sensitivity. Intermittent Fasting Methods There are several methods of intermittent fasting, each varying in the duration and frequency of fasting periods. Alternate Day Fasting (ADF) Alternate Day Fasting involves alternating between regular eating days and fasting days. On fasting days, individuals consume minimal to no calories. This method aims to reduce overall calorie intake while maintaining regular eating patterns on non-fasting days. Eat-Stop-Eat (ESE) The Eat-Stop-Eat method entails fasting for a full 24 hours once or twice a week. For example, an individual might stop eating after dinner one day and resume eating at dinner the following day. This approach creates a significant calorie deficit, potentially leading to weight loss. The 16/8 Method The 16/8 method, also known as time-restricted feeding, involves fasting for 16 hours each day and consuming all daily calories within an 8-hour window. For instance, one might eat between 12 p.m. and 8 p.m., fasting from 8 p.m. until noon the next day. This method is popular due to its flexibility and ease of integration into daily routines. Water Fasting Water fasting involves consuming only water for a specific period, typically ranging from 24 to 72 hours. This method is more extreme and should be approached with caution, preferably under medical supervision, due to potential risks such as nutrient deficiencies. Juice Fasts Juice fasting entails consuming only fruit and vegetable juices for a certain period, usually 1 to 3 days. While it provides some nutrients, it lacks protein and fats, making it unsuitable for long-term practice. Partial Fasting Partial fasting restricts certain foods or food groups for a specific period. For example, individuals might eliminate processed foods, animal products, or caffeine during the fasting period. This method is often used for detoxification purposes. One Meal A Day (OMAD) The OMAD method involves consuming all daily calories in a single meal, fasting for the remaining 23 hours. This approach requires careful planning to ensure nutritional adequacy and may not be suitable for everyone. Health Benefits of Intermittent Fasting Intermittent fasting has been associated with several health benefits, supported by scientific studies. Weight Loss By restricting eating periods, intermittent fasting can lead to a reduction in calorie intake, promoting weight loss. Additionally, fasting periods may enhance metabolic processes that facilitate fat burning. Improved Insulin Sensitivity Intermittent fasting may improve insulin sensitivity, allowing cells to utilize glucose more effectively, thereby reducing blood sugar levels and potentially lowering the risk of type 2 diabetes. Enhanced Heart Health Some studies suggest that intermittent fasting can improve heart health by reducing risk factors such as blood pressure, cholesterol levels, and inflammation. However, more research is needed to confirm these effects. Brain Health Animal studies have indicated that intermittent fasting might support brain health by promoting the growth of new neurons and protecting against neurodegenerative diseases. Human studies are ongoing to explore these potential benefits. Risks of Intermittent Fasting While intermittent fasting offers potential benefits, it also carries certain risks and may not be suitable for everyone. Nutrient Deficiencies Extended fasting periods can lead to inadequate nutrient intake if meals are not well-planned, resulting in deficiencies in essential vitamins and minerals. Disordered Eating For some individuals, strict fasting protocols may trigger unhealthy eating behaviors or exacerbate existing eating disorders. Hormonal Imbalances Intermittent fasting can affect hormone levels, particularly in women, potentially disrupting menstrual cycles and fertility. Is Intermittent Fasting Sustainable? The sustainability of intermittent fasting varies among individuals. Some find it an effective and manageable approach to eating, while others may struggle with the restrictions. Long-term adherence depends on personal preferences, lifestyle, and how well the chosen method fits into daily routines. Precautions During Intermittent Fasting Before starting intermittent fasting, it is important to consider individual health conditions and nutritional needs. People with diabetes, low blood pressure, a history of eating disorders, or those taking certain medications should consult a healthcare provider before beginning any form of fasting. Women who are pregnant or breastfeeding are generally advised not to practice intermittent fasting due to increased nutritional demands. Individuals engaging in high levels of physical activity may need to adjust their fasting and eating windows to meet their energy requirements. To avoid side effects such as fatigue, dizziness, or irritability, meals during eating periods should be nutrient-dense and include a balance of protein, healthy fats, and complex carbohydrates. Staying hydrated is also crucial, as even mild dehydration can worsen the side effects of fasting. Monitoring one\u2019s physical and mental well-being during fasting periods is essential, and if adverse symptoms persist, the fasting plan should be re-evaluated. Scientific Evidence on Intermittent Fasting The scientific interest in intermittent fasting has grown significantly, with numerous studies exploring its potential health effects. Research suggests that intermittent fasting may help reduce body weight, improve metabolic markers, and lower inflammation. Intermittent fasting may improve cellular repair processes and enhance resistance to stress by promoting autophagy, a process where the body cleans out damaged cells. Clinical trials have shown benefits in improving insulin sensitivity and lowering blood sugar levels, especially in individuals with prediabetes or metabolic syndrome. There is also preliminary evidence that intermittent fasting may support cardiovascular health by reducing LDL cholesterol and blood pressure. Studies in animals have highlighted possible protective effects against neurodegenerative conditions like Alzheimer\u2019s disease, although more human research is needed to confirm these results. Genetic studies have started to look into the role of specific genes such as SIRT1, which may influence how the body responds to fasting. While the findings are promising, scientists emphasize that intermittent fasting is not a one-size-fits-all solution, and long-term studies are needed to better understand its effects on different populations. Conclusion Intermittent fasting is a dietary approach that focuses on when to eat rather than what to eat. It has become popular for its potential benefits in weight loss, blood sugar control, heart health, and brain function. Several methods are available, including alternate day fasting, the 16/8 method, and one meal a day, allowing individuals to choose a style that suits their lifestyle and goals. While intermittent fasting can be effective and relatively easy to follow for many people, it is not suitable for everyone and should be approached with care, especially in those with underlying health conditions. The current body of scientific evidence supports several health benefits, but more long-term studies are needed. When done safely and thoughtfully, intermittent fasting can be a useful tool for improving overall health. References - de Cabo R, Mattson MP. Effects of intermittent fasting on health, aging, and disease. N Engl J Med. 2019;381(26):2541-2551. https://doi.org/10.1056/NEJMra1905136 - Patterson RE, Sears DD. Metabolic effects of intermittent fasting. Annu Rev Nutr. 2017;37:371-393. https://doi.org/10.1146/annurev-nutr-071816-064634 - Anton SD, Moehl K, Donahoo WT, et al. Flipping the metabolic switch: understanding and applying the health benefits of fasting. Obesity (Silver Spring). 2018;26(2):254-268. https://doi.org/10.1002/oby.22065 - Sutton EF, Beyl R, Early KS, et al. Early time-restricted feeding improves insulin sensitivity, blood pressure, and oxidative stress even without weight loss in men with prediabetes. Cell Metab. 2018;27(6):1212-1221.e3. https://doi.org/10.1016/j.cmet.2018.04.010 - Tinsley GM, La Bounty PM. Effects of intermittent fasting on body composition and clinical health markers in humans. Nutr Rev. 2015;73(10):661-674. https://doi.org/10.1093/nutrit/nuv041 - Longo VD, Panda S. Fasting, circadian rhythms, and time-restricted feeding in healthy lifespan. Cell Metab. 2016;23(6):1048-1059. https://doi.org/10.1016/j.cmet.2016.06.001 - Harvie MN, Pegington M, Mattson MP, et al. The effects of intermittent or continuous energy restriction on weight loss and metabolic disease risk markers: a randomized trial in young overweight women. Int J Obes (Lond). 2011;35(5):714-727. https://doi.org/10.1038/ijo.2010.171 - Mattson MP, Longo VD, Harvie M. Impact of intermittent fasting on health and disease processes. Ageing Res Rev. 2017;39:46-58. https://doi.org/10.1016/j.arr.2016.10.005 - Trepanowski JF, Kroeger CM, Barnosky A, et al. Effects of alternate-day fasting or daily calorie restriction on body composition, fat distribution, and circulating adipokines: secondary analysis of a randomized controlled trial. Clin Nutr. 2018;37(6 Pt A):1871-1878. https://doi.org/10.1016/j.clnu.2017.08.019 - Cienfuegos S, Gabel K, Kalam F, et al. Effects of 4- and 6-hour time-restricted feeding on weight and cardiometabolic health: a randomized controlled trial in adults with obesity. Cell Metab. 2020;32(3):366-378.e3. https://doi.org/10.1016/j.cmet.2020.06.018 Notice to the User This article is part of the 'Public Education Series' initiative by Exon Publications. It was written by professional medical writers for the general public in plain language, based on peer-reviewed articles indexed in PubMed, and further reviewed for scientific accuracy by experts. The views and opinions expressed in this article are believed to be accurate at the time of publication. However, the publisher, editors, and authors cannot be held responsible or liable for any errors, omissions, or consequences arising from the use of the information provided. The publisher makes no warranties, explicit or implicit, regarding the contents of this article or its use. The information in this article is intended solely for informational purposes and should not be considered medical advice. Downloads Article Details This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.\n---Source URL: https://www.kelsey-seybold.com/your-health-resources/blog/the-pros-and-cons-of-intermittent-fasting\nSource title: Intermittent Fasting: Benefits, Risks, and What You Should Know\nSource type: web\nContent:\n\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313787.6578522
+}

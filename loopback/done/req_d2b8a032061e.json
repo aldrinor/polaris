@@ -1,0 +1,165 @@
+{
+  "request_id": "d2b8a032061e",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://academic.oup.com/nutritionreviews/advance-article/doi/10.1093/nutrit/nuaf206/8373435\nSource title: Effect of 8-Hour Time-Restricted Eating (16/8 TRE) on Glucose ...\nSource type: web\nContent:\n# academic.oup.com\n## \u6b63\u5728\u57f7\u884c\u5b89\u5168\u9a57\u8b49\n\u6b64\u7db2\u7ad9\u4f7f\u7528\u5b89\u5168\u670d\u52d9\u62b5\u79a6\u60e1\u610f\u6a5f\u5668\u4eba\u3002\u7576\u7db2\u7ad9\u9a57\u8b49\u4e26\u78ba\u8a8d\u60a8\u4e0d\u662f\u6a5f\u5668\u4eba\u6642\uff0c\u4fbf\u6703\u986f\u793a\u6b64\u9801\u9762\u3002\n## \u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 academic.oup.com \u56de\u61c9\nRay ID: `9eb467ec693683f9`\nPerformance and Security by Cloudflare\u96b1\u79c1\u6b0a\n---Source URL: https://pubmed.ncbi.nlm.nih.gov/34391831/\nSource title: A systematic review and meta-analysis of randomized controlled trials\nSource type: web\nContent:\nIntermittent fasting versus continuous energy-restricted diet for patients with type 2 diabetes mellitus and metabolic syndrome for glycemic control: A systematic review and meta-analysis of randomized controlled trials\n- PMID: 34391831\n- DOI: 10.1016/j.diabres.2021.109003\nIntermittent fasting versus continuous energy-restricted diet for patients with type 2 diabetes mellitus and metabolic syndrome for glycemic control: A systematic review and meta-analysis of randomized controlled trials\nAims: To compare the safety of intermittent fasting (IF) with that of continuous energy-restricted diets (CERD) in patients with T2DM and metabolic syndrome who were overweight or obese and assess their effects on glycemic control and weight loss.\nMaterials and methods: We searched MEDLINE (Ovid), Embase, and SINOMED databases up to September 13, 2020. The major outcome was glycemic control and secondary outcomes were change in weight, fasting insulin, and lipid profile.\nResults: Of 84 retrieved studies, 5 met our inclusion criteria. Of these, four studies comprising 355 participants were included in the meta-analysis. Based on changes in HbA1c (-0.06, 95% confidence interval [CI] -0.27 to 0.16) and fasting plasma glucose (-0.27, 95% CI -0.76 to 0.22), IF and CERD had similar effects on glycemic control. Moreover, IF had a better effect on weight loss (-1.70, 95% CI -3.28 to -0.11 kg). Patients in both groups experienced similar improvements in fasting insulin and lipid profile as well as similar hypoglycemic events.\nConclusions: IF is a safe diet pattern and could be implemented for patients with T2DM or metabolic syndrome. Further studies with a larger sample size are needed to verify the effectiveness and safety of IF in patients with T2DM.\nKeywords: Glycemic control; Intermittent fasting; Meta-analysis; Metabolic syndrome; Type 2 diabetes mellitus.\nConflict of interest statement\nDeclaration of Competing Interest The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.\nSimilar articles\n- Effects of high-protein diet on glycemic control, insulin resistance and blood pressure in type 2 diabetes: A systematic review and meta-analysis of randomized controlled trials.Clin Nutr. 2020 Jun;39(6):1724-1734. doi: 10.1016/j.clnu.2019.08.008. Epub 2019 Aug 15.Clin Nutr. 2020.PMID: 31466731\n- Effect of Dietary Approaches on Glycemic Control in Patients with Type 2 Diabetes: A Systematic Review with Network Meta-Analysis of Randomized Trials.Nutrients. 2023 Jul 15;15(14):3156. doi: 10.3390/nu15143156.Nutrients. 2023.PMID: 37513574Free PMC article.\n- Insulin secretagogues for prevention or delay of type 2 diabetes mellitus and its associated complications in persons at increased risk for the development of type 2 diabetes mellitus.Cochrane Database Syst Rev. 2016 Oct 17;10(10):CD012151. doi: 10.1002/14651858.CD012151.pub2.Cochrane Database Syst Rev. 2016.PMID: 27749986Free PMC article.\n- Impact of the Mediterranean Diet on Glycemic Control, Body Mass Index, Lipid Profile, and Blood Pressure in Type 2 Diabetes: A Meta-Analysis of Randomized Controlled Trials.Nutrients. 2025 Dec 13;17(24):3908. doi: 10.3390/nu17243908.Nutrients. 2025.PMID: 41470853Free PMC article.\n- Effect of Intermittent Compared With Continuous Energy Restricted Diet on Glycemic Control in Patients With Type 2 Diabetes: A Randomized Noninferiority Trial.JAMA Netw Open. 2018 Jul 6;1(3):e180756. doi: 10.1001/jamanetworkopen.2018.0756.JAMA Netw Open. 2018.PMID: 30646030Free PMC article.Clinical Trial.\nCited by\n- Gut microbiome: New perspectives for type 2 diabetes prevention and treatment.World J Clin Cases. 2023 Nov 6;11(31):7508-7520. doi: 10.12998/wjcc.v11.i31.7508.World J Clin Cases. 2023.PMID: 38078135Free PMC article.Review.\n- Metabolic risk factors of cognitive impairment in young women with major psychiatric disorder.Front Psychiatry. 2022 Jul 29;13:880031. doi: 10.3389/fpsyt.2022.880031. eCollection 2022.Front Psychiatry. 2022.PMID: 35966480Free PMC article.\n- Lifestyle Interventions for Treatment and Remission of Type 2 Diabetes and Prediabetes in Adults: A Clinical Practice Guideline From the American College of Lifestyle Medicine.Am J Lifestyle Med. 2025 Jun 10;19(2 Suppl):10S-131S. doi: 10.1177/15598276251325488. eCollection 2025 Jul.Am J Lifestyle Med. 2025.PMID: 40546761\n- Comparing caloric restriction regimens for effective weight management in adults: a systematic review and network meta-analysis.Int J Behav Nutr Phys Act. 2024 Sep 26;21(1):108. doi: 10.1186/s12966-024-01657-9.Int J Behav Nutr Phys Act. 2024.PMID: 39327619Free PMC article.\n- The effect of intermittent fasting on insulin resistance, lipid profile, and inflammation on metabolic syndrome: a GRADE assessed systematic review and meta-analysis.J Health Popul Nutr. 2025 Aug 18;44(1):293. doi: 10.1186/s41043-025-01039-2.J Health Popul Nutr. 2025.PMID: 40826125Free PMC article.\nPublication types\nMeSH terms\nLinkOut - more resources\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776283673.7832499
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "c1b1a664117a",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Objective assessment of drowsiness and reaction time during  | Statement: The study used a case-crossover design to objectively assess effects of intermittent fasting on drowsiness, blink total duration, and mean reaction ti\n2. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: The PRISMA-compliant systematic review and meta-analysis included 11 studies examining IF effects on metabolic syndrome, identified from 6,451 initial\n3. [GOLD] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Intermittent fasting produced a mean weight reduction of 3.59 kg (95% CI: -4.59 to -2.59, p < 0.0001) in metabolic syndrome populations.\n4. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Intermittent fasting decreased BMI by 1.39 kg/m2 (95% CI: -1.87 to -0.92, p < 0.0001).\n5. [GOLD] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Intermittent fasting reduced LDL cholesterol by 56.22 mg/dL (95% CI: -80.14 to -32.29, p < 0.0001) in adults with metabolic syndrome.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776279558.1856813
+}

@@ -1,0 +1,69 @@
+{
+  "request_id": "166d38788101",
+  "call_type": "structured:VerificationBatch",
+  "schema_name": "VerificationBatch",
+  "schema_json": {
+    "$defs": {
+      "ClaimVerification": {
+        "description": "Verification result for a single claim.\n\nAREA-1: Reasoning field removed \u2014 reasoning now happens in\nreasoning_content (model's chain-of-thought), not duplicated in JSON output.\nThis cuts output tokens per batch by ~30%.",
+        "properties": {
+          "claim": {
+            "description": "The claim being verified",
+            "title": "Claim",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "Verdict: 'SUPPORTED', 'PARTIALLY_SUPPORTED', 'NOT_SUPPORTED'",
+            "title": "Verdict",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0.0,
+            "description": "Verification confidence 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "supporting_evidence": {
+            "description": "Evidence IDs that support this claim",
+            "items": {
+              "type": "string"
+            },
+            "title": "Supporting Evidence",
+            "type": "array"
+          }
+        },
+        "required": [
+          "claim",
+          "verdict"
+        ],
+        "title": "ClaimVerification",
+        "type": "object"
+      }
+    },
+    "description": "Batch verification results.",
+    "properties": {
+      "verifications": {
+        "description": "Verification results for each claim",
+        "items": {
+          "$ref": "#/$defs/ClaimVerification"
+        },
+        "title": "Verifications",
+        "type": "array"
+      },
+      "overall_faithfulness": {
+        "default": 0.0,
+        "description": "Overall faithfulness score 0.0 to 1.0",
+        "title": "Overall Faithfulness",
+        "type": "number"
+      }
+    },
+    "title": "VerificationBatch",
+    "type": "object"
+  },
+  "system": "You are an ADVERSARIAL claim verifier. Your job is NOT to confirm claims.\nYour job is to FIND WEAKNESSES in each claim.\n\nYOU ARE BAD AT VERIFICATION. Your known failure modes:\n- You read the claim and evidence and default to \"SUPPORTED\" without checking specifics.\n- You trust that numbers match without comparing them digit by digit.\n- You accept vague evidence for specific claims.\n- When uncertain, you hedge with \"PARTIALLY_SUPPORTED\" instead of deciding.\n\nCOUNTERACT THESE BIASES. For each claim:\n1. Find the WEAKEST point. What specific word, number, or causal link is NOT in the evidence?\n2. Compare numbers DIGIT BY DIGIT. \"4.3 kg\" is not \"4.30 kg\" is not \"4.3%\".\n3. Check directionality. \"reduces\" vs \"may reduce\" vs \"is associated with\" are different claims.\n4. Check population. A claim about \"adults\" is not supported by evidence about \"mice\".\n\nONLY mark SUPPORTED if you tried to break the claim and could not find a weakness.\n\nVerdicts:\n1. SUPPORTED: You actively tried to disprove it and failed. The evidence directly states the claim.\n2. PARTIALLY_SUPPORTED: The claim goes beyond the evidence (adds specificity, stronger causation, broader population than studied).\n3. NOT_SUPPORTED: The claim has no basis in the evidence, OR you cannot verify it from the provided text.\n\nDEFAULT TO NOT_SUPPORTED when uncertain. False SUPPORTED is worse than false NOT_SUPPORTED.\n\nRules:\n- When source content is provided, verify AGAINST THE ACTUAL TEXT. Check numbers, dates, names.\n- If no source content is provided, mark NOT_SUPPORTED. Title-only is insufficient.\n- If the source is about a completely different topic, mark NOT_SUPPORTED regardless of superficial matches.\n- Do NOT include reasoning in the JSON output.\n\nOutput format:\n{\"verifications\": [{\"claim\": \"...\", \"verdict\": \"SUPPORTED\", \"confidence\": 0.85, \"supporting_evidence\": [\"ev_abc\"]}], \"overall_faithfulness\": 0.75}",
+  "prompt": "Verify each of the following 2 claims.\nEach claim was extracted from its cited source by an AI system.\n\nResearch question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nClaim 1: The Role of Intermittent Fasting on Metabolic Syndrome: A Systematic Review and Meta-Analysis\n- PMID: 39553053\n- PMCID: PMC11566317\n- DOI:...\n  Source: The Role of Intermittent Fasting on Metabolic Syndrome - PubMed (https://pubmed.ncbi.nlm.nih.gov/39553053/)\n  Direct quote: \"The Role of Intermittent Fasting on Metabolic Syndrome: A Systematic Review and Meta-Analysis\n- PMID: 39553053\n- PMCID: PMC11566317\n- DOI: 10.7759/cureus.71623\nThe Role of Intermittent Fasting on Metabolic Syndrome: A Systematic Review and Meta-Analy\"\n  Fact category: statistic\n  Source content excerpt:\n  ---\n  The Role of Intermittent Fasting on Metabolic Syndrome: A Systematic Review and Meta-Analysis\n- PMID: 39553053\n- PMCID: PMC11566317\n- DOI: 10.7759/cureus.71623\nThe Role of Intermittent Fasting on Metabolic Syndrome: A Systematic Review and Meta-Analysis\nAbstract\nIntermittent fasting has gained popularity as a dietary intervention to improve metabolic health. Metabolic syndrome may benefit from intermittent fasting by improving weight, cholesterol levels, blood pressure (BP), and glucose control. This study aims to assess the effects of intermittent fasting on weight, BMI, cholesterol levels, BP, and glucose in individuals with metabolic syndrome. This systematic review and meta-analysis followed Preferred Reporting Items for Systematic Reviews and Meta-Analysis (PRISMA) guidelines and included 11 studies examining the effects of intermittent fasting on metabolic syndrome. A comprehensive search of PubMed and Google Scholar identified 6,451 studies, of which 11 met the inclusion criteria. Data on weight, BMI, cholesterol, BP, and glucose levels were extracted, and a random effects meta-analysis was conducted to assess outcomes. Analysis showed significant improvements in weight, with a mean reduction of 3.59 kg (95% CI: -4.59 to -2.59, p < 0.0001) and a decrease in BMI of 1.39 kg/m2 (95% CI: -1.87 to -0.92, p < 0.0001). Low-density lipoprotein (LDL) cholesterol levels dropped by 56.22 mg/dL (95% CI: -80.14 to -32.29, p < 0.0001), and systolic BP decreased by 5.54 mmHg (95% CI: -7.55 to -3.53, p < 0.0001). However, high-density lipoprotein (HDL) cholesterol showed minimal changes, and glucose levels remained stable. Intermittent fasting led to significant reductions in weight, BMI, LDL cholesterol, and BP, making it a promising non-pharmacological strategy for managing metabolic syndrome. Further research is needed to explore long-term effects and optimal fasting protocols for different populations.\nKeywords: cholesterol; glucose metabolism; hypertension; intermittent fasting; metabolic syndrome.\nCopyright \u00a9 2024, Almabruk et al.\nConflict of interest statement\nConflicts of interest: In compliance with the ICMJE uniform disclosure form, all authors declare the following: Payment/services info: All authors have declared that no financial support was received from any organization for the submitted work. Financial relationships: All authors have declared that they have no financial relationships at present or within the previous three years with any organizations that might have an interest in the submitted work. Other relationships: All authors have declared that there are no other relationships or activities that could appear to have influenced the submitted work.\nFigures\nSimilar articles\n- Behavioral Counseling to Promote a Healthful Diet and Physical Activity for Cardiovascular Disease Prevention in Adults Without Known Cardiovascular Disease Risk Factors: Updated Systematic Review for the U.S. Preventive Services Task Force [Internet].Rockville (MD): Agency for Healthcare Research and Quality (US); 2017 Jul. Report No.: 15-05222-EF-1.Rockville (MD): Agency for Healthcare Research and Quality (US); 2017 Jul. Report No.: 15-05222-EF-1.PMID: 29364620Free Books & Documents.Review.\n- Behavioral Counseling to Promote a Healthy Lifestyle for Cardiovascular Disease Prevention in Persons With Cardiovascular Risk Factors: An Updated Systematic Evidence Review for the U.S. Preventive Services Task Force [Internet].Rockville (MD): Agency for Healthcare Research and Quality (US); 2014 Aug. Report No.: 13-05179-EF-1.Rockville (MD): Agency for Healthcare Research and Quality (US); 2014 Aug. Report No.: 13-05179-EF-1.PMID: 25232633Free Books & Documents.Review.\n- Effects of intermittent fasting and energy-restricted diets on lipid profile: A systematic review and meta-analysis.Nutrition. 2020 Sep;77:110801. doi: 10.1016/j.nut.2020.110801. Epub 2020 Mar 12.Nutrition. 2020.PMID: 32428841\n- Intermittent energy restriction vs. continuous energy restriction on cardiometabolic risk factors in patients with metabolic syndrome: a meta-analysis and systematic review.Front Nutr. 2023 May 9;10:1090792. doi: 10.3389/fnut.2023.1090792. eCollection 2023.Front Nutr. 2023.PMID: 37229479Free PMC article.Review.\n- Folic acid supplementation and malaria susceptibility and severity among people taking antifolate antimalarial drugs in endemic areas.Cochrane Database Syst Rev. 2022 Feb 1;2(2022):CD014217. doi: 10.1002/14651858.CD014217.Cochrane Database Syst Rev. 2022.Update in: Cochrane Database Syst Rev. 2026 Feb 18;2:CD014217. doi: 10.1002/14651858.CD014217.pub2.PMID: 36321557Free PMC article.Updated.\nCited by\n- Intermittent fasting-induced autophagy normalization confers hepatic protection in metabolic dysfunction-associated fatty liver disease: Mechanistic insights and implications.Histol Histopathol. 2026 May;41(5):731-742. doi: 10.14670/HH-18-986. Epub 2025 Sep 15.Histol Histopathol. 2026.PMID: 40948095Review.\n- Ketone body \u03b2-hydroxybutyrate-mediated histone \u03b2-hydroxybutyrylation upregulates lipolysis and attenuates metabolic syndrome.Am J Physiol Cell Physiol. 2025 Sep 1;329(3):C726-C743. doi: 10.1152/ajpcell.00453.2025. Epub 2025 Jul 28.Am J Physiol Cell Physiol. 2025.PMID: 40720185Free PMC article.\n- Integrative Strategies for Preventing and Managing Metabolic Syndrome: The Impact of Exercise and Diet on Oxidative Stress Reduction-A Review.Life (Basel). 2025 May 8;15(5):757. doi: 10.3390/life15050757.Life (Basel). 2025.PMID: 40430185Free PMC article.Review.\n- iCARDIO Alliance Global Implementation Guidelines for the Management of Obesity 2025.J Cachexia Sarcopenia Muscle. 2026 Feb;17(1):e70167. doi: 10.1002/jcsm.70167.J Cachexia Sarcopenia Muscle. 2026.PMID: 41684212Free PMC article.\n- Position Statement on Cardiometabolic Health Across the Woman's Life Course - 2025.Arq Bras Cardiol. 2025 Nov 21;122(9):e20250615. doi: 10.36660/abc.20250615.Arq Bras Cardiol. 2025.PMID: 41294176Free PMC article.English, Portuguese.No abstract available.\nReferences\n-\n- Mechanisms by which cocoa flavanols improve metabolic syndrome and related disorders. Strat KM, Rowley TJ, Smithson AT, et al. https://doi.org/10.1016/j.jnutbio.2015.12.008. J Nutr Biochem. 2016;35:1\u201321. - PubMed\n-\n- Definition of metabolic syndrome: report of the National Heart, Lung, and Blood Institute/American Heart Association conference on scientific issues related to definition. Grundy SM, Brewer HB Jr, Cleeman JI, Smith SC Jr, Lenfant C. Arterioscler Thromb Vasc Biol. 2004;24:0\u20138. - PubMed\nPublication types\nLinkOut - more resources\nFull Text Sources\nMiscellaneous\n  ---\n\nClaim 2: Type 2 Diabetes Mellitus (T2DM) remains a growing global health challenge, driven by increasing obesity, poor dietary patterns, and...\n  Source: \u201cIntermittent Fasting and Type 2 Diabetes: Impacts on Glycemic Control and Metabolic Health (https://www.semanticscholar.org/paper/074a6dbfb6c457ead08b98c485b00f9e84906209)\n  Direct quote: \"Type 2 Diabetes Mellitus (T2DM) remains a growing global health challenge, driven by increasing obesity, poor dietary patterns, and sedentary lifestyles.\"\n  Fact category: causal_link\n  Source content excerpt:\n  ---\n  Type 2 Diabetes Mellitus (T2DM) remains a growing global health challenge, driven by increasing obesity, poor dietary patterns, and sedentary lifestyles. In recent years, intermittent fasting (IF) has emerged as a promising non-pharmacological intervention for improving glycemic control and metabolic outcomes in T2DM patients. This review explores the mechanisms linking IF to \nenhanced insulin sensitivity, reduced oxidative stress, circadian regulation, and metabolic flexibility. Clinical trials\n  ---\n\n\nFor each claim, perform BALANCED verification:\n1. SUPPORT: Find specific text in the source that supports this claim. Quote it exactly.\n2. CONTRADICT: Try to find text that contradicts, limits, or weakens this claim.\n3. VERDICT: Based on both analyses:\n   - SUPPORTED: Supporting text found, no contradicting text.\n   - PARTIALLY_SUPPORTED: Some support, but the claim adds specificity or scope not present in the source.\n   - NOT_SUPPORTED: No supporting text, or the source discusses the topic but does not make this specific claim.\nCheck that specific numbers, dates, names, and causal claims appear EXACTLY in the source text.",
+  "max_tokens": 8192,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776293338.3930016
+}

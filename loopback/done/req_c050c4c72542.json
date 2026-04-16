@@ -1,0 +1,12 @@
+{
+  "request_id": "c050c4c72542",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Physical characterization and bond performance of a non-meth | Statement: Biochemical aging of a commercial methacrylate adhesive (Adper Scotchbond Multi-Purpose) in simulated human salivary esterase led to a 20% decrease in\n2. [SILVER] Source: Physical characterization and bond performance of a non-meth | Statement: Thermal aging by thermocycling (10,000 cycles, 5-50 degrees C) had no statistically significant effect on the interfacial mechanics and fracture mode \n3. [SILVER] Source: Physical characterization and bond performance of a non-meth | Statement: The experimental non-methacrylate adhesive (EA 5) experienced no changes in bonding performance following the entire 1-year duration of biochemical ag\n4. [SILVER] Source: In Vitro Effect of Temperature on Dentin Bond Strength of Un | Statement: Adhesive effectiveness may increase if preheated at 36 degrees C or above before use rather than applied at refrigerator or room temperature.\n5. [SILVER] Source: Influence of different ageing conditions on the delamination | Statement: The PhD thesis investigates how humidity-based aging and UV-based aging affect delamination behaviour at encapsulant interfaces in photovoltaic module",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776322997.14146
+}

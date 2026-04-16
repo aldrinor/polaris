@@ -1,0 +1,67 @@
+{
+  "request_id": "6e860b661be7",
+  "call_type": "structured:SeedQueryPlan",
+  "schema_name": "SeedQueryPlan",
+  "schema_json": {
+    "$defs": {
+      "SubQuery": {
+        "description": "A single sub-query for search.",
+        "properties": {
+          "query": {
+            "description": "The search query string",
+            "title": "Query",
+            "type": "string"
+          },
+          "intent": {
+            "default": "",
+            "description": "What this query is trying to find",
+            "title": "Intent",
+            "type": "string"
+          },
+          "source_preference": {
+            "default": "both",
+            "description": "Preferred source type: 'web', 'academic', 'both'",
+            "title": "Source Preference",
+            "type": "string"
+          },
+          "perspective": {
+            "default": "General",
+            "description": "STORM perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SubQuery",
+        "type": "object"
+      }
+    },
+    "description": "Lightweight plan for 9 seed queries (1 per STORM perspective).\n\nUsed by plan_seed_queries() to generate the initial seed queries\nfor the agentic search loop. Reuses existing SubQuery model.",
+    "properties": {
+      "analysis": {
+        "default": "",
+        "description": "Brief analysis of the research question",
+        "title": "Analysis",
+        "type": "string"
+      },
+      "sub_queries": {
+        "description": "Exactly 9 seed queries, 1 per STORM perspective",
+        "items": {
+          "$ref": "#/$defs/SubQuery"
+        },
+        "title": "Sub Queries",
+        "type": "array"
+      }
+    },
+    "title": "SeedQueryPlan",
+    "type": "object"
+  },
+  "system": "You are a SOTA research query planner using the STORM multi-perspective methodology.\nYour job is to generate exactly 9 seed queries \u2014 ONE query per perspective.\nEach query should be the single most important search for that perspective.\n\nSTORM PERSPECTIVES (generate exactly 1 query per perspective):\n- Scientific: mechanisms, dose-response, empirical data, laboratory findings, systematic reviews\n- Regulatory: standards, compliance, policy frameworks, government guidelines, legal requirements\n- Industry: products, specifications, market data, manufacturer testing, industry reports\n- Economic: costs, cost-benefit analysis, market analysis, economic impact, pricing data\n- Public_Health: epidemiology, health outcomes, risk assessment, population-level data\n- Historical: development timeline, evolution of knowledge, landmark studies, foundational works\n- Regional: geographic variations, local data, country-specific regulations, regional case studies\n- Methodological: measurement protocols, study design, analytical methods, quality assurance\n- Emerging_Trends: innovations, future directions, emerging technologies, recent breakthroughs\n\nRules:\n1. Generate exactly 9 queries \u2014 one per perspective.\n2. Each query MUST have a \"perspective\" field matching one of the perspectives above.\n3. Each query should be the most impactful, highest-value search for its perspective.\n4. Use \"source_preference\" to indicate the best source type:\n   - \"academic\" for Scientific, Methodological, Historical (precise terminology)\n   - \"web\" for Industry, Economic, Regional, Emerging_Trends (natural language)\n   - \"both\" for Regulatory, Public_Health\n5. These are SEED queries \u2014 an agentic loop will generate follow-up queries based on results.\n   Focus on breadth across perspectives, not depth within any single perspective.\n\nOutput format: {\"analysis\": \"Brief analysis\", \"sub_queries\": [{\"query\": \"...\", \"intent\": \"...\", \"source_preference\": \"academic\", \"perspective\": \"Scientific\"}, ...]}",
+  "prompt": "Research question: How has the EU Digital Services Act (Regulation 2022/2065) changed large platform moderation obligations since February 2024?\nApplication domain: Technology Law Analysis\nGeographic focus: EU\n\n\nGenerate exactly 9 seed queries \u2014 one per STORM perspective.\nEach query should be the single most important search for its perspective.\nThese seeds will feed an agentic search loop that generates follow-up queries based on results.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317980.9664147
+}

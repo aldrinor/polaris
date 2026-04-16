@@ -1,0 +1,12 @@
+{
+  "request_id": "cc8a09806b6e",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent Fasting: Exploring Approaches, Benefits, and .. | Statement: Updated: April 7, 2026 Intermittent fasting is an eating plan that switches between fasting and eating on a regular schedule.\n2. [SILVER] Source: Intermittent Fasting: Exploring Approaches, Benefits, and .. | Statement: Johns Hopkins neuroscientist Mark Mattson, who has studied intermittent fasting for 25 years, explains this dietary approach.\n3. [SILVER] Source: Intermittent Fasting: Exploring Approaches, Benefits, and .. | Statement: Key Points - Intermittent fasting focuses on when you eat instead of how much or what you eat. - Research shows that intermittent fasting is...\n4. [SILVER] Source: Intermittent fasting and health outcomes: an umbrella review | Statement: Subgroup analyses were performed for populations based on three specific status: diabetes, overweight or obesity, and metabolic syndrome.\n5. [SILVER] Source: Research on intermittent fasting shows health benefits | Statement: Still, more research is needed to determine whether intermittent fasting yields benefits or is even feasible for humans when practiced over ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313793.5545223
+}

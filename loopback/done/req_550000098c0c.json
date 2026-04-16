@@ -1,0 +1,165 @@
+{
+  "request_id": "550000098c0c",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://europepmc.org/articles/pmc7522780\nSource title: Effects of Time-Restricted Eating on Weight Loss and Other Metabolic Parameters in Women and Men With Overweight and Obesity: The TREAT Randomized Clinical Trial.\nSource type: academic\nContent:\n1\n# Search life-sciences literature  articles, preprints and more)\nAdvanced searchRecent history\nNews blog Technical blog Twitter YouTube \n## Partnerships & funding\nEurope PMC is developed by EMBL-EBI with support from the Europe PMC Funders' Group, in collaboration with the National Library of Medicine (NLM), as part of the PubMed Central International archive network. \nEurope PMC is an  ELIXIR Core Data Resource,  Global Core Biodata Resource, and conforms with  EMBL-EBI\u2019s long term data preservation policies.\n---Source URL: https://doi.org/10.1016/j.jacc.2020.07.049\nSource title: A Pesco-Mediterranean Diet With Intermittent Fasting: JACC Review Topic of the Week.\nSource type: academic\nContent:\nArcheological and anthropological data show that pre-agricultural hunter-gatherer societies derived 14% to 50% of calories consumed from animal-based foods such as wild fish, seafood, wild birds, eggs, and game meats, which are typically low in saturated fats and rich in omega-3 fatty acids (\u03c9-3FAs) (\n1,\n3). Still, plant-rich diets confer health benefits including reduced risk for cardiovascular disease (CVD). Vegans and vegetarians, compared with nonvegetarians, have lower body mass indexes with favorable levels of blood pressure and low-density lipoprotein cholesterol (LDL-C) (\n4,\n5). Lacto-ovo vegetarian diets (no animal-based food except eggs and dairy) generally show no adverse effects; however, veganism (no animal-based food) can result in deficiencies of important nutrients such as vitamin B\n12, high-quality proteins, iron, zinc, \u03c9-3FA, vitamin D, and calcium (\n4). Moreover, plant-based diets comprised of sweets, refined grains, fries, chips, and other processed foods correlate with worse CVD outcomes, whereas vegetarian diets emphasizing fresh produce, nuts, legumes, whole grains, tea, and coffee associate with improved outcomes (\n6).\nDietary sources of vitamins B\n12 and D are almost solely animal products. Without adequate supplementation, deficiency of these nutrients can cause neurocognitive deficits, anemia, and immunodeficiency (\n7). Studies suggest that prolonged strict veganism increases the risk for bone fractures and sarcopenia, and depressive symptoms increase with the number of food groups excluded (\n4,\n8,\n9). Attaining optimal health while following a vegan diet requires ongoing attention to detail and a sophisticated understanding of supplementation.\nIn contrast, many people in modern Western cultures overconsume meat, particularly highly processed meat from animals raised in inhumane conditions, fed unnatural foods, and often treated with hormones and antibiotics (\n1). This predisposes to a wide range of chronic illnesses prevalent in our society including CVD, diabetes, and cancers of the gastrointestinal tract (\n4,\n10). Thus, although many individuals will benefit from a reduction in the consumption of meat, especially processed meat (\n11), modest amounts of wholesome animal-based foods such as fish and fermented dairy products continue to play an essential role in the ideal diet (\n3,\n4).\nIn this review, we propose the Pesco-Mediterranean diet as a solution to this \u201comnivore\u2019s dilemma\u201d about what to eat. Scientific evidence will be presented to support the Pesco-Mediterranean diet, which is modeled on the traditional eating patterns of Mediterranean populations. It is a plant-rich diet with seafood as the predominant source of animal protein. Intermittent fasting is also recommended, because it was an inherent feature of these traditional cultures and it promotes health.\nTraditional Mediterranean Diet: Gold Standard for Cardiovascular Health\nThe Mediterranean diet is so named because this was the style of eating adopted by many of the cultures living on or near the shores of the Mediterranean Sea. Elizabeth David wrote that the Mediterranean diet comes \u201cfrom the blessed lands of sun and sea and the olive trees\u201d (\n12). Ecological abundance fostered the regular consumption of plant foods (fruits, vegetables, legumes, whole grains, seeds, tree nuts, and olives), fish/seafood, and olive oil as the principal fat source, along with moderate amounts of dairy products (particularly yogurt and cheese) and eggs, as well as modest alcohol consumption (ideally red wine with the evening meal), but few red and processed meats (\n12,\n13).\nMany epidemiological studies and randomized clinical trials indicate that this traditional Mediterranean diet is associated with lower risks for all-cause and CVD mortality, coronary heart disease, metabolic syndrome, diabetes, cognitive decline, neurodegenerative diseases (including Alzheimer\u2019s disease), depression, overall cancer mortality, and breast and colorectal cancers (\n13,\n14).\nThe traditional Mediterranean diet has been endorsed by national guidelines such as the 2015 to 2020 Dietary Guidelines for Americans (\n15) and the 2019 American College of Cardiology/American Heart Association Guideline on the Primary Prevention of Cardiovascular Disease, which recommends \u201cplant-based and Mediterranean diets along with fruits, nuts, vegetables, legumes and lean vegetable or animal protein\u2014preferably fish\u201d (\n11). The\nU.S. News & World Report deploys a panel of 25 nationally recognized experts to annually score 35 of the most popular diets for their health benefits. In 2020, for the third consecutive year, the Mediterranean diet was ranked #1 for overall health\u2014described as nutritious, safe, relatively easy to follow, protective against CVD and diabetes, and effective for weight loss (\n16).\nHealth Benefits of Mediterranean, Vegetarian, and Pesco-Vegetarian Diets\nThe PREDIMED (Prevenci\u00f3n con Dieta Mediterr\u00e1nea) study was a randomized clinical trial (RCT) of primary CVD prevention conducted in Spain in older individuals at high risk but with no CVD at enrollment, testing 3 diets: a Mediterranean diet supplemented with extra-virgin olive oil (EVOO), a Mediterranean diet supplemented with mixed nuts (walnuts, almonds, and hazelnuts), or a low-fat diet (\n23). The groups consuming the Mediterranean diet supplemented with EVOO or nuts had statistically significant reductions of 29% for major adverse CVD events \u2014myocardial infarction (MI), stroke, and death from these causes (\nFigure 1)\u2014and 42% for stroke (\n23). During the 4.8-year long PREDIMED study, the dietary changes in the groups randomized to the Mediterranean diet that were significantly different from those in the control group were: 1) increased intake of EVOO and nuts; 2) increased intake of fish/seafood and legumes; and 3) increased total fat intake from 39% to 42%, but a decrease in saturated fat consumption from 10% to 9%. Deviations in the randomization protocol affecting 12% of participants occurred in PREDIMED, but reanalysis of the data did not change the results (\n23).\nOnly 2 large RCTs have examined the effects of the Mediterranean diet on hard CVD events: PREDIMED (\n23) in primary prevention of CVD, and the Lyon Diet Heart study in MI survivors (\n24), which also had impressive results (73% reduction in reinfarction rates at 27 months), albeit the intervention arm did not exactly follow a traditional Mediterranean diet (little olive oil consumption and a margarine enriched in alpha-linolenic acid as main dietary fat). Of note, PREDIMED also tested for the first time the effects of the Mediterranean diet on the incidence of other CVD-related outcomes, including peripheral artery disease (\n25), atrial fibrillation (\n26), and diabetes (\n27).\nTable 1 summarizes the results of these RCTs.\nA meta-analysis of 5 prospective dietary studies evaluated long-term coronary artery disease (CAD) mortality rates among vegetarian and nonvegetarian cohorts from Western countries. Compared with regular meat-eaters, CAD mortality was 34% lower in pescatarian (plant-rich diet with seafood as main source of meat), 34% lower in lacto-ovo-vegetarians, 26% lower in vegans, and 20% lower in occasional meat-eaters (\n28).\nThe Adventist Health Study 2 was a 6-year prospective study that enrolled 73,308 subjects in the North American Adventists (\n5). This study reported a decreased incidence of all-cause mortality when comparing vegetarians with nonvegetarians. However, when the vegetarians were stratified into vegans, lacto-ovo vegetarians, pesco-vegetarians, and semi-vegetarians, the pesco-vegetarians had lowest risks for all-cause mortality, CVD mortality, and mortality from other causes (\nFigures 2A to 2C) (\n5).\nIn the European Prospective Investigation into Cancer and Nutrition (EPIC) Oxford study, which included 48,188 participants with 18 years of follow-up, the incidence of CAD was significantly lower among vegetarians and pescatarians when compared with meat eaters (\n29). Unexpectedly, vegetarians, but not pescatarians, had significantly higher rates of hemorrhagic strokes and total strokes when compared with meat eaters (\n29). However, selection bias and confounding, which may be accounting for some of these findings, are pervasive issues in diet-health studies and may undermine the validity of some findings.\nFish and Seafood in the Diet\nThe Pesco-Mediterranean eating style is primarily a plant-rich diet, but the aquatic animal food sources provide an array of vitamins, minerals, and other nutrients, some of which are not readily accessible in vegetarian or vegan diets. Fish and other seafood are not just rich in \u03c9-3FA, but are generally good sources of zinc, iodine, selenium, B vitamins, calcium, and magnesium. Furthermore, fish and seafood provide high-quality protein, which is both satiating and helpful for the building and maintenance of muscle and bone mass.\nTwo recent systematic reviews comprising 106,237 mother-offspring pairs, and 25,960 children reported that fish/seafood consumption was associated with dose-dependent benefits to neurocognitive development that became significant at 4 oz/week and increased from there (\n30). Adverse neurocognitive outcomes were not seen even with the highest amounts of fish/seafood consumption (>100 oz/week), despite associated increases in mercury exposures (\n30). Even so, it is prudent to choose low-mercury fish, such as salmon, sardines, trout, herring, and anchovies, all of which are naturally high in \u03c9-3FA, and scallops, shrimp, lobster, oysters, and clams\u2014which are not as high in \u03c9-3FA, but remain low in mercury (\n4,\n28). It is best to use lower temperatures (target internal temperature 145\u00ba or until flesh is opaque and separates easily with fork); avoid charring or burning fish/seafood, which can introduce carcinogenic compounds (\n31).\nOther Key Components of the Mediterranean Diet: EVOO, Nuts, and Legumes\nUnrestricted use of EVOO in the kitchen and at the table is the foundation of the traditional Mediterranean diet, although olive oil quality is crucial (\n23). Unlike the common variety of olive oil and most edible seed oils\u2014which are refined, EVOO is unrefined. It is obtained by cold pressing olives, and in this sense is equivalent to a pure olive juice. EVOO retains hydrophilic components of olives, among them highly bioactive polyphenols, which are believed to underlie many of EVOO\u2019s cardiometabolic benefits, such as reduced LDL-C and increased high-density lipoprotein cholesterol, improved vascular reactivity, enhanced high-density lipoprotein cholesterol functionality, and a lower diabetes risk (\n23,\n32). Importantly, the EVOO arm of the PREDIMED trial provided first-level scientific evidence of its cardioprotective effects within the context of the Mediterranean diet (\n23).\nGiven the bitter taste of polyphenols, their presence in olive oil is readily perceived as a tingling or burning in the back of the throat that appears a few seconds after swallowing a sample of the EVOO (\n32). Since vegetables are at the basis of the Pesco-Mediterranean diet, generous use of EVOO (along with vinegar) for dressing salads and vegetable dishes encourages the consumption of higher amounts of these plant foods. EVOO is also recommended for simmering minced tomatoes, garlic, onions, and aromatic herbs as a \u201csofrito\u201d sauce to use on vegetables, pasta, rice, fish or legumes, as recommended in the PREDIMED Mediterranean diets (\nTable 2) (\n23).\nTree nuts are an integral component of the traditional Mediterranean diet (\n33). Nuts are nutrient-dense foods rich in unsaturated fats, fiber, protein, polyphenols, phytosterols, tocopherols, and nonsodium minerals. This unique nutritional profile makes nuts one of the most effective foods for improving long-term health outcomes (\n34). RCTs have shown that diets enriched with nuts produce cardiometabolic benefits including improvements in insulin sensitivity, LDL-C, inflammation, and vascular reactivity (\n33,\n34). Observational studies have suggested that nut consumption is associated with decreased incidence and mortality rates from both CVD and CAD, as well as decreased risks of atrial fibrillation and diabetes (\n35). In 1 arm of the PREDIMED trial, 1 daily serving of mixed nuts resulted in a 28% reduction in CVD risk, again providing first-level scientific evidence for the cardioprotective effect of nuts within the context of the Mediterranean diet (\n23). Generous intake of nuts does not promote weight gain because of increased satiety and reduced metabolizable energy (part of nuts\u2019 fat is lost in the feces because of incomplete digestion) (\n33,\n36).\nLegumes also play a central role in the traditional Mediterranean diet, and they are an excellent source of vegetable protein, folate, and magnesium and fiber, and like other seeds, are rich in polyphenols (\n37). Consumption of legumes has been linked to a reduced risk of incident and fatal CVD and CAD, as well as improvements in blood glucose, cholesterol, blood pressure, and body weight (\n37). Legumes, like fish, are a satiating and healthy substitute for red meat and processed meats.\nTwo important sources of protein in the usual diet, dairy products and eggs, need to be mentioned. Dairy products contribute important nutrients to the diet, including protein, nonsodium minerals, probiotics, and vitamin D. Although there is no clear consensus among nutrition experts on the role of dairy products in CVD risk, they are allowed in this Pesco-Mediterranean diet. Fermented low-fat versions, such as yogurt, kefir, and soft cheeses, are preferred; butter and hard cheese are discouraged, because they are high in saturated fats and salt (\n38).\nEggs are composed of beneficial nutrients including all essential amino acids, in addition to minerals (selenium, phosphorus, iodine, zinc), vitamins (A, D, B\n2, B\n12, niacin), and carotenoids (lutein, zeaxanthin). Although each yolk contains about 184 mg of dietary cholesterol, large prospective cohorts suggest that egg consumption is unrelated to serum cholesterol, and does not increase CVD risk (\n39,\n40). Eggs are allowed in the Pesco-Mediterranean diet, preferably no more than 5 yolks/week (egg whites can be consumed without limit). Eggs are another satiating and healthy substitute for red meat and processed meats.\nWhole grains, such as barley, whole oats, rye, corn, buckwheat, brown rice, and quinoa, are an integral part of the traditional Mediterranean diet. Anecdotally, Americans often consider pasta, pizza, and white bread to be central components of the Mediterranean diet. Commercial, precooked pasta or pizza should be consumed only in small amounts in the Pesco-Mediterranean diet, but homemade pizza and mixed pasta dishes, or mixed rice dishes like paella, a staple in many regions of Spain, are legitimate and healthy Mediterranean foods (\n41). Pasta is an example of a starchy food that has a low glycemic index despite being a refined carbohydrate. In the context of a low glycemic index dietary pattern such as the Mediterranean diet, pasta does not adversely affect adiposity and may even help reduce body weight according to a recent meta-analysis of RCTs (\n42). The results of 2 recent large Italian cross-sectional studies concur with the RCTs\u2019 findings (\n43,\n44). Likewise, there is no evidence that consumption of pasta promotes cardiometabolic risk factors (\n41,\n44,\n45).\nConcerning white (refined) rice, its consumption was not associated with CVD or CAD in an analysis of 3 large U.S. cohorts (\n46). According to the meta-analysis by Hu et al. (\n47), white rice consumption was associated with an increased risk of type-2 diabetes in 3 Asian cohorts but not in 4 Western cohorts. This geographically contrasting diabetes risk is likely due to the way rice is prepared in Asia (plain cooked) and in Western cultures (cooked in mixed dishes with vegetables and vegetable oil). In Mediterranean cultures, white rice, like pasta, is usually prepared with a sofrito sauce including EVOO, tomatoes, other vegetables, and aromatic herbs, thereby adding beneficial nutrients and bioactives to these starchy but nutritive foods that are likely to further lower their glycemic index. So, if homecooked and prepared the Mediterranean way, mixed pasta and white rice dishes are both tasty and healthy ingredients to the Pesco-Mediterranean diet.\nThe staple beverage of this diet is water\u2014either still or carbonated, which can be flavored but not sweetened. Unsweetened tea and coffee are noncaloric beverages rich in antioxidants, particularly polyphenols, and are associated with improved CVD outcomes (\n48,\n49). If alcohol is consumed at all, dry red wine is recommended, with the ideal amount being a single glass (\u22646 oz) for women and 1 or 2 glasses/day for men (6 to 12 oz) consumed with meals (\n50).\nIntermittent Fasting/Time-Restricted Eating\nUnlike modern humans, our ancient ancestors did not have access to an unlimited supply of food throughout the year. Nor did they routinely eat 3 large meals plus snacks on a daily basis. Instead, they were typically engaged in a daily struggle to hunt and gather food, often in harsh milieus with sparse resources and seasonal scarcity (\n10). These environmental challenges were the grist for the evolutionary mill, whereby\nHomo sapiens became genetically adapted to respond to intermittent fasting by becoming more resistant to stress (\n51).\nTime-restricted eating, 1 type of intermittent fasting, is the practice of limiting the daily intake of calories to a window of time usually between 6 to 12 h each day. Intermittent fasting when done on a regular basis has been shown to decrease intra-abdominal adipose tissue and reduce free-radical production (\n51,\n52). This ancient evolutionarily conserved adaptation also elicits powerful cellular responses that improve glucose metabolism and reduce systemic inflammation, and may also reduce risks of diabetes, CVD, cancer, and neurodegenerative diseases (\n52).\nAfter a 12-h overnight fast, insulin levels are typically low, and glycogen stores have been depleted. In this fasted state, the body starts mobilizing fatty acids from adipose cells to burn as metabolic fuel instead of glucose. This improves insulin sensitivity. Time restricted eating is not more effective for weight loss than standard calorie-restriction diets, but it does appear to enhance cardiovascular health even in nonobese people (\n53,\n54). Fasting may also lower blood pressure and resting heart rate, and improve autonomic balance with augmented heart-rate variability (\n53\u201355). However, the evidence regarding time restricted eating remains preliminary, mostly based on animal models and observational human studies. The most popular form of time-restricted eating involves eating 2 rather than 3 meals and compressing the calorie-consumption window. No head-to-head studies have been performed to assess the optimal time window, but a 16:8 fasting to eating ratio is the most popular (\n56).\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776280522.5770888
+}

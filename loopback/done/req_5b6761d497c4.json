@@ -1,0 +1,165 @@
+{
+  "request_id": "5b6761d497c4",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2226952\nSource title: The negative effects of minimum wage laws\nSource type: academic\nContent:\n# papers.ssrn.com\n## \u6b63\u5728\u57f7\u884c\u5b89\u5168\u9a57\u8b49\n\u6b64\u7db2\u7ad9\u4f7f\u7528\u5b89\u5168\u670d\u52d9\u62b5\u79a6\u60e1\u610f\u6a5f\u5668\u4eba\u3002\u7576\u7db2\u7ad9\u9a57\u8b49\u4e26\u78ba\u8a8d\u60a8\u4e0d\u662f\u6a5f\u5668\u4eba\u6642\uff0c\u4fbf\u6703\u986f\u793a\u6b64\u9801\u9762\u3002\n## \u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 papers.ssrn.com \u56de\u61c9\nRay ID: `9ed092dfa97e57bb`\nPerformance and Security by Cloudflare\u96b1\u79c1\u6b0a\n---Source URL: https://pubmed.ncbi.nlm.nih.gov/30316876/\nSource title: Minimum Wages and Public Health: A Literature Review - PubMed\nSource type: web\nContent:\nMinimum wages and public health: A literature review\n- PMID: 30316876\n- DOI: 10.1016/j.ypmed.2018.10.005\nMinimum wages and public health: A literature review\nWe evaluate evidence for the effectiveness of raising minimum wages on various measures of public health within the US, Canada, the UK, and Europe. We search four scientific websites from the inception of the research through May 20, 2018. We find great variety (20+) in measured outcomes among the 33 studies that pass our initial screening. We establish quality standards in a second screening resulting in 15 studies in which we create outcome-based groups. Outcomes include four broad measures (general overall health, behavior, mental health, and birth weight) and eight narrow measures (self-reported health, \"bad\" health days, unmet medical need, smoking, problem-drinking, obesity, eating vegetables, and exercise). We establish criteria for \"stronger\" findings for outcomes and methods. Stronger findings include: $1 increases in minimum wages are associated with 1.4 percentage point (4% evaluated at mean) decreases in smoking prevalence; failure to reject null hypotheses that minimum wages have no effects for most outcomes; and no consistent evidence that minimum wages harm health. One \"suggestive\" finding is that the best-designed studies have well-defined treatment (or likely affected) and control (unaffected) groups and contain longitudinal data. The major methodological weaknesses afflicting many studies are the lack of focus on persons likely affected by minimum wages and omission of \"falsification tests\" on persons likely unaffected. An additional weakness is lack of attention to how findings might differ across populations such as teenagers, adults, men, women, continuously employed and unemployed persons. Research into health effects of minimum wages is in its infancy and growing rapidly. We present a list of \"better practices\" for future research.\nKeywords: Social determinants; Social epidemiology.\nSimilar articles\n- In-work tax credits for families and their impact on health status in adults.Cochrane Database Syst Rev. 2013 Aug 6;2013(8):CD009963. doi: 10.1002/14651858.CD009963.pub2.Cochrane Database Syst Rev. 2013.PMID: 23921458Free PMC article.\n- Treatment design, health outcomes, and demographic categories in the literature on minimum wages and health.Econ Hum Biol. 2021 Dec;43:101043. doi: 10.1016/j.ehb.2021.101043. Epub 2021 Jul 8.Econ Hum Biol. 2021.PMID: 34425521Review.\n- Invited Commentary: Methods for Estimating Effects of Minimum Wages on Health.Am J Epidemiol. 2021 Jan 4;190(1):31-34. doi: 10.1093/aje/kwaa019.Am J Epidemiol. 2021.PMID: 32037443\n- Introduction of a National Minimum Wage Reduced Depressive Symptoms in Low-Wage Workers: A Quasi-Natural Experiment in the UK.Health Econ. 2017 May;26(5):639-655. doi: 10.1002/hec.3336. Epub 2016 Apr 4.Health Econ. 2017.PMID: 27046821Free PMC article.\n- Effects of wages on smoking decisions of current and past smokers.Ann Epidemiol. 2015 Aug;25(8):575-582.e1. doi: 10.1016/j.annepidem.2015.03.016. Epub 2015 Apr 28.Ann Epidemiol. 2015.PMID: 26066536\nCited by\n- A Difference-in-Difference Study Evaluating the Effect of Minimum Wage Policy on Body Mass Index and Related Health Behaviors.Obs Stud. 2021 Feb;7:https://obsstudies.org/wp-content/uploads/2021/02/caspi_obs_studies_published.pdf.Obs Stud. 2021.PMID: 33665650Free PMC article.\n- Modelling Maternal Depression: An Agent-Based Model to Examine the Complex Relationship between Relative Income and Depression.Int J Environ Res Public Health. 2022 Apr 1;19(7):4208. doi: 10.3390/ijerph19074208.Int J Environ Res Public Health. 2022.PMID: 35409890Free PMC article.\n- The Effects of Increasing State Minimum Wage on Family and Paid Caregiving.J Appl Gerontol. 2023 Apr;42(4):514-523. doi: 10.1177/07334648221124913. Epub 2022 Sep 13.J Appl Gerontol. 2023.PMID: 36877593Free PMC article.\n- The unintended effects of a large minimum wage increase on health: Evidence from South Korea.Soc Sci Med. 2025 Jan;365:117626. doi: 10.1016/j.socscimed.2024.117626. Epub 2024 Dec 15.Soc Sci Med. 2025.PMID: 39700573Free PMC article.\n- Economic factors associated with county-level mental health - United States, 2019.PLoS One. 2025 Jun 4;20(6):e0300939. doi: 10.1371/journal.pone.0300939. eCollection 2025.PLoS One. 2025.PMID: 40465555Free PMC article.\nPublication types\nMeSH terms\nLinkOut - more resources\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315092.442349
+}

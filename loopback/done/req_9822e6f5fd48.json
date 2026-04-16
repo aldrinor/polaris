@@ -1,0 +1,165 @@
+{
+  "request_id": "9822e6f5fd48",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pubmed.ncbi.nlm.nih.gov/22790477/\nSource title: Effect of Thermal Aging on the Tensile Bond Strength at Reduced ...\nSource type: web\nContent:\nEffect of thermal aging on the tensile bond strength at reduced areas of seven current adhesives\n- PMID: 22790477\n- DOI: 10.1007/s10266-012-0073-2\nEffect of thermal aging on the tensile bond strength at reduced areas of seven current adhesives\nThe purpose of this study was to determine the micro-tensile bond strength (MTBS) to dentin of seven adhesive systems (total and self-etch adhesives) after 24 h and 5,000 thermocycles. Dentin surfaces of human third molars were exposed and bonded with two total-etch adhesives (Adper Scotchbond 1 XT and XP Bond), two two-step self-etch adhesives (Adper Scotchbond SE and Filtek Silorane Adhesive System) and three one-step self-etch adhesives (G-Bond, Xeno V and Bond Force). All adhesive systems were applied following manufacturers' instructions. Composite buildups were constructed and the bonded teeth were then stored in water (24 h, 37 \u00b0C) or thermocycled (5,000 cycles) before being sectioned and submitted to MTBS test. Two-way ANOVA and subsequent comparison tests were applied at \u03b1 = 0.05. Characteristic de-bonded specimens were analyzed using scanning electron microscopy (SEM). After 24 h water storage, MTBS values were highest with XP Bond, Adper Scotchbond 1 XT, Filtek Silorane Adhesive System and Adper Scotchbond SE and lowest with the one-step self-etch adhesives Bond Force, Xeno V and G-Bond. After thermocycling, MTBS values were highest with XP Bond, followed by Filtek Silorane Adhesive System, Adper Scotchbond SE and Adper Scotchbond 1 XT and lowest with the one-step self-etch adhesives Bond Force, Xeno V and G-Bond. Thermal aging induced a significant decrease in MTBS values with all adhesives tested. The resistance of resin-dentin bonds to thermal-aging degradation was material dependent. One-step self-etch adhesives obtained the lowest MTBS results after both aging treatments, and their adhesive capacity was significantly reduced after thermocycling.\nSimilar articles\n- Assessment of current adhesives in class I cavity: Nondestructive imaging using optical coherence tomography and microtensile bond strength.Dent Mater. 2015 Sep;31(9):e190-200. doi: 10.1016/j.dental.2015.06.013. Epub 2015 Jul 14.Dent Mater. 2015.PMID: 26183294\n- Resistance of ten contemporary adhesives to resin-dentine bond degradation.J Dent. 2008 Feb;36(2):163-9. doi: 10.1016/j.jdent.2007.12.002.J Dent. 2008.PMID: 18248872\n- Differential effect of in vitro degradation on resin-dentin bonds produced by self-etch versus total-etch adhesives.J Biomed Mater Res A. 2006 Apr;77(1):128-35. doi: 10.1002/jbm.a.30656.J Biomed Mater Res A. 2006.PMID: 16392135\n- Bond strengths of one- and two-step self-etch adhesive systems.J Prosthet Dent. 2007 Apr;97(4):216-22. doi: 10.1016/j.prosdent.2007.02.013.J Prosthet Dent. 2007.PMID: 17499091Clinical Trial.\n- Are self-etch adhesives reliable for primary tooth dentin? A systematic review and meta-analysis.J Conserv Dent. 2018 May-Jun;21(3):243-250. doi: 10.4103/JCD.JCD_287_17.J Conserv Dent. 2018.PMID: 29899624Free PMC article.Review.\nCited by\n- Five-year clinical performance of a silorane- vs a methacrylate-based composite combined with two different adhesive approaches.Clin Oral Investig. 2016 Jun;20(5):991-1001. doi: 10.1007/s00784-015-1591-4. Epub 2015 Sep 21.Clin Oral Investig. 2016.PMID: 26388406\n- Benzyldimethyldodecyl Ammonium Chloride Doped Dental Adhesive: Impact on Core's Properties, Biosafety, and Antibacterial/Bonding Performance after Aging.J Funct Biomater. 2022 Oct 17;13(4):190. doi: 10.3390/jfb13040190.J Funct Biomater. 2022.PMID: 36278659Free PMC article.\n- Validity of bond strength tests: A critical review-Part II.J Conserv Dent. 2014 Sep;17(5):420-6. doi: 10.4103/0972-0707.139823.J Conserv Dent. 2014.PMID: 25298640Free PMC article.Review.\n- Evaluation of the Effect of Anti-COVID-19 Mouthwashes on Shear Bond Strength of Composite Resin Restorations to Dentin and Enamel: An \"In Vitro Study\".Biomed Res Int. 2022 May 7;2022:3824796. doi: 10.1155/2022/3824796. eCollection 2022.Biomed Res Int. 2022.PMID: 35535042Free PMC article.\nMeSH terms\nLinkOut - more resources\n---Source URL: https://www.researchgate.net/publication/229578765_The_effect_of_damp-heat_and_UV_aging_tests_on_the_optical_properties_of_silicone_and_EVA_encapsulants\nSource title: The effect of damp\u2010heat and UV aging tests on the optical properties ...\nSource type: web\nContent:\n# Security check required\nWe've detected unusual activity from your network. To continue, complete the security check below.\n\u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 www.researchgate.net \u56de\u61c9\nRay ID: 9ed07bf8593d5d34\nClient IP: 216.232.201.117\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776320170.2913399
+}

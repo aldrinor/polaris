@@ -1,0 +1,165 @@
+{
+  "request_id": "02f591838e75",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://researchdiscovery.drexel.edu/view/pdfCoverPage?instCode=01DRXU_INST&filePid=13549511230004721&download=true\nSource title: [PDF] Long-term Performance of Self-heating Concrete Composites using ...\nSource type: web\nContent:\n\n---Source URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC10219392/\nSource title: The Use of Warm Air for Solvent Evaporation in Adhesive Dentistry\nSource type: web\nContent:\nAbstract Any excess solvent from dental adhesive systems must be eliminated prior to material photopolymerization. For this purpose, numerous approaches have been proposed, including the use of a warm air stream. This study aimed to investigate the effect of different temperatures of warm air blowing used for solvent evaporation on the bond strength of resin-based materials to dental and nondental substrates. Two different reviewers screened the literature in diverse electronic databases. In vitro studies recording the effect of warm air blowing to evaporate solvents of adhesive systems on the bond strength of resin-based materials to direct and indirect substrates were included. A total of 6626 articles were retrieved from all databases. From this, 28 articles were included in the qualitative analysis, and 27 remained for the quantitative analysis. The results of the meta-analysis for etch-and-rinse adhesives revealed that the use of warm air for solvent evaporation was statistically significantly higher (p = 0.005). For self-etch adhesives and silane-based materials, this effect was observed too (p 3.0.CO;2-A. [DOI] [PubMed] [Google Scholar] - 64.Pashley D.H., Carvalho R.M., Tay F.R., Agee K.A., Lee K.W. Solvation of Dried Dentin Matrix by Water and Other Polar Solvents. Am. J. Dent. 2002;15:97\u2013102. [PubMed] [Google Scholar] - 65.Moszner N., Salz U., Zimmermann J. Chemical Aspects of Self-Etching Enamel\u2013Dentin Adhesives: A Systematic Review. Dent. Mater. 2005;21:895\u2013910. doi: 10.1016/j.dental.2005.05.001. [DOI] [PubMed] [Google Scholar] - 66.Nihi F.M., Fabre H.S.C., Garcia G., Fernandes K.B.P., Ferreira F.B.d.A., Wang L. In Vitro Assessment of Solvent Evaporation from Commercial Adhesive Systems Compared to Experimental Systems. Braz. Dent. J. 2009;20:396\u2013402. doi: 10.1590/S0103-64402009000500007. [DOI] [PubMed] [Google Scholar] - 67.Miyazaki M., Tsujimoto A., Tsubota K., Takamizawa T., Kurokawa H., Platt J.A. Important Compositional Characteristics in the Clinical Use of Adhesive Systems. J. Oral Sci. 2014;56:1\u20139. doi: 10.2334/josnusd.56.1. [DOI] [PubMed] [Google Scholar] - 68.Boeira P.O., Meereis C.T.W., Su\u00e1rez C.E.C., de Almeida S.M., Piva E., da Silveira Lima G. Coumarin-Based Iodonium Hexafluoroantimonate as an Alternative Photoinitiator for Experimental Dental Adhesives Resin. Appl. Adhes. Sci. 2017;5:2. doi: 10.1186/s40563-016-0080-6. [DOI] [Google Scholar] - 69.Bail M., Malacarne-Zanon J., Silva S., Anauate-Netto A., Nascimento F., Amore R., Lewgoy H., Pashley D.H., Carrilho M. Effect of Air-Drying on the Solvent Evaporation, Degree of Conversion and Water Sorption/Solubility of Dental Adhesive Models. J. Mater. Sci. Mater. Med. 2012;23:629\u2013638. doi: 10.1007/s10856-011-4541-y. [DOI] [PubMed] [Google Scholar] - 70.Daronch M., Rueggeberg F.A., De Goes M., Giudici R. Polymerization Kinetics of Pre-Heated Composite. J. Dent. Res. 2006;85:38\u201343. doi: 10.1177/154405910608500106. [DOI] [PubMed] [Google Scholar] - 71.Saikaew P., Fu J., Chowdhury A.A., Carvalho R.M., Sano H. Effect of Air-Blowing Time and Long-Term Storage on Bond Strength of Universal Adhesives to Dentin. Clin. Oral Investig. 2019;23:2629\u20132635. doi: 10.1007/s00784-018-2656-y. [DOI] [PubMed] [Google Scholar] - 72.Paul S., Leach M., Rueggeberg F., Pashley D.H. Effect of Water Content on the Physical Properties of Model Dentine Primer and Bonding Resins. J. Dent. 1999;27:209\u2013214. doi: 10.1016/S0300-5712(98)00042-6. [DOI] [PubMed] [Google Scholar] - 73.Miyazaki M., Platt J., Onose H., Moore B. Influence of Dentin Primer Application Methods on Dentin Bond Strength. Oper. Dent. 1996;21:167\u2013172. [PubMed] [Google Scholar] - 74.Jacobsen T., S\u00f6derholm K. Effect of Primer Solvent, Primer Agitation, and Dentin Dryness on Shear Bond Strength to Dentin. Am. J. Dent. 1998;11:225\u2013228. [PubMed] [Google Scholar] - 75.Cadenaro M., Breschi L., Antoniolli F., Navarra C.O., Mazzoni A., Tay F.R., Di Lenarda R., Pashley D.H. Degree of Conversion of Resin Blends in Relation to Ethanol Content and Hydrophilicity. Dent. Mater. 2008;24:1194\u20131200. doi: 10.1016/j.dental.2008.01.012. [DOI] [PubMed] [Google Scholar] - 76.Amaral R., Stanislawczuk R., Zander-Grande C., Gagler D., Reis A., Loguercio A.D. Bond Strength and Quality of the Hybrid Layer of One-Step Self-Etch Adhesives Applied with Agitation on Dentin. Oper. Dent. 2010;35:211\u2013219. doi: 10.2341/09-198-L. [DOI] [PubMed] [Google Scholar] - 77.Irmak \u00d6., Baltac\u0131o\u011flu \u0130.H., Ulusoy N., Ba\u011f\u0131\u015f Y.H. Solvent Type Influences Bond Strength to Air or Blot-Dried Dentin. BMC Oral Health. 2016;16:77. doi: 10.1186/s12903-016-0247-3. [DOI] [PMC free article] [PubMed] [Google Scholar] - 78.Abate P., Rodriguez V., Macchi R. Evaporation of Solvent in One-Bottle Adhesives. J. Dent. 2000;28:437\u2013440. doi: 10.1016/S0300-5712(00)00018-X. [DOI] [PubMed] [Google Scholar] - 79.Iliev G., Hardan L., Kassis C., Bourgi R., Cuevas-Su\u00e1rez C.E., Lukomska-Szymanska M., Mancino D., Haikel Y., Kharouf N. Shelf Life and Storage Conditions of Universal Adhesives: A Literature Review. Polymers. 2021;13:2708. doi: 10.3390/polym13162708. [DOI] [PMC free article] [PubMed] [Google Scholar] - 80.Cuevas-Su\u00e1rez C.E., Ramos T.S., Rodrigues S.B., Collares F.M., Zanchi C.H., Lund R.G., da Silva A.F., Piva E. Impact of Shelf-Life Simulation on Bonding Performance of Universal Adhesive Systems. Dent. Mater. 2019;35:e204\u2013e219. doi: 10.1016/j.dental.2019.05.023. [DOI] [PubMed] [Google Scholar] - 81.\u00d6zcan M., Vallittu P.K. Effect of Surface Conditioning Methods on the Bond Strength of Luting Cement to Ceramics. Dent. Mater. 2003;19:725\u2013731. doi: 10.1016/S0109-5641(03)00019-8. [DOI] [PubMed] [Google Scholar] - 82.Davidson C.L. Luting Cement, the Stronghold or the Weak Link in Ceramic Restorations? Adv. Eng. Mater. 2001;3:763\u2013767. doi: 10.1002/1527-2648(200110)3:10 3.0.CO;2-C. [DOI] [Google Scholar] - 83.Canay \u015e., Hersek N., Ertan A. Effect of Different Acid Treatments on a Porcelain Surface 1. J. Oral Rehabil. 2001;28:95\u2013101. doi: 10.1046/j.1365-2842.2001.00626.x. [DOI] [PubMed] [Google Scholar] - 84.Zarow M., Hardan L., Szczeklik K., Bourgi R., Cuevas-Su\u00e1rez C.E., Jakubowicz N., Nicastro M., Devoto W., Dominiak M., Pytko-Polo\u0144czyk J., et al. Porcelain Veneers in Vital vs. Non-Vital Teeth: A Retrospective Clinical Evaluation. Bioengineering. 2023;10:168. doi: 10.3390/bioengineering10020168. [DOI] [PMC free article] [PubMed] [Google Scholar] - 85.Harouny R., Hardan L., Harouny E., Kassis C., Bourgi R., Lukomska-Szymanska M., Kharouf N., Ball V., Khairallah C. Adhesion of Resin to Lithium Disilicate with Different Surface Treatments before and after Salivary Contamination\u2014An In-Vitro Study. Bioengineering. 2022;9:286. doi: 10.3390/bioengineering9070286. [DOI] [PMC free article] [PubMed] [Google Scholar] - 86.Hardan L., Devoto W., Bourgi R., Cuevas-Su\u00e1rez C.E., Lukomska-Szymanska M., Fern\u00e1ndez-Barrera M.\u00e1., CornejoR\u00edos E., Monteiro P., Zarow M., Jakubowicz N., et al. Immediate Dentin Sealing for Adhesive Cementation of Indirect Restorations: A Systematic Review and Meta-Analysis. Gels. 2022;8:175. doi: 10.3390/gels8030175. [DOI] [PMC free article] [PubMed] [Google Scholar] - 87.Al Edris A., Al Jabr A., Cooley R.L., Barghi N. SEM Evaluation of Etch Patterns by Three Etchants on Three Porcelains. J. Prosthet. Dent. 1990;64:734\u2013739. doi: 10.1016/0022-3913(90)90307-X. [DOI] [PubMed] [Google Scholar] - 88.Roulet J., S\u00f6derholm K., Longmate J. Effects of Treatment and Storage Conditions on Ceramic/Composite Bond Strength. J. Dent. Res. 1995;74:381\u2013387. doi: 10.1177/00220345950740011501. [DOI] [PubMed] [Google Scholar] - 89.Hooshmand T., van Noort R., Keshvad A. Bond Durability of the Resin-Bonded and Silane Treated Ceramic Surface. Dent. Mater. 2002;18:179\u2013188. doi: 10.1016/S0109-5641(01)00047-1. [DOI] [PubMed] [Google Scholar] - 90.Bertolotti R.L. Adhesion to Porcelain and Metal. Dent. Clin. N. Am. 2007;51:433\u2013451. doi: 10.1016/j.cden.2006.12.003. [DOI] [PubMed] [Google Scholar] - 91.Moon J.H., Shul Y.G., Hong S.Y., Choi Y.S., Kim H.T. A Study on UV-Curable Adhesives for Optical Pick-Up: II. Silane Coupling Agent Effect. Int. J. Adhes. Adhes. 2005;25:534\u2013542. doi: 10.1016/j.ijadhadh.2005.01.008. [DOI] [Google Scholar] - 92.Barghi N. To Silanate or Not to Silanate: Making a Clinical Decision. Compend. Contin. Educ. Dent. 2000;21:659\u2013662. [PubMed] [Google Scholar] - 93.Bertolini J.C. Hydrofluoric Acid: A Review of Toxicity. J. Emerg. Med. 1992;10:163\u2013168. doi: 10.1016/0736-4679(92)90211-B. [DOI] [PubMed] [Google Scholar] - 94.Shimada Y., Yamaguchi S., Tagami J. Micro-Shear Bond Strength of Dual-Cured Resin Cement to Glass Ceramics. Dent. Mater. 2002;18:380\u2013388. doi: 10.1016/S0109-5641(01)00054-9. [DOI] [PubMed] [Google Scholar] - 95.Valandro L.F., Della Bona A., Bottino M.A., Neisser M.P. The Effect of Ceramic Surface Treatment on Bonding to Densely Sintered Alumina Ceramic. J. Prosthet. Dent. 2005;93:253\u2013259. doi: 10.1016/j.prosdent.2004.12.002. [DOI] [PubMed] [Google Scholar] - 96.Moharamzadeh K., Hooshmand T., Keshvad A., Van Noort R. Fracture Toughness of a Ceramic\u2013Resin Interface. Dent. Mater. 2008;24:172\u2013177. doi: 10.1016/j.dental.2007.04.002. [DOI] [PubMed] [Google Scholar] - 97.Abduljabbar T., AlQahtani M.A., Al Jeaidi Z., Vohra F. Influence of silane and heated silane on the bond strength of lithium disilicate ceramics-An in vitro study. Pak. J. Med. Sci. 2016;32:550\u2013554. doi: 10.12669/pjms.323.9851. [DOI] [PMC free article] [PubMed] [Google Scholar] - 98.Schwartz R.S., Robbins J.W. Post Placement and Restoration of Endodontically Treated Teeth: A Literature Review. J. Endod. 2004;30:289\u2013301. doi: 10.1097/00004770-200405000-00001. [DOI] [PubMed] [Google Scholar] - 99.Grandini S., Goracci C., Tay F.R., Grandini R., Ferrari M. Clinical Evaluation of the Use of Fiber Posts and Direct Resin Restorations for Endodontically Treated Teeth. Int. J. Prosthodont. 2005;18:399\u2013404. [PubMed] [Google Scholar] - 100.Cagidiaco M.C., Goracci C., Garcia-Godoy F., Ferrari M. Clinical Studies of Fiber Posts: A Literature Review. Int. J. Prosthodont. 2008;21:328\u2013336. [PubMed] [Google Scholar] - 101.Vano M., Goracci C., Monticelli F., Tognini F., Gabriele M., Tay F., Ferrari M. The Adhesion between Fibre Posts and Composite Resin Cores: The Evaluation of Microtensile Bond Strength Following Various Surface Chemical Treatments to Posts. Int. Endod. J. 2006;39:31\u201339. doi: 10.1111/j.1365-2591.2005.01044.x. [DOI] [PubMed] [Google Scholar] - 102.Abel M.-L., Allington R., Digby R., Porritt N., Shaw S., Watts J. Understanding the Relationship between Silane Application Conditions, Bond Durability and Locus of Failure. Int. J. Adhes. Adhes. 2006;26:2\u201315. doi: 10.1016/j.ijadhadh.2005.03.009. [DOI] [Google Scholar] - 103.Madruga E.L., Fern\u00e1ndez-Garc\u00eda M. A Kinetic Study of Free-radical Copolymerization of Butyl Acrylate with Methyl Methacrylate in Solution. Macromol. Chem. Phys. 1996;197:3743\u20133755. doi: 10.1002/macp.1996.021971120. [DOI] [Google Scholar] - 104.Luthardt R., Holzh\u00fcter M., Sandkuhl O., Herold V., Schnapp J., Kuhlisch E., Walter M. Reliability and Properties of Ground Y-TZP-Zirconia Ceramics. J. Dent. Res. 2002;81:487\u2013491. doi: 10.1177/154405910208100711. [DOI] [PubMed] [Google Scholar] - 105.Cavalcanti A.N., Pilecki P., Foxton R.M., Watson T.F., Oliveira M.T., Gianinni M., Marchi G.M. Evaluation of the Surface Roughness and Morphologic Features of Y-TZP Ceramics after Different Surface Treatments. Photomed. Laser Surg. 2009;27:473\u2013479. doi: 10.1089/pho.2008.2293. [DOI] [PubMed] [Google Scholar] Associated Data This section collects any data citations, data availability statements, or supplementary materials included in this article. Data Availability Statement The data presented in this study are available on reasonable request from the authors (R.B. and L.H.).\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776322361.7033083
+}

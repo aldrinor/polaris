@@ -1,0 +1,12 @@
+{
+  "request_id": "f2d34e5b8afe",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Use of Evidence-Based Dietary Interventions for the ...  | Statement: These may be combined with other weight loss measures, including bariatric surgery or medications.\n2. [SILVER] Source: From soil to brain: Olive oil attributes, consumer choices,  | Statement: Age-Specific Considerations for Lipids Intake\n6.3.\n3. [SILVER] Source: Retention, Fasting Patterns, and Weight Loss With an Intermi | Statement: We assembled height, weight, fasting, and demographic data of adult users (ages 18-100 years) of the LIFE Fasting Tracker and LIFE Extend...\n4. [SILVER] Source: Comprehensive approach to medical nutrition therapy in patie | Statement: A recent meta-analysis, incorporating data from 1,331,468 participants, has shown an increased risk for all-cause and cardiovascular...\n5. [SILVER] Source: Intermittent Fasting App Market Disruption and Future Trends | Statement: Key Insights The global intermittent fasting app market size was valued at USD 292.17 million in 2025 and is expected to grow at a CAGR of...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776293120.7627306
+}

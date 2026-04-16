@@ -1,0 +1,12 @@
+{
+  "request_id": "36bc4b3dcf8a",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: With these dietary strategies, the pattern of energy restriction and/or timing of food intake are altered, so that individuals undergo...\n2. [SILVER] Source: Metabolic effects of intermittent fasting | Statement: Abstract: Intermittent fasting (IF) has been indicated as a valuable alternative to the classical caloric restriction dietary regimen for...\n3. [SILVER] Source: Metabolic effects of intermittent fasting | Statement: In this review article, we analyzed over 50 clinical studies in which IF, conducted by alternate day fasting (ADF) or time-restricted...\n4. [SILVER] Source: Intermittent fasting influences immunity and metabolism. | Statement: Intermittent fasting (IF) modifies cell- and tissue-specific immunometabolic responses that dictate metabolic flexibility and inflammation...\n5. [SILVER] Source: Intermittent fasting influences immunity and metabolism. | Statement: IF can lower metabolic inflammation and improve glucose metabolism without lowering obesity and can influence time-dependent,...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776300041.815146
+}

@@ -1,0 +1,165 @@
+{
+  "request_id": "5b525785d553",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 1 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://academic.oup.com/qje/article/141/1/373/8376639\nSource title: Who's Afraid of the Minimum Wage? Measuring the Impacts on ...\nSource type: web\nContent:\n- Split View - Views - Cite Cite Nirupama L Rao, Max Risch, Who\u2019s Afraid of the Minimum Wage? Measuring the Impacts on Independent Businesses Using Matched U.S. Tax Returns, The Quarterly Journal of Economics, Volume 141, Issue 1, February 2026, Pages 373\u2013427, https://doi.org/10.1093/qje/qjaf053 Close - Share Icon Share Abstract A common concern surrounding minimum wage policies is their impact on independent businesses, which are often feared to be less able to bear or pass on cost increases. We examine how these typically small and medium-size firms accommodate minimum wage increases along product and labor market margins using a matched owner-firm-worker panel data set drawn from the universe of U.S. tax records over a 10-year period, and using state minimum wage changes as identifying variation. We find that on average, firms in highly exposed industries do not substantially reduce employment\u2014they do not lay off workers but moderately reduce part-time hiring. Instead, these firms are able to fully finance the new labor costs with new revenues, leaving average owner profits unchanged. Higher wage floors, however, forestall entry, particularly for less productive firms, reducing the number of independent firms operating in these industries by roughly 2%. Yet these industries do not shrink; instead, incumbent responses and strong positive selection among entrants reshape industries that rely heavily on low-wage workers, yielding fewer but more productive firms after the cost shock. We also take a worker-level perspective to examine how potentially vulnerable individuals are affected by minimum wage increases. Using panels of low-earning and young workers, we find that their average earnings rise substantially with the minimum wage, while they are no less likely to be employed. Worker transitions indicate that minimum wage increases boost retention and that worker reallocation from independent firms toward corporations buffers disemployment impacts from reduced hiring at independent firms. I. Introduction Proposals to raise the minimum wage are often met with arguments that independent businesses may be particularly vulnerable to wage-floor increases.1 Although recent research has found that minimum wage increases have had few deleterious aggregate employment effects in the short run,2 fears that independent businesses operate on margins too slim to accommodate cost increases or face demand too elastic to pass costs through to consumers have motivated small business exemptions and even wholesale opposition to raising wage floors. At the same time, surveys repeatedly find independent business owners divided on minimum wage policy, with large shares actually supporting higher wage floors.3 This article presents the first comprehensive examination of how independent firms accommodate minimum wage increases in the United States. To track independent firms, we construct a novel linked firm-worker-owner panel data set from the universe of U.S. tax returns. To measure responses in both product and labor markets, we match the tax returns of pass-through firms\u2014the predominant organizational form of independent businesses\u2014to the individual income tax returns of their workers and owners over a 10-year period. These data allow us to measure firm responses across a number of margins, including employment, compensation to different workers, expenditures on nonlabor inputs, revenues, profits, and firm exit and entry. We complement the firm-level analysis with an individual-level analysis that follows low-earning and young individuals over time and across employers to understand how minimum wage increases affect those most likely to be affected by wage-floor policies. To estimate the causal effects of minimum wage increases, we exploit subnational state policy changes, allowing us to compare treated firms to similar but wholly untreated firms in states that did not adjust their wage regulations, controlling flexibly for firm size, industry, and market characteristics. Our long panel helps validate the causal interpretation of the findings by providing several years of data to assess pre-trends in treatment and control states and to conduct placebo tests. The breadth of our data, which describe 271,000 firms, allows us to capture sector-level effects and to measure how responses vary by firm and worker characteristics. Using these data and a difference-in-differences empirical strategy to compare firms in states that did and did not raise their minimum wage, we examine the various margins along which independent firms accommodate the cost shock associated with the minimum wage increases. First, we examine whether and how firms adjust employment when wage floors rise. We find that firms do not lay off employees but modestly reduce hiring in part-time positions, resulting in 1.5 (or 2%) fewer employment relationships per firm per year. The reduction in hiring is fully concentrated in positions paying less than $4,000 a year, mostly held by teenagers. Next, we examine how independent firms accommodate higher minimum wages given that they do not substantially reduce employment. Higher minimum wages drive up the wage bills of exposed firms by 6% on average, with income gains concentrated among low-earning workers and no evidence of reduced pay to high-earning workers. By estimating changes in each element of firms\u2019 tax returns and net profits, we can determine who bears the economic burden of these labor cost increases. We find that independent firms finance their higher wage bills with new revenue, raising roughly 3.3% more revenue four years after the minimum wage increase. Revenue rises enough to leave profits fully intact, meaning that value added per worker increases sufficiently for consumers to entirely finance the higher pay to low-earning workers, while firm owners bear none of the economic burden. Minimum wage increases are not a free lunch for firms and their owners. In the years after a state raises its minimum wage, entry slows in highly exposed industries. Four years after a wage-floor increase, independent-firm entry is dampened by 2 percent, meaning that 2 percent fewer independent firms operate in these industries. Firms that do enter are positively selected, featuring higher productivity and greater cost efficiency, but nonetheless dedicate higher shares of revenue to wage bills, much like incumbent firms. Among incumbents, the cost structure changes, leading them to spend proportionately less on nonlabor inputs as they increase sales through greater value added per worker. The extensive-margin dynamics and responses among incumbent firms combine to shape the cost structure and productivity of these sectors overall. Despite dampened entry, the positive selection of entrants facilitates a net shift in the productivity distribution of active firms. Furthermore, we find that these sectors do not shrink\u2014aggregate revenues across all independent firms in highly exposed industries rise by 2.63% (std. err. = 0.0294) and aggregate profits are unchanged. Total pay to workers increases by 1.1% (std. err. = 0.0061) of baseline revenues; as a result, workers receive a bigger slice of a larger revenue pie. To contextualize our findings, we present a simple conceptual framework of imperfect product market competition with fixed costs to highlight how extensive-margin responses and heterogeneity can mediate observed responses to minimum wage increases. Although minimum wages only modestly affect employment from a firm perspective, reduced part-time hiring and reduced firm entry could deny young workers a foothold in the labor market and decrease the number of jobs available to low-earning workers. Examining individual panels of low-earning workers and young individuals, we find that their annual earnings rise on average by 18.9% and 21.8%, respectively, in the years after the minimum wage increase. Their employment remains essentially unchanged relative to similar workers in untreated states, with estimated changes of \u22120.24% (std. err. = 0.0068) for low earners and 1.39% (std. err. = 0.0038) for young workers, corresponding to own-wage employment elasticities of \u22120.013 (std. err. = 0.036) and 0.064 (std. err. = 0.032). In addition, retention rates rise: four years after the minimum wage increase, we estimate a 1.87% reduction in separation rates among low-earning workers at highly exposed firms at baseline. Minimum wage increases also alter worker transition patterns, making workers more likely to move to larger firms, especially large C-corporations. These transition patterns help reconcile the null employment effects we estimate in the individual panels with the modest reductions in employment relationships we document among independent firms in highly exposed industries: workers sustain employment in part by moving away from smaller independent firms to larger corporations. Higher retention rates also coincide with reductions in part-time hiring, indicating that reduced turnover partly explains the decline in the number of employment relationships at independent firms that we observe. Overall, we find that on average, minimum wage increases have little effect on employment among potentially vulnerable firms and workers, which complements estimates from Card and Kreuger (1995) and recent studies finding small short- to medium-run employment effects of the minimum wages. This study makes three key contributions. First, we provide comprehensive documentation of how firms accommodate higher wage floors. Ours is the first study to trace the incidence of minimum wages for a large set of firms in the United States, incorporating product market, labor market, and productivity response margins. We focus on independent firms, which are politically and economically important as their welfare is central to minimum wage policy debates, and collectively they account for roughly half of employment in the United States. Drawing from the universe of administrative tax records, we have a long panel of firms that allows us to provide a detailed analysis of the joint responses to minimum wage increases along various margins, similar to Harasztosi and Lindner (2019).4 Our firm-worker link allows us to look beyond net employment changes and estimate how employment relationships change across types of workers. Because our data also comprise annual representative cross sections of independent firms, we can track effects on new firms and therefore measure effects on aggregates. To the deep literature on wage floors, we add fresh evidence that minimum wage policies in the United States mainly redistribute from customers to workers rather than within small firms from owners to workers, with some would-be entrepreneurs also bearing the costs of reduced entry. Second, our identification strategy, based on state policy changes, allows us to estimate new dimensions of the effects of minimum wage increases. The natural control group of untreated states provides a sector-level counterfactual that is key to measuring how higher wage floors affect firm entry and productivity dynamics.5 In particular, because our identification does not depend on differences in pre-reform firm exposure, we can estimate how minimum wages affect firm entry and, in turn, how selection among entrants contributes to shifts in the productivity distribution of highly exposed industries. Further, the policy variation we exploit also mirrors proposed incremental minimum wage increases, which primarily affect the service sector. Third, the breadth and duration of our individual panel data mean that we can precisely evaluate how well minimum wages benefit the people they aim to help. Our precise estimates of the employment and earnings responses even for subgroups of individuals allow us to measure near-zero and small employment effects with tight confidence intervals. Because our data describe total earnings, which encompass any changes in wages, employment, and hours, our estimates capture how minimum wages affect the material well-being of low-income people. Our panels track employment in any industry and firm type, linking workers to their employers before and after the minimum wage increase. The link between workers and employers allows us to contextualize the firm-level results, showing that minimum wage increases boost retention and reallocate low-earning and teen workers from independent businesses to C-corporations. These changes in transition dynamics buffer employment responses and reconcile the firm and individual results. Our study establishes that even the small to medium-size firms that typify independent businesses are able to accommodate higher minimum wages with new revenues, leaving owners\u2019 profits unchanged. Workers receive larger paychecks and face flat employment rates in part due to worker reallocation from independent businesses to C-corporations. Higher worker retention and productivity allow incumbent owners to fully escape the economic burden of minimum wage increases. More broadly, minimum wages reshape the productivity distribution of highly exposed industries. Beyond curtailing entry, by changing the cost structure of industries that rely heavily on low-wage labor, minimum wage increases also affects the types of firms that enter with implications for incumbents and the industry overall. II. Measuring Effects of the Minimum Wage with Tax Data To estimate how independent businesses accommodate the increased labor costs associated with higher wage floors, we leverage administrative tax data to combine worker-level measures of earnings and employment with firm-level measures of revenues, costs, and profits. II.A. Independent Businesses To study independent (i.e., privately owned), predominantly small and medium-size businesses, we focus on firms organized as \u201cpass-throughs\u201d for tax purposes. Pass-throughs are privately owned businesses with legal forms including S-corporations, partnerships, and Limited Liability Companies (LLCs).6 Pass-throughs are a large part of the U.S. economy. In 2015, they made up 78% of non\u2013sole-proprietorship businesses and accounted for 46% of private-sector employment and 52% of business income. Pass-throughs are the predominant organizational form for small and medium-sized businesses in the United States. They represent 79% of firms with fewer than 20 employees, 72% with 20\u201399 employees, 61% with 100\u2013500 employees, and 77% of all firms with fewer than 500 employees.7 Pass-throughs are smaller than publicly traded firms on average, but they represent the majority business form in all two-digit NAICS industries except utilities and management of companies and enterprises. Throughout the article, we simply refer to these firms as independent businesses or firms.8 We focus on independent businesses for two reasons. First, our linked firm-worker data are particularly well suited for cleanly estimating firm responses among these businesses\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315654.2461975
+}

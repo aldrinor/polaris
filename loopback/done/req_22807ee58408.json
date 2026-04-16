@@ -1,0 +1,12 @@
+{
+  "request_id": "22807ee58408",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Enzymes as working or inspirational electrocatalysts for fue | Statement: Enzymes as Working or Inspirational Electrocatalysts for Fuel Cells and ElectrolysisClick to copy article linkArticle link copied!\n2. [SILVER] Source: Catalyst\u2013electrolyte interface chemistry for electrochemical | Statement: Catalyst\u2013electrolyte interface chemistry for electrochemical CO2 reduction\u2020\nThe electrochemical reduction of CO2 stores intermittent renewab...\n3. [SILVER] Source: Catalyst\u2013electrolyte interface chemistry for electrochemical | Statement: Recent technoeconomic reports suggested economically feasible target products of CO2 electroreduction and the relative influence of key perf...\n4. [SILVER] Source: Electrosynthesis of adipic acid with high faradaic efficienc | Statement: Herein, we modify nickel layered\ndouble hydroxide with vanadium to promote current density and maintain\nhigh faradaic ef\ufb01ciency (>80%) withi...\n5. [SILVER] Source: Electrosynthesis of adipic acid with high faradaic efficienc | Statement: As a proof-of-the-concept, we\nconstruct a membrane electrode assembly, producing adipic acid with high\nfaradaic ef\ufb01ciency (82%) and producti...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319156.8020928
+}

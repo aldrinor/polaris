@@ -1,0 +1,165 @@
+{
+  "request_id": "c6f80d128b97",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.semanticscholar.org/paper/c2c30517d0c25f0a4961c94a34587bb119e12ca7\nSource title: Physical characterization and bond performance of a non-methacrylate dental adhesive in long-term biochemical and thermal aging models.\nSource type: academic\nContent:\nOBJECTIVES\nThe objective of this study was to formulate a biostable methacrylate-free 3-step total-etch adhesive (EA) with the goal of exceeding or achieving the as-prepared values of both an in-house formulated (IH-MA) and commercial (C-MA, Adper Scotchbond\u2122 Multi-Purpose) methacrylate-based adhesives, while maintaining bond stability following long-term simulated thermal or biochemical aging.\n\nMETHODS\n9 candidate EAs were screened for their as-prepared physical properties (degree of conversion, surface microhardness, surface water contact angle) and microtensile bond strength (\u00b5TBS) and compared to the properties of both the C-MA and IH-MA. Following screening, the candidate EA and C-MA were subjected to either thermocycling (10,000 cycles, 5-50\u00b0C) or 1 year of biochemical aging in simulated human salivary esterase (SHSE) media using miniature short-rod specimens and evaluated for changes in interfacial fracture toughness (KIC), stiffness, and failure mode.\n\nRESULTS\nA candidate EA (EA 5) was identified through formulation screening that achieved comparable (p\u202f>\u202f0.05) physical and adhesive (\u00b5TBS and KIC) properties to that of the C-MA immediately post-fabrication. While thermal aging had no effect (p\u202f>\u202f0.05) on the interfacial mechanics and fracture mode of the EA 5 or C-MA, biochemical aging of the C-MA in SHSE led to a significant decrease (p\u202f<\u202f0.05) in KIC (20\u202f%) and stiffness (33\u202f%) following just 6 months of aging. In contrast, the EA 5 experienced no changes (p\u202f>\u202f0.05) in bonding performance following the entire duration (1 year) of biochemical aging.\n\nSIGNIFICANCE\nBiostable dental adhesives may have the potential to improve the clinical service life of restorative materials by delaying interfacial degradation.\n---Source URL: https://doi.org/10.15517/ijds.2020.39198\nSource title: In Vitro Effect of Temperature on Dentin Bond Strength of Universal Adhesive Systems\nSource type: academic\nContent:\nThe aim of this study was to evaluate the shear bond strength (SBS) of two universal adhesives (Universal Single Bond and All Bond Universal) and a two-step self-etch adhesive system (Clearfil SE Bond) to dentine at various temperatures. Materials and Methods: One hundred and twenty dentin specimens were divided randomly to 12 groups, according to adhesive systems (Universal Single Bond and All Bond Universal, Clearfil SE Bond) and temperature ( 4\u00baC, 20 \u00baC, 36\u00baC, 55\u00baC) used. Dentin specimens were prepared (n :10, adhesives were applied, and composite cylinders were polymerized. Statistical analysis of the SBS data was performed using Two-way analysis of variance (ANOVA) and Tukey\u2019s Honestly Significant Differences post-hoc test. Results: The Clearfil SE Bond was shown to have higher SBS than the universal adhesives at all temperatures; however, there was no statistically significant difference (P>0.05). In both groups, the lowest SBS values were observed in the samples at 4\u00b0C while the highest SBS values were observed in the samples at 55\u00b0C. In this case, there was a statistically significant difference (P<0.05). Conclusions: The results suggest that the effectiveness of an adhesive may increase if it is preheated at 36\u00b0C or above before use instead of being used immediately after removal from the refrigerator or at room temperature.\nM\u00fcnchow E. A., Valente L. L., Bossardi M., Priebe T. C., Zanchi C. H., Piva E. Influence of surface moisture condition on the bond strength to dentin of etch-and-rinse adhesive systems. Braz J of Oral Sci 2014; 13: 182-186.\nVan Meerbeek B, De Munck J, Yoshida Y, Inoue S, Vargas M, Vijay P, et al. Adhesion to enamel and dentin: current status and future challenges. Oper Dent 2003; 28: 215-235.\nVan Meerbeek B, Yoshihara K, Yoshida Y, Mine A, De Munck J, Van Landuyt K. State of the art of self-etch adhesives. Dent Mater 2011; 27: 17-28.\nHanabusa M, Mine A, Kuboki T, Momoi Y, Van Ende A, Van Meerbeek B, et al. Bonding effectiveness of a new \u2018multi-mode\u2019 adhesive to enamel and dentin. J Dent 2012; 40: 475-484.\nYoshihara K., Yoshida Y., Nagaoka N., Fukegawa D., Hayakawa S., Mine A., et al. Nano-controlled molecular interaction at adhesive interfaces for hard tissue reconstruction. Acta Biomater 2010; 6: 3573-3582.\nMutluay M. M., Yahyazadehfar M., Ryou H., Majd H., Do D., Arola D. Fatigue of the resin\u2013dentin interface: A new approach for evaluating the durability of dentin bonds. Dent Mater 2013; 29: 437-449.\nChiba Y., Miyazaki M., Rikuta A., Moore B. Influence of environmental conditions on dentin bond strengths of one-application adhesive systems. Oper Dent 2004; 29: 554-559.\nToledano M., Osorio R., Albaladejo A., Aguilera F. S., Osorio E. Differential effect of in vitro degradation on resin\u2013dentin bonds produced by self etch versus total etch adhesives. J Biomed Mater Res A: An Official Journal of The Society for Biomaterials, The Japanese Society for Biomaterials, and The Australian Society for Biomaterials and the Korean Society for Biomaterials 2006; 77: 128-135.\nPerdig\u00e3o J., Sezinando A., Monteiro P. C. Laboratory bonding ability of a multi-purpose dentin adhesive. Am J Dent 2012; 25: 153-158.\nMu\u00f1oz M. A., Luque I., Hass V., Reis A., Loguercio A. D., Bombarda NHC. Immediate bonding properties of universal adhesives to dentine. J Dent 2013; 41: 404-411.\nYoshioka M., Yoshida Y., Inoue S., Lambrechts P., Vanherle G., Nomura Y., et al. Adhesion/decalcification mechanisms of acid interactions with human hard tissues. J Biomed Mater Res: An Official Journal of The Society for Biomaterials and The Japanese Society for Biomaterials. 2002; 59: 56-62.\nFukuda R., Yoshida Y., Nakayama Y., Okazaki M., Inoue S., Sano H., et al. Bonding efficacy of polyalkenoic acids to hydroxyapatite, enamel and dentin. Biomaterials 2003; 24: 1861-1867.\nLoguercio A., Salvalaggio D., Piva A., Klein-J\u00fanior C., de Lr Accorinte M., Meier M., et al. Adhesive temperature: effects on adhesive properties and resin-dentin bond strength. Oper Dent 2011; 36: 293-303.\nReis A., Klein-J\u00fanior C., de Souza F. C., Stanislawczuk R, Loguercio A. The use of warm air stream for solvent evaporation: effects on the durability of resin-dentin bonds. Oper Dent 2010; 35: 29-36.\nVale M., Afonso F., Borges B., Freitas Jr. A., Farias-Neto A, Almeida E, et al. Preheating impact on the degree of conversion and water sorption/solubility of selected single-bottle adhesive systems. Oper Dent 2014; 39: 637-643.\nSadr A., Ghasemi A., Shimada Y., Tagami J. Effects of storage time and temperature on the properties of two self-etching systems. J Dent 2007; 35: 218-225.\nHisamatsu N., Atsuta M., Matsumura H. Effect of silane primers and unfilled resin bonding agents on repair bond strength of a prosthodontic microfilled composite. J Oral Rehabil 2002; 29: 644-648.\nAbate P., Rodriguez V., Macchi R. Evaporation of solvent in one-bottle adhesives. J Dent 2000; 28: 437-440.\nDaronch M., Rueggeberg F., De Goes M., Giudici R. Polymerization kinetics of pre-heated composite. J Dent Res 2006; 85: 38-43.\nBlalock J. S., Holmes R. G., Rueggeberg F. A. Effect of temperature on unpolymerized composite resin film thickness. J Prosthet Dent 2006; 96: 424-432.\nPazinatto F. B., Marquezini Jr. L., Atta MT. Influence of Temperature on the Spreading Velocity of Simplified Step Adhesive Systems. J Esthet Restor Dent 2006; 18: 38-46.\nDe Munck Jd, Van Landuyt K., Peumans M., Poitevin A., Lambrechts P., Braem M., et al. A critical review of the durability of adhesion to tooth tissue: methods and results. J Dent Res 2005; 84: 118-132.\nKorkmaz Y., Gurgan S., Firat E., Nathanson D. Shear bond strength of three different nano-restorative materials to dentin. Oper Dent 2010; 35: 50-57.\nNam K.-Y., Kim J.-B., Jang B.-C., Kwon T.-Y., Kim K.-H. Effects of dentin bonding agents on bonding durability of a flowable composite to dentin. Dent Mater J 2007; 26: 224-231.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776322361.6107643
+}

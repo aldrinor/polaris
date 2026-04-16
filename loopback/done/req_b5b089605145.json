@@ -1,0 +1,12 @@
+{
+  "request_id": "b5b089605145",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Effect of global damp heat ageing on debonding of crosslinke | Statement: Compressive shear behavior of EVA laminates was not significantly affected by damp heat aging up to 10,000h at 85C/85%RH\n2. [SILVER] Source: Effect of global damp heat ageing on debonding of crosslinke | Statement: POE laminates revealed improved compressive shear performance after damp heat aging compared to unaged state\n3. [SILVER] Source: Effect of global damp heat ageing on debonding of crosslinke | Statement: POE laminates exhibited failure mode transition from interfacial (unaged) to combined interfacial and cohesive after 10,000h damp heat\n4. [SILVER] Source: Effect of global damp heat ageing on debonding of crosslinke | Statement: EVA laminates failed in interfacial manner independent of damp heat aging time throughout 10,000h exposure\n5. [SILVER] Source: Effect of global damp heat ageing on debonding of crosslinke | Statement: Carboxylic acid groups were found on interfacially fractured surfaces of both EVA and POE laminates after damp heat aging",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776321837.2053137
+}

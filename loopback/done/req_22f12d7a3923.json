@@ -1,0 +1,165 @@
+{
+  "request_id": "22f12d7a3923",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pubs.acs.org/doi/abs/10.1021/acscatal.4c07033\nSource title: Electrochemical manufacturing of hydrogen peroxide with high concentration and durability\nSource type: academic\nContent:\nElectrochemical Manufacturing of Hydrogen Peroxide with High Concentration and DurabilityClick to copy article linkArticle link copied!\n- Yang XiaYang XiaDepartment of Chemical and Biomolecular Engineering, Rice University, Houston, Texas 77005, United StatesMore by Yang Xia\n- Peng ZhuPeng ZhuDepartment of Chemical and Biomolecular Engineering, Rice University, Houston, Texas 77005, United StatesMore by Peng Zhu\n- Yile YangYile YangDepartment of Chemical and Biomolecular Engineering, Rice University, Houston, Texas 77005, United StatesMore by Yile Yang\n- Chang QiuChang QiuDepartment of Chemical and Biomolecular Engineering, Rice University, Houston, Texas 77005, United StatesMore by Chang Qiu\n- Haotian Wang*Haotian Wang*Email: htwang@rice.eduDepartment of Chemical and Biomolecular Engineering, Rice University, Houston, Texas 77005, United StatesDepartment of Chemistry, Rice University, Houston, Texas 77005, United StatesDepartment of Materials Science and NanoEngineering, Rice University, Houston, Texas 77005, United StatesMore by Haotian Wang\nArticle Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals. These metrics are regularly updated to reflect usage leading up to the last few days.\nCitations are the number of other articles citing this article, calculated by Crossref and updated daily. Find more information about Crossref citation counts.\nThe Altmetric Attention Score is a quantitative measure of the attention that a research article has received online. Clicking on the donut icon will load a page at altmetric.com with additional details about the score and the social media presence for the given article. Find more information on the Altmetric Attention Score and how the score is calculated.\nElectrochemical manufacturing of hydrogen peroxide (H2O2) via oxygen reduction reaction (ORR) has been widely recognized as an alternative to the conventional anthraquinone process, but the output H2O2 concentration that it can reach and the long-term electrolysis stability are still far from industrial requirements. Here, we report the promising potential of the porous solid electrolyte (PSE) reactor for producing high-concentration and high-purity H2O2 in high stability. By identifying the issue of high H2O2 concentration at the cathode/membrane interface that could lead to membrane degradation and low ORR Faradaic efficiencies (FEs), we adopted a water recirculation flow operation instead of continuous flow to effectively carry out the generated H2O2 product from the PSE layer without interfacial accumulation. This recirculation strategy boosted the H2O2 FE from 23% to 50% to produce a 30 wt % H2O2 stream and successfully extended the lifetime of the PSE reactor to \u223c1000 h while continuously outputting 20 wt % H2O2 under 100 mA cm\u20132 operation current.\nThis article is cited by 19 publications.\n- Clare Yijia Xie, Zachary J. Schiffer. Electrochemistry Is Heating Up: Ionic Liquids Can Help. ACS Energy Letters 2026, 11\n(4)\n, 3049-3059. https://doi.org/10.1021/acsenergylett.6c00466\n- Ichiro Yamanaka, Yuhei Kojima, Ryuji Otsuki, Yuto Sekine, Takuya Yamashita, Shion Yoneya, Shoji Iguchi, Masanori Yamamoto. The Solid-Polymer-Electrolyte Coelectrolysis of O2 and Water to Pure 26 wt % H2O2 Aqueous Solutions with 81% Current Efficiency. ACS Sustainable Chemistry & Engineering 2025, 13\n(46)\n, 19966-19976. https://doi.org/10.1021/acssuschemeng.5c06591\n- Chaoyi Yu, Lei Dong, Wangxin Ge, Xixi Wu, Haiyan Wang, Hongliang Jiang, Chunzhong Li. Proton-Shielding Interface Engineering for Efficient Acid H2O2 Electrosynthesis. ACS Catalysis 2025, 15\n(21)\n, 18177-18186. https://doi.org/10.1021/acscatal.5c05734\n- Shou-Kun Zhang, Yuge Feng, Shaoyun Hao, Ziang Xu, Sushanth Ashokkumar, Juan Wang, Haotian Wang. Integrated electrochemical porous solid electrolyte reactor and packed bed reactor for efficient synthesis of nylon-6 precursor. Nature Communications 2026, 17\n(1)\nhttps://doi.org/10.1038/s41467-026-70236-2\n- Xiaoyun Wang, Peike Cao, Hourui Zhang, Shuo Chen, Yanming Liu, Xie Quan. Synergistic interfacial hydrogen-bond and electronic structure modulation in quaternized chitosan modified carbon nanotubes enabling efficient H2O2 electrosynthesis. Applied Catalysis B: Environment and Energy 2026, 388 , 126562. https://doi.org/10.1016/j.apcatb.2026.126562\n- Bin Chen, Weihu Zhang, Yunyun Guo, Yuan Bai, Lele Cui, Wenheng Jing. Scalable and hardness-tolerant H2O2 electrosynthesis in tap-water-based electrolytes enabled by electrode architecture and reactor engineering. Water Research 2026, 297 , 125711. https://doi.org/10.1016/j.watres.2026.125711\n- Jianhong Liu, Lei Zhang, Yao Yao. Electrosynthesis of hydrogen peroxide via two-electron pathways: Mechanisms, in situ characterizations, challenges and future perspectives. Electrochimica Acta 2026, 559 , 148634. https://doi.org/10.1016/j.electacta.2026.148634\n- Hao Cai, Liping Lin, Yutang Yu, Tong Li, Zijian Zhu, Tong Chen, Hongwei Huang. Piezoelectric Field Driven Proton\u2010Coupled Electron Transfer Reaction and p\u2010Band Center Shift for H\n2\n2\nSynthesis in Pure Water and Air. Advanced Functional Materials 2026, 36\n(28)\nhttps://doi.org/10.1002/adfm.202524126\n- Zahra Amiri, Ali Bakhshi, Mobin Safarzadeh Khosrowshahi, Mahdi Davari Dolatabadi, Hadi Shayesteh. Carbon quantum dots for hydrogen peroxide production. Sustainable Materials and Technologies 2026, 47 , e01852. https://doi.org/10.1016/j.susmat.2026.e01852\n- Xinyu Wang, Lilong Zhang, Chang Zhang, Dazhi Yao, Xinxin Zhang, Yangkai Li, Minna Guo, Jitraporn (Pimm) Vongsvivut, Wenting Cai, Jun Lv, Jian Zhang, Wangqiang Shen. Industrial\u2010Current H\n2\n2\nfrom Water: P/O\u2010codoped Pentagon\u2010Rich Carbon in Neutral Electrolyte. Advanced Functional Materials 2026, 351 https://doi.org/10.1002/adfm.75157\n- Qikai Shentu, Kewen Xing, Keliang Li, Na Han, Yanguang Li. Recent Advances in H\n2\n2\nElectrosynthesis: From Catalyst Design and Interfacial Microenvironment Management to Reactor Engineering. Advanced Functional Materials 2026, 36\n(16)\nhttps://doi.org/10.1002/adfm.202518926\n- Xinyu Wang, Yangkai Li, Liyuan Liu, Jun Lv, Xing Lu, Wangqiang Shen. Multiscale Design for Neutral\u2010Electrolyte H\n2\n2\nElectrosynthesis: Catalysts, Electrodes, Devices, and Hybrid Processes. Advanced Functional Materials 2026, 36\n(1)\nhttps://doi.org/10.1002/adfm.202511806\n- Yeomin Kang, Kooyoung Jung, Jusung Kim, Ki Tae Park. Highly Selective CO\n2\nReduction to Pure Formic Acid Using a Nafion\u2010TiO\n2\nComposite Porous Solid Electrolyte. Advanced Science 2026, 13\n(2)\nhttps://doi.org/10.1002/advs.202515967\n- Weisong Li, Yanjie Zhai, Shanhe Gong, Yingying Zhou, Qing Xia, Jie Wu, Xiao Zhang. Electrochemical Solid-State Electrolyte Reactors: Configurations, Applications, and Future Prospects. Nano-Micro Letters 2025, 17\n(1)\nhttps://doi.org/10.1007/s40820-025-01824-y\n- Weihu Zhang, Bin Chen, Yunyun Guo, Runzhang Tao, Chen Shu, Dandan Zhou, Lele Cui, Wenheng Jing. Gaseous reactant feeding prolongs the durability of hydrophobic electrodes for H2O2 electrosynthesis. Chemical Engineering Journal 2025, 526 , 171325. https://doi.org/10.1016/j.cej.2025.171325\n- Wen-Jun Niu, Bing-Xin Yu, Chen-Yu Cai, Li-Yang Xu, Fu-Ming Wang. MOF-derived Co-decorated ZnO@carbon nanorods as highly efficient electrocatalysts for hydrogen peroxide production in alkaline media. Journal of Colloid and Interface Science 2025, 697 , 137986. https://doi.org/10.1016/j.jcis.2025.137986\n- Kangjuan Cheng, Chunxiao Liu, Youpeng Wang, Qiu Jiang, Tingting Zheng, Xu Li, Chuan Xia. Design of noble metal catalysts and reactors for the electrosynthesis of hydrogen peroxide. Acta Physico-Chimica Sinica 2025, 41\n(10)\n, 100112. https://doi.org/10.1016/j.actphy.2025.100112\n- Shun Li, Zhanpeng Zhu, Yuqiao Zhang, Yong Liu, Xinyue Zhang, Kwun Nam Hui. Innovative engineering strategies and mechanistic insights for enhanced carbon-based electrocatalysts in sustainable H\n2\n2\nproduction. Materials Horizons 2025, 12\n(16)\n, 6018-6042. https://doi.org/10.1039/D5MH00221D\n- Yapeng Du, Xueqin Mu, Shengchen Wang, Yifan Zhang, Fanjiao Chen, Mengyang Zhang, Junlin Li, Pingping Cao, Jiayao Yuan, Yue Zhang, Linsheng Liu, Zhengyang Liu, Qin Ma, Suli Liu, Dingsheng Wang, Zhihui Dai. Atomically dispersed catalysts: for the efficient and stable industrial electrosynthesis of H\n2\n2. Energy & Environmental Science 2025, 18\n(12)\n, 5833-5867. https://doi.org/10.1039/D5EE01112D\nArticle Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals. These metrics are regularly updated to reflect usage leading up to the last few days.\nCitations are the number of other articles citing this article, calculated by Crossref and updated daily. Find more information about Crossref citation counts.\nThe Altmetric Attention Score is a quantitative measure of the attention that a research article has received online. Clicking on the donut icon will load a page at altmetric.com with additional details about the score and the social media presence for the given article. Find more information on the Altmetric Attention Score and how the score is calculated.\n---Source URL: https://pubs.acs.org/doi/full/10.1021/acs.chemrev.5b00073\nSource title: Nonstoichiometric oxides as low-cost and highly-efficient oxygen reduction/evolution catalysts for low-temperature electrochemical devices\nSource type: academic\nContent:\nSci-Hub. Nonstoichiometric Oxides as Low-Cost and Highly-Efficient Oxygen Reduction/Evolution Catalysts for Low-Temperature Electrochemical Devices / Chemical Reviews, 2015 x citation format none \u0413\u041e\u0421\u0422 ACS ACM AIP AMA APA APS CSE CEP GSA IEEE MLA Chicago sci hub Nonstoichiometric Oxides as Low-Cost and Highly-Efficient Oxygen Reduction/Evolution Catalysts for Low-Temperature Electrochemical Devices Chemical Reviews, 2015 {citation} {style} ... ! \u2197 versions x report article another article is displayed article PDF is corrupt some pages are missing this is a preprint version the study is an example of bad science another problem report sending... The message has been sent. There was some error while sending the report :( I'm not a robot verifying...\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319611.7747123
+}

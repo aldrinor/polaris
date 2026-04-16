@@ -1,0 +1,165 @@
+{
+  "request_id": "6bcf8de64bf2",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.amazon.science/blog/a-better-training-method-for-reinforcement-learning-with-human-feedback\nSource title: A better training method for reinforcement learning with human ...\nSource type: web\nContent:\nReinforcement learning with human feedback (RLHF) is the standard method for aligning large language models (LLMs) with human preferences \u2014 such as the preferences for nontoxic language and factually accurate responses. Recently, one of the most popular RLHF methods has been direct preference optimization, in which the LLM chooses between two output options, one of which has been labeled as preferred by a human annotator.\nWith direct preference optimization (DPO), however \u2014 and with other, similar direct-alignment algorithms \u2014 LLMs run the risk of learning spurious correlations from the data. In toxicity datasets, for instance, it\u2019s common for the serious, thoughtful responses to be longer than the offensive responses. During RLHF, an LLM could thus learn to favor longer responses over shorter ones, which may not be preferable in general.\nAt this year\u2019s International Conference on Learning Representations (ICLR), we presented a method for limiting such spurious correlations, which we call SeRA, for self-reviewing and alignment. First, after the first round of RLHF on human-annotated data, we use the LLM itself to generate additional training examples. Then we use the LLM\u2019s output probabilities to assess the strength of preference for training pairs, keeping only those where the preferred response is strongly preferred.\nTo evaluate our approach, we compare a model trained using SeRA to three baseline models on four benchmark datasets. For each test input, we compare our model\u2019s output to that of each of the baselines, and we use an off-the-shelf LLM to choose the better response. The SeRA-trained model\u2019s win rate in these pairwise comparisons is higher than all three baselines\u2019 across the board, sometimes by as much as 20% to 40%.\nDirect preference optimization\nReinforcement learning is a trial-and-error method in which an agent interacts with the world and, depending on the actions it takes, receives greater or lesser rewards. Over time, the agent attempts to learn a policy that maximizes its cumulative reward.\nIn classical reinforcement learning, the interaction with the world can be literal: a robot, for instance, might receive a large reward for successfully navigating to a prescribed location and a negative reward for bumping into a wall. In RLHF, however, the reward depends on how well an LLM\u2019s output aligns with a paradigm case specified by a human.\nWith traditional RLHF, the reward is calculated by a separate model, which is also trained on human-annotated data. But this is a time-consuming approach that doesn\u2019t scale well. With DPO, there\u2019s no need for a second model: the LLM receives the reward if it picks the human-preferred output and not if it doesn\u2019t.\nThe drawback of DPO is that it treats all training pairs equally: the reward is the same whether the preferred output is strongly preferred or only mildly preferred. This increases the chances that the model will learn spurious correlations.\nIf, for instance, choosing strongly toxic responses incurred a greater penalty than choosing mildly toxic responses, the model could infer that toxicity \u2014 and not response length \u2014 was the relevant feature of the training examples. DPO irons out those differences; SeRA reintroduces them.\nSeRA\nWith SeRa, we first perform conventional DPO, using a dataset of human-annotated example pairs. After this first pass through the data, the LLM has learned something about the types of outputs that humans prefer.\nWe then use the updated model to generate a new set of training examples. For every generated response pair, we assign each response a preference score, which is based on the updated model\u2019s probability of generating that response. We then keep only those pairs in which the preferred response scores significantly higher than the non-preferred response.\nUsing the same metric, we next filter the data in the original, human-annotated dataset. Then we combine filtered samples from the original dataset with filtered samples from our new, generated dataset and perform DPO once again. This process repeats, with the generated samples constituting a larger and larger fraction of the dataset, until model performance converges.\nThe intuition here is that if a dataset is designed to represent some contrast, but it also contains spurious correlations, then the intended contrast \u2014 between, say, toxic and non-toxic data \u2014 will be significantly greater than the unintended contrast \u2014 between, say, long and short responses.\nThis assumption held for the four benchmark datasets we used to evaluate our method, and we think that it\u2019s a plausible assumption for other spurious correlations. But there could be instances in which it doesn\u2019t hold, so in applications of the SeRA method, the model\u2019s convergence behavior should be monitored.\nWhile we used DPO in our experiments, in our paper, we also demonstrate how to generalize our method to other direct-alignment algorithms. Finally, there\u2019s some risk that, when using model-generated data to train a model, we could get into a feedback loop where the model overamplifies some aspect of the initial dataset. As a consequence, in each pass through the data, the model\u2019s reward is based not only on the current iteration but on past iterations as well, to ensure continuity in the characteristic features of the training data.\nAcknowledgments: Sravan Bodapati\n---Source URL: https://www.researchgate.net/profile/Moses-Alabi/publication/383265204_Reinforcement_Learning_from_Human_Feedback_Aligning_AI_Systems_with_Human_Preferences/links/66c5336f4b25ef677f725608/Reinforcement-Learning-from-Human-Feedback-Aligning-AI-Systems-with-Human-Preferences.pdf\nSource title: Reinforcement Learning from Human Feedback: Aligning AI Systems with Human Preferences\nSource type: academic\nContent:\n# Security check required\nWe've detected unusual activity from your network. To continue, complete the security check below.\n\u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 www.researchgate.net \u56de\u61c9\nRay ID: 9ed0c6c35cc6da76\nClient IP: 216.232.201.117\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317307.4473708
+}

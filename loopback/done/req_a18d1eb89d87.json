@@ -1,0 +1,165 @@
+{
+  "request_id": "a18d1eb89d87",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://arxiv.org/pdf/2307.15217\nSource title: \nSource type: web\nContent:\nOpen Problems and Fundamental Limitations of\nReinforcement Learning from Human Feedback Stephen Casper,\u2217 MIT CSAIL, scasper@mit.edu\nXander Davies,\u2217 Harvard University\nClaudia Shi, Columbia University Thomas Krendl Gilbert, Cornell Tech\nJ\u00e9r\u00e9my Scheurer, Apollo Research\nJavier Rando, ETH Zurich Rachel Freedman, UC Berkeley\nTomasz Korbak, University of Sussex\nDavid Lindner, ETH Zurich\nPedro Freire, Independent Tony Wang, MIT CSAIL\nSamuel Marks, Harvard University\nCharbel-Rapha\u00ebl Segerie, EffiScienc\n---Source URL: https://arxiv.gg/abs/2312.14925\nSource title: A Survey of Reinforcement Learning from Human Feedback - arXiv.gg\nSource type: web\nContent:\nA Survey of Reinforcement Learning from Human Feedback\n2312.14925\n\u00b7 2023-12-22 \u00b7 Cited by 142 \u00b7 \ud83e\udde0 embedded\nReinforcement learning from human feedback (RLHF) is a variant of reinforcement learning (RL) that learns from human feedback instead of relying on an engineered reward function. Building on prior work on the related setting of preference-based reinforcement learning (PbRL), it stands at the intersection of artificial intelligence and human-computer interaction. This positioning offers a promising avenue to enhance the performance and adaptability of intelligent systems while also improving the alignment of their objectives with human values. The training of large language models (LLMs) has impressively demonstrated this potential in recent years, where RLHF played a decisive role in directing the model's capabilities toward human objectives. This article provides a comprehensive overview of the fundamentals of RLHF, exploring the intricate dynamics between RL agents and human input. While recent focus has been on RLHF for LLMs, our survey adopts a broader perspective, examining the diverse applications and wide-ranging impact of the technique. We delve into the core principles that underpin RLHF, shedding light on the symbiotic relationship between algorithms and human feedback, and discuss the main research trends in the field. By synthesizing the current landscape of RLHF research, this article aims to provide researchers as well as practitioners with a comprehensive understanding of this rapidly growing field of research.\n-\n2510.08529\nCoMAS: Co-Evolving Multi-Agent Systems via Interaction Rewards (Oct 2025) 1 cites\n-\n2509.24704\nMemGen: Weaving Generative Latent Memory for Self-Evolving Agents (Sep 2025) 1 cites\n-\n2509.21240\nTree Search for LLM Agent Reinforcement Learning (Sep 2025) 1 cites\n-\n2509.02547\nThe Landscape of Agentic Reinforcement Learning for LLMs: A Survey (Sep 2025) 11 cites\n-\n2508.09303\nParallelSearch: Train your LLMs to Decompose Query and Search Sub-queries in Parallel with Reinforcement Learning (Aug 2025) 1 cites\n-\n2508.07956\nCareful Queries, Credible Results: Teaching RAG Models Advanced Web Search Tools with Reinforcement Learning (Aug 2025) 1 cites\n-\n2508.05613\nCooper: Co-Optimizing Policy and Reward Models in Reinforcement Learning for Large Language Models (Aug 2025) 2 cites\n-\n2507.17849\nDynamic and Generalizable Process Reward Modeling (Jul 2025) 1 cites\n-\n2507.17842\nShop-R1: Rewarding LLMs to Simulate Human Behavior in Online Shopping via Reinforcement Learning (Jul 2025) 1 cites\n-\n2507.13348\nVisionThink: Smart and Efficient Vision Language Model via Reinforcement Learning (Jul 2025) 5 cites\n-\n2507.05197\nPre-Trained Policy Discriminators are General Reward Models (Jul 2025) 1 cites\n-\n2507.00951\nThinking Beyond Tokens: From Brain-Inspired Intelligence to Cognitive Foundations for Artificial General Intelligence and its Societal Impact (Jul 2025) 4 cites\n-\n2506.16396\nGoalLadder: Incremental Goal Discovery with Vision-Language Models (Jun 2025) 1 cites\n-\n2506.15421\nReward Models in Deep Reinforcement Learning: A Survey (Jun 2025) 2 cites\n-\n2506.12350\nTheoretical Tensions in RLHF: Reconciling Empirical Success with Inconsistencies in Social Choice Theory (Jun 2025) 3 cites\n-\n2506.09420\nA Call for Collaborative Intelligence: Why Human-Agent Systems Should Precede AI Autonomy (Jun 2025) 4 cites\n-\n2506.04210\nDoes Thinking More always Help? Mirage of Test-Time Scaling in Reasoning Models (Jun 2025) 3 cites\n-\n2506.03637\nRewardAnything: Generalizable Principle-Following Reward Models (Jun 2025) 4 cites\n-\n2506.02672\nEvaLearn: Quantifying the Learning Capability and Efficiency of LLMs via Sequential Problem Solving (Jun 2025) 1 cites\n-\n2506.01183\nDoubly Robust Alignment for Large Language Models (Jun 2025) 1 cites\n-\n2506.01080\nThe Coming Crisis of Multi-Agent Misalignment: AI Alignment Must Be a Dynamic and Social Process (Jun 2025) 1 cites\n-\n2505.23723\nML-Agent: Reinforcing LLM Agents for Autonomous Machine Learning Engineering (May 2025) 8 cites\n-\n2505.23150\nBigger, Regularized, Categorical: High-Capacity Value Functions are Efficient Multi-Task Learners (May 2025) 2 cites\n-\n2505.21444\nCan Large Reasoning Models Self-Train? (May 2025) 13 cites\n-\n2505.20272\nGround-R1: Incentivizing Grounded Visual Reasoning via Reinforcement Learning (May 2025) 7 cites\n-\n2505.19914\nEnigmata: Scaling Logical Reasoning in Large Language Models with Synthetic Verifiable Puzzles (May 2025) 4 cites\n-\n2505.19789\nWhat Can RL Bring to VLA Generalization? An Empirical Study (May 2025) 6 cites\n-\n2505.19255\nVTool-R1: VLMs Learn to Think with Images via Reinforcement Learning on Multimodal Tool Use (May 2025) 8 cites\n-\n2505.19134\nIncentivizing High-Quality Human Annotations with Golden Questions (May 2025) 1 cites\n-\n2505.19094\nSATORI-R1: Incentivizing Multimodal Reasoning through Explicit Visual Anchoring (May 2025) 5 cites\n-\n2505.15710\nAdvancing LLM Safe Alignment with Safety Representation Ranking (May 2025) 1 cites\n-\n2505.15117\nAn Empirical Study on Reinforcement Learning for Reasoning-Search Interleaved LLM Agents (May 2025) 11 cites\n-\n2505.15034\nRL Tango: Reinforcing Generator and Verifier Together for Language Reasoning (May 2025) 6 cites\n-\n2505.13355\nSurvey: Multi-Armed Bandits Meet Large Language Models (May 2025) 1 cites\n-\n2505.12065\nDemystifying and Enhancing the Efficiency of Large Language Model Based Search Agents (May 2025) 1 cites\n-\n2505.13508\nTime-R1: Towards Comprehensive Temporal Reasoning in LLMs (May 2025) 2 cites\n-\n2505.01997\nRestoring Calibration for Aligned Large Language Models: A Calibration-Aware Fine-Tuning Approach (May 2025) 2 cites\n-\n2505.00753\nLLM-Based Human-Agent Collaboration and Interaction Systems: A Survey (May 2025) 10 cites\n-\n2504.13958\nToolRL: Reward is All Tool Learning Needs (Apr 2025) 64 cites\n-\n2504.12501\nReinforcement Learning from Human Feedback (Apr 2025) 6 cites\n-\n2504.12328\nA Comprehensive Survey of Reward Models: Taxonomy, Applications, Challenges, and Future (Apr 2025) 19 cites\n-\n2504.06196\nTxGemma: Efficient and Agentic LLMs for Therapeutics (Apr 2025) 7 cites\n-\n2504.03790\nSample, Don't Search: Rethinking Test-Time Alignment for Language Models (Apr 2025) 3 cites\n-\n2503.21720\nCollab: Controlled Decoding using Mixture of Agents for LLM Alignment (Mar 2025) 3 cites\n-\n2503.20194\nGAPO: Learning Preferential Prompt through Generative Adversarial Policy Optimization (Mar 2025) 1 cites\n-\n2503.18923\nVideo SimpleQA: Towards Factuality Evaluation in Large Video Language Models (Mar 2025) 6 cites\n-\n2503.15952\nAdaptive Group Policy Optimization: Towards Stable Training and Token-Efficient Reasoning (Mar 2025) 11 cites\n-\n2503.09561\nStrategyproof Reinforcement Learning from Human Feedback (Mar 2025) 2 cites\n-\n2503.09516\nSearch-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning (Mar 2025) 214 cites\n-\n2503.09347\nSafer or Luckier? LLMs as Safety Evaluators Are Not Robust to Artifacts (Mar 2025) 1 cites\n-\n2503.11701\nA Survey of Direct Preference Optimization (Mar 2025) 6 cites\n-\n2503.06072\nA Survey on Post-training of Large Language Models (Mar 2025) 29 cites\n-\n2503.03746\nProcess-based Self-Rewarding Language Models (Mar 2025) 15 cites\n-\n2503.03122\nThe Devil Is in the Details: Tackling Unimodal Spurious Correlations for Generalizable Multimodal Reward Models (Mar 2025) 3 cites\n-\n2503.02783\nTeaching Your Models to Understand Code via Focal Preference Alignment (Mar 2025) 3 cites\n-\n2502.17601\nRepresentation Engineering for Large-Language Models: Survey and Research Challenges (Feb 2025) 1 cites\n-\n2502.15657\nSuperintelligent Agents Pose Catastrophic Risks: Can Scientist AI Offer a Safer Path? (Feb 2025) 19 cites\n-\n2502.13396\nPrompting a Weighting Mechanism into LLM-as-a-Judge in Two-Step: A Case Study (Feb 2025) 1 cites\n-\n2502.13173\nThinking Preference Optimization (Feb 2025) 9 cites\n-\n2502.14881\nA Survey of Safety on Large Vision-Language Models: Attacks, Defenses and Evaluations (Feb 2025) 7 cites\n-\n2502.09053\nGame Theory Meets Large Language Models: A Systematic Survey with Taxonomy and New Frontiers (Feb 2025) 6 cites\n-\n2502.08922\nSelf-Consistency of the Internal Reward Models Improves Self-Rewarding Language Models (Feb 2025) 6 cites\n-\n2502.09650\nPrincipled Data Selection for Alignment: The Hidden Risks of Difficult Examples (Feb 2025) 5 cites\n-\n2502.06387\nHow Humans Help LLMs: Assessing and Incentivizing Human Preference Annotators (Feb 2025) 2 cites\n-\n2502.03261\nCARROT: A Cost Aware Rate Optimal Router (Feb 2025) 3 cites\n-\n2502.01208\nOn Almost Surely Safe Alignment of Large Language Models at Inference-Time (Feb 2025) 1 cites\n-\n2502.01100\nZebraLogic: On the Scaling Limits of LLMs for Logical Reasoning (Feb 2025) 33 cites\n-\n2501.19054\nText-to-CAD Generation Through Infusing Visual Feedback in Large Language Models (Jan 2025) 2 cites\n-\n2501.17030\nChallenges in Ensuring AI Safety in DeepSeek-R1 Models: The Shortcomings of Reinforcement Learning Strategies (Jan 2025) 9 cites\n-\n2501.13264\nOpenGenAlign: A Preference Dataset and Benchmark for Trustworthy Reward Modeling in Open-Ended, Long-Context Generation (Jan 2025) 2 cites\n-\n2501.11549\nWhose Boat Does it Float? Improving Personalization in Preference Tuning via Inferred User Personas (Jan 2025) 2 cites\n-\n2501.09620\nBeyond Reward Hacking: Causal Rewards for Large Language Model Alignment (Jan 2025) 5 cites\n-\n2501.03486\nAlign-Pro: A Principled Approach to Prompt Optimization for LLM Alignment (Jan 2025) 2 cites\n-\n2501.01544\nMany of Your DPOs are Secretly One: Attempting Unification Through Mutual Information (Jan 2025) 2 cites\n-\n2501.00656\n2 OLMo 2 Furious (Jan 2025) 64 cites\n-\n2412.18022\nTrustworthy and Efficient LLMs Meet Databases (Dec 2024) 1 cites\n-\n2412.14501\nDo Large Language Models Advocate for Inferentialism? (Dec 2024) 1 cites\n-\n2412.07031\nLarge Language Models: An Applied Econometric Framework (Dec 2024) 6 cites\n-\n2412.04814\nLiFT: Leveraging Human Feedback for Text-to-Video Model Alignment (Dec 2024) 8 cites\n-\n2412.00300\nAligning LLM+PDDL Symbolic Plans with Human Objective Specifications through Evolutionary Algorithm Guidance (Dec 2024) 2 cites\n-\n2411.18688\nImmune: Improving Safety Against Jailbreaks in Multi-modal LLMs via Inference-Time Alignment (Nov 2024) 5 cites\n-\n2411.18279\nLarge Language Model-Brained GUI Agents: A Survey (Nov 2024) 62 cites\n-\n2411.15106\nAbout Time: Advances, Challenges, and Outlooks of Action Understanding (Nov 2024) 1 cites\n-\n2411.13410\nA Survey On Enhancing Reinforcement Learning in Complex Environments: Insights from Human and LLM Feedback (Nov 2024) 7 cites\n-\n2411.13187\nEngagement-Driven Content Generation with Large Language Models (Nov 2024) 1 cites\n-\n2411.11761\nMapping out the Space of Human Feedback for Reinforcement Learning: A Conceptual Framework (Nov 2024) 2 cites\n-\n2411.09341\nApproximated Variational Bayesian Inverse Reinforcement Learning for Large Language Model Alignment (Nov 2024) 1 cites\n-\n2411.02564\nContinual LLaVA: Continual Instruction Tuning in Large Vision-Language Models (Nov 2024) 11 cites\n-\n2411.00027\nPersonalization of Large Language Models: A Survey (Nov 2024) 34 cites\n-\n2410.16027\nComPO: Community Preferences for Language Model Personalization (Oct 2024) 5 cites\n-\n2410.15319\nCausality for Large Language Models (Oct 2024) 4 cites\n-\n2410.06554\nThe Accuracy Paradox in RLHF: When Better Reward Models Don't Yield Better Language Models (Oct 2024) 6 cites\n-\n2410.05582\nGen-Drive: Enhancing Diffusion Generative Driving Policies with Reward Modeling and Reinforcement Learning Fine-tuning (Oct 2024) 6 cites\n-\n2410.05451\nSecAlign: Defending Against Prompt Injection with Preference Optimization (Oct 2024) 23 cites\n-\n2410.02725\nAdaptive Inference-Time Compute: LLMs Can Predict if They Can Do Better, Even Mid-Generation (Oct 2024) 31 cites\n-\n2409.19256\nHybridFlow: A Flexible and Efficient RLHF Framework (Sep 2024) 265 cites\n-\n2409.17407\nPost-hoc Reward Calibration: A Case Study on Length Bias (Sep 2024) 3 cites\n-\n2409.12914\nEvaluating Defences against Unsafe Feedback in RLHF (Sep 2024) 11 cites\n-\n2409.12403\nPreference Alignment Improves Language Model-Based TTS (Sep 2024) 6 cites\n-\n2409.01392\nComfyBench: Benchmarking LLM-based Agents in ComfyUI for Autonomously Designing Collaborative AI Systems (Sep 2024) 13 cites\n\ud83d\udcc1 Source files are served from arXiv.org for compliance\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317317.8426375
+}

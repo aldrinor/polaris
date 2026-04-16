@@ -1,0 +1,12 @@
+{
+  "request_id": "2ecc12774968",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Two intermittent fasting strategies equally effective for we | Statement: CHICAGO \u2014 A strategy of time-restricted eating with energy restriction and intermittent energy restriction alone both conferred reductions...\n2. [SILVER] Source: Two intermittent fasting strategies equally effective for we | Statement: In a randomized clinical trial presented at the American Diabetes Association Scientific Sessions, 57 adults with type 2 diabetes and...\n3. [SILVER] Source: Intermittent fasting interventions for the treatment of over | Statement: Background: Overweight and obesity (classified as Body Mass Index [BMI] of greater than or equal to 25 and 30 respectively) is a global...\n4. [SILVER] Source: Intermittent fasting interventions for the treatment of over | Statement: However, the aetiology of overweight and obesity is highly complex, involving an interplay of biological, psychological, societal and...\n5. [SILVER] Source: The safety of novel therapies in chronic lymphocytic leukemi | Statement: Challenges for Fasting in CLL Patients Treated with Novel Agents\n7.1.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776293117.5644612
+}

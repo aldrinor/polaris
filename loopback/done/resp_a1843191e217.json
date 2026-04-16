@@ -1,0 +1,6 @@
+{
+  "content": "{\"recommendations\": [{\"section_id\": \"s01\", \"section_title\": \"Definitions and Taxonomy of Intermittent Fasting Protocols\", \"diagram_type\": \"comparison_matrix\", \"description\": \"Comparison matrix of ADF, TRE, and 5:2: fasting duration per cycle, feeding-window specification, and trial count (k=10, k=7, k=11 respectively) across the 28 pooled trials [REF:1][REF:2].\"}, {\"section_id\": \"s04\", \"section_title\": \"Methodological Quality and Evidence Certainty\", \"diagram_type\": \"comparison_matrix\", \"description\": \"Matrix comparing the three routed meta-analyses by design (RDIF 29-30 day evaluation; RCT-only network meta-analysis; physical-activity comparator with SMD 0.15, 95% CI 0.02-0.28) [REF:4][REF:5][REF:6].\"}, {\"section_id\": \"s05\", \"section_title\": \"Implications for Clinical Practice and Future Research\", \"diagram_type\": \"hierarchy\", \"description\": \"Hierarchy of endpoints: primary clinical endpoints (cardiovascular mortality, myocardial infarction, heart failure) vs intermediate biomarker endpoints (weight, HbA1c, lipids) as specified by the Cochrane protocol [REF:1].\"}]}",
+  "reasoning": "",
+  "input_tokens": 2500,
+  "output_tokens": 280
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "e15589335b53",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent fasting and health outcomes: an umbrella review | Statement: Summary Background Benefits of Intermittent fasting (IF) on health-related outcomes have been found in a range of randomised controlled...\n2. [SILVER] Source: Intermittent fasting modulates the intestinal microbiota and | Statement: To treat obesity and prevent associated diseases, different types of interventions have been applied and studied, including surgery,...\n3. [GOLD] Source: Intermittent fasting modulates the intestinal microbiota and | Statement: As one strategy of fasting, intermittent fasting (IF) has shown consistent performance in relation to weight loss and relevant clinical...\n4. [GOLD] Source: A detective story of intermittent fasting effect on immunity | Statement: Intermittent fasting (IF) refers to periodic fasting routines, that caloric intake is minimized not by meal portion size reduction but by...\n5. [SILVER] Source: A detective story of intermittent fasting effect on immunity | Statement: IF can instigate comprehensive and multifaceted alterations in energy metabolism, these metabolic channels may aboundingly function as...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776280538.3207824
+}

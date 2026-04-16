@@ -1,0 +1,42 @@
+{
+  "request_id": "96b2d053ceb5",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting?\n\nThe interviewer (Dr. Eleanor Whitfield, Economic perspective) asks:\nQUESTION: What is the incremental cost-effectiveness ratio (ICER) of intermittent fasting versus metformin and GLP-1 agonists for type 2 diabetes prevention, measured in cost per QALY gained over a 10-year horizon?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Cost-effectiveness of a periodic fasting-mimicking diet ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12599020/\n  Content: by EL van den Burg \u00b7 2025 \u00b7 Cited by 1 \u2014 The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 2] Economic Evaluation of Fasting Mimicking Diet Versus ...\n  URL: https://www.sciencedirect.com/science/article/pii/S1098301524028468\n  Content: by D Habka \u00b7 2025 \u00b7 Cited by 2 \u2014 This cost-utility analysis showed that the FMD program was associated with 11.4% less diabetes complications, 67.2% less overall diabetes medication use, and ...\n[Source 3] Cost-Effectiveness of Alternative Thresholds of the Fasting ...\n  URL: https://stacks.cdc.gov/view/cdc/28142/cdc_28142_DS1.pdf\n  Content: by X Zhuo \u00b7 2013 \u00b7 Cited by 28 \u2014 However, a lower threshold might be less cost-effective because it incurs costs for intervening in a population with a lower risk of developing type 2 diabetes.\n[Source 4] Cost-effectiveness of a periodic fasting-mimicking diet ...\n  URL: https://pubmed.ncbi.nlm.nih.gov/41214519/\n  Content: by EL van den Burg \u00b7 2025 \u00b7 Cited by 1 \u2014 The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 5] (PDF) Cost-effectiveness of a periodic fasting-mimicking ...\n  URL: https://www.researchgate.net/publication/397459835_Cost-effectiveness_of_a_periodic_fasting-mimicking_diet_programme_in_patients_with_type_2_diabetes_a_trial-based_analysis_and_a_lifetime_model-based_analysis\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 6] Cost-effectiveness of a lifestyle intervention in high-risk ...\n  URL: https://link.springer.com/article/10.1186/s12916-020-01704-9\n  Content: by T Sathish \u00b7 2020 \u00b7 Cited by 45 \u2014 This trial-based cost-effectiveness analysis showed that the incremental cost of the lifestyle intervention was US$95.2 and US$295.1 per ...\n[Source 7] 141-LB: Cost-Effectiveness of Real-Time Continuous Glucose ...\n  URL: https://diabetesjournals.org/diabetes/article/72/Supplement_1/141-LB/149621/141-LB-Cost-Effectiveness-of-Real-Time-Continuous\n  Content: It projects rt-CGM users to have higher quality-adjusted life years (QALYs) by 0.454 with cost savings of -$1,355, and an incremental cost- ...\n[Source 8] The Cost-Effectiveness of Lifestyle Interventions for Preventing ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC7174913/\n  Content: by J Ma \u00b7 2020 \u00b7 Cited by 20 \u2014 Compared with no prevention, lifestyle intervention averted 9.53% of T2DM, which translated into an additional 0.52 QALYs at a saved cost of ...\n[Source 9] Cost-effectiveness of the SLIMMER diabetes prevention ...\n  URL: https://d-nb.info/1206089458/34\n  Content: by G Duijzer \u00b7 2019 \u00b7 Cited by 19 \u2014 Recently, a systematic review found a median ICER for diet and physical activity programmes of $13,761/QALY (2013 price levels), from a health care perspective ...\n[Source 10] Cost-Effectiveness of Varying Weight Loss Interventions\n  URL: https://www.ajmc.com/view/cost-effectiveness-of-varying-weight-loss-interventions-elena-losina-phd\n  Content: Nonpharmacologic interventions like diet and exercise had a lower QALY, ranging from $25,400 to $57,400, which indicates they provide good value ...\n[Source 11] [PDF] Diabetes Prevention Programs: Effectiveness and Value - ICER\n  URL: https://icer.org/wp-content/uploads/2020/10/CTAF_DPP_Final_Evidence_Report_072516.pdf\n  Content: If neither metformin nor acarbose are effective, thiazolidinedione (TZD) or a glucagon-like peptide-1 (GLP-1) receptor agonist should be used. In some cases ...\n[Source 12] Markov model of low- and high-intensity lifestyle programmes and ...\n  URL: https://pubmed.ncbi.nlm.nih.gov/29378576/\n  Content: This study examines the costs and effects of different intensity lifestyle programmes and metformin in participants with different categories of intermediate ...\n[Source 13] [PDF] Diabetes Prevention Programs: Effectiveness and Value - ICER\n  URL: https://icer.org/wp-content/uploads/2020/10/CTAF_DPP_Draft_Evidence_Report_050916-1.pdf\n  Content: If neither metformin nor acarbose are effective, thiazolidinedione (TZD) or a glucagon-like peptide-1 (GLP-1) receptor agonist should be used.\n[Source 14] [PDF] Medications for Obesity Management: Effectiveness and Value - ICER\n  URL: https://icer.org/wp-content/uploads/2022/03/ICER_Obesity_Final_Evidence_Report_and_Meeting_Summary_102022.pdf\n  Content: cardiovascular benefits, if present for GLP-1 receptor agonists in patients without diabetes mellitus, could result in improved cost ...\n[Source 15] The cost-effectiveness of interventions in diabetes: A review of ...\n  URL: https://www.sciencedirect.com/science/article/abs/pii/S1751991810001336\n  Content: Treatment-to-target in patients with diabetes in the UK is generally cost-effective and sometimes cost-saving vs. standard care.\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776271556.4153519
+}

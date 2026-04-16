@@ -1,0 +1,12 @@
+{
+  "request_id": "b99f9af86440",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Intermittent fasting reduced systolic blood pressure by 5.54 mmHg (95% CI: -7.55 to -3.53, p < 0.0001) in metabolic syndrome patients.\n2. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: HDL cholesterol showed minimal changes and glucose levels remained stable under IF in this meta-analysis.\n3. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Metabolic syndrome is defined by a cluster of risk factors including elevated blood pressure, high blood sugar, central obesity, and abnormal choleste\n4. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome | Statement: Common intermittent fasting protocols include the 16:8 method (16 hours fasting daily) and the 5:2 method (24-hour fasts once or twice weekly).\n5. [SILVER] Source: Metabolic observations during starvation and refeeding in ma | Statement: Treatment of massively obese patients via extended or intermittent starvation has historically been described as a relatively benign method for initia",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776279575.8804777
+}

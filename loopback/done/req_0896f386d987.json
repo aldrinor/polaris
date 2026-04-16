@@ -1,0 +1,42 @@
+{
+  "request_id": "0896f386d987",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nThe interviewer (Dr. A, Scientific perspective) asks:\nQUESTION: What gaps remain regarding Pooled effect sizes and GRADE certainty from Scientific standpoint?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Boosting Faradaic Efficiency in Electrochemical Nitrogen ...\n  URL: https://pubs.acs.org/doi/10.1021/acsami.5c17558\n  Content: The results show that the CuSnAu@NF electrocatalyst possesses high activity in the reaction of ENRR. ... All potentials have a constant current ...\n[Source 2] Highly active and selective Ag/C catalysts for CO2 ...\n  URL: https://www.sciencedirect.com/science/article/pii/S2211285524013491\n  Content: by K Seteiz \u00b7 2025 \u00b7 Cited by 6 \u2014 The faradaic efficiencies for CO remained consistently around 80 % at 3.1 V, with a cell voltage degradation rate of 1.5 mV h\u22121. This makes thiol-based linkers ...\n[Source 3] Electrochemical Reduction of CO2 With Good Efficiency on a ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9300885/\n  Content: by J Zeng \u00b7 2022 \u00b7 Cited by 24 \u2014 Many bimetallic catalysts also have good potential to catalyze the CO2RR ... developed a bimetallic Ag/Cu catalyst that achieved a good Faradaic efficiency ...\n[Source 4] A Guideline to Determine Faradaic Efficiency in ...\n  URL: https://pubs.acs.org/doi/10.1021/acsenergylett.3c02362\n  Content: by N Dutta \u00b7 2024 \u00b7 Cited by 105 \u2014 Here we report on Cu catalysts decorated with different alk. earth metal oxides (MOs). We found that BaO delivers a Faradaic efficiency of 61% ...\n[Source 5] Comparison of Faradaic efficiency of different reported ...\n  URL: https://www.researchgate.net/figure/Comparison-of-Faradaic-efficiency-of-different-reported-catalysts-and-the-present-CuGa2_fig8_359196621\n  Content: Among them, CuGa2 selectively converts CO2 to methanol with remarkable Faradaic efficiency (FE) of 77.26% at an extremely low potential of \u20100.3 V versus RHE.\n[Source 6] Strategies To Improve Faradaic Efficiency At Industrial ...\n  URL: https://eureka.patsnap.com/report-strategies-to-improve-faradaic-efficiency-at-industrial-current-densities\n  Content: Various catalyst materials, structures, and compositions can significantly impact the selectivity and efficiency of electrochemical reactions.\n[Source 7] Development of Different Kinds of Electrocatalyst for the ...\n  URL: https://www.mdpi.com/1420-3049/28/20/7016\n  Content: by TW Chen \u00b7 2023 \u00b7 Cited by 12 \u2014 The catalyst demonstrates impressive performance with 84.5% Faradaic efficiency ... Recently, it has been demonstrated that single-atom catalysts possess high ...\n[Source 8] Producing hydrogen with enhanced Faradaic Efficiency\n  URL: https://www.techexplorist.com/producing-hydrogen-enhanced-faradaic-efficiency/31205/\n  Content: \u201cThe Ru@MWCNT catalyst exhibits superior electrochemical properties over the previously announced metal-organic catalysts. The catalyst ...\n[Source 9] Efficiency and selectivity of CO2 reduction to CO on gold ...\n  URL: https://www.nature.com/articles/s41467-021-24936-6\n  Content: by MCO Monteiro \u00b7 2021 \u00b7 Cited by 388 \u2014 As shown in Table 1, sulfate anions not only have the highest conductivity (after OH\u2212) but also allow for working in highly concentrated ...\n[Source 10] Electrocatalytic Systems Surpassing 100% Faradaic Efficiency\n  URL: https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.202528747\n  Content: This review maps electrocatalytic systems exhibiting system-level Faradaic efficiencies FE\u03a3 > 100% (normalized to the external charge) onto ...\n[Source 11] Rating the certainty in evidence in the absence of a single estimate ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5502230/\n  Content: We provide suggestions on the use of GRADE to rate the certainty of evidence when a meta-analysis has not been performed, and instead a narrative summary of the ...\n[Source 12] Assessing the certainty of the evidence in systematic reviews\n  URL: https://academic.oup.com/aje/article/194/6/1681/7746729\n  Content: This article introduces the GRADE approach for assessing the certainty of the evidence and describes how the assessment is done, how they are incorporated when ...\n[Source 13] Chapter 14: Completing 'Summary of findings' tables and grading ...\n  URL: https://www.cochrane.org/authors/handbooks-and-manuals/handbook/current/chapter-14\n  Content: For systematic reviews, the GRADE approach defines the certainty of a body of evidence as the extent to which one can be confident that an estimate of ...\n[Source 14] Effect size and pooling - Conducting Systematic Reviews and Meta ...\n  URL: https://uvanl.libguides.com/c.php?g=723438&p=5319551\n  Content: An effect size is a quantitative metric that captures both the direction and magnitude of a relationship between two entities. When different ...\n[Source 15] Chapter 7: GRADE Criteria Determining Certainty of Evidence - CDC\n  URL: https://www.cdc.gov/acip-grade-handbook/hcp/chapter-7-grade-criteria-determining-certainty-of-evidence/index.html\n  Content: The GRADE approach is used to determine the certainty of evidence across the body of evidence for each outcome identified as critical or important for decision ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318996.9061708
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "07daa339d927",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: The cyclic metabolic switching theory of intermittent fastin | Statement: The effects of intermittent or continuous energy restriction on weight loss and metabolic disease risk markers: a randomized trial in young...\n2. [GOLD] Source: The cyclic metabolic switching theory of intermittent fastin | Statement: Intermittent fasting plus early time-restricted eating versus calorie restriction and standard care in adults at risk of type 2 diabetes: a...\n3. [GOLD] Source: Effects of intermittent fasting on regulation of metabolic h | Statement: Effects of Intermittent Fasting on Regulation of Metabolic Homeostasis: A Systematic Review and Meta-Analysis in Health and...\n4. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: We are currently in the midst of a global obesity epidemic, with its prevalence more than doubling since 1980( 1 ).\n5. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: The development of obesity is closely associated with a number of metabolic complications including insulin resistance and dyslipidaemia,...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776297778.2991695
+}

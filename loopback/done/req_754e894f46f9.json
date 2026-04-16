@@ -1,0 +1,12 @@
+{
+  "request_id": "754e894f46f9",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Mechanisms, generate a process_flow Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: How X works (step-by-step process)\n\nSECTION CONTENT:\nFor self-etch adhesives and silane-based materials, this effect was observed too (p 3.0.CO;2-A. [DOI] [PubMed] [Google Scholar] - 64.Pashley... [10].\n\nInfrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester resins (peak shifts at 1700 cm\u22121 and 110... [11].\n\n**Key Findings**\n\n- For self-etch adhesives and silane-based materials, this effect was observed too (p 3.0.CO;2-A. [DOI] [PubMed] [Google Scholar] - 64.Pashley... [10]\n- Infrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester resins (peak shifts at 1700 cm\u22121 and 110... [11]\n\nSUPPORTING EVIDENCE SUMMARIES:\n- For self-etch adhesives and silane-based materials, this effect was observed too (p 3.0.CO;2-A. [DOI] [PubMed] [Google Scholar] - 64.Pashley...\n- Infrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester resins (peak shifts at 1700 cm\u22121 and 110...",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776314733.419184
+}

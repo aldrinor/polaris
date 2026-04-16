@@ -1,0 +1,61 @@
+{
+  "request_id": "a1843191e217",
+  "call_type": "structured:DiagramAnalysisResult",
+  "schema_name": "DiagramAnalysisResult",
+  "schema_json": {
+    "$defs": {
+      "DiagramRecommendation": {
+        "description": "A single recommendation for a diagram to add to a report section.",
+        "properties": {
+          "section_id": {
+            "description": "The section_id this diagram targets",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "section_title": {
+            "description": "Title of the targeted section",
+            "title": "Section Title",
+            "type": "string"
+          },
+          "diagram_type": {
+            "description": "One of the supported DIAGRAM_TYPES keys",
+            "title": "Diagram Type",
+            "type": "string"
+          },
+          "description": {
+            "description": "What the diagram should show, grounded in the section content",
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section_id",
+          "section_title",
+          "diagram_type",
+          "description"
+        ],
+        "title": "DiagramRecommendation",
+        "type": "object"
+      }
+    },
+    "description": "Full analysis output: which sections deserve diagrams.",
+    "properties": {
+      "recommendations": {
+        "description": "2-5 sections that would benefit from a visual diagram",
+        "items": {
+          "$ref": "#/$defs/DiagramRecommendation"
+        },
+        "title": "Recommendations",
+        "type": "array"
+      }
+    },
+    "title": "DiagramAnalysisResult",
+    "type": "object"
+  },
+  "system": "You are a research report visualization specialist. You identify which report sections benefit most from visual diagrams and select the appropriate diagram type for each.\n\nAvailable diagram types:\n- \"process_flow\": How X works (step-by-step process)\n- \"comparison_matrix\": X vs Y vs Z comparison\n- \"causal_chain\": A causes B which leads to C\n- \"hierarchy\": Classification/taxonomy of findings\n- \"timeline\": Chronological development of topic\n- \"pros_cons\": Advantages vs disadvantages\n- \"decision_tree\": If X then Y, else Z\n\nOutput format example:\n{\"recommendations\": [{\"section_id\": \"s01\", \"section_title\": \"Mechanisms of Action\", \"diagram_type\": \"process_flow\", \"description\": \"Step-by-step process of how compound X binds to receptor Y, triggers pathway Z, and produces effect W as described in the section\"}]}",
+  "prompt": "Given these report sections, identify 2-5 that would benefit from a visual diagram. For each, specify the diagram type and what the diagram should show.\n\nSECTIONS:\n--- Section s01: Definitions and Taxonomy of Intermittent Fasting Protocols (339 words) ---\nIntermittent fasting encompasses several protocols that alternate defined fasting windows with feeding windows. Two specific protocol definitions are directly supported by the evidence set.\n\nAlternate-day fasting is defined as a cyclical feeding pattern that entails complete fasting, meaning consumption of no calories, for a period of 24 hours, followed by ad libitum feeding for 24 hours [REF:1]. Time-restricted feeding is defined as complete fasting, meaning consumption of no calories, for at least 12 hours per day with ad libitum feeding for the rest of the day [REF:1]. These two definitions anchor the operational language used in subsequent efficacy and safety sections of this review.\n\nThe empirical base associated with these protocols is characterised quantitatively by a meta-analysis identifying twenty-eight trials that studied time-restricted eating, alternate-day fasting, or the 5:2 diet for 2\u201352 weeks [REF:2]. The distribution of trials across protocols was seven trials for time-restricted eating, ten trials for alternate-day fasting, and eleven trials for the 5:2 diet [REF:2].\n\nComparative framing of the two operationally defined protocols shows a difference in physiological exposure duration. Alternate-day fasting applies a 24-hour complete-fasting window [REF:1], whereas time-restricted feeding applies a daily fast of at least 12 hours [REF:1]. The 5:2 diet is present in the trial count distribution but is not defined in the claim set routed to this section and sho [...]\n\n--- Section s02: Efficacy of Intermittent Fasting versus Continuous Energy Restriction (247 words) ---\nIntermittent fasting has been examined for its effects on body composition and cardiometabolic health, alongside comparisons with exercise training and with continuous energy restriction.\n\nExercise training and intermittent fasting are each effective for improving body composition and cardiometabolic health [REF:3]. The question of whether combining exercise and intermittent fasting induces additive or synergistic effects is less well established [REF:3]. A systematic review and meta-analysis was performed specifically to compare the combined versus independent effects of exercise and intermittent fasting [REF:3].\n\nThe uncertainty about additive or synergistic combined effects [REF:3] is the central unresolved question in this evidence set. It is characterised by the original review authors as less well established [REF:3], and the choice of a systematic-review design was a direct response to that uncertainty [REF:3].\n\nTaken together, three statements are supportable from the routed evidence: exercise and intermittent fasting each have directional cardiometabolic effects [REF:3]; the combined-versus-independent effect question is not well established [REF:3]; and a meta-analytic design was applied to address that specific question [REF:3]. Quantitative effect estimates comparing intermittent fasting with continuous energy restriction are not present in the routed claim set and therefore cannot be reported here.\n\n**Key Findings**\n- Exercise training and intermittent fasting ar [...]\n\n--- Section s03: Safety Signals and Population-Specific Contraindications (200 words) ---\nEvidence on safety signals and population-specific contraindications for intermittent fasting is limited in the claim set routed to this section.\n\nA network meta-analysis was designed to assess the effect of intermittent fasting diets, with continuous energy restriction or unrestricted ad-libitum diets, on intermediate cardiometabolic outcomes [REF:5]. The study used network meta-analysis to compare intermittent fasting diets with continuous energy restriction and ad-libitum diets [REF:5]. Meta-analytic effect sizes of changes in cardiometabolic risk factors in healthy adult Muslims observing Ramadan diurnal intermittent fasting were measured [REF:4]. A meta-analysis compared the effects of three intermittent energy restriction protocols with continuous energy restriction on anthropometrics and cardiometabolic risk markers in healthy adults [REF:2].\n\nInference populations are narrow: healthy adults [REF:2], and healthy adult Muslims observing Ramadan fasting [REF:4]. The studies did not include individuals with conditions such as diabetes on hypoglycaemia-prone medications, pregnant or lactating individuals, or adolescents.\n\n**Key Findings**\n- A network meta-analysis evaluated intermittent fasting against continuous energy restriction and ad-libitum diets on intermediate cardiometabolic outcomes [REF:5].\n- A meta-analysis measured cardiometabolic risk factor effect sizes in healthy adult Muslims observing Ramadan fasting [REF:4].\n- A meta-analysis compared three intermittent  [...]\n\n--- Section s04: Methodological Quality and Evidence Certainty (194 words) ---\nMethodological quality across the routed review base is characterised by three directly supported claims.\n\nA Ramadan diurnal intermittent fasting (RDIF) meta-analysis evaluated the effects of RDIF over 29-30 days on cardiometabolic risk factors (CMRF) in healthy adults [REF:4]. A network meta-analysis required eligibility of randomised clinical trials comparing intermittent fasting diets, including alternate-day fasting [REF:5]. A comparator meta-analysis of behavioural physical-activity interventions reported daily steps 24 months post baseline with four studies pooled producing a standardised mean difference of 0.15 and a 95% confidence interval from 0.02 to 0.28 [REF:6].\n\nThe RCT-only eligibility filter [REF:5] is a strength for internal validity. The defined exposure duration of 29-30 days in the Ramadan meta-analysis [REF:4] produces a clearly bounded exposure window. The small but statistically significant effect size of SMD 0.15 with 95% CI 0.02-0.28 [REF:6] illustrates the magnitude pattern typical of lifestyle-intervention meta-analyses.\n\n**Key Findings**\n- A Ramadan diurnal intermittent fasting meta-analysis evaluated effects over 29-30 days on cardiometabolic risk factors in healthy adults [REF:4].\n- A network meta-analysis required randomised clinical trial eligibility for inclusion [REF:5].\n- An analogous lifestyle-intervention meta-analysis reports SMD 0.15 (95% CI 0.02-0.28) at 24 months across four studies [REF:6].\n\n--- Section s05: Implications for Clinical Practice and Future Research (113 words) ---\nPrimary outcomes for the Cochrane review of intermittent fasting in cardiovascular-disease prevention are cardiovascular mortality, myocardial infarction, and heart failure [REF:1]. This outcome specification frames the evidence threshold required to support claims of cardiovascular-disease prevention through intermittent fasting.\n\nThe primary-outcome triad of cardiovascular mortality, myocardial infarction, and heart failure [REF:1] identifies the hard clinical endpoints on which definitive preventive claims would be evaluated. Trials reporting only intermediate biomarkers do not yet directly address these primary outcomes [REF:1].\n\n**Key Findings**\n- Primary outcomes for the Cochrane intermittent-fasting review are cardiovascular mortality, myocardial infarction, and heart failure [REF:1].\n- Intermediate-biomarker trials do not directly address the primary clinical endpoints identified in the Cochrane protocol [REF:1].\n\nConstraints:\n- Select at most 5 sections.\n- Only recommend a diagram if it adds genuine clarity beyond the text.\n- The description must reference specific facts or structures present in the section content.\n- Choose the diagram type that best fits the section's analytical structure.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776383591.5399926
+}

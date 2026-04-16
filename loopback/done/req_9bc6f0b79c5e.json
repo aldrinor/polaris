@@ -1,0 +1,165 @@
+{
+  "request_id": "9bc6f0b79c5e",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.news-medical.net/news/20241001/Time-restricted-eating-could-offer-health-benefits-to-adults-with-metabolic-syndrome.aspx\nSource title: Time-restricted eating could offer health benefits to adults with ...\nSource type: web\nContent:\nMore than one-third of adults in the United States have metabolic syndrome, a cluster of conditions that significantly raise a person's risk of heart disease, stroke, and type 2 diabetes. These conditions include high blood pressure, elevated blood sugar, excess abdominal fat, and abnormal cholesterol levels. In a new clinical trial, researchers at the Salk Institute and University of California San Diego School of Medicine found that time-restricted eating - also known as intermittent fasting - could offer significant health benefits to adults with metabolic syndrome. Patients who ate within a consistent eight-to-ten-hour window each day for three months saw improvements in several markers of blood sugar regulation and metabolic function compared to those who received standard treatments. Our bodies actually process sugars and fats very differently depending on the time of day. In time-restricted eating, we are re-engaging the body's natural wisdom and harnessing its daily rhythms to restore metabolism and improve health.\" Satchidananda Panda, Salk Professor, co-corresponding author of the study and holder of the Rita and Richard Atkinson Chair The TIMET study is the first to evaluate the benefits of a customized time-restricted eating schedule in patients taking medication for metabolic syndrome. The results were published on September 30, 2024, in Annals of Internal Medicine. \"For many patients, metabolic syndrome is the tipping point that leads to serious and chronic diseases like diabetes and heart disease,\" says co-corresponding author Pam Taub, professor of medicine at the UC San Diego School of Medicine and a cardiologist at UC San Diego Health. \"There is an urgent need for more effective lifestyle interventions that are accessible, affordable, and sustainable for the average American.\" Western diets high in sugar, salt, and fat, combined with increasingly sedentary lifestyles, are thought to have contributed to the rising rates of metabolic dysfunction. While the initial recommendation may be to \"eat less and move more,\" these lifestyle changes are difficult for most people to sustain long-term. The researchers say time-restricted eating offers a more practical approach accessible to a wider range of patients, including those already on medication. \"Unlike expensive pharmaceuticals like Ozempic, which require lifetime use, time-restricted eating is a simple lifestyle change that doesn't cause side effects and can be maintained indefinitely,\" says first author Emily Manoogian, a staff scientist in Panda's lab at Salk. \"Patients appreciate that they don't have to change what they eat, just when they eat.\" In the new study, time-restricted eating protocols were customized to each participant's eating habits, sleep/wake schedules, and personal commitments. The resulting regimen had them reduce their eating window to a consistent eight to ten hours per day, beginning at least one hour after waking up and ending at least three hours before going to sleep. Manoogian says this personalized approach made the intervention easier for patients to complete, compared to other intermittent fasting studies, which typically assign the same strict time window to all participants. The TIMET study also accepted participants who were on medication for metabolic syndrome - a group usually excluded from such trials. This makes it the first study to measure the benefits of time-restricted eating in addition to existing standard-of-care pharmacological treatments. In the study, 108 adults with metabolic syndrome were randomly sorted into either the time-restricted eating group or the control group. Both groups continued to receive standard-of-care treatments and underwent nutritional counseling on the Mediterranean diet. Participants also logged their meals using the myCircadianClock mobile app, developed at Salk. After three months, patients who had completed the time-restricted eating regimen showed improvements in key markers of cardiometabolic health, including blood sugar and cholesterol. They also saw lower levels of hemoglobin A1c, a marker of long-term blood sugar control. This reduction was similar in scale to what is typically achieved through more intensive interventions by the National Diabetes Prevention Program. The time-restricted eating group also showed 3-4% greater decreases in body weight, body mass index (BMI), and abdominal trunk fat, a type of fat closely linked to metabolic disease. Importantly, these participants did not experience significant loss of lean muscle mass, which is often a concern with weight loss. The TIMET trial adds to a growing body of evidence supporting the use of time-restricted eating as a practical, low-cost intervention to improve cardiometabolic health. The promising results suggest that healthcare providers could consider recommending the lifestyle intervention to patients with metabolic syndrome as a complement to existing treatments, though additional long-term studies are needed to determine whether time-restricted eating can sustain these benefits and ultimately reduce the risk of chronic disease. Other authors include Monica O'Neal, Kyla Laing, and Nikko R. Gutierrez of Salk, and Michael J. Wilkinson, Justina Nguyen, David Van, Ashley Rosander, Aryana Pazargadi, Jason G. Fleischer, and Shahrokh Golshan of UC San Diego. The work was supported by the National Institutes of Health (R01DK118278, R01CA258221, P30CA014195, UL1TR001442), the Robert Wood Johnson Foundation (76014), and the Larry L. Hillblom Foundation Postdoctoral Fellowship. Source: Journal reference: Manoogian, E. N. C., et al. (2024). Time-Restricted Eating in Adults With Metabolic Syndrome. Annals of Internal Medicine. doi.org/10.7326/m24-0859.\n---Source URL: https://www.mdpi.com/2077-0383/12/11/3699\nSource title: Effects of intermittent fasting on regulation of metabolic homeostasis: a systematic review and meta-analysis in health and metabolic-related disorders\nSource type: academic\nContent:\nEffects of Intermittent Fasting on Regulation of Metabolic Homeostasis: A Systematic Review and Meta-Analysis in Health and Metabolic-Related Disorders Abstract 1. Introduction 2. Materials and Methods 2.1. Search Strategies 2.2. Eligibility 2.3. Study Selection 2.4. Outcomes Measures 2.5. Data Extraction, Management and Synthesis 2.6. Quality Assessment 3. Results 3.1. Search Results 3.2. Characteristics of Included Studies 3.3. Quality Assessment | Study Type | Control Conditions | Experimental Conditions | IF Protocol | Duration (Days) | Age (Mean \u00b1 SD) | Participants (n and Gender) | Results Overview | | |---|---|---|---|---|---|---|---|---| | 1. Guo I, et al., 2021 [32] | RCT | MetS | MetS | ADF 5 + 2 (NC) | 56 | CTL = 42.7 \u00b1 4.1 EG = 36.6 \u00b1 5.7 | CTL\u201411 M/7 W EG\u201410 M/12 W | Weight, waist circumference, BMI, triglycerides, insulin resistance and fasting insulin were significantly improved after IF. CTL comprises individuals with MetS maintained their habitual diet and lifestyle. | | 2. Parvaresh A, et al., 2019 [47] | RCT | - | MetS | ADF 4 + 3 (NC) | 56 | EG = 44.6 \u00b1 9.8 | EG\u201421 M/14 W | mADF diet is an effective option for managing body weight, waist circumference, systolic blood pressure and fasting plasma glucose when compared with common calorie restriction. CTL comprises individuals with MetS that consumed 75% of their energy needs each day. | | 3. Gabel K, et al., 2019 [29] | RCT | - | Obesity | ADF 1 + 1 (NC) | 365 | CTL = 43 \u00b1 1 EG = 43 \u00b1 3 | CTL\u20144 M/11 W EG\u20149 M/2 W | ADF may produce greater reductions in fasting insulin and insulin resistance compared with caloric restriction in insulin-resistant participants despite similar decreases in body weight. CTL comprises obese individuals that maintained their usual eating and activity habits. | | 4. Cho A-Ra, et al., 2019 [23] | RCT | - | Overweight | ADF 4 + 3 (NC) | 56 | CTL = 42.6 \u00b1 10.6 EG = 33.5 \u00b1 5 | CTL\u20143 M/2 W EG\u20143 M/6 W | Exercise, with or without ADF, improves cholesterol metabolism (serum sterol signatures) and increased physical activity has a greater effect on cholesterol biosynthesis than weight reduction or calorie restriction. CTL comprises overweight individuals that maintained their usual eating and activity habits. | | 5. Corley BT, et al., 2018 [9] | RCT | - | T2D | ADF 5 + 2 (C) 5 + 2 (NC) | 84 | 62 (44 to 77) * 58 (42 to 74) * | 11 M/7 W 11 M/8 W | IF in a 5 + 2 protocol (both consecutive and non-consecutive) increases the rate of hypoglycaemia in patients with T2D, even after education on this topic and medication adjustments. Yet it improves weight, HbA1c, fasting glucose and quality of life (both protocols). | | 6. Hutchison AT, et al., 2018 [34] | RCT | Overweight or Obesity | Overweight or Obesity | ADF 4 + 3 (NC) | 70 | CTL 1 = 49 \u00b1 3 CTL 2 = 49 \u00b1 2 EG-IF100 = 51 \u00b1 2 EG-IF70 = 51 \u00b1 2 | CTL 1\u201411 W CTL 2\u201411 W EG-IF100\u201422 W EG-IF70\u201422 W | IF combined with a 30% caloric restriction is better at improving weight, fat mass, HOMA-IR, fasting glucose, non-esterified fatty acids, total cholesterol, LDL-cholesterol and triglycerides than energy-matched continuous caloric restriction. CTL comprises overweight or obese women maintained under continuous food intake at 100% of baseline energy requirements. | | 7. Sundf\u00f8r TM, et al., 2018 [54] | RCT | - | Overweight and MetS | ADF 5 + 2 (NC) | 365 | EG = 49.9 \u00b1 10.1 | EG\u201428 M/26 W | Both intermittent and continuous energy restriction promoted similar weight loss, maintenance and improvement in cardiovascular risk factors after one year. However, the feelings of hunger, appears to be more pronounced during IF. | | 8. Trepanowski JF, et al., 2018 [61] | RCT | - | Obesity | ADF 1 + 1 (NC) | 168 | CTL = 44 \u00b1 2 EG = 46 \u00b1 2 | CTL\u20144 M/21 W EG\u20143 M/22 W | ADF and CR similarly increased the fat-free mass:total-mass ratio, decreased circulating leptin and did not affect the visceral adipose tissue:subcutaneous adipose tissue ratio or other measured adipokines. Weight loss, rather than the pattern of energy restriction, appeared to be the main driver of these changes. CTL comprises obese individuals that maintained their usual diet. | | 9. Conley M, et al., 2018 [25] | RCT | - | Obesity | ADF 5 + 2 (NC) | 180 | EG = 68 \u00b1 2.7 | EG\u201411 M | The 5:2 diet is a feasible weight loss strategy in this older male population. Furthermore, it also indicates that participants were able to follow the diet sufficiently to induce magnitudes of weight loss similar to that of standard dietary modification practices, and the diet did not appear to cause an unbalanced nutritional intake. | | 10. Li C, et al., 2017 [43] | RCT | T2D | T2D | ADF 1 week fasting | 7 | CTL = 64.4 \u00b1 5.7 EG = 64.7 \u00b1 7 | CTL\u201416 NS EG\u201416 NS | A 1-week fasting therapy is promising for the improvement of weight, waist circumference, SBP, DBP and HOMA-IR in T2D patients, when compared with typical T2D medication. CTL comprises T2D individuals that followed the principles of a Mediterranean diet. | | 11. Catenacci VA et al., 2016 [22] | RCT | - | Obesity | ADF 1 + 1 (NC) | 56 | EG = 39.6 \u00b1 9.5 | EG\u20143 M/10 W | ADF is a safe and tolerable approach for weight loss, it improved weight, body composition, lipids and insulin sensitivity index at 8 weeks while not increasing the risk for weight regain up-to 24 weeks after completing the intervention. | | 12. Hoddy KK, et al., 2014 [33] | RCT | - | Obesity | ADF 1 + 1 (NC) | 70 | ADF-L: 45 \u00b1 3 ADF-D: 45 \u00b1 3 ADF-SM: 46 \u00b1 2 | ADF-L: 3 M/17 W ADF-D: 4 M/15 W ADF-SM: 2 M/18 W | This study demonstrated there is flexibility in the timing of the fast day meal during ADF. People with obesity may feed at dinner or as small meals throughout the day, and experience similar weight loss, body composition and cardiovascular benefits as the traditional lunch time approach. | | 13.Varady KA et al., 2009 [55] | CRS | - | Obesity | ADF 1 + 1 (NC) | 56 | EG = 46 \u00b1 2.4 | EG\u20144 M/12 W | ADF is a viable diet option to help obese individuals lose weight and decrease coronary artery disease risk. | | 1. Kotarsky CJ, et al., 2021 [41] | RCT | Overweight or Obesity | Overweight or Obesity | TRF 16 + 8 | 56 | CTL = 44 \u00b1 2 EG = 45 \u00b1 3 | CTL\u20149 M/1 W EG\u20149 M/2 W | IF associated with exercise training is a short-term dietary strategy for reducing fat mass and increasing lean mass in overweight and obese adults. CTL comprises overweight or obese individuals that maintained their usual diet. | | 2. de Oliveira Maranhao Pureza IR, et al., 2021 [26] | RCT | Overweight or Obesity | Overweight or Obesity | TRF 12 + 12 | 365 | 19\u201344 | EG \u201331 W | IF may help in the long-term management of obesity. | | 3. Kunduraci YE, et al., 2020 [7] | RCT | MetS | MetS | TRF 16 + 8 | 84 | EG = 47.44 \u00b1 2.17 | EG\u201416 M/16 W | Weight, BMI, total cholesterol, LDL, triglycerides, fasting glucose, systolic and diastolic blood pressure, insulin resistance and fasting insulin were significantly improved after IF. | | 4. Cienfuegos S, et al., 2020 [24] | RCT | - | Obesity | TRF 20 + 4 18 + 6 | 56 | 4 h_TRF: 49 \u00b1 2 6 h_TRF: 46 \u00b1 3 | 4 h_TRF: 2 M/14 W 6 h_TRF: 1 M/18 W | 4- and 6-h TRF regimens lead to similar weight loss over the 2 months in peolple with obesity while also decreasing insulin resistance and oxidative stress. CTL comprises obese individuals that maintained their usual diet. | | 5. Jones R, et al., 2020 [35] | CCS | Healthy | Healthy | TRF 16 + 8 | 14 | CTL = 23 \u00b1 1 EG = 23 \u00b1 1 | CTL\u20148 M EG\u20148 M | Weight showed significant improvement after IF. CTL comprises healthy individuals following a dietary plan provided with all food and beverages that matched the macronutrient composition (45% CHO, 35% fat and 20% protein). | | 6. Zhao L, et al., 2022 [58] | CRS | Overweight | TRF 14 + 10 | 56 | 63 \u00b1 4 | 15 M | This study demostrated that TRF had a net effect of reducing glycemia and dampening energy-consuming pathways in adipose tissue. | | | 7. Parr EB, et al., 2020 [46] | CRS | T2D | T2D | TRF 15 + 9 | 28 | 50.2 \u00b1 8.9 | 9 M/10 W | Fasting insulin showed significant improvements after IF. | | 8. Gabel K, et al., 2020 [30] | CRS | - | Obesity | TRF 16 + 8 | 84 | - | 14 M | This study suggest that the mild weight loss (2%) induced by time restricted eating did not significantly alter the diversity or overall composition of the gut microbiome. | | 9. Wilkinson MJ, et al., 2020 [56] | CRS | - | MetS | TRF 14 + 10 | 84 | 59 \u00b1 11.4 | 15 M/6 W | TRF mproved cardiometabolic health of patients with metabolic syndrome receiving standard medical care including high rates of statin and anti-hypertensive use. | | 10. Anton SD, et al., 2019 [19] | CRS | - | Overweight | TRF 16 + 8 | 21 | 77.1 | 4 M/6 W | TRF is an acceptable and feasible eating pattern for overweight, older adults to follow while also promoting short-term weight loss. | | 11. Keszty\u00fcs D, et al., 2019 [38] | CRS | - | MetS | TRF 16 + 8 | 90 | 49.1\u00b1 12,4 | 9 M/31 W | TRE may help to reduce abdominal obesity and hence prevent cardio-metabolic diseases. | | 12. Arnason FB, et al., 2017 [20] | CRS | - | T2D | TRF 18\u201320 h fasting per day | 14 | 53.8 \u00b1 9.11 | 1 M/9 W | Weight and BMI were improved after IF. | | 13. Schroder JD, et al., 2021 [51] | NRCT | Obesity | Obesity | TRF 16 + 8 | 90 | CTL = 42.3 \u00b1 3.5 EG = 36.6 \u00b1 1.6 | CTL\u201412 W EG\u201420 W | Weight, waist circumference, BMI, SBP and DBP were improved after IF. CTL comprises obese individuals that maintained their usual diet. | | 1. Zouhal H, et al., 2020 [59] | RCT | - | Obesity | RF Ramadan | 30 | CTL = 23.8 \u00b1 3.8 EG = 24 \u00b1 3.4 | CTL\u201414 M EG\u201414 M | Ramadan fasting improves systemic inflammation biomarkers in males with obesity. CTL comprises obese individuals that did not fast during Ramadan. | | 2. Zouhal H, et al., 2020 [60] | RCT | - | Obesity | RF Ramadan | 30 | CTL = 23.8 \u00b1 3.7 EG = 24.5 \u00b1 3.8 | CTL\u201415 M EG\u201415 M | IF during Ramadan is an effective strategy to modify appetite-regulating hormones, leading to improved body composition indices and reduced obesity. | | 3. Abdullah K, et al., 2020 [18] | CS | Healthy | Healthy or T2D | RF Ramadan | 30 | CTL = 34.61 \u00b1 4.31 EG = 34.35 \u00b1 3.83 EG = 50.17 \u00b1 12.95 | CTL\u201431 M EG\u201437 M EG\u201430 M | This study compares the effect of IF in patients with T2D, their first-degree relatives and healthy individuals. Leptin, adiponectin, leptin:adiponectin ratio, HOMA-beta and HbA1c were significantly improved in all groups. Fasting blood glucose and growth hormone levels were improved in control and first-degree relatives. C-peptide, HOMA-IR, HOMA-S and insulin levels were improved in T2D patients and first-degree relatives. CTL comprises healthy control with fasting blood glucose <100 mg/dL. | | 4. Yeoh ECK, et al., 2015 [57] | CS | T2D | RF Ramadan | 30 | 57 \u00b1 11 | 15 M/14 W | Ramadan fasting can be practiced safely with prior patient education and medication adjustment with modest benefits on metabolic profile and body composition, particularly among females. | | | 5. Feizollahzadeh S, et al., 2014 [28] | CS | - | Healthy with Overweight | RF Ramadan | 30 | 47.88 | 70 M | Weight and BMI were improved after IF although total cholesterol, triglycerides and fasting glucose levels were also increased. | | 6. Karatoprak C, et al., 2013 [37] | CS | T2D | RF Ramadan | 30 | 57.4 \u00b1 10.1 | 19 M/57 W | Results showed no negative effects of extended fasting on glucose regulation in diabetic patients using certain medications. | | | 7. McNeil J, et al., 2014 [45] | CCS | Healthy | Obesity | RF Ramadan | 14 | 27 \u00b1 4.5 | 10 M | Data demostrated significant increased of glucose, total cholesterol and LDL-C levels during Ramadan fast in normal-weight and obese men. Dietary restraint scores were also greater during Ramadan. Lastly, changes in anthropometric parameters were related to changes in metabolic profiles, dietary restraint and disinhibition eating behavior trait scores. | | 8. Kovil R, et al., 2020 [42] | CRS | - | T2D | RF Ramadan | 30 | 21\u201380 ** | 25 M/25 W | This study did not show any significant changes in the parameters evaluated after IF. | | 9. Faris E, et al., 2019 [27] | CRS | - | Overweight or Obesity | RF Ramadan | 30 | 36.2 \u00b1 12.5 | 35 M/22 W | Weight, BMI, total cholesterol, triglycerides and SBP were improved after IF although HDL was also decreased. | | 10. Madkour MI, et al., 2019 [44] | CRS | - | Healthy or Obesity | RF Ramadan | 30 | CTL = 29.8 \u00b1 14 EG = 35.72 \u00b1 12.35 | CTL\u20146 EG\u201434 M/22 W | Fasting glucose, insulin, insulin resistance expressed in homeostatic model assessment (HOMA-IR) remained unchanged throughout the study, while significant (p < 0.05) decreases in total cholesterol, triglycerides and HDL cholesterol were observed. | | 11. Abdessadek M, et al., 2019 [17] | CRS | - | T2D | RF Ramadan | 30 | - | 57 M/93 W | This study showed a significant decrease in glycemic parameters (glycated haemoglobin and fasting blood glucose), and also significant variations in lipid profile before and after Ramadan, respectively. Furthermore, it also demostrated that in well-controlled T2D patients under antidiabetic drugs, the risk of hypoglycaemia is very low and patients may fast safely in Ramadan. | | 12. Prasetya G, et al., 2018 [48] | CRS | - | Healthy | RF Ramadan | 29 | 24.3 \u00b1 3.7 | 27 M | Weight, waist circumference, BMI, insulin resistance and fasting insulin were improved after IF although HDL levels were also decreased. | | 13. Kamble S, et al., 2018 [36] | CRS | - | Healthy | RF Ramadan | 39 | 20\u201335 ** | 30 (NS) | No changes after IF. | | 14. Sezen Y, et al., 2016 [52] | CRS | - | Obesity | RF Ramadan | 30 | 37 \u00b1 7 | 70 M | Ramadan fasting was beneficial for body composition, but had no effect on arterial stiffness and resting heart rate. | | 15. Gnanou JV, et al., 2015 [31] | CRS | - | Healthy | RF Ramadan | 39 | 19\u201323 ** | 20 M | Weight, BMI, fasting glucose, fasting insulin and insulin resistance were improved after IF. | | 16. Sahin SB, et al., 2013 [49] | CRS | - | T2D | RF Ramadan | 30 | 56.93 \u00b1 9.57 | 40 M/82 W | Fasting during Ramadan did not worsen the glycemic control of T2D patients. | | 17. Shariatpanahi MV, et al., 2012 [53] | CRS | - | MetS | RF Ramadan | 30 | 40.14 \u00b1 10.8 | 65 M | Change in the number and timing of meals and portioning of the daily energy consumption decreases inflammatory markers in MetS. | | 18. Salehi M and Neghab M, 2007 [50] | CRS | - | Obesity | RF Ramadan | 29 | 23.4 \u00b1 1.3 | 28 M | Consumption of a medium calorie balanced diet in conjunction with sufficient fluid intake during Ramadan and fasting may significantly decrease serum levels of glucose, cholesterol, as well as weight and BMI. | | 19. Khaled MB, et al., 2006 [39] | CRS | - | Obesity | RF Ramadan | 29 | 23.4 \u00b1 1.3 | 60 W | Beneficial effect of Ramadan fasting on glucose homeostasis, and an unbalanced profile on lipids. | | 20. Khatib FA and Shafagoj YA, 2004 [40] | CRS | - | T2D/Obesity | RF Ramadan | 29 | 51 \u00b1 10 | 44 M | Non-insulin dependent T2D patients displayed a trend towards better glycemic control following Ramadan fasting. | | 21. Bener A, et al., 2018 [21] | CSS | T2D | RF Ramadan | 30 | 55.39 \u00b1 15.3 | 593 M/653\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776284708.8191075
+}

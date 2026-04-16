@@ -1,0 +1,12 @@
+{
+  "request_id": "ba7a4c946591",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Electrochemical properties of catalysts. a) Faradaic ... | Statement: The PON-Ag catalyst was dominated by (110) and (100) orientation, which allowed PON-Ag to achieve a CO Faradaic efficiency of 96.7% at an op...\n2. [SILVER] Source: Electrochemical manufacturing of hydrogen peroxide with high | Statement: This recirculation strategy boosted the H2O2 FE from 23% to 50% to produce a 30 wt % H2O2 stream and successfully extended the lifetime of t...\n3. [SILVER] Source: Electrochemical manufacturing of hydrogen peroxide with high | Statement: The Solid-Polymer-Electrolyte Coelectrolysis of O2 and Water to Pure 26 wt % H2O2 Aqueous Solutions with 81% Current Efficiency.\n4. [SILVER] Source: The Faraday efficiency of nitrate reduction reactions and se | Statement: The origin of the prominent activity enhancement for CuO (Faradaic efficiency: 95.8 %, Selectivity: 81.2 %) toward selective nitrate electro...\n5. [SILVER] Source: The Faraday efficiency of nitrate reduction reactions and se | Statement: Effect of supporting matrixes on performance of copper catalysts in electrochemical nitrate reduction to ammonia Journal of Power Sources , ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319158.4221427
+}

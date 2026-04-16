@@ -1,0 +1,165 @@
+{
+  "request_id": "5f3b4575ab57",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pubs.rsc.org/en/content/articlehtml/2019/cs/c9cs00159j\nSource title: Electrochemical nitrogen fixation and utilization: theories, advanced catalyst materials and system design\nSource type: academic\nContent:\nElectrochemical nitrogen fixation and utilization: theories, advanced catalyst materials and system design\nNitrogen is a fundamental constituent for all living creatures on the Earth and modern industrial society. The current nitrogen industry is largely powered by fossil fuels with huge energy consumption and carbon dioxide emission, and nitrogen pollution in surface water bodies induced by the indiscriminate discharge of industrial and domestic wastewater has become a worldwide environmental concern. Electrochemical techniques for nitrogen fixation and transformation under mild conditions are promising approaches to meet the challenge of efficiently managing and balancing the nitrogen cycle, where the rational design of advanced electrocatalysts from both structural and compositional aspects down to the nanoscale plays the most essential role. Herein, important nitrogen species including dinitrogen (N2), ammonia (NH3) and hydrazine (N2H4), their transformation processes between each other including the nitrogen reduction reaction (NRR), ammonia oxidation reaction (AOR) and hydrazine oxidation reaction (HzOR), and research progress on the development of related electrocatalysts are systematically summarized, aiming at establishing a general picture of the whole nitrogen cycle instead of a certain single reaction. Strategies combining theoretical computations and experimental optimizations are proposed to improve the catalytic performance including activity, efficiency, selectivity and stability, finally contributing to a self-sufficient and carbon-free \u201cgreen\u201d nitrogen economy.\n---Source URL: https://eureka.patsnap.com/report-strategies-to-improve-faradaic-efficiency-at-industrial-current-densities\nSource title: Strategies To Improve Faradaic Efficiency At Industrial ...\nSource type: web\nContent:\nStrategies To Improve Faradaic Efficiency At Industrial Current Densities SEP 5, 20259 MIN READ Generate Your Research Report Instantly with AI Agent Patsnap Eureka helps you evaluate technical feasibility & market potential. Faradaic Efficiency Background and Objectives Faradaic efficiency represents a critical parameter in electrochemical processes, measuring the percentage of electrical charge that contributes to the desired reaction versus competing side reactions. The concept originated in the 19th century with Michael Faraday's laws of electrolysis but has gained renewed significance in modern industrial applications. Understanding and optimizing Faradaic efficiency has become increasingly important as industries seek more sustainable and economically viable electrochemical processes. The evolution of Faradaic efficiency research has progressed from fundamental electrochemical studies to sophisticated industrial applications. Initially focused on basic metal electrodeposition, the field has expanded to encompass complex reactions including CO2 reduction, water splitting for hydrogen production, and organic electrosynthesis. This progression reflects broader technological trends toward green chemistry, renewable energy storage, and carbon-neutral industrial processes. Current industrial applications face significant challenges when operating at high current densities, which are essential for commercial viability. As current density increases, Faradaic efficiency typically decreases due to mass transport limitations, increased side reactions, and heat generation. This inverse relationship creates a technological bottleneck that limits the economic feasibility of many promising electrochemical technologies. The primary objective of improving Faradaic efficiency at industrial current densities is to bridge the gap between laboratory demonstrations and commercial implementation. Achieving high efficiency (>90%) while maintaining industrially relevant current densities (>200 mA/cm\u00b2) would enable widespread adoption of electrochemical processes as alternatives to traditional chemical manufacturing routes. This would significantly reduce energy consumption and environmental impact across multiple industries. Recent technological breakthroughs have demonstrated promising approaches to this challenge, including advanced catalyst design, innovative cell architectures, and precise control of reaction conditions. These developments suggest that dramatic improvements in Faradaic efficiency at high current densities are achievable through systematic research and engineering optimization. The economic implications of such improvements are substantial. Even modest increases in Faradaic efficiency can translate to significant cost savings in large-scale operations through reduced energy consumption and increased product yield. For emerging technologies like CO2 electroreduction and green hydrogen production, enhanced Faradaic efficiency could be the determining factor in achieving market competitiveness against established processes. This technical investigation aims to comprehensively examine strategies for improving Faradaic efficiency at industrial current densities, with particular focus on identifying approaches that can be implemented in near-term industrial settings while establishing a foundation for longer-term technological development. The evolution of Faradaic efficiency research has progressed from fundamental electrochemical studies to sophisticated industrial applications. Initially focused on basic metal electrodeposition, the field has expanded to encompass complex reactions including CO2 reduction, water splitting for hydrogen production, and organic electrosynthesis. This progression reflects broader technological trends toward green chemistry, renewable energy storage, and carbon-neutral industrial processes. Current industrial applications face significant challenges when operating at high current densities, which are essential for commercial viability. As current density increases, Faradaic efficiency typically decreases due to mass transport limitations, increased side reactions, and heat generation. This inverse relationship creates a technological bottleneck that limits the economic feasibility of many promising electrochemical technologies. The primary objective of improving Faradaic efficiency at industrial current densities is to bridge the gap between laboratory demonstrations and commercial implementation. Achieving high efficiency (>90%) while maintaining industrially relevant current densities (>200 mA/cm\u00b2) would enable widespread adoption of electrochemical processes as alternatives to traditional chemical manufacturing routes. This would significantly reduce energy consumption and environmental impact across multiple industries. Recent technological breakthroughs have demonstrated promising approaches to this challenge, including advanced catalyst design, innovative cell architectures, and precise control of reaction conditions. These developments suggest that dramatic improvements in Faradaic efficiency at high current densities are achievable through systematic research and engineering optimization. The economic implications of such improvements are substantial. Even modest increases in Faradaic efficiency can translate to significant cost savings in large-scale operations through reduced energy consumption and increased product yield. For emerging technologies like CO2 electroreduction and green hydrogen production, enhanced Faradaic efficiency could be the determining factor in achieving market competitiveness against established processes. This technical investigation aims to comprehensively examine strategies for improving Faradaic efficiency at industrial current densities, with particular focus on identifying approaches that can be implemented in near-term industrial settings while establishing a foundation for longer-term technological development. Industrial Market Demand for Enhanced Faradaic Efficiency The global market for electrochemical processes that rely on high Faradaic efficiency is experiencing unprecedented growth, driven by the increasing demand for sustainable chemical production, energy storage solutions, and green hydrogen generation. Industries such as chlor-alkali, metal electrowinning, water electrolysis, and CO2 electroreduction are particularly invested in technologies that can maximize energy utilization while minimizing waste. Current market analysis indicates that the industrial electrolysis sector alone is projected to reach significant market value by 2030, with energy efficiency improvements representing a critical competitive advantage. Companies operating large-scale electrochemical plants face mounting pressure from rising electricity costs, which typically constitute 30-70% of operational expenses in electrochemical industries. The economic imperative for enhanced Faradaic efficiency becomes clear when considering that even a 5% improvement in efficiency can translate to millions in annual savings for large industrial operations. This is particularly relevant in regions with high electricity costs or carbon pricing mechanisms, where inefficient processes incur additional financial penalties. Market research reveals growing customer demand for electrochemical technologies that can maintain high Faradaic efficiency at industrial-scale current densities (typically >200 mA/cm\u00b2). Traditional systems often experience dramatic efficiency drops when scaled to these commercially viable current densities, creating a significant technology gap that innovative solutions must address. The renewable energy sector represents another major market driver, as intermittent power sources require flexible electrochemical systems that can maintain efficiency across variable operating conditions. This has created new market segments for electrolyzers and flow batteries that can operate efficiently under dynamic load conditions. Regulatory frameworks worldwide are increasingly incentivizing energy-efficient industrial processes through carbon taxes, efficiency standards, and green certification programs. The European Union's carbon border adjustment mechanism and similar policies in other regions are creating strong market pull for technologies that can demonstrate superior Faradaic efficiency metrics. Industry surveys indicate that manufacturing companies are willing to invest in capital equipment upgrades that promise efficiency improvements with payback periods under three years. This creates a substantial market opportunity for technologies that can deliver verifiable efficiency gains at industrial scales without requiring complete system overhauls. The competitive landscape shows increasing collaboration between material science companies, catalyst developers, and equipment manufacturers to create integrated solutions that address Faradaic efficiency challenges. This trend toward vertical integration reflects the complex, multidisciplinary nature of efficiency improvements in industrial electrochemical processes. Current market analysis indicates that the industrial electrolysis sector alone is projected to reach significant market value by 2030, with energy efficiency improvements representing a critical competitive advantage. Companies operating large-scale electrochemical plants face mounting pressure from rising electricity costs, which typically constitute 30-70% of operational expenses in electrochemical industries. The economic imperative for enhanced Faradaic efficiency becomes clear when considering that even a 5% improvement in efficiency can translate to millions in annual savings for large industrial operations. This is particularly relevant in regions with high electricity costs or carbon pricing mechanisms, where inefficient processes incur additional financial penalties. Market research reveals growing customer demand for electrochemical technologies that can maintain high Faradaic efficiency at industrial-scale current densities (typically >200 mA/cm\u00b2). Traditional systems often experience dramatic efficiency drops when scaled to these commercially viable current densities, creating a significant technology gap that innovative solutions must address. The renewable energy sector represents another major market driver, as intermittent power sources require flexible electrochemical systems that can maintain efficiency across variable operating conditions. This has created new market segments for electrolyzers and flow batteries that can operate efficiently under dynamic load conditions. Regulatory frameworks worldwide are increasingly incentivizing energy-efficient industrial processes through carbon taxes, efficiency standards, and green certification programs. The European Union's carbon border adjustment mechanism and similar policies in other regions are creating strong market pull for technologies that can demonstrate superior Faradaic efficiency metrics. Industry surveys indicate that manufacturing companies are willing to invest in capital equipment upgrades that promise efficiency improvements with payback periods under three years. This creates a substantial market opportunity for technologies that can deliver verifiable efficiency gains at industrial scales without requiring complete system overhauls. The competitive landscape shows increasing collaboration between material science companies, catalyst developers, and equipment manufacturers to create integrated solutions that address Faradaic efficiency challenges. This trend toward vertical integration reflects the complex, multidisciplinary nature of efficiency improvements in industrial electrochemical processes. Current Challenges in High Current Density Electrocatalysis The electrocatalytic industry faces significant challenges when operating at high current densities, particularly in maintaining optimal Faradaic efficiency. As industrial applications demand increasingly higher throughput, the fundamental limitations of electrocatalytic systems become more pronounced. The primary challenge stems from the competition between desired and parasitic reactions at the electrode surface, which intensifies at elevated current densities. Mass transport limitations represent a critical bottleneck in high-current operations. As reaction rates increase, the depletion of reactants near the electrode surface creates concentration gradients that favor unwanted side reactions. This phenomenon is particularly problematic in CO2 and N2 reduction reactions, where the limited solubility of gaseous reactants in aqueous electrolytes constrains the maximum achievable current density while maintaining acceptable efficiency. Heat management emerges as another significant challenge. Higher current densities generate substantial thermal energy through resistive heating, potentially altering local reaction environments and catalyst stability. Temperature fluctuations can dramatically impact reaction selectivity, often favoring thermodynamically preferred but commercially undesirable pathways, such as hydrogen evolution in CO2 reduction systems. Electrode degradation accelerates markedly at industrial current densities. The increased electrochemical stress can lead to structural changes in catalysts, including surface reconstruction, particle agglomeration, and active site poisoning. These degradation mechanisms not only reduce catalytic activity but also shift selectivity away from target products, directly impacting Faradaic efficiency over time. Bubble formation and management present unique challenges at high current densities. Gas evolution reactions create bubbles that adhere to electrode surfaces, blocking active sites and creating non-uniform current distributions. This effect is particularly pronounced in industrial settings where electrode dimensions are significantly larger than laboratory-scale experiments. Electrolyte stability becomes increasingly problematic as current densities rise. Local pH changes near electrode surfaces can be extreme, potentially leading to precipitation of salts, degradation of electrolyte components, or unwanted side reactions. These effects are often underestimated in laboratory studies but become dominant factors in industrial implementations. System engineering challenges compound these scientific obstacles. Maintaining uniform current distribution across large-scale electrodes requires sophisticated cell design and flow management. The interplay between electrode geometry, electrolyte flow patterns, and bubble dynamics creates complex optimization problems that must be solved to achieve commercially viable Faradaic efficiencies at industrial scales. Mass transport limitations represent a critical bottleneck in high-current operations. As reaction rates increase, the depletion of reactants near the electrode surface creates concentration gradients that favor unwanted side react\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319140.1420958
+}

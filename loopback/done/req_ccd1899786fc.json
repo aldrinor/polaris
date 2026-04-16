@@ -1,0 +1,12 @@
+{
+  "request_id": "ccd1899786fc",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [BRONZE] Source: A detective story of intermittent fasting effect on immunity | Statement: We explore how IF effects lipid metabolism, hormonal levels, circadian rhythm, autophagy, oxidative stress, gut microbiota, and intestinal...\n2. [SILVER] Source: The impact of intermittent fasting on lipid profile - an umb | Statement: Intermittent fasting (IF), with its various regimens, has gained attention as a potential strategy to improve lipid parameters.\n3. [BRONZE] Source: The impact of intermittent fasting on lipid profile - an umb | Statement: This umbrella review evaluates recent evidence from meta-analyses regarding the impact of IF, including time-restricted eating (TRE),...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776280539.8857794
+}

@@ -1,0 +1,165 @@
+{
+  "request_id": "9961c57eaced",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: How does damp heat aging affect the adhesion strength of DVS-PEI encapsulants in flexible electronics?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.mdpi.com/2073-4360/14/9/1721\nSource title: Influence of Hydrothermal Aging under Two Typical Adhesives on ...\nSource type: web\nContent:\n1. Introduction In recent years, due to the increasingly serious shortage of resources, automobile lightweight has become the mainstream of the world\u2019s automobile development. The lightweight body is mainly optimized from the three aspects of body structure, materials and processes to improve the strength and reduce the curb weight of the vehicle [ 1, 2]. Basalt fiber composite material has the advantages of high strength, low density, good corrosion resistance, and low cost [ 3, 4, 5]. The fiber composite material has a high degree of flexibility and processing freedom, and its structural design is more flexible and changeable. Basalt fiber-reinforced resin matrix (BFRP) as a new type of composite material has very broad prospects in applications of machinery manufacturing, aviation and the automobile industry [ 6, 7]. The application of various new materials has also produced connection problems. As a new type of connection process, the bonding process can effectively avoid the local stress concentration problems caused by traditional connection processes (such as welding, riveting, and bolting), and has the advantages of large bearing area, uniform stress distribution, and fatigue resistance [ 8, 9]. In the fields of automobiles, high-speed railways and aviation, adhesive joints are widely used due to the need to connect many different materials. In these industries, composite materials are inevitably exposed to complex environments during long-term use. In terms of temperature, the influence of thermal effects on the mechanical properties of the adhesive is related to the ambient temperature and the glass transition temperature of the adhesive. Na et al. [ 10] used epoxy resin adhesive to study the effect of temperature on the mechanical properties of BFRP/aluminum alloy bonded joints. It was found that as the temperature increased, the tensile strength and Young\u2019s modulus of the joint decreased, while the tensile strain increased. The closer to the glass transition temperature, the more significant the impact on the mechanical properties. In terms of chemical analysis of bonding materials, Galvez et al. [ 11] conducted DSC (differential scanning calorimetry) and FTIR (Fourier transform infrared spectroscopy) on the adhesive and BFRP after high temperature aging. The results showed that the adhesive underwent post-curing and oxidation reactions in a high temperature environment, and the glass transition temperature (T g) increased. BFRP underwent thermal decomposition and oxidation reactions at high temperatures, and T g decreased. Banea et al. [ 12] studied the stress-strain properties of adhesive dumbbell specimens at room temperature, 40 \u00b0C and 80 \u00b0C. The results showed that as the temperature increased, the Young\u2019s modulus and failure strength of the adhesive decreased, while the failure strain increased, which was caused by the increase in the toughness of the adhesive as the temperature increased. Akderya et al. [ 13] studied the effect of thermal aging on the tensile properties of fiber/epoxy composites at three different temperatures (18 \u00b0C, 25 \u00b0C and 75 \u00b0C) for single-lap joints. The results showed that thermal aging at 18 \u00b0C increased the bearing capacity of the joint, but as the aging temperature increased, the mechanical properties showed a downward trend. Regarding humidity, moisture can diffuse into the molecular chain of the polymer. This moisture absorption can be largely attributed to the specific functional groups with polar properties in the cured epoxy resin that have an affinity for moisture [ 14]. Bowditch [ 15] described the effect of water on bonded joints. For non-water-absorbent substrates such as metals, water was realized by entering the interface area between the adhesive and the adhesive/substrate. The typical failure mechanism was the hydrolysis and rupture of the bonds at the interface, causing the adhesive to shift. Due to the complex application environment of composite materials, in addition to water immersion, salt immersion and alkaline immersion environments have also been extensively studied. Lu et al. [ 16] studied the effects of thermal aging, water immersion, and alkaline immersion on the mechanical properties of BFRP plates. The results showed that, in water or alkaline solutions, the tensile strength and interlaminar shear strength of the heat-aged BFRP board sample decreased significantly, while the tensile modulus decreased only slightly. The higher the heat aging and immersion temperature, the more severe the degradation of tensile strength and interlaminar shear strength. Other studies have also shown that BFRP has better alkali resistance than GFRP [ 17]. Li et al. [ 18] studied the effects of seawater aging at different temperatures and concentrations on the static/dynamic mechanical properties of carbon fiber reinforced polymer composites. It was found that when the aging time was fixed, the moisture absorption increased with the increase of temperature, but it was not sensitive to the change of NaCl concentration. For the analysis of the moisture absorption characteristics of materials, the most common model is Fick\u2019s law. It assumes that the amount of water absorption is proportional to the concentration gradient in the material. As the aging time increases, the amount of water absorption gradually increases until it reaches saturation. Temperature and humidity have two different effects on adhesive joints. When the two conditions work together, the adhesive joint will further deteriorate. This phenomenon is called the damp heat aging effect. In the case of high temperature and high humidity, a higher temperature will increase the rate of the chemical reaction and the diffusion coefficient [ 19], promote more water diffusion, and further cause aging and degradation of the joint, thereby affecting the mechanical properties of the joint. Therefore, it is very important to study the degradation mechanism of composite materials under long-term use. Barbosa et al. [ 20] studied the influence of moisture absorption on the physical and chemical properties of brittle epoxy resins at different temperatures below the glass transition temperature. They observed that the addition in temperature increased the diffusion rate of water, and as the absorption of water increased, the mechanical properties of the joint deteriorated; this phenomenon is more pronounced at higher temperatures. Zhang et al. [ 21] studied the shear strength of adhesive joints between thin aluminum and steel substrates at different temperatures and with or without humidity. The following conclusions are drawn that for indoor humidity and various temperatures, there was almost no change in shear strength after 60 days of exposure, but when high temperature and high humidity (90% relative humidity) were combined, the shear strength was significantly affected. Liu et al. [ 22] studied the effect of high temperature curing epoxy adhesive on the tensile strength of joints under different aging environments. It was observed that the tensile strength decreased by about 31.3% after moisture absorption, and decreased by 27.7% and 54.4% under high temperature (95 \u00b0C)/dry environment and high temperature (95 \u00b0C)/humid environment, respectively. Zhong et al. [ 23] comparatively studied the damp-heat durability of glass and carbon fiber reinforced composites, placing GFRP and CFRP composites in an ordinary water bath at 80 \u00b0C until they reached water saturation. The study found that compared with CFRP composite materials, GFRP composite materials were more susceptible to humid and hot environments. Ray et al. [ 24] also obtained consistent experimental results. The decrease in the strength of glass fiber after aging was the main reason for the decrease in the performance of glass fiber reinforced composites. The damp-heat aging of fiber-reinforced composite materials is the process of material performance degradation under the combined effects of moisture absorption, temperature, time and external stress. The effects of hot and humid environments on composite materials are usually divided into reversible effects (mainly due to moisture) and irreversible effects [ 25]. Generally speaking, the absorbed water can be removed by drying the material, thereby eliminating the reversible effects, but the reduction of interface strength, the appearance of microstructure defects, and the hydrolysis of the polymer matrix are all irreversible [ 26]. For example, moisture absorption or cyclic absorption and desorption under high temperature and high humidity will cause voids and/or microcracks in the epoxy resin. Zheng et al. [ 27] explored the failure mechanism of CFRP/Al joints after damp-heat aging and degradation through mechanical tests. It was found that the strength of the single lap joint showed a non-monotonic change in trend that first decreased and then rose with the damp heat aging time. This was because the post-curing of the adhesive made the adhesive layer harder and the joint\u2019s load-bearing capacity increased. Guo et al. [ 28] used a multi-scale finite element method to explore the damp and heat aging behavior of carbon fiber reinforced epoxy composites, including the study of aging laws, moisture absorption, and residual stress. The aging of FRP boards is due to the fact that the coefficient of wet expansion (CME) and coefficient of thermal expansion (CTE) of the matrix are higher than that of the fiber. The obvious difference in expansion aggravates the stress concentration and causes microcracks in the interface area [ 29]. Most existing research is aimed at traditional metal materials and glass fiber reinforced plastics and CFRP substrates, while there is relatively little research on the bonding joints of BFRP substrates. Therefore, this article used epoxy adhesives Araldite\u00ae2015 and Araldite\u00ae2012 to conduct experimental research on the durability of experimental specimens under different damp and heat aging conditions. The adhesive bodies (dumbbell specimens) were tested for water absorption under the two environments of 80 \u00b0C/95% RH and 80 \u00b0C/pure water, and they were analyzed by Fick\u2019s law. The damp and heat aging experiments of the BFRP-BFRP single lap joints under the above two environments were carried out, the load-displacement curves after different aging times (0 days, 10 days, 20 days, 30 days) were obtained, and the changes in the failure displacement and the average maximum failure strength were analyzed. The differential scanning calorimetry (DSC) method was used to study the chemical properties of epoxy adhesives during damp heat. Through macroscopic analysis and scanning electron microscopy (SEM), the failure mode analysis of the corresponding fracture was carried out. 3. Results and Discussion 3.1. Analysis of Moisture Absorption Behavior The moisture absorption behavior of adhesives is generally described by Fick\u2019s law. This law explains the relationship between mass transfer flux and concentration gradient in the process of molecular diffusion. At the beginning of moisture absorption, the absorption quality of water increases linearly with the square root of time, and then the absorption rate slows down until equilibrium is reached. The diffusion rate of water in the adhesive can be described by Fick\u2019s first law, as follows: Among them, \ud835\udc39\ud835\udc65 is the water flux, \ud835\udc37 is the water diffusion coefficient, \ud835\udc65 is the water diffusion path, and \ud835\udc51\ud835\udc50\ud835\udc51\ud835\udc65 is the water concentration gradient along the \ud835\udc65 direction, and \ud835\udc50 is the moisture absorption concentration change with time. The moisture absorption concentration \ud835\udc50 of the adhesive can be described by Fick\u2019s second law, as shown in Formula (3): where \ud835\udc37 is the diffusion coefficient, \ud835\udc50 is the concentration of water, and \ud835\udc61 is the aging time; The water absorption properties of structural adhesives depend to a large extent on environmental conditions. In general, the saturated absorption capacity increases with the increase of environmental moisture. Viana [ 32] mentioned that although Fick\u2019s law was more suitable for simulating the diffusion of water in an adhesive above its glass transition temperature, Fick\u2019s diffusion law could also describe the water absorption behavior of most adhesives in the glass state. In Fick\u2019s model, the analytical formula of water diffusion can be expressed as: Among them, \ud835\udc40\ud835\udc5a is the moisture content when saturated, \u210e is the thickness of the specimen, \ud835\udc37 is the diffusion coefficient, and \ud835\udc61 is the moisture absorption time. The diffusion coefficient \ud835\udc37 can be obtained by the following formula: The moisture absorption characteristics of the adhesive sample are mainly affected by the damp and heat conditions, the thickness of the sample and the aging time [ 33]. Using MATLAB software, the relationship between the water absorption rate of the dumbbell-shaped specimen under different conditions and the square root of the degradation time t was calculated by Formula (1), and the moisture absorption behavior is fitted by Formulas (4) and (5), as shown in . It can be seen from that the data simulated by Fick\u2019s law is basically consistent with the trend of the data measured by the experiment. The water absorption rate shows an approximate square root increase, and finally reaches saturation and stabilizes. Figure 7. Experimental and analytical moisture absorption curves of the adhesive bulk specimen. The entire moisture absorption process is divided into two stages: the unsaturated stage and the saturated stage. In the first stage, the dumbbell-shaped specimen has a faster moisture absorption rate, but the speed gradually decreases, and the slope of the curve decreases with time. In the second stage, the moisture absorption is saturated, the saturated water absorption content of A2012 adhesive is about 14.05%, and the saturated water absorption content of A2015 adhesive is about 16.03%. Generally speaking, part of the water absorbed in the first stage enters the adhesive as free water, occupying a certain space, mainly filling pores and cavities, and supplemented by the reaction of adsorbed water molecules with some hydrophilic functional groups. This leads to plasticization of the adhesive [ 18]. Careful observation of the curve shows that there is a certain difference between the curve simulated by Fick\u2019s law in the first stage and the actual experimental data. It may be due to two reasons. One is the limitation of Fick\u2019s law itself. Fick\u2019s law only assumes that water diffuses into the material and stays in the free volume, while ignoring the reaction of water molecules with certain functional groups in the material [ 34]. Second, the experimental data are generally accurate to four decimal places. Such accurate data very easily cause certain errors in the measurement process due to irregular measurement. At the same time, air humidity, room temperature fluctuations and airflow speed also cause errors in the measurement data. Observing , it\n---Source URL: https://repository.lboro.ac.uk/articles/journal_contribution/Degradation_of_interfacial_adhesion_strength_within_photovoltaic_mini-modules_during_damp-heat_exposure/9561614/files/17193764.pdf\nSource title: [PDF] Degradation of interfacial adhesion strength within photovoltaic ...\nSource type: web\nContent:\nTitle: 403 Forbidden URL Source: https://repository.lboro.ac.uk/articles/journal_contribution/Degradation_of_interfacial_adhesion_strength_within_photovoltaic_mini-modules_during_damp-heat_exposure/9561614/files/17193764.pdf Warning: Target URL returned error 403: Forbidden Markdown Content: # 403 Forbidden # 403 Forbidden\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776320170.239364
+}

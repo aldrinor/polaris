@@ -1,0 +1,12 @@
+{
+  "request_id": "a0be494b9f6b",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Digital Services Act and the EU as the Global Regulator  | Statement: As part of this code, the platforms agreed to rules or Community Guidelines and to practice content moderation in conformity with them.\n2. [SILVER] Source: The Digital Services Act and the EU as the Global Regulator  | Statement: Similarly, widespread misinformation during the COVID-19 pandemic and the perceptions of these platforms\u2019 inadequate responses led the Europ...\n3. [SILVER] Source: The Adoption of the EU's Digital Services Act: A Landmark .. | Statement: 2022 marked an important year for digital rights across the European Union as the landmark Digital Services Act (DSA) came into force on 16 ...\n4. [SILVER] Source: The Adoption of the EU's Digital Services Act: A Landmark .. | Statement: Since the DSA was first introduced by the European Commission in December 2020, EFF has fought for protections on four key areas: platform l...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318286.900161
+}

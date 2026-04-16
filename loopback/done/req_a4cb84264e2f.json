@@ -1,0 +1,165 @@
+{
+  "request_id": "a4cb84264e2f",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://whatweknow.inequality.cornell.edu/topics/what-does-the-scholarly-research-say-about-whether-raising-the-minimum-wage-negatively-impacts-employment/\nSource title: What does the scholarly research say about whether raising the ...\nSource type: web\nContent:\nWhat does the scholarly research say about whether raising the minimum wage negatively impacts employment? Our Work We conducted a systematic literature review of peer-reviewed articles published in the U.S. between 2004 and 2019 that assess the effect of raising the minimum wage on employment. Our search returned 144 studies and, of those, we identified 50 that directly addressed our research question above. Our Findings A plurality of studies (23) found a minimal negative employment effect, sometimes indistinguishable from random noise. Nineteen (19) studies found a negative employment effect of raising the minimum wage, many of which focused on specific populations such as teen workers. Eight (8) studies showed mixed or inconclusive results. Overall, more studies found a minimal negative employment effect than a major effect, suggesting that minimum wages do not significantly threaten to raise unemployment. Specifically, we found the following: 1. In recent empirical studies, minimum wage raises do not appear to substantially lower employment, with many studies reporting employment effects indistinguishable from zero or random noise. 2. Recent studies of the minimum wage employ robust techniques to control for pre-existing market and geographic-specific trends. 3. Minimum wage raises tend to be absorbed by profits, prices, and consumer demand. 4. Reported small negative employment effects are generally not proportionate to the increase in the minimum wage, and are therefore usually minimal. 5. In some particular cases, raising the minimum wage may show a negative impact on employment, particularly when that wage is binding in that market or when studies restrict to examine just teen employment. 6. Minimum wage employment effects continue to be a debated area of study with ongoing innovation in empirical techniques. Click here to view our methodology. Click here for a printer-friendly PDF of these findings. Suggested Citation: What We Know Project, Cornell University, \u201cWhat Does the Scholarly Research Say about Whether Raising the Minimum Wage Negatively Impacts Employment?\u201d (online literature review), 2020.\n---Source URL: https://www.jec.senate.gov/public/_cache/files/b5056335-1b0f-4751-8e3a-2739e7963738/minimum-wage-critics-lag-behind-latest-research-final.pdf\nSource title: [PDF] Criticisms of Minimum Wage Increases Lag Behind Latest Research\nSource type: web\nContent:\nTitle: minimum-wage-critics-lag-behind-latest-research-final.pdf URL Source: https://www.jec.senate.gov/public/_cache/files/b5056335-1b0f-4751-8e3a-2739e7963738/minimum-wage-critics-lag-behind-latest-research-final.pdf Published Time: Thu, 25 Mar 2021 14:07:32 GMT Number of Pages: 6 Markdown Content: Criticisms of Minimum Wage Increases Lag Behind Latest Research The arguments against a gradual minimum wage increase are outdated and in need of reconsideration. 1 The continued focus on potential job losses ignores the latest research and much of the evidence from states that have recently increased their minimum wage. Instead of focusing on the employment effect on teens and workers at or below the minimum wage, the recent research looks at the impact of changes on a large share of affected low-wage workers. 2 The emerging consensus is that the low-wage workforce, as a whole, is better off after an increase in the minimum wage. The latest domestic and international evidence shows that higher wage floors discourage low-pay employment and encourage the creation of good jobs with higher wages, more security, and higher productivity. 3 This delivers benefits to workers, businesses, and the broader economy. Critics of minimum wage increases mischaracterize the employment effects in the research Critics tend to focus on the possibility that a gradual increase in the minimum wage to $15 by 2025 could potentially cost about 1% of U.S. workers their jobs. 4 This representation ignores key considerations. First, over 95% of low-wage workers, representing about 20% of the U.S. workforce, would get a pay raise. 5 Critics also carefully ignore the high degree of uncertainty surrounding projections; in fact, the Congressional Budget Office (CBO) estimates that the employment effect can be zero. 6 While the CBO projections place more weight on studies with negative effects, it acknowledges that the latest research points to zero and even positive employment effects. 7 This is because the more likely scenario is that jobs are not lost and hours are slightly reduced. 8 These lost hours are spread among the affected workers, who may work a little less but earn more per year. Minimum wage increases lead to job upgrades \u2013 not losses In one of the largest studies of minimum wage increases in the United States, Cengiz et al. (2019) assess the impact of 138 state-level changes between 1979 and 2016. 9 They find that the reduction in jobs paying below the minimum was balanced by a sharp increase in the number of jobs paying at the new minimum or higher \u2013 up to $5 above the new minimum wage. The authors also show that low-wage workers saw wage gains of approximately 7% after a minimum wage increase, yet little change in employment years later. In a new and extended version of this work, analyzing 172 minimum wage changes in the U.S. until 2019, Cengiz et al. (2021) find no adverse effects on employment, unemployment, or labor force participation even five years after a minimum wage increase. 10 Criticisms of Minimum Wage Increases Lag Behind Latest Research Page 2 States with a recent minimum wage increase have better employment conditions Compared to states with no change in their minimum wage, states that lifted their wage floor in 2019 experienced a larger rise in the share of adults working between 2018 and 2019. 11 While the employment-to-population ratio increased in both sets of states during this time, the rise in the share of the population with a job was larger (0.43 vs 0.31 percentage points) for states with a recent increase. Low-wage workers in states with recent minimum wage increases had stronger wage growth States with minimum wage increases in 2019 had stronger wage growth at the bottom of the income distribution than their counterparts with no change to the wage floor. 12 Between 2018 and 2019, the wage growth for the 10 th -percentile worker in states with at least one minimum wage increase in 2019 was about four times stronger (4%) than that of states without an increase (1%). Criticisms of Minimum Wage Increases Lag Behind Latest Research Page 3 Low-wage cities and counties stand to gain \u2013 not to lose \u2013 from a minimum wage increase Today\u2019s federal minimum wage represents about one-third of the median wage for all full-time workers, and a gradual increase to $15 would lift minimum wage workers to above one-half of the projected median wage in 2025. 13 Differences in earnings and cost of living around the country have led some to call for regional wage floors. 14 Supporters of regional minimum wages argue that they may protect states with low earnings from the impact of a higher wage floor. But the research shows that low-wage areas are not more likely to be negatively affected by a minimum wage increase. In fact, they stand to gain the most from them. Dube and Lindner (2021) find that 21 citywide increases to the minimum wage, with new wage floors averaging 63% of the median wage, led to stronger wage growth at the bottom and to an increase in jobs paying at the new minimum or right above. 15 Using county-level variations, Godoey and Reich (2021) find that these gains hold even in low-wage counties where the minimum wage increased above 80% of the median wage. 16 In fact, these areas showed substantial reductions in household and child poverty as a result of lifting the wage floor. Minimum wage increases improve health outcomes The sole focus on employment effects ignores the broad benefits of a higher wage floor. An emerging body of evidence is finding that minimum wage increases are associated with positive public health effects. 17 Among these improvements are lower incidence of smoking, obesity, teen birth, suicide, and higher infant birth weight. 18 Healthier workers are less likely to call out of work and they lower the cost of health care for employers and employees alike. 19 Healthier employees are also more likely to drive up operational productivity for businesses. 20 Businesses, not just workers, would benefit from a higher wage floor Critics often present an increase in the minimum wage as detrimental to businesses, but even a $3.53 increase in just over 9 months in Seattle did not lead to a decline in the rate at which businesses continued to open and the businesses survival rate was above 99%. 21 While Seattle workers experienced no significant decline in their likelihood of being employed, the wage floor increase led to a reduction in job turnover rates. 22 After the change, Seattle also experienced measured increases in productivity as businesses saw more dollars\u2019 worth of sales per hour of labor. 23 This evidence is consistent with other research. Using data on low-wage workers from a large national retailer, Coviello et al. (2019) find that a $1 increase in the minimum wage increases individual productivity (sales per hour) by 4.5%. 24 Some critics think this is explained by increased automation, but there is no evidence that higher minimum wages lead to more automation in the service industry. 25 Economic theory tells us that employers may even have an easier time filling job vacancies after an increase in the minimum wage. 26 Criticisms of Minimum Wage Increases Lag Behind Latest Research Page 4 The economy as a whole benefits from a higher wage floor The CBO estimates that an increase in the minimum age would boost overall demand in the short run, as an increase in the wage floor would shift income toward low-income workers and their families. These families spend a higher share of any additional income than higher-income families. The CBO projects that the increased demand would help mitigate any potential drop in employment for several years after the implementation of a higher minimum wage. 27 There are reasons to believe that this simulative effect extends beyond the short run. Cooper, Luengo-Prado, and Parker (2019) find that minimum wage increases are associated with higher consumer spending in places with higher concentrations of low-wage earners. 28 The CBO also finds that raising the wage floor to $15 by 2025 would increase the cumulative net earnings of low-wage workers by $333 billion from 2021 to 2031. 29 These higher earnings would improve Social Security finances over the long term, raising annual Federal Insurance Contributions Act (FICA) revenue by up to $14 billion. 30 Criticisms of Minimum Wage Increases Lag Behind Latest Research Page 5 > 1 Howell, David. \u201cThe misplaced debate about job loss and a $15 minimum wage.\u201d July, 2016. Washington Center for Equitable Growth . https://equitablegrowth.org/the-misplaced-debate-about-job-loss-and-a-15-minimum-wage/ > 2 Dube, Arindrajit. \u201cNo, a $15 minimum wage won\u2019t cost 1.4 million jobs.\u201d February, 2021. Washington Post. https://www.washingtonpost.com/outlook/2021/02/24/minimum-wage-economic-research-job-loss/ > 3 Acemoglu, Daron. \u201cThe Case for a Higher Minimum Wage.\u201d February, 2021. Project Syndicate. https://www.project-syndicate.org/commentary/case-for-higher-minimum-wage-in-the-us-by-daron-acemoglu-2021-02 > 4 U.S. Congressional Budget Office. \u201cThe Budgetary Effects of the Raise the Wage Act of 2021.\u201d February, 2021. https://www.cbo.gov/system/files/2021-02/56975-Minimum-Wage.pdf > 5 Cooper, David, Mokhiber, Zane and Ben Zipperer. \u201cRaising the federal minimum wage to $15 by 2025 would lift the pay of 32 million workers.\u201d March, 2021. Economic Policy Institute. https://www.epi.org/publication/raising-the-federal-minimum-wage-to-15-by-2025-would-lift-the-pay-of-32-million-workers/ > 6 U.S. Congressional Budget Office. \u201cThe Budgetary Effects of the Raise the Wage Act of 2021.\u201d February, 2021. https://www.cbo.gov/system/files/2021-02/56975-Minimum-Wage.pdf > 7 U.S. Congressional Budget Office. \u201cThe Effects on Employment and Family Income of Increasing the Federal Minimum Wage.\u201d July, 2019. https://www.cbo.gov/system/files/2019-07/CBO-55410-MinimumWage2019.pdf > 8 Cooper, David, Mishel, Lawrence, and Ben Zipperer. \u201cBold increases in the minimum wage should be evaluated for the benefits of raising low-wage workers\u2019 total earnings.\u201d April, 2018. Economic Policy Institute . https://www.epi.org/publication/bold-increases-in-the-minimum-wage-should-be-evaluated-for-the-benefits-of-raising-low-wage-workers-total-earnings-critics-who-cite-claims-of-job-loss-are-using-a-distorted-frame/ > 9 Cengiz, Doruk, Arindrajit Dube, Attila Lindner, Ben Zipperer, The Effect of Minimum Wages on Low-Wage Jobs, The Quarterly Journal of Economics , Volume 134, Issue 3, August 2019, Pages 1405\u20131454, https://doi.org/10.1093/qje/qjz014 > 10 Cengiz, Doruk, Arindrajit Dube, Attila S. Lindner, and David Zentler-Munro. \u201cSeeing Beyond the Trees: Using Machine Learning to Estimate the Impact of Minimum Wages on Labor Market Outcomes.\u201d National Bureau of Economic Research, February 1, 2021. https://doi.org/10.3386/w28399 . > 11 Gould, Elise. \u201cLow-wage workers saw the biggest wage growth in states that increased their minimum wage between 2018 and 2019\u201d. March, 2020. Economic Policy Institute . https://www.epi.org/blog/low-wage-workers-saw-the-biggest-wage-growth-in-states-that-increased-minimum-wage-2018-2019/ > 12 Gould, Elise. \u201cLow-wage workers saw the biggest wage growth in states that increased their minimum wage between 2018 and 2019\u201d. March, 2020. Economic Policy Institute . https://www.epi.org/blog/low-wage-workers-saw-the-biggest-wage-growth-in-states-that-increased-minimum-wage-2018-2019/ > 13 Cooper, David, Mokhiber, Zane and Ben Zipperer. \u201cRaising the federal minimum wage to $15 by 2025 would lift the pay of 32 million workers.\u201d March, 2021. Economic Policy Institute. https://www.epi.org/publication/raising-the-federal-minimum-wage-to-15-by-2025-would-lift-the-pay-of-32-million-workers/ > 14 Mishel, Lawrence and David Cooper. \u201cDon\u2019t be fooled by calls for a \u2018regional\u2019 minimum wage.\u201d May, 2019. Economic Policy Institute . https://www.epi.org/blog/dont-be-fooled-by-calls-for-a-regional-minimum-wage/ > 15 Dube, Arindrajit, and Attila Lindner. 2021. \"City Limits: What Do Local-Area Minimum Wages Do?\" Journal of Economic Perspectives, 35 (1): 27-50. https://www.aeaweb.org/articles?id=10.1257/jep.35.1.27 > 16 Godoey, Anna, and Michael Reich. \u201cAre Minimum Wage Effects Greater in Low-Wage Areas?\u201d Industrial Relations: A Journal of Economy and Society 60, no. 1 (2021): 36\u201383. https://doi.org/10.1111/irel.12267 . > 17 Leigh, J. Paul, Wesley Leigh, and Juan Du. \u201cMinimum Wages and Public Health: A Literature Review.\u201d SSRN Scholarly Paper. Rochester, NY: Social Science Research Network, February 27, 2018. https://doi.org/10.2139/ssrn.3176217 > 18 Zipperer, Ben, Cooper, David and Josh Bivens. \u201cA $15 minimum wage would have significant and direct effects on the federal budget.\u201d February, 2021. Economic Policy Institute . https://www.epi.org/publication/a-15-minimum-wage-would-have-significant-and-direct-effects-on-the-federal-budget/ > 19 Centers for Disease Control and Prevention. \u201cIncrease Productivity.\u201d December, 2015. https://www.cdc.gov/workplacehealthpromotion/model/control-costs/benefits/productivity.html > 20 Gubler, Timothy, Ian Larkin, and Lamar Pierce. \u201cDoing Well by Making Well: The Impact of Corporate Wellness Programs on Employee Productivity.\u201d Management Science 64, no. 11 (December 19, 2017): 4967\u201387. https://doi.org/10.1287/mnsc.2017.2883 > 21 Vigdor, Jacob L. \u201cInsights from the Seattle Minimum Wage Study.\u201d February, 2021. Testimony of Jacob L. Vigdor, Ph.D., Before the Committee on Budged, United States Senates. Criticisms of Minimum Wage Increases Lag Behind Latest Research Page 6 https://www.budget.senate.gov/imo/media/doc/Jacob%20Vigdor%20-%20Testimony%20-%20U.S.%20Senate%20Budget%20Committee%20Hearing.pdf > 22 Jardim, Ekaterina, Mark C. Long, Robert Plotnick, Emma van Inwegen, Jacob Vigdor, and Hilary Wething. \u201cMinimum Wage Increases and Individual Employment Trajectories.\u201d National Bureau of Economic Research, October 22, 2018. https://www.nber.org/papers/w25182 > 23 Vigdor, Jacob L. \u201cInsights from the Seattle Minimum Wage Study.\u201d February, 2021. Testimony of Jacob L. Vigdor, Ph.D., Before the Committee on Budged, United States Senates. https://www.budget.senate.gov/imo/media/doc/Jacob%20Vigdor%20-%20Testimony%20-%20U.S.%20Senate%20Budget%20Committee%20Hearing.pdf > 24 Coviello, Decio, Erika Deserranno, and Nicola Persico. \u201cMinimum wage and individual worker productivity: Evidence from a large us retailer.\u201d 2019. Unpublished manuscript Kellogg School of Management, Northwestern University. https://wpcarey.asu.edu/sites/default/files/draft_minw_180_0.pdf > 25 Ashenfelter, Orley, and \u0160t\u011bp\u00e1n Jurajda. \u201cWages, Minimum Wages, and Price Pass -Through: The Case of McDonald\u2019s Restaurants.\u201d Industrial Relation Section Working Paper, January 2021. https://dataspace.princeton.edu/handle/88435/dsp01sb397c318 > 26 Schmitt, John. \u201cWhy Does the Minimum Wage Have No Discernible Effect on Employment?\u201d February, 2013. Center for Economic Policy Research . https://cepr.net/\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315084.1823292
+}

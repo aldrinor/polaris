@@ -1,0 +1,12 @@
+{
+  "request_id": "cc8281226314",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Mechanisms, generate a process_flow Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: How X works (step-by-step process)\n\nSECTION CONTENT:\nFasting is a common practice, whether for religious reasons or with the goal of losing weight, preventing chronic disease, or even slowing a... [7].\n\nAlternatively, intermittent fasting can involve eating every other day while fasting or greatly lowering food intake in between those days. [10].\n\n**Key Findings**\n\n- Fasting is a common practice, whether for religious reasons or with the goal of losing weight, preventing chronic disease, or even slowing a... [7]\n- Alternatively, intermittent fasting can involve eating every other day while fasting or greatly lowering food intake in between those days. [10]\n\nSUPPORTING EVIDENCE SUMMARIES:\n- Fasting is a common practice, whether for religious reasons or with the goal of losing weight, preventing chronic disease, or even slowing a...\n- Key Points - Intermittent fasting focuses on when you eat instead of how much or what you eat. - Research shows that intermittent fasting is...\n- Alternatively, intermittent fasting can involve eating every other day while fasting or greatly lowering food intake in between those days.",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776313963.666352
+}

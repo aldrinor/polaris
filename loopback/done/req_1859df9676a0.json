@@ -1,0 +1,12 @@
+{
+  "request_id": "1859df9676a0",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: A better training method for reinforcement learning with hum | Statement: The SeRA-trained model\u2019s win rate in these pairwise comparisons is higher than all three baselines\u2019 across the board, sometimes by as much a...\n2. [SILVER] Source: A better training method for reinforcement learning with hum | Statement: Direct preference optimization\nReinforcement learning is a trial-and-error method in which an agent interacts with the world and, depending ...\n3. [SILVER] Source: A survey of reinforcement learning from human feedback | Statement: [Submitted on 22 Dec 2023 (v1), last revised 28 Dec 2025 (this version, v3)]\nTitle:A Survey of Reinforcement Learning from Human Feedback\nVi...\n4. [SILVER] Source: What Is Reinforcement Learning From Human Feedback (RLHF)? | Statement: Moreover, sparse success signals are not well suited for agent learning, often necessitating reward shaping (Ng et al., 1999), where the rew...\n5. [SILVER] Source: What Is Reinforcement Learning From Human Feedback (RLHF)? | Statement: This can lead to reward hacking (Skalse et al., 2022), where agents exploit such correlations to maximize rewards while producing undesired ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317324.1131845
+}

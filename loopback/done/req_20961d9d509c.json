@@ -1,0 +1,165 @@
+{
+  "request_id": "20961d9d509c",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12137480/\nSource title: Helpful, harmless, honest? Sociotechnical limits of AI alignment and ...\nSource type: web\nContent:\nAbstract This paper critically evaluates the attempts to align Artificial Intelligence (AI) systems, especially Large Language Models (LLMs), with human values and intentions through Reinforcement Learning from Feedback methods, involving either human feedback (RLHF) or AI feedback (RLAIF). Specifically, we show the shortcomings of the broadly pursued alignment goals of honesty, harmlessness, and helpfulness. Through a multidisciplinary sociotechnical critique, we examine both the theoretical underpinnings and practical implementations of RLHF techniques, revealing significant limitations in their approach to capturing the complexities of human ethics, and contributing to AI safety. We highlight tensions inherent in the goals of RLHF, as captured in the HHH principle (helpful, harmless and honest). In addition, we discuss ethically-relevant issues that tend to be neglected in discussions about alignment and RLHF, among which the trade-offs between user-friendliness and deception, flexibility and interpretability, and system safety. We offer an alternative vision for AI safety and ethics which positions RLHF approaches within a broader context of comprehensive design across institutions, processes and technological systems, and suggest the establishment of AI safety as a sociotechnical discipline that is open to the normative and political dimensions of artificial intelligence. Keywords: Artificial intelligence, Large language models, Reinforcement learning, Human feedback, AI ethics, AI safety Introduction We chose \u2018helpful, honest, and harmless\u2019 as criteria because they are simple and memorable, and seem to capture the majority of what we want from an aligned AI. (Askell et al., 2021) Reinforcement Learning from Human Feedback (RLHF) presents itself as a straightforward method for ensuring Artificial Intelligence (AI) oversight (Christiano et al., 2017 ) and AI safety through value alignment. It has recently played a large role in improving Large Language Model (LLM) performance, with RLHF fine-tuning seemingly leading to the production of more \u2018natural-sounding\u2019 text and of plausible conversational responses in a chatbot-like setting. It is often claimed by AI companies and researchers that RLHF fine-tuning ensures that the LLMs they market and sell conform (or \u2018align\u2019) to human values, in particular by responding in ways that are \u2018helpful\u2019, \u2018harmless\u2019, and \u2018honest\u2019 (the HHH principle). First introduced by Askell et al. (2021), the HHH principle has become widely adopted in LLM alignment practices (Kamath et al., 2024). This \u2018value alignment\u2019 is often achieved through a process in which crowd-workers rank LLM outputs according to the HHH principle, e.g. in terms of how helpful a response was in answering a question. As LLMs have become more widespread in the past few years, and their use across different domains of human activity is growing, the question of what \u2018value alignment\u2019 is, which tools are used to putatively achieve it, and whether it is a reasonable goal to start with call for philosophical and sociotechnical analysis, going beyond the technical and engineering aspects of such systems. Indeed, narratives about the possibility and desirability of value alignment should themselves be seen as a dimension of such an analysis, as they shape how LLM applications are perceived, the expectations for future progress across social and political actors, and consequently financial and political investment in these technologies. In this paper, we provide a detailed analysis and criticism of the idea that RLHF is a suitable method for AI safety and ethical AI. We complement previous work by bringing technical, philosophical, and system safety perspectives together, identifying fundamental limitations and tensions in the complex interplay between LLMs, RLHF, the \u2018value alignment\u2019 approach, and the project of building and making available general purpose AI systems. We give an overview of RLHF, and RLAIF (based instead on AI feedback) techniques in the Background section. In Limitations of RLHF, we examine the problems and limitations with the HHH principle and the project of value alignment more generally. We analyse ethical issues introduced or made worse by the use of those techniques in The Internal Tensions and Ethical Issues in RLHF. Rebooting AI Safety and Ethics outlines an alternative, richer approach to AI safety and ethics, positioning RLHF approaches within a broader context of comprehensive design across institutions, processes and technological systems, and suggesting the establishment of AI safety as a sociotechnical discipline. We do not question that LLM performance has improved in various ways due to feedback-guided techniques. We aim to show, however, that RLHF is deeply insufficient as a means for achieving AI safety and ethical AI, and, if taken as a silver bullet without integration in a broader sociotechnical approach, may be counterproductive for achieving those goals. Background LLMs are generative models that predict subsequent tokens, or words, when given a sequence of words as input. These models are first trained on large corpora of data such as articles, books, and websites\u2014requiring unprecedented volumes of training data (Bender et al., 2021). The large amount of text in their training datasets allows LLMs to derive internal representations of various linguistic rules and patterns that form the foundation on which LLMs are then fine-tuned to perform other downstream tasks, such as question-answering (Jawahar et al., 2019; Goldberg, 2019). The application of feedback techniques to the task of fine-tuning LLMs took off after Christiano et al. (2017) applied their human-feedback approach to complex Reinforcement Learning (RL) tasks in games and robotics. They showed that these complex problems could be solved without direct access to a reward model that would otherwise be difficult to compute, and could instead be learned through a few iterations of feedback samples (less than 1 per cent of the agent interactions with the environment). Their findings demonstrate an efficient way to exercise human oversight over these systems. With the increasing complexity of large language models, it seemed natural to employ similar techniques as a means of exercising some control over their output, which have been shown to contain toxic, harmful, and untruthful content (Dinan et al., 2021), resulting in the development of feedback mechanisms to contain the amount of problematic content produced by LLMs (Bai et al., 2022). Reinforcement learning from human feedback RLHF as an ML technique employs human preferences or annotations for the optimisation of various models, including LLMs. In particular, RLHF has been credited for the successes seen in OpenAI\u2019s ChatGPT1, Anthropic\u2019s Claude 22, and Meta\u2019s Llama 23, to name a few. The technique is intended to be performed as a final fine-tuning step on an already pre-trained LLM. Human annotators are requested to rank model outputs based on some specified criteria, producing a curated dataset of human preferences. A reward model is trained on these preference data, which is then used to optimise the LLM\u2019s policy for selecting outputs, using techniques such as Proximal Policy Optimisation (Schulman et al., 2015). The result is a fine-tuned LLM that outputs text learned to be preferable in light of human feedback data. Other preference optimisation techniques have been proposed as an alternative to PPO-based RLHF to avoid the complexities of reward modelling. One such method is Direct Preferences Optimisation (DPO) (Rafailov et al., 2024), where the policy is tuned using a classification objective; high probability is assigned to positive preference examples, and low probability to negative examples. DPO, like PPO-based RLHF, still relies on human-annotated preference data. Reinforcement learning from AI feedback While RLHF has proven to be a useful method for improving LLM performance, especially with respect to limiting or blocking the production of undesirable outputs, it is not without its limitations. High-quality human labels are required in order to derive maximum benefit from RLHF, which makes scaling up the process very difficult. Reinforcement Learning from AI Feedback (RLAIF) has been proposed as a technique to alleviate this bottleneck without compromising performance (Lee et al., 2023; Bai et al., 2022). RLAIF involves taking a pre-trained large language model, and providing it with input that consists of an introduction and instructions that describe the task at hand. Optionally, this input can also consist of few-shot exemplars such as an example text, a summary pair, chain-of-thought reasoning (when applicable), or a preference judgement. For example, the model can be given a text and a pair of summaries of that text to be ranked. Given input that ends with a prompt such as \u201cPreferred Summary=\u201d, the model appends its predictions to the provided text and presents it as its preference data (Lee et al., 2023). Using RLAIF is said to be \u201ccompetitive with preference models trained on human feedback labels\u201d (Bai et al., 2022). Not only is performance a factor in the interest in using RLAIF, but it has been estimated that the cost of output ranking using LLMs is 10 times cheaper than using human annotators (Lee et al., 2023). Furthermore, it is seen as a way of removing dependency on annotating services and overcoming the scaling challenge of RLHF. Lowering the barrier for employment of feedback-guided techniques, however, risks facilitating the misuse of LLMs. Beyond potential exploitation by malicious actors, there are several technical challenges to RLAIF, such as \u2018hallucinations\u2019\u2014the phenomenon where factually incorrect or unfounded outputs are generated\u2014that occur when using a pre-trained LLM in place of a human annotator in preference ranking (Lee et al., 2023). While the use of RLHF has led to improvements in LLMs\u2019 tendencies to hallucinate, it has not protected against it entirely (Casper et al., 2023; Ouyang et al., 2022). Technical criticism In this section, we list technical criticisms of RLHF as a backdrop for the ethical problems presented in this paper, where technical challenges that cannot be addressed by RLHF itself are of particular interest. Casper et al. (2023) provide a taxonomy for open problems and limitations of RLHF, proposing three categories of technical challenges: collecting human feedback, training the reward model, and training the policy. The challenges are further labelled as tractable and fundamental, where tractable challenges are deemed solvable within the RLHF framework while fundamental challenges require an alternative to RLHF. We emphasise that these challenges concern only the technical aspects of training AI models, not the user interaction with RLHF-trained systems. Table 1 outlines the proposed strategies for addressing these technical challenges (Casper et al., 2023). Table 1. | Category | Strategy | |---|---| | Human feedback | AI assistance | | Fine-grained feedback | | | Process supervision | | | Translating language to reward | | | Learning from demonstrations | | | Reward model | Direct human oversight | | Multi-objective oversight | | | Maintaining uncertainty | | | Policy | Align LLMs during pretraining | | Supervised learning | The process of jailbreaking LLMs such as ChatGPT is a way to circumvent constraints put on LLMs through preloaded prompts (Zhuo et al., 2023). Jailbreaking, in this context, is essentially to construct prompts that steer LLMs towards generating responses that fall under unintended or harmful behaviour. While jailbreaking is commonly used in the task of red teaming language models to identify, measure, and reduce harmful output, the method cannot cover all, or even most, instances of harm, and the input data can be misused by malicious users (Ganguli et al., 2022). Mozes et al. (2023) give further examples of how LLMs trained using RLHF can be tricked via adversarial attacks, such as jailbreaking, and the implications of using such models for fraud, impersonation, and other illicit purposes. The curse of flexibility LLMs are now built to be generalist agents, unlike previous architectures (e.g. BERT, Kenton & Toutanova, 2019) that were mostly fine-tuned for specific tasks. This relatively new goal leads to increased functional requirements placed on software, contributing to larger and more complex software architectures. This comes with a key pitfall: the complexity and inscrutability of the software hinder the ability to properly express, engineer and validate crucial requirements for the system\u2019s desired functioning (cf. Milli\u00e8re, 2023). This phenomenon is well understood in the field of system safety. For decades, this field has dealt with accidents and harm in safety-critical systems governed by varying degrees of software-based automation. System safety embraces the core assumption that AI systems cannot be safeguarded by technical design choices centred on the model or algorithm alone, requiring instead a broad analysis and design frame that includes the context of use, impacted stakeholders, and the formal and informal institutional environment in which the system operates (Dobbe, 2022). System safety pioneer Nancy Leveson pointed out that the greater power and flexibility of computational systems in comparison to previous, more physically constrained machines leads to what she dubbed the curse of flexibility: \u201cwith software, the limits of what is possible to accomplish are different than the limits of what can be accomplished successfully and safely\u201d (Leveson, 2012, p. 50). As Leveson argues, the curse of flexibility is the ground cause of many serious accidents with digital technologies, as requirement flaws and the complexity of software makes it so that \u201cnobody understands what the software should do or even what it should not do\u201d (Leveson, 2012, p. 49). Unfortunately, there is evidence that the development of high-stakes AI systems and software often goes on despite the lack of principled ways to determine safety requirements (Dobbe et al., 2021), and of translating such requirements into software implementations that take into consideration the broader contexts in which AI systems are used and depended upon. It is in this light that we should judge the legitimacy and effectiveness of the dominant performance evaluation criteria, as well as of the safety claims made about the widely-used RLHF approaches to AI alignment and safety today. Limitations of RLHF RLHF is presented as a practical method for ensuring AI safety through oversight. It is often claimed that it contributes to aligning AI models to human values, typically on the basis of the HHH principle: harmlessness, honesty and helpfulness (Bai et al., 2022). These terms were originally chosen by Askell et al. (2021) as the key criteria \u201cbecause they are simple and memorable, and seem to capture the majority o\n---Source URL: https://search.proquest.com/openview/6f4d60dde798dc3bfc0c3b5a7c805e57/1?pq-origsite=gscholar&cbl=18750&diss=y\nSource title: Towards Scalable Improvement of Large Language Models: Task, Feedback, and Learning\nSource type: academic\nContent:\nYou shouldn't see this\n## \u9078\u64c7\u8a9e\u8a00\n\n   \u9019\u9805\u7562\u696d\u4f5c\u54c1\u5df2\u7d93\u767c\u4f48\u70ba\u53ef\u516c\u958b\u53d6\u95b1\u3002\n\n## \u8457\u4f5c\u6b0a\u8cc7\u8a0a\nDatabase copyright ProQuest LLC; ProQuest does not claim copyright in the individual underlying works.\n## \u6aa2\u8996\u76f8\u95dc\u6587\u4ef6\n\u60a8\u7684\u5716\u66f8\u9928\u6216\u6a5f\u69cb\u4e5f\u53ef\u4ee5\u8b93\u60a8\u5b58\u53d6 ProQuest \u4e2d\u7684\u76f8\u95dc\u5168\u6587\u6587\u4ef6\u3002\n   \u5168\u6587\n   \u8ad6\u6587\u6216\u5c08\u984c\n   \u516c\u958b\u8ad6\u6587\n\n# Towards Scalable Improvement of Large Language Models: Task, Feedback, and Learning\nTowards Scalable Improvement of Large Language Models: Task, Feedback, and Learning\nNew York University ProQuest Dissertations & Theses, 2026. 32397683. \nProQuest, part of Clarivate\n\n\u8457\u4f5c\u6b0a \u00a9 2026 ProQuest LLC\u3002\n+pmBEGAdBbZA1qvOmgy7cQ==:isklpgfNS22Sc4L27f5erID2aqE7vrvnBIgcDCGXApi3hiU9o6796uI3tuoaTmTn02MiH/1AjofjJZVLYg0bt8MJ2PKfgn70dkEQQpYrIwq7bK3wlZ/9d3msVsuIRgJ0dqNjHBdBKXvD8f4YOJ/wpfLnpK6/i9KIUdevvyPumLlAA1hUJwE3TnTJOTVa969XnTkhx8HQXcilSa6P6U9U/AX8h2a1CcAGvAmov28fgG1gsVjz93S+Mv1CdwhkglGNLQnIni6FnBHe2KThOiOIdvbtlPwsys3XUHADawBGqIvJ6qsCgrLaSSYtxXFZAI/xRJSQtpUBHcmXBGKlG4TwcXDPz+zYp8YbZQLRM37fX9hyMTU8kSGsKF6iHILR7DQKf+ThJiZMpb56aYKDNT4YiA==\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317809.7370064
+}

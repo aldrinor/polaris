@@ -1,0 +1,12 @@
+{
+  "request_id": "edc8bd1688b7",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Thawing Permafrost Could Leach Microbes, Chemicals Into ... | Statement: While the review paper found that Earth\u2019s polar regions are warming the fastest, it was less conclusive on how increased carbon emissions co...\n2. [SILVER] Source: Carbon release through abrupt permafrost thaw | Statement: Flow of Carbon Dioxide Through Permafrost\n2.1.\n3. [SILVER] Source: Carbon release through abrupt permafrost thaw | Statement: Storage of Carbon Dioxide by Permafrost\n3.1.\n4. [SILVER] Source: Carbon release through abrupt permafrost thaw | Statement: Department of Energy, Office of Fossil Energy and Carbon Management, National Energy Technology Laboratory: Albany, OR, USA, 2025. [Google S...\n5. [SILVER] Source: Permafrost carbon feedbacks threaten global climate goals | Statement: Dickinson, University of California, Los Angeles, CA, and approved March 9, 2021 (received for review January 5, 2021)\nRapid Arctic warming ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316169.7803288
+}

@@ -1,0 +1,165 @@
+{
+  "request_id": "7511557a1c5e",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the current best-available estimates of permafrost carbon release under RCP 4.5 and RCP 8.5 scenarios by 2100?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://climate.esa.int/en/news-events/long-term-permafrost-record-details-arctic-thaw/\nSource title: Long-term permafrost record details Arctic thaw\nSource type: web\nContent:\nFrozen Arctic soils are set to release vast amounts of greenhouse gases to the atmosphere as they continue to thaw in coming decades. Despite concerns that this will fuel future global warming, the scale and speed of this important climate process remain uncertain. To help address this knowledge gap, ESA-funded researchers have developed and released a new permafrost dataset \u2013 the longest, satellite-derived permafrost record currently available. Covering 18 million sq km, northern hemisphere permafrost areas have been warming since the 1980s, according to the Intergovernmental Panel on Climate Change\u2019s latest report on oceans and cryosphere. The total carbon released each year may rival present-day emissions from all EU countries by the end of century \u2013 and are expected to amplify future climate change. The new 21-year satellite-derived record details the annual changes to the northern hemisphere permafrost soils from 1997\u20142018. This is the longest satellite permafrost record currently available, and extends the time-series by seven years. Long-term satellite-derived records such as these are a key tool to evaluate and improve global climate models and confidence in the predictions of both future emissions and change. Permafrost cannot be directly observed from space. Instead, the CCI permafrost project team, led by Annett Bartsch from B.geos, combine global satellite data products for land surface temperature and land cover with in situ measurements and the ERA5 climate reanalysis to generate a picture of the permafrost ground conditions. The resulting one-kilometre resolution dataset provides permafrost ground temperatures at 1m, 2m, 5m and 10m and the \u2018active layer\u2019 \u2013 the depth to which the top layer of soil thaws during the summer and freezes again during the autumn. The team also derive and provide permafrost extent data, a standard parameter used for a variety of related applications. Although currently short of the three-decade minimum required to identify a climate signal, the 21-year record shows interesting trends, according to Dr Bartsch who points to rising ground temperatures, and greater variability along coastal areas and at high arctic latitudes. \u201cAverage ground temperatures are rising at a rate of one degree Celsius per decade in the record,\u201d explains Dr Bartsch, adding that, \u201c'A larger temperature increase can be observed along the coasts of east Russia and northwest Canada bordering the Beaufort Sea \u2013 where rates of coastal erosion are some of the highest in the world, and are, in part, exacerbated by permafrost thaw conditions.\u201d An unusually warm summer in 2020 in northern Russia, led to ground conditions becoming unstable, contributing to a major diesel oil leak at a facility near the town of Norilsk. The incident threatened to pollute the Arctic Ocean and highlights some of the consequences of changing permafrost. \u201cAlthough ground temperatures remained close to zero degrees, on-going slow seasonal ground ice melt and a deepening of the active layer can be observed in the data,\u201d explains, Dr Bartsch\u2019s colleague, Prof Westermann of the University of Oslo and the developer of the satellite-retrieval scheme. Find out more about the CCI permafrost project. Access the data ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost active layer thickness for the Northern Hemisphere, v2.0 Obu, J.; Westermann, S.; Barboux, C.; Bartsch, A.; Delaloye, R.; Grosse, G.; Heim, B.; Hugelius, G.; Irrgang, A.; K\u00e4\u00e4b, A.M.; Kroisleitner, C.; Matthes, H.; Nitze, I.; Pellet, C.; Seifert, F.M.; Strozzi, T.; Wegm\u00fcller, U.; Wieczorek, M.; Wiesmann, A. (2020): ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost active layer thickness for the Northern Hemisphere, v2.0. Centre for Environmental Data Analysis, 02 November 2020. doi:10.5285/29c4af5986ba4b9c8a3cfc33ca8d7c85. http://dx.doi.org/10.5285/29c4af5986ba4b9c8a3cfc33ca8d7c85 ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost ground temperature for the Northern Hemisphere, v2.0 Obu, J.; Westermann, S.; Barboux, C.; Bartsch, A.; Delaloye, R.; Grosse, G.; Heim, B.; Hugelius, G.; Irrgang, A.; K\u00e4\u00e4b, A.M.; Kroisleitner, C.; Matthes, H.; Nitze, I.; Pellet, C.; Seifert, F.M.; Strozzi, T.; Wegm\u00fcller, U.; Wieczorek, M.; Wiesmann, A. (2020): ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost ground temperature for the Northern Hemisphere, v2.0. Centre for Environmental Data Analysis, 02 November 2020. doi:10.5285/6ebcb73158b14cd5a321b7c0bc6ed393. http://dx.doi.org/10.5285/6ebcb73158b14cd5a321b7c0bc6ed393 ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost extent for the Northern Hemisphere, v2.0 Obu, J.; Westermann, S.; Barboux, C.; Bartsch, A.; Delaloye, R.; Grosse, G.; Heim, B.; Hugelius, G.; Irrgang, A.; K\u00e4\u00e4b, A.M.; Kroisleitner, C.; Matthes, H.; Nitze, I.; Pellet, C.; Seifert, F.M.; Strozzi, T.; Wegm\u00fcller, U.; Wieczorek, M.; Wiesmann, A. (2020): ESA Permafrost Climate Change Initiative (Permafrost_cci): Permafrost extent for the Northern Hemisphere, v2.0. Centre for Environmental Data Analysis, 02 November 2020. doi:10.5285/28e889210f884b469d7168fde4b4e54f. http://dx.doi.org/10.5285/28e889210f884b469d7168fde4b4e54f\n---Source URL: https://www.nature.com/articles/s43247-026-03189-5\nSource title: Permafrost and wildfire carbon emissions indicate need for ... - Nature\nSource type: web\nContent:\nAbstract Rapid Arctic warming is thawing carbon-rich permafrost, releasing greenhouse gases that accelerate climate change. Despite the importance of this feedback, permafrost-enabled global-scale models simulate only gradual, top-down thickening of the seasonally-thawed soil. This ignores abrupt permafrost thaw and intensifying fire regimes that combust soil carbon and further accelerate thaw. Here, we expand a compact Earth system model (OSCAR v3.0) enabling initial estimates of the impacts of abrupt thaw and wildfire, together with gradual thaw, on remaining carbon budgets consistent with the temperature goals of the Paris Agreement. Our model suggests that including permafrost thaw and fire-related carbon emissions reduces the remaining allowable carbon budgets from 2025 onward by 25 % \u00b1 12 % for avoiding 1.5 \u00b0C and 17 % \u00b1 7 % for avoiding 2.0 \u00b0C, relative to simulations without these processes. Accounting for these additional emissions is critical for setting emissions reduction targets aligned with the Paris Agreement. Similar content being viewed by others Introduction Northern permafrost-affected soils are estimated to contain around 1460\u20131600 Pg carbon (C), of which 1035 \u00b1 150 Pg C is found in the near-surface (uppermost 3 m) portion of those soils1,2. Rapid Arctic warming is already affecting this critical carbon store, warming permafrost by up to 1 \u00b0C per decade3. This warming makes permafrost more vulnerable to thaw and the carbon it contains vulnerable to decomposition and release into the atmosphere in the form of greenhouse gasses, particularly carbon dioxide (CO2) and methane (CH4). Modeling studies consistently predict that permafrost thaw will result in substantial emissions this century. Ranging from less than 20 Pg C to more than 200 Pg C4,5,6,7,8,9, published estimates reflect considerable ongoing scientific uncertainty as to the magnitude, timing and form (i.e. CO2 versus CH4) of permafrost carbon emissions. Nonetheless, they all indicate an emissions source of sufficient magnitude to have tangible implications for global climate and thus for near-term policy decisions10. Refining those estimates is therefore a clear research priority that requires not only improved availability of data (e.g., regarding ground ice content and the effects of CO2 fertilization on primary productivity), but also incorporating existing knowledge and data into modeling efforts11,12. Drivers of permafrost carbon emissions Existing estimates of permafrost carbon release focus almost exclusively on top-down thawing of permafrost, resulting in a thickening of the active layer (the seasonally thawed soil layer above the permafrost surface). This \u2018gradual thaw\u2019 is the most widespread mechanism of permafrost degradation and is expected to result in the loss of 24\u201369% of near-surface permafrost by 210013,14,15,16,17. However, other mechanisms are well-recognized as important drivers of permafrost thaw yet remain absent from the architecture of permafrost carbon-enabled Earth System and other global-scale models11. Notable among these are thermokarst (hereafter used interchangeably with \u2018abrupt thaw\u2019) processes, in which the thawing of permafrost that contains excess ground ice results in uneven subsidence or even collapse of the ground surface and subsequent erosion18,19,20. While many abrupt thaw features - such as retrogressive thaw slumps and active layer detachments in upland areas or thermokarst lakes in lowland areas - are relatively small within the scale of the permafrost region, they can affect a large volume of permafrost carbon over a shorter timescale when compared to gradual thaw and are therefore an important component of predicting future permafrost carbon emissions21. Permafrost conditions are also intricately linked to wildfire. Increasingly extreme wildfire seasons have been observed across the northern permafrost region in recent years and decades, driven by more frequent lightning strikes, changing fuel conditions, extended fire seasons, and more severe fire weather22,23,24,25,26. While many boreal and tundra ecosystems have evolved with recurring wildfires, the more frequent, deeper-burning fires of recent years have accelerated permafrost thaw, both by driving a temporary increase in active layer depth27, promoting the formation of unfrozen layers within the permafrost table, known as taliks28,29, and initiating the development of thermokarst features. For example, one study found an almost three-fold increase in the rate of thermokarst bog development in western Canadian boreal peatlands following fire30, and wildfire was associated with nine times as much thermokarst formation per area and year compared with unburned areas in northern Alaska31. In addition to its effects on permafrost, fire directly liberates carbon to the atmosphere during combustion. While emissions from combustion are typically represented in global scale models, they are restricted to combustion of above-ground biomass and litter. However, in the northern boreal and tundra regions, as much as 80\u201390% of emissions from combustion come from below-ground material32,33, meaning global-scale models tend to underestimate fire emissions across the tundra and boreal biomes by roughly an order of magnitude34. The absence of abrupt thaw and fire effects in global-scale models means that pan-Arctic estimates of permafrost emissions are at best incomplete. While one attempt has been made to estimate pan-Arctic emissions from abrupt thaw21, this does not explicitly address the effects of fire. Under-representation of abrupt thaw and fire in global-scale models has resulted in medium confidence in estimates of the remaining carbon budgets consistent with the temperature goals of the Paris Agreement35. This not only results in an inadequate understanding of mitigation urgency, but it also impedes efforts to accurately assess the efficacy of climate policy pledges. Towards a more comprehensive estimate of permafrost carbon release Here, we use a novel modeling framework to simulate a more complete spectrum of permafrost carbon emissions through the 21st century, accounting for gradual thaw, abrupt thaw and wildfire. We also estimate the impact of permafrost carbon emissions on remaining carbon budgets consistent with the temperature goals of the Paris Agreement. To achieve this, we build upon a reduced-complexity Earth system model (OSCAR v3.0) that was developed to emulate gradual permafrost thaw from four Land Surface Models (LSMs4,36. We extend OSCAR by adding new modules to simulate abrupt permafrost thaw (following Turetsky et al.21), emissions from below-ground combustion (above-ground combustion is already represented in OSCAR), and post-fire-induced permafrost thaw. These new modules build on published observational studies and combine process-based understanding, projected changes in disturbance frequency, and syntheses of existing observational and experimental data. Full details of the model implementation and parameterization are provided in the Online Methods. The extended OSCAR model represents gradual, abrupt, and post-fire permafrost thaw in a stepwise manner. Simulations are run sequentially, starting with gradual thaw alone and progressively adding abrupt thaw and fire-related processes. Each simulation is driven by annual global temperature and emissions trajectories from the Shared Socioeconomic Pathways (SSPs) to estimate temperature-driven permafrost degradation and associated carbon release. This approach allows direct comparison of the additional contribution of each disturbance process and their combined effect on remaining global carbon budgets consistent with the Paris Agreement temperature goals. Results Emissions from permafrost thaw Previous work using a variety of future warming scenarios and representations of permafrost processes has provided a considerable range of estimates of cumulative permafrost emissions this century from gradual thaw (22\u2013550 Gt CO2; across low to high emissions scenarios37 and references therein. 1 Pg C = \\(\\frac{44}{12}\\) Gt CO2). Emissions between 2025 and 2100 estimated here for gradual thaw alone range from 108 \u00b1 94 Gt CO2e under high mitigation (SSP1\u20132.6) to 235 \u00b1 197 Gt CO2e under low mitigation (SSP4\u20136.0), which are consistent with this range. These totals account for the GWP of the 2.3% of emissions of emitted carbon mass that are released as CH4, using time-dependent GWP values integrated from the year of emissions through 2100. When combined with gradual thaw, emissions from abrupt thaw, below-ground combustion, and fire-mediated thaw (hereafter \u2018under-represented processes\u2019) ranged from 387 \u00b1 167 GtCO2e to 624 \u00b1 278 GtCO2e depending on the warming scenario (Fig. 1, Supplementary Note 6; Supplementary Fig. 6.2, Supplementary Table 3). This represents an increase in CO2e emissions of between 166 and 258% compared to mean emissions from gradual thaw alone. On a shorter timescale (2025\u20132050), mean total emissions (i.e., under-represented processes combined with gradual thaw) were between 105 \u00b1 49 Gt CO2e and 116 \u00b1 56 Gt CO2e, an increase of between 185% and 202% compared to emissions from gradual thaw alone. Under-represented processes were 72% of 2025\u20132100 total emissions on average under SSP1\u20132.6 (a low warming/high mitigation scenario) compared to 62% under SSP4\u20136.0 (a high warming, low mitigation scenario; the remaining 28\u201338% of total emissions are accounted for by gradual thaw). However, total emissions were on average 237 Gt CO2e lower under SSP1\u20132.6 compared with SSP4\u20136.0 by 2100. Abrupt thaw and fire-related processes (i.e., below-ground combustion and fire-mediated thaw) had similar contributions to cumulative emissions, respectively accounting for 34% and 38% of total emissions under SSP1\u20132.6, and 30% and 33% of total emissions under SSP4\u20136.0. Abrupt thaw resulted in substantially more CH4 emissions than other processes (Supplementary Fig. 6.3), with CH4 emissions associated with abrupt thaw contributing 75\u201388% to the overall CO2e emissions (Supplementary Fig. 6.4). This is expected given that abrupt thaw involves land subsidence or erosion following degradation of ice-rich permafrost and thus often increases anaerobic carbon mineralization pathways such as methanogenesis. The IPCC Sixth Assessment Report estimated a mean permafrost carbon feedback (i.e., the amplification of warming due to carbon release from permafrost) of 22 Pg C for each 1 \u00b0C global temperature increase by 2100 based on a wide range of scenarios (range: 3\u201341 Pg C \u00b0C-1 35). Here, the mean feedback for gradual thaw was estimated at 28 Pg C \u00b0C-1 (25th\u201375th percentile: 10\u201336 Pg C \u00b0C-1, based on the three SSP scenarios and four LSM calibrations used here) which is within the range of the IPCC estimate (Fig. 2). Including under-represented processes, the total permafrost thaw and wildfire emissions feedback accounted for 63 Pg C \u00b0C\u22121 (25\u201375th percentile: 35\u201373 Pg C \u00b0C\u207b\u00b9). Reductions in emission budgets Emissions budgets reported here are defined as the maximum cumulative CO2 emissions below which the specified temperature threshold is avoided (i.e., not exceeded). In addition to these \u2018avoidance\u2019 budgets (Supplementary Table 4a), simplified \u2018exceedance\u2019 budgets are also reported in Supplementary Note 1, Supplementary Fig. 1.3, and Supplementary Table 4b. All thaw and fire processes (including gradual thaw and under-represented processes) reduced emissions budgets by 124 \u00b1 62 Gt CO\u2082 for a 1.5 \u00b0C temperature threshold, and by 258 \u00b1 96 Gt CO2 for 2.0 \u00b0C, (Fig. 3). These reductions represent 25% \u00b1 12% of the \u2018no permafrost\u2019 avoidance budget (i.e., with no permafrost carbon dynamics represented in the model) for 1.5 \u00b0C, and 17% \u00b1 7% of that for 2.0 \u00b0C. Gradual and abrupt thaw had similar impacts on remaining budgets. Gradual thaw alone reduced budgets for 1.5 \u00b0C and 2.0 \u00b0C by 37 \u00b1 30 Gt CO2 and 83 \u00b1 58 Gt CO2 respectively, while the stepwise addition of abrupt thaw caused a further reduction of 35 \u00b1 19Gt CO2 and 72 \u00b1 24 Gt CO2. Fire-related processes had a slightly larger stepwise impact, reducing 1.5 \u00b0C and 2.0 \u00b0C budgets by a further 51 \u00b1 23 Gt CO2 and 103 \u00b1 32 Gt CO2 respectively. The magnitude of the reductions for both temperature goals was influenced strongly by the LSM used to drive the gradual permafrost thaw emulator, with greater budget reductions associated with JSBACH (Supplementary Fig. 1.2). Discussion Implications for climate change mitigation The impact of including abrupt thaw, high-latitude fire, and post-fire thaw on total estimated permafrost emissions is possibly very substantial, more than doubling total cumulative emissions from permafrost-affected soils this century. For context, by the end of this century these projected annual permafrost emissions (7\u201315 Gt CO\u2082e yr\u207b\u00b9 across mitigation scenarios) could reach or exceed the current total annual emissions of a high-emitting nation such as the United States (~6.2 Gt CO\u2082e in 2023; United States Environmental Protection Agency, 2025); in the case that U.S. annual emissions remain unchanged through the end of the century. The reductions in remaining avoidance budgets due to the inclusion of all permafrost thaw and fire-related processes (124 \u00b1 62 Gt CO\u2082 and 258 \u00b1 96 Gt CO2 for 1.5 \u00b0C and 2 \u00b0C, respectively) are equivalent to 25 \u00b1 12% and 17 \u00b1 7% of the \u2018no permafrost\u2019 budget for these temperature goals. Under-represented processes alone reduced the budgets for 1.5 \u00b0C and 2.0 \u00b0C by an additional 87 \u00b1 38 Gt CO2 and 175 \u00b1 47 Gt CO2 compared to gradual thaw alone. These permafrost emission budget reductions represent substantial shares of the remaining carbon budgets reported by the IPCC. The IPCC Sixth Assessment Report (AR635) and the Global Carbon Budget 202438 express remaining budgets as the amount of CO\u2082 that can be emitted with a 50% likelihood of limiting warming below each temperature target. In contrast, this study reports ensemble-mean budgets derived from model simulations that emulate process-based Earth system models, representing remaining emissions until the model reaches each temperature threshold. In AR6, the remaining global budgets from 2020 are 500 Gt CO\u2082 for 1.5 \u00b0C and 1350 Gt CO\u2082 for 2 \u00b0C, each corresponding to a 50% chance of staying below the respective temperature target. The AR6 budgets include a static estimate of the permafrost carbon feedback associated with gradual thaw but exclude abrupt thaw and fire-related emissions. Considering these under-represented processes only, the AR6 budgets would be reduced by 17% for 1.5 \u00b0C and by 13% for 2 \u00b0C. Updated from AR6, the Global Carbon Budget 202438 lists remaining budgets of 305 Gt CO\u2082 for 1.5 \u00b0C and 1155 Gt CO\u2082 for 2 \u00b0C starting in 2025. The contribution from under-represented processes alone accounts for 29% and 15% reductions. Given the consensus around the small size of the remaining carbon budget - regardless of the specific estimate used - the scale of these reducti\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316775.3202486
+}

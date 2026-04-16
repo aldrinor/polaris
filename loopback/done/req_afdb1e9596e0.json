@@ -1,0 +1,12 @@
+{
+  "request_id": "afdb1e9596e0",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: With these dietary strategies, the pattern of energy restriction and/or timing of food intake are altered, so that individuals undergo...\n2. [SILVER] Source: Metabolic effects of intermittent fasting | Statement: Future prospective randomized controlled clinical trials to evaluate intermittent fasting (IF) regimens in order to prevent and treat...\n3. [SILVER] Source: Intermittent fasting can help manage metabolic disease | Statement: Intermittent fasting is one of the most popular diet trends, and people are using it to lose weight, improve their health and simplify...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776284723.734646
+}

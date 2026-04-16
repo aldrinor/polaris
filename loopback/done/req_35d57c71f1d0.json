@@ -1,0 +1,12 @@
+{
+  "request_id": "35d57c71f1d0",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: Small-scale 200mm x 200mm laminates were produced using EVA, POE, and TPO encapsulants at peak lamination temperatures of 140, 160, and 180 degrees Ce\n2. [GOLD] Source: Assembly and Interconnection Technologies for 3D Plastic Cir | Statement: In-mold electronics manufacturing can lead to 70% reduction in weight and up to 90% reduction in thickness compared to conventional PCB techniques, wi\n3. [GOLD] Source: Assembly and Interconnection Technologies for 3D Plastic Cir | Statement: The most commonly used polymer substrates for 3D electronics are polycarbonate (85%) and PET (10%), with typical molding temperatures ranging from 190\n4. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Under damp heat aging at 80 degrees Celsius and 95% relative humidity, the saturated water absorption content of Araldite 2012 epoxy adhesive reached \n5. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: High temperature and high humidity combined cause accelerated joint deterioration through the damp heat aging effect, where elevated temperature incre",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776367431.8616734
+}

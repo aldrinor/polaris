@@ -1,0 +1,12 @@
+{
+  "request_id": "87d49b471c85",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: Effects of damp heat aging on fiber-reinforced composites include reversible effects mainly from moisture and irreversible effects such as reduction o\n2. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: PV industry consensus holds that PEVA encapsulant should have vinyl acetate content between 28 and 33%, but PEVA with lower VA content of 18 and 24% s\n3. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: PEVA films with 18, 24, 33, and 40% VA content were cured at 150 C under vacuum and subjected to IEC 61215 accelerated damp heat aging at 85 C and 85%\n4. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: PEVA with higher VA content (33 and 40%) degraded significantly after 2000 hours of damp heat aging with significant loss in transmittance and mechani\n5. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: The study recommends reducing VA content in PEVA to 24% for better damp heat aging resistance since PEVA18 has inadequate transmittance and relatively",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776366106.9323776
+}

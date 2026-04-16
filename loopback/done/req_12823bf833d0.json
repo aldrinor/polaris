@@ -1,0 +1,12 @@
+{
+  "request_id": "12823bf833d0",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: EVA samples with gel content below 70% exhibited low chemical and optical stability, weak adhesion strength, and EVA flowing during aging.\n2. [SILVER] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: Laminates with gel content over 92% were more prone to yellowing and exhibited less stable adhesion performance.\n3. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Stiff Surlyn encapsulant (394 MPa) adhered well to glass and ITO but caused delamination of perovskite solar cells by pulling up on the ITO layer.\n4. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: Second-generation glass-glass package with low-modulus polyolefin and 1.5 cm butyl rubber edge seal passed the IEC 61646 1000-hour damp heat test at 8\n5. [SILVER] Source: Encapsulating perovskite solar cells to withstand damp heat  | Statement: A bond width of 1.25 cm for butyl rubber with added desiccant was modeled to be adequate for 25-year lifetime against moisture ingress.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776323005.5119889
+}

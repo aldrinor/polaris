@@ -1,0 +1,12 @@
+{
+  "request_id": "b0fdb14fc499",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Analysis of the influence of damp-heat aging on the shear fa | Statement: Dynamic thermomechanical analysis revealed significant loss factor decreases (e.g., epoxy adhesives dropped from >1.0 to stable lower values...\n2. [SILVER] Source: Analysis of the influence of damp-heat aging on the shear fa | Statement: Infrared spectroscopy confirmed chemical degradation, including ester group breakage in vinyl ester resins (peak shifts at 1700 cm\u22121 and 110...\n3. [SILVER] Source: [PDF] The Impact of the Lamination Process on the Adhesion P | Statement: As a measure of the long-term durability, the laminates were exposed to damp heat (DH) up to 3000 hours.\n4. [SILVER] Source: [PDF] The Impact of the Lamination Process on the Adhesion P | Statement: The peel test results show that the relative maintained peel force (RMPF) varies in the range from 15.7-73.0% depending on the material and ...\n5. [SILVER] Source: Influence of Hydrothermal Aging under Two Typical Adhesives  | Statement: The results showed that, in water or alkaline solutions, the tensile strength and interlaminar shear strength of the heat-aged BFRP board sa...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776314248.9285357
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "05f3fdc65884",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: Tensile strength, thermal stability, and degree of crosslinking were found to be greater for PEVA containing lower VA content (18% and 24%) and dimini\n2. [SILVER] Source: Enhancement of resistance against damp heat aging through co | Statement: The PV industry consensus specifies that PEVA encapsulant should have VA content between 28% and 33%, but this study found that reducing VA content to\n3. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: The relative maintained peel force at the glass-encapsulant interface after 3000 hours of damp heat exposure at 85 degrees Celsius and 85% relative hu\n4. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: TPO-encapsulated laminates with PET/Aluminium/PET/Olefin backsheet showed peel forces of approximately 160 N/cm before damp heat exposure, which dropp\n5. [SILVER] Source: The Impact of the Lamination Process on the Adhesion Propert | Statement: Laminates with PET/PET/Primer backsheet showed peel forces dropping from approximately 120 N/cm to 18-25 N/cm after 3000 hours of damp heat, while pol",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776367430.299046
+}

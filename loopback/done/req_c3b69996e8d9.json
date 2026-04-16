@@ -1,0 +1,12 @@
+{
+  "request_id": "c3b69996e8d9",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Effectiveness of Intermittent Fasting and Time-Restricted Fe | Statement: The current obesity epidemic is staggering in terms of its magnitude and public health impact.\n2. [SILVER] Source: Effectiveness of Intermittent Fasting and Time-Restricted Fe | Statement: Current guidelines recommend continuous energy restriction (CER) along with a comprehensive lifestyle intervention as the cornerstone of...\n3. [SILVER] Source: Effectiveness of Intermittent Fasting and Time-Restricted Fe | Statement: Recently, there has been increased interest in identifying alternative dietary weight loss strategies that involve restricting energy...\n4. [SILVER] Source: The Use of Evidence-Based Dietary Interventions for the ...  | Statement: Obesity has become a serious public health issue worldwide, with its prevalence steadily increasing.\n5. [SILVER] Source: The Use of Evidence-Based Dietary Interventions for the ...  | Statement: These may be combined with other weight loss measures, including bariatric surgery or medications.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776283703.056346
+}

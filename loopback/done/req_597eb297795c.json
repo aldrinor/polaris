@@ -1,0 +1,165 @@
+{
+  "request_id": "597eb297795c",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11803299/\nSource title: The unintended effects of a large minimum wage increase on ...\nSource type: web\nContent:\nAbstract The 2018 minimum wage increase in South Korea was a major policy change that impacted employment and labour productivity, but its effects on health have not yet been explored. The minimum wage was increased by 16.4% in January 2018, marking the largest increase over two decades and a substantial increase by international standards. While this policy change was a promise of the then-new government, the magnitude of its increase was unexpected. Using a difference-in-differences design with data from the 2016 and 2018 Korean Longitudinal Study on Aging, this study focuses on individuals targeted by the minimum wage policy, particularly older adults earning the minimum wage. Unexpectedly, our results indicate a statistically significant decrease in cognitive function within the targeted group, following the minimum wage hike. However, we did not observe any significant changes in self-reported health. Importantly, for the period 2014 and 2016, when the minimum wage increase was relatively modest, we found positive effects on cognitive health and no negative effects on self-reported health, suggesting that negative effects on cognition emerged only with the large minimum wage increase in 2018. These perhaps unexpected findings may be explained by a significant reduction in the working hours of the targeted group. Keywords: Minimum wage, Health effects, Older adults, South korea Highlights - \u2022 We examined the health effects in older workers from a large minimum wage increase. - \u2022 The older workers concerned experienced adverse effects on cognitive function. - \u2022 The adverse effects appeared only for the years of the larger minimum wage increase. - \u2022 The adverse effects might be attributable to a reduction in working hours. - \u2022 We did not observe significant effects on self-reported health. 1. Introduction Minimum wages have long been a highly debated policy measure because of their seemingly complex and ambiguous impacts on wages, employment, and labour productivity. Some argue that minimum wages lead to a decline in working hours and employment for low-waged workers (Neumark et al., 2004), while others claim that it raises the employment probability of low-wage earners as the increased minimum wage is passed on to consumers (Card and Krueger, 1994). While the largest share of existing economic research on minimum wages focuses on labour market effects, for a more comprehensive assessment of the welfare consequences of the policy, it is important to consider other potentially significant social consequences, such as health (Leigh et al., 2019). In this study, we seek to contribute to the growing but still limited international evidence base on the impact of minimum wages on health. Previous research explored various dimensions of health, including psychological and physical ones (see Leigh et al., 2019 for a review). However, the evidence remains inconsistent, possibly because of varying study designs (Leigh, 2021, Neumark, 2024), data sources, and differences in minimum wage policies. Previous research has also mainly focused on the U.S. and the UK, with insufficient attention given to countries with different economic contexts (Leigh, 2021). One key aspect that has rarely been studied is the extent to which the size of the increase in the minimum wage matters. For example, a substantial increase in the minimum wage, exceeding 10% in real terms, might have different effects on health outcomes than more modest increases. Maxwell et al. (2022) have most recently compared the health effects of UK minimum wage increases of varying magnitudes across time periods. Their findings indicate that even a sizable minimum wage increase in 2016 (9% in real terms) did not lead to any discernible impact on mental health, aligning with the insignificant effects of the smaller increases. However, it is important to consider that this observed lack of impact might be attributable to the relatively modest increase and that a more substantial wage increase might yield more pronounced effects on health outcomes. The present study aims to fill this research gap by investigating the health impacts of a \u201clarge\u201d minimum wage increase on older workers, and specifically for changes in their cognitive functioning and self-reported health. We do so by capitalising on the minimum wage hike in South Korea, which experienced a 16.4% increase (approximately 14.7% of the real growth rate) in 2018. The magnitude of this increase has not been observed in the last two decades in South Korea, and the pace of minimum wage growth has been substantial compared with other countries (Doh and Van der Meer, 2023). This significant minimum wage hike was a promise of the new government that came into power in 2017, although the magnitude of this increase was unanticipated (Doh et al., 2022). The health implications of the minimum wage are contingent upon its impact on economic factors such as employment, working hours, and earnings. According to Azar et al. (2023), empirical evidence reveals that the labour market effects of the minimum wage vary depending on the concentration of labour. In a monopsonistic setting, where the wage is set below marginal productivity, an increase in the minimum wage does not yield negative employment consequences. In this scenario, the minimum wage signifies an increase in earnings without a decrease in other job-related conditions. Consequently, we may anticipate positive health effects through improved job satisfaction and, thus, better psychological health, at least for those receiving the minimum wage. Nevertheless, some conditions may have adverse health effects, as previous research has demonstrated that increased earnings through the Earned Income Tax Credit (EITC), in the absence of adjusted labour market conditions, results in higher cigarette consumption among lower-income smokers (Kenkel et al., 2014). Conversely, in a labour market where the wages are already set equal to or higher than the marginal productivity, firms might respond by implementing structural changes to offset potential losses, as associated with the minimum wage increase. In this context, an increase in the minimum wage may lead to adverse employment outcomes, a reduction in working hours, or a substantial increase in workload. Consequently, these structural changes in the workplace may lead to a heightened risk of stress, which in turn may lead to adverse health effects. Research on the economic impacts of the 2018 South Korean minimum wage hike indicates that the increased minimum wage led to a reduction in total employment (Doh et al., 2022) and gross output (Seok and You, 2022), and an increase in short-term workers who are exempt from social insurance mandates (Kim et al., 2023a). According to Doh et al. (2022), firms responded to a minimum wage increase through layoffs, plant closures, and substitution between labourers of different skill levels. The labour market dynamics in South Korea before the 2018 minimum wage increase resembled a scenario in which wages were already established at levels that did not fall below marginal productivity. In this context, our research aims to investigate how large increases in the minimum wage translate into health outcomes of older workers. Minimum wage policies are likely to have a greater impact on the health of vulnerable individuals, such as those of advanced ages. In the South Korean context, one in three older adults participates in the labour market after the age of 65, mainly due to a lack of sufficient other income sources (OECD, 2021). In this study, we focus on older adults who continue to work and examine the impact of the minimum wage hike on their physical health and cognitive functioning. We included cognitive functioning as our main health outcome because it is the centre of control of the human body and influences every aspect of life, including an individual\u2019s well-being, development, and productivity. Furthermore, maintaining sound cognitive functioning is essential for effective financial decision-making, which tends to decline after the age of 60 (Finke et al., 2017). We utilised data from the Korean Longitudinal Study on Aging, which is a sister study of the Health and Retirement Study in the United States. To estimate the impact of the minimum wage increase, we applied a difference-in-differences design. In line with the empirical strategies used in previous studies, our intervention group included individuals whose pre-intervention hourly wages were below the minimum wage, and we compared this group with those whose hourly wages were slightly above the minimum wage (Reeves et al., 2017, Kronenberg et al., 2017, Maxwell et al., 2022). Unexpectedly, our findings suggest that the minimum wage hike negatively impacted the cognitive functioning of older adults in South Korea, with cognitive function decreasing by 0.704 points during the year of the hike. We did not find statistically significant effects on self-reported health. Between 2014 and 2016, a period during which a modest minimum wage increase was implemented, no negative health effects were found. This suggests that the estimated negative effects are specifically linked to the presence of a larger increase in the minimum wage but not necessarily to smaller increases. This study builds on previous research exploring the impact of minimum wage on health outcomes, specifically using longitudinal data and a difference-in-differences design to assign intervention groups based on hourly wages (Reeves et al., 2017, Lenhart, 2017, Kronenberg et al., 2017, Maxwell et al., 2022). While some previous studies found positive effects on mental and self-reported health, respectively (Reeves et al., 2017, Lenhart, 2017), others found insignificant results on mental health (Kronenberg et al., 2017) or on both mental and self-reported physical health (Maxwell et al., 2022). Our findings similarly suggest insignificant effects on self-reported health but negative effects on cognitive health for the first time. This study contributes to the literature in at least three ways. First, we examine the health impact of a minimum wage hike. Previous research on minimum wage hikes has focused on economic outcomes, such as unemployment, labour productivity, and gross output (Harasztosi and Lindner, 2019, Doh et al., 2022, Seok and You, 2022, Jardim et al., 2022), but not on health outcomes. Second, we present evidence from South Korea, which is yet to be investigated in the context of the health effects of the minimum wage. Despite being a high-income country, South Korea\u2019s work environment and corporate culture may differ significantly from those of the U.S., the UK, and Western Europe. Following years of substantial economic growth, the Asian financial crisis of the late 1990s, brought about considerable structural changes and a notable surge in job insecurity (Khang et al., 2005). These significant economic fluctuations within a period of robust growth likely exerted a lasting influence on aspects of both labour supply and demand aspects, such as mandatory early retirement and active labour participation at older ages (OECD, 2018, OECD, 2021). Therefore, evidence from South Korea has the potential to critically enrich the global evidence on the relationship between the minimum wage and health. Third, we focused on older workers and investigated their cognitive functioning and self-reported health as the main outcomes. Understanding the policy impacts on older workers is particularly important in ageing economies with increasing retirement ages. The remainder of this paper is organised as follows: Section 2 describes the South Korean context of the minimum wage policy and the labour force participation of older workers. Section 3 describes the data and the methodology used to estimate the intervention effects. Section 4 presents the main results of the study. Section 5 discusses the results and concludes. 2. Minimum wage and older workers in South Korea The Minimum Wage Act in South Korea was established in December 1986 and implemented in January 1988 to improve the standard of living of employees, enhance the quality of the labour force, and contribute to the overall development of the national economy (as stated in Article 1 of the Minimum Wage Act). Notably, the minimum wage in South Korea is national and uniform across all industries and business sizes (Jung, 2011), with minor exceptions (as outlined in Article 3 of the Minimum Wage Act). Significant punishment is foreseen for employers who fail to comply with these regulations, such as imprisonment, labour for up to three years, or a fine of up to 20 million Korean won (equivalent to 24,989 USD, adjusted for 2023 Purchasing Power Parities (PPP) according to the World Bank, 2024). The 2018 minimum wage hike in South Korea was a significant policy change that aimed to improve the standard of living for low-income earners and drive consumption-led economic growth. This increase was the largest since 2001 (Seok and You, 2022), affecting a large part of the population, an estimated 4.6 million individuals, representing 24% of all wage earners in the country (Ministry of Employment and Labor, 2023). Fig. 1 shows the annual growth evolution of the South Korean minimum wage in an international context, comparing it with that of the UK and the U.S. This comparison was made after harmonisation using PPP to account for differences in the cost of living among OECD countries (OECD, 2023b). South Korea stands out because of its significant increase, particularly in 2018, which was the episode we intend to focus on our evaluation. According to Doh and Van der Meer, 2023, the pace of minimum wage growth in South Korea was exceptional compared with other countries, when judged based on the ratio of minimum to mean wages. South Korea has the highest relative poverty rate among older adults among OECD countries, and the majority of Korean older workers have precarious jobs with non-permanent positions due to mandatory early retirement, which is used to curtail labour costs from the hiring side (OECD, 2021, OECD, 2018). The labour force participation rate of individuals aged 65+ years in South Korea has consistently been greater than 30% from 2012 onwards and was 36% in 2021 (OECD, 2023a), the highest among OECD countries. Many individuals re-enter the labour market after the nominal retirement age because of the low percentage of private occupation-related pensions and insufficient public transfers (Kim et al., 2023b). Among older workers aged 60 and above, 35.1% were estimated to receive wages close to the minimum wage, based on the 2022 national statistics (Korea Minimum Wage Commission, 2023). The within-age group share of minimum wage workers aged 60 and above was the second largest among all age groups, behind only the age group 19 and below. 3. Methods 3.1. Data This study utilises data from the Korean Longi\n---Source URL: https://academic.oup.com/wbro/article-abstract/30/1/124/1874654\nSource title: Labor market regulations: What do we know about their impacts in developing countries?\nSource type: academic\nContent:\nLabor Market Regulations: What do we know about their Impacts in Developing Countries? | The World Bank Research Observer | Oxford Academic <meta name=\"citation_reference\" content=\"Gupta P. Hasan R. Kumar U. Big Reforms but Small Payoffs: Expl\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776315644.045474
+}

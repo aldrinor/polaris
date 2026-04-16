@@ -1,0 +1,12 @@
+{
+  "request_id": "f0a7f2434c91",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Implications for Clinical Practice and Future Research, generate a hierarchy Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: Classification/taxonomy of findings\n\nSECTION CONTENT:\nPrimary outcomes for the Cochrane review of intermittent fasting in cardiovascular-disease prevention are cardiovascular mortality, myocardial infarction, and heart failure [REF:1]. This outcome specification frames the evidence threshold required to support claims of cardiovascular-disease prevention through intermittent fasting.\n\nThe primary-outcome triad of cardiovascular mortality, myocardial infarction, and heart failure [REF:1] identifies the hard clinical endpoints on which definitive preventive claims would be evaluated. Trials reporting only intermediate biomarkers do not yet directly address these primary outcomes [REF:1].\n\n**Key Findings**\n- Primary outcomes for the Cochrane intermittent-fasting review are cardiovascular mortality, myocardial infarction, and heart failure [REF:1].\n- Intermediate-biomarker trials do not directly address the primary clinical endpoints identified in the Cochrane protocol [REF:1].\n\nSUPPORTING EVIDENCE SUMMARIES:\n- Primary outcomes for the review are cardiovascular mortality, myocardial infarction, and heart failure.",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776383639.0003114
+}

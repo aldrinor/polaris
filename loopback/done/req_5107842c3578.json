@@ -1,0 +1,42 @@
+{
+  "request_id": "5107842c3578",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nThe interviewer (Dr. Eleanor Whitfield, Economic perspective) asks:\nQUESTION: What is the evidence base on the cost-effectiveness of intermittent fasting as an intervention for metabolic syndrome \u2014 specifically, have any published economic evaluations quantified the incremental cost-effectiveness ratio (ICER) per quality-adjusted life year (QALY) gained, budget impact, or long-run cost-offset from averted type-2 diabetes and cardiovascular events, compared with standard lifestyle counseling, structured Mediterranean-diet programs, or GLP-1 receptor agonists such as semaglutide and tirzepatide, and how do those values compare against conventional willingness-to-pay thresholds used by NICE, CADTH, and ICER?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Cost-effectiveness of a periodic fasting-mimicking diet programme in ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12599020/\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 2] Economic Evaluation of Fasting Mimicking Diet Versus Standard ...\n  URL: https://www.sciencedirect.com/science/article/pii/S1098301524028468\n  Content: This cost-utility study is the first to evaluate the costs and consequences of adding the FMD fasting nutri-technology to diabetes standard care.\n[Source 3] (PDF) Cost-effectiveness of a periodic fasting-mimicking diet ...\n  URL: https://www.researchgate.net/publication/397459835_Cost-effectiveness_of_a_periodic_fasting-mimicking_diet_programme_in_patients_with_type_2_diabetes_a_trial-based_analysis_and_a_lifetime_model-based_analysis\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 4] [PDF] Table of Contents - ICER\n  URL: https://icer.org/wp-content/uploads/2022/01/ICER_-Type-2-Diabetes_Public-Comment-Grid_01062022.pdf\n  Content: Diabetes Model Outcomes Model 2 (UKPDS OM2) risk equations, which were used to evaluate the risk of complications and mortality in the model.\n[Source 5] Cost-effectiveness of a periodic fasting-mimicking diet programme in ...\n  URL: https://pubmed.ncbi.nlm.nih.gov/41214519/\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 6] [PDF] Cost-Effectiveness of Alternative Thresholds of the ... - CDC Stacks\n  URL: https://stacks.cdc.gov/view/cdc/28142/cdc_28142_DS1.pdf\n  Content: OBJECTIVEdThe study objective was to evaluate the cost-effectiveness of alternative fasting plasma glucose (FPG) thresholds to identify adults at high risk ...\n[Source 7] [PDF] Medications for Obesity Management: Effectiveness and Value - ICER\n  URL: https://icer.org/wp-content/uploads/2022/03/ICER_Obesity_Final_Evidence_Report_and_Meeting_Summary_102022.pdf\n  Content: Kibum Kim developed the cost-effectiveness model and authored the corresponding sections of the Report with assistance from Daniel R. Touchette, ...\n[Source 8] Cost-Effectiveness of a Diabetes Self-Management Education and ...\n  URL: https://diabetesjournals.org/care/article/44/5/1108/138732/Cost-Effectiveness-of-a-Diabetes-Self-Management\n  Content: The CHW-only intervention had an ICER of $430,600 per QALY gained compared with the EUC intervention. In sensitivity analyses, the results ...\n[Source 9] [PDF] Public Comment on ICER's Draft Evidence Report on Treatments for ...\n  URL: https://icer.org/wp-content/uploads/2022/08/ICER_Obesity_Public-Comment-Folio_083122.pdf\n  Content: As described in the DER, the base-case cost-effectiveness analysis includes only type 2 diabetes. (T2D) and CV comorbidities in the model.\n[Source 10] [PDF] REPORT AT A GLANCE: TYPE 2 DIABETES - ICER\n  URL: https://icer.org/wp-content/uploads/2022/02/Type-2-Diabetes-RAAG_FEB-2022.pdf\n  Content: cost-effectiveness ratios of $100,000 and $150,000 per QALY or per evLY gained. Page 1 of this RAAG illustrates the annual HBPBs for tirzepatide plus.\n[Source 11] Preventing type 2 diabetes: systematic review of studies of cost ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5695352/\n  Content: Lifestyle programmes and metformin appeared to be cost effective in preventing diabetes in high-risk individuals (median incremental cost-effectiveness ratios ...\n[Source 12] Effects of time-restricted eating on glycemic control in type 2 diabetes\n  URL: https://www.sciencedirect.com/science/article/pii/S026156142500216X\n  Content: Human studies demonstrate that TRE helps to reduce body weight and fat mass, improve glucose tolerance and lower blood pressure in individuals with overweight ...\n[Source 13] [PDF] Prevention of type 2 diabetes: risk identification and interventions for ...\n  URL: https://www.nice.org.uk/guidance/ph38/evidence/he1-costeffectiveness-review-and-economic-modelling-435125485\n  Content: This suggests that the main value in further modelling may lie in modelling the specific risk assessment strategies that are considered to be the most feasible ...\n[Source 14] The Impact of Time Restricted Eating on Type 2 Diabetes (EaT2DM)\n  URL: https://clinicaltrials.gov/study/NCT06887543\n  Content: The rationale for this study is that early time-restricted eating (eTRE) has been shown to improve glycemic variation in a weight-neutral setting within 48 ...\n[Source 15] Time restricted eating for the prevention of type 2 diabetes - PubMed\n  URL: https://pubmed.ncbi.nlm.nih.gov/34418079/\n  Content: Results to date reveal that TRE produces mild weight loss (1%-4% from baseline) and energy restriction, when food consumption is restricted to 4-10 h/day. TRE ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776277426.8724225
+}

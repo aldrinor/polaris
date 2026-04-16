@@ -1,0 +1,42 @@
+{
+  "request_id": "30d45a3de970",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nThe interviewer (Maria Escalante, JD, Regulatory perspective) asks:\nQUESTION: What formal regulatory opinions, guidance documents, or enforcement actions have the FDA, EMA, EFSA, or Health Canada issued regarding intermittent fasting as a therapeutic or preventive intervention for metabolic syndrome, and how do they treat health claims made by commercial IF apps and subscription programs?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] FDA Issues Draft Guidance on Dietary Guidance Statements on ...\n  URL: https://www.fda.gov/food/hfp-constituent-updates/fda-issues-draft-guidance-dietary-guidance-statements-food-labels\n  Content: The US Food and Drug Administration today issued draft guidance to provide industry with the agency's current thinking on how and when to use Dietary Guidance ...\n[Source 2] [PDF] Draft Guidance for Industry: Questions and Answers About Dietary ...\n  URL: https://www.fda.gov/media/166342/download\n  Content: For the purposes of this guidance, Dietary Guidance Statements are written or graphic material, based on key or principal recommendations from a consensus ...\n[Source 3] FDA Finalizes Updated \u201cHealthy\u201d Nutrient Content Claim\n  URL: https://www.fda.gov/food/hfp-constituent-updates/fda-finalizes-updated-healthy-nutrient-content-claim\n  Content: FDA has issued a final rule to update the \u201chealthy\u201d nutrient content claim to help consumers identify foods that are particularly useful as ...\n[Source 4] FDA Final Rule Updates the \u201cHealthy\u201d Nutrient Content Claim\n  URL: https://www.fdli.org/2025/05/fda-final-rule-updates-the-healthy-nutrient-content-claim/\n  Content: The Final Rule updates the current requirements for \u201chealthy\u201d nutrient content claims by removing the limitations for total fat and cholesterol ...\n[Source 5] Food Labeling: Nutrient Content Claims; Definition of Term \u201cHealthy\u201d\n  URL: https://www.federalregister.gov/documents/2024/12/27/2024-29957/food-labeling-nutrient-content-claims-definition-of-term-healthy\n  Content: We note that FDA has also published a draft guidance on the labeling ... The 2024 draft guidance for industry contains 3-year voluntary ...\n[Source 6] Food Labeling: Front-of-Package Nutrition Information\n  URL: https://www.regulations.gov/document/FDA-2024-N-2910-0001\n  Content: ... diet. For example, on December 27, 2024, FDA published a rule amending the \u201chealthy\u201d implied nutrient content claim (89 FR 106064). The ...\n[Source 7] FDA Updates \u201cHealthy\u201d Claim, Providing a Refreshed Tool for ...\n  URL: https://www.fda.gov/news-events/press-announcements/fda-updates-healthy-claim-providing-refreshed-tool-consumers\n  Content: The \u201chealthy\u201d claim has been updated to help consumers find foods that are the foundation of a healthy dietary pattern and could also result in the development ...\n[Source 8] MEDIA CALL: FDA's Final Rule on \"Healthy\" Claim \u2013 12/19/2024\n  URL: https://www.youtube.com/watch?v=Fbcvu-ShANk\n  Content: A media availability to discuss the FDA's announcement of a final rule to update the nutrient content claim \u201chealthy,\u201d providing a refreshed ...\n[Source 9] FDA Releases Final \u201cHealthy\u201d Rule - National Agricultural Law Center\n  URL: https://nationalaglawcenter.org/fda-releases-final-healthy-rule/\n  Content: This rule is updating the requirements a human food product must meet to be eligible to use the labeling claim \u201chealthy\u201d on its packaging.\n[Source 10] Use of the \"Healthy\" Claim on Food Labeling - FDA\n  URL: https://www.fda.gov/food/nutrition-food-labeling-and-critical-foods/use-healthy-claim-food-labeling\n  Content: The FDA announced on December 19, 2024, a final rule to update the \u201chealthy\u201d claim that manufacturers can voluntarily use on food packages.\n[Source 11] Health claims (art. 13) - EFSA - European Union\n  URL: https://www.efsa.europa.eu/en/topics/health-claims-art-13\n  Content: EFSA's scientific evaluation helps to ensure that claims made on food labelling and advertising regarding nutrition and health are meaningful and accurate.\n[Source 12] Consolidated list of Article 13 health claims List of references ...\n  URL: https://www.efsa.europa.eu/sites/default/files/topic/ndaart13ref03.pdf\n  Content: EFSA has received from the European Commission nine Access databases with a consolidated list of. 4,185 main health claim entries with around ...\n[Source 13] Guidance for the scientific requirements for health claims ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC7009415/\n  Content: by D Turck \u00b7 2018 \u00b7 Cited by 71 \u2014 EFSA asked the Panel on Dietetic Products, Nutrition and Allergies (NDA) to update the guidance on the scientific requirements for health claims related to ...\n[Source 14] Consolidated list of Article 13 health claims List of references ...\n  URL: https://www.efsa.europa.eu/sites/default/files/topic/ndaart13ref04.pdf\n  Content: EFSA has screened all health claims on the list using six criteria established by the NDA Panel to identify claims for which EFSA considers ...\n[Source 15] Scientific Opinion on the substantiation of health claims ...\n  URL: https://efsa.onlinelibrary.wiley.com/doi/pdf/10.2903/j.efsa.2009.1214\n  Content: The Panel considers that in order to bear the claims a food should be at least a source of iodine as per Annex to Regulation 1924/2006. The target population is ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776276976.4431098
+}

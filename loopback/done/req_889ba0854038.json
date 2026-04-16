@@ -1,0 +1,84 @@
+{
+  "request_id": "889ba0854038",
+  "call_type": "structured:AgenticRoundAnalysis",
+  "schema_name": "AgenticRoundAnalysis",
+  "schema_json": {
+    "description": "LLM contract for the agentic search loop 'Reason' step.\n\nAfter each round of searches, the LLM analyzes results and decides\nwhether to continue searching or converge. Generates targeted\nfollow-up queries informed by what was found so far.",
+    "properties": {
+      "key_findings": {
+        "description": "3-5 key findings from the latest round",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "perspective_gaps": {
+        "description": "Underrepresented STORM perspectives in current results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Perspective Gaps",
+        "type": "array"
+      },
+      "web_queries": {
+        "description": "3-6 web queries for the next round",
+        "items": {
+          "type": "string"
+        },
+        "title": "Web Queries",
+        "type": "array"
+      },
+      "academic_queries": {
+        "description": "1-3 Semantic Scholar queries using precise terminology",
+        "items": {
+          "type": "string"
+        },
+        "title": "Academic Queries",
+        "type": "array"
+      },
+      "exa_queries": {
+        "description": "0-1 semantic queries for Exa neural search",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exa Queries",
+        "type": "array"
+      },
+      "convergence_assessment": {
+        "default": "expanding",
+        "description": "Assessment: 'expanding', 'narrowing', or 'saturated'",
+        "title": "Convergence Assessment",
+        "type": "string"
+      },
+      "should_continue": {
+        "default": true,
+        "description": "Whether another search round is needed",
+        "title": "Should Continue",
+        "type": "boolean"
+      },
+      "reasoning": {
+        "default": "",
+        "description": "Brief rationale for the convergence assessment",
+        "title": "Reasoning",
+        "type": "string"
+      },
+      "knowledge_gaps": {
+        "description": "Specific knowledge gaps identified from reading content",
+        "items": {
+          "type": "string"
+        },
+        "title": "Knowledge Gaps",
+        "type": "array"
+      }
+    },
+    "title": "AgenticRoundAnalysis",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research search strategist conducting an agentic deep research loop.\n\nRESEARCH QUESTION: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nROUND HISTORY:\nRound 1: 9 queries -> 79 web + 30 academic, 67 new URLs, 6 pages read\nRound 2: 3 queries -> 20 web + 21 academic, 27 new URLs, 6 pages read\n\nKNOWLEDGE ACQUIRED (12 pages read so far):\n[Page 1] A Guideline to Determine Faradaic Efficiency in Electrochemical CO ...\n  Summary: Email: sebastiancp@jncasr.ac.in, sebastiancp@gmail.comNew Chemistry Unit, Jawaharlal Nehru Centre for Advanced Scientific Research, Jakkur, Bangalore 560064, IndiaSchool of Advanced Materials (SAMat), Jawaharlal Nehru Centre for Advanced Scientific Research, Jakkur, Bangalore 560064, IndiaMore by Sebastian C. Peter This publication is licensed for personal use by The American Chemical Society. Experimental details for synthesis and characterization (PXRD, SEM), electrochemical measurement detail\n  Perspectives: Scientific\n  Key facts: Acknowledgments S.C.P. thanks Jawaharlal Nehru Centre for Advanced Scientific Research (JNCASR) and the Department of Science and Technology, India (DST) (Grant Number: DST/TM/EWO/MI/CCUS/13(G)), and SwarnaJayanti Fellowship (Grant Number: DST/SJF/CS; Rev. 2019, 119, 7610\u2013 7672, DOI: 10.1021/acs.chemrev.8b00705Google Scholar1Progress and Perspectives of Electrochemical CO2 Reduction on Copper in Aqueous ElectrolyteNitopi, Stephanie; Bertheussen, Erlend; Scott, Soren B.; Liu, Xinyan; Engstfeld, Alb; L.; Chan, Karen; Hahn, Christopher; Noerskov, Jens K.; Jaramillo, Thomas F.; Chorkendorff, IbChemical Reviews (Washington, DC, United States) (2019), 119 (12), 7610-7672CODEN: CHREAY; ISSN:0009-2665. (American Chemical Society)A review.\n[Page 2] Comparison of Faradaic efficiency of different reported catalysts and...\n  Summary: INSUFFICIENT_CONTENT\n  Perspectives: none tagged\n  Key facts: none extracted\n[Page 3] Boosting Faradaic Efficiency in Electrochemical Nitrogen Reduction ...\n  Summary: Fax: +98 87336624008.Department of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranResearch Center for Nanotechnology, University of Kurdistan, Sanandaj 66177-15175, IranMore by Abdollah Salimi Article Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals. These metrics are regularly updated to reflect usage leading up to the last few days. Citations are the number of other articles citing \n  Perspectives: Scientific\n  Key facts: Fax: +98 87336624008.Department of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranResearch Center for Nanotechnology, University of Kurdistan, Sanandaj 66177-15175, IranMore by Abdollah Salimi Article Views are the COUNTER-compliant su; Adding Au atoms (0.2%) to the CuSn structure by galvanic replacement increases the number of active sites for nitrogen adsorption and at the same time prevents the hydrogen evolution reaction.; The replacement of Au atoms increased the faradaic efficiency from 7.14 to 60.88%, and the NH3 yield improved from 10.94 \u03bcg h\u20131 cm\u20132 (1.78 \u00d7 10\u201310 mol s\u20131 cm\u20132) at \u22120.4 V vs RHE to 19.66 \u03bcg h\u20131 cm\u20132 (3.2 \u00d7 10\u201310 mol s\u20131 cm\u20132) at \u22120.15 V vs RHE.\n[Page 4] A review of efficient electrocatalysts for the oxygen evolution ...\n  Summary: INSUFFICIENT_CONTENT\n  Perspectives: none tagged\n  Key facts: none extracted\n[Page 5] Efficiency and selectivity of CO2 reduction to CO on gold gas ... - PMC\n  Summary: INSUFFICIENT_CONTENT\n  Perspectives: none tagged\n  Key facts: none extracted\n[Page 6] Producing hydrogen with enhanced Faradaic Efficiency\n  Summary: Developing efficient and stable electrocatalysts is crucial for the electrochemical production of pure and clean hydrogen. For practical applications, an economical and facile method of producing catalysts for the hydrogen evolution reaction (HER) is essential. Scientists at the UNIST have recently devised a new water-splitting hydrogen catalyst.\n  Perspectives: Scientific\n  Key facts: The catalyst contains ruthenium (Ru) nanoparticles uniformly distributed and anchored on the surface of multiwalled carbon nanotubes (MWCNTs), or (Ru@MWCNT).; Their results show that Ru@MWCNT produces 15.4% more hydrogen per power consumption than commercial Pt/C, and Faradaic efficiency (92.28%) is higher than Pt/C (85.97%).; DOI: 10.1038/s41467-020-15069-3\n\n\nFor each page, provide:\n1.\n[Page 7] Strategies to improve NRR selectivity and faradaic efficiency\n  Summary: INSUFFICIENT_CONTENT\n  Perspectives: none tagged\n  Key facts: none extracted\n[Page 8] Development of Different Kinds of Electrocatalyst for the ... - PMC\n  Summary: Abstract Significant advancements have been made in the development of CO2 reduction processes for applications such as electrosynthesis, energy storage, and environmental remediation. Several materials have demonstrated great potential in achieving high activity and selectivity for the desired reduction products. Nevertheless, these advancements have primarily been limited to small-scale laboratory settings, and the considerable technical obstacles associated with large-scale CO2 reduction have\n  Perspectives: Scientific\n  Key facts: The catalyst demonstrates impressive performance with 84.5% Faradaic efficiency for C2H4 production, stable electrolysis for ~55 h, and 27.6% ethylene energy efficiency at 200 mA cm\u22122.; Mechanistic analyses highlight the importance of stable nanostructures and enhanced *OCCOH intermediate adsorption for selective and prolonged C2H4 generation.; Co-electrolysis of CO2 with small amounts of O2 generates surface hydroxyl species, which dramatically enhance the activity of copper catalyzed CO2 electroreduction.\n[Page 9] Catalysts for electrochemical CO2 conversion: material ...\n  Summary: Abstract The electrochemical reduction of CO2 (eCO2R) presents a promising pathway for addressing climate change by converting CO2 into value-added chemicals and fuels. A crucial aspect of this technology is the choice of catalyst materials, which directly influences the selectivity, stability and sustainability of the process. Here we introduce a streamlined supply risk assessment coupled with life-cycle environmental impact associated with various catalysts used in eCO2R for products, includin\n  Perspectives: Scientific\n  Key facts: In 2022, industry sectors contributed up to nearly 38% of global fuel combustion emissions alone, which was approximately 12.9 gigaton of CO24.; For formate production, catalysts often contain tin and/or bismuth metals31,32,33,34,35,36,37,38,39,40,41.; Other studies employed aluminum57 or gallium30 for the production of ethylene or methanol from CO2.\n[Page 10] Challenges and strategies in catalysts design towards ...\n  Summary: Recent advances in hybrid seawater electrolysis for hydrogen production. Recent advances in electrocatalysts for seawater splitting. Direct seawater electrolysis: from catalyst design to device applications.\n  Perspectives: Scientific\n  Key facts: Recent advances in hybrid seawater electrolysis for hydrogen production.; Recent advances in electrocatalysts for seawater splitting.\n[Page 11] 99.7% Faradaic Efficiency in Nitrate Reduction Enabled by ...\n  Summary: 99.7% Faradaic Efficiency in Nitrate Reduction Enabled by Defect-Rich Copper NanoparticlesClick to copy article linkArticle link copied! - Xuan LiuXuan LiuState Key Laboratory of High Pressure and Superhard Materials, Synergetic Extreme Condition High-Pressure Science Center, College of Physics, Jilin University, Changchun 130012, P. ChinaMore by Xuan Liu - Jiewen LiuJiewen LiuState Key Laboratory of High Pressure and Superhard Materials, Synergetic Extreme Condition High-Pressure Science Center\n  Perspectives: Scientific\n  Key facts: 99.7% Faradaic Efficiency in Nitrate Reduction Enabled by Defect-Rich Copper NanoparticlesClick to copy article linkArticle link copied! - Xuan LiuXuan LiuState Key Laboratory of High Pressure and Superhard Materials, Synergetic Extreme Condition Hig; ChinaMore by Yongming Sui Article Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals.; In this study, an efficient copper nanoparticle (Cu NP) electrocatalyst was developed for the NO3\u2013RR to synthesize NH3 under mild conditions to enhance the efficiency of the NO3\u2013RR.\n[Page 12] Why total Faradaic efficiency is dropped at low ...\n  Summary: University of Texas at Austin Question Asked 3 March 2020 Why total Faradaic efficiency is dropped at low overpotential during electrochemical CO2 reduction? Hi guys I'm studying electrochemical CO2 reduction using the Ag nanowire it shows very low total Faradaic efficiency (11% FE of CO, 48% FE of H2) when I conduct the experiment at -0.6V (rhe) Is there anyone suffering from same problem? All Answers (2) Hi Noho, Are you measuring gas concentrations in the headspace of your cell?\n  Perspectives: Scientific\n  Key facts: University of Texas at Austin Question Asked 3 March 2020 Why total Faradaic efficiency is dropped at low overpotential during electrochemical CO2 reduction?; Hi guys I'm studying electrochemical CO2 reduction using the Ag nanowire it shows very low total Faradaic efficiency (11% FE of CO, 48% FE of H2) when I conduct the experiment at -0.6V (rhe) Is there anyone suffering from same problem?; Related Publications A N-doped carbonized wood membrane (N-CWM) is fabricated and directly used as a self-supported electrode for efficient CO2 electroreduction in aqueous solution with a maximum CO Faradaic efficiency (FE) of 78% at -0.68 V versus r\n\nNEW SEARCH RESULTS (round 2, titles only \u2014 not yet read):\n- A Guideline to Determine Faradaic Efficiency in Electrochemical CO ...\n- Criteria and cutting-edge catalysts for CO\u2082 electrochemical ...\n- A selective and efficient electrocatalyst for carbon dioxide reduction\n- Breaking the Unity Limit: Electrocatalytic Systems Surpassing 100 ...\n- Producing hydrogen with enhanced Faradaic Efficiency\n- From Traditional to New Benchmark Catalysts for CO2 ... - PMC - NIH\n- Faradaic efficiency Research Papers - Academia.edu\n- Electrolyte Effects on the Faradaic Efficiency of CO 2 Reduction to ...\n- Comparison of Faradaic efficiency of different reported catalysts and...\n- The Role of Electrocatalysts in the Electrochemical Conversion of ...\n- Reliable reporting of Faradaic efficiencies for electrocatalysis research | Nature Communications\n- Benchmarking Catalysts for Formic Acid/Formate Electrooxidation\n- The Faraday efficiency of nitrate reduction reactions and selectivity of final product for electroca\n- Reliable reporting of Faradaic efficiencies for electrocatalysis research | Nature Communications\n- Fluorinated catalysts for the oxygen evolution reaction: a comprehensive review of synthesis, struct\n- Recent progress and perspective of electrocatalysts for the hydrogen evolution reaction  - Catalysis\n- Improving the intrinsic activity of electrocatalysts for sustainable energy conversion: where are we\n\nPERSPECTIVE COVERAGE:\n  Covered (2/9): Scientific, Regulatory\n  Uncovered: Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends\n  Low coverage: Regulatory\n\nBased on what has been READ:\n1. Decompose the research question into 5-8 sub-questions.\n   Which sub-questions have ZERO or WEAK evidence?\n   Which sub-questions are well-answered with strong evidence?\n2. What CONTRADICTIONS exist between sources? Flag conflicting evidence.\n3. What specific KNOWLEDGE GAPS remain? List them as specific factual questions\n   we CANNOT yet answer. 'none' is almost never correct for a complex research question.\n4. Rate overall confidence in accumulated knowledge: LOW/MEDIUM/HIGH with reasoning.\n5. Which perspectives need more coverage?\n6. Generate 3-6 targeted WEB queries to fill those gaps.\n7. Generate 1-3 ACADEMIC queries using precise terminology.\n8. Optionally generate 0-1 semantic EXA queries.\n9. Assess ANSWER COMPLETENESS for the research question:\n   - List specific sub-questions that remain UNANSWERED.\n   - For each answered sub-question, rate evidence strength (weak/moderate/strong).\n   - 'expanding': Major sub-questions still unanswered.\n   - 'narrowing': Most sub-questions answered, seeking confirmation/depth.\n   - 'saturated': All sub-questions answered with strong evidence.\n10. Should we continue searching?\n\nFocus on queries that address content-level gaps, not just missing URLs.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318839.3160248
+}

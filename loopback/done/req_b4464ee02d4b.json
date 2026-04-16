@@ -1,0 +1,42 @@
+{
+  "request_id": "b4464ee02d4b",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting?\n\nThe interviewer (Dr. Krista Varady, Scientific perspective) asks:\nQUESTION: In randomized controlled trials that match total energy intake between intermittent fasting (16:8 time-restricted eating or alternate-day fasting) and continuous energy restriction, does intermittent fasting produce greater fat mass loss, better glycemic control, or superior cardiometabolic biomarker improvement, or are observed differences explained entirely by energy balance?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Is Intermittent Fasting Better Than Continuous Energy Restriction for ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9484493/\n  Content: The existing evidence suggests that IF is as effective as continuous energy restriction and may be a feasible and effective approach to weight loss.\n[Source 2] Intermittent fasting and continuous energy restriction result in similar ...\n  URL: https://pubmed.ncbi.nlm.nih.gov/35084574/\n  Content: Continuous energy restriction and 5:2 intermittent fasting resulted in similar improvements in body composition, muscle quality, and strength.\n[Source 3] [PDF] Intermittent versus continuous energy restriction on weight loss and ...\n  URL: https://t.uhcancercenter.org/pdf/archive/quest/s1/Cioffi%20JTranslMed18%20(META)%20intermittent%20vs.%20continuous%20energy%20restriction%20on%20weight%20and%20biomarkers.pdf\n  Content: Short- and long-term effects of continuous versus intermittent restrictive diet approaches on body composition and the metabolic profile in overweight and ...\n[Source 4] Randomized Control Trials Intermittent energy restriction is ...\n  URL: https://www.sciencedirect.com/science/article/abs/pii/S0261561419302961\n  Content: This parallel arm, randomized controlled trial compared the short-term effects of intermittent and continuous energy restriction (IER and CER) diets on markers ...\n[Source 5] Intermittent Fasting vs Continuous Caloric Restriction for Weight and ...\n  URL: https://www.gavinpublishers.com/article/view/intermittent-fasting-vs-continuous-caloric-restriction-for-weight-and-body-composition-changes-in-humans\n  Content: 1.4. Conclusion: The IF dietary approach has achieved significant weight loss and body composition improvements, whereas the CR approach has not produced any ...\n[Source 6] Intermittent Fasting Compared to Continuous Energy Restriction on ...\n  URL: https://clinicaltrials.gov/study/NCT04526847\n  Content: The main objective of this study is to compare the effectiveness of IER versus CER diet on weight loss and cardiometabolic risk markers over the course of six ...\n[Source 7] Adherence and Dietary Composition during Intermittent vs ... - MDPI\n  URL: https://www.mdpi.com/2072-6643/13/4/1195\n  Content: These results indicate that within a weight management setting, ICR and CCR were equivalent in achieving modest weight loss over two years while affecting ...\n[Source 8] Fasting vs continuous energy restriction for body composition and ...\n  URL: https://examine.com/research-feed/study/dV4WJ0/?srsltid=AfmBOopKLzRVhjyujHDTaPlKzdl_Y2uFg8E5mqMHgOOfsiRcRPQfpSnJ\n  Content: In this 12-week randomized trial, continuous energy restriction and intermittent fasting resulted in similar improvements in body composition, ...\n[Source 9] The effects of intermittent or continuous energy restriction on weight ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC3017674/\n  Content: Last observation carried forward analysis showed IER and CER are equally effective for weight loss, mean (95% confidence interval [CI]) weight change for IER ...\n[Source 10] Differential effects of intermittent energy restriction vs. continuous ...\n  URL: https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2022.979618/full\n  Content: The iER tends to be superior to cER in the reduction of body composition and body circumference. The mean body weight loss was 4.57 kg (95% ...\n[Source 11] Effects of Time-Restricted Eating on Weight Loss and Other ...\n  URL: https://jamanetwork.com/journals/jamainternalmedicine/fullarticle/2771095\n  Content: by DA Lowe \u00b7 2020 \u00b7 Cited by 667 \u2014 Secondary outcomes from the in-person cohort included changes in weight, fat mass, lean mass, fasting insulin, fasting glucose, hemoglobin A1c ...\n[Source 12] Randomized controlled trial for time-restricted eating in ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9400087/\n  Content: by L Zhang \u00b7 2022 \u00b7 Cited by 68 \u2014 (A\u2013D) Changes in percentage weight loss (A), fat mass (B), percent body fat (C), and lean mass (D) after 4 and 8 weeks of intervention. Data are ...\n[Source 13] Time Restricted Eating for Weight Management\n  URL: https://clinicaltrials.gov/study/NCT04692532\n  Content: Time Frame. Change in fat mass, lean mass, visceral fat mass, Measured by DXA, Measured at month 0, 6 and 12. Change in bone mineral density, Measured by DXA ...\n[Source 14] Time Restricted Eating Effects On Body Composition and ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC7180107/\n  Content: by LS Chow \u00b7 2020 \u00b7 Cited by 395 \u2014 TRE did not result in any significant lean mass loss from the trunk or arms. The effect of TRE on changes in fat mass, lean mass and visceral fat were not ...\n[Source 15] Effects of time-restricted eating with exercise on body ...\n  URL: https://www.nature.com/articles/s41366-024-01704-2\n  Content: by HM Hays \u00b7 2025 \u00b7 Cited by 9 \u2014 Time\u2010restricted eating and concurrent exercise training reduces fat mass and increases lean mass in overweight and obese adults. Physiol Rep ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382296.604237
+}

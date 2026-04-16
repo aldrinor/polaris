@@ -1,0 +1,12 @@
+{
+  "request_id": "d6377f3cb627",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The EU Digital Services Act: Overview and Impact | Seyfarth  | Statement: The old regime from 1985 had become \u201cill-suited to the digital age,\u201d leading togaps and legal uncertainty (for example, whether stand alone ...\n2. [SILVER] Source: The EU Digital Services Act: Overview and Impact | Seyfarth  | Statement: Book: Digital Lawscapes: Artificial Intelligence, Cybersecurity and the New European Order\n- Page Range: 111-143\n- Page Count: 33\n- Publicat...\n3. [SILVER] Source: The Digital Services Act | Shaping Europe's digital future | Statement: Platforms must respond to your reports and offer options to appeal their decisions. - Enhanced protection for minors - Platforms must take m...\n4. [SILVER] Source: The Digital Services Act | Shaping Europe's digital future | Statement: For the same reason, the DSA requires marketplaces to make reasonable efforts to perform random checks on products sold on their service or ...\n5. [SILVER] Source: EU legislative approaches to the regulation of digitalisatio | Statement: A second feature of much of the current legislation in digital matters is that obligations imposed therein require increased attention to in...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776318634.2145011
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "4aa77e4327de",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent Fasting and Obesity-Related Health Outcomes | Statement: Intermittent fasting (IF) has recently gained much public interest as a weight loss approach.1 IF is a unique dietary strategy defined as...\n2. [SILVER] Source: Intermittent Fasting and Obesity-Related Health Outcomes | Statement: IF works through an altered liver metabolism, referred to as the metabolic switch, where the body periodically switches from liver-derived...\n3. [SILVER] Source: METABOLIC OBSERVATIONS DURING THE TREATMENT OF OBESE PATIENT | Statement: XIII, NO. 4 APRIL, 1964 \n\nMetabolic Observations during the Treatment of Obese Patients by Periods of Total Starvation \n\nBy H.\n4. [SILVER] Source: METABOLIC OBSERVATIONS DURING THE TREATMENT OF OBESE PATIENT | Statement: Veeman \n\nTen very obese female patients were treated by periods of total starvation lasting 10 days each.\n5. [SILVER] Source: The Role of Intermittent Fasting on Metabolic Syndrome - PMC | Statement: Intermittent fasting has gained popularity as a dietary intervention to improve metabolic health.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776280535.2994156
+}

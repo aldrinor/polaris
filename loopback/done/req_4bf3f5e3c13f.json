@@ -1,0 +1,69 @@
+{
+  "request_id": "4bf3f5e3c13f",
+  "call_type": "structured:VerificationBatch",
+  "schema_name": "VerificationBatch",
+  "schema_json": {
+    "$defs": {
+      "ClaimVerification": {
+        "description": "Verification result for a single claim.\n\nAREA-1: Reasoning field removed \u2014 reasoning now happens in\nreasoning_content (model's chain-of-thought), not duplicated in JSON output.\nThis cuts output tokens per batch by ~30%.",
+        "properties": {
+          "claim": {
+            "description": "The claim being verified",
+            "title": "Claim",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "Verdict: 'SUPPORTED', 'PARTIALLY_SUPPORTED', 'NOT_SUPPORTED'",
+            "title": "Verdict",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 0.0,
+            "description": "Verification confidence 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "supporting_evidence": {
+            "description": "Evidence IDs that support this claim",
+            "items": {
+              "type": "string"
+            },
+            "title": "Supporting Evidence",
+            "type": "array"
+          }
+        },
+        "required": [
+          "claim",
+          "verdict"
+        ],
+        "title": "ClaimVerification",
+        "type": "object"
+      }
+    },
+    "description": "Batch verification results.",
+    "properties": {
+      "verifications": {
+        "description": "Verification results for each claim",
+        "items": {
+          "$ref": "#/$defs/ClaimVerification"
+        },
+        "title": "Verifications",
+        "type": "array"
+      },
+      "overall_faithfulness": {
+        "default": 0.0,
+        "description": "Overall faithfulness score 0.0 to 1.0",
+        "title": "Overall Faithfulness",
+        "type": "number"
+      }
+    },
+    "title": "VerificationBatch",
+    "type": "object"
+  },
+  "system": "You are an ADVERSARIAL claim verifier. Your job is NOT to confirm claims.\nYour job is to FIND WEAKNESSES in each claim.\n\nYOU ARE BAD AT VERIFICATION. Your known failure modes:\n- You read the claim and evidence and default to \"SUPPORTED\" without checking specifics.\n- You trust that numbers match without comparing them digit by digit.\n- You accept vague evidence for specific claims.\n- When uncertain, you hedge with \"PARTIALLY_SUPPORTED\" instead of deciding.\n\nCOUNTERACT THESE BIASES. For each claim:\n1. Find the WEAKEST point. What specific word, number, or causal link is NOT in the evidence?\n2. Compare numbers DIGIT BY DIGIT. \"4.3 kg\" is not \"4.30 kg\" is not \"4.3%\".\n3. Check directionality. \"reduces\" vs \"may reduce\" vs \"is associated with\" are different claims.\n4. Check population. A claim about \"adults\" is not supported by evidence about \"mice\".\n\nONLY mark SUPPORTED if you tried to break the claim and could not find a weakness.\n\nVerdicts:\n1. SUPPORTED: You actively tried to disprove it and failed. The evidence directly states the claim.\n2. PARTIALLY_SUPPORTED: The claim goes beyond the evidence (adds specificity, stronger causation, broader population than studied).\n3. NOT_SUPPORTED: The claim has no basis in the evidence, OR you cannot verify it from the provided text.\n\nDEFAULT TO NOT_SUPPORTED when uncertain. False SUPPORTED is worse than false NOT_SUPPORTED.\n\nRules:\n- When source content is provided, verify AGAINST THE ACTUAL TEXT. Check numbers, dates, names.\n- If no source content is provided, mark NOT_SUPPORTED. Title-only is insufficient.\n- If the source is about a completely different topic, mark NOT_SUPPORTED regardless of superficial matches.\n- Do NOT include reasoning in the JSON output.\n\nOutput format:\n{\"verifications\": [{\"claim\": \"...\", \"verdict\": \"SUPPORTED\", \"confidence\": 0.85, \"supporting_evidence\": [\"ev_abc\"]}], \"overall_faithfulness\": 0.75}",
+  "prompt": "Verify each of the following 1 claims.\nEach claim was extracted from its cited source by an AI system.\n\nResearch question: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nClaim 1: Fax: +98 87336624008.Department of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranResearch Center for Nanotechnology, Univers...\n  Source: Boosting Faradaic Efficiency in Electrochemical Nitrogen Reduction ... (https://pubs.acs.org/doi/10.1021/acsami.5c17558)\n  Direct quote: \"Fax: +98 87336624008.Department of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranResearch Center for Nanotechnology, University of Kurdistan, Sanandaj 66177-15175, IranMore by Abdollah Salimi Article Views are the COUNTER-compliant su\"\n  Fact category: causal_link\n  Source content excerpt:\n  ---\n  Boosting Faradaic Efficiency in Electrochemical Nitrogen Reduction with a Trimetallic CuSnAu@NF Electrocatalyst for Sustainable Ammonia SynthesisClick to copy article linkArticle link copied! - Hamed MohtashamHamed MohtashamDepartment of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranMore by Hamed Mohtasham - Seyed Jalal SajjadiSeyed Jalal SajjadiDepartment of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranMore by Seyed Jalal Sajjadi - Keivan AkhtariKeivan AkhtariDepartment of Physics, University of Kurdistan, Sanandaj 66177-15175, IranMore by Keivan Akhtari - Delnia BahariDelnia BahariDepartment of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranMore by Delnia Bahari - Abdollah Salimi*Abdollah Salimi*Email: absalimi@uok.ac.ir; absalimi@yahoo.com. Tel.: +98 8733624001. Fax: +98 87336624008.Department of Chemistry, University of Kurdistan, Sanandaj 66177-15175, IranResearch Center for Nanotechnology, University of Kurdistan, Sanandaj 66177-15175, IranMore by Abdollah Salimi Article Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals. These metrics are regularly updated to reflect usage leading up to the last few days. Citations are the number of other articles citing this article, calculated by Crossref and updated daily. Find more information about Crossref citation counts. The Altmetric Attention Score is a quantitative measure of the attention that a research article has received online. Clicking on the donut icon will load a page at altmetric.com with additional details about the score and the social media presence for the given article. Find more information on the Altmetric Attention Score and how the score is calculated. Abstract The electrochemical nitrogen reduction reaction (ENRR) provides a green, sustainable alternative to the energy-intensive Haber\u2013Bosch process for synthesizing ammonia and reduces its environmental impact significantly. In this research, we developed a CuSnAu electrocatalyst immobilized onto nickel foam (CuSnAu@NF) using solvothermal methods and galvanic replacement reactions to improve its performance. First, CuSn was synthesized by the solvothermal method. Adding Au atoms (0.2%) to the CuSn structure by galvanic replacement increases the number of active sites for nitrogen adsorption and at the same time prevents the hydrogen evolution reaction. The replacement of Au atoms increased the faradaic efficiency from 7.14 to 60.88%, and the NH3 yield improved from 10.94 \u03bcg h\u20131 cm\u20132 (1.78 \u00d7 10\u201310 mol s\u20131 cm\u20132) at \u22120.4 V vs RHE to 19.66 \u03bcg h\u20131 cm\u20132 (3.2 \u00d7 10\u201310 mol s\u20131 cm\u20132) at \u22120.15 V vs RHE. The incorporation of Au decreased the adsorption energies of reaction intermediates, hence accelerating reaction kinetics as determined by DFT simulations. The faradaic efficiency and NH3 yield of the electrocatalyst were satisfactory and consistent throughout multiple runs, exhibiting no degradation of the electrocatalyst. The CuSnAu@NF electrocatalyst demonstrates potential as an efficient and stable electrocatalyst for sustainable ammonia production at ambient conditions. Cited By This article is cited by 1 publications. - Ananya Chugh, Sudipta Sarkar. Microbial electrosynthesis of ammonia from atmospheric nitrogen: A review on advancements and challenges in sustainable ammonia production. Biotechnology Advances 2026, 90 , 108898. https://doi.org/10.1016/j.biotechadv.2026.108898 Article Views are the COUNTER-compliant sum of full text article downloads since November 2008 (both PDF and HTML) across all institutions and individuals. These metrics are regularly updated to reflect usage leading up to the last few days. Citations are the number of other articles citing this article, calculated by Crossref and updated daily. Find more information about Crossref citation counts. The Altmetric Attention Score is a quantitative measure of the attention that a research article has received online. Clicking on the donut icon will load a page at altmetric.com with additional details about the score and the social media presence for the given article. Find more information on the Altmetric Attention Score and how the score is calculated. Recommended Articles Electrochemical Reduction of N2 to Ammonia Promoted by Hydrated Cation Ions: Mechanistic Insights from a Combined Computational and Experimental Study Bifunctional Nitrogen Reduction and Nitrate Reduction Electrocatalysis via Trimetallic RuPdPt Nanocages Copper Selenide Nanosheet with Adjustable Cation Vacancy for Boosting Nitrogen Electroreduction Integrated Cascade Catalysts for Electrochemical Nitrate Reduction to Ammonia Electrocatalytic Nitrate and Nitrite Reduction toward Ammonia Using Cu2O Nanocubes: Active Species and Reaction Mechanisms\n  ---\n\n\nFor each claim, perform BALANCED verification:\n1. SUPPORT: Find specific text in the source that supports this claim. Quote it exactly.\n2. CONTRADICT: Try to find text that contradicts, limits, or weakens this claim.\n3. VERDICT: Based on both analyses:\n   - SUPPORTED: Supporting text found, no contradicting text.\n   - PARTIALLY_SUPPORTED: Some support, but the claim adds specificity or scope not present in the source.\n   - NOT_SUPPORTED: No supporting text, or the source discusses the topic but does not make this specific claim.\nCheck that specific numbers, dates, names, and causal claims appear EXACTLY in the source text.",
+  "max_tokens": 8192,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319271.983573
+}

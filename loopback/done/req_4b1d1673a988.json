@@ -1,0 +1,165 @@
+{
+  "request_id": "4b1d1673a988",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://doi.org/10.1016/j.advnut.2023.10.003\nSource title: Effects of Intermittent Energy Restriction Compared with Those of Continuous Energy Restriction on Body Composition and Cardiometabolic Risk Markers \u2013 A Systematic Review and Meta-Analysis of Randomized Controlled Trials in Adults\nSource type: academic\nContent:\nSci-Hub: \u0441\u0442\u0430\u0442\u044c\u044f \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0432 \u0431\u0430\u0437\u0435. \u0427\u0442\u043e \u0434\u0435\u043b\u0430\u0442\u044c? \u0412\u043e\u0442 \u043d\u0435\u0437\u0430\u0434\u0430\u0447\u0430! \u041f\u043e\u043b\u043d\u043e\u0433\u043e \u0442\u0435\u043a\u0441\u0442\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0430\u0442\u044c\u0438 \u043d\u0435\u0442 \u0432 \u043c\u043e\u0435\u0439 \u0431\u0430\u0437\u0435: Effects of Intermittent Energy Restriction Compared with Those of Continuous Energy Restriction on Body Composition and Cardiometabolic Risk Markers \u2013 A Systematic Review and Meta-Analysis of Randomized Controlled Trials in Adults Advances in Nutrition, 2024 The interest in intermittent energy restriction (IER) diets as a weight-loss approach is increasing. Different IER protocols exist, including time-restricted eating (TRE), alternate-day fasting (ADF), and the 5:2 diet. This meta-analysis compared the effects of these IER diets with continuous energy restriction (CER) on anthropometrics and cardiometabolic risk markers in healthy adults. Twenty-eight trials were identified that studied TRE (k = 7), ADF (k = 10), or the 5:2 diet (k = 11) for 2-52 wk. Energy... 10.1016/j.advnut.2023.10.003 &rarr; \u0421\u0442\u0430\u0442\u044c\u044f \u043e\u0442\u043d\u043e\u0441\u0438\u0442\u0435\u043b\u044c\u043d\u043e \u043d\u043e\u0432\u0430\u044f - \u043e\u043d\u0430 \u0431\u044b\u043b\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d\u0430 \u043f\u043e\u0441\u043b\u0435 2021 \u0433\u043e\u0434\u0430. \u0422\u0430\u043a\u0438\u0435 \u0441\u0442\u0430\u0442\u044c\u0438, \u0432 \u0431\u043e\u043b\u044c\u0448\u0438\u043d\u0441\u0442\u0432\u0435 \u0441\u0432\u043e\u0435\u043c, \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u044e\u0442 \u0432 \u0431\u0430\u0437\u0435 Sci-Hub \u043f\u043e \u043f\u0440\u0438\u0447\u0438\u043d\u0435 \u0441\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u0438 \u0438\u0445 \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0433\u043e \u0441\u043a\u0430\u0447\u0438\u0432\u0430\u043d\u0438\u044f \u0432 \u0431\u043e\u043b\u044c\u0448\u043e\u043c \u043a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u0435. \u041e! \u0421\u043e\u0433\u043b\u0430\u0441\u043d\u043e \u0438\u043d\u0434\u0435\u043a\u0441\u0443 OpenAlex, \u0434\u0430\u043d\u043d\u0430\u044f \u0441\u0442\u0430\u0442\u044c\u044f \u043d\u0430\u0445\u043e\u0434\u0438\u0442\u0441\u044f \u0432 \u043e\u0442\u043a\u0440\u044b\u0442\u043e\u043c \u0434\u043e\u0441\u0442\u0443\u043f\u0435. \u041f\u043e\u043f\u0440\u043e\u0431\u043e\u0432\u0430\u0442\u044c \u0441\u043a\u0430\u0447\u0430\u0442\u044c \u0435\u0451 \u043c\u043e\u0436\u043d\u043e \u0442\u0443\u0442 . \u041d\u043e \u044d\u0442\u043e \u043d\u0435 \u0433\u0430\u0440\u0430\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e, \u0442\u0430\u043a \u043a\u0430\u043a \u0438\u043d\u0434\u0435\u043a\u0441 \u0447\u0430\u0441\u0442\u043e \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u043e\u0448\u0438\u0431\u043a\u0438. \u0427\u0442\u043e \u0434\u0435\u043b\u0430\u0442\u044c? \u041d\u043e \u043a \u0441\u0447\u0430\u0441\u0442\u044c\u044e, \u0435\u0441\u0442\u044c \u0442\u0430\u043a\u0430\u044f \u043d\u043e\u0432\u0430\u044f \u043f\u043b\u0430\u0442\u0444\u043e\u0440\u043c\u0430 Sci-Net , \u0433\u0434\u0435 \u043c\u043e\u0436\u043d\u043e \u0440\u0430\u0437\u043c\u0435\u0441\u0442\u0438\u0442\u044c \u0437\u0430\u043f\u0440\u043e\u0441 \u043d\u0430 \u0441\u0442\u0430\u0442\u044c\u044e. \u041a\u0430\u043a \u043f\u0440\u0430\u0432\u0438\u043b\u043e, \u0435\u0441\u043b\u0438 \u0441\u0442\u0430\u0442\u044c\u044f \u043d\u0435 \u043a\u0430\u043a\u0430\u044f-\u0442\u043e \u0440\u0435\u0434\u043a\u0430\u044f, \u0442\u043e \u0435\u0451 \u0441\u043a\u0430\u0447\u0430\u044e\u0442 \u043f\u043e \u0412\u0430\u0448\u0435\u043c\u0443 \u0437\u0430\u043f\u0440\u043e\u0441\u0443 \u0432 \u0442\u0435\u0447\u0435\u043d\u0438\u0435 \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u0438\u0445 \u043c\u0438\u043d\u0443\u0442. ... \u043f\u043e\u0441\u043b\u0435 \u0442\u043e\u0433\u043e, \u043a\u0430\u043a \u0437\u0430\u043f\u0440\u043e\u0441 \u0431\u0443\u0434\u0435\u0442 \u0440\u0435\u0448\u0435\u043d, \u0441\u0442\u0430\u0442\u044c\u044f \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u043d\u0430 Sci-Hub \u0438 \u0431\u0443\u0434\u0435\u0442 \u0432\u0441\u0435\u0433\u0434\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0431\u0435\u0441\u043f\u043b\u0430\u0442\u043d\u043e \u0434\u043b\u044f \u043b\u044e\u0431\u043e\u0433\u043e \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430. \u0422\u0430\u043a\u0438\u043c \u043e\u0431\u0440\u0430\u0437\u043e\u043c, \u043f\u043e\u043b\u044c\u0437\u0443\u044f\u0441\u044c \u043f\u043b\u0430\u0442\u0444\u043e\u0440\u043c\u043e\u0439, \u0412\u044b \u043f\u043e\u043c\u043e\u0433\u0430\u0435\u0442\u0435 \u043f\u0440\u043e\u0435\u043a\u0442\u0443 Sci-Hub \u0440\u0430\u0441\u0442\u0438, \u0438 \u0441 \u043a\u0430\u0436\u0434\u044b\u043c \u043d\u043e\u0432\u044b\u043c \u0437\u0430\u043f\u0440\u043e\u0441\u043e\u043c \u0443\u0432\u0435\u043b\u0438\u0447\u0438\u0432\u0430\u0435\u0442\u0435 \u043f\u0440\u043e\u0446\u0435\u043d\u0442 \u0441\u0442\u0430\u0442\u0435\u0439 \u0432 \u043e\u0442\u043a\u0440\u044b\u0442\u043e\u043c \u0434\u043e\u0441\u0442\u0443\u043f\u0435. \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u0441\u0442\u0430\u0442\u044c\u0438 ... \u0430 \u0435\u0449\u0435 \u043c\u043e\u0436\u043d\u043e \u043f\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c \u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u0441\u0442\u0430\u0442\u044c\u0438 \u043f\u043e \u0442\u043e\u0439 \u0436\u0435 \u0442\u0435\u043c\u0430\u0442\u0438\u043a\u0435, \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u0442\u043e\u0447\u043d\u043e \u0435\u0441\u0442\u044c \u0432 \u0431\u0430\u0437\u0435 \u0434\u0430\u043d\u043d\u044b\u0445 \u043f\u0440\u043e\u0435\u043a\u0442\u0430 Intermittent versus continuous energy restriction on weight loss and cardiometabolic outcomes: a systematic review and meta-analysis of randomized controlled trials Journal of Translational Medicine , 2018 This systematic review and meta-analysis summarized the most recent evidence on the efficacy of intermittent energy restriction (IER) versus continuous energy restriction on weight-loss, body composition, blood pressure and other cardiometabolic risk factors.Randomized controlled trials were systematically searched from MEDLINE, Cochrane Library, TRIP databases, EMBASE and CINAHL until May 2018. Effect sizes were expressed as weighted mean difference (WMD) and 95% confidence intervals (CI).Eleven trials... Intermittent Versus Continuous Energy Restriction for Weight Loss and Metabolic Improvement: A Meta\u2010Analysis and Systematic Review Obesity , 2020 Objective This study aimed to evaluate the effects of intermittent energy restriction (IER; only for 2-3 d/wk) versus continuous energy restriction (CER) on weight loss and metabolic outcomes in adults with overweight or obesity. Methods Methods included searching databases from the last decade to December 18, 2019, for randomized controlled trials (RCTs) that assessed weight loss and metabolic outcomes in IER and CER. RevMan version 5.3 software was used for statistical analysis of the data. The effect... Impact of intermittent energy restriction on anthropometric outcomes and intermediate disease markers in patients with overweight and obesity: systematic review and meta-analyses Critical Reviews in Food Science and Nutrition , 2020 This systematic review aims to investigate the effects of intermittent energy restriction (IER) on anthropometric outcomes and intermediate disease markers. A systematic literature search was conducted in three electronic databases. Randomized controlled trials (RCTs) were included if the intervention lasted \u226512 weeks and IER was compared with either continuous energy restriction (CER) or a usual diet. Random-effects meta-analysis was performed for eight outcomes. Certainty of evidence was assessed using... Effectiveness of Intermittent Fasting and Time-Restricted Feeding Compared to Continuous Energy Restriction for Weight Loss Nutrients , 2019 The current obesity epidemic is staggering in terms of its magnitude and public health impact. Current guidelines recommend continuous energy restriction (CER) along with a comprehensive lifestyle intervention as the cornerstone of obesity treatment, yet this approach produces modest weight loss on average. Recently, there has been increased interest in identifying alternative dietary weight loss strategies that involve restricting energy intake to certain periods of the day or prolonging the fasting... The effects of intermittent or continuous energy restriction on weight loss and metabolic disease risk markers: a randomized trial in young overweight women International Journal of Obesity , 2010 The problems of adherence to energy restriction in humans are well known. To compare the feasibility and effectiveness of intermittent continuous energy (IER) with continuous energy restriction (CER) for weight loss, insulin sensitivity and other metabolic disease risk markers. Randomized comparison of a 25% energy restriction as IER (\u223c2710 kJ/day for 2 days/week) or CER (\u223c6276 kJ/day for 7 days/week) in 107 overweight or obese (mean (\u00b1s.d.) body mass index 30.6 (\u00b15.1) kg m\u22122) premenopausal women... Intermittent and continuous energy restriction result in similar weight loss, weight loss maintenance, and body composition changes in a 6 month randomized pilot study Clinical Obesity , 2020 Poor adherence is a barrier to successful weight control. Intermittent energy restriction (IER) provides an alternative approach to those for whom daily energy restriction is not ideal. This study assessed changes in weight, body composition, and macronutrient intake for an IER and a continuous energy restriction (CONT) approach within a multicomponent weight management intervention. We randomized 35 adults with overweight/obesity (BMI = 31.2 \u00b1 2.4 kg/m2 ) to CONT or IER for 24 weeks (12-week weight loss... Intermittent Energy Restriction, Weight Loss and Cardiometabolic Risk: A Critical Appraisal of Evidence in Humans Healthcare , 2021 Dietary patterns with intermittent energy restriction (IER) have been proposed as an attractive alternative to continuous energy restriction (CER) for the management of obesity and its associated comorbidities. The most widely studied regimens of IER comprise energy restriction on two days per week (5:2), alternate-day energy restriction by 60\u201370% (ADF), and timely restriction of energy intake during a specific time window within the day (TRF; time-restricted feeding). Although there is some evidence to... Intermittent energy restriction and weight loss: a systematic review European Journal of Clinical Nutrition , 2015 Intermittent energy restriction (IER) is an eating pattern of regular daily periods of restricted energy intake followed by periods of unrestricted energy intake. This is gaining prominence as an alternative weight-loss strategy to daily energy restriction (DER). The aim of this systematic review was to determine the effectiveness of IER on weight loss in overweight and obese adults and compare this with DER. A systematic literature search was conducted using the CINAHL, Embase, Medline, PsycINFO, Cochrane... Effects of intermittent compared to continuous energy restriction on short\u2010term weight loss and long\u2010term weight loss maintenance Clinical Obesity , 2014 Effective strategies are needed to help individuals lose weight and maintain weight loss. The primary aim of this study was to investigate the effect of intermittent energy restriction (IER) compared to continuous energy restriction (CER) on weight loss after 8 weeks and weight loss maintenance after 12 months. Secondary aims were to determine changes in waist and hip measurements and diet quality. In a randomized parallel study, overweight and obese (body mass index &#x5B;BMI&#x5D; \u2265 27 kg m\u22122) women were... Effect of intermittent versus continuous energy restriction on weight loss, maintenance and cardiometabolic risk: A randomized 1-year trial Nutrition, Metabolism and Cardiovascular Diseases , 2018 Background & aims Long-term adherence to conventional weight-loss diets is limited while intermittent fasting has risen in popularity. We compared the effects of intermittent versus continuous energy restriction on weight loss, maintenance and cardiometabolic risk factors in adults with abdominal obesity and \u22651 additional component of metabolic syndrome. Methods & results In total 112 participants (men [50%] and women [50%]) aged 21\u201370 years with BMI 30\u201345 kg/m2 (mean 35.2 [SD 3.7]) were randomized... Weight-Loss Outcomes: A Systematic Review and Meta-Analysis of Intermittent Energy Restriction Trials Lasting a Minimum of 6 Months Nutrients , 2016 The aim of this systematic review and meta-analysis is to summarise the effects of intermittent energy restriction on weight and biological markers in long term intervention studies of >6 months duration. An electronic search was performed using the MEDLINE, EMBASE and the Cochrane Library databases for intervention trials lasting 6 months or longer investigating the effects of intermittent energy restriction. A total of nine studies were identified as meeting the pre-specified criteria. All studies... Intermittent energy restriction is comparable to continuous energy restriction for cardiometabolic health in adults with central obesity: A randomized controlled trial; the Met-IER study Clinical Nutrition , 2020 Background & aims Short bouts of severe energy restriction may have additional, beneficial cardiometabolic effects beyond that of weight loss. We aimed to assess the short-term effects of intermittent fasting on insulin sensitivity and related cardiometabolic mechanisms. Methods This parallel arm, randomized controlled trial compared the short-term effects of intermittent and continuous energy restriction (IER and CER) diets on markers of cardiometabolic health in individuals with central obesity, aiming... Effect of alternate-day fasting on obesity and cardiometabolic risk: A systematic review and meta-analysis Metabolism , 2020 Alternate-day fasting (ADF) is related to weight reduction, lowered risks of weight regain, and relative lean body mass preservation compared to continuous energy restriction. This meta-analysis aimed to assess the effects of ADF on obesity-related factors and cardiometabolic risk factors in adults.Using PubMed, EMBASE, and Cochrane online databases, an electronic search was performed. Randomized controlled trials were investigated to evaluate ADF effects on body mass index (BMI), body weight (BW), waist... Continuous energy restriction (CER) plus 16/8 time-restricted feeding improve body composition and metabolic parameters in overweight and obese, but no more than CER alone Nutrition and Healthy Aging , 2021 BACKGROUND: Current guidelines recommend continuous energy restriction (CER) and lifestyle change as the basis of obesity treatment. Recently, several intermittent fasting protocols have received considerable interest as an alternative weight loss strategy. OBJECTIVE: This study compared the effects of 8-week CER versus CER along with 16/8 time-restricted feeding (16/8 TRF) on body composition and metabolic markers in excess weight physically active subjects. METHODS: Twenty-four physically active obese or... Compensatory mechanisms activated with intermittent energy restriction: A randomized control trial Clinical Nutrition , 2018 Strong compensatory responses, with reduced resting metabolic rate (RMR), increased exercise efficiency (ExEff) and appetite, are activated when weight loss (WL) is achieved with continuous energy restriction (CER), which try to restore energy balance. Intermittent energy restriction (IER), where short spells of energy restriction are interspaced by periods of habitual energy intake, may offer some protection in minimizing those responses. We aimed to compare the effect of IER versus CER on body... Short\u2010term intermittent energy restriction interventions for weight management: a systematic review and meta\u2010analysis Obesity Reviews , 2017 This systematic review synthesized the available evidence on the effect of short-term periods of intermittent energy restriction (weekly intermittent energy restriction; \u22657-d energy restriction) in comparison with usual care (daily continuous energy restriction), in the treatment of overweight and obesity in adults. Six electronic databases were searched from inception to October 2016. Only randomized controlled trials of interventions (\u226512 weeks) in adults with overweight and obesity were included.... Do intermittent diets provide physiological benefits over continuous diets for weight loss? A systematic review of clinical trials Molecular and Cellular Endocrinology , 2015 Energy restriction induces physiological effects that hinder further weight loss. Thus, deliberate periods of energy balance during weight loss interventions may attenuate these adaptive responses to energy restriction and thereby increase the efficiency of weight loss (i.e. the amount of weight or fat lost per unit of energy deficit). To address this possibility, we systematically searched MEDLINE, PreMEDLINE, PubMed and Cinahl and reviewed adaptive responses to energy restriction in 40 publications... Intermittent fasting interventions for treatment of overweight and obesity in adults: a systematic review and meta-analysis JBI Database of Systematic Reviews and Implementation Reports , 2018 ABSTRACT Objective: To examine the effectiveness of intermittent energy restriction in the treatment for overweight and obesity in adults, when compared to usual care treatment or no treatment. Introduction: Intermittent energy restriction encompasses dietary approaches including intermittent fasting, alternate day fasting, and fasting for two days per week. Despite the recent popularity of intermittent energy restriction and associated weight loss claims, the supporting evidence base is limited. Inclusion... Effects of intermittent (5:2) or continuous energy restriction on basal and postprandial metabolism: a randomised study in normal-weight, young participants European Journal of Clinical Nutrition , 2021 Intermittent energy restriction (IER) may overcome poor long-term adherence with continuous energy restriction (CER), for weight reduction. We compared the effects of IER with CER for fasting and postprandial metabolism and appetite in metabolically healthy participants, in whom excess weight would not confound intrinsic metabolic differences.In a 2-week randomised, parallel trial, 16 young, healthy-weight participants were assigned to either CER (20% below estimated energy requirements (EER)) or 5:2 IER... Does the Energy Restriction Intermittent Fasting Diet Alleviate Metabolic Syndrome Biomarkers? A Randomized Controlled Trial Nutrients , 2020 The aim of this study was to determine the efficacy of an energy restriction intermittent fasting diet in metabolic biomarkers and weight management among adults with metabolic syndrome. This randomized controlled study was performed with metabolic syndrome patients, aged 18\u201365 years, at an academic institution in Istanbul, Turkey (n = 70). All participants were randomized to the Intermittent Energy Restriction (IER) intervention group and Continuous Energy Restriction (CER) control group. Biochemical... Effects of intermittent and continuous calorie restriction on body weight and metabolism over 50 wk: a randomized controlled trial The American Journal of Clinical Nutrition , 2018 Although preliminary evidence suggests that intermittent calorie restriction (ICR) exerts stronger effects on metabolic parameters, which may link obesity and major chronic diseases, compared with continuous calorie restriction (CCR), there is a lack of well-powered intervention studies. We conducted a randomized controlled trial to test whether ICR, operationalized as the \u201c5:2 diet,\u201d has stronger effects on adipose tissue gene expression, anthropometric and body composition measures, and circulating... Intermittent v . continuous energy restriction: differential effects on postprandial glucose and lipid metabolism following matched weight loss in overweight/obese participants British Journal of Nutrition , 2018 Abstract The intermittent energy restriction (IER) approach to weight loss involves short periods of substantial (>70 %) energy restriction (ER) intersperse\n---Source URL: https://www.semanticscholar.org/paper/29b1d5aa1379d92afa1a0b8edc9b17f05d02a9fb\nSource title: Intermittent fasting strategies and their effects on body weight and other cardiometabolic risk factors: systematic review and network meta-analysis of randomised clinical trials\nSource type: academic\nContent:\nAbstract Objective To assess the effect of intermittent fasting diets, with continuous energy restriction or unrestricted (ad-libitum) diets on intermediate cardiometabolic outcomes from randomised clinical trials. Design Systematic review and network meta-analysis. Data sources Medline, Embase, and central databases from inception to 14 November 2024. Eligibility criteria for selecting studies Randomised clinical trials comparing the association of intermittent fasting diets (alternate day fast\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382614.571952
+}

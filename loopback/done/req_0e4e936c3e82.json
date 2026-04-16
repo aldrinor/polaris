@@ -1,0 +1,12 @@
+{
+  "request_id": "0e4e936c3e82",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Time-restricted eating could offer health benefits to adults | Statement: Patients who ate within a consistent eight-to-ten-hour window each day for three months saw improvements in several markers of blood sugar...\n2. [SILVER] Source: Time-restricted eating could offer health benefits to adults | Statement: Manoogian says this personalized approach made the intervention easier for patients to complete, compared to other intermittent fasting...\n3. [SILVER] Source: Time-restricted eating could offer health benefits to adults | Statement: In the study, 108 adults with metabolic syndrome were randomly sorted into either the time-restricted eating group or the control group.\n4. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: We are currently in the midst of a global obesity epidemic, with its prevalence more than doubling since 1980( 1 ).\n5. [SILVER] Source: Effects of intermittent fasting on glucose and lipid metabol | Statement: The development of obesity is closely associated with a number of metabolic complications including insulin resistance and dyslipidaemia,...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776284721.1410532
+}

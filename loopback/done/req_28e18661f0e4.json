@@ -1,0 +1,12 @@
+{
+  "request_id": "28e18661f0e4",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: Intermittent fasting improves metabolic outcomes in metaboli | Statement: Ten RCTs with 701 individuals were pooled to evaluate IF effects on glycemic control, lipid profile, and inflammatory markers.\n2. [GOLD] Source: Intermittent fasting improves metabolic outcomes in metaboli | Statement: IF reduced fasting blood sugar with pooled SMD = -0.51 (95% CI: -0.81, -0.20; p = 0.001).\n3. [GOLD] Source: Intermittent fasting improves metabolic outcomes in metaboli | Statement: IF reduced fasting insulin with pooled SMD = -0.27 (95% CI: -0.52, -0.03; p = 0.027).\n4. [SILVER] Source: Intermittent Fasting and Time-Restricted Eating Role in Diet | Statement: IF, time-restricted eating, and fasting-mimicking diets have emerged as weight loss programs contributing to improved cardiometabolic health.\n5. [SILVER] Source: Effect of time-restricted eating on neurovascular coupling a | Statement: Participants were instructed to maintain a 10:14 intermittent fasting regimen daily for 6 months.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776279615.5536127
+}

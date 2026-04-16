@@ -1,0 +1,42 @@
+{
+  "request_id": "15cb0c6977ae",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting?\n\nThe interviewer (Dr. Hiroshi Tanaka, Scientific perspective) asks:\nQUESTION: In randomized controlled trials of 16:8 time-restricted eating in humans, what are the documented dose-response effects on HOMA-IR, fasting glucose, and beta-hydroxybutyrate thresholds, and how do these correlate with AMPK activation and mTORC1 suppression markers?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Effect of 8-Hour Time-Restricted Eating (16/8 TRE) on Glucose ...\n  URL: https://academic.oup.com/nutritionreviews/advance-article/doi/10.1093/nutrit/nuaf206/8373435\n  Content: Study participants who followed the 16/8 TRE showed an overall improvement in fasting glucose, HOMA-IR, insulin, and HDL-C levels compared to ...\n[Source 2] Randomized controlled trial for time-restricted eating in healthy ...\n  URL: https://www.nature.com/articles/s41467-022-28662-5\n  Content: The present study has shown that 5 weeks of eTRF, but not mTRF, improves insulin sensitivity, reduces fasting plasma glucose, reduces body mass ...\n[Source 3] Randomized controlled trial for time-restricted eating in overweight ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC9400087/\n  Content: Although 6-h eTRE did not improve fasting glucose, it markedly decreased fasting insulin and insulin resistance in our study. This result is ...\n[Source 4] Effects of Time-Restricted Eating on Weight Loss and Other ...\n  URL: https://jamanetwork.com/journals/jamainternalmedicine/fullarticle/2771095\n  Content: This randomized clinical trial examines the effect of 16:8-hour time-restricted eating on weight loss and metabolic risk markers.\n[Source 5] Time-restricted eating: Watching the clock to treat obesity\n  URL: https://www.sciencedirect.com/science/article/pii/S1550413123004540\n  Content: Results reveal that fasting glucose levels did not change after 2\u201312 months of TRE in adults with obesity,,,,,,,, even when participants ...\n[Source 6] Calorie Restriction with or without Time-Restricted Eating in Weight ...\n  URL: https://www.nejm.org/doi/full/10.1056/NEJMoa2114833\n  Content: In this 12-month trial, we found that the 8-hour time-restricted\u2013eating regimen did not produce greater weight loss than the regimen of daily ...\n[Source 7] How Does Early, Midday, and Late Time-Restricted Eating Impact ...\n  URL: https://www.medrxiv.org/content/10.64898/2026.01.29.26345140v1.full-text\n  Content: Randomized controlled trial for time-restricted eating in overweight and obese young adults. ... Time-restricted feeding improves blood glucose ...\n[Source 8] Time-restricted eating with or without low-carbohydrate diet reduces ...\n  URL: https://www.cell.com/cell-reports-medicine/fulltext/S2666-3791(22)00332-9\n  Content: Time-restricted eating with or without low-carbohydrate diet reduces visceral fat and improves metabolic syndrome: A randomized trial\n[Source 9] Effects of timing and eating duration of time restricted eating ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12829361/\n  Content: Compared with usual diets, time restricted eating was associated with significant reductions in concentrations of fasting blood glucose (\u22123.69 ...\n[Source 10] AMPK Activation of Muscle Autophagy Prevents Fasting-Induced ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC5233441/\n  Content: Here we report that fasting mice lacking skeletal muscle AMPK (AMPK-MKO) results in hypoglycemia and hyperketosis.\n[Source 11] The Role of Mammalian Target of Rapamycin (mTOR) and ...\n  URL: https://www.cureus.com/articles/403198-the-role-of-mammalian-target-of-rapamycin-mtor-and-adenosine-monophosphate-activated-protein-kinase-ampk-signaling-in-skeletal-muscle-hypertrophy-a-literature-review-with-implications-for-health-and-disease\n  Content: Skeletal muscle metabolism is intricately regulated by the interplay between two pivotal cellular pathways: the mammalian target of rapamycin ( ...\n[Source 12] mTOR-autophagy axis regulation by intermittent fasting promotes ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12486585/\n  Content: Metabolic levels of skeletal muscle tissues were measured by short-term fasting. Blood glucose levels were measured by collecting tail vein ...\n[Source 13] Article Sustained Activation of mTORC1 in Skeletal Muscle Inhibits ...\n  URL: https://www.sciencedirect.com/science/article/pii/S1550413113001198\n  Content: We show that TSC1-deficient mice (TSCmKO), characterized by sustained activation of mTORC1, develop a late-onset myopathy related to impaired autophagy.\n[Source 14] AMPK in skeletal muscle function and metabolism - Kj\u00f8bsted - 2018\n  URL: https://faseb.onlinelibrary.wiley.com/doi/full/10.1096/fj.201700442R\n  Content: In skeletal muscle, LKB1 is the major upstream kinase responsible for the phosphorylation of \u03b12-containing AMPK complexes in response to high/ ...\n[Source 15] Effect of fasting on AMPK signaling in skeletal muscle from lean and...\n  URL: https://www.researchgate.net/figure/Effect-of-fasting-on-AMPK-signaling-in-skeletal-muscle-from-lean-and-obese-subjects-The_fig2_236064973\n  Content: Because research findings on the effects of fasting on AMPK remain inconsistent-with one study reporting an increase [21] , while others show decreases or no ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776271466.6810515
+}

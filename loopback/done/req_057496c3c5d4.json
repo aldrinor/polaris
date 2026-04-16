@@ -1,0 +1,12 @@
+{
+  "request_id": "057496c3c5d4",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: The Effects of Time-Restricted Eating versus Standard Dietar | Statement: Second, in a pragmatic randomised controlled trial, we compared the metabolic benefits of 12 h time-restricted eating (TRE) to standard...\n2. [SILVER] Source: Nutrition concepts for the treatment of obesity in adults | Statement: Nutrition Concepts for the Treatment of Obesity in Adults\n1.\n3. [SILVER] Source: Nutrition concepts for the treatment of obesity in adults | Statement: Obesity: Preventing and Managing the Global Epidemic: Report of a WHO Consultation.\n4. [SILVER] Source: NCT07163455 | Time-Restricted Eating for Weight-Loss Mainten | Statement: It often undermines the long-term benefits of obesity treatment.\n5. [SILVER] Source: NCT07163455 | Time-Restricted Eating for Weight-Loss Mainten | Statement: This study is a multi-center 2-arm randomized controlled trial across six regions in China, specifically targeting overweight or obese...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776283701.2434046
+}

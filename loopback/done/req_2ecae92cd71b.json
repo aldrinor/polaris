@@ -1,0 +1,42 @@
+{
+  "request_id": "2ecae92cd71b",
+  "call_type": "structured:StormAnswer",
+  "schema_name": "StormAnswer",
+  "schema_json": {
+    "description": "An expert answer grounded in search results.",
+    "properties": {
+      "answer": {
+        "description": "Synthesized answer grounded in evidence",
+        "title": "Answer",
+        "type": "string"
+      },
+      "key_findings": {
+        "description": "3-5 key findings extracted from search results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "sources_used": {
+        "description": "URLs of sources referenced in the answer",
+        "items": {
+          "type": "string"
+        },
+        "title": "Sources Used",
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "title": "StormAnswer",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research expert being interviewed about:\nRESEARCH QUESTION: What are the proven health benefits and risks of intermittent fasting?\n\nThe interviewer (Dr. Alison Galvani, Economic perspective) asks:\nQUESTION: What published cost-effectiveness analyses exist for intermittent fasting as a weight-management or glycemic-control intervention, and what incremental cost-effectiveness ratios (cost per QALY or per kg weight lost) have been reported comparing IF counseling to usual-care weight management, structured continuous energy restriction, or GLP-1 pharmacotherapy?\n\nSEARCH RESULTS (your ONLY source of information):\n[Source 1] Cost-effectiveness of a periodic fasting-mimicking diet programme in ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12599020/\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 2] Cost-effectiveness analysis of individual-level obesity treatment in ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11554291/\n  Content: There is a small amount of evidence that individual-level paediatric obesity treatment interventions are cost-effective and, in some cases cost-saving.\n[Source 3] Cost-Effectiveness of Varying Weight Loss Interventions - AJMC\n  URL: https://www.ajmc.com/view/cost-effectiveness-of-varying-weight-loss-interventions-elena-losina-phd\n  Content: Nonpharmacologic interventions like diet and exercise had a lower QALY, ranging from $25,400 to $57,400, which indicates they provide good ...\n[Source 4] (PDF) Cost-effectiveness of a periodic fasting-mimicking diet ...\n  URL: https://www.researchgate.net/publication/397459835_Cost-effectiveness_of_a_periodic_fasting-mimicking_diet_programme_in_patients_with_type_2_diabetes_a_trial-based_analysis_and_a_lifetime_model-based_analysis\n  Content: The aim of this study was to determine cost-effectiveness of a one year monthly 5-consecutive day fasting-mimicking diet (FMD) programme for ...\n[Source 5] Cost-effectiveness - NCBI - NIH\n  URL: https://www.ncbi.nlm.nih.gov/books/NBK109337/\n  Content: The aim of this section is to assess the cost-effectiveness of multicomponent adult weight management programmes compared with standard care or other weight ...\n[Source 6] [PDF] A Cost Effectiveness Analysis Of The Nutritious Eating With Soul Study\n  URL: https://scholarcommons.sc.edu/cgi/viewcontent.cgi?article=7414&context=etd\n  Content: 21 The study concluded that the dietary intervention was cost-effective and resulted in a two-year weight loss of 8% and cost per gained QALY was 1704-7889.\n[Source 7] [PDF] Overweight and obesity management: Diet interventions - NICE\n  URL: https://www.nice.org.uk/guidance/ng246/evidence/economic-model-report-pdf-13620245869\n  Content: Using the same assumptions, the present analysis found the intervention cost-effective as well with a cost per QALY of. \u00a316,794 . However ...\n[Source 8] Cost-Effectiveness of a Weight Loss Intervention: An Adaptation of ...\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC6925346/\n  Content: We calculated incremental cost-effectiveness ratios (ICERs) for weight loss, reductions in waist circumference, and quality-adjusted life years (QALYs). Results ...\n[Source 9] Cost-Effectiveness, the QALY, and the evLY - ICER\n  URL: https://icer.org/our-approach/methods-process/cost-effectiveness-the-qaly-and-the-evlyg/\n  Content: Cost-effectiveness analysis looks at evidence for entire patient populations, comparing the health benefits and economic costs of different treatment options.\n[Source 10] A Cost-Effectiveness Analysis from the Swiss Payer's Perspective\n  URL: https://www.tandfonline.com/doi/full/10.2147/DMSO.S284855\n  Content: The high prevalence of obesity generates the need for payers to identify cost-effective weight loss approaches. Among various weight management ...\n[Source 11] Cost-utility and cost consequence of a telehealth intervention ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC11638481/\n  Content: For passive intervention, one additional QALY would cost $7084 more than the control version. At a cost-effectiveness threshold of $50 000 per ...\n[Source 12] Economic Evaluation of Lifestyle Interventions for Preventing ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC2954575/\n  Content: The results of DPP interventions are reported as 8,800 US$/QALY or 62,600 US$/QALY depending on whether a Markov [38] or Archimedes model [44] is applied. If ...\n[Source 13] Economic Evaluation of Fasting Mimicking Diet Versus Standard ...\n  URL: https://www.sciencedirect.com/science/article/pii/S1098301524028468\n  Content: This cost-utility study is the first to evaluate the costs and consequences of adding the FMD fasting nutri-technology to diabetes standard care.\n[Source 14] Economic evidence for prevention and treatment of eating disorders ...\n  URL: https://onlinelibrary.wiley.com/doi/10.1002/eat.24113\n  Content: Intervention costs, travel and time costs is added for secondary analysis, DALYs, Primary analysis indicated an ICER of $11,327 to $14,781 per ...\n[Source 15] Within-Trial Cost-Effectiveness Analysis of a Family-Based ... - PMC\n  URL: https://pmc.ncbi.nlm.nih.gov/articles/PMC12315683/\n  Content: We performed a within-trial cost-effectiveness analysis of a targeted family-based structured lifestyle modification intervention for ...\n\nINSTRUCTIONS:\n1. Provide a comprehensive, well-structured answer (200-400 words).\n2. ONLY use information from the search results above. Do NOT add information not present in the sources.\n3. When citing specific facts, mention which source they come from.\n4. Extract 3-5 key findings as bullet points.\n5. List the URLs of sources you actually used in your answer.\n6. If the search results do not adequately answer the question, say so explicitly and note what information is missing.\n\nReturn a JSON object with 'answer', 'key_findings', and 'sources_used' fields.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382395.7233148
+}

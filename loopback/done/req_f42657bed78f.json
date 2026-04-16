@@ -1,0 +1,165 @@
+{
+  "request_id": "f42657bed78f",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.news-medical.net/news/20241001/Time-restricted-eating-could-offer-health-benefits-to-adults-with-metabolic-syndrome.aspx\nSource title: Time-restricted eating could offer health benefits to adults with ...\nSource type: web\nContent:\nMore than one-third of adults in the United States have metabolic syndrome, a cluster of conditions that significantly raise a person's risk of heart disease, stroke, and type 2 diabetes. These conditions include high blood pressure, elevated blood sugar, excess abdominal fat, and abnormal cholesterol levels. In a new clinical trial, researchers at the Salk Institute and University of California San Diego School of Medicine found that time-restricted eating - also known as intermittent fasting - could offer significant health benefits to adults with metabolic syndrome. Patients who ate within a consistent eight-to-ten-hour window each day for three months saw improvements in several markers of blood sugar regulation and metabolic function compared to those who received standard treatments. Our bodies actually process sugars and fats very differently depending on the time of day. In time-restricted eating, we are re-engaging the body's natural wisdom and harnessing its daily rhythms to restore metabolism and improve health.\" Satchidananda Panda, Salk Professor, co-corresponding author of the study and holder of the Rita and Richard Atkinson Chair The TIMET study is the first to evaluate the benefits of a customized time-restricted eating schedule in patients taking medication for metabolic syndrome. The results were published on September 30, 2024, in Annals of Internal Medicine. \"For many patients, metabolic syndrome is the tipping point that leads to serious and chronic diseases like diabetes and heart disease,\" says co-corresponding author Pam Taub, professor of medicine at the UC San Diego School of Medicine and a cardiologist at UC San Diego Health. \"There is an urgent need for more effective lifestyle interventions that are accessible, affordable, and sustainable for the average American.\" Western diets high in sugar, salt, and fat, combined with increasingly sedentary lifestyles, are thought to have contributed to the rising rates of metabolic dysfunction. While the initial recommendation may be to \"eat less and move more,\" these lifestyle changes are difficult for most people to sustain long-term. The researchers say time-restricted eating offers a more practical approach accessible to a wider range of patients, including those already on medication. \"Unlike expensive pharmaceuticals like Ozempic, which require lifetime use, time-restricted eating is a simple lifestyle change that doesn't cause side effects and can be maintained indefinitely,\" says first author Emily Manoogian, a staff scientist in Panda's lab at Salk. \"Patients appreciate that they don't have to change what they eat, just when they eat.\" In the new study, time-restricted eating protocols were customized to each participant's eating habits, sleep/wake schedules, and personal commitments. The resulting regimen had them reduce their eating window to a consistent eight to ten hours per day, beginning at least one hour after waking up and ending at least three hours before going to sleep. Manoogian says this personalized approach made the intervention easier for patients to complete, compared to other intermittent fasting studies, which typically assign the same strict time window to all participants. The TIMET study also accepted participants who were on medication for metabolic syndrome - a group usually excluded from such trials. This makes it the first study to measure the benefits of time-restricted eating in addition to existing standard-of-care pharmacological treatments. In the study, 108 adults with metabolic syndrome were randomly sorted into either the time-restricted eating group or the control group. Both groups continued to receive standard-of-care treatments and underwent nutritional counseling on the Mediterranean diet. Participants also logged their meals using the myCircadianClock mobile app, developed at Salk. After three months, patients who had completed the time-restricted eating regimen showed improvements in key markers of cardiometabolic health, including blood sugar and cholesterol. They also saw lower levels of hemoglobin A1c, a marker of long-term blood sugar control. This reduction was similar in scale to what is typically achieved through more intensive interventions by the National Diabetes Prevention Program. The time-restricted eating group also showed 3-4% greater decreases in body weight, body mass index (BMI), and abdominal trunk fat, a type of fat closely linked to metabolic disease. Importantly, these participants did not experience significant loss of lean muscle mass, which is often a concern with weight loss. The TIMET trial adds to a growing body of evidence supporting the use of time-restricted eating as a practical, low-cost intervention to improve cardiometabolic health. The promising results suggest that healthcare providers could consider recommending the lifestyle intervention to patients with metabolic syndrome as a complement to existing treatments, though additional long-term studies are needed to determine whether time-restricted eating can sustain these benefits and ultimately reduce the risk of chronic disease. Other authors include Monica O'Neal, Kyla Laing, and Nikko R. Gutierrez of Salk, and Michael J. Wilkinson, Justina Nguyen, David Van, Ashley Rosander, Aryana Pazargadi, Jason G. Fleischer, and Shahrokh Golshan of UC San Diego. The work was supported by the National Institutes of Health (R01DK118278, R01CA258221, P30CA014195, UL1TR001442), the Robert Wood Johnson Foundation (76014), and the Larry L. Hillblom Foundation Postdoctoral Fellowship. Source: Journal reference: Manoogian, E. N. C., et al. (2024). Time-Restricted Eating in Adults With Metabolic Syndrome. Annals of Internal Medicine. doi.org/10.7326/m24-0859.\n---Source URL: https://doi.org/10.5604/01.3001.0010.3812\nSource title: Vegetables and fruit, as a source of bioactive substances, and impact on memory and cognitive function of elderly.\nSource type: academic\nContent:\n\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313782.226128
+}

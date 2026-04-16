@@ -1,0 +1,12 @@
+{
+  "request_id": "92edd187f9aa",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: \u201cIntermittent Fasting and Type 2 Diabetes: Impacts on Glycem | Statement: In recent years, intermittent fasting (IF) has emerged as a promising non-pharmacological intervention for improving glycemic control and...\n2. [BRONZE] Source: \u201cIntermittent Fasting and Type 2 Diabetes: Impacts on Glycem | Statement: This review explores the mechanisms linking IF to \nenhanced insulin sensitivity, reduced oxidative stress, circadian regulation, and...\n3. [SILVER] Source: Intermittent Fasting: A Metabolically Focused Therapeutic St | Statement: The global prevalence of obesity continues to rise and is a significant risk factor for the onset and progression of cardiovascular...\n4. [SILVER] Source: Intermittent Fasting: A Metabolically Focused Therapeutic St | Statement: Intermittent fasting (IF) is a nutritional intervention that has gained popularity and shows potential as an innovative approach to weight...\n5. [SILVER] Source: Two intermittent fasting strategies equally effective for we | Statement: Two intermittent fasting strategies equally effective for weight loss, glycemic control\nKey takeaways:\n- Adults with type 2 diabetes had...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776293115.447754
+}

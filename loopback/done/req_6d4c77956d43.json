@@ -1,0 +1,12 @@
+{
+  "request_id": "6d4c77956d43",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: STR (EVA manufacturer) suggests minimum 53 N/cm peel strength after lamination by 180-degree peel to ensure 20-year lifetime.\n2. [SILVER] Source: Influence of Lamination Conditions of EVA Encapsulation on P | Statement: Tracy et al. proposed threshold debonding energy of 160 J/m2 for encapsulant interfaces and 10 J/m2 for backsheet interfaces to avoid delamination.\n3. [SILVER] Source: Damp Heat Test | Kiwa PVEL PV Module Reliability Scorecard 2 | Statement: Only 69% of BOMs tested degraded by less than 6% power after damp heat testing in the 2024 PVEL Scorecard.\n4. [GOLD] Source: Effect of Thermal Aging on Mechanical Properties and Color D | Statement: SEM observation showed smooth glass fiber surfaces in GF/PEI-145 specimens, indicating obvious separation between glass fiber and PEI matrix at high a",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776321855.2817888
+}

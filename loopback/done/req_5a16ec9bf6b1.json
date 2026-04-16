@@ -1,0 +1,12 @@
+{
+  "request_id": "5a16ec9bf6b1",
+  "call_type": "generate",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "You are a Mermaid.js diagram expert. You produce syntactically correct Mermaid code that visualizes research findings accurately. Output ONLY the raw Mermaid code \u2014 no markdown fences, no explanation, no commentary.",
+  "prompt": "Given this research section about Mechanisms, generate a process_flow Mermaid.js diagram. Use ONLY facts stated in the text. Do not invent data. Include citation references [N] on relevant nodes where applicable. Return ONLY the Mermaid code, no explanation.\n\nDiagram type description: How X works (step-by-step process)\n\nSECTION CONTENT:\nHigher wage floors, however, forestall entry, particularly for less productive firms, reducing the number of independent firms operating in ... [9].\n\n**Key Findings**\n\n- Higher wage floors, however, forestall entry, particularly for less productive firms, reducing the number of independent firms operating in ... [9]\n\nSUPPORTING EVIDENCE SUMMARIES:\n- Higher wage floors, however, forestall entry, particularly for less productive firms, reducing the number of independent firms operating in ...",
+  "max_tokens": 4096,
+  "temperature": 0.3,
+  "reasoning_exclude": null,
+  "timestamp": 1776315817.2367435
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "4bf26a411378",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: News: Expert assessment of vulnerability of permafrost carbo | Statement: For the highest warming scenario (RCP 8.5), experts hypothesized that C release from permafrost zone soils could be 19\u201345 Pg C by 2040, 162\u2013...\n2. [SILVER] Source: News: Expert assessment of vulnerability of permafrost carbo | Statement: These values become 50 % larger using 20-year CH4 GWP, with a third to a half of expected climate forcing coming from CH4 even though CH4 wa...\n3. [SILVER] Source: Diagnosing present and future permafrost from climate models | Statement: Socioeconomic impacts of permafrost degradation may also prove costly (Larsen et al. 2008).\n4. [SILVER] Source: Diagnosing present and future permafrost from climate models | Statement: Permafrost degradation has recently been observed in many locations including Sweden (Akerman and Johansson 2008), Canada (Fortier et al. 20...\n5. [SILVER] Source: Diagnosing present and future permafrost from climate models | Statement: Ground temperatures are warming across the majority of permafrost regions (Romanovsky et al. 2010) and occasionally large rapid changes are ...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776316171.3349862
+}

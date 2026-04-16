@@ -1,0 +1,165 @@
+{
+  "request_id": "47a8c27552d3",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.npjournal.org/article/S1555-4155%252823%252900395-1/fulltext\nSource title: Intermittent Fasting: Exploring Approaches, Benefits, and ...\nSource type: web\nContent:\n\n---Source URL: https://www.hopkinsmedicine.org/health/expert-qa/intermittent-fasting-what-is-it-and-how-does-it-work\nSource title: Intermittent Fasting: What Is It, And How Does It Work?\nSource type: web\nContent:\nIntermittent Fasting: What Is It, And How Does It Work? Featured Expert - Mark Mattson, Ph.D. Updated: April 7, 2026 Intermittent fasting is an eating plan that switches between fasting and eating on a regular schedule. Johns Hopkins neuroscientist Mark Mattson, who has studied intermittent fasting for 25 years, explains this dietary approach. Key Points - Intermittent fasting focuses on when you eat instead of how much or what you eat. - Research shows that intermittent fasting is a way to manage your weight and prevent \u2014 or even reverse \u2014 some forms of disease. - There are several fasting schedules available with intermittent fasting. - Intermittent fasting isn\u2019t for everyone, so talk to your doctor before you consider starting. What is intermittent fasting? Many diets focus on what to eat, but intermittent fasting is all about when you eat. It limits eating to specific time windows to support metabolic changes like burning fat after sugar stores in the body are depleted. With intermittent fasting, you only eat during a specific time of the day or on certain days of the week. Research shows fasting for a certain number of hours each day or eating just one meal a couple days a week may have health benefits. How does intermittent fasting work? Intermittent fasting works by prolonging the period when your body has burned through the calories consumed during your last meal and begins burning fat. \u201cIntermittent fasting contrasts with the normal eating pattern for most Americans, who eat throughout their waking hours,\u201d Mattson says. \u201cIf someone is eating three meals a day, plus snacks, and they\u2019re not exercising, then every time they eat, they\u2019re running on those calories and not burning their fat stores.\u201d In prehistoric times, before humans learned to farm, they were hunters and gatherers who evolved to survive \u2014 and thrive \u2014 for long periods without eating. Our bodies still operate in this same mode. Mattson says that after hours without food, the body exhausts its sugar stores and starts burning fat. He refers to this as metabolic switching. What are the different intermittent fasting plans? Daily Approach 5:2 Approach Longer periods without food, such as 24-, 36-, 48- and 72-hour fasting periods, are not necessarily better for you, and may be dangerous. Going too long without eating might actually encourage your body to start storing more fat in response to starvation. How long does it take for intermittent fasting to work? Mattson\u2019s research shows that it can take two to four weeks before the body becomes accustomed to intermittent fasting. You might feel hungry or cranky while you\u2019re getting used to the new routine. But, he observes, research subjects who make it through the adjustment period tend to stick with the plan because they notice they feel better. What can I eat while intermittent fasting? While fasting: - Water - Zero-calorie beverages such as black coffee and tea When eating normally: - Mediterranean diet: Most nutrition experts regard the Mediterranean diet as a good blueprint of what to eat, whether you\u2019re trying intermittent fasting or not. You can hardly go wrong when you pick leafy greens, healthy fats, lean protein and complex, unrefined carbohydrates such as whole grains. - Wide range of foods: What some experts like about intermittent fasting is that it allows for a range of different foods to be eaten \u2014 and enjoyed. Sharing good, nutritious food with others and savoring the mealtime experience adds satisfaction and supports good health. - Avoid high-calorie foods: Research shows that you\u2019re not likely to lose weight or get healthier if you pack your feeding times with high-calorie food or a much larger volume than you typically eat for a meal. What are the benefits of intermittent fasting? Here are some intermittent fasting benefits research has revealed so far: - Thinking and memory. Studies discovered that intermittent fasting boosts working memory in animals and verbal memory in adult humans. - Heart health. Intermittent fasting improved blood pressure and resting heart rates as well as other heart-related measurements. - Physical performance. Young men who fasted for 16 hours showed fat loss while maintaining muscle mass. Mice who were fed on alternate days showed better endurance in running. Type 2 diabetes and obesity. In animal studies, intermittent fasting prevented obesity. And, in six brief studies, obese adult humans lost weight through intermittent fasting. People with type 2 diabetes may benefit: Most of the available research shows that intermittent fasting can help people lose body weight and lower their levels of fasting glucose, fasting insulin and leptin while reducing insulin resistance, decreasing levels of leptin and increasing levels of adiponectin. Certain studies found that some patients practicing intermittent fasting with supervision by their doctors were able to reverse their need for insulin therapy. Tissue health. In animals, intermittent fasting reduced tissue damage during surgery and improved results. \u201cMany things happen during intermittent fasting that can protect organs against chronic diseases like type 2 diabetes, heart disease, age-related neurodegenerative disorders, even inflammatory bowel disease and many cancers,\u201d Matton adds. Is intermittent fasting safe? Some people try intermitting fasting for weight management, and others use the method to address chronic conditions such as irritable bowel syndrome, high cholesterol or arthritis. Overall, research continues to indicate that it is a safe way to reduce weight. However, it\u2019s important to check with your doctor before trying intermittent fasting. Who shouldn\u2019t try intermittent fasting? - Children and teens under age 18. - Women who are pregnant or breastfeeding. - People with type 1 diabetes who take insulin. While an increasing number of clinical trials have shown that intermittent fasting is safe in people with type 2 diabetes, there have been no studies among people with type 1 diabetes. Mattson explains, \u201cBecause those with type 1 diabetes take insulin, there is a concern that an intermittent fasting eating pattern may result in unsafe levels of hypoglycemia during the fasting period.\u201d - Those with a history of eating disorders. People with a history of eating disorders are advised to avoid intermittent fasting because the strict fasting windows can trigger or worsen restrictive or obsessive food behaviors. Are there side effects to intermittent fasting? Keep in mind that intermittent fasting may have different effects on different people. Talk to your doctor if you start experiencing unusual anxiety, headaches, nausea or other symptoms after you start intermittent fasting. How long can I practice intermittent fasting? People not in the categories listed above, and who have discussed the diet with their doctor, can practice intermittent fasting safely on an ongoing basis. It can be a lifestyle change \u2015 and one with benefits. Medically reviewed by Mark Mattson, Ph.D. Your Health Matters to Us Each month, we\u2019ll send you smart, simple tips to help keep you healthy.\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313782.3389394
+}

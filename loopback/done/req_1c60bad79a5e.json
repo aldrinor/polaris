@@ -1,0 +1,12 @@
+{
+  "request_id": "1c60bad79a5e",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Effect of Relative Humidity on Dentin Bond Strength of One-A | Statement: Dentin bond strengths of one-application adhesive systems decreased with increasing relative humidity across six environmental conditions.\n2. [GOLD] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: Adhesion testing on coupon-level EVA, POE, and EPE specimens showed decreases in adhesion energy Gc from 5000 hours of hot-dry (90 degrees C, ~1% RH) \n3. [GOLD] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: POE encapsulant coupons demonstrated the best adhesion stability under thermal aging, followed by EPE then EVA.\n4. [SILVER] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: For EVA and POE, hot-humid aged coupons experienced a larger decrease in Gc compared to hot-dry due to enhanced hydrolytic degradation.\n5. [GOLD] Source: Investigating the Crosslinking, Degradation, and Adhesion Be | Statement: FTIR-ATR showed insignificant bulk encapsulant degradation under thermal aging alone, demonstrating the critical role of UV and moisture in accelerati",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776366115.9192383
+}

@@ -1,0 +1,165 @@
+{
+  "request_id": "60ac59c8b737",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What evidence exists that reinforcement learning from human feedback (RLHF) introduces measurable alignment taxes in large language models?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://openreview.net/forum?id=OtFmRBt0AL\nSource title: Auto-Guideline Alignment: Probing and Simulating Human Ideological Preferences in LLMs via Prompt Engineering\nSource type: academic\nContent:\nAuto-Guideline Alignment: Probing and Simulating Human Ideological Preferences in LLMs via Prompt Engineering\nAligning large language models (LLMs) with human values usually requires expensive reinforcement learning from human feedback.\nWe introduce Auto-Guideline Alignment (AGA), a prompt-only framework that uncovers, audits, and steers hidden ideological preferences by treating concise, human-readable guidelines as transparent reward proxies, without any parameter updates.\nTo evaluate AGA, we employ a GPT-4.1 to generate a dataset of 600 left/right political dilemmas covering 30 topics (five domains $\\times$ six subdomains).\nThree experiments show that: (1) LLMs exhibit a consistent left-leaning bias; (2) AGA aligns models to all $2^5$ domain-level ideology mixtures, with degraded performance under cross-domain conflict; and (3) intra-domain stance fragmentation leads to unstable alignment and reduced accuracy.\nOverall, AGA delivers scalable, transparent, and reproducible value alignment, replacing costly human labeling with explicit rules and iterative self-evaluation.\n---Source URL: https://search.proquest.com/openview/40f91a9c7f291afdd4014642a4194179/1?pq-origsite=gscholar&cbl=18750&diss=y\nSource title: On the current landscape of language model reward modeling for alignment\nSource type: academic\nContent:\nYou shouldn't see this\n## \u9078\u64c7\u8a9e\u8a00\n\n\u6587\u4ef6\u9810\u89bd\n## \u8457\u4f5c\u6b0a\u8cc7\u8a0a\nDatabase copyright ProQuest LLC; ProQuest does not claim copyright in the individual underlying works.\n## \u5b58\u53d6\u5b8c\u6574\u5168\u6587\n\u6b64\u70ba\u6587\u4ef6\u7684\u7c21\u77ed\u9810\u89bd\u3002\u60a8\u7684\u5716\u66f8\u9928\u6216\u6a5f\u69cb\u53ef\u4ee5\u6388\u4e88\u60a8\u5b58\u53d6\u6b0a\uff0c\u4ee5\u4fbf\u5728 ProQuest \u4e2d\u6aa2\u8996\u6b64\u6587\u4ef6\u7684\u5b8c\u6574\u5168\u6587\u3002\n\u6216\u8005\uff0c\u60a8\u53ef\u4ee5\u4f7f\u7528\u4ee5\u4e0b\u9078\u9805\uff0c\u76f4\u63a5\u5f9e ProQuest \u8cfc\u8cb7\u6b64\u6587\u4ef6\u7684\u5b8c\u6574\u5168\u6587\u526f\u672c:\n   \u5168\u6587\n   \u8ad6\u6587\u6216\u5c08\u984c\n\n# On the Current Landscape of Language Model Reward Modeling for Alignment\nOn the Current Landscape of Language Model Reward Modeling for Alignment\nUniversity of Minnesota ProQuest Dissertations & Theses, 2025. 32122264. \nProQuest, part of Clarivate\n\n\u8457\u4f5c\u6b0a \u00a9 2026 ProQuest LLC\u3002\n3hkLbFwWBNQJ8RQe6CHIbw==:id7ZwQVv9/OH4bLt+px/KN1Uz4L8W73X6neSOWGDIWygOPB7ea05xfn9zRxfPU8wXBlawltR0uhM+E4QmDKSqB9w3n45tVR5x1+bIVXCMHO7uy0DfZ+3zf6L/pOeNFUwOyblQVevWrky78lZbosXyDixHW5rMX3X8lpNyZnw102N1Tl9tw+wKcRYGRCEmWFxAPy2rlOtMloUoP0O4JQDILTQo+/IkRKbMiG2L1bvwXyDTmmdKpW7973WYgrBo4j8SPdgB5Z4t7/1WZ/uvo8FQIPAzPxmKbP2rsbiq9FrIzMSCTRAGaqSDpaAPTAPPQATu7v6XTYXRoMaz+Np5B8/Xwkc8ElBsM/zo2M9XndxORmICGVRsUReGfm7m73SKc92/bytfZKw0Fuup8gLRbhIWw==\n## \u9690\u79c1\u504f\u597d\u4e2d\u5fc3\n  * ### \u60a8\u7684\u9690\u79c1\n\n#### \u60a8\u7684\u9690\u79c1\n\u59cb\u7ec8\u5904\u4e8e\u6d3b\u52a8\u72b6\u6001\nConsent Leg.Interest\ncheckbox label label\ncheckbox label label\ncheckbox label label\ncheckbox label label\n\u786e\u8ba4\u6211\u7684\u9009\u62e9\n\u5168\u90e8\u5141\u8bb8\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776317808.533399
+}

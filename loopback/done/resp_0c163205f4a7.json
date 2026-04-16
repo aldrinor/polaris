@@ -1,0 +1,6 @@
+{
+  "content": "Primary outcomes for the Cochrane review of intermittent fasting in cardiovascular-disease prevention are cardiovascular mortality, myocardial infarction, and heart failure [REF:1]. This outcome specification frames the evidence threshold required to support claims of cardiovascular-disease prevention through intermittent fasting.\n\nThe primary-outcome triad of cardiovascular mortality, myocardial infarction, and heart failure [REF:1] identifies the hard clinical endpoints on which definitive preventive claims would be evaluated. Trials reporting only intermediate biomarkers do not yet directly address these primary outcomes [REF:1].\n\n**Key Findings**\n- Primary outcomes for the Cochrane intermittent-fasting review are cardiovascular mortality, myocardial infarction, and heart failure [REF:1].\n- Intermediate-biomarker trials do not directly address the primary clinical endpoints identified in the Cochrane protocol [REF:1].\n",
+  "reasoning": "",
+  "input_tokens": 1800,
+  "output_tokens": 160
+}

@@ -1,0 +1,165 @@
+{
+  "request_id": "937ec8714bd4",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What catalysts have demonstrated the highest Faradaic efficiency for electrochemical CO2 reduction to ethylene since 2022?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://www.researchgate.net/post/Why_total_Faradaic_efficiency_is_dropped_at_low_overpotential_during_electrochemical_CO2_reduction\nSource title: Why total Faradaic efficiency is dropped at low ...\nSource type: web\nContent:\nUniversity of Texas at Austin Question Asked 3 March 2020 Why total Faradaic efficiency is dropped at low overpotential during electrochemical CO2 reduction? Hi guys I'm studying electrochemical CO2 reduction using the Ag nanowire it shows very low total Faradaic efficiency (11% FE of CO, 48% FE of H2) when I conduct the experiment at -0.6V (rhe) Is there anyone suffering from same problem? Please help me In my experments, the total FE shows nearly 100% at high overpotential (-1.0 ~ -0.8 V (rhe)) (~80% FE of CO and ~15% FE of H2) -----------------Supplemental information--------------- I have callibrated the GC with the two standard gas 1. 1% H2 500 ppm CO 2. 488 ppm H2 20 ppm CO The amounts of CO and H2 at the -0.6V is ~10 ppm and ~56 ppm respectively. is the concentration of H2 in standard gas is too high to calibrate 56ppm??? All Answers (2) Hi Noho, Are you measuring gas concentrations in the headspace of your cell? If so, you should be careful when small amounts of gases are produced while the electrode is immersed in aqueous electrolyte, since part of the gas is dissolved. CO and H2 have a certain degree of solubility in water, keep that in mind. At high overpotentials, the amount of evolved gas may saturate the solution very quickly, so that's why you are able to see decent FEs. Hence, be careful about using GC for measuring gases when their production rates are low. You can saturate the solution previously (of course, you should measure initial gas concentration in the headspace before starting your experiment). Still, you should provide more info about your system. Also, remember that electrochemical CO2 reduction might produce other products like formates, so I suggest you to check your electrolyte as well. I guess that Ag has pretty good selectivity, but still, you should try to analyze as many factors as possible. Very best, 1 Recommendation Pohang University of Science and Technology Thank you for your comment I used the flow system with the CO2 as carrier gas. the dissolution of produced gas was something I have never thought about. I want to see if I can solve this problem by increasing the reaction time. (saturation of solution) Thank you very much again. Similar questions and discussions (ECBM technology) How does the CO2 balance occur when CO2 is sequestered in the coal seams and CH4 release which will be burned and release CO2 again? - Leticia Teixeira Palla Braga Regarding ECBM (Enhanced coal bed methane recovery) technology to contain global warming, CO2 is sequestered by coal seams and consequently recovered CH4 for energy use. But CH4 will be burned as an energy source and emit CO2 back into the atmosphere. I would like to see a demonstration of this. There is a theory that if all recovered CH4 was burned, there would be net storage of CO2, but I would like more references on that. I have couple of documents like that, but not strong references about it: https://static.berkeleyearth.org/memos/fugitive-methane-and-greenhouse-warming.pdf If anyone can help me, I'd appreciate it! Related Publications A N-doped carbonized wood membrane (N-CWM) is fabricated and directly used as a self-supported electrode for efficient CO2 electroreduction in aqueous solution with a maximum CO Faradaic efficiency (FE) of 78% at -0.68 V versus reversible hydrogen electrode (RHE) and long-term stability for CO procuction with a average FE of 67% during 10 h of elec... Electronic structure and surface character are two important factors of materials for photocatalytic CO2 reduction. Herein, the simultaneous regulation of electronic structure and surface basicity of pyrovanadate A2V2O7 (A = Co, Ni, Cu, Zn) were realized by changing the A-site element. The density functional theory (DFT) results suggested that Ni2V...\n---Source URL: https://www.nature.com/articles/s41929-019-0306-7\nSource title: Designing materials for electrochemical carbon dioxide recycling\nSource type: academic\nContent:\nSci-Hub. Designing materials for electrochemical carbon dioxide recycling / Nature Catalysis, 2019 x citation format none \u0413\u041e\u0421\u0422 ACS ACM AIP AMA APA APS CSE CEP GSA IEEE MLA Chicago sci hub Designing materials for electrochemical carbon dioxide recycling Nature Catalysis, 2019 {citation} {style} ... ! \u2197 versions x report article another article is displayed article PDF is corrupt some pages are missing this is a preprint version the study is an example of bad science another problem report sending... The message has been sent. There was some error while sending the report :( I'm not a robot verifying...\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776319616.6416278
+}

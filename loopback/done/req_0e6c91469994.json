@@ -1,0 +1,12 @@
+{
+  "request_id": "0e6c91469994",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [SILVER] Source: Intermittent Fasting and Obesity-Related Health Outcomes | Statement: To be included, the studies met the following criteria: meta-analyses of RCTs investigating associations of IF with obesity-related health o...\n2. [SILVER] Source: For years, people have used intermittent fasting to lose unw | Statement: I don't eat until 12 noon I'm doing tbis fasting and the only thing I changed is not snacking after 8pm.\n1\u5e74\n1\nI don\u2019t think people eat aroun...\n3. [SILVER] Source: Intermittent Fasting Benefits, Risks, and How it Works | Statement: But is it a smart strategy, or a passing fad? \u201cIt\u2019s not a magic cure for losing weight, but the research on intermittent fasting is promisin...\n4. [SILVER] Source: 4 intermittent fasting side effects to watch out for | Statement: The idea is that it's easier to sharply restrict calories a few days a week or to limit eating to a shortened \"eating window\" each day than ...\n5. [SILVER] Source: 4 intermittent fasting side effects to watch out for | Statement: To decrease some of these unwanted side effects, you may want to switch from adf fasting to periodic fasting or a time restricted eating pla...",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313792.4203475
+}

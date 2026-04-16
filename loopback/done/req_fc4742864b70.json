@@ -1,0 +1,165 @@
+{
+  "request_id": "fc4742864b70",
+  "call_type": "structured:SourceAnalysisBatch",
+  "schema_name": "SourceAnalysisBatch",
+  "schema_json": {
+    "$defs": {
+      "AtomicFact": {
+        "description": "A single atomic fact extracted from a source.",
+        "properties": {
+          "statement": {
+            "default": "",
+            "description": "The factual claim, one sentence",
+            "title": "Statement",
+            "type": "string"
+          },
+          "direct_quote": {
+            "default": "",
+            "description": "Exact quote from source supporting this fact",
+            "title": "Direct Quote",
+            "type": "string"
+          },
+          "fact_category": {
+            "default": "other",
+            "description": "Category: statistic, measurement, causal_link, named_entity, date_time, regulatory_threshold, standard_reference, geographic, methodology",
+            "title": "Fact Category",
+            "type": "string"
+          },
+          "relevance_score": {
+            "default": 0.1,
+            "description": "Relevance to the research question, 0.0 to 1.0",
+            "title": "Relevance Score",
+            "type": "number"
+          },
+          "confidence": {
+            "default": 0.1,
+            "description": "Confidence that this fact is correctly extracted, 0.0 to 1.0",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "perspective": {
+            "default": "Scientific",
+            "description": "STORM research perspective: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends",
+            "title": "Perspective",
+            "type": "string"
+          },
+          "entities": {
+            "description": "Key named entities (compounds, methods, organizations, metrics) mentioned in this fact. Used by the wiki mesh entity canonicalization pass. Optional; legacy data defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
+          }
+        },
+        "title": "AtomicFact",
+        "type": "object"
+      },
+      "SourceAnalysis": {
+        "description": "Analysis of a single source document.",
+        "properties": {
+          "source_url": {
+            "description": "URL of the source",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "source_title": {
+            "description": "Title of the source",
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "web",
+            "description": "Type: journal_article, government_report, industry_report, news, standard, patent, book, other",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "source_quality": {
+            "default": 0.1,
+            "description": "Overall quality score 0.0 to 1.0",
+            "title": "Source Quality",
+            "type": "number"
+          },
+          "overall_relevance": {
+            "default": 0.1,
+            "description": "Overall relevance to the research question, 0.0 to 1.0",
+            "title": "Overall Relevance",
+            "type": "number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "description": "Publication year, 0 if unknown",
+            "title": "Year"
+          },
+          "authors": {
+            "description": "Author names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "venue": {
+            "default": "",
+            "description": "Publication venue",
+            "title": "Venue",
+            "type": "string"
+          },
+          "doi": {
+            "default": "",
+            "description": "DOI if available",
+            "title": "Doi",
+            "type": "string"
+          },
+          "atomic_facts": {
+            "description": "All atomic facts extracted from this source",
+            "items": {
+              "$ref": "#/$defs/AtomicFact"
+            },
+            "title": "Atomic Facts",
+            "type": "array"
+          },
+          "evidence_summary": {
+            "default": "",
+            "description": "Brief summary of what this source contributes",
+            "title": "Evidence Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "source_title"
+        ],
+        "title": "SourceAnalysis",
+        "type": "object"
+      }
+    },
+    "description": "Batch of source analyses.",
+    "properties": {
+      "analyses": {
+        "description": "Analysis results for each source",
+        "items": {
+          "$ref": "#/$defs/SourceAnalysis"
+        },
+        "title": "Analyses",
+        "type": "array"
+      }
+    },
+    "title": "SourceAnalysisBatch",
+    "type": "object"
+  },
+  "system": "You are a research evidence analyst. Extract atomic facts from source material.\n\nRules:\n1. Extract 8-15 atomic facts per source. Focus on the MOST relevant, specific, and unique claims, statistics, findings, and conclusions. Quality over quantity \u2014 prioritize facts that DIRECTLY answer the research question over tangential details. Missing a highly relevant fact is worse than including marginally relevant ones.\n   CRITICAL: ONLY extract from the ARTICLE BODY TEXT. NEVER extract from: navigation menus, cookie consent banners, URL paths/slugs, abbreviation/glossary tables, author byline metadata, page footers/headers, table of contents page numbers, product category labels, or marketing taglines. If the source is mostly non-content (nav, ads, cookie text), extract ZERO facts and set source_quality to 0.0.\n2. Each atomic fact = ONE specific claim with the EXACT quote from the source (minimum 10 words, up to 200 chars). A quote shorter than 5 words is NEVER acceptable \u2014 skip that fact entirely.\n3. Source quality: Score each source individually on 0.0-1.0 based on:\n   - Peer review status (peer-reviewed journal > preprint > report > blog)\n   - Author credentials (named experts > organizations > anonymous)\n   - Recency (2023-2026 > 2018-2022 > older)\n   - Specificity to research question (directly relevant > tangentially related)\n   Do NOT use fixed scores for source types. Vary scores based on each source's specific qualities.\n4. Rate relevance to the SPECIFIC research question on 0.0-1.0:\n   - 0.9-1.0: Directly answers part of the research question with specific data\n   - 0.7-0.8: Provides important context or supporting evidence\n   - 0.5-0.6: Tangentially relevant or provides background\n   - 0.1-0.4: Marginally relevant, mostly off-topic\n   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.\n5. Include exact numbers, dates, measurements, names, standards.\n6. For EVERY quantitative finding, extract ALL of the following when available:\n   - Effect size with units (MD, SMD, WMD, OR, HR, RR)\n   - 95% confidence interval (e.g., \"95% CI -5.54 to -3.05\")\n   - Heterogeneity (I-squared value, e.g., \"I\u00b2=96%\")\n   - Number of studies/trials included (e.g., \"7 RCTs\")\n   - Total sample size (e.g., \"n=269\")\n   - Evidence certainty/quality rating (e.g., \"GRADE: moderate\", \"high certainty\")\n   - Study duration/follow-up period\n   Missing any of these when the source provides them is a CRITICAL extraction failure.\n7. For review/meta-analysis papers, extract findings from EACH cited study individually.\n   Prioritize pooled estimates with I\u00b2 and CI over narrative summaries.\n8. For each atomic fact, tag the research perspective it belongs to.\n9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.\n   Do NOT infer, extrapolate, or add information beyond what the direct_quote states.\n   If the direct_quote is fewer than 10 words, the statement must be equally narrow in scope.\n10. QUOTE LENGTH: The 'direct_quote' field MUST be 150 characters or fewer.\n   Quote only the KEY phrase, not entire sentences or paragraphs.\n   This forces you to identify the most important fragment of evidence.\n   BAD: \"A systematic review and meta-analysis of 24 randomized controlled trials totaling 1,768 participants found that alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   GOOD: \"alternate-day fasting produced weight loss comparable to continuous energy restriction\"\n   A 2-word quote like 'distilled water' can only support a statement about distilled water,\n   not a full sentence about healthcare settings or bacterial contamination.\n   Perspectives: Scientific, Regulatory, Industry, Economic, Public_Health, Historical, Regional, Methodological, Emerging_Trends.\n   Choose the single best-fit perspective.\n\nOutput format (return ONLY this JSON structure):\n{\"analyses\": [{\"source_url\": \"https://example.com\", \"source_title\": \"Study Title\", \"source_type\": \"journal_article\", \"source_quality\": 0.8, \"overall_relevance\": 0.7, \"year\": 2024, \"authors\": [\"Smith J\"], \"venue\": \"Water Research\", \"doi\": \"\", \"atomic_facts\": [{\"statement\": \"E. coli was detected in 30% of tested filters after 6 months\", \"direct_quote\": \"E. coli presence in 30% of tested POU filters\", \"fact_category\": \"statistic\", \"relevance_score\": 0.9, \"confidence\": 0.8, \"perspective\": \"Scientific\"}], \"evidence_summary\": \"Bacterial contamination in POU water filters\"}]}",
+  "prompt": "Research question: What are the proven health benefits and risks of intermittent fasting in adults with metabolic syndrome?\n\nAnalyze the following 2 sources and extract the TOP 8-15 MOST\nrelevant atomic facts per source. Focus on the most specific, unique, and\ndirectly relevant numbers, dates, measurements, claims, findings,\nregulations, and standards. Quality over quantity.\n\nSources:\nSource URL: https://ajcn.nutrition.org/article/S0002-9165(23)12517-2/fulltext\nSource title: Health effects of intermittent fasting: hormesis or harm? A systematic ...\nSource type: web\nContent:\nIf you don't remember your password, you can reset it by entering your email address and clicking the Reset Password button. You will then receive an email that contains a secure link for resetting your password If the address matches a valid account an email will be sent to __email__ with instructions for resetting your password Background: Intermittent fasting, alternate-day fasting, and other forms of periodic caloric desistance are gaining popularity in the lay press and among animal research scientists. Whether clinical evidence exists for or is strong enough to support the use of such dietary regimens as health interventions is unclear. Objective: This review sought to identify rigorous, clinically relevant research studies that provide high-quality evidence that therapeutic fasting regimens are clinically beneficial to humans. Design: A systematic review of the published literature through January 2015 was performed by using sensitive search strategies to identify randomized controlled clinical trials that evaluated the effects of fasting on either clinically relevant surrogate outcomes (e.g., weight, cholesterol) or actual clinical event endpoints [e.g., diabetes, coronary artery disease (CAD)] and any other studies that evaluated the effects of fasting on clinical event outcomes. Results: Three randomized controlled clinical trials of fasting in humans were identified, and the results were published in 5 articles, all of which evaluated the effects of fasting on surrogate outcomes. Improvements in weight and other risk-related outcomes were found in the 3 trials. Two observational clinical outcomes studies in humans were found in which fasting was associated with a lower prevalence of CAD or diabetes diagnosis. No randomized controlled trials of fasting for clinical outcomes were identified. Conclusions: Clinical research studies of fasting with robust designs and high levels of clinical evidence are sparse in the literature. Whereas the few randomized controlled trials and observational clinical outcomes studies support the existence of a health benefit from fasting, substantial further research in humans is needed before the use of fasting as a health intervention can be recommended. Caloric restriction (CR)5 and total caloric desistance [TCD; i.e., intermittent fasting, alternate-day fasting (ADF), routine periodic fasting, or intermittent energy restriction] are methods of energy deprivation (1\u20134 1. Rizza, W \u2219 Veronese, N \u2219 Fontana, L What are the roles of calorie restriction and diet quality in promoting health and longevity? Reversal of behavioral and metabolic abnormalities, and insulin resistance syndrome, by dietary restriction in mice deficient in brain-derived neurotrophic factor ), the basis for studying fasting approaches such as ADF\u2014in part\u2014is that compliance with the regimen may be greater. This is because of the periodic nature of fasting, which mitigates the constant hunger that practitioners of CR endure. Both CR and TCD require further research, but if the health benefits of TCD are at least as strong as those of CR, the less frequent but more intense energy deprivation of TCD may be preferred. The case for a human health benefit is just beginning to be made. TCD may provide not just a greater dose of CR but powerful metabolic effects. Furthermore, TCD and CR may provide some of their health benefits through distinct pathways (4 4. Anson, RM \u2219 Guo, Z \u2219 de Cabo, R ... Intermittent fasting dissociates beneficial effects of dietary restriction on glucose metabolism and neuronal resistance to injury from calorie intake ). The vast majority of fasting research has been in animals, and evidence in humans of health improvements from fasting is preliminary. Mechanistic explanations for the benefits from TCD include the following: 1) the body uses fats for energy during TCD, reducing adipose mass and resulting in a small, long-term reduction in risk after each fasting episode (12 12. Duan, W \u2219 Guo, Z \u2219 Jiang, H ... Reversal of behavioral and metabolic abnormalities, and insulin resistance syndrome, by dietary restriction in mice deficient in brain-derived neurotrophic factor The effects of intermittent or continuous energy restriction on weight loss and metabolic disease risk markers: a randomized trial in young overweight women Reversal of behavioral and metabolic abnormalities, and insulin resistance syndrome, by dietary restriction in mice deficient in brain-derived neurotrophic factor Reversal of behavioral and metabolic abnormalities, and insulin resistance syndrome, by dietary restriction in mice deficient in brain-derived neurotrophic factor Various human TCD regimens\u2014traditionally called fasting (which will be used in the remainder of the review)\u2014such as ADF are being evaluated. In ADF, participants fast every other day and eat ad libitum on in-between days (25 25. Johnson, JB \u2219 Summer, W \u2219 Cutler, RG ... Alternate day calorie restriction improves clinical findings and reduces markers of oxidative stress and inflammation in overweight adults with moderate asthma ). In another regimen, fasting occurs twice per week on nonconsecutive days (26 26. Harvie, M \u2219 Wright, C \u2219 Pegington, M ... The effect of intermittent energy and carbohydrate restriction v. daily energy restriction on weight loss and metabolic disease risk markers in overweight women ). Most human fasting interventional trials have been for the primary endpoint of weight loss and have not used control arms (some used multiple noncontrol energy-restriction regimens). Small studies of obese and nonobese individuals found that weight was lower by 2.5\u20138% after 3\u20138 wk of ADF (25 25. Johnson, JB \u2219 Summer, W \u2219 Cutler, RG ... Alternate day calorie restriction improves clinical findings and reduces markers of oxidative stress and inflammation in overweight adults with moderate asthma ). In a larger 3-mo study, weight was 6.3% lower after the twice-weekly regimen (26 26. Harvie, M \u2219 Wright, C \u2219 Pegington, M ... The effect of intermittent energy and carbohydrate restriction v. daily energy restriction on weight loss and metabolic disease risk markers in overweight women ). Fasting also may improve other endpoints such as cardiovascular and metabolic risk profiles (20 20. Harvie, MN \u2219 Pegington, M \u2219 Mattson, MP ... The effects of intermittent or continuous energy restriction on weight loss and metabolic disease risk markers: a randomized trial in young overweight women Alternate day calorie restriction improves clinical findings and reduces markers of oxidative stress and inflammation in overweight adults with moderate asthma The effect of intermittent energy and carbohydrate restriction v. daily energy restriction on weight loss and metabolic disease risk markers in overweight women ), but many of those changes would not remain significant if corrected for multiple comparisons. This review evaluated the clinical evidence in humans that fasting is beneficial, including from randomized controlled trials of the effects of fasting on clinically relevant surrogate outcomes (e.g., weight and cholesterol) or actual clinical event endpoints [e.g., diabetes and coronary artery disease (CAD)] and any other studies of clinical event outcomes. METHODS A systematic review of the literature was performed by searching computerized databases for published, peer-reviewed articles in English. Searches included the terms \u201cintermittent fasting,\u201d \u201calternate-day fasting,\u201d \u201cperiodic fasting,\u201d and \u201cintermittent energy restriction.\u201d In addition, the reference lists of articles identified to be related to fasting were examined for other trials or studies that were relevant. The primary aims were to 1) identify randomized clinical trials of fasting in which a standard diet or noninterventional control group was used and 2) find all studies in which the research endpoint was the clinical outcome, such as diagnosis of diabetes, CAD, or cognitive impairment such as dementia (regardless of whether it was a clinical trial). Filters were also used for \u201chumans\u201d to eliminate animal studies and\u2014for aim 1\u2014\u201cclinical trial\u201d to eliminate clinical studies that did not have a control arm. Randomized trials with multiple interventional arms (e.g., an intermittent fasting arm and a CR arm) but no usual diet control arm were considered to be incomplete trials and were not counted as controlled trials of fasting. Because intermittent fasting and CR have not been conclusively proven to have beneficial effects in humans with acceptable safety profiles (1 1. Rizza, W \u2219 Veronese, N \u2219 Fontana, L What are the roles of calorie restriction and diet quality in promoting health and longevity? ), they were not considered to be controls for trials that were identified. Studies whose endpoints were surrogate outcomes (e.g., weight loss, LDL cholesterol, and brain-derived neurotrophic factor) that themselves are predictors of clinical events were not considered to be clinical outcomes studies. Searches for \u201cintermittent fasting\u201d identified 198 articles, including 83 studies in humans of which 8 were clinical trials. \u201cAlternate-day fasting\u201d searches identified 46 articles, of which 18 were in humans and 7 were labeled as clinical trials. For \u201cperiodic fasting,\u201d 19 articles were found: 9 in humans (including the only clinical outcomes studies that were found) and just 1 that was called a clinical trial. The term \u201cintermittent energy restriction\u201d retrieved only 12 articles: 8 in humans, of which only 2 were clinical trials. From these searches, a total of only 3 randomized controlled clinical trials with standard diet or noninterventional controls were identified. The results of these 3 trials were published in 5 articles (1 trial\u2019s results were published in 3 articles). Furthermore, only 2 clinical outcomes studies were found, both of which were prospective observational studies. RESULTS Evidence of a fasting benefit for humans based on surrogate outcomes studies The 5 reports from 3 randomized, controlled trials of fasting that had a control consisting of a noninterventional or standard diet are shown in Table 1. One of these trials was a 12-wk study of weight loss in 32 nonobese individuals, which confirmed the loss of 6.5% of body weight in the ADF intervention arm compared with the nonfasting control arm (36 36. Varady, KA \u2219 Bhutani, S \u2219 Klempel, MC ... Alternate day fasting for weight loss in normal weight and overweight subjects: a randomized controlled trial ). The study also reported improvements in other cardiovascular and metabolic variables such as triglycerides, LDL-cholesterol particle size, and C-reactive protein, but it did not correct for multiple comparisons (a common scientific design problem of many fasting studies) (36 36. Varady, KA \u2219 Bhutani, S \u2219 Klempel, MC ... Alternate day fasting for weight loss in normal weight and overweight subjects: a randomized controlled trial ). This study did not evaluate subject safety outcomes. Safety data for ADF regimens are lacking, but ADF has been shown to not cause an increase in caloric intake on nonfasting days, despite what some may expect from the effects of prolonged hunger (39 39. Johnstone, AM \u2219 Faber, P \u2219 Gibney, ER ... Effect of an acute fast on energy compensation and feeding behavior in lean men and women Some of the weight-loss studies, including the one trial just mentioned and some noted in the introduction, evaluated metabolic, cardiovascular, and cognitive benefits as secondary outcomes. The other 4 reports of randomized controlled trials of fasting provide information for primary outcomes other than weight. The second randomized controlled trial of fasting was reported in 3 articles using the primary endpoints of \u201cmood states and depression status\u201d (34 34. Hussin, NM \u2219 Shahar, S \u2219 Teng, NIMF ... Efficacy of fasting and calorie restriction (FCR) on mood and depression among ageing men ), and will not be discussed. Overall mood\u2014including components from tension, anger, and confusion\u2014was improved by fasting in a study of 32 subjects during 12 wk of the intervention phase. Unfortunately, correction for the 7 hypothesis tests of measures of mood was not done and would result in no finding being statistically significant (34 34. Hussin, NM \u2219 Shahar, S \u2219 Teng, NIMF ... Efficacy of fasting and calorie restriction (FCR) on mood and depression among ageing men ). From the same 12-wk trial but in another article, blood pressure, total cholesterol, LDL cholesterol, weight, fat mass, and other factors\u2014including DNA damage measures\u2014were changed by fasting (35 35. Teng, NI \u2219 Shahar, S \u2219 Rajab, NF ... Improvement of metabolic parameters in healthy older adult men following a fasting calorie restriction intervention ). As before, no primary hypothesis was specified, and no correction for multiple comparisons was made in what must be considered a subsequent analysis of the prior study (34 34. Hussin, NM \u2219 Shahar, S \u2219 Teng, NIMF ... Efficacy of fasting and calorie restriction (FCR) on mood and depression among ageing men ). It used a Latin-square crossover design to examine just one 24-h period of fasting and 1 day of ad libitum feeding. FEELGOOD is the only randomized controlled trial of fasting to correct for multiple comparisons (21 21. Horne, BD \u2219 Muhlestein, JB \u2219 Lapp\u00e9, DL ... Randomized cross-over trial of short-term water-only fasting: metabolic and cardiovascular consequences ). No primary endpoint was used, but P \u2264 0.00167 was the threshold for significance for 30 tests of hypothesis. In FEELGOOD, fasting induced marked but temporary increases in human growth hormone (HGH), red blood cell count (and hemoglobin and hematocrit), and total cholesterol [resulting from increases in both LDL cholesterol and HDL cholesterol, despite substantially decreased triglycerides, as found in other fasting studies (41 41. Horne, BD \u2219 Muhlestein, JB \u2219 Butler, AR ... Effects of water-only fasting among pre-diabetic patients Letter by Horne et al regarding article, \u201cPrognostic value of fasting versus nonfasting low-density lipoprotein cholesterol levels on long-term mortality: insight from the National Health and Nutrition Survey III (NHANES-III) ); thus, the findings are useful primarily in developing longer-term trials. Fasting and major adverse clinical events Two observational clinical events studies have examined fasting and major adverse clinical outcomes in humans. These epidemiologic studies of fasting began in 2001, based not on CR but on declining tobacco smoking. Smoking declined more from 1984 to 1996 in states such as California than in Utah, where the smoking rate was already low (43 43. Centers for Disease Control and Prevention Annual smoking-attributable mortality, years of potential life lost, and economic costs\u2014United States, 1995\u20131999 ). An initial study was performed challenging the assumption that Utah\u2019s low CAD risk was only attributable to the proscription of smoking among members of the Church of Jesus Christ of Latter-Day Sain\n---Source URL: https://www.npjournal.org/article/S1555-4155%252823%252900395-1/fulltext\nSource title: Intermittent Fasting: Exploring Approaches, Benefits, and ...\nSource type: web\nContent:\n# www.npjournal.org ## \u6b63\u5728\u57f7\u884c\u5b89\u5168\u9a57\u8b49 \u6b64\u7db2\u7ad9\u4f7f\u7528\u5b89\u5168\u670d\u52d9\u62b5\u79a6\u60e1\u610f\u6a5f\u5668\u4eba\u3002\u7576\u7db2\u7ad9\u9a57\u8b49\u4e26\u78ba\u8a8d\u60a8\u4e0d\u662f\u6a5f\u5668\u4eba\u6642\uff0c\u4fbf\u6703\u986f\u793a\u6b64\u9801\u9762\u3002 ## \u9a57\u8b49\u6210\u529f\u3002\u6b63\u5728\u7b49\u5f85 www.npjournal.org \u56de\u61c9 Ray ID: `9ed062cb39410b14` Performance and Security by Cloudflare\u96b1\u79c1\u6b0a\n---",
+  "max_tokens": 16384,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776313342.1941273
+}

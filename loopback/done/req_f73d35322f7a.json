@@ -1,0 +1,12 @@
+{
+  "request_id": "f73d35322f7a",
+  "call_type": "reason",
+  "schema_name": null,
+  "schema_json": null,
+  "system": "",
+  "prompt": "Assign GRADE certainty ratings to each evidence item below.\nRatings: HIGH (systematic review of RCTs, low heterogeneity), MODERATE (RCT with some concerns, or consistent observational), LOW (observational studies, high heterogeneity, indirect evidence), VERY_LOW (case reports, expert opinion, serious limitations).\n\nFor each item, output ONLY the number and rating, one per line:\n1. HIGH\n2. MODERATE\n...\n\nEVIDENCE:\n1. [GOLD] Source: A systematic review and meta-analysis of the long-term effec | Statement: The review assessed long-term (at least 24 months) effectiveness of behavioural interventions on objectively measured physical activity, not intermitt\n2. [SILVER] Source: A systematic review and meta-analysis of the long-term effec | Statement: At 24 months post baseline, daily steps showed a significant intervention effect with SMD 0.15 across four studies.\n3. [SILVER] Source: Effects of Intermittent Energy Restriction Compared with Tho | Statement: The meta-analysis compared three intermittent energy restriction protocols with continuous energy restriction in healthy adults.\n4. [GOLD] Source: Effects of Intermittent Energy Restriction Compared with Tho | Statement: Twenty-eight trials were identified covering time-restricted eating, alternate-day fasting, and 5:2 diet protocols.\n5. [SILVER] Source: Intermittent fasting strategies and their effects on body we | Statement: The study used network meta-analysis to compare intermittent fasting diets with continuous energy restriction and ad-libitum diets.",
+  "max_tokens": 500,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776382820.9843533
+}

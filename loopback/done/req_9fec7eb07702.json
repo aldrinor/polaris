@@ -1,0 +1,84 @@
+{
+  "request_id": "9fec7eb07702",
+  "call_type": "structured:AgenticRoundAnalysis",
+  "schema_name": "AgenticRoundAnalysis",
+  "schema_json": {
+    "description": "LLM contract for the agentic search loop 'Reason' step.\n\nAfter each round of searches, the LLM analyzes results and decides\nwhether to continue searching or converge. Generates targeted\nfollow-up queries informed by what was found so far.",
+    "properties": {
+      "key_findings": {
+        "description": "3-5 key findings from the latest round",
+        "items": {
+          "type": "string"
+        },
+        "title": "Key Findings",
+        "type": "array"
+      },
+      "perspective_gaps": {
+        "description": "Underrepresented STORM perspectives in current results",
+        "items": {
+          "type": "string"
+        },
+        "title": "Perspective Gaps",
+        "type": "array"
+      },
+      "web_queries": {
+        "description": "3-6 web queries for the next round",
+        "items": {
+          "type": "string"
+        },
+        "title": "Web Queries",
+        "type": "array"
+      },
+      "academic_queries": {
+        "description": "1-3 Semantic Scholar queries using precise terminology",
+        "items": {
+          "type": "string"
+        },
+        "title": "Academic Queries",
+        "type": "array"
+      },
+      "exa_queries": {
+        "description": "0-1 semantic queries for Exa neural search",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exa Queries",
+        "type": "array"
+      },
+      "convergence_assessment": {
+        "default": "expanding",
+        "description": "Assessment: 'expanding', 'narrowing', or 'saturated'",
+        "title": "Convergence Assessment",
+        "type": "string"
+      },
+      "should_continue": {
+        "default": true,
+        "description": "Whether another search round is needed",
+        "title": "Should Continue",
+        "type": "boolean"
+      },
+      "reasoning": {
+        "default": "",
+        "description": "Brief rationale for the convergence assessment",
+        "title": "Reasoning",
+        "type": "string"
+      },
+      "knowledge_gaps": {
+        "description": "Specific knowledge gaps identified from reading content",
+        "items": {
+          "type": "string"
+        },
+        "title": "Knowledge Gaps",
+        "type": "array"
+      }
+    },
+    "title": "AgenticRoundAnalysis",
+    "type": "object"
+  },
+  "system": "",
+  "prompt": "You are a research search strategist conducting an agentic deep research loop.\n\nRESEARCH QUESTION: What is the empirical evidence on the impact of minimum wage increases on small business employment in OECD countries since 2010?\n\nROUND HISTORY:\nRound 1: 9 queries -> 76 web + 30 academic, 65 new URLs, 6 pages read\n\nKNOWLEDGE ACQUIRED (6 pages read so far):\n[Page 1] Most minimum wage studies have found little or no job loss\n  Summary: Most minimum wage studies have found little or no job loss There is always a great deal of political heat around minimum wage increases, largely driven by concerns about job losses. After a minimum wage increase, the story goes, many employers will not be able to afford to pay their workers the new higher minimum wage and will therefore shrink their payrolls. If these job losses are large enough, they could even swamp the higher wages and lead to lower overall wage income for the entire group of\n  Perspectives: Scientific\n  Key facts: Most minimum wage studies have found little or no job loss There is always a great deal of political heat around minimum wage increases, largely driven by concerns about job losses.; A new review that I co-authored with Arindrajit Dube finds that most minimum wage studies find no job losses or only small disemployment effects.; This conclusion is strengthened by focusing on the studies that examine broad groups of low-wage workers or the overall workforce, not just narrow segments like teenagers.\n[Page 2] Research on the Effects of Raising the Minimum Wage\n  Summary: Recent minimum wage increases in 20 states and efforts by states including New York and California, and cities such as Seattle, to raise the minimum wage to $15 per hour have ignited the debate over the labor market effects of raising the minimum wage. An effort to set a federal $15 minimum wage has gained new traction under the Biden administration. Researchers using different methods and control groups often come up with different findings.\n  Perspectives: Scientific\n  Key facts: Recent minimum wage increases in 20 states and efforts by states including New York and California, and cities such as Seattle, to raise the minimum wage to $15 per hour have ignited the debate over the labor market effects of raising the minimum wage.; An effort to set a federal $15 minimum wage has gained new traction under the Biden administration.\n[Page 3] What does the scholarly research say about whether raising the ...\n  Summary: What does the scholarly research say about whether raising the minimum wage negatively impacts employment? Our Work We conducted a systematic literature review of peer-reviewed articles published in the U.S. between 2004 and 2019 that assess the effect of raising the minimum wage on employment. Our search returned 144 studies and, of those, we identified 50 that directly addressed our research question above.\n  Perspectives: Scientific\n  Key facts: Our Work We conducted a systematic literature review of peer-reviewed articles published in the U.S. between 2004 and 2019 that assess the effect of raising the minimum wage on employment.; Eight (8) studies showed mixed or inconclusive results.; In recent empirical studies, minimum wage raises do not appear to substantially lower employment, with many studies reporting employment effects indistinguishable from zero or random noise. 2.\n[Page 4] [PDF] Criticisms of Minimum Wage Increases Lag Behind Latest Research\n  Summary: Instead of focusing on the employment effect on teens and workers at or below the minimum wage, the recent research looks at the impact of changes on a large share of affected low-wage workers. 2 The emerging consensus is that the low-wage workforce, as a whole, is better off after an increase in the minimum wage. The latest domestic and international evidence shows that higher wage floors discourage low-pay employment and encourage the creation of good jobs with higher wages, more security, and\n  Perspectives: Scientific\n  Key facts: Instead of focusing on the employment effect on teens and workers at or below the minimum wage, the recent research looks at the impact of changes on a large share of affected low-wage workers. 2 The emerging consensus is that the low-wage workforce,; Critics of minimum wage increases mischaracterize the employment effects in the research Critics tend to focus on the possibility that a gradual increase in the minimum wage to $15 by 2025 could potentially cost about 1% of U.S. workers their jobs. 4; The authors also show that low-wage workers saw wage gains of approximately 7% after a minimum wage increase, yet little change in employment years later.\n[Page 5] Are There Long-Run Effects of the Minimum Wage? - PMC\n  Summary: INSUFFICIENT_CONTENT\n  Perspectives: none tagged\n  Key facts: none extracted\n[Page 6] [PDF] The Effects of Minimum Wages on (Almost) Everything? A Review of ...\n  Summary: Title: w31191.rev0.pdf URL Source: https://www.nber.org/system/files/working_papers/w31191/revisions/w31191.rev0.pdf Published Time: Fri, 08 Dec 2023 21:14:34 GMT Number of Pages: 57 Markdown Content: NBER WORKING PAPER SERIES THE EFFECTS OF MINIMUM WAGES ON (ALMOST) EVERYTHING? A REVIEW OF RECENT EVIDENCE ON HEALTH AND RELATED BEHAVIORS David Neumark Working Paper 31191 http://www.nber.org/papers/w31191 NATIONAL BUREAU OF ECONOMIC RESEARCH 1050 Massachusetts Avenue Cambridge, MA 02138 April 202\n  Perspectives: Scientific\n  Key facts: Title: w31191.rev0.pdf URL Source: https://www.nber.org/system/files/working_papers/w31191/revisions/w31191.rev0.pdf Published Time: Fri, 08 Dec 2023 21:14:34 GMT Number of Pages: 57 Markdown Content: NBER WORKING PAPER SERIES THE EFFECTS OF MINIMUM ; A REVIEW OF RECENT EVIDENCE ON HEALTH AND RELATED BEHAVIORS David Neumark Working Paper 31191 http://www.nber.org/papers/w31191 NATIONAL BUREAU OF ECONOMIC RESEARCH 1050 Massachusetts Avenue Cambridge, MA 02138 April 2023 I am also affiliated with IZ; They have not been peer-reviewed or been subject to the review by the NBER Board of Directors that accompanies official NBER publications. \u00a9 2023 by David Neumark.\n\nNEW SEARCH RESULTS (round 1, titles only \u2014 not yet read):\n- Study examines pain vs. gain of raising minimum wage\n- Effects of the minimum wage on US county labor markets\n- An Examination of the Economic Impact of the Minimum Wage\n- Who's Afraid of the Minimum Wage? Measuring the Impacts on ...\n- Most minimum wage studies have found little or no job loss\n- Minimum-Wage Increases and Low-Wage Employment: Evidence ...\n- [PDF] The Effects of Minimum Wages on (Almost) Everything? A Review of ...\n- What does the scholarly research say about whether raising the ...\n- The Local Aggregate Effects of Minimum Wage Increases\n- [PDF] An Examination of the Economic Impact of the Minimum Wage\n- [PDF] Criticisms of Minimum Wage Increases Lag Behind Latest Research\n- The Economics of the Minimum Wage: Myths, Facts, and ... - AIER\n- The impact of minimum wages on overall health and well-being\n- Minimum Wages and Public Health: A Literature Review - PubMed\n- [PDF] The Effects of Minimum Wages on (Almost) Everything? A Review of ...\n- Raising the minimum wage could improve public health\n- Minimum Wage Increases Could Improve Health and Advance Equity\n- Improving Health by Increasing the Minimum Wage\n- [PDF] EVIDENCE REVIEW - Prenatal-to-3 Policy Impact Center\n- Minimum Wage Increase Linked to Small Decrease in Employer ...\n\nPERSPECTIVE COVERAGE:\n  Covered (5/9): Scientific, Industry, Economic, Public_Health, Historical\n  Uncovered: Regulatory, Regional, Methodological, Emerging_Trends\n  Low coverage: Historical\n\nBased on what has been READ:\n1. Decompose the research question into 5-8 sub-questions.\n   Which sub-questions have ZERO or WEAK evidence?\n   Which sub-questions are well-answered with strong evidence?\n2. What CONTRADICTIONS exist between sources? Flag conflicting evidence.\n3. What specific KNOWLEDGE GAPS remain? List them as specific factual questions\n   we CANNOT yet answer. 'none' is almost never correct for a complex research question.\n4. Rate overall confidence in accumulated knowledge: LOW/MEDIUM/HIGH with reasoning.\n5. Which perspectives need more coverage?\n6. Generate 3-6 targeted WEB queries to fill those gaps.\n7. Generate 1-3 ACADEMIC queries using precise terminology.\n8. Optionally generate 0-1 semantic EXA queries.\n9. Assess ANSWER COMPLETENESS for the research question:\n   - List specific sub-questions that remain UNANSWERED.\n   - For each answered sub-question, rate evidence strength (weak/moderate/strong).\n   - 'expanding': Major sub-questions still unanswered.\n   - 'narrowing': Most sub-questions answered, seeking confirmation/depth.\n   - 'saturated': All sub-questions answered with strong evidence.\n10. Should we continue searching?\n\nFocus on queries that address content-level gaps, not just missing URLs.",
+  "max_tokens": 4096,
+  "temperature": 0.0,
+  "reasoning_exclude": null,
+  "timestamp": 1776314772.2982254
+}
