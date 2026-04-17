@@ -656,16 +656,31 @@ async def compose_from_wiki(
                                 str(_rev_exc)[:200],
                             )
                     if rewrite_count > 0:
-                        # Reassemble report with rewritten sections
-                        # Extract abstract from existing report (between "## Abstract" and first section)
-                        import re as _re
-                        _abstract_match = _re.search(
-                            r"## Abstract\s*\n\n(.*?)(?=\n## [^R])", final_report, _re.DOTALL,
-                        )
-                        _abstract_text = _abstract_match.group(1).strip() if _abstract_match else ""
+                        # BUG-70 FIX: regenerate abstract from post-remediation
+                        # section content before reassembling. Previously the
+                        # old (pre-remediation) abstract was re-extracted via
+                        # regex, leaving the report with a clean body but a
+                        # fabrication-reflecting abstract.
+                        try:
+                            new_abstract = await _compose_abstract(
+                                client=client,
+                                query=query,
+                                sections=sections,
+                                bibliography=wiki_result.bibliography,
+                            )
+                            abstract = new_abstract or abstract
+                            logger.info(
+                                "[wiki-compose] REMEDIATE: Abstract regenerated from rewritten sections (%d chars)",
+                                len(abstract),
+                            )
+                        except Exception as _abs_exc:
+                            logger.warning(
+                                "[wiki-compose] REMEDIATE: Abstract regeneration failed: %s — keeping pre-remediation abstract",
+                                str(_abs_exc)[:200],
+                            )
                         final_report = _assemble_report(
                             query=query,
-                            abstract=_abstract_text,
+                            abstract=abstract,
                             sections=sections,
                             bibliography=wiki_result.bibliography,
                         )

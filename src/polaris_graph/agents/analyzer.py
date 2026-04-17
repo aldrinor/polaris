@@ -1758,12 +1758,34 @@ async def _fetch_all_content(
         if len(f.get("content", "")) >= PG_MIN_CONTENT_LENGTH
     ]
 
+    # BUG-5 FIX: detect captcha/bot-challenge/paywall-stub content that
+    # passes the length gate but carries no research substance. Drop these
+    # before they reach the analyzer (which would otherwise extract
+    # "atomic facts" from the captcha text).
+    pre_stub = len(fetched)
+    stub_drops = []
+    _kept = []
+    for f in fetched:
+        is_stub, why = _is_stub_content(f.get("content", ""))
+        if is_stub:
+            stub_drops.append((f.get("url", ""), why))
+        else:
+            _kept.append(f)
+    fetched = _kept
+    if stub_drops:
+        logger.warning(
+            "[polaris graph] BUG-5 FIX: Dropped %d stub-content sources before analysis. Examples: %s",
+            len(stub_drops),
+            "; ".join(f"{u[:60]}: {w}" for u, w in stub_drops[:3]),
+        )
+
     logger.info(
         "[polaris graph] Fetched content for %d/%d sources "
-        "(%d removed for short content, %d from cache)",
+        "(%d removed for short content, %d stub-content dropped, %d from cache)",
         len(fetched),
         len(results),
-        before_filter - len(fetched),
+        before_filter - pre_stub,
+        pre_stub - len(fetched),
         cache_hits,
     )
 
@@ -1900,6 +1922,54 @@ def _strip_non_article_content(content: str) -> str:
     result = _re.sub(r"\n{3,}", "\n\n", result)
 
     return result.strip()
+
+
+# BUG-5 FIX: Detect fetched content that is actually a captcha/bot-challenge,
+# paywall stub, or access-block page masquerading as article content.
+# These pass the PG_MIN_CONTENT_LENGTH=200 gate (captcha pages are ~200-500
+# chars) but contain zero research substance.
+_STUB_CONTENT_MARKERS = (
+    "are you a robot",
+    "please confirm you are a human",
+    "captcha challenge",
+    "user agent",
+    "reference number",
+    "access denied",
+    "enable javascript",
+    "please verify you are a human",
+    "cloudflare",
+    "checking your browser",
+    "just a moment",
+    "this content is restricted",
+    "subscription required",
+    "sign in to continue",
+    "login to access",
+    "purchase access",
+    "sci-hub",
+    "полного текста этой статьи нет в моей базе",
+    "статья отсутствует в базе",
+)
+
+
+def _is_stub_content(content: str) -> tuple[bool, str]:
+    """Return (is_stub, reason). True when content is a captcha/access-block
+    page or so short/generic it cannot carry research evidence."""
+    if not content:
+        return True, "empty"
+    lc = content.lower()
+    # Any single marker present + content <2000 chars = very likely a stub.
+    # Long articles may mention "captcha" parenthetically; only short docs
+    # with the marker are confidently stubs.
+    if len(content) < 2000:
+        for m in _STUB_CONTENT_MARKERS:
+            if m in lc:
+                return True, f"marker='{m}' in short content ({len(content)} chars)"
+    # Very short with only punctuation / IP / boilerplate
+    if len(content) < 400:
+        alpha_ratio = sum(1 for c in content if c.isalpha()) / max(1, len(content))
+        if alpha_ratio < 0.55:
+            return True, f"low-alpha boilerplate ({alpha_ratio:.2f} alpha ratio, {len(content)} chars)"
+    return False, ""
 
 
 async def _analyze_batch(

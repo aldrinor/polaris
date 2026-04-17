@@ -529,8 +529,14 @@ def _assign_evidence_by_embedding(
         return section_claims
 
     # Build texts for embedding
+    # BUG-3 FIX: include the STORM perspective tag in the evidence text so the
+    # embedding picks up not just the statement content but the perspective it
+    # belongs to (Public_Health, Regulatory, Economic, etc.). Sections whose
+    # title/description reference a specific perspective (safety,
+    # regulation, cost) can then match perspective-tagged evidence even when
+    # the statement wording is generic-sounding.
     evidence_texts = [
-        f"{e.get('statement', '')} {e.get('direct_quote', '')[:200]}"
+        f"[{e.get('perspective', 'Scientific')}] {e.get('statement', '')} {e.get('direct_quote', '')[:200]}"
         for e in evidence
     ]
     section_texts = [
