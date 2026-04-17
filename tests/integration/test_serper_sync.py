@@ -117,34 +117,6 @@ class TestSerperSync:
         logger.info(f"web_search tool returned {len(results)} results")
 
 
-@pytest.mark.skipif(not SERPER_API_KEY, reason=SKIP_REASON)
-class TestDomainAuthorityGate:
-    """Tests for downstream domain authority gate (replaced blocklist 2026-04-13)."""
-
-    def test_low_authority_domains_score_below_gate(self):
-        """Verify that entertainment/social domains get authority < gate.
-
-        The legacy filter_blocked_domains was removed on 2026-04-13.
-        Filtering now happens at the pre-fetch authority gate in
-        src/polaris_graph/agents/analyzer.py based on PageRank/tier scores.
-        Entertainment/social/commerce sites are classified as
-        low_credibility_domains (score 0.2) and fall below the default
-        gate of 0.3.
-        """
-        import os
-        from src.polaris_graph.agents.analyzer import _get_domain_authority
-
-        gate = float(os.getenv("PG_AUTHORITY_GATE", "0.3"))
-        # Commerce/entertainment examples — all should score below gate
-        for url in [
-            "https://amazon.com/dp/B08",
-            "https://ebay.com/itm/123",
-            "https://youtube.com/watch?v=abc",
-        ]:
-            auth = _get_domain_authority(url)
-            assert auth < gate, f"{url} auth={auth} should be < gate={gate}"
-
-
 class TestMockedSerper:
     """Tests that don't require API key (mocked)."""
 

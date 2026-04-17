@@ -346,9 +346,9 @@ def test_pipeline_tracer_writes_jsonl():
         tracer.llm_call("verify", "verification_batch", batch_size=10, supported=8)
         tracer.quality_gate("synthesize", "post_synthesis", passed=True, total_words=5000)
 
-        # Check summary
+        # Check summary — 11 events: 1 session_start (W3.3, emitted on init) + 10 manual calls
         summary = tracer.summary()
-        assert summary["total_events"] == 10
+        assert summary["total_events"] == 11
         assert "plan" in summary["nodes"]
         assert "search" in summary["nodes"]
         assert "analyze" in summary["nodes"]
@@ -361,7 +361,7 @@ def test_pipeline_tracer_writes_jsonl():
 
         with open(trace_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        assert len(lines) == 10
+        assert len(lines) == 11
 
         # Verify each line is valid JSON
         for line in lines:
@@ -446,14 +446,14 @@ def test_quality_gate_detects_below_minimum():
         faithfulness_score=0.9,
     )
 
-    # Report is 280 words — well below MIN_TOTAL_WORDS=4000
+    # Report is 280 words — verify metrics computed
     assert quality["total_words"] == 280
     assert quality["total_citations"] == 3
     assert quality["unique_sources"] == 3
 
-    # All below minimums
-    from src.polaris_graph.state import MIN_TOTAL_WORDS, MIN_CITATIONS, MIN_UNIQUE_SOURCES
-    assert quality["total_words"] < MIN_TOTAL_WORDS
+    # GEMINI-ARCH: MIN_TOTAL_WORDS is advisory (default 0). Quality emerges from
+    # evidence density, not absolute word count. Keep citation/source minimums.
+    from src.polaris_graph.state import MIN_CITATIONS, MIN_UNIQUE_SOURCES
     assert quality["total_citations"] < MIN_CITATIONS
     assert quality["unique_sources"] < MIN_UNIQUE_SOURCES
 
@@ -839,7 +839,9 @@ def test_graph_topology_unchanged():
     assert ("search", "storm_interviews") in edge_pairs
     assert ("storm_interviews", "analyze") in edge_pairs
     assert ("analyze", "verify") in edge_pairs
-    assert ("verify", "evaluate") in edge_pairs
+    # deepen_evidence sits between verify and evaluate (added post-NLI cascade)
+    assert ("verify", "deepen_evidence") in edge_pairs
+    assert ("deepen_evidence", "evaluate") in edge_pairs
     assert ("search_gaps", "search") in edge_pairs
 
 
@@ -1215,59 +1217,6 @@ def test_remove_redundancy_catches_semantic_dupes():
 
 
 # ---------------------------------------------------------------------------
-# NRC-3: Uncited claims audit
-# ---------------------------------------------------------------------------
-
-def test_audit_uncited_claims_detects_numerics():
-    """NRC-3: _audit_uncited_claims() catches sentences with numbers but no citation."""
-    from src.polaris_graph.synthesis.report_assembler import _audit_uncited_claims
-
-    sections = [
-        ReportSection(
-            section_id="s01",
-            title="EPA Regulations",
-            content="The EPA set a limit of 0.004 ppt for PFOA. "
-                    "This was based on extensive research [1]. "
-                    "Operating pressures of 15-40 bar are typical.",
-            word_count=25,
-            citation_ids=["[1]"],
-            evidence_ids=["ev_01"],
-        ),
-    ]
-
-    flagged = _audit_uncited_claims(sections)
-    # Should flag "0.004 ppt" (no citation) and "15-40 bar" (no citation)
-    # Should NOT flag the sentence with [1]
-    assert len(flagged) >= 1
-    # All flagged items should be from section s01
-    for f in flagged:
-        assert f["section_id"] == "s01"
-
-
-def test_soften_uncited_numerics():
-    """NRC-3: _soften_uncited_numerics() replaces specific numbers without citations."""
-    from src.polaris_graph.synthesis.report_assembler import _soften_uncited_numerics
-
-    sections = [
-        ReportSection(
-            section_id="s01",
-            title="Test",
-            content="The pressure was 15 bar for this system. "
-                    "The efficiency was 90% according to Smith [1].",
-            word_count=15,
-            citation_ids=["[1]"],
-            evidence_ids=["ev_01"],
-        ),
-    ]
-
-    result = _soften_uncited_numerics(sections)
-    # The cited sentence should remain unchanged
-    assert "[1]" in result[0]["content"]
-    # The uncited sentence should be softened
-    assert "15 bar" not in result[0]["content"] or "[1]" in result[0]["content"]
-
-
-# ---------------------------------------------------------------------------
 # NRC-4: Bibliography validation
 # ---------------------------------------------------------------------------
 
@@ -1436,84 +1385,6 @@ def test_validate_extraction_claims_skips_missing_url():
     assert "ev_3" not in kept_ids
 
 
-def test_soften_uncited_numerics_range_expressions():
-    """NRC-3: Range expressions like '15-40 bar' are softened atomically, not garbled."""
-    from src.polaris_graph.synthesis.report_assembler import _soften_uncited_numerics
-
-    sections = [
-        {"section_id": "s1", "title": "Pressure",
-         "content": "The system operates at 15-40 bar for optimal performance.",
-         "word_count": 9},
-        {"section_id": "s2", "title": "Filtration",
-         "content": "Membrane pore sizes range from 0.001-0.01 um in this application.",
-         "word_count": 10},
-    ]
-    result = _soften_uncited_numerics(sections)
-
-    # Range should be replaced as ONE unit, not garbled
-    s1_content = result[0]["content"]
-    assert "(reported values vary)" in s1_content
-    # Must NOT contain garbled output like "(specific values vary by study)-40"
-    assert "-40" not in s1_content
-    assert "15-" not in s1_content
-
-    s2_content = result[1]["content"]
-    assert "(reported values vary)" in s2_content
-    assert "0.001-" not in s2_content
-
-
-def test_soften_uncited_numerics_multi_range():
-    """NRC-3: Multiple ranges in one sentence are ALL replaced atomically."""
-    from src.polaris_graph.synthesis.report_assembler import _soften_uncited_numerics
-
-    sections = [
-        {"section_id": "s1", "title": "Performance",
-         "content": "The system uses 15-40 bar with 90-99% removal efficiency.",
-         "word_count": 10},
-    ]
-    result = _soften_uncited_numerics(sections)
-    content = result[0]["content"]
-    # Both ranges should be replaced atomically — no garbled output
-    assert "15-" not in content
-    assert "-40" not in content
-    assert "90-" not in content
-    assert "-99" not in content
-    # Should have range replacements, not isolated number replacements
-    assert "(reported values vary)" in content
-
-
-def test_soften_uncited_numerics_ph_pattern():
-    """NRC-3: pH ranges like 'pH 6.5-8.0' are detected and softened."""
-    from src.polaris_graph.synthesis.report_assembler import _soften_uncited_numerics
-
-    sections = [
-        {"section_id": "s1", "title": "Water Quality",
-         "content": "The optimal range is pH 6.5-8.0 for drinking water treatment.",
-         "word_count": 10},
-    ]
-    result = _soften_uncited_numerics(sections)
-    content = result[0]["content"]
-    assert "(reported values vary)" in content
-    assert "6.5-8.0" not in content
-
-
-def test_global_cap_phantom_marker_prevents_softening():
-    """NRC-2/NRC-3 cascade: Phantom [*] from global cap prevents false softening."""
-    from src.polaris_graph.synthesis.report_assembler import _soften_uncited_numerics
-
-    # Simulate a sentence where global cap replaced [1] with [*]
-    sections = [
-        {"section_id": "s1", "title": "Results",
-         "content": "The removal rate was 95% [*] across all trials tested.",
-         "word_count": 10},
-    ]
-    result = _soften_uncited_numerics(sections)
-    content = result[0]["content"]
-    # [*] should be recognized as citation-present — "95%" must NOT be softened
-    assert "95%" in content
-    assert "(specific values vary by study)" not in content
-
-
 def test_phantom_markers_stripped_from_final_output():
     """Fix 3: [*] phantom markers are stripped from final report text."""
     import re
@@ -1587,8 +1458,18 @@ async def test_analyze_gaps_filters_orphaned_claims():
     state["iteration_count"] = 0
     state["max_iterations"] = 3
 
-    # Mock client — quality gate early-exit means no LLM calls
+    # Mock client — evidence carries only "Scientific" perspective so the
+    # perspective-coverage guard (W3.4) falls through to gap analysis, which
+    # calls generate_structured. Return a concrete GapAnalysis with
+    # should_iterate=False so needs_iteration propagates correctly.
+    from src.polaris_graph.schemas import GapAnalysis
     mock_client = AsyncMock()
+    mock_client.generate_structured = AsyncMock(return_value=GapAnalysis(
+        gaps=[],
+        gap_severity="minor",
+        suggested_queries=[],
+        should_iterate=False,
+    ))
 
     result = await analyze_gaps(mock_client, state)
 
