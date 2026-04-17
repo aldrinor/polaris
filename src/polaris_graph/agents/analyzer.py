@@ -159,6 +159,29 @@ Rules:
    Missing any of these when the source provides them is a CRITICAL extraction failure.
 7. For review/meta-analysis papers, extract findings from EACH cited study individually.
    Prioritize pooled estimates with I² and CI over narrative summaries.
+7a. FIX-7 — NO CHERRY-PICKING: When a meta-analysis or systematic review
+    reports MULTIPLE pooled outcomes, you MUST extract ALL of them, including
+    non-significant/null results (e.g. "WMD -0.61 kg, 95% CI -1.70 to 0.47;
+    P = 0.27" for weight loss, alongside the significant "WMD -0.89 µU/mL,
+    P = 0.009" for fasting insulin). Extracting only the one significant
+    outcome from a predominantly-null review is a CRITICAL extraction
+    failure — the downstream synthesizer will present a misleading headline.
+    When a source reports outcomes for weight, glucose, HbA1c, triglycerides,
+    and insulin and only insulin was significant, extract facts for ALL FIVE
+    outcomes so synthesis can report the complete picture.
+7b. FIX-7 — RISKS, ADVERSE EVENTS, SAFETY: When the source discusses risks,
+    harms, side-effects, adverse events, contraindications, toxicity, or
+    safety concerns, you MUST extract at least one atomic fact per distinct
+    risk category. Examples of risk content that must be captured when
+    present: dizziness/nausea/headache/gastrointestinal symptoms, bone
+    density or lean-mass loss, hypoglycemia risk, psychological symptoms
+    (irritability, difficulty concentrating), population-specific cautions
+    (pregnancy, diabetes, eating disorders), interactions, long-term unknowns,
+    or explicit statements that side-effects were not systematically
+    quantified. Tag these with perspective="Public_Health" or
+    perspective="Scientific" and fact_category="risk" or
+    fact_category="adverse_event". Missing a documented adverse event when
+    the source reports it is a CRITICAL extraction failure.
 8. For each atomic fact, tag the research perspective it belongs to.
 9. CRITICAL (ARCH-4): The 'statement' field must be a DIRECT PARAPHRASE of the source text.
    Do NOT infer, extrapolate, or add information beyond what the direct_quote states.

@@ -70,6 +70,36 @@ FIX-HALLUC-1 — ABSOLUTE HALLUCINATION BAN (read carefully):
   safety questions") without specifics. Sections containing uncited specific numbers or
   uncited named entities WILL BE REJECTED by the audit.
 
+FIX-6 — INTERPRETIVE OVERLAY BAN:
+  Uncited sentences are allowed ONLY as neutral connectives between two
+  [CITE:evidence_id]-anchored sentences. The following are FORBIDDEN without a
+  supporting [CITE:]:
+    * Clinical recommendations: "clinical translation should...", "clinicians
+      should therefore...", "practitioners are advised to..."
+    * Qualifier overlays: "the most robust signal is...", "the most important
+      finding is...", "the best-studied protocol is..."
+    * Synthesis overlays: "taken together...", "integrating these threads
+      suggests...", "the evidence supports an X framing rather than Y..."
+    * Editorial framings: "this framing provides public-health context but...",
+      "adherence is the first-order mechanism...", "research priorities are..."
+    * Fabricated taxonomies not attributable to a specific cited source.
+  If you cannot cite a claim, do NOT write it. "Taken together" is a banned
+  sentence opener unless the sentence that follows carries a [CITE:].
+
+FIX-6 — TITLE-ONLY BAN:
+  Do NOT pad sections with standalone sentences that only restate a source's
+  title or scope (e.g. "A review of X examines whether Y [CITE:ev_xxx]"). Every
+  sentence must report a specific finding, number, or causal link — not merely
+  that a source exists. Thin atomic facts must be integrated into comparative
+  paragraphs or dropped.
+
+FIX-6 — CHERRY-PICK PREVENTION:
+  When citing a meta-analysis or review with multiple pooled outcomes, either
+  (a) report all primary outcomes the source analyzed, or (b) note explicitly
+  that you are reporting one outcome among several. Do NOT present a single
+  statistically significant finding from a predominantly-null study as if it
+  were the headline result.
+
 FORWARD-PROMISE RULE: Do NOT enumerate topics the report "will cover" unless you will
   actually cover them in this section. Do not introduce axes, frameworks, or themes that
   require content beyond what your evidence supports.

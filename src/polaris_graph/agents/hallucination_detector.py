@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 PG_HALLUCINATION_DETECT_ENABLED = os.getenv("PG_HALLUCINATION_DETECT_ENABLED", "0") == "1"
 
 PG_HALLUCINATION_REWRITE_THRESHOLD = float(
-    os.getenv("PG_HALLUCINATION_REWRITE_THRESHOLD", "0.30")
+    os.getenv("PG_HALLUCINATION_REWRITE_THRESHOLD", "0.25")
 )
 # Minimum NLI probability to consider a claim supported
 PG_POST_SYNTH_NLI_THRESHOLD = float(
@@ -199,7 +199,24 @@ def audit_sections_for_hallucination(
             if eid in evidence_map
         ]
 
-        # Build context texts from evidence (statements + quotes)
+        # FIX-4: Build NLI premise from quote-centered source windows rather
+        # than raw content[:2000]. When the supporting sentence is deeper than
+        # 2K chars into the source (common for real papers — methods and
+        # preambles eat the first 2K), content[:2000] produces a premise that
+        # doesn't contain the fact, and NLI returns low scores for even
+        # verbatim-grounded claims (observed: Cochrane ADF definition flagged
+        # at nli=0.387 despite being near-verbatim in source).
+        #
+        # Use _extract_quote_context from nli_verifier: it locates the
+        # direct_quote (or statement keywords) inside the source and returns
+        # a 2K window centered there. Guarantees the supporting text is in
+        # the premise whenever it exists anywhere in the source.
+        try:
+            from src.polaris_graph.agents.nli_verifier import _extract_quote_context
+        except Exception:
+            _extract_quote_context = None  # type: ignore
+
+        _per_ev_context_chars = int(os.getenv("PG_POST_SYNTH_PER_EV_CONTEXT", "2000"))
         context_texts = []
         for ev in section_evidence:
             parts = []
@@ -211,7 +228,13 @@ def audit_sections_for_hallucination(
             if quote and quote != stmt:
                 parts.append(quote)
             if src_content:
-                parts.append(src_content[:2000])
+                if _extract_quote_context is not None and (quote or stmt):
+                    window = _extract_quote_context(
+                        src_content, quote, _per_ev_context_chars, statement=stmt,
+                    )
+                else:
+                    window = src_content[:_per_ev_context_chars]
+                parts.append(window)
             if parts:
                 context_texts.append(" ".join(parts))
 

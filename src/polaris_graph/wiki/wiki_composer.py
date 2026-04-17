@@ -80,7 +80,30 @@ PQ-4: Statistical grading. When the source provides confidence intervals, p-valu
 ABSOLUTE RULES:
 1. Write ONLY from the CLAIMS provided below. Do NOT add facts, statistics, or findings not in the claims.
 2. Every factual statement MUST include its [REF:N] citation from the claims.
-3. Interpretive commentary ("Taken together...", "These findings indicate...") is allowed WITHOUT citations — but NEVER introduce new factual claims uncited.
+3. FIX-6 — INTERPRETIVE OVERLAY BAN. Uncited sentences are allowed ONLY as
+   neutral connectives between two [REF:N]-cited sentences. Sentences that
+   introduce NEW ideas — "the most robust glycemic signal is...", "clinical
+   translation should...", "clinicians should therefore...", "this framing
+   provides public-health context...", "adherence is the first-order
+   mechanism...", "taken together, the evidence supports an X framing rather
+   than a Y framing..." — are FORBIDDEN without a [REF:N]. If you cannot
+   cite a claim, do NOT write it. No uncited clinical recommendations, no
+   uncited "most robust / most important / best-studied" qualifiers, no
+   uncited taxonomies, no uncited causal inferences, no uncited
+   editorializing about research gaps. "Taken together" is a banned opener
+   unless followed by a claim that is itself cited.
+3a. TITLE-ONLY BAN. Do not pad sections with standalone sentences that only
+   restate a source's title or scope (e.g. "A systematic review of X [REF:3]
+   establishes that X has been evaluated"). Every sentence must report a
+   specific finding, number, or causal link — not merely that a source
+   exists. Thin atomic facts should be integrated into comparative
+   paragraphs or dropped entirely, not written as solo sentences.
+3b. CHERRY-PICK PREVENTION. When you cite a meta-analysis or review with
+   multiple pooled outcomes, you must either (a) report all primary
+   outcomes the source analyzed or (b) note explicitly that you are
+   reporting one outcome among several. Do NOT present a single
+   statistically significant finding from a predominantly-null study as if
+   it were the study's headline result.
 
 FIX-HALLUC-1 — ABSOLUTE HALLUCINATION BAN (wiki composer):
 Use ONLY the CLAIMS provided. Do NOT pull from training knowledge, do NOT recall studies,
@@ -642,7 +665,18 @@ async def compose_from_wiki(
                                 timeout=_remediate_timeout,
                             )
                             if revised_content and len(revised_content.split()) >= 50:
-                                sections[i]["content"] = _scrub_cot(revised_content)
+                                # FIX-2: Remediation rewrites emit [REF:N] / [CITE:N]
+                                # variants just like the original composition path.
+                                # Normalize to canonical [N] before replacing section
+                                # content — otherwise rewritten sections ship with
+                                # [REF:N] tokens that break citation rendering.
+                                _norm = _scrub_cot(revised_content)
+                                _norm = re.sub(
+                                    r"\[(?:REF|CITE|Ref|Cite|ref|cite):(\d+)\]",
+                                    r"[\1]",
+                                    _norm,
+                                )
+                                sections[i]["content"] = _norm
                                 rewrite_count += 1
                                 logger.info(
                                     "[wiki-compose] REMEDIATE: Rewrote '%s' (%d words)",
@@ -678,22 +712,110 @@ async def compose_from_wiki(
                                 "[wiki-compose] REMEDIATE: Abstract regeneration failed: %s — keeping pre-remediation abstract",
                                 str(_abs_exc)[:200],
                             )
-                        final_report = _assemble_report(
-                            query=query,
-                            abstract=abstract,
-                            sections=sections,
-                            bibliography=wiki_result.bibliography,
-                        )
                         logger.info(
                             "[wiki-compose] REMEDIATE: %d/%d flagged sections rewritten",
                             rewrite_count, flagged,
                         )
+
+                # FIX-3: Audit the abstract for hallucinations — runs ALWAYS when
+                # the hallucination audit is enabled, regardless of whether any
+                # sections were rewritten. Previously the abstract bypassed the NLI
+                # gate entirely: BUG-70 regenerated it only when sections rewrote,
+                # and no audit ever ran on it. Interpretive overlays in the abstract
+                # (uncited clinical recs, fabricated taxonomies) were systemically
+                # outside the verification loop.
+                try:
+                    _all_ev_ids: list[str] = []
+                    for _s in sections:
+                        for _eid in (_s.get("evidence_ids") or []):
+                            if _eid and _eid not in _all_ev_ids:
+                                _all_ev_ids.append(_eid)
+                    _abs_audit = audit_sections_for_hallucination(
+                        sections=[{
+                            "section_id": "abstract",
+                            "title": "Abstract",
+                            "content": abstract,
+                            "evidence_ids": _all_ev_ids,
+                        }],
+                        evidence=evidence_chain,
+                        research_query=query,
+                    ) or []
+                    if _abs_audit:
+                        _abs_result = _abs_audit[0]
+                        hallucination_audit.append(_abs_result)
+                        if _abs_result.get("needs_rewrite"):
+                            _abs_unsupp = [
+                                s.get("text", "")[:150]
+                                for s in _abs_result.get("hallucinated_spans", [])[:5]
+                            ]
+                            logger.warning(
+                                "[wiki-compose] FIX-3: Abstract flagged "
+                                "(%.1f%% unsupported) — rewriting with targeted guidance",
+                                _abs_result.get("hallucination_ratio", 0) * 100,
+                            )
+                            try:
+                                _rewritten = await _compose_abstract(
+                                    client=client,
+                                    query=query,
+                                    sections=sections,
+                                    bibliography=wiki_result.bibliography,
+                                    unsupported_spans=_abs_unsupp,
+                                )
+                                if _rewritten and len(_rewritten.split()) >= 30:
+                                    abstract = _rewritten
+                                    logger.info(
+                                        "[wiki-compose] FIX-3: Abstract rewritten (%d chars)",
+                                        len(abstract),
+                                    )
+                            except Exception as _arw_exc:
+                                logger.warning(
+                                    "[wiki-compose] FIX-3: Abstract rewrite failed: %s — keeping audited abstract",
+                                    str(_arw_exc)[:200],
+                                )
+                        else:
+                            logger.info(
+                                "[wiki-compose] FIX-3: Abstract NLI audit passed (%.1f%% unsupported)",
+                                _abs_result.get("hallucination_ratio", 0) * 100,
+                            )
+                except Exception as _abs_audit_exc:
+                    logger.warning(
+                        "[wiki-compose] FIX-3: Abstract audit failed: %s — abstract ships unaudited",
+                        str(_abs_audit_exc)[:200],
+                    )
+
+                # FIX-3: Always reassemble final_report after the abstract audit
+                # so any rewrite is reflected. Previously reassembly only happened
+                # inside `if rewrite_count > 0`.
+                final_report = _assemble_report(
+                    query=query,
+                    abstract=abstract,
+                    sections=sections,
+                    bibliography=wiki_result.bibliography,
+                )
         else:
             logger.info("[wiki-compose] Hallucination audit disabled (PG_HALLUCINATION_DETECT_ENABLED=0)")
     except Exception as _halluc_exc:
         logger.warning(
             "[wiki-compose] Hallucination audit failed: %s", str(_halluc_exc)[:200],
         )
+
+    # FIX-2: Defense-in-depth — final sweep on the assembled report.
+    # If any [REF:N] / [CITE:N] token leaked through (e.g. from a non-remediated
+    # section writer or a code path that wasn't covered), normalize here and log
+    # a loud warning so the leak is diagnosed rather than silently shipped.
+    _leak_pattern = re.compile(r"\[(?:REF|CITE|Ref|Cite|ref|cite):(\d+)\]")
+    _leaks = _leak_pattern.findall(final_report)
+    if _leaks:
+        logger.warning(
+            "[wiki-compose] FIX-2 leak guard: %d [REF:N]/[CITE:N] tokens survived to final_report — normalizing. Sample: %s",
+            len(_leaks), _leaks[:5],
+        )
+        final_report = _leak_pattern.sub(r"[\1]", final_report)
+        # Also normalize per-section content so downstream consumers of the
+        # `sections` list (e.g. hallucination_audit display) see the same text.
+        for _s in sections:
+            if "content" in _s:
+                _s["content"] = _leak_pattern.sub(r"[\1]", _s["content"])
 
     return {
         "section_outline": section_outline,
@@ -723,12 +845,28 @@ async def _compose_abstract(
     query: str,
     sections: list[dict],
     bibliography: list[dict],
+    unsupported_spans: list[str] | None = None,
 ) -> str:
-    """Generate a grounded abstract from section summaries."""
+    """Generate a grounded abstract from section summaries.
+
+    FIX-3: If `unsupported_spans` is provided, include them in the prompt so
+    the rewrite is targeted — same pattern as section-level remediation.
+    """
     summaries = "\n".join(
         f"- {s['title']}: {s['content'][:300]}..."
         for s in sections
     )
+
+    unsupported_block = ""
+    if unsupported_spans:
+        spans_text = "\n".join(f"  - {s[:150]}" for s in unsupported_spans[:5])
+        unsupported_block = (
+            "\n\nCRITICAL — The previous abstract draft contained these UNSUPPORTED\n"
+            "spans (flagged by NLI audit against the evidence pool):\n"
+            f"{spans_text}\n"
+            "Do NOT reproduce these claims. Every sentence in the new abstract must\n"
+            "paraphrase content that appears in the section summaries above.\n"
+        )
 
     prompt = (
         f"Write a 200-word abstract for a systematic review answering: \"{query}\"\n\n"
@@ -740,7 +878,10 @@ async def _compose_abstract(
         f"- State the scope (number of sources, topics covered)\n"
         f"- Note major limitations or evidence gaps\n"
         f"- Academic register, third person\n"
-        f"- Do NOT include chain-of-thought or planning"
+        f"- Do NOT include chain-of-thought or planning\n"
+        f"- Do NOT issue uncited clinical recommendations or editorial overlays\n"
+        f"  (e.g. 'clinical translation should...', 'taken together...'). Every factual\n"
+        f"  sentence must be traceable to a section summary above.{unsupported_block}"
     )
 
     try:

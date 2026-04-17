@@ -107,6 +107,9 @@ async def generate_outline_for_wiki(
                     sec["section_id"] = f"s{i+1:02d}"
                 if "description" not in sec:
                     sec["description"] = sec.get("title", "")
+            # FIX-1: guarantee a Risks section for risk-bearing queries, even
+            # when the LLM ignored the prompt rule at line 77.
+            sections = _ensure_risks_section(sections, query)
             logger.info("[wiki] Generated outline: %d sections from LLM", len(sections))
             return sections
 
@@ -115,7 +118,7 @@ async def generate_outline_for_wiki(
 
     # Fallback: generate a standard outline without LLM
     logger.info("[wiki] Using fallback outline (8 standard sections)")
-    return [
+    fallback = [
         {"section_id": "s01", "title": "Overview and Definitions", "description": f"Introduction to {query[:50]}"},
         {"section_id": "s02", "title": "Key Findings and Benefits", "description": "Primary positive outcomes from clinical evidence"},
         {"section_id": "s03", "title": "Mechanisms of Action", "description": "Biological and physiological mechanisms"},
@@ -125,6 +128,98 @@ async def generate_outline_for_wiki(
         {"section_id": "s07", "title": "Research Quality and Limitations", "description": "Study design quality, evidence gaps, and methodological concerns"},
         {"section_id": "s08", "title": "Clinical Implications", "description": "Practical recommendations and future research directions"},
     ]
+    return _ensure_risks_section(fallback, query)
+
+
+_RISK_QUERY_TERMS = (
+    " risk", " risks",
+    " harm", " harms", "harmful",
+    " adverse", "adverse event", "adverse effect",
+    " side effect", "side-effect", " side effects",
+    " safety", " safe ", "dangerous", "danger",
+    "contraindication", "toxicity", "toxic",
+    "downside", "drawback", "concern",
+)
+
+
+def _query_demands_risks_section(query: str) -> bool:
+    """Detect whether the research query explicitly asks about risks/harms/safety.
+
+    FIX-1: If the query names risk-related axes, the outline must include a
+    dedicated Risks/Safety section. A B-question ("benefits AND risks?") that
+    produces a benefits-only report is a systematic axis-coverage failure.
+    Detection is deliberately permissive — false positives (a Risks section
+    where none was strictly needed) cost far less than false negatives (the
+    medium loopback defect: 100% missing risks axis).
+    """
+    if not query:
+        return False
+    q = " " + query.lower().strip() + " "
+    return any(term in q for term in _RISK_QUERY_TERMS)
+
+
+def _has_risks_section(outline: list[dict]) -> bool:
+    """Check whether the outline already contains a risks/safety/adverse-effect section."""
+    markers = (
+        "risk", "safety", "adverse", "side effect", "side-effect",
+        "harm", "contraindication", "toxicity",
+    )
+    for sec in outline:
+        title = (sec.get("title") or "").lower()
+        desc = (sec.get("description") or "").lower()
+        # Require a substantive match: the marker must be in the title,
+        # or in the description together with a second marker. Avoids
+        # false-match on a section that merely mentions "safety" in passing.
+        if any(m in title for m in markers):
+            return True
+        desc_hits = sum(1 for m in markers if m in desc)
+        if desc_hits >= 2:
+            return True
+    return False
+
+
+def _ensure_risks_section(outline: list[dict], query: str) -> list[dict]:
+    """FIX-1: Inject a mandatory Risks/Safety section when the query demands it.
+
+    Root cause of the medium-loopback defect: the query asked for benefits AND
+    risks, but the LLM-generated outline omitted risks and the downstream
+    synthesizer inherited the omission. Guarantee axis coverage at the outline
+    layer so single-LLM-call variance cannot drop the axis.
+
+    Idempotent: does nothing if the outline already has a risks-like section,
+    or if the query does not mention risks.
+    """
+    if not outline:
+        return outline
+    if not _query_demands_risks_section(query):
+        return outline
+    if _has_risks_section(outline):
+        return outline
+
+    existing_ids = {s.get("section_id", "") for s in outline}
+    next_idx = len(outline) + 1
+    while f"s{next_idx:02d}" in existing_ids:
+        next_idx += 1
+
+    risks_section = {
+        "section_id": f"s{next_idx:02d}",
+        "title": "Risks, Adverse Effects, and Safety Considerations",
+        "description": (
+            "Enumerate documented harms, adverse events, contraindications, "
+            "and population-specific cautions reported in the evidence base. "
+            "Cover both common side-effects (e.g. gastrointestinal, "
+            "neurological, metabolic) and severe or long-term risks. Note "
+            "where the evidence base is thin, where risk-quantification is "
+            "absent, and which populations were excluded from trials."
+        ),
+    }
+    augmented = list(outline) + [risks_section]
+    logger.info(
+        "[wiki] FIX-1: Injected mandatory Risks section (query mentioned risks/harms/safety; "
+        "outline had %d sections, now %d)",
+        len(outline), len(augmented),
+    )
+    return augmented
 
 
 def _ensure_synthesis_sections(outline: list[dict]) -> list[dict]:
@@ -259,6 +354,10 @@ def build_wiki(
     # Cross-domain G-Eval found completeness drops from 9 to 6 whenever these
     # are missing. The PFAS outline had them; the others didn't.
     outline = _ensure_synthesis_sections(outline)
+
+    # FIX-1: Ensure a Risks/Safety section exists when the query demands one.
+    # If the query asks for benefits AND risks, the outline must cover both.
+    outline = _ensure_risks_section(outline, query)
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
