@@ -965,6 +965,39 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
         m = re.search(r"/articles/PMC(\d+)", u or "")
         return f"pmc{m.group(1)}" if m else ""
 
+    def _extract_regulatory_id(u: str) -> str:
+        """PATCH-C: Collapse FDA/EMA labels across revisions.
+
+        FDA accessdata.fda.gov path structure:
+          /drugsatfda_docs/label/<YEAR>/<NDC>s<REV>lbl.pdf
+        The <NDC> (application number) identifies the drug, not the
+        revision. Four WEGOVY labels 215256s000/s007/s024/s033 all share
+        NDC=215256 and should collapse to one bibliography entry, as
+        observed in PG_LB_SA_01 which cited [26][27][28][29] for four
+        revisions of the same document.
+
+        EMA ema.europa.eu path structure:
+          /en/documents/product-information/<product>-epar-product-information_en.pdf
+        The <product> slug identifies the drug across revisions.
+        """
+        # FDA: capture application number before 's<rev>'
+        m = re.search(
+            r"/drugsatfda_docs/label/\d+/(\d+)s\d+lbl\.pdf",
+            u or "",
+            re.IGNORECASE,
+        )
+        if m:
+            return f"fda-{m.group(1)}"
+        # EMA: capture product slug before '-epar-product-information'
+        m = re.search(
+            r"/product-information/([^/]+?)-epar-product-information",
+            u or "",
+            re.IGNORECASE,
+        )
+        if m:
+            return f"ema-{m.group(1).lower()}"
+        return ""
+
     def _extract_doi(best_claim: dict, url: str) -> str:
         doi = (best_claim.get("doi", "") or "").strip().lower()
         if doi:
@@ -973,14 +1006,41 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
         m = re.search(r"10\.\d{4,9}/[^\s\?#]+", url or "")
         return (m.group(0).lower() if m else "")
 
+    # PATCH-D: OpenAlex work_id lookup for academic sources. Gives us
+    # (a) a canonical work_id that collapses publisher + PMC + repo
+    # mirrors into one work, and (b) a source type classification
+    # (journal/preprint/repository/...) for the authority-tier gate.
+    # Results cached in SQLite; misses are also cached so we don't
+    # hammer the API on repeated failed lookups within a session.
+    openalex_map: dict[str, object] = {}
+    try:
+        from src.polaris_graph.tools import openalex_client as _oa
+        if _oa.ENABLED:
+            for canonical, best in url_to_best.items():
+                url_display = canonical_to_display.get(canonical, canonical)
+                doi = _extract_doi(best, url_display)
+                title = best.get("source_title", "") or ""
+                w = _oa.canonicalize_sync(doi=doi, title=title)
+                openalex_map[canonical] = w
+    except Exception as _oa_exc:
+        logger.debug("[wiki] OpenAlex batch lookup failed: %s", str(_oa_exc)[:200])
+
     paper_key_to_canonical: dict[str, str] = {}
     canonical_to_merge_targets: dict[str, list[str]] = {}
     for canonical, best in url_to_best.items():
         url_display = canonical_to_display.get(canonical, canonical)
         doi = _extract_doi(best, url_display)
         pmid = _extract_pmid(url_display)
-        # Pick the most specific paper identity we have.
-        paper_key = doi or pmid
+        regulatory = _extract_regulatory_id(url_display)
+        oa_work = openalex_map.get(canonical)
+        oa_work_id = getattr(oa_work, "work_id", "") if oa_work else ""
+        # PATCH-D: local extractors (DOI, PMID, FDA setid) take priority
+        # because they're deterministic and collide cleanly. OpenAlex
+        # work_id is a FALLBACK for sources without any local extractable
+        # identity — OpenAlex can return different work_ids for the same
+        # paper when titles differ, so using it as primary would miss
+        # DOI-based duplicates it doesn't index consistently.
+        paper_key = doi or pmid or regulatory or oa_work_id
         if not paper_key:
             continue
         if paper_key not in paper_key_to_canonical:
@@ -1021,6 +1081,18 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
                 if eid not in merged_ev_ids:
                     merged_ev_ids.append(eid)
 
+        # PATCH-D: attach OpenAlex-derived authority fields. UNKNOWN is
+        # used when OpenAlex has no record of the source (which is itself
+        # a signal — legitimate academic sources are almost always
+        # indexed; law firms, Medium blogs, and telehealth marketing
+        # pages are not). Downstream tier-gate can demote UNKNOWN to
+        # BRONZE if needed.
+        _oa_w = openalex_map.get(canonical)
+        _oa_work_id = getattr(_oa_w, "work_id", "") if _oa_w else ""
+        _oa_type = getattr(_oa_w, "type", "") if _oa_w else ""
+        _oa_source_type = getattr(_oa_w, "source_type", "") if _oa_w else ""
+        _oa_tier = _oa_w.authority_tier() if _oa_w else "UNKNOWN"
+
         bibliography.append({
             "ref_num": next_ref_num,
             "citation_number": next_ref_num,
@@ -1032,6 +1104,11 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
             "source_type": best.get("source_type", "web"),
             "evidence_ids": merged_ev_ids,
             "formatted": f"{authors_str} ({year}). {title[:100]}.{doi_str} {url}",
+            # PATCH-D: OpenAlex authority fields
+            "openalex_id": _oa_work_id,
+            "publication_type": _oa_type,             # article/preprint/book-chapter/...
+            "source_type_normalized": _oa_source_type,  # journal/repository/...
+            "authority_tier": _oa_tier,               # GOLD/SILVER/BRONZE/BLOCKED/UNKNOWN
         })
         next_ref_num += 1
 
