@@ -153,49 +153,73 @@ def _tmpl_search_refinement(prompt: str, system: str) -> dict:
 
 
 def _tmpl_storm_persona_batch(prompt: str, system: str) -> dict:
-    """StormPersonaBatch — 8 STORM personas."""
+    """StormPersonaBatch — schema requires personas with perspective, name,
+    expertise, question_focus (NOT role/description/key_questions).
+
+    Validated schema from P5 live run:
+      StormPersona { perspective, name, expertise, question_focus }
+      StormPersonaBatch { personas: [StormPersona] }
+    """
     personas = []
-    for role, perspective, bio in [
-        ("Epidemiologist", "Scientific", "Studies population-level health outcomes"),
-        ("Regulatory scientist", "Regulatory", "Reviews evidence for agency guidance"),
-        ("Industry analyst", "Industry", "Tracks commercial product performance"),
-        ("Health economist", "Economic", "Models cost-effectiveness and QALYs"),
-        ("Public health physician", "Public_Health", "Implements population interventions"),
-        ("Methodologist", "Methodological", "Critiques study design and bias"),
-        ("Clinician", "Scientific", "Treats patients and synthesizes guidelines"),
-        ("Outcomes researcher", "Emerging_Trends", "Investigates novel endpoints"),
+    for perspective, name, expertise, focus in [
+        ("Scientific", "Dr. A. Researcher", "Randomized-trial evidence synthesis and clinical endpoint evaluation relevant to the research question.", "Effect sizes from RCTs and meta-analyses with confidence intervals."),
+        ("Regulatory", "Dr. B. Agency", "Regulatory-science evidence evaluation under FDA/EFSA/Health Canada claim-substantiation frameworks.", "Evidence thresholds and adverse-event signals that trigger consumer advisories."),
+        ("Industry", "Dr. C. Practitioner", "Translating dietary or intervention evidence into consumer products and behavioral-coaching programs.", "Real-world adherence, retention, and effect sizes vs peer-reviewed magnitudes."),
+        ("Economic", "Dr. D. Economist", "Cost-effectiveness modeling and QALY analysis for preventive interventions.", "ICERs, QALYs, and opportunity cost vs other interventions."),
+        ("Public_Health", "Dr. E. Clinician", "Population-level dietary guidance and primary-care counseling across diverse populations.", "Contraindications, adverse events, and equity of applicability."),
     ]:
         personas.append({
-            "role": role,
             "perspective": perspective,
-            "description": bio,
-            "key_questions": [
-                f"What does the evidence say about this from a {perspective.lower()} angle?",
-                f"What gaps exist in the {perspective.lower()} literature?",
-            ],
+            "name": name,
+            "expertise": expertise,
+            "question_focus": focus,
         })
     return {"personas": personas}
 
 
 def _tmpl_storm_question(prompt: str, system: str) -> dict:
-    """StormQuestion — a single STORM question from a persona."""
-    random.seed(_seed_from_prompt(prompt, system))
+    """StormQuestion — schema requires question, search_queries, perspective
+    (NOT persona_role, follow_up_indicator).
+
+    Validated schema from P5 live run:
+      StormQuestion { question, search_queries[], perspective }
+    """
+    # Pull the persona's perspective from the prompt if declared
+    perspective = "Scientific"
+    import re as _re
+    m = _re.search(r"Your perspective:\s*(\w+)", prompt)
+    if m:
+        perspective = m.group(1)
     return {
-        "question": "What does the existing evidence show about effectiveness compared to standard approaches?",
-        "persona_role": "analyst",
-        "follow_up_indicator": False,
+        "question": "What does the existing evidence show about effectiveness, magnitude, and limitations of the studied intervention compared to standard approaches?",
+        "search_queries": [
+            "effectiveness randomized controlled trial systematic review",
+            "meta-analysis effect size confidence interval",
+            "adverse events safety contraindications",
+            "real-world adherence retention long-term outcomes",
+            "comparison with standard care continuous intervention",
+        ],
+        "perspective": perspective,
     }
 
 
 def _tmpl_storm_answer(prompt: str, system: str) -> dict:
-    """StormAnswer — evidence-grounded answer. Must not fabricate."""
+    """StormAnswer — schema requires answer, key_findings, sources_used
+    (NOT evidence_ids, confidence).
+
+    Validated schema from P5 live run:
+      StormAnswer { answer, key_findings[], sources_used[] }
+    """
     return {
         "answer": (
-            "The available evidence on the posed question is currently under synthesis. "
-            "No specific claims can be made without grounding in retrieved sources."
+            "The retrieved sources were not parsed into specific quantitative findings by the auto-template responder. "
+            "A full evidence-grounded answer requires the operator LLM to read the provided search results and extract "
+            "numeric effect estimates, confidence intervals, and methodological caveats."
         ),
-        "evidence_ids": [],
-        "confidence": "low",
+        "key_findings": [
+            "Auto-template response: specific findings require operator serving.",
+        ],
+        "sources_used": [],
     }
 
 
@@ -269,22 +293,30 @@ def _atomic_write(path: Path, data: dict) -> None:
 
 
 def _validate_template(schema_name: str, obj: dict) -> tuple[bool, str]:
-    """Validate a template response against the real Pydantic schema."""
-    try:
-        from src.polaris_graph import schemas as pg_schemas
-    except Exception as exc:
-        return False, f"schemas import failed: {exc}"
+    """Validate a template response against the real Pydantic schema.
 
-    cls = getattr(pg_schemas, schema_name, None)
-    if cls is None:
-        # Try other modules that define schemas
+    Scans pg_schemas, claim_extract, and storm_interviews modules for the
+    named class (STORM schemas live in storm_interviews, not pg_schemas).
+    """
+    _candidate_modules = [
+        "src.polaris_graph.schemas",
+        "src.polaris_graph.wiki.mesh.claim_extract",
+        "src.polaris_graph.agents.storm_interviews",
+    ]
+    cls = None
+    last_err = ""
+    for modname in _candidate_modules:
         try:
-            from src.polaris_graph.wiki.mesh import claim_extract
-            cls = getattr(claim_extract, schema_name, None)
-        except Exception:
-            pass
+            import importlib
+            mod = importlib.import_module(modname)
+            cand = getattr(mod, schema_name, None)
+            if cand is not None:
+                cls = cand
+                break
+        except Exception as exc:
+            last_err = str(exc)
     if cls is None:
-        return False, f"schema class {schema_name} not found"
+        return False, f"schema class {schema_name} not found (last import error: {last_err})"
 
     try:
         cls.model_validate(obj)

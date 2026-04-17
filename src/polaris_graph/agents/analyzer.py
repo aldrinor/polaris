@@ -1928,42 +1928,62 @@ def _strip_non_article_content(content: str) -> str:
 # paywall stub, or access-block page masquerading as article content.
 # These pass the PG_MIN_CONTENT_LENGTH=200 gate (captcha pages are ~200-500
 # chars) but contain zero research substance.
-_STUB_CONTENT_MARKERS = (
+# Strong markers — phrases that almost never appear in legitimate article prose.
+# These are so specifically bot-challenge/paywall boilerplate that a single
+# match in short content is a reliable stub signal.
+_STUB_CONTENT_STRONG_MARKERS = (
     "are you a robot",
     "please confirm you are a human",
-    "captcha challenge",
-    "user agent",
-    "reference number",
-    "access denied",
-    "enable javascript",
     "please verify you are a human",
-    "cloudflare",
+    "captcha challenge",
     "checking your browser",
-    "just a moment",
-    "this content is restricted",
-    "subscription required",
+    "just a moment...",
+    "enable javascript and cookies",
     "sign in to continue",
     "login to access",
     "purchase access",
-    "sci-hub",
     "полного текста этой статьи нет в моей базе",
     "статья отсутствует в базе",
+)
+
+# Weak markers — phrases that MAY appear in legitimate articles discussing
+# infrastructure, network security, open-access, etc. Require TWO or more
+# weak markers co-occurring in short content to avoid flagging legitimate
+# papers that parenthetically mention Cloudflare, Sci-Hub, or CAPTCHAs.
+_STUB_CONTENT_WEAK_MARKERS = (
+    "cloudflare",
+    "sci-hub",
+    "user agent",
+    "reference number",
+    "access denied",
+    "subscription required",
+    "this content is restricted",
+    "captcha",
 )
 
 
 def _is_stub_content(content: str) -> tuple[bool, str]:
     """Return (is_stub, reason). True when content is a captcha/access-block
-    page or so short/generic it cannot carry research evidence."""
+    page or so short/generic it cannot carry research evidence.
+
+    False-positive guard: weak markers (e.g., 'cloudflare', 'sci-hub') require
+    2+ co-occurrences in <1000-char content. Strong markers (specific bot-
+    challenge phrasing) flag on single occurrence in <2000-char content.
+    """
     if not content:
         return True, "empty"
     lc = content.lower()
-    # Any single marker present + content <2000 chars = very likely a stub.
-    # Long articles may mention "captcha" parenthetically; only short docs
-    # with the marker are confidently stubs.
+    # Strong-marker path: single specific bot-challenge phrase in short doc.
     if len(content) < 2000:
-        for m in _STUB_CONTENT_MARKERS:
+        for m in _STUB_CONTENT_STRONG_MARKERS:
             if m in lc:
-                return True, f"marker='{m}' in short content ({len(content)} chars)"
+                return True, f"strong-marker='{m}' in short content ({len(content)} chars)"
+    # Weak-marker path: require 2+ co-occurrences and tighter length gate
+    # so legitimate short-abstract academic pages aren't accidentally dropped.
+    if len(content) < 1000:
+        weak_hits = [m for m in _STUB_CONTENT_WEAK_MARKERS if m in lc]
+        if len(weak_hits) >= 2:
+            return True, f"weak-markers={weak_hits} in short content ({len(content)} chars)"
     # Very short with only punctuation / IP / boilerplate
     if len(content) < 400:
         alpha_ratio = sum(1 for c in content if c.isalpha()) / max(1, len(content))

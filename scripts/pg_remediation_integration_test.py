@@ -57,6 +57,9 @@ class MockClient:
 
     def __init__(self):
         self.calls = []
+        # BUG-70 verification: track abstract content across calls so the test
+        # can assert the post-remediation abstract differs from the initial one.
+        self._abstract_call_count = 0
 
     async def generate(self, prompt, system=None, **kwargs):
         is_remediation = "REMEDIATION" in prompt or "UNSUPPORTED" in prompt
@@ -69,12 +72,29 @@ class MockClient:
         })
 
         if is_abstract:
-            content = (
-                "This review synthesizes evidence on intermittent fasting and weight "
-                "outcomes. Across sources, alternate-day fasting yields weight loss "
-                "comparable to continuous energy restriction [1]. Evidence on broader "
-                "metabolic endpoints is more limited. Gaps remain in long-term data."
-            )
+            # BUG-70 verification: return a DIFFERENT abstract body on the
+            # second (post-remediation) abstract call so the test can detect
+            # that regeneration actually happened (versus reusing the first
+            # abstract string via regex extraction, which was the old bug).
+            self._abstract_call_count += 1
+            if self._abstract_call_count == 1:
+                content = (
+                    "PRE-REMEDIATION ABSTRACT: This review synthesizes evidence on "
+                    "intermittent fasting and weight outcomes. Initial draft reflects "
+                    "section content that included unsupported claims about Thompson et "
+                    "al. (PMID 39234567) and AHA 2024 Chen and Rodriguez findings. Across "
+                    "sources, alternate-day fasting yields weight loss comparable to "
+                    "continuous energy restriction [1]."
+                )
+            else:
+                content = (
+                    "POST-REMEDIATION ABSTRACT: This review synthesizes the remediated "
+                    "evidence on intermittent fasting. The body of the review summarizes "
+                    "equivalence of alternate-day fasting vs continuous energy restriction "
+                    "on weight-loss outcomes [1], without the invented author or PMID "
+                    "references that appeared in the initial draft. Further research "
+                    "remains warranted."
+                )
         elif is_remediation:
             content = CLEAN_REWRITE_CONTENT
         else:
@@ -238,6 +258,25 @@ async def main():
     word_count = len(final_content.split())
     g0e_ok = word_count >= 50
     results["G0e"] = (g0e_ok, f"word_count={word_count}")
+
+    # G0f (BUG-70 verification): mock should receive TWO abstract calls — one
+    # pre-remediation and one post-remediation regeneration. The final report's
+    # abstract must reflect the post-remediation version, not the stale pre-
+    # remediation version that was the BUG-70 symptom.
+    abstract_calls = [c for c in client.calls if c["is_abstract"]]
+    final_report = result.get("final_report", "") or ""
+    pre_leaked = "PRE-REMEDIATION ABSTRACT" in final_report
+    post_present = "POST-REMEDIATION ABSTRACT" in final_report
+    g0f_ok = (
+        len(abstract_calls) >= 2
+        and post_present
+        and not pre_leaked
+    )
+    results["G0f"] = (
+        g0f_ok,
+        f"abstract_calls={len(abstract_calls)}, post_abstract_in_report={post_present}, "
+        f"pre_abstract_leaked={pre_leaked}",
+    )
 
     # ──── Report ─────────────────────────────────────────────────────
     print()
