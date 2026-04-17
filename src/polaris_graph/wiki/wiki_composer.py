@@ -33,6 +33,16 @@ ABSTRACT_MAX_TOKENS = int(os.getenv("PG_WIKI_ABSTRACT_MAX_TOKENS", "1536"))
 # without sacrificing wiki's pre-cited claim constraint.
 WIKI_5LENS_ENABLED = os.getenv("PG_WIKI_5LENS", "0") == "1"
 
+# PATCH-B (STORM cross-section polish pass, source: stanford-oval/storm
+# PolishPageModule with remove_duplicate=True). One LLM call over the full
+# report after the rewrite loop converges, to catch cross-section defects
+# that section-isolated synthesis can't see:
+#   1. A section disclaiming "X is not characterized here" when another
+#      section DOES characterize X (PG_LB_SA_01 §Risks line 91 defect).
+#   2. Duplicate numeric claims across sections with the same citation.
+# The polish prompt mandates preservation of [N] citations and H2 headings.
+PG_CROSS_SECTION_POLISH = os.getenv("PG_CROSS_SECTION_POLISH", "1") == "1"
+
 
 # ── System Prompt ────────────────────────────────────────────────────
 
@@ -636,7 +646,19 @@ async def compose_from_wiki(
                 # FIX-HALLUC-REMEDIATE: Re-compose flagged sections with stricter
                 # anti-hallucination emphasis. The synthesizer.py path has this via
                 # revise_section(); wiki_composer was missing it entirely.
-                if flagged > 0:
+                #
+                # PATCH-A (Reflexion re-audit loop, source: noahshinn/reflexion):
+                # Previously a single rewrite pass ran and was never re-audited,
+                # so the final report could ship with 74% unsupported content as
+                # in PG_LB_SA_01. Now wraps rewrite+re-audit in a bounded loop.
+                MAX_REWRITE_ITERS = int(os.getenv("PG_HALLUC_MAX_ITERS", "2"))
+                cur_iter = 0
+                while flagged > 0 and cur_iter < MAX_REWRITE_ITERS:
+                    cur_iter += 1
+                    logger.info(
+                        "[wiki-compose] REMEDIATE-LOOP: iter %d/%d — %d flagged",
+                        cur_iter, MAX_REWRITE_ITERS, flagged,
+                    )
                     flagged_ids = {
                         r["section_id"]
                         for r in hallucination_audit
@@ -741,6 +763,67 @@ async def compose_from_wiki(
                             "[wiki-compose] REMEDIATE: %d/%d flagged sections rewritten",
                             rewrite_count, flagged,
                         )
+                    else:
+                        # PATCH-A: No rewrites succeeded this iteration. Break
+                        # to avoid an infinite loop over sections that can't be
+                        # rewritten (e.g. LLM keeps failing, or no claims).
+                        logger.info(
+                            "[wiki-compose] REMEDIATE-LOOP: iter %d produced zero "
+                            "rewrites — exiting loop",
+                            cur_iter,
+                        )
+                        break
+
+                    # PATCH-A (Reflexion re-audit): re-run the hallucination audit
+                    # on the rewritten sections so the loop termination condition
+                    # reflects actual post-rewrite state. Before this patch, the
+                    # audit ran once pre-rewrite and the report shipped with its
+                    # pre-rewrite unsupported-ratio unrefuted.
+                    try:
+                        reaudit_sections = [
+                            {
+                                "section_id": s.get("section_id", ""),
+                                "title": s.get("title", ""),
+                                "content": s.get("content", ""),
+                                "evidence_ids": s.get("evidence_ids", []),
+                            }
+                            for s in sections
+                        ]
+                        hallucination_audit = audit_sections_for_hallucination(
+                            sections=reaudit_sections,
+                            evidence=evidence_chain,
+                            research_query=query,
+                        ) or []
+                        flagged = sum(
+                            1 for r in hallucination_audit
+                            if r.get("needs_rewrite")
+                        )
+                        avg = (
+                            sum(
+                                r.get("hallucination_ratio", 0)
+                                for r in hallucination_audit
+                            ) / len(hallucination_audit)
+                            if hallucination_audit else 0
+                        )
+                        logger.info(
+                            "[wiki-compose] REMEDIATE-LOOP: iter %d post-rewrite "
+                            "avg unsupported %.1f%%, %d still flagged",
+                            cur_iter, avg * 100, flagged,
+                        )
+                    except Exception as _reaudit_exc:
+                        logger.warning(
+                            "[wiki-compose] REMEDIATE-LOOP: iter %d re-audit "
+                            "failed: %s — exiting loop",
+                            cur_iter, str(_reaudit_exc)[:200],
+                        )
+                        break
+
+                if flagged > 0:
+                    logger.warning(
+                        "[wiki-compose] REMEDIATE-LOOP: still %d sections flagged "
+                        "after %d iterations (cap=%d) — shipping with known defects",
+                        flagged, cur_iter, MAX_REWRITE_ITERS,
+                    )
 
                 # FIX-3: Audit the abstract for hallucinations — runs ALWAYS when
                 # the hallucination audit is enabled, regardless of whether any
@@ -807,6 +890,25 @@ async def compose_from_wiki(
                         "[wiki-compose] FIX-3: Abstract audit failed: %s — abstract ships unaudited",
                         str(_abs_audit_exc)[:200],
                     )
+
+                # PATCH-B (STORM cross-section polish): ONE LLM call over the
+                # full report to catch cross-section contradictions and
+                # duplicate claims that section-isolated synthesis cannot see.
+                # Runs after rewrite loop + abstract audit, before final
+                # assembly. Disable via PG_CROSS_SECTION_POLISH=0 for A/B.
+                if PG_CROSS_SECTION_POLISH and len(sections) >= 2:
+                    try:
+                        sections = await _polish_cross_section(
+                            client=client,
+                            query=query,
+                            sections=sections,
+                        )
+                    except Exception as _polish_exc:
+                        logger.warning(
+                            "[wiki-compose] POLISH: cross-section polish "
+                            "failed: %s — shipping unpolished",
+                            str(_polish_exc)[:200],
+                        )
 
                 # FIX-3: Always reassemble final_report after the abstract audit
                 # so any rewrite is reflected. Previously reassembly only happened
@@ -936,6 +1038,172 @@ async def _compose_abstract(
             for s in sections[:3]
         )
         return fallback
+
+
+# ── Cross-Section Polish (PATCH-B, STORM pattern) ────────────────────
+
+
+async def _polish_cross_section(
+    client: OpenRouterClient,
+    query: str,
+    sections: list[dict],
+) -> list[dict]:
+    """PATCH-B: STORM-style cross-section polish pass.
+
+    Source: stanford-oval/storm/knowledge_storm/storm_wiki/modules/
+    article_polish.py PolishPageModule, called with remove_duplicate=True.
+    STORM's prompt instructs the LLM to act as "a faithful text editor
+    that is good at finding repeated information in the article and
+    deleting them" while preserving "inline citations and article
+    structure (indicated by '#', '##', etc.)".
+
+    We adapt it to also catch the cross-section contradiction class
+    found in PG_LB_SA_01 §Risks line 91, where a section disclaimed
+    six safety signals as "not characterized here" while other sections
+    of the same document characterized each of them.
+
+    Two defect classes are repaired in one pass:
+
+    1. DISCLAIMERS-THAT-CONTRADICT-CONTENT: a sentence that says a
+       topic is "not characterized here" / "not substantiated by the
+       claims" — when another section DOES characterize that topic.
+       Repair: delete the false disclaimer.
+
+    2. DUPLICATE CLAIMS: the same numeric finding restated across
+       sections with the same citation.  Repair: keep the most
+       contextual occurrence.
+
+    HARD RULES (enforced via prompt):
+    - Every [N] citation preserved.
+    - Every '## Title' heading preserved.
+    - No new facts added. Only removal / shortening.
+
+    Returns the polished sections with `content` replaced per-section.
+    If the LLM output is suspicious (too short, missing headings) the
+    original sections are returned unchanged.
+    """
+    if len(sections) < 2:
+        return sections
+
+    # Concatenate sections with their H2 headings so the LLM sees the
+    # full document context.
+    section_texts = []
+    for s in sections:
+        title = s.get("title", "")
+        content = s.get("content", "")
+        section_texts.append(f"## {title}\n\n{content}")
+    joined = "\n\n".join(section_texts)
+
+    system = (
+        "You are a faithful text editor. You find two kinds of defects "
+        "in multi-section evidence reports and repair them:\n\n"
+        "(A) DISCLAIMERS-THAT-CONTRADICT-CONTENT. A sentence that says a "
+        "topic is 'not characterized here' / 'not substantiated by the "
+        "claims' / 'not covered in this section' — when another section "
+        "of the same document DOES characterize that topic. Repair: "
+        "delete the false disclaimer sentence. Do not invent new content.\n\n"
+        "(B) DUPLICATE CLAIMS. The same numeric finding stated twice "
+        "across different sections with the same citation. Repair: keep "
+        "the most contextual occurrence, delete the other. Do not merge "
+        "citations into unrelated sentences.\n\n"
+        "HARD RULES:\n"
+        "- Preserve every [N] citation marker exactly. Do not renumber.\n"
+        "- Preserve every '## Title' heading. Do not rename sections.\n"
+        "- Do not add new factual claims. Only remove or shorten.\n"
+        "- Return the full edited report, section headings intact.\n"
+    )
+    prompt = (
+        f"Original research question: {query}\n\n"
+        f"Report to polish:\n\n{joined}\n\n"
+        "Return the polished report. Preserve all ## headings and "
+        "[N] citations. If no defects are found, return the report "
+        "unchanged."
+    )
+
+    try:
+        import asyncio as _aio
+        polished = await _aio.wait_for(
+            client.generate(
+                prompt=prompt,
+                system=system,
+                max_tokens=COMPOSE_MAX_TOKENS,
+                temperature=0.1,
+                call_type="generate:polish",
+            ),
+            timeout=COMPOSE_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[wiki-compose] POLISH: cross-section polish LLM call failed: "
+            "%s — shipping unpolished",
+            str(exc)[:200],
+        )
+        return sections
+
+    if not polished or len(polished) < len(joined) * 0.5:
+        logger.warning(
+            "[wiki-compose] POLISH: polish output truncated (%d chars "
+            "vs original %d) — shipping unpolished",
+            len(polished or ""), len(joined),
+        )
+        return sections
+
+    # Re-split polished output by '## ' headings. Preserve original
+    # section_ids and evidence_ids; only content text is replaced.
+    polished = _scrub_cot(polished)
+    polished = re.sub(
+        r"\[(?:REF|CITE|Ref|Cite|ref|cite):(\d+)\]",
+        r"[\1]",
+        polished,
+    )
+    new_section_map: dict[str, str] = {}
+    for block in re.split(r"(?m)^##\s+", polished):
+        block = block.strip()
+        if not block:
+            continue
+        first_nl = block.find("\n")
+        if first_nl == -1:
+            continue
+        title = block[:first_nl].strip()
+        content = block[first_nl + 1:].strip()
+        new_section_map[title] = content
+
+    # Preserve [N] citation set — if the polish pass dropped any citations
+    # entirely, reject and keep the original.
+    original_citations = set(re.findall(r"\[(\d+)\]", joined))
+    polished_citations = set(re.findall(r"\[(\d+)\]", polished))
+    if not original_citations.issubset(polished_citations):
+        dropped = original_citations - polished_citations
+        logger.warning(
+            "[wiki-compose] POLISH: dropped %d citations (%s) — rejecting "
+            "polish, shipping unpolished",
+            len(dropped), sorted(dropped)[:5],
+        )
+        return sections
+
+    polished_sections = []
+    content_changes = 0
+    for s in sections:
+        title = s.get("title", "")
+        new_content = new_section_map.get(title)
+        if new_content is None:
+            polished_sections.append(s)
+            continue
+        if new_content != s.get("content", ""):
+            content_changes += 1
+        polished_sec = dict(s)
+        polished_sec["content"] = new_content
+        polished_sections.append(polished_sec)
+
+    logger.info(
+        "[wiki-compose] POLISH: cross-section polish applied "
+        "(%d sections, %d changed, input=%d chars, output=%d chars)",
+        len(polished_sections), content_changes, len(joined), len(polished),
+    )
+    return polished_sections
+
+
+from src.polaris_graph.synthesis.section_writer import _scrub_cot  # noqa: E402
 
 
 # ── Report Assembly ──────────────────────────────────────────────────
