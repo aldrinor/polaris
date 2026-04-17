@@ -452,18 +452,41 @@ def build_graph() -> StateGraph:
         if new_evidence:
             # FIX-PRE-V: Pre-verification relevance gate — filter out low-relevance
             # evidence BEFORE verification to save cost and time.
+            # FIX-RISK-FILTER: never drop risk-axis evidence at this gate when the
+            # query is about risks/adverse; it is already rare and has been
+            # explicitly retained by the analyzer's risk-axis override.
             verify_relevance_gate = float(os.getenv("PG_VERIFY_RELEVANCE_GATE", "0"))
+            query_l_risk = (state.get("query", "") or "").lower()
+            risk_query_preverify = any(
+                kw in query_l_risk
+                for kw in (
+                    "risk", "adverse", "harm", "safety", "side effect",
+                    "side-effect", "contraindicat", "toxic", "downside",
+                )
+            )
             if verify_relevance_gate > 0:
                 pre_filter_count = len(new_evidence)
-                new_evidence = [
-                    e for e in new_evidence
-                    if e.get("relevance_score", 0.5) >= verify_relevance_gate
-                ]
+                kept = []
+                dropped_risk = 0
+                for e in new_evidence:
+                    rel = e.get("relevance_score", 0.5)
+                    if rel >= verify_relevance_gate:
+                        kept.append(e)
+                    elif risk_query_preverify and (
+                        e.get("risk_axis_retained") is True
+                        or (e.get("fact_category", "") or "").lower() in
+                        ("risk", "adverse_event", "contraindication", "safety")
+                    ):
+                        # Keep risk-axis evidence through the gate.
+                        kept.append(e)
+                    else:
+                        dropped_risk += 0
+                new_evidence = kept
                 removed = pre_filter_count - len(new_evidence)
                 if removed > 0:
                     logger.info(
                         "[polaris graph] FIX-PRE-V: Pre-verification gate removed "
-                        "%d/%d evidence with relevance < %.2f",
+                        "%d/%d evidence with relevance < %.2f (risk-axis retained)",
                         removed, pre_filter_count, verify_relevance_gate,
                     )
 

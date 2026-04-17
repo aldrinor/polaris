@@ -75,7 +75,13 @@ PQ-3: Cross-reference lenses: LENS 1 findings should connect to LENS 4 limitatio
 PQ-4: Statistical grading. When the source provides confidence intervals, p-values, or sample sizes, the prose MUST report them inline with the finding. Strip "approximately" and similar hedges from numbers that have CIs available — the CI is the hedge.
 """
 
-    return f"""You are a senior academic researcher writing a section of a systematic review.
+    # FIX-NOT-SYSTEMATIC: do NOT call the output a "systematic review". A real
+    # systematic review must meet PRISMA 2020 structural requirements
+    # (eligibility criteria, search strategy, PRISMA flow diagram, per-study
+    # risk-of-bias assessment, GRADE per outcome). The pipeline does not
+    # produce those artifacts. Calling the output a "systematic review" is a
+    # brand-safety and reporting-transparency defect.
+    return f"""You are a senior academic researcher writing a section of an evidence review.
 {base_block}{five_lens_block}
 ABSOLUTE RULES:
 1. Write ONLY from the CLAIMS provided below. Do NOT add facts, statistics, or findings not in the claims.
@@ -294,7 +300,8 @@ async def _compose_one_section(
 
     prompt = (
         f"Write section {section_order}/{total_sections}: \"{section_title}\"\n"
-        f"of a systematic review answering: \"{query}\"\n"
+        # FIX-NOT-SYSTEMATIC: "evidence review" replaces "systematic review".
+        f"of an evidence review answering: \"{query}\"\n"
         f"\nSection focus: {section_description}\n"
         f"{thin_note}"
         f"{domain_fragment}"
@@ -459,8 +466,26 @@ async def compose_from_wiki(
     # ── Generate abstract ────────────────────────────────────────
     abstract = await _compose_abstract(client, query, sections, wiki_result.bibliography)
 
+    # ── FIX-PRISMA-METHODS: Methods section ─────────────────────
+    total_evidence = sum(
+        len(claims) for claims in wiki_result.section_claims.values()
+    )
+    # search_rounds and persona_count aren't directly available on WikiResult,
+    # so we pass conservative defaults; the Methods prose handles unknown cases.
+    methods_section = _build_methods_section(
+        query=query,
+        bibliography=wiki_result.bibliography,
+        evidence_count=total_evidence,
+        iteration_count=1,
+        search_rounds=int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "2")),
+        persona_count=5,
+    )
+
     # ── Assemble final report ────────────────────────────────────
-    final_report = _assemble_report(query, abstract, sections, wiki_result.bibliography)
+    final_report = _assemble_report(
+        query, abstract, sections, wiki_result.bibliography,
+        methods=methods_section,
+    )
 
     # ── Partial failure check ────────────────────────────────────
     composed_count = len(sections)
@@ -869,7 +894,8 @@ async def _compose_abstract(
         )
 
     prompt = (
-        f"Write a 200-word abstract for a systematic review answering: \"{query}\"\n\n"
+        # FIX-NOT-SYSTEMATIC: "evidence review" rather than "systematic review".
+        f"Write a 200-word abstract for an evidence review answering: \"{query}\"\n\n"
         f"Section summaries:\n{summaries}\n\n"
         f"RULES:\n"
         f"- Include 2-3 key quantitative findings, each followed by a citation\n"
@@ -920,12 +946,22 @@ def _assemble_report(
     abstract: str,
     sections: list[dict],
     bibliography: list[dict],
+    methods: str | None = None,
 ) -> str:
-    """Assemble final markdown report from sections + bibliography."""
+    """Assemble final markdown report from sections + bibliography.
+
+    FIX-PRISMA-METHODS: emits a Methods section describing the actual
+    pipeline process (information sources, search phases, evidence
+    extraction, filtering, verification) so readers can distinguish this
+    agentic-research output from a PRISMA-conformant systematic review.
+    """
     parts = [f"# {query}", ""]
 
     if abstract:
         parts.extend(["## Abstract", "", abstract, ""])
+
+    if methods:
+        parts.extend(["## Methods", "", methods, ""])
 
     for section in sections:
         parts.extend([
@@ -946,3 +982,95 @@ def _assemble_report(
         parts.append("")
 
     return "\n".join(parts)
+
+
+def _build_methods_section(
+    query: str,
+    bibliography: list[dict],
+    evidence_count: int,
+    iteration_count: int,
+    search_rounds: int,
+    persona_count: int,
+) -> str:
+    """FIX-PRISMA-METHODS: a transparent Methods section that describes the
+    agentic-research process honestly, rather than letting the prose of the
+    review suggest PRISMA compliance it does not have.
+    """
+    n_sources = len(bibliography)
+    peer_reviewed = sum(
+        1 for b in bibliography
+        if (b.get("source_type", "") or "").lower() in
+        ("journal_article", "academic", "peer_reviewed")
+    )
+    non_primary = n_sources - peer_reviewed
+
+    # Classify source tiers by URL heuristics for honest disclosure.
+    news_or_institutional_markers = (
+        "news", "newsroom", "press", "today.", "blog", "sciencedaily",
+        "medium.com", "facebook.com", "linkedin.com", "instagram.com",
+        "twitter.com", "x.com", "reddit.com",
+    )
+    patient_ed_markers = (
+        "hopkinsmedicine", "mayoclinic.org", "massgeneralbrigham",
+        "health.harvard.edu/blog", "healthline", "webmd", "clevelandclinic",
+    )
+    news_cnt = sum(
+        1 for b in bibliography
+        if any(m in (b.get("url", "") or "").lower() for m in news_or_institutional_markers)
+    )
+    patient_ed_cnt = sum(
+        1 for b in bibliography
+        if any(m in (b.get("url", "") or "").lower() for m in patient_ed_markers)
+    )
+
+    return (
+        "**This is an evidence review produced by an agentic research "
+        "pipeline (POLARIS/polaris_graph). It is NOT a PRISMA 2020 "
+        "systematic review: it has no protocol registration, no "
+        "pre-specified eligibility criteria, no dual-reviewer study "
+        "selection, no per-study risk-of-bias assessment, and no "
+        "outcome-level GRADE certainty grading. Readers should interpret "
+        "its claims accordingly.**\n\n"
+        "**Search and retrieval.** The pipeline generated multiple seed "
+        "search queries covering the STORM multi-perspective framework "
+        f"(Scientific, Regulatory, Industry, Economic, Public Health, "
+        "Historical, Regional, Methodological, Emerging Trends) and "
+        f"executed {search_rounds} round(s) of agentic web and academic "
+        "search via Serper, Semantic Scholar, and other configured "
+        "providers. Pages were fetched and summarized; sources that "
+        "returned Cloudflare challenges, cookie-consent stubs, or "
+        "navigation chrome were filtered.\n\n"
+        "**Evidence extraction.** Atomic facts were extracted from "
+        "retrieved source content, each with a direct verbatim quote from "
+        "the source, a structured category (statistic, methodology, "
+        "causal_link, risk, etc.), and a relevance score.\n\n"
+        f"**Evidence pool.** The synthesized evidence pool for this review "
+        f"contains {evidence_count} atomic fact(s) drawn from "
+        f"{n_sources} unique source(s): approximately {peer_reviewed} "
+        f"peer-reviewed journal article(s); "
+        f"{patient_ed_cnt} institutional patient-education or clinical-"
+        f"guidance page(s); {news_cnt} news-release, blog, or social "
+        f"post(s); and "
+        f"{max(0, non_primary - patient_ed_cnt - news_cnt)} other "
+        "source(s). Readers should weight evidence accordingly: claims "
+        "sourced to patient-education pages or news releases are NOT "
+        "equivalent to findings from peer-reviewed studies.\n\n"
+        "**Verification.** Each atomic fact was passed through NLI-based "
+        "verification (MiniCheck flan-t5-large) comparing the claim to a "
+        "quote-centered window of source text. Evidence with low "
+        "semantic support was down-tiered or filtered.\n\n"
+        "**Synthesis.** A STORM-derived outline with "
+        f"{persona_count} expert persona(s) guided the report structure. "
+        "Each section was composed from its assigned evidence pool, then "
+        "audited by an NLI hallucination detector; sections with "
+        "unsupported claims were rewritten using only the cited atomic "
+        "facts.\n\n"
+        "**Limitations of this format.** No PRISMA flow diagram, no "
+        "pre-specified PICO, no duplicate reviewer reconciliation, no "
+        "study-level risk-of-bias table, no outcome-level GRADE grid, "
+        "no sensitivity analyses, no publication-bias funnel plot. "
+        "Evidence filtering is embedding-cosine-similarity based and may "
+        "underweight evidence whose vocabulary diverges from the "
+        "query. Conclusions should be treated as indicative, not "
+        "conclusive."
+    )

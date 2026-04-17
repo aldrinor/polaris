@@ -900,6 +900,82 @@ def _assign_evidence_to_sections(
             diversity_trimmed, max_source_pct * 100,
         )
 
+    # FIX-RISK-QUORUM: if a section's title or description contains risk-axis
+    # terms, ensure it receives at least PG_RISK_QUORUM_MIN risk-axis evidence
+    # pieces (pulled from the full pool, bypassing cluster routing). Without
+    # this, a Jaccard word-overlap cluster-to-section map can starve a risk
+    # section when clusters were themed around benefits.
+    risk_axis_section_terms = (
+        "risk", "adverse", "safety", "harm", "side effect",
+        "side-effect", "contraindicat",
+    )
+    risk_axis_ev_categories = {
+        "risk", "adverse_event", "contraindication", "safety",
+    }
+    risk_axis_ev_keywords = (
+        "adverse", "contraindicat", "side effect", "side-effect",
+        "hypoglyc", "disorder", "eating disorder", "bone density",
+        "muscle loss", "lean body mass", "pregnancy", "pregnant",
+        "adolescent", "teen", "mortality", "harm",
+        "dizziness", "nausea", "irritab",
+    )
+    quorum_min = int(os.getenv("PG_RISK_QUORUM_MIN", "2"))
+    quorum_added = 0
+    for si, section in enumerate(sorted_sections):
+        title_desc = f"{section.title} {section.description}".lower()
+        if not any(t in title_desc for t in risk_axis_section_terms):
+            continue
+        existing_ids = set(section_evidence[si])
+        existing_risk_count = 0
+        for eid in existing_ids:
+            ev = ev_map_for_div.get(eid, {})
+            cat = (ev.get("fact_category", "") or "").lower()
+            blob = (
+                (ev.get("statement", "") or "")
+                + " "
+                + (ev.get("direct_quote", "") or "")
+            ).lower()
+            if cat in risk_axis_ev_categories or any(
+                k in blob for k in risk_axis_ev_keywords
+            ):
+                existing_risk_count += 1
+        needed = max(0, quorum_min - existing_risk_count)
+        if needed == 0:
+            continue
+        # Find candidate risk-axis evidence not yet in this section.
+        candidates = []
+        for ev in evidence:
+            eid = ev.get("evidence_id", "")
+            if not eid or eid in existing_ids:
+                continue
+            cat = (ev.get("fact_category", "") or "").lower()
+            blob = (
+                (ev.get("statement", "") or "")
+                + " "
+                + (ev.get("direct_quote", "") or "")
+            ).lower()
+            is_risk = (
+                cat in risk_axis_ev_categories
+                or any(k in blob for k in risk_axis_ev_keywords)
+                or ev.get("risk_axis_retained") is True
+            )
+            if is_risk:
+                candidates.append(
+                    (eid, ev.get("relevance_score", 0.0))
+                )
+        # Prefer higher relevance, break ties by appearance order.
+        candidates.sort(key=lambda t: t[1], reverse=True)
+        for eid, _ in candidates[:needed]:
+            section_evidence[si].append(eid)
+            quorum_added += 1
+
+    if quorum_added > 0:
+        logger.info(
+            "[polaris graph] FIX-RISK-QUORUM: Injected %d risk-axis evidence "
+            "pieces into risk/safety-titled sections (min=%d per section)",
+            quorum_added, quorum_min,
+        )
+
     # Populate outline sections with assigned evidence
     for si, section in enumerate(sorted_sections):
         section.evidence_ids = section_evidence.get(si, [])

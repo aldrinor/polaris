@@ -533,6 +533,78 @@ def build_wiki(
                     donated, starved_sid,
                 )
 
+    # ── Step 3.5: Risk quorum ───────────────────────────────────────
+    # FIX-RISK-QUORUM: sections whose title/description names risks or
+    # adverse effects MUST receive at least PG_RISK_QUORUM_MIN risk-axis
+    # evidence pieces. The embedding assignment above is Jaccard-like and
+    # can route risk evidence to non-risk sections if the section titles
+    # overlap more on other terms. Force-fill risk sections here.
+    _RISK_SECTION_TERMS = (
+        "risk", "adverse", "safety", "harm", "side effect",
+        "side-effect", "contraindicat",
+    )
+    _RISK_EV_CATEGORIES = {
+        "risk", "adverse_event", "contraindication", "safety",
+    }
+    _RISK_EV_KEYWORDS = (
+        "adverse", "contraindicat", "side effect", "side-effect",
+        "hypoglyc", "disorder", "eating disorder", "bone density",
+        "muscle loss", "lean body mass", "pregnancy", "pregnant",
+        "adolescent", "teen", "mortality", "harm",
+        "dizziness", "nausea", "irritab",
+    )
+
+    def _is_risk_ev(ev: dict) -> bool:
+        cat = (ev.get("fact_category", "") or "").lower()
+        if cat in _RISK_EV_CATEGORIES:
+            return True
+        if ev.get("risk_axis_retained") is True:
+            return True
+        blob = (
+            (ev.get("statement", "") or "")
+            + " "
+            + (ev.get("direct_quote", "") or "")
+        ).lower()
+        return any(k in blob for k in _RISK_EV_KEYWORDS)
+
+    quorum_min = int(os.getenv("PG_RISK_QUORUM_MIN", "2"))
+    quorum_injected = 0
+    for section in outline:
+        sid = section.get("section_id", "")
+        if not sid:
+            continue
+        title_desc = (
+            f"{section.get('title', '')} {section.get('description', '')}"
+        ).lower()
+        if not any(t in title_desc for t in _RISK_SECTION_TERMS):
+            continue
+        current = section_claims.get(sid, [])
+        already_in = {
+            c.get("evidence_id") for c in current if c.get("evidence_id")
+        }
+        current_risk_count = sum(1 for c in current if _is_risk_ev(c))
+        needed = max(0, quorum_min - current_risk_count)
+        if needed == 0:
+            continue
+        # Pull candidates from quality_evidence sorted by relevance.
+        candidates = [
+            e for e in quality_evidence
+            if e.get("evidence_id") not in already_in and _is_risk_ev(e)
+        ]
+        candidates.sort(
+            key=lambda e: e.get("relevance_score", 0.0), reverse=True,
+        )
+        for ev in candidates[:needed]:
+            section_claims[sid].append(ev)
+            quorum_injected += 1
+
+    if quorum_injected > 0:
+        logger.info(
+            "[wiki] FIX-RISK-QUORUM: Injected %d risk-axis evidence pieces "
+            "into risk/safety-titled sections (min=%d each)",
+            quorum_injected, quorum_min,
+        )
+
     # ── Step 4: Dedup within sections ───────────────────────────────
     total_deduped = 0
     for sid in section_claims:
@@ -883,8 +955,57 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
             elif claim.get("relevance_score", 0) > url_to_best[canonical].get("relevance_score", 0):
                 url_to_best[canonical] = claim
 
+    # FIX-DEDUP-PAPER: collapse entries that point to the same paper at
+    # different URLs (publisher vs PMC mirror vs DOI). The first-pass URL
+    # canonicalization handles www/http/trailing-slash variants but cannot
+    # detect that `thelancet.com/.../PIIS2589-5370(24)00098-1` and
+    # `pmc.ncbi.nlm.nih.gov/articles/PMC10945168` are the same article. We
+    # merge by DOI and by PMID (extracted from PMC URLs) when available.
+    def _extract_pmid(u: str) -> str:
+        m = re.search(r"/articles/PMC(\d+)", u or "")
+        return f"pmc{m.group(1)}" if m else ""
+
+    def _extract_doi(best_claim: dict, url: str) -> str:
+        doi = (best_claim.get("doi", "") or "").strip().lower()
+        if doi:
+            return doi
+        # Also accept DOI embedded in URL
+        m = re.search(r"10\.\d{4,9}/[^\s\?#]+", url or "")
+        return (m.group(0).lower() if m else "")
+
+    paper_key_to_canonical: dict[str, str] = {}
+    canonical_to_merge_targets: dict[str, list[str]] = {}
+    for canonical, best in url_to_best.items():
+        url_display = canonical_to_display.get(canonical, canonical)
+        doi = _extract_doi(best, url_display)
+        pmid = _extract_pmid(url_display)
+        # Pick the most specific paper identity we have.
+        paper_key = doi or pmid
+        if not paper_key:
+            continue
+        if paper_key not in paper_key_to_canonical:
+            paper_key_to_canonical[paper_key] = canonical
+            canonical_to_merge_targets[canonical] = []
+        else:
+            primary = paper_key_to_canonical[paper_key]
+            canonical_to_merge_targets.setdefault(primary, []).append(canonical)
+
+    # Decide which canonicals to keep (primaries) vs merge away.
+    primaries = {
+        paper_key_to_canonical[k]
+        for k in paper_key_to_canonical
+    }
+    merged_away = {
+        c
+        for targets in canonical_to_merge_targets.values()
+        for c in targets
+    }
+
     bibliography = []
-    for i, (canonical, best) in enumerate(url_to_best.items(), 1):
+    next_ref_num = 1
+    for canonical, best in url_to_best.items():
+        if canonical in merged_away:
+            continue
         url = canonical_to_display.get(canonical, best.get("source_url", canonical))
         authors = best.get("authors", [])
         authors_str = ", ".join(authors[:3]) if authors else "Unknown"
@@ -893,23 +1014,33 @@ def _build_bibliography(section_claims: dict[str, list[dict]]) -> list[dict]:
         doi = best.get("doi", "")
         doi_str = f" DOI: {doi}" if doi else ""
 
+        # Merge evidence_ids from any duplicate canonicals that collapse here.
+        merged_ev_ids = list(url_to_evidence_ids.get(canonical, []))
+        for dup in canonical_to_merge_targets.get(canonical, []):
+            for eid in url_to_evidence_ids.get(dup, []):
+                if eid not in merged_ev_ids:
+                    merged_ev_ids.append(eid)
+
         bibliography.append({
-            "ref_num": i,
-            "citation_number": i,
+            "ref_num": next_ref_num,
+            "citation_number": next_ref_num,
             "url": url,
             "title": title,
             "authors": authors,
             "year": year,
             "doi": doi,
             "source_type": best.get("source_type", "web"),
-            # url_to_evidence_ids is keyed by canonical (see line ~754).
-            # Look up via canonical, not via the display url — today they
-            # happen to match, but storing display urls in canonical_to_display
-            # would silently break this lookup.
-            "evidence_ids": url_to_evidence_ids.get(canonical, []),
-            # formatted field expected by downstream consumers
+            "evidence_ids": merged_ev_ids,
             "formatted": f"{authors_str} ({year}). {title[:100]}.{doi_str} {url}",
         })
+        next_ref_num += 1
+
+    if merged_away:
+        logger.info(
+            "[wiki] FIX-DEDUP-PAPER: Collapsed %d duplicate bibliography "
+            "entries (same DOI/PMID at different URLs)",
+            len(merged_away),
+        )
 
     return bibliography
 

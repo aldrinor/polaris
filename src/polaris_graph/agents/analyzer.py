@@ -2835,11 +2835,57 @@ def _filter_offtopic_evidence(
                     median_sim, old_threshold, threshold,
                 )
 
+        # FIX-RISK-FILTER (legacy-path mirror): retain risk-axis evidence above
+        # a lower floor when the query asks about risks/adverse/safety.
+        query_l = (query or "").lower()
+        risk_query = any(
+            kw in query_l
+            for kw in (
+                "risk", "adverse", "harm", "safety", "side effect",
+                "side-effect", "contraindicat", "toxic", "downside",
+                "concern", "danger",
+            )
+        )
+        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.15"))
+        risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
+        risk_keywords = (
+            "adverse", "contraindicat", "side effect", "side-effect",
+            "hypoglyc", "disorder", "eating disorder", "bone density",
+            "muscle loss", "lean body mass", "pregnancy", "pregnant",
+            "adolescent", "teen", "mortality", "death", "harm",
+            "dizziness", "nausea", "vomit", "irritab",
+        )
+
+        def _is_risk_evidence(ev: dict) -> bool:
+            cat = (ev.get("fact_category", "") or "").lower()
+            if cat in risk_categories:
+                return True
+            blob = (
+                (ev.get("statement", "") or "")
+                + " "
+                + (ev.get("direct_quote", "") or "")
+            ).lower()
+            return any(k in blob for k in risk_keywords)
+
         before_count = len(evidence)
         filtered = []
+        risk_kept_below = 0
         for i, e in enumerate(evidence):
-            if float(similarities[i]) >= threshold:
+            sim = float(similarities[i])
+            if sim >= threshold:
                 filtered.append(e)
+            elif risk_query and _is_risk_evidence(e) and sim >= risk_floor:
+                e["risk_axis_retained"] = True
+                e["off_topic_similarity"] = sim
+                filtered.append(e)
+                risk_kept_below += 1
+
+        if risk_kept_below > 0:
+            logger.info(
+                "[polaris graph] FIX-RISK-FILTER (legacy): Retained %d risk-axis "
+                "evidence below threshold (risk_floor=%.2f, main=%.2f)",
+                risk_kept_below, risk_floor, threshold,
+            )
 
         removed_count = before_count - len(filtered)
         if removed_count > 0:
@@ -2857,6 +2903,7 @@ def _filter_offtopic_evidence(
                     "analyze", "offtopic_filtered", len(filtered),
                     removed=removed_count,
                     threshold=threshold,
+                    risk_axis_retained=risk_kept_below,
                 )
         else:
             logger.info(
@@ -2991,12 +3038,65 @@ async def _unified_embedding_pass(
                     median_sim, old_threshold, threshold,
                 )
 
+        # FIX-RISK-FILTER: when the query asks for risks/adverse/safety,
+        # evidence marked fact_category in {risk, adverse_event, contraindication}
+        # or whose statement/quote contains risk keywords uses a LOWER threshold.
+        # Rationale: risk vocabulary (hypoglycemia, contraindication, disorder)
+        # cosine-embeds poorly against queries dominated by benefit terms, so
+        # a uniform 0.30 threshold disproportionately drops risk evidence.
+        query_l = (query or "").lower()
+        risk_query = any(
+            kw in query_l
+            for kw in (
+                "risk", "adverse", "harm", "safety", "side effect",
+                "side-effect", "contraindicat", "toxic", "downside",
+                "concern", "danger",
+            )
+        )
+        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.15"))
+        risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
+        risk_keywords = (
+            "adverse", "contraindicat", "side effect", "side-effect",
+            "hypoglyc", "disorder", "eating disorder", "bone density",
+            "muscle loss", "lean body mass", "pregnancy", "pregnant",
+            "adolescent", "teen", "mortality", "death", "harm",
+            "dizziness", "nausea", "vomit", "irritab",
+        )
+
+        def _is_risk_evidence(ev: dict) -> bool:
+            cat = (ev.get("fact_category", "") or "").lower()
+            if cat in risk_categories:
+                return True
+            blob = (
+                (ev.get("statement", "") or "")
+                + " "
+                + (ev.get("direct_quote", "") or "")
+            ).lower()
+            return any(k in blob for k in risk_keywords)
+
         before_count = len(evidence)
-        filtered = [
-            e for i, e in enumerate(evidence)
-            if float(similarities[i]) >= threshold
-        ]
+        filtered = []
+        risk_kept_below = 0
+        for i, e in enumerate(evidence):
+            sim = float(similarities[i])
+            if sim >= threshold:
+                filtered.append(e)
+            elif risk_query and _is_risk_evidence(e) and sim >= risk_floor:
+                # Keep risk-axis evidence above the lower risk floor.
+                e["risk_axis_retained"] = True
+                e["off_topic_similarity"] = sim
+                filtered.append(e)
+                risk_kept_below += 1
         removed_count = before_count - len(filtered)
+
+        if risk_kept_below > 0:
+            logger.info(
+                "[polaris graph] FIX-RISK-FILTER: Retained %d risk-axis evidence "
+                "below threshold (risk_floor=%.2f, main_threshold=%.2f)",
+                risk_kept_below,
+                risk_floor,
+                threshold,
+            )
 
         if removed_count > 0:
             logger.info(
@@ -3012,6 +3112,7 @@ async def _unified_embedding_pass(
                     "analyze", "offtopic_filtered", len(filtered),
                     removed=removed_count,
                     threshold=threshold,
+                    risk_axis_retained=risk_kept_below,
                 )
         else:
             logger.info(
