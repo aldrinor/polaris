@@ -2,41 +2,50 @@
   "contradictions_found": 0,
   "corpus_source": "outputs/polaris_graph/PG_LB_SA_02.json",
   "evaluator_rule_fail": 0,
-  "evaluator_rule_pass": 12,
+  "evaluator_rule_pass": 13,
   "generator": {
-    "input_tokens": 2676,
-    "model": "deepseek/deepseek-v3.2-exp",
-    "output_tokens": 299,
-    "sentences_dropped": 1,
-    "sentences_kept": 5
+    "input_tokens": 3747,
+    "outline_sections": [
+      "Efficacy",
+      "Safety",
+      "Long-term Outcomes"
+    ],
+    "output_tokens": 858,
+    "pipeline": "multi_section",
+    "regens_attempted": 0,
+    "sections_dropped": 0,
+    "sections_kept": 3,
+    "sentences_dropped": 5,
+    "sentences_kept": 11,
+    "total_words": 224
   },
   "original_query": "What are the proven health benefits and risks of semaglutide (Ozempic/Wegovy) for adults with obesity?",
-  "protocol_sha256": "249393f7a9ddde1f3b239a838f5b3bc903990853b64fc2938bff4fbbf1204e79",
+  "protocol_sha256": "d8e7a66d5af5da493c9ac28d0531b3b19f609a0926cddf91e0a3e1efeafaadb4",
   "qwen_judge": {
     "verdicts": {
       "citation_tightness": {
-        "note": "All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN.",
+        "note": "All factual claims have adjacent citations. No missing citations observed.",
         "verdict": "good"
       },
       "completeness": {
-        "note": "Primary trials, regulatory status, and key safety data are addressed.",
-        "verdict": "good"
+        "note": "Missing key safety concerns (e.g., pancreatitis, gallbladder disease) and limitations of evidence. Regulatory status is mentioned but lacks context on approval criteria.",
+        "verdict": "needs_revision"
       },
       "flow": {
-        "note": "Logical progression from key findings to methods, but lacks explicit limitations section.",
+        "note": "Logical progression from efficacy to safety to long-term outcomes. However, transition between safety and cardiovascular benefits feels abrupt.",
         "verdict": "acceptable"
       },
       "hedging_appropriateness": {
-        "note": "The comparison with tirzepatide is presented as a definitive finding without hedging, despite potential evidence disagreements.",
-        "verdict": "needs_revision"
+        "note": "Prose appropriately balances confidence with hedging (e.g., 'shows promise', 'generally mild-to-moderate'). No overconfidence detected.",
+        "verdict": "good"
       },
       "tone_consistency": {
-        "note": "Tone remains evidence-grounded without promotional language.",
+        "note": "Tone remains evidence-grounded throughout, avoiding promotional language. Factual statements are presented neutrally.",
         "verdict": "good"
       }
     }
   },
-  "run_id": "APPLES_1776527953",
+  "run_id": "APPLES_1776529020",
   "sources": {
     "approved": true,
     "count": 33,

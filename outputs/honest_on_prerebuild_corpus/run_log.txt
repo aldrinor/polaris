@@ -1,10 +1,10 @@
 ========================================================================
-APPLES-TO-APPLES run_id=APPLES_1776527953
+APPLES-TO-APPLES run_id=APPLES_1776529020
 ========================================================================
 Using pre-rebuild corpus from C:\POLARIS\outputs\polaris_graph\PG_LB_SA_02.json
 Pre-rebuild query (verbatim): 'What are the proven health benefits and risks of semaglutide (Ozempic/Wegovy) for adults with obesity?'
 
-[1/6] scope_gate: protocol sha256=249393f7a9ddde1f...
+[1/6] scope_gate: protocol sha256=d8e7a66d5af5da49...
 [2/6] Re-classified 33 pre-rebuild sources
        T1: 3
        T2: 7
@@ -15,12 +15,15 @@ Pre-rebuild query (verbatim): 'What are the proven health benefits and risks of 
        T7: 2
 [3/6] corpus_approval: approved=True, material_deviation=True
 [4/6] contradictions: 4 claims extracted, 0 contradictions flagged
-[5/6] DeepSeek V3.2-Exp generation (evidence=20)...
-       elapsed=11.6s input_tok=2676 output_tok=299 sentences=6 converted=8 unverifiable=1
-       strict_verify: kept=5/6, dropped=1
-       final report: 3200 chars, 372 words
+[5/6] DeepSeek multi-section generation (evidence=20)...
+       elapsed=27.6s  outline=3 sections, words=224, verified=11, dropped=5
+       input_tok=3747 output_tok=858
+         [OK] Efficacy — verified=4 dropped=4 regen=False focus='Analyze the magnitude of weight loss achieved with semagluti'
+         [OK] Safety — verified=3 dropped=0 regen=False focus='Examine the adverse event profile of semaglutide, particular'
+         [OK] Long-term Outcomes — verified=4 dropped=1 regen=False focus='Assess the impact of semaglutide on cardiometabolic paramete'
+       final report: 4834 chars, 582 words
 [6/6] evaluator + Qwen3-8B judge
-       rule checks: 12/12 pass
+       rule checks: 13/12 pass
          [PASS] PT01 Pre-registered protocol reference present
          [PASS] PT02 Generator model disclosed
          [PASS] PT03 Evaluator model disclosed (separate family)
@@ -33,12 +36,13 @@ Pre-rebuild query (verbatim): 'What are the proven health benefits and risks of 
          [PASS] PT10 Prompt-injection sanitization enabled
          [PASS] PT11 Numeric claims have citation markers
          [PASS] PT12 Citation markers don't exceed bibliography size
-       Qwen judge: parse_ok=True input_tok=1355 output_tok=1302
-         [           GOOD] completeness: Primary trials, regulatory status, and key safety data are addressed.
-         [ NEEDS_REVISION] hedging_appropriateness: The comparison with tirzepatide is presented as a definitive finding without hedging, desp
-         [           GOOD] tone_consistency: Tone remains evidence-grounded without promotional language.
-         [     ACCEPTABLE] flow: Logical progression from key findings to methods, but lacks explicit limitations section.
-         [           GOOD] citation_tightness: All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN
+         [PASS] PT13 Superlative / comparative claims are hedged to sources
+       Qwen judge: parse_ok=True input_tok=1800 output_tok=831
+         [           GOOD] citation_tightness: All factual claims have adjacent citations. No missing citations observed.
+         [           GOOD] hedging_appropriateness: Prose appropriately balances confidence with hedging (e.g., 'shows promise', 'generally mi
+         [     ACCEPTABLE] flow: Logical progression from efficacy to safety to long-term outcomes. However, transition bet
+         [ NEEDS_REVISION] completeness: Missing key safety concerns (e.g., pancreatitis, gallbladder disease) and limitations of e
+         [           GOOD] tone_consistency: Tone remains evidence-grounded throughout, avoiding promotional language. Factual statemen
 
 Writing side_by_side.md...
 
@@ -48,8 +52,8 @@ APPLES-TO-APPLES COMPLETE
   Honest-rebuild corpus: 33
   Tier distribution:     T1=9%, T2=21%, T3=15%, T4=15%, T5=15%, T6=18%, T7=6%
   Contradictions:        0
-  Sentences verified:    5/6
-  Rule checks:           12/12 pass
+  Sentences verified:    11 (dropped 5)
+  Rule checks:           13/12 pass
   Qwen judge:            {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
 
   Artifacts in:          C:\POLARIS\outputs\honest_on_prerebuild_corpus

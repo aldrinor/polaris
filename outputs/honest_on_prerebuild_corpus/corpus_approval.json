@@ -35,9 +35,9 @@
     "https://frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.935823/full",
     "https://frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2023.1132004/full"
   ],
-  "decision_at_iso": "2026-04-18T15:59:13Z",
-  "decision_at_unix": 1776527953.91908,
-  "protocol_sha256": "249393f7a9ddde1f3b239a838f5b3bc903990853b64fc2938bff4fbbf1204e79",
+  "decision_at_iso": "2026-04-18T16:17:00Z",
+  "decision_at_unix": 1776529020.8476722,
+  "protocol_sha256": "d8e7a66d5af5da493c9ac28d0531b3b19f609a0926cddf91e0a3e1efeafaadb4",
   "rejected_source_urls": [],
   "report": {
     "auto_approve_allowed": false,
@@ -120,6 +120,6 @@
     },
     "total_sources": 33
   },
-  "run_id": "APPLES_1776527953",
+  "run_id": "APPLES_1776529020",
   "user_note": "Apples-to-apples run on the PG_LB_SA_02 corpus. Deviations from the clinical template are expected because the pre-rebuild retrieval pulled a broader mix."
 }

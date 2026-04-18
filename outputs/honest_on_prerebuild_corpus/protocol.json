@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T15:59:13Z",
-  "created_at_unix": 1776527953.8853047,
+  "created_at_iso": "2026-04-18T16:17:00Z",
+  "created_at_unix": 1776529020.8180535,
   "criteria": {
     "exclusion": [
       "Blog posts and law-firm commentary used as primary evidence (allowed as supplementary context only).",
@@ -78,7 +78,7 @@
   "outcome": null,
   "population": "adults",
   "research_question": "What are the proven health benefits and risks of semaglutide (Ozempic/Wegovy) for adults with obesity?",
-  "run_id": "APPLES_1776527953",
+  "run_id": "APPLES_1776529020",
   "template_used": "config/scope_templates/clinical.yaml",
   "user_overrides": {}
 }

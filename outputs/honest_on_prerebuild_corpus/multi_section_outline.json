@@ -1,0 +1,36 @@
+[
+  {
+    "ev_ids": [
+      "ev_001",
+      "ev_002",
+      "ev_003",
+      "ev_004",
+      "ev_006",
+      "ev_007",
+      "ev_009",
+      "ev_012",
+      "ev_013",
+      "ev_015",
+      "ev_018"
+    ],
+    "focus": "Analyze the magnitude of weight loss achieved with semaglutide treatment compared to placebo and established thresholds.",
+    "title": "Efficacy"
+  },
+  {
+    "ev_ids": [
+      "ev_005",
+      "ev_016"
+    ],
+    "focus": "Examine the adverse event profile of semaglutide, particularly gastrointestinal effects.",
+    "title": "Safety"
+  },
+  {
+    "ev_ids": [
+      "ev_014",
+      "ev_017",
+      "ev_019"
+    ],
+    "focus": "Assess the impact of semaglutide on cardiometabolic parameters and cardiovascular risk reduction.",
+    "title": "Long-term Outcomes"
+  }
+]

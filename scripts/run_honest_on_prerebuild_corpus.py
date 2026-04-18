@@ -51,6 +51,9 @@ for noisy in ("httpx", "httpcore"):
 from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
 from src.polaris_graph.evaluator.live_qwen_judge import judge_report  # noqa: E402
 from src.polaris_graph.generator.live_deepseek_generator import generate_live_draft  # noqa: E402
+from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+    generate_multi_section_report,
+)
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     resolve_provenance_to_citations,
     strict_verify,
@@ -77,6 +80,27 @@ def _domain_of(url: str) -> str:
         return (urlparse(url).netloc or "").lower().lstrip("www.")
     except Exception:
         return ""
+
+
+def _normalize_url(url: str) -> str:
+    """Gap-1 fix: URL variants between bibliography and evidence rows were
+    causing url_to_tier misses (trailing slash, www prefix, fragments,
+    case). Normalize for stable lookup."""
+    from urllib.parse import urlparse, urlunparse
+    if not url:
+        return ""
+    try:
+        p = urlparse(url.strip())
+        scheme = (p.scheme or "https").lower()
+        netloc = (p.netloc or "").lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        path = (p.path or "").rstrip("/")
+        # Drop fragment; keep query (query carries real info like
+        # ?doi=... in jomes.org URLs).
+        return urlunparse((scheme, netloc, path, p.params, p.query, ""))
+    except Exception:
+        return url.strip().lower().rstrip("/")
 
 
 def _build_honest_rebuild_evidence(pre: dict) -> tuple[list[CorpusSource], list[dict]]:
@@ -111,7 +135,9 @@ def _build_honest_rebuild_evidence(pre: dict) -> tuple[list[CorpusSource], list[
             tier_rule=r.matched_rules[0] if r.matched_rules else "",
             tier_reasons=list(r.reasons),
         ))
-        url_to_tier[url] = r.tier.value
+        # Gap-1 fix: key url_to_tier by normalized URL so evidence-row
+        # URLs (with www./slash/fragment variants) still find their tier.
+        url_to_tier[_normalize_url(url)] = r.tier.value
 
     # Collect evidence rows — re-key to simple ev_NNN IDs so the
     # generator + verifier see clean tokens. Keep back-references.
@@ -124,12 +150,13 @@ def _build_honest_rebuild_evidence(pre: dict) -> tuple[list[CorpusSource], list[
         if not (quote or statement):
             continue
         url = ev.get("source_url", "") or ""
+        tier = url_to_tier.get(_normalize_url(url), "UNKNOWN")
         evidence_rows.append({
             "evidence_id": f"ev_{i:03d}",
             "source_url": url,
             "statement": statement[:300],
             "direct_quote": quote[:2000],
-            "tier": url_to_tier.get(url, "UNKNOWN"),
+            "tier": tier,
             "source": "prerebuild",
             "original_evidence_id": ev.get("evidence_id", ""),
         })
@@ -226,29 +253,60 @@ async def main_async() -> int:
         _log(f"       - {c.subject}/{c.predicate} rel={c.relative_difference*100:.1f}% "
              f"severity={c.severity}")
 
-    # DeepSeek generation
-    _log(f"[5/6] DeepSeek V3.2-Exp generation (evidence={len(evidence_rows)})...")
+    # Multi-section generation (Gap-4)
+    _log(f"[5/6] DeepSeek multi-section generation (evidence={len(evidence_rows)})...")
     t0 = time.time()
-    gen = await generate_live_draft(
+    ev_pool = {ev["evidence_id"]: ev for ev in evidence_rows}
+    multi = await generate_multi_section_report(
         research_question=question,
         evidence=evidence_rows,
-        temperature=0.3,
-        max_tokens=1800,
+        section_temperature=0.3,
+        outline_max_tokens=800,
+        section_max_tokens=1200,
+        min_kept_fraction=0.4,
+        max_parallel_sections=3,
     )
     dt = time.time() - t0
-    _log(f"       elapsed={dt:.1f}s input_tok={gen.input_tokens} "
-         f"output_tok={gen.output_tokens} "
-         f"sentences={gen.total_sentences} converted={gen.citations_converted} "
-         f"unverifiable={gen.citations_unverifiable}")
-    (run_dir / "deepseek_raw_draft.txt").write_text(gen.raw_draft, encoding="utf-8")
-    (run_dir / "deepseek_rewritten_draft.txt").write_text(gen.rewritten_draft, encoding="utf-8")
+    _log(f"       elapsed={dt:.1f}s  outline={len(multi.outline)} sections, "
+         f"words={multi.total_words}, "
+         f"verified={multi.total_sentences_verified}, "
+         f"dropped={multi.total_sentences_dropped}")
+    _log(f"       input_tok={multi.total_input_tokens} "
+         f"output_tok={multi.total_output_tokens}")
+    for sr in multi.sections:
+        mark = "OK" if not sr.dropped_due_to_failure else "DROPPED"
+        _log(f"         [{mark}] {sr.title} — verified={sr.sentences_verified} "
+             f"dropped={sr.sentences_dropped} "
+             f"regen={sr.regen_attempted} "
+             f"focus={sr.focus[:60]!r}")
+    # Persist per-section artifacts
+    (run_dir / "multi_section_outline.json").write_text(
+        json.dumps(
+            [{"title": p.title, "focus": p.focus, "ev_ids": p.ev_ids}
+             for p in multi.outline],
+            indent=2, sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    for i, sr in enumerate(multi.sections, 1):
+        (run_dir / f"section_{i:02d}_{sr.title.replace(' ', '_')}.md").write_text(
+            f"# {sr.title}\n\n"
+            f"Focus: {sr.focus}\n\n"
+            f"## Raw draft\n{sr.raw_draft}\n\n"
+            f"## Rewritten draft\n{sr.rewritten_draft}\n\n"
+            f"## Verified text (global biblio remapped)\n{sr.verified_text}\n",
+            encoding="utf-8",
+        )
 
-    # Strict verify
-    ev_pool = {ev["evidence_id"]: ev for ev in evidence_rows}
-    strict = strict_verify(gen.rewritten_draft, ev_pool)
-    _log(f"       strict_verify: kept={strict.total_kept}/{strict.total_in}, "
-         f"dropped={strict.total_dropped}")
-    rendered, biblio = resolve_provenance_to_citations(strict.kept_sentences, ev_pool)
+    # Assemble section prose
+    section_bodies: list[str] = []
+    for sr in multi.sections:
+        if sr.dropped_due_to_failure or not sr.verified_text:
+            continue
+        section_bodies.append(f"### {sr.title}\n\n{sr.verified_text}")
+    sections_concat = "\n\n".join(section_bodies)
+
+    biblio = multi.bibliography
 
     from src.polaris_graph.llm.openrouter_client import (
         PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,
@@ -260,7 +318,9 @@ async def main_async() -> int:
         "\n\n## Methods\n"
         f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
         f"Corpus: PG_LB_SA_02 pre-rebuild retrieval (apples-to-apples).\n"
-        f"Generator model: {PG_GENERATOR_MODEL}. "
+        f"Generator model: {PG_GENERATOR_MODEL} (multi-section pipeline: "
+        f"outline + {len([s for s in multi.sections if not s.dropped_due_to_failure])} "
+        f"parallel sections + strict_verify + regen-on-failure).\n"
         f"Evaluator model: {PG_EVALUATOR_MODEL} (different family).\n"
         f"Sources classified using T1-T7 tier taxonomy.\n"
         f"Inclusion / exclusion per clinical template. Sponsor / "
@@ -285,7 +345,7 @@ async def main_async() -> int:
         biblio_section += f"[{b['num']}] {b['statement'][:200]} — {b['url']} (tier {b['tier']})\n"
     final_report = (
         f"# Research report: {question}\n\n"
-        + rendered + methods + biblio_section
+        + sections_concat + methods + biblio_section
     )
     (run_dir / "report.md").write_text(final_report, encoding="utf-8")
     (run_dir / "bibliography.json").write_text(
@@ -359,7 +419,7 @@ async def main_async() -> int:
         "| Metric | Pre-rebuild | Honest-rebuild |",
         "|---|---|---|",
         f"| Report words  | {pre_qm.get('total_words', '?')} | {len(final_report.split())} |",
-        f"| Sections      | {pre_qm.get('total_sections', '?')} | 3 (prose / methods / biblio) |",
+        f"| Sections      | {pre_qm.get('total_sections', '?')} | {len([s for s in multi.sections if not s.dropped_due_to_failure])} (outline-driven) + methods + biblio |",
         f"| Citations     | {pre_qm.get('total_citations', '?')} | {len(biblio)} |",
         f"| Self-graded faithfulness | **{pre_qm.get('faithfulness_score', 0)*100:.1f}%** (cooked) | REMOVED |",
         f"| Rule-check pass | N/A | {ev_out.rule_check_pass_count}/12 |",
@@ -392,11 +452,16 @@ async def main_async() -> int:
             "approved": decision.approved,
         },
         "generator": {
-            "model": gen.model,
-            "input_tokens": gen.input_tokens,
-            "output_tokens": gen.output_tokens,
-            "sentences_kept": strict.total_kept,
-            "sentences_dropped": strict.total_dropped,
+            "pipeline": "multi_section",
+            "outline_sections": [p.title for p in multi.outline],
+            "sections_kept": sum(1 for s in multi.sections if not s.dropped_due_to_failure),
+            "sections_dropped": sum(1 for s in multi.sections if s.dropped_due_to_failure),
+            "regens_attempted": sum(1 for s in multi.sections if s.regen_attempted),
+            "input_tokens": multi.total_input_tokens,
+            "output_tokens": multi.total_output_tokens,
+            "sentences_kept": multi.total_sentences_verified,
+            "sentences_dropped": multi.total_sentences_dropped,
+            "total_words": multi.total_words,
         },
         "contradictions_found": len(contradictions),
         "evaluator_rule_pass": ev_out.rule_check_pass_count,
@@ -418,7 +483,8 @@ async def main_async() -> int:
     _log(f"  Honest-rebuild corpus: {len(classified)}")
     _log(f"  Tier distribution:     {tier_summary}")
     _log(f"  Contradictions:        {len(contradictions)}")
-    _log(f"  Sentences verified:    {strict.total_kept}/{strict.total_in}")
+    _log(f"  Sentences verified:    {multi.total_sentences_verified} "
+         f"(dropped {multi.total_sentences_dropped})")
     _log(f"  Rule checks:           {ev_out.rule_check_pass_count}/12 pass")
     if jr and jr.parse_ok:
         vcounts = {v: sum(1 for j in jr.verdicts.values() if j["verdict"] == v)

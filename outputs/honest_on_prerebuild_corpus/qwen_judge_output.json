@@ -1,28 +1,28 @@
 {
-  "input_tokens": 1355,
+  "input_tokens": 1800,
   "model": "qwen/qwen3-8b",
-  "output_tokens": 1302,
+  "output_tokens": 831,
   "parse_ok": true,
-  "raw_response": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN.\"}, \n  \"hedging_appropriateness\": {\"verdict\": \"needs_revision\", \"note\": \"The comparison with tirzepatide is presented as a definitive finding without hedging, despite potential evidence disagreements.\"}, \n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded without promotional language.\"}, \n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Logical progression from key findings to methods, but lacks explicit limitations section.\"}, \n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Primary trials, regulatory status, and key safety data are addressed.\"}\n}",
+  "raw_response": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims have adjacent citations. No missing citations observed.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose appropriately balances confidence with hedging (e.g., 'shows promise', 'generally mild-to-moderate'). No overconfidence detected.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded throughout, avoiding promotional language. Factual statements are presented neutrally.\"},\n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Logical progression from efficacy to safety to long-term outcomes. However, transition between safety and cardiovascular benefits feels abrupt.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing key safety concerns (e.g., pancreatitis, gallbladder disease) and limitations of evidence. Regulatory status is mentioned but lacks context on approval criteria.\"}\n}",
   "verdicts": {
     "citation_tightness": {
-      "note": "All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN.",
+      "note": "All factual claims have adjacent citations. No missing citations observed.",
       "verdict": "good"
     },
     "completeness": {
-      "note": "Primary trials, regulatory status, and key safety data are addressed.",
-      "verdict": "good"
+      "note": "Missing key safety concerns (e.g., pancreatitis, gallbladder disease) and limitations of evidence. Regulatory status is mentioned but lacks context on approval criteria.",
+      "verdict": "needs_revision"
     },
     "flow": {
-      "note": "Logical progression from key findings to methods, but lacks explicit limitations section.",
+      "note": "Logical progression from efficacy to safety to long-term outcomes. However, transition between safety and cardiovascular benefits feels abrupt.",
       "verdict": "acceptable"
     },
     "hedging_appropriateness": {
-      "note": "The comparison with tirzepatide is presented as a definitive finding without hedging, despite potential evidence disagreements.",
-      "verdict": "needs_revision"
+      "note": "Prose appropriately balances confidence with hedging (e.g., 'shows promise', 'generally mild-to-moderate'). No overconfidence detected.",
+      "verdict": "good"
     },
     "tone_consistency": {
-      "note": "Tone remains evidence-grounded without promotional language.",
+      "note": "Tone remains evidence-grounded throughout, avoiding promotional language. Factual statements are presented neutrally.",
       "verdict": "good"
     }
   }

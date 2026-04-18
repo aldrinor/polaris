@@ -160,6 +160,9 @@ class SentenceVerification:
     is_verified: bool
     failure_reasons: list[str] = field(default_factory=list)
     resolved_citation_marker: str = ""   # e.g., "[1]"
+    # Gap-2: soft warnings that don't trigger a drop but get surfaced
+    # to the evaluator (stored as PT13 in external_evaluator).
+    soft_warnings: list[str] = field(default_factory=list)
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
@@ -218,6 +221,45 @@ _THRESHOLD_RE = re.compile(
     r"(?:≥|>=|>|at\s+least|achiev\w+\s+at\s+least)\s*-?\d+(?:\.\d+)?\s*%?",
     re.IGNORECASE,
 )
+
+# Gap-2 hedging detector. Superlative / comparative claims that appear
+# WITHOUT source-anchoring language are flagged as unhedged. Both lists
+# below are deliberately conservative — false positives waste a warning
+# but don't break a run (soft check, no drop).
+_SUPERLATIVE_RE = re.compile(
+    r"\b(?:largest|highest|greatest|best|most\s+effective|most\s+potent|"
+    r"leading|superior|top|unparalleled|unmatched|unprecedented|"
+    r"better\s+than|worse\s+than|safer\s+than|more\s+effective\s+than)\b",
+    re.IGNORECASE,
+)
+_HEDGE_RE = re.compile(
+    r"\b(?:reported|described|characteriz\w+|noted|found|suggest\w+|"
+    r"indicat\w+|one\s+(?:review|trial|analysis|source|meta-?analysis|study)|"
+    r"according\s+to|a\s+(?:meta-?analysis|review|trial|study|analysis)|"
+    r"observed|show\w+\s+to\s+be|appears?\s+to\s+be|estimated\s+to\s+be)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_unhedged_superlative(sentence: str) -> Optional[str]:
+    """Return the matched superlative phrase if the sentence is an unhedged
+    comparative claim, or None.
+
+    Heuristic: a sentence is unhedged if it contains a superlative phrase
+    AND does not contain any of the source-anchoring hedge words.
+    """
+    if not sentence:
+        return None
+    # Strip provenance tokens so they don't consume characters the
+    # superlative regex might otherwise miss.
+    clean = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
+    m = _SUPERLATIVE_RE.search(clean)
+    if not m:
+        return None
+    # Look for a hedge anywhere in the same sentence.
+    if _HEDGE_RE.search(clean):
+        return None
+    return m.group(0)
 
 
 def _strip_dose_patterns(text: str) -> str:
@@ -331,12 +373,21 @@ def verify_sentence_provenance(
                     f"no_integer_overlap_any_cited_span:{ev_ids}"
                 )
 
+    # Gap-2 soft check: detect unhedged superlatives. This does NOT
+    # drop the sentence — it emits a warning that the evaluator (PT13)
+    # can surface to the user.
+    soft_warnings: list[str] = []
+    unhedged = _detect_unhedged_superlative(sentence)
+    if unhedged:
+        soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
+
     is_verified = len(failures) == 0
     return SentenceVerification(
         sentence=sentence,
         tokens=tokens,
         is_verified=is_verified,
         failure_reasons=failures,
+        soft_warnings=soft_warnings,
     )
 
 
@@ -345,11 +396,23 @@ def verify_sentence_provenance(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\[])")
+_SENTENCE_SPLIT_RE = re.compile(
+    # Two alternatives for sentence boundary:
+    #   (1) `.!?` directly followed by whitespace + capital/bracket
+    #   (2) `]` (end of citation marker) followed by whitespace + capital,
+    #       which handles `"Drug works.[1] Next sentence."`
+    r"(?<=[.!?])\s+(?=[A-Z\[])|(?<=\])\s+(?=[A-Z])",
+)
 
 
 def split_into_sentences(text: str) -> list[str]:
-    """Lightweight sentence splitter. Good enough for our generator output."""
+    """Lightweight sentence splitter. Good enough for our generator output.
+
+    Handles trailing citation markers like `.[1]`, `.[#ev:ev_a:0-5]`,
+    `.[1][2]` — the second alternative in the split regex triggers on
+    the closing `]` so the marker stays attached to the preceding
+    sentence rather than being eaten.
+    """
     if not text:
         return []
     parts = _SENTENCE_SPLIT_RE.split(text.strip())
@@ -365,17 +428,53 @@ class StrictVerificationReport:
     total_dropped: int
 
 
+def split_findings_and_limitations(text: str) -> tuple[str, str]:
+    """Split a draft into (findings_text, limitations_text).
+
+    Gap-3: the generator now writes a "Limitations:" paragraph that
+    discusses pipeline telemetry (tier mix, contradictions) without
+    per-sentence [ev_XXX] markers. Verification should be relaxed for
+    that paragraph — no citation tokens are required.
+
+    Returns ("findings text", "limitations text"). If no Limitations
+    block is found, returns (full_text, "").
+    """
+    if not text:
+        return "", ""
+    # Find the literal word "Limitations:" at start of a line or after
+    # whitespace. Case-insensitive, allow markdown heading variants.
+    m = re.search(
+        r"(^|\n\s*)(?:#{0,3}\s*)?(?:\*\*)?Limitations(?:\*\*)?\s*:",
+        text, re.IGNORECASE,
+    )
+    if not m:
+        return text.strip(), ""
+    findings = text[:m.start()].strip()
+    limitations = text[m.start():].strip()
+    return findings, limitations
+
+
 def strict_verify(
     draft_text: str,
     evidence_pool: dict[str, dict[str, Any]],
     *,
     require_number_match: bool = True,
 ) -> StrictVerificationReport:
-    """Run strict verification on a draft. Drops failing sentences."""
-    sentences = split_into_sentences(draft_text)
+    """Run strict verification on a draft. Drops failing sentences.
+
+    Gap-3: the Limitations paragraph is verified separately — its
+    sentences are accepted without provenance tokens because they
+    discuss the pipeline, not the evidence. Limitations sentences are
+    added to `kept_sentences` but their `.tokens` list may be empty.
+    """
+    findings_text, limitations_text = split_findings_and_limitations(draft_text)
+
     kept: list[SentenceVerification] = []
     dropped: list[SentenceVerification] = []
-    for s in sentences:
+
+    # Findings: strict provenance verification
+    findings_sentences = split_into_sentences(findings_text)
+    for s in findings_sentences:
         v = verify_sentence_provenance(
             s, evidence_pool,
             require_number_match=require_number_match,
@@ -384,10 +483,29 @@ def strict_verify(
             kept.append(v)
         else:
             dropped.append(v)
+
+    # Limitations: pass-through. Each sentence becomes a kept
+    # SentenceVerification with no tokens (resolve_provenance_to_citations
+    # will emit it without numbered markers).
+    limitations_sentences = split_into_sentences(limitations_text)
+    for s in limitations_sentences:
+        tokens = parse_provenance_tokens(s)
+        # Limitations sentences may optionally carry [ev_XXX] if the
+        # generator cites its own telemetry-referenced sources; that's
+        # fine but not required.
+        kept.append(SentenceVerification(
+            sentence=s,
+            tokens=tokens,
+            is_verified=True,
+            failure_reasons=[],
+            soft_warnings=["limitations_paragraph_pass_through"],
+        ))
+
+    total_in = len(findings_sentences) + len(limitations_sentences)
     return StrictVerificationReport(
         kept_sentences=kept,
         dropped_sentences=dropped,
-        total_in=len(sentences),
+        total_in=total_in,
         total_kept=len(kept),
         total_dropped=len(dropped),
     )
@@ -423,7 +541,8 @@ def resolve_provenance_to_citations(
             })
         return ev_to_num[ev_id]
 
-    out_lines: list[str] = []
+    findings_lines: list[str] = []
+    limitations_lines: list[str] = []
     for sv in kept_sentences:
         # Collect all citation nums from tokens in order they appear
         used_nums: list[int] = []
@@ -437,6 +556,17 @@ def resolve_provenance_to_citations(
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # Append citation markers
         markers = "".join(f"[{n}]" for n in used_nums)
-        out_lines.append(stripped + markers)
+        sentence_out = stripped + markers
 
-    return " ".join(out_lines), biblio
+        # Gap-3: put Limitations sentences in a separate paragraph so
+        # they render on their own line in the final report.
+        if any("limitations_paragraph_pass_through" in w for w in sv.soft_warnings):
+            limitations_lines.append(sentence_out)
+        else:
+            findings_lines.append(sentence_out)
+
+    findings_para = " ".join(findings_lines)
+    if limitations_lines:
+        limitations_para = " ".join(limitations_lines)
+        return (findings_para + "\n\n" + limitations_para, biblio)
+    return findings_para, biblio

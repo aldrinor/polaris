@@ -75,7 +75,8 @@ _PRISMA_TRAICE_MACHINE_ITEMS = [
     ("PT10", "Prompt-injection sanitization enabled", "methods"),
     ("PT11", "Every numeric claim has a [CITE] or [#ev:] token", "results"),
     ("PT12", "No citation markers attached to unverified sentences", "results"),
-    # PT13-PT26: mode label, limitations, reproducibility, manual
+    ("PT13", "Superlative / comparative claims are hedged", "results"),
+    # PT14-PT26: mode label, limitations, reproducibility, manual
     # attestations — checked by UI, not by this module.
 ]
 
@@ -356,6 +357,32 @@ def run_rule_checks(
         "PT12", "Citation markers don't exceed bibliography size", pt12,
         f"max_marker={max_marker} but evidence_pool has {len(evidence_pool)}."
         if not pt12 else "",
+    ))
+
+    # PT13 — Gap-2: hedging on superlative / comparative claims.
+    # Scans the prose portion of the report for unhedged superlatives
+    # ("largest", "best", "better than X") that are NOT anchored to a
+    # source verb ("reported", "described as", "one review found").
+    # This is a SOFT check — passes if <=1 unhedged claim remains
+    # (the evaluator treats this as a quality hint, not a blocker).
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+        _detect_unhedged_superlative,
+        split_into_sentences,
+    )
+    methods_idx_pt13 = report_text.lower().find("\n## methods")
+    prose_for_hedging = (
+        report_text[:methods_idx_pt13] if methods_idx_pt13 > 0 else report_text
+    )
+    unhedged_examples: list[str] = []
+    for sent in split_into_sentences(prose_for_hedging):
+        found = _detect_unhedged_superlative(sent)
+        if found:
+            unhedged_examples.append(f"{found!r} in: {sent[:90]!r}")
+    pt13 = len(unhedged_examples) <= 1
+    results.append(RuleCheckResult(
+        "PT13", "Superlative / comparative claims are hedged to sources", pt13,
+        f"{len(unhedged_examples)} unhedged: {unhedged_examples[:3]}"
+        if not pt13 else "",
     ))
 
     return results, num_disclosed, missing_contradictions
