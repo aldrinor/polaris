@@ -3,21 +3,44 @@
 What each pipeline-A run writes to `outputs/<sweep>/<slug>/`.
 Extracted from a real manifest as of 2026-04-18.
 
+**Manifest status contract (BUG-B-101, closed deep-dive round 1)**:
+every pipeline-A exit path writes a `manifest.json` whose `"status"`
+field is a member of the unified 10-value taxonomy. `manifest.status`
+is the SINGLE authoritative run verdict. See
+`scripts/run_honest_sweep_r3.py:UNIFIED_STATUS_VALUES` for the set
+definition and `tests/polaris_graph/test_manifest_contract.py` for
+the regression coverage.
+
+Downstream readers classify the run by prefix:
+- `success` — report + bibliography (happy path)
+- `partial_*` — report + bibliography, but with a degraded-signal flag
+- `abort_*` — pipeline-verdict artifact, not a research report
+- `error_*` — unexpected failure, artifacts may be incomplete
+
 ## `manifest.json` — the pipeline verdict
 
 ```jsonc
 {
   // Run identity
-  "run_id": "r6v_clinical_tirzepatide_t2dm_20260417T22...",
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1713456789",
   "slug": "clinical_tirzepatide_t2dm",
   "domain": "clinical",
   "question": "What is the efficacy and safety of tirzepatide ...",
 
-  // Pipeline verdict
-  "status": "success" | "abort_scope_rejected" | "abort_corpus_inadequate"
-           | "abort_corpus_approval_denied" | "abort_no_verified_sections"
-           | "error_*",
-  "error": "<optional error message>",
+  // Pipeline verdict — one of 10 unified taxonomy values.
+  //
+  // success   — full report, clean signal
+  // partial_thin_corpus         — report produced; corpus adequacy = "expand"
+  // partial_incomplete_corpus   — report produced; <50% completeness coverage
+  // partial_rule_check_warnings — report produced; >=3 evaluator rule fails
+  // abort_scope_rejected        — reserved for enforcing scope gate (B-100 open)
+  // abort_no_sources            — retrieval returned zero classified sources
+  // abort_corpus_inadequate     — adequacy gate refused synthesis
+  // abort_corpus_approval_denied — approval gate refused over material deviation
+  // abort_no_verified_sections  — every section failed strict_verify
+  // error_unexpected            — unhandled exception
+  "status": "success",
+  "error": "<optional, only for abort_/error_ statuses>",
 
   // Corpus adequacy gate output
   "adequacy": {

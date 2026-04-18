@@ -75,6 +75,60 @@ from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
 )
 
 
+# ─────────────────────────────────────────────────────────────────
+# BUG-B-101 fix: unified manifest.status taxonomy.
+#
+# Pre-fix, successful runs wrote manifest.json WITHOUT a "status" key
+# while abort runs DID include it. Documentation claimed
+# manifest.status was authoritative — it wasn't. See
+# outputs/codex_findings/deep_dive_round_1/findings.md for the full
+# scoping analysis.
+#
+# Post-fix, EVERY exit path writes a manifest.json with a "status"
+# field from this unified taxonomy. `summary["status"]` is preserved
+# as secondary sweep telemetry for backward compatibility with any
+# downstream counter that relied on the legacy labels.
+# ─────────────────────────────────────────────────────────────────
+
+UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+    # success
+    "success",
+    # partial — report produced but degraded signal
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    # abort — pipeline refused to produce a report
+    "abort_scope_rejected",      # reserved for future enforcing scope gate (BUG-B-100)
+    "abort_no_sources",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    # error — unhandled exception
+    "error_unexpected",
+})
+
+# Map legacy summary["status"] labels → unified manifest.status values.
+_SUMMARY_TO_UNIFIED: dict[str, str] = {
+    "ok": "success",
+    "ok_thin_corpus": "partial_thin_corpus",
+    "ok_incomplete_corpus": "partial_incomplete_corpus",
+    "warn_rule_checks": "partial_rule_check_warnings",
+    "fail_no_sources": "abort_no_sources",
+    "fail_no_verified_prose": "abort_no_verified_sections",
+    "abort_corpus_inadequate": "abort_corpus_inadequate",
+    "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+    "abort_no_verified_sections": "abort_no_verified_sections",
+    "error": "error_unexpected",
+}
+
+
+def to_unified_status(summary_status: str) -> str:
+    """Map a legacy summary["status"] label to the unified
+    manifest.status taxonomy. Unknown labels become error_unexpected
+    (fail loudly for the reader; still a valid taxonomy value)."""
+    return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
 def expected_str_for_abort(protocol: dict) -> str:
     """Render expected tier distribution for abort-artifact text."""
     parts = []
@@ -316,8 +370,33 @@ async def run_one_query(
              f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
 
         if len(retrieval.classified_sources) == 0:
+            # BUG-B-101 fix: previously returned without any manifest,
+            # so downstream couldn't tell the run happened at all.
             summary["status"] = "fail_no_sources"
             summary["error"] = "zero sources retrieved"
+            run_cost = current_run_cost()
+            abort_manifest = {
+                "run_id": run_id,
+                "slug": q["slug"],
+                "domain": q["domain"],
+                "question": q["question"],
+                "status": "abort_no_sources",
+                "error": "zero sources retrieved",
+                "retrieval": {
+                    "pre_filter": retrieval.total_candidates_pre_filter,
+                    "fetched": retrieval.candidates_fetched,
+                    "failed": retrieval.candidates_failed_fetch,
+                    "api_calls": retrieval.api_calls,
+                },
+                "cost_usd": run_cost,
+                "budget_cap_usd": PG_MAX_COST_PER_RUN,
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = abort_manifest
+            summary["cost_usd"] = run_cost
             log_f.close()
             return summary
 
@@ -848,13 +927,29 @@ async def run_one_query(
         except Exception as exc:
             _log(f"[judge]       FAILED: {exc}")
 
-        # Manifest
+        # Manifest — compute unified status BEFORE the write
+        # so manifest.status is authoritative (BUG-B-101 fix).
         run_cost = current_run_cost()
+        if dist.total_sources == 0:
+            summary_status = "fail_no_sources"
+        elif multi.total_sentences_verified == 0:
+            summary_status = "fail_no_verified_prose"
+        elif ev_out.rule_check_fail_count >= 3:
+            summary_status = "warn_rule_checks"
+        elif adequacy.decision == "expand":
+            summary_status = "ok_thin_corpus"
+        elif completeness.total_applicable > 0 and \
+                completeness.covered_fraction < 0.5:
+            summary_status = "ok_incomplete_corpus"
+        else:
+            summary_status = "ok"
+        unified_status = to_unified_status(summary_status)
         manifest = {
             "run_id": run_id,
             "slug": q["slug"],
             "domain": q["domain"],
             "question": q["question"],
+            "status": unified_status,
             "protocol_sha256": scope.protocol_sha256,
             "retrieval": {
                 "pre_filter": retrieval.total_candidates_pre_filter,
@@ -912,30 +1007,45 @@ async def run_one_query(
 
         _log(f"[cost]        ${run_cost:.4f} (cap ${PG_MAX_COST_PER_RUN:.4f})")
 
-        # Determine overall status
-        if dist.total_sources == 0:
-            status = "fail_no_sources"
-        elif multi.total_sentences_verified == 0:
-            status = "fail_no_verified_prose"
-        elif ev_out.rule_check_fail_count >= 3:
-            status = "warn_rule_checks"
-        elif adequacy.decision == "expand":
-            status = "ok_thin_corpus"
-        elif completeness.total_applicable > 0 and \
-                completeness.covered_fraction < 0.5:
-            status = "ok_incomplete_corpus"
-        else:
-            status = "ok"
-        summary["status"] = status
+        # Status was computed above (line ~851) and written into the
+        # manifest. Mirror to summary for backward compatibility with
+        # sweep counters that read the legacy labels.
+        summary["status"] = summary_status
         summary["manifest"] = manifest
         summary["cost_usd"] = run_cost
-        _log(f"[status]      {status}")
+        _log(f"[status]      {summary_status} (manifest.status={unified_status})")
     except Exception as exc:
         tb = traceback.format_exc()
         _log(f"[FATAL]       {exc}")
         _log(tb)
         summary["status"] = "error"
         summary["error"] = str(exc)[:300]
+        # BUG-B-101 fix: previously the exception path wrote no
+        # manifest, so a crashed run was indistinguishable from a
+        # run that never started. Best-effort write.
+        try:
+            if run_dir is not None:
+                run_cost = current_run_cost()
+                error_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": "error_unexpected",
+                    "error": str(exc)[:500],
+                    "cost_usd": run_cost,
+                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+                }
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(error_manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = error_manifest
+                summary["cost_usd"] = run_cost
+        except Exception as manifest_exc:
+            # Don't mask the original exception if the best-effort
+            # manifest write itself fails.
+            _log(f"[FATAL]       manifest-write-also-failed: {manifest_exc}")
 
     log_f.close()
     return summary
