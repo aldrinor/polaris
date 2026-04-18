@@ -426,6 +426,7 @@ async def _call_limitations(
     model: str,
     temperature: float,
     max_tokens: int,
+    uncovered_topics: list[str] | None = None,
 ) -> tuple[str, int, int]:
     """Generate the Limitations paragraph from pipeline telemetry.
 
@@ -443,7 +444,7 @@ async def _call_limitations(
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
     telemetry = _format_telemetry_block(
-        tier_fractions, contradictions, date_range,
+        tier_fractions, contradictions, date_range, uncovered_topics,
     )
 
     prompt = (
@@ -596,6 +597,9 @@ async def generate_multi_section_report(
     date_range: dict[str, Any] | None = None,
     limitations_temperature: float = 0.3,
     limitations_max_tokens: int = 400,
+    # R-6 Gap-3: completeness-checklist uncovered topics surfaced to
+    # the Limitations paragraph so the report acknowledges gaps.
+    uncovered_topics: list[str] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -682,11 +686,12 @@ async def generate_multi_section_report(
     lim_text = ""
     lim_in_tok = 0
     lim_out_tok = 0
-    if any([tier_fractions, contradictions, date_range]):
+    if any([tier_fractions, contradictions, date_range, uncovered_topics]):
         lim_text, lim_in_tok, lim_out_tok = await _call_limitations(
             tier_fractions=tier_fractions,
             contradictions=contradictions,
             date_range=date_range,
+            uncovered_topics=uncovered_topics,
             model=gen_model,
             temperature=limitations_temperature,
             max_tokens=limitations_max_tokens,

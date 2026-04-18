@@ -53,6 +53,12 @@ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     current_run_cost,
     reset_run_cost,
 )
+from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
+    check_completeness,
+)
+from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
+    assess_corpus_adequacy,
+)
 from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     CorpusApprovalDecision,
     check_auto_approve_allowed,
@@ -243,6 +249,7 @@ async def run_one_query(
             fetch_cap=20,
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
+            domain=q["domain"],   # R-6 Gap-2 domain backends
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -276,6 +283,195 @@ async def run_one_query(
         _log(f"[corpus]      total={dist.total_sources}  {tier_summary}  "
              f"material_deviation={dist.has_material_deviation}")
 
+        # R-6 Gap-1: corpus-adequacy gate.
+        adequacy = assess_corpus_adequacy(
+            tier_counts=dist.tier_counts,
+            evidence_row_count=len(retrieval.evidence_rows),
+            domain=q["domain"],
+            protocol=protocol,
+        )
+        (run_dir / "corpus_adequacy.json").write_text(
+            json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
+            + "\n",
+            encoding="utf-8",
+        )
+        _log(f"[adequacy]    decision={adequacy.decision}  "
+             f"applicable_checks={len(adequacy.findings)}  "
+             f"critical={sum(1 for f in adequacy.findings if f.severity=='critical')}  "
+             f"warn={sum(1 for f in adequacy.findings if f.severity=='warn')}")
+        for f in adequacy.findings:
+            if not f.ok:
+                _log(f"                {f.severity.upper():<8} {f.name}: "
+                     f"{f.observed} vs threshold {f.threshold}")
+
+        # R-6 Gap-3: completeness check (before synthesis so gaps can
+        # trigger expansion).
+        completeness = check_completeness(
+            domain=q["domain"],
+            research_question=q["question"],
+            evidence_rows=retrieval.evidence_rows,
+        )
+        (run_dir / "completeness.json").write_text(
+            json.dumps(
+                {
+                    "domain": completeness.domain,
+                    "total_applicable": completeness.total_applicable,
+                    "total_covered": completeness.total_covered,
+                    "total_uncovered": completeness.total_uncovered,
+                    "covered_fraction": completeness.covered_fraction,
+                    "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+                    "expand_queries": completeness.expand_queries,
+                    "notes": completeness.notes,
+                    "per_topic": [
+                        {
+                            "id": tc.topic.id,
+                            "label": tc.topic.label,
+                            "applies": tc.applies,
+                            "covered": tc.covered,
+                            "hits": tc.hits,
+                            "matched_keywords": tc.matched_keywords,
+                        }
+                        for tc in completeness.topics
+                    ],
+                },
+                indent=2, sort_keys=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        _log(f"[completeness] {completeness.total_covered}/"
+             f"{completeness.total_applicable} topics covered  "
+             f"uncovered={completeness.uncovered_topic_ids()}")
+
+        # R-6 Gap-3: gap-triggered expansion. If uncovered topics and
+        # we have enable_expansion, fire another retrieval pass with
+        # the expansion queries, then re-classify + re-check.
+        enable_expansion = os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+        if (enable_expansion and completeness.expand_queries
+                and completeness.total_uncovered > 0):
+            _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
+                 f"expansion queries")
+            # Cap expansion queries to keep cost/runtime bounded
+            expand_q_cap = int(os.getenv("PG_R6_EXPAND_QUERY_CAP", "4"))
+            exp_queries = completeness.expand_queries[:expand_q_cap]
+            try:
+                exp_retrieval = run_live_retrieval(
+                    research_question=q["question"],
+                    amplified_queries=exp_queries,
+                    protocol=protocol,
+                    max_serper=5,
+                    max_s2=5,
+                    fetch_cap=15,
+                    enable_openalex_enrich=True,
+                    enable_prefetch_filter=False,
+                    domain=q["domain"],
+                )
+                _log(f"[expansion]   fetched={exp_retrieval.candidates_fetched} "
+                     f"new evidence rows")
+                # Merge: add new evidence that isn't already present
+                existing_urls = {
+                    s.url for s in retrieval.classified_sources
+                }
+                for src in exp_retrieval.classified_sources:
+                    if src.url not in existing_urls:
+                        retrieval.classified_sources.append(src)
+                existing_ev_ids = {
+                    ev["evidence_id"] for ev in retrieval.evidence_rows
+                }
+                # Renumber new evidence rows to avoid collisions
+                base = len(retrieval.evidence_rows)
+                for i, ev in enumerate(exp_retrieval.evidence_rows):
+                    new_id = f"ev_{base + i:03d}"
+                    ev["evidence_id"] = new_id
+                    retrieval.evidence_rows.append(ev)
+                # Re-classify tier distribution with the merged corpus
+                dist = compute_tier_distribution(
+                    retrieval.classified_sources, protocol,
+                )
+                tier_summary = ", ".join(
+                    f"{k}={v*100:.0f}%"
+                    for k, v in sorted(dist.tier_fractions.items())
+                )
+                # Re-check completeness
+                completeness = check_completeness(
+                    domain=q["domain"],
+                    research_question=q["question"],
+                    evidence_rows=retrieval.evidence_rows,
+                )
+                _log(f"[expansion]   post: total={dist.total_sources} "
+                     f"covered={completeness.total_covered}/"
+                     f"{completeness.total_applicable}")
+                # Also re-run adequacy
+                adequacy = assess_corpus_adequacy(
+                    tier_counts=dist.tier_counts,
+                    evidence_row_count=len(retrieval.evidence_rows),
+                    domain=q["domain"],
+                    protocol=protocol,
+                )
+                (run_dir / "corpus_adequacy.json").write_text(
+                    json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
+                    + "\n",
+                    encoding="utf-8",
+                )
+            except Exception as exc:
+                _log(f"[expansion]   FAILED: {exc}")
+
+        # R-6 Gap-1: if adequacy still says ABORT after optional
+        # expansion, refuse to synthesize — emit a short "corpus
+        # inadequate" manifest and return status=abort_corpus_inadequate.
+        if adequacy.decision == "abort":
+            _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
+                 f"Refusing to ship a misleading short report.")
+            summary["status"] = "abort_corpus_inadequate"
+            summary["error"] = adequacy.notes[0] if adequacy.notes else "corpus_inadequate"
+            # Still save what we have
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The corpus retrieved for this query did not meet the "
+                f"adequacy thresholds for domain {q['domain']}. The "
+                "pipeline is refusing to synthesize a report that would "
+                "read as confident while being based on thin evidence.\n\n"
+                "### Adequacy findings\n\n"
+                + "\n".join(
+                    f"- **{f.severity.upper()}** {f.name}: "
+                    f"observed={f.observed}, threshold={f.threshold}"
+                    for f in adequacy.findings if not f.ok
+                )
+                + "\n\n### Suggested next steps\n\n"
+                "- Widen retrieval (more amplified queries, higher caps).\n"
+                "- Relax adequacy thresholds if the domain has inherently "
+                "sparse evidence.\n"
+                "- Refine the research question to a narrower, better-"
+                "supported sub-topic.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = {
+                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
+                "question": q["question"],
+                "status": "abort_corpus_inadequate",
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                },
+                "completeness": {
+                    "total_applicable": completeness.total_applicable,
+                    "total_covered": completeness.total_covered,
+                    "total_uncovered": completeness.total_uncovered,
+                    "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+                },
+                "cost_usd": run_cost,
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            log_f.close()
+            return summary
+
         note = f"R-3 sweep. Domain={q['domain']}. Auto-approve on sweep."
         if dist.has_material_deviation:
             ok, err = check_auto_approve_allowed(dist, note)
@@ -293,7 +489,7 @@ async def run_one_query(
         )
         save_approval_decision(decision, run_dir)
 
-        # Contradiction detection
+        # Contradiction detection (now on the possibly-expanded evidence set)
         numeric_claims = extract_numeric_claims(retrieval.evidence_rows)
         contradictions = detect_contradictions(numeric_claims)
         (run_dir / "contradictions.json").write_text(
@@ -312,6 +508,16 @@ async def run_one_query(
         _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
              f"evidence={len(evidence_for_gen)}...")
         t0 = time.time()
+        # R-6 Gap-3: pass uncovered-topic labels so the Limitations
+        # paragraph can name the gaps explicitly.
+        uncovered_labels = [
+            next(
+                (tc.topic.label for tc in completeness.topics
+                 if tc.topic.id == tid),
+                tid,
+            )
+            for tid in completeness.uncovered_topic_ids()
+        ]
         multi = await generate_multi_section_report(
             research_question=q["question"],
             evidence=evidence_for_gen,
@@ -327,6 +533,7 @@ async def run_one_query(
                 if isinstance(protocol.get("date_range"), dict)
                 else None
             ),
+            uncovered_topics=uncovered_labels,
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
@@ -359,10 +566,34 @@ async def run_one_query(
                 expected_parts.append(f"{tier} {mn:.0f}-{mx:.0f}%")
         expected_str = ", ".join(expected_parts) or "per scope template"
 
+        # R-6: surface adequacy + completeness in the Methods section.
+        adequacy_line = (
+            f"Corpus adequacy: decision={adequacy.decision}, "
+            f"{sum(1 for f in adequacy.findings if f.ok)}/"
+            f"{len(adequacy.findings)} thresholds met."
+        )
+        completeness_line = (
+            f"Completeness checklist: {completeness.total_covered}/"
+            f"{completeness.total_applicable} topics covered"
+        )
+        if completeness.uncovered_topic_ids():
+            uncovered_labels = [
+                next(
+                    (tc.topic.label for tc in completeness.topics
+                     if tc.topic.id == tid),
+                    tid,
+                )
+                for tid in completeness.uncovered_topic_ids()
+            ]
+            completeness_line += f"; uncovered: {uncovered_labels}"
+        completeness_line += "."
+
         methods = (
             "\n\n## Methods\n"
             f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
-            f"Corpus: Serper + Semantic Scholar + OpenAlex live retrieval.\n"
+            f"Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, "
+            f"augmented by domain backends ({q['domain']}: "
+            f"{retrieval.notes[-1] if retrieval.notes else 'none'}).\n"
             f"Generator model: {PG_GENERATOR_MODEL} (multi-section: outline + "
             f"{len([s for s in multi.sections if not s.dropped_due_to_failure])} "
             f"parallel sections + strict_verify + regen-on-failure).\n"
@@ -374,6 +605,8 @@ async def run_one_query(
             f"Retrieved {time.strftime('%Y-%m-%d')}.\n"
             f"Expected tier distribution: {expected_str}. "
             f"Actual distribution: {tier_summary}.\n"
+            f"{adequacy_line}\n"
+            f"{completeness_line}\n"
         )
         if contradictions:
             methods += f"\n## Contradiction disclosures\n{len(contradictions)} contradictions detected:\n\n"
@@ -474,6 +707,22 @@ async def run_one_query(
                 "material_deviation": dist.has_material_deviation,
                 "approved": approved,
             },
+            "adequacy": {
+                "decision": adequacy.decision,
+                "findings_ok": sum(1 for f in adequacy.findings if f.ok),
+                "findings_total": len(adequacy.findings),
+                "critical_count": sum(
+                    1 for f in adequacy.findings
+                    if f.severity == "critical"
+                ),
+            },
+            "completeness": {
+                "total_applicable": completeness.total_applicable,
+                "total_covered": completeness.total_covered,
+                "total_uncovered": completeness.total_uncovered,
+                "covered_fraction": round(completeness.covered_fraction, 3),
+                "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+            },
             "contradictions_found": len(contradictions),
             "generator": {
                 "outline_sections": [p.title for p in multi.outline],
@@ -509,6 +758,11 @@ async def run_one_query(
             status = "fail_no_verified_prose"
         elif ev_out.rule_check_fail_count >= 3:
             status = "warn_rule_checks"
+        elif adequacy.decision == "expand":
+            status = "ok_thin_corpus"
+        elif completeness.total_applicable > 0 and \
+                completeness.covered_fraction < 0.5:
+            status = "ok_incomplete_corpus"
         else:
             status = "ok"
         summary["status"] = status

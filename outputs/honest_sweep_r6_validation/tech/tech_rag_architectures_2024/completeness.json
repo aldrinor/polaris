@@ -1,0 +1,90 @@
+{
+  "covered_fraction": 1.0,
+  "domain": "tech",
+  "expand_queries": [],
+  "notes": [],
+  "per_topic": [
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 17,
+      "id": "architecture",
+      "label": "Architecture / design",
+      "matched_keywords": [
+        "system",
+        "architecture",
+        "design",
+        "framework",
+        "pipeline"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 11,
+      "id": "performance_benchmark",
+      "label": "Performance / benchmarks",
+      "matched_keywords": [
+        "performance",
+        "accuracy",
+        "latency",
+        "benchmark"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 9,
+      "id": "trade_offs",
+      "label": "Trade-offs / limitations",
+      "matched_keywords": [
+        "limitation",
+        "challenge",
+        "trade-off",
+        "constraint"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 8,
+      "id": "production_deployment",
+      "label": "Production deployment / ops",
+      "matched_keywords": [
+        "production",
+        "reliability",
+        "deployment",
+        "scale"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 8,
+      "id": "related_work",
+      "label": "Prior work / related approaches",
+      "matched_keywords": [
+        "prior",
+        "compared to",
+        "baseline",
+        "alternative",
+        "related"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 10,
+      "id": "open_source_tools",
+      "label": "Open-source tools / ecosystem",
+      "matched_keywords": [
+        "implementation",
+        "framework"
+      ]
+    }
+  ],
+  "total_applicable": 6,
+  "total_covered": 6,
+  "total_uncovered": 0,
+  "uncovered_topic_ids": []
+}

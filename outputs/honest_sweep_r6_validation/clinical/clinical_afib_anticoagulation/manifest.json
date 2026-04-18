@@ -1,0 +1,62 @@
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "expand",
+    "findings_ok": 6,
+    "findings_total": 7
+  },
+  "budget_cap_usd": 0.1,
+  "completeness": {
+    "covered_fraction": 1.0,
+    "total_applicable": 6,
+    "total_covered": 6,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
+  "contradictions_found": 0,
+  "corpus": {
+    "approved": true,
+    "count": 20,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.4,
+      "T4": 0.3,
+      "T7": 0.3
+    }
+  },
+  "cost_usd": 0.00177479,
+  "domain": "clinical",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 64,
+    "outline_sections": [
+      "Efficacy"
+    ],
+    "sections_kept": 1,
+    "sentences_dropped": 0,
+    "sentences_verified": 4,
+    "words": 163
+  },
+  "protocol_sha256": "768fdeb7f5db85a11302903d588ef257caed366e5c40e940ea00e33662f90c87",
+  "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+  "qwen_verdicts": {
+    "acceptable": 1,
+    "good": 3,
+    "needs_revision": 1,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 20,
+      "openalex": 20,
+      "s2": 3,
+      "serper": 3
+    },
+    "failed": 10,
+    "fetched": 10,
+    "pre_filter": 656
+  },
+  "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776535811",
+  "slug": "clinical_afib_anticoagulation"
+}

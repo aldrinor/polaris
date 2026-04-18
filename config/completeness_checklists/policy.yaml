@@ -1,0 +1,94 @@
+# Policy domain completeness checklist — R-6 Gap-3.
+
+domain: policy
+
+topics:
+  - id: regulatory_framework
+    label: Regulatory framework / authority
+    keywords:
+      - "regulation"
+      - "regulatory"
+      - "authority"
+      - "framework"
+      - "guidance"
+      - "rulemaking"
+      - "statute"
+      - "final rule"
+      - "proposed rule"
+    expand_queries:
+      - "{topic} regulatory framework federal register"
+
+  - id: stakeholder_impact
+    label: Stakeholder impact
+    keywords:
+      - "industry"
+      - "patient"
+      - "consumer"
+      - "provider"
+      - "manufacturer"
+      - "payer"
+      - "insurer"
+      - "public comment"
+    expand_queries:
+      - "{topic} stakeholder impact public comment"
+
+  - id: implementation_timeline
+    label: Implementation timeline / effective dates
+    keywords:
+      - "effective"
+      - "implementation"
+      - "phase-in"
+      - "deadline"
+      - "date"
+      - "timeline"
+      - "transition"
+    expand_queries:
+      - "{topic} effective date implementation timeline"
+
+  - id: enforcement
+    label: Enforcement / penalties
+    keywords:
+      - "enforcement"
+      - "penalty"
+      - "violation"
+      - "fine"
+      - "warning letter"
+      - "corrective action"
+    expand_queries:
+      - "{topic} enforcement penalty warning letter"
+
+  - id: precedent_or_history
+    label: Precedent / policy history
+    keywords:
+      - "previously"
+      - "prior"
+      - "history"
+      - "precedent"
+      - "amended"
+      - "repeal"
+      - "supersede"
+    expand_queries:
+      - "{topic} previous version history amendment"
+
+  - id: international_comparison
+    label: International comparison
+    keywords:
+      - "europe"
+      - "eu"
+      - "uk"
+      - "canada"
+      - "international"
+      - "globally"
+      - "worldwide"
+      - "who"
+      - "oecd"
+    # Only if the query implies international scope
+    applies_if:
+      - "international"
+      - "global"
+      - "compare"
+      - "relative"
+      - "vs"
+      - "versus"
+    expand_queries:
+      - "{topic} international comparison europe canada"

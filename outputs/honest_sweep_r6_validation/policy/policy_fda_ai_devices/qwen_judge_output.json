@@ -1,0 +1,29 @@
+{
+  "input_tokens": 2124,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1879,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing citations in the 'Limitations' section (e.g., 14% T1 sources) and the 'Methods' section's completeness checklist statement.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Properly acknowledges limitations of evidence without overconfidence, though no explicit hedging is used for potential disagreements in the FDA's guidance.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Maintains an evidence-grounded tone throughout, avoiding promotional language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from regulatory framework to mechanism, comparative analysis, and limitations.\"},\n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Checklist indicates 6/6 topics are covered, though primary trials are not explicitly discussed in the main text.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "Missing citations in the 'Limitations' section (e.g., 14% T1 sources) and the 'Methods' section's completeness checklist statement.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Checklist indicates 6/6 topics are covered, though primary trials are not explicitly discussed in the main text.",
+      "verdict": "good"
+    },
+    "flow": {
+      "note": "Logical progression from regulatory framework to mechanism, comparative analysis, and limitations.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Properly acknowledges limitations of evidence without overconfidence, though no explicit hedging is used for potential disagreements in the FDA's guidance.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Maintains an evidence-grounded tone throughout, avoiding promotional language.",
+      "verdict": "good"
+    }
+  }
+}

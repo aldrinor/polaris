@@ -1,0 +1,74 @@
+{
+  "decision": "proceed",
+  "evidence_rows": 14,
+  "findings": [
+    {
+      "name": "total_sources",
+      "observed": 20,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 8
+    },
+    {
+      "name": "t1_count",
+      "observed": 4,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 1
+    },
+    {
+      "name": "t1_plus_t2",
+      "observed": 4,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 2
+    },
+    {
+      "name": "t1_plus_t2_plus_t3",
+      "observed": 4,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 3
+    },
+    {
+      "name": "evidence_rows",
+      "observed": 14,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 5
+    },
+    {
+      "name": "low_quality_fraction",
+      "observed": 0.45,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.7
+    },
+    {
+      "name": "t7_fraction",
+      "observed": 0.1,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.4
+    }
+  ],
+  "notes": [],
+  "thresholds": {
+    "abort_if_below_fraction": 0.5,
+    "max_t5_plus_t6_fraction": 0.7,
+    "max_t7_fraction": 0.4,
+    "min_evidence_rows": 5,
+    "min_t1_count": 1,
+    "min_t1_plus_t2": 2,
+    "min_t1_plus_t2_plus_t3": 3,
+    "min_total_sources": 8
+  },
+  "tier_counts": {
+    "T1": 4,
+    "T5": 6,
+    "T6": 3,
+    "T7": 2,
+    "UNKNOWN": 5
+  },
+  "total_sources": 20
+}

@@ -1,0 +1,26 @@
+========================================================================
+SWEEP domain=policy slug=policy_fda_ai_devices
+Question: How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?
+Budget cap: $0.1000
+========================================================================
+[scope]       sha256=882e7466d691108e... needs_review=False
+[retrieval]   pre_filter=31, fetched=10, failed=10, elapsed=43.8s  api_calls={'serper': 2, 's2': 2, 'openalex': 20, 'fetch': 20, 'serper_policy': 1}
+[corpus]      total=20  T1=15%, T3=15%, T4=5%, T5=15%, T6=5%, T7=45%  material_deviation=True
+[adequacy]    decision=expand  applicable_checks=7  critical=0  warn=1
+                WARN     t7_fraction: 0.45 vs threshold 0.4
+[completeness] 4/5 topics covered  uncovered=['precedent_or_history']
+[expansion]   triggering 1 expansion queries
+[expansion]   fetched=15 new evidence rows
+[expansion]   post: total=28 covered=6/6
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=20...
+              elapsed=28.9s outline=3 sections, words=530, verified=17, dropped=3, limitations_words=73
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 4, 'acceptable': 0, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] completeness: Checklist indicates 6/6 topics are covered, though primary trials are not explic
+              [           GOOD] tone_consistency: Maintains an evidence-grounded tone throughout, avoiding promotional language.
+              [           GOOD] flow: Logical progression from regulatory framework to mechanism, comparative analysis
+              [           GOOD] hedging_appropriateness: Properly acknowledges limitations of evidence without overconfidence, though no 
+              [ NEEDS_REVISION] citation_tightness: Missing citations in the 'Limitations' section (e.g., 14% T1 sources) and the 'M
+[cost]        $0.0046 (cap $0.1000)
+[status]      ok

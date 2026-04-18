@@ -1,0 +1,14 @@
+========================================================================
+SWEEP domain=tech slug=tech_rag_architectures_2024
+Question: What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?
+Budget cap: $0.1000
+========================================================================
+[scope]       sha256=21d766b1c3778bf0... needs_review=False
+[retrieval]   pre_filter=46, fetched=19, failed=1, elapsed=51.0s  api_calls={'serper': 1, 's2': 1, 'openalex': 20, 'fetch': 20, 'arxiv': 1, 'github': 1}
+[corpus]      total=20  T4=75%, T5=5%, T6=15%, T7=5%  material_deviation=True
+[adequacy]    decision=abort  applicable_checks=7  critical=3  warn=0
+                CRITICAL t1_count: 0 vs threshold 1
+                CRITICAL t1_plus_t2: 0 vs threshold 2
+                CRITICAL t1_plus_t2_plus_t3: 0 vs threshold 2
+[completeness] 6/6 topics covered  uncovered=[]
+[ABORT]       Corpus inadequate for confident synthesis. Refusing to ship a misleading short report.

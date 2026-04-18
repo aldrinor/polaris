@@ -1,0 +1,130 @@
+# Clinical domain completeness checklist — R-6 Gap-3.
+#
+# For a drug-efficacy/safety research question, these are the topics a
+# reviewer would expect to see covered. If retrieval didn't surface
+# evidence for a topic, the pipeline triggers a targeted retrieval
+# pass BEFORE synthesis rather than shipping an incomplete report.
+#
+# Each topic has:
+#   - keywords: regex-safe terms whose presence in any evidence
+#       direct_quote counts as "covered".
+#   - applies_if: optional list of terms that must appear in the
+#       research question for this topic to apply (so we don't demand
+#       "pancreatitis" coverage on a cardiovascular-only question).
+#   - expand_queries: list of Serper/S2 queries to fire if the topic
+#       is uncovered. Kept short.
+
+domain: clinical
+
+topics:
+  - id: efficacy_primary
+    label: Primary-endpoint efficacy
+    keywords:
+      - "weight loss"
+      - "mean weight"
+      - "weight reduction"
+      - "a1c"
+      - "hba1c"
+      - "glycemic"
+      - "reduction"
+      - "mace"
+      - "mortality"
+    # Always applies
+    expand_queries:
+      - "{drug} primary endpoint efficacy randomized controlled trial"
+
+  - id: safety_adverse_events
+    label: Adverse events / safety
+    keywords:
+      - "adverse event"
+      - "adverse reaction"
+      - "nausea"
+      - "vomiting"
+      - "diarrhea"
+      - "side effect"
+      - "discontinuation"
+      - "serious adverse"
+    expand_queries:
+      - "{drug} adverse events safety profile"
+      - "{drug} serious adverse events discontinuation"
+
+  - id: contraindications
+    label: Contraindications / warnings
+    keywords:
+      - "contraindicated"
+      - "contraindication"
+      - "warning"
+      - "boxed warning"
+      - "black box"
+      - "not recommended"
+      - "avoid"
+    expand_queries:
+      - "{drug} contraindications boxed warning FDA"
+
+  - id: class_specific_risks_glp1
+    label: GLP-1 class-typical risks (pancreatitis, gallbladder, thyroid)
+    keywords:
+      - "pancreatitis"
+      - "gallbladder"
+      - "cholelithiasis"
+      - "thyroid"
+      - "medullary thyroid"
+      - "men 2"
+      - "c-cell"
+    applies_if:
+      - "semaglutide"
+      - "tirzepatide"
+      - "liraglutide"
+      - "dulaglutide"
+      - "exenatide"
+      - "glp-1"
+      - "glp1"
+      - "incretin"
+    expand_queries:
+      - "{drug} pancreatitis risk"
+      - "{drug} gallbladder cholelithiasis"
+      - "{drug} medullary thyroid carcinoma"
+
+  - id: regulatory_status
+    label: Regulatory approval status
+    keywords:
+      - "fda"
+      - "approved"
+      - "ema"
+      - "health canada"
+      - "mhra"
+      - "indicated for"
+      - "indication"
+    expand_queries:
+      - "{drug} FDA approved indication"
+      - "{drug} EMA approval label"
+
+  - id: drug_interactions
+    label: Drug interactions
+    keywords:
+      - "drug interaction"
+      - "interact"
+      - "co-administration"
+      - "concomitant"
+    # Only check this for drug-specific queries
+    applies_if:
+      - "drug"
+      - "medication"
+      - "therapy"
+    expand_queries:
+      - "{drug} drug interactions contraindicated medications"
+
+  - id: population_subgroups
+    label: Population subgroups (elderly, renal, hepatic)
+    keywords:
+      - "elderly"
+      - "renal impairment"
+      - "hepatic impairment"
+      - "kidney"
+      - "liver"
+      - "pregnancy"
+      - "adolescent"
+      - "pediatric"
+    expand_queries:
+      - "{drug} renal hepatic impairment dosing"
+      - "{drug} elderly adolescent use"

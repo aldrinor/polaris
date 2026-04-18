@@ -1,0 +1,74 @@
+{
+  "decision": "expand",
+  "evidence_rows": 4,
+  "findings": [
+    {
+      "name": "total_sources",
+      "observed": 20,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 10
+    },
+    {
+      "name": "t1_count",
+      "observed": 8,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 3
+    },
+    {
+      "name": "t1_plus_t2",
+      "observed": 8,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 5
+    },
+    {
+      "name": "t1_plus_t2_plus_t3",
+      "observed": 8,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 6
+    },
+    {
+      "name": "evidence_rows",
+      "observed": 4,
+      "ok": false,
+      "severity": "warn",
+      "threshold": 6
+    },
+    {
+      "name": "low_quality_fraction",
+      "observed": 0.0,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.5
+    },
+    {
+      "name": "t7_fraction",
+      "observed": 0.3,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.4
+    }
+  ],
+  "notes": [
+    "Corpus below nominal on 1 threshold(s): ['evidence_rows']. Synthesis possible but caller is encouraged to trigger a second retrieval round before proceeding."
+  ],
+  "thresholds": {
+    "abort_if_below_fraction": 0.5,
+    "max_t5_plus_t6_fraction": 0.5,
+    "max_t7_fraction": 0.4,
+    "min_evidence_rows": 6,
+    "min_t1_count": 3,
+    "min_t1_plus_t2": 5,
+    "min_t1_plus_t2_plus_t3": 6,
+    "min_total_sources": 10
+  },
+  "tier_counts": {
+    "T1": 8,
+    "T4": 6,
+    "T7": 6
+  },
+  "total_sources": 20
+}

@@ -1,0 +1,23 @@
+========================================================================
+SWEEP domain=clinical slug=clinical_afib_anticoagulation
+Question: What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?
+Budget cap: $0.1000
+========================================================================
+[scope]       sha256=768fdeb7f5db85a1... needs_review=True
+[retrieval]   pre_filter=656, fetched=10, failed=10, elapsed=53.8s  api_calls={'serper': 3, 's2': 3, 'openalex': 20, 'fetch': 20}
+[corpus]      total=20  T1=40%, T4=30%, T7=30%  material_deviation=True
+[adequacy]    decision=expand  applicable_checks=7  critical=0  warn=1
+                WARN     evidence_rows: 4 vs threshold 6
+[completeness] 6/6 topics covered  uncovered=[]
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=4...
+              elapsed=18.7s outline=1 sections, words=163, verified=4, dropped=0, limitations_words=64
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] completeness: The report addresses primary trials (ARISTOTLE, ROCKET AF), regulatory status, a
+              [           GOOD] tone_consistency: The tone remains evidence-grounded, avoiding promotional language and focusing o
+              [     ACCEPTABLE] flow: The structure follows a logical progression (efficacy -> limitations -> methods)
+              [           GOOD] hedging_appropriateness: The prose appropriately acknowledges different treatment options (DOACs vs. warf
+              [ NEEDS_REVISION] citation_tightness: The limitations section discusses the corpus composition without a citation, and
+[cost]        $0.0018 (cap $0.1000)
+[status]      ok_thin_corpus

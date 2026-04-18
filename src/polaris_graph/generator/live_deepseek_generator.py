@@ -95,6 +95,7 @@ def _format_telemetry_block(
     tier_fractions: dict[str, float] | None,
     contradictions: list[dict[str, Any]] | None,
     date_range: dict[str, str | None] | None = None,
+    uncovered_topics: list[str] | None = None,
 ) -> str:
     """Build the <<<pipeline_telemetry>>> data block for Gap-3.
 
@@ -103,6 +104,7 @@ def _format_telemetry_block(
       - tier_distribution: actual fractions per T1-T7
       - contradictions: list of (subject, predicate, rel_diff)
       - date_range: from protocol
+      - uncovered_topics: completeness-checklist gaps (R-6 Gap-3)
     """
     lines: list[str] = ["<<<pipeline_telemetry>>>"]
 
@@ -131,6 +133,14 @@ def _format_telemetry_block(
         if s or e:
             lines.append(f"date_range: {s or 'unbounded'} to {e or 'current'}")
 
+    if uncovered_topics:
+        lines.append(
+            f"completeness_gaps: {len(uncovered_topics)} topic(s) "
+            f"uncovered by corpus"
+        )
+        for t in uncovered_topics[:8]:
+            lines.append(f"  - {t}")
+
     # Sanitize any accidental injection patterns inside telemetry values
     # (defense in depth — same as evidence wrapping).
     joined = "\n".join(lines)
@@ -149,12 +159,14 @@ def build_prompt(
     tier_fractions: dict[str, float] | None = None,
     contradictions: list[dict[str, Any]] | None = None,
     date_range: dict[str, str | None] | None = None,
+    uncovered_topics: list[str] | None = None,
 ) -> str:
     """Assemble the user prompt: question + telemetry + wrapped evidence.
 
     Gap-3 extension: passes a <<<pipeline_telemetry>>> data block so the
     generator can cite actual pipeline numbers in the Limitations paragraph.
-    The block is sanitized + delimited the same way evidence is.
+    R-6 extension: `uncovered_topics` — completeness-checklist gaps the
+    Limitations paragraph MUST acknowledge.
     """
     blocks = []
     for ev in evidence:
@@ -168,10 +180,12 @@ def build_prompt(
     evidence_section = "\n\n".join(blocks)
 
     telemetry_section = ""
-    if any([tier_fractions, contradictions, date_range]):
+    if any([tier_fractions, contradictions, date_range, uncovered_topics]):
         telemetry_section = (
             "\n\nPipeline telemetry (use in the Limitations paragraph):\n\n"
-            + _format_telemetry_block(tier_fractions, contradictions, date_range)
+            + _format_telemetry_block(
+                tier_fractions, contradictions, date_range, uncovered_topics,
+            )
         )
 
     return (

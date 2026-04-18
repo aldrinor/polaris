@@ -1,0 +1,222 @@
+[
+  {
+    "domain": "fda.gov",
+    "tier": "T3",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'fda.gov' matches regulatory body list. T3 regulatory/government source."
+    ],
+    "tier_rule": "R2d_regulatory_domain",
+    "title": "Predetermined Change Control Plan for Artificial ...",
+    "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/marketing-submission-recommendations-predetermined-change-control-plan-artificial-intelligence"
+  },
+  {
+    "domain": "fda.gov",
+    "tier": "T3",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'fda.gov' matches regulatory body list. T3 regulatory/government source."
+    ],
+    "tier_rule": "R2d_regulatory_domain",
+    "title": "Guiding Principles - Predetermined Change Control Plans ...",
+    "url": "https://www.fda.gov/medical-devices/software-medical-device-samd/predetermined-change-control-plans-machine-learning-enabled-medical-devices-guiding-principles"
+  },
+  {
+    "domain": "ketryx.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Understanding FDA Guidance on AI in Medical Devices ...",
+    "url": "https://www.ketryx.com/blog/understanding-fda-guidance-on-ai-in-medical-devices-and-predetermined-change-control-plans-pccps"
+  },
+  {
+    "domain": "members.ecri.org",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 17 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "Understanding FDA's Predetermined Change Control Plans ...",
+    "url": "https://members.ecri.org/guidance/understanding-fdas-predetermined-change-control-plans-pccps-for-ai-enabled?utm_campaign=Health%20Devices&__hstc=20521319.a916464c0282ca55d034c7f1675d8cdd.1766534400092.1766534400093.1766534400094.1&__hssc=20521319.1.1766534400095&__hsfp=3006156910"
+  },
+  {
+    "domain": "knobbe.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Keeping Up With AI: FDA Issues Guidance ...",
+    "url": "https://www.knobbe.com/blog/keeping-up-with-ai-fda-issues-guidance-on-predetermined-change-control-plans-pccps-for-artificial-intelligence-ai-enabled-devices/"
+  },
+  {
+    "domain": "complizen.ai",
+    "tier": "T5",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'complizen.ai' is a vendor / SaaS product blog. Benchmark numbers and product claims originate from the vendor; treat as industry-adjacent (T5), not peer-reviewed."
+    ],
+    "tier_rule": "R4a_vendor_blog_domain",
+    "title": "Predetermined Change Control Plan (PCCP) for AI/ML- ...",
+    "url": "https://www.complizen.ai/post/fda-predetermined-change-control-plan-pccp-implementation-guide-2025"
+  },
+  {
+    "domain": "ai.jmir.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Predetermined Change Control Plans: Guiding Principles for ...",
+    "url": "https://ai.jmir.org/2025/1/e76854"
+  },
+  {
+    "domain": "bipartisanpolicy.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "FDA Oversight: Understanding the Regulation of Health AI ...",
+    "url": "https://bipartisanpolicy.org/issue-brief/fda-oversight-understanding-the-regulation-of-health-ai-tools/"
+  },
+  {
+    "domain": "fda.gov",
+    "tier": "T3",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'fda.gov' matches regulatory body list. T3 regulatory/government source."
+    ],
+    "tier_rule": "R2d_regulatory_domain",
+    "title": "Predetermined Change Control Plans for Medical Devices - FDA",
+    "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/predetermined-change-control-plans-medical-devices"
+  },
+  {
+    "domain": "mcdermottplus.com",
+    "tier": "T6",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'mcdermottplus.com' is a law-firm or legal-commentary site. Not peer-reviewed research. T6."
+    ],
+    "tier_rule": "R2b_legal_commentary",
+    "title": "FDA Issues Final Guidance on PCCPs for AI-Enabled Devices",
+    "url": "https://www.mcdermottplus.com/insights/fda-issues-final-guidance-on-predetermined-change-control-plans-for-ai-enabled-devices/"
+  },
+  {
+    "domain": "medcrypt.com",
+    "tier": "T5",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'medcrypt.com' is a vendor / SaaS product blog. Benchmark numbers and product claims originate from the vendor; treat as industry-adjacent (T5), not peer-reviewed."
+    ],
+    "tier_rule": "R4a_vendor_blog_domain",
+    "title": "Understanding FDA's Draft Guidance for Predetermined Change ...",
+    "url": "https://www.medcrypt.com/blog/understanding-fdas-draft-guidance-for-predetermined-change-control-plans-pccps-for-medical-devices"
+  },
+  {
+    "domain": "intertek.com",
+    "tier": "T5",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'intertek.com' is a vendor / SaaS product blog. Benchmark numbers and product claims originate from the vendor; treat as industry-adjacent (T5), not peer-reviewed."
+    ],
+    "tier_rule": "R4a_vendor_blog_domain",
+    "title": "How the FDA's Predetermined Change Control Plan (PCCP ...",
+    "url": "https://www.intertek.com/blog/2025/03-25-fdas-pccp-framework-and-ai-enabled-medical-devices/"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Risk- Based Validation of Software, Automation and Artificial intelligence in Pharmaceuticals",
+    "url": "https://www.semanticscholar.org/paper/0006d0ffd36796c07f6bd3fdebc0cc9579b27b04"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Regulatory Challenges and Opportunities: A Review of U.S. Food and Drug Administration-Approved Artificial Intelligence and Machine Learning-Enabled Cardiovascular Devices",
+    "url": "https://www.semanticscholar.org/paper/057a9edd54a00898eaf657c816f29e6a4bff86a2"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "FDA\u2019s PCCP: Opportunities and Gaps",
+    "url": "https://www.semanticscholar.org/paper/460f596bed88cc73a830c7156c052d83d465513f"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Regulating Flexibility for Artificial Intelligence: FDA Experience with Predetermined Change Control Plans",
+    "url": "https://www.semanticscholar.org/paper/467983b9e9f763d0b52a8a163d0378ca3f168ad6"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "A Two-Dimensional Risk Framework for AI in Mental Health Software as a Medical Device",
+    "url": "https://www.semanticscholar.org/paper/8ae94d1e3ff9f2fa3ccd84cf7af45737716d4064"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Discussion on \u201cApproval policies for modifications to machine learning\u2010based software as a medical device: A study of bio\u2010creep\u201d by Jean Feng, Scott Emerson, and Noah Simon",
+    "url": "https://www.semanticscholar.org/paper/8c1416bfa020a912dc265cb5764ccef00637d922"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Regulating radiology AI medical devices that evolve in their lifecycle",
+    "url": "https://www.semanticscholar.org/paper/d0f5f0eeed57a59784b5a899bc77290d3cebba80"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "AEGIS: An Operational Infrastructure for Post-Market Governance of Adaptive Medical AI Under US and EU Regulations",
+    "url": "https://www.semanticscholar.org/paper/eda3bc0d19ca164c56da8d754c9c006e2378d319"
+  }
+]

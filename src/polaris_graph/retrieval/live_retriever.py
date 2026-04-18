@@ -376,6 +376,7 @@ def run_live_retrieval(
     fetch_cap: int = DEFAULT_FETCH_CAP,
     enable_openalex_enrich: bool = True,
     enable_prefetch_filter: bool = False,
+    domain: Optional[str] = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -389,6 +390,10 @@ def run_live_retrieval(
         enable_openalex_enrich: Toggle OpenAlex lookup per URL.
         enable_prefetch_filter: Toggle embedding-based off-topic filter
             (slow; off by default for the first live run).
+        domain: Optional scope-template domain name (clinical / policy /
+            tech / due_diligence). When set, R-6 Gap-2 domain backends
+            augment the generic Serper+S2 retrieval with arxiv (tech),
+            SEC EDGAR (DD), or policy-site targeted Serper queries.
 
     Returns LiveRetrievalResult.
     """
@@ -447,6 +452,40 @@ def run_live_retrieval(
                 source="s2",
                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
             ))
+
+    # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+    # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
+    # for policy. Fail-open: any backend exception yields 0 new hits.
+    if domain:
+        try:
+            from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                run_domain_backends,
+            )
+            domain_result = run_domain_backends(
+                domain=domain,
+                research_question=research_question,
+                amplified_queries=amplified_queries,
+            )
+            for cand in domain_result.candidates:
+                url = cand.url
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                candidates.append(cand)
+            if domain_result.backends_used:
+                notes.append(
+                    f"domain_backends({domain}): "
+                    f"{domain_result.per_backend_counts}"
+                )
+                for backend_name in domain_result.backends_used:
+                    api_calls[backend_name] = (
+                        api_calls.get(backend_name, 0) + 1
+                    )
+        except Exception as exc:
+            logger.warning(
+                "[live_retriever] domain_backends failed for %r: %s",
+                domain, exc,
+            )
 
     total_pre_filter = len(candidates)
     logger.info("[live_retriever] %d unique candidates from search", total_pre_filter)
