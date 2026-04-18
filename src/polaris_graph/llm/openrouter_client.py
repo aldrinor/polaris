@@ -46,6 +46,124 @@ OPENROUTER_BASE_URL = os.getenv(
 OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
+# HONEST-REBUILD Phase 1c (plan: C:/Users/msn/.claude/plans/lovely-finding-firefly.md)
+# ─────────────────────────────────────────────────────────────────────────────
+# Two-family architecture: generator and evaluator MUST be from different
+# training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
+# 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
+#
+# Phase 0 web research (loopback/audit/_open_source_models_2026.md, verified
+# 2026-04-17) recommends:
+#   Generator: deepseek/deepseek-v3.2-exp  (Vectara HHEM 6.3%, MIT, 128K)
+#   Evaluator: qwen/qwen3-32b              (Vectara HHEM 5.9%, Apache 2.0, 128K)
+# Blended cost ~$0.07-$0.10 per report.
+#
+# Family derivation uses the OpenRouter model-name prefix (publisher slug).
+# OpenRouter normalizes to "publisher/model-name" so the prefix captures the
+# training lineage. A Llama-3-fine-tune served under a different slug is
+# still Llama family; that is a known limitation — when genuinely
+# distinguishing base lineage matters, override with PG_{GEN,EVAL}_FAMILY.
+PG_GENERATOR_MODEL = os.getenv(
+    "PG_GENERATOR_MODEL",
+    os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v3.2-exp"),
+)
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-32b")
+
+# Explicit family overrides for the cases where the model-name prefix is
+# not the true family (fine-tunes, licensed redistributions, etc.).
+PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
+PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+
+# Known family prefixes. The first prefix matched wins. Distinct families
+# per the loopback/audit/_open_source_models_2026.md family-distance table.
+_FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
+    "deepseek": ("deepseek/", "deepseek-ai/"),
+    "qwen":     ("qwen/", "qwen-ai/", "alibaba/"),
+    "glm":      ("z-ai/", "zhipuai/", "thudm/"),
+    "llama":    ("meta-llama/", "meta/", "llama/"),
+    "gemma":    ("google/gemma", "google/gemma-", "gemma/"),
+    "mistral":  ("mistralai/", "mistral/"),
+    "kimi":     ("moonshotai/", "moonshot/", "kimi/"),
+    # Closed frontier families included for completeness (off-MVP, but if
+    # ever allowed via a closed-source fallback they get their own family).
+    "openai":   ("openai/", "gpt-"),
+    "anthropic":("anthropic/", "claude-"),
+    "google-closed": ("google/gemini",),
+}
+
+
+def family_from_model(model_name: str, override: str = "") -> str:
+    """Derive the training-lineage family from an OpenRouter model name.
+
+    Returns the family label ("deepseek", "qwen", "glm", "llama", "gemma",
+    "mistral", "kimi", "openai", "anthropic", "google-closed") or
+    "unknown" if no prefix matches.
+
+    A non-empty `override` bypasses prefix matching. Use it when a model
+    has been renamed or when a fine-tune needs its base-family tag.
+    """
+    if override:
+        return override.strip().lower()
+    if not model_name:
+        return "unknown"
+    m = model_name.strip().lower()
+    for family, prefixes in _FAMILY_PREFIXES.items():
+        for prefix in prefixes:
+            if m.startswith(prefix.lower()):
+                return family
+    return "unknown"
+
+
+def check_family_segregation(
+    generator_model: str | None = None,
+    evaluator_model: str | None = None,
+    generator_override: str | None = None,
+    evaluator_override: str | None = None,
+) -> tuple[str, str]:
+    """Fail fast if generator and evaluator are in the same family.
+
+    Returns (generator_family, evaluator_family) on success.
+    Raises RuntimeError if same family or if either is "unknown" without
+    an explicit override (so misconfiguration is visible at init time).
+
+    Defaults pull from the module-level env-var settings.
+    """
+    gen_model = generator_model or PG_GENERATOR_MODEL
+    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+    gen_override = generator_override if generator_override is not None else PG_GENERATOR_FAMILY_OVERRIDE
+    eval_override = evaluator_override if evaluator_override is not None else PG_EVALUATOR_FAMILY_OVERRIDE
+
+    gen_family = family_from_model(gen_model, gen_override)
+    eval_family = family_from_model(eval_model, eval_override)
+
+    if gen_family == "unknown" and not gen_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator model '{gen_model}' does not "
+            f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+            f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+            f"family segregation can be checked. Family-distance from the "
+            f"evaluator is the primary mitigation for evaluator-generator "
+            f"self-bias (Play Favorites arXiv:2508.06709, DeepHalluBench "
+            f"arXiv:2601.22984)."
+        )
+    if eval_family == "unknown" and not eval_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: evaluator model '{eval_model}' does "
+            f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
+        )
+    if gen_family == eval_family:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator and evaluator are in the "
+            f"same training-lineage family ('{gen_family}'). This defeats "
+            f"the purpose of two-family architecture — same-family judges "
+            f"share blind spots and RLHF biases. Pick models from different "
+            f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+            f"values to demonstrate you know the trade-off. Recommended pair: "
+            f"deepseek/deepseek-v3.2-exp (generator) + qwen/qwen3-32b "
+            f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+        )
+    return (gen_family, eval_family)
+
 # FIX-GLM5: Models that always route output to reasoning_content.
 # These need reasoning_enabled=True for all calls, and generate() must
 # use reasoning as content directly (no </think> tag extraction).
