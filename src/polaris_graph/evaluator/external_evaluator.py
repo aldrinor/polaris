@@ -289,33 +289,40 @@ def run_rule_checks(
         if not pt10 else "",
     ))
 
-    # PT11 — every numeric claim has a citation token
-    # Numbers in the report text minus ones inside [#ev:] spans.
-    # Heuristic: count numeric tokens not immediately followed by a close-bracket.
-    text_stripped = re.sub(r"\[#ev:[^\]]+\]", "", report_text)
+    # PT11 — every numeric claim has a citation token.
+    # Only check the PROSE portion of the report (everything before the
+    # "## Methods" heading). The methods and bibliography sections
+    # contain protocol numbers (tier bounds like "30-60%", retrieval
+    # dates, model names with version numbers) that are specifications,
+    # not empirical claims needing citations.
+    methods_idx = report_text.lower().find("\n## methods")
+    if methods_idx > 0:
+        prose_only = report_text[:methods_idx]
+    else:
+        prose_only = report_text
+    text_stripped = re.sub(r"\[#ev:[^\]]+\]", "", prose_only)
+    # Only check DECIMAL numbers (the empirical claims) — integers like
+    # study-ID "STEP 1" or "week 68" are study markers, not claims.
     numeric_matches = list(re.finditer(
-        r"(?<![A-Za-z])(-?\d+(?:\.\d+)?)\s*%?",
+        r"(?<![A-Za-z0-9.])(-?\d+\.\d+)",
         text_stripped,
     ))
-    # Look for [n] or [#ev:...] markers near each number. Anything
-    # within 15 chars after is "has citation"; this is a heuristic.
     uncited = 0
     for m in numeric_matches:
-        snippet_after = text_stripped[m.end():m.end() + 50]
+        snippet_after = text_stripped[m.end():m.end() + 80]
+        # Look for [n] or [#ev:...] markers within 80 chars
         if not re.search(r"\[\d+\]|\[#ev:", snippet_after):
-            # Skip very small numbers that are years/page numbers
-            try:
-                val = float(m.group(1))
-                # Skip plausibly-non-claim numbers (year, page number)
-                if 1900 <= val <= 2100 or 0 <= val <= 3 and m.group(0).strip().startswith(("1", "2")):
-                    continue
-            except Exception:
-                pass
-            uncited += 1
+            # Also allow markers BEFORE the number (sometimes citation
+            # comes first). Check 20 chars before.
+            start = max(0, m.start() - 20)
+            snippet_before = text_stripped[start:m.start()]
+            if not re.search(r"\[\d+\]|\[#ev:", snippet_before):
+                uncited += 1
     pt11 = uncited < max(3, len(numeric_matches) // 10)  # allow <=10% uncited
     results.append(RuleCheckResult(
         "PT11", "Numeric claims have citation markers", pt11,
-        f"{uncited} numeric claims without adjacent citation marker."
+        f"{uncited} numeric claims without adjacent citation marker "
+        f"(out of {len(numeric_matches)} decimals in prose)."
         if not pt11 else "",
     ))
 

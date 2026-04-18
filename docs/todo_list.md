@@ -1,6 +1,6 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-17 (honest-rebuild plan approved; Phase 0 and Phase 1 active in parallel)
+**Last Updated**: 2026-04-18 (Phase 2a-2g, Phase 3, Phase 4, Phase 5, Phase 6 all GREEN; full-cycle run validated)
 
 ---
 
@@ -27,13 +27,33 @@
 - [x] **1f DONE** (commit 70f8a15): `tests/polaris_graph/test_regression_pg_lb_sa_02_defects.py` — 15 tests, 8 passing (Phase 1a/1b/1c locks + D-027 kwarg), 6 xfailed for Phase 2-4, 1 skipped.
 - [x] Plan + audit committed to PL; PL-honest-rebuild-phase-1 branch created; commits 11252bc + 85f08b5 + audit 9b82bdc chain
 
-**Phase 2+ (blocked pending Phase 0 validation gate)**
-- [ ] Phase 2: Tier-first retrieval + corpus-approval gate + pre-registered protocol artifact
-- [ ] Phase 3: Contradiction detector + contradiction-resolution gate + trial-ID extraction
-- [ ] Phase 4: Provenance-emitting generator (draft-then-strict-verify primary, constrained-decoding secondary) + prompt injection defense
-- [ ] Phase 5: External non-same-family evaluator + auto mode + disagreement amplifier + PRISMA-trAIce disclosure + mode labels
-- [ ] Phase 6: Bundle signer + Docker package + 3 pilot users × 3 runs
-- [ ] Phase 7: Quarterly external benchmark re-runs (WikiContradict, AstaBench, SourceCheckup) — ongoing discipline
+**Phase 0 validation gate: PASSED 2026-04-17 (user sign-off)**
+
+**Phase 2 — Tier-first retrieval + corpus gate (COMPLETE 2026-04-18)**
+- [x] **2a DONE** (commit 968ce6c): `src/polaris_graph/retrieval/tier_classifier.py` — T1-T7 rules engine, 32/33 spot-check agreement
+- [x] **2b DONE** (commit 2d72a16): `src/polaris_graph/nodes/scope_gate.py` — pre-registered `protocol.json` at T+0, SHA-256 tamper-evident, 10/10 tests
+- [x] **2c DONE** (commit 2d72a16): `config/scope_templates/` — clinical / policy / tech / due_diligence YAMLs
+- [x] **2d DONE** (commit 2bb4b57): Off-topic filter pre-fetch module + threshold raised 0.15 → 0.35 + risk floor 0.15 → 0.20, 5/5 tests
+- [x] **2e DONE** (commit be07040): `src/polaris_graph/retrieval/scope_query_validator.py` — Jaccard drift filter, 7/7 tests
+- [x] **2f DONE** (commit f5788b5): `OpenAlexWork.authority_tier_t7()` routes through Phase 2a classifier, 9/9 tests
+- [x] **2g DONE** (commit 24c08c6): `src/polaris_graph/nodes/corpus_approval_gate.py` — HTML + endpoint + rubber-stamp resistance, 10/10 tests
+- [x] **2-validate DONE** (commit 968ce6c): Spot-check 32/33 agree, PASS gate
+
+**Phase 3 — Contradiction detector (COMPLETE 2026-04-18)**
+- [x] **3 DONE** (commit f00ece8): `src/polaris_graph/retrieval/contradiction_detector.py` — regex-based numeric extraction, group-and-compare, 10/10 tests
+
+**Phase 4 — Provenance-emitting generator (COMPLETE 2026-04-18)**
+- [x] **4 DONE** (commit 5d8329c): `src/polaris_graph/generator/provenance_generator.py` — `[#ev:id:start-end]` tokens, strict span verification, prompt-injection sanitization, 13/13 tests
+
+**Phase 5 — External non-same-family evaluator + PRISMA-trAIce (COMPLETE 2026-04-18)**
+- [x] **5 DONE** (commit ca964f2): `src/polaris_graph/evaluator/external_evaluator.py` — 12-item PRISMA-trAIce checklist + structured `EvaluatorOutput` dict (no single-number cooking), fails fast on same-family pair, 5/5 tests
+
+**Phase 6 — End-to-end full-run validation (COMPLETE 2026-04-18)**
+- [x] **6 DONE** (this commit): `src/polaris_graph/honest_pipeline.py` + `scripts/run_honest_full_cycle.py` end-to-end. Canonical semaglutide weight-loss query processed through all phases. All 6 artifacts written (protocol.json, corpus_approval.json, contradictions.json, report.md, bibliography.json, evaluator_output.json) + manifest.json. 12/12 PRISMA-trAIce checks pass. 6/6 sentences verified, 0 dropped. 1 contradiction detected + disclosed. Final report: 31 lines, 393 words, 6 citations. Full test suite: **77 passed + 7 xfailed + 1 expected deprecation warning**.
+
+**Future phases (deferred)**
+- [ ] Phase 7: Bundle signer + Docker package + 3 pilot users × 3 runs
+- [ ] Phase 8: Quarterly external benchmark re-runs (WikiContradict, AstaBench, SourceCheckup) — ongoing discipline
 
 **Deprecated from prior sessions (moved to archive):**
 - Prior SOTA patches A/B/C/D shipped on d638446 / c82c5c3 — retained in history but their NLI-gaming / survivorship-biased mechanics are being removed in Phase 1

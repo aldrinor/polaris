@@ -1,0 +1,24 @@
+{
+  "artifacts": {
+    "bibliography": "bibliography.json",
+    "contradictions": "contradictions.json",
+    "corpus_approval": "corpus_approval.json",
+    "evaluator_output": "evaluator_output.json",
+    "protocol": "protocol.json",
+    "report": "report.md"
+  },
+  "domain": "clinical",
+  "protocol_sha256": "9de5a3f195fe76de6d682ced578705ab7a5781a80a676fe98661ea6f9cd04b4c",
+  "research_question": "What is the efficacy and safety of semaglutide 2.4mg for weight loss in adults with obesity?",
+  "run_id": "HONEST_FULL_CYCLE_001",
+  "summary": {
+    "contradictions_found": 1,
+    "corpus_approved": true,
+    "rule_checks_fail": 0,
+    "rule_checks_pass": 12,
+    "sentences_dropped": 0,
+    "sentences_verified": 6,
+    "total_evidence": 8,
+    "total_sources": 10
+  }
+}

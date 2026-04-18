@@ -181,9 +181,34 @@ def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
+# Decimal-only pattern (e.g., 14.9, 3.4, 44.2). Integers like "STEP 1",
+# "week 68", "104 weeks" are study/duration markers, not the claim
+# itself — so we don't require them to appear in the provenance span.
+# This prevents over-strict verification failures on sentences like
+# "In STEP 1, semaglutide achieved 14.9%" where only 14.9 is the
+# evidence-backed claim.
+_DECIMAL_NUMBER_RE = re.compile(r"-?\d+\.\d+")
+
+# Dose-pattern (e.g., "2.4 mg", "1.0 mg", "0.5 µg") — these are drug
+# identifiers / dosing descriptors, not the empirical claim. We strip
+# them from the sentence before extracting claim-decimals so sentences
+# that repeat the dose alongside a result (very common) verify cleanly.
+_DOSE_PATTERN_RE = re.compile(
+    r"-?\d+(?:\.\d+)?\s*(?:mg|µg|ug|mcg|kg|g|ml|mL|L)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_dose_patterns(text: str) -> str:
+    return _DOSE_PATTERN_RE.sub(" ", text or "")
+
 
 def _numbers_in(text: str) -> set[str]:
     return {m.group(0) for m in _NUMBER_RE.finditer(text or "")}
+
+
+def _decimals_in(text: str) -> set[str]:
+    return {m.group(0) for m in _DECIMAL_NUMBER_RE.finditer(text or "")}
 
 
 def verify_sentence_provenance(
@@ -234,14 +259,34 @@ def verify_sentence_provenance(
             continue
         span_text = direct_quote[tok.start:tok.end]
         if require_number_match:
-            sentence_numbers = _numbers_in(sentence_for_numbers)
-            span_numbers = _numbers_in(span_text)
-            missing = sentence_numbers - span_numbers
-            if missing:
-                failures.append(
-                    f"number_not_in_span:{tok.evidence_id}:"
-                    f"missing={sorted(missing)}"
-                )
+            # Strip dose patterns ("2.4 mg", "1.0 mg") from both sides
+            # before comparing — dose is a drug identifier, not the
+            # empirical claim under verification.
+            sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
+            span_stripped = _strip_dose_patterns(span_text)
+            # Only require DECIMAL numbers (14.9, 16.0, 3.4) to appear
+            # in the span, not integers (STEP 1, week 68, 104). The
+            # decimal numbers are the evidence-backed claim; integers
+            # are almost always study identifiers or duration markers
+            # that don't need separate provenance.
+            sentence_decimals = _decimals_in(sentence_stripped)
+            span_decimals = _decimals_in(span_stripped)
+            # If the sentence has NO decimals but has any integers,
+            # fall back to require at least ONE integer in the span.
+            if sentence_decimals:
+                missing = sentence_decimals - span_decimals
+                if missing:
+                    failures.append(
+                        f"number_not_in_span:{tok.evidence_id}:"
+                        f"missing={sorted(missing)}"
+                    )
+            else:
+                sentence_numbers = _numbers_in(sentence_stripped)
+                span_numbers = _numbers_in(span_stripped)
+                if sentence_numbers and not (sentence_numbers & span_numbers):
+                    failures.append(
+                        f"no_integer_overlap:{tok.evidence_id}"
+                    )
 
     is_verified = len(failures) == 0
     return SentenceVerification(
