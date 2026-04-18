@@ -1,0 +1,38 @@
+# Project-local Codex configuration for POLARIS.
+#
+# Inherits everything from the user-level ~/.codex/config.toml (which has
+# auth_mode=chatgpt OAuth, Windows elevated sandbox, and trust_level=trusted
+# for C:\POLARIS). This file adds project-specific defaults.
+#
+# Run from the POLARIS repo root with:
+#   codex --config-dir .codex "<your task>"
+# or simply:
+#   codex "<your task>"   # auto-picks up user-level config
+#
+# Auth mode: CHATGPT (OAuth). Does NOT consume OpenAI API credits.
+
+# Project metadata surfaced to the model as context.
+project_name = "POLARIS honest-rebuild"
+project_description = """\
+Research-assistant pipeline under an honest-rebuild discipline. Key entry
+points:
+  src/polaris_graph/nodes/           (scope_gate, corpus_approval,
+                                      corpus_adequacy, completeness_checker)
+  src/polaris_graph/retrieval/       (tier_classifier, live_retriever,
+                                      contradiction_detector,
+                                      scope_query_validator, domain_backends)
+  src/polaris_graph/generator/       (provenance_generator,
+                                      live_deepseek_generator,
+                                      multi_section_generator)
+  src/polaris_graph/evaluator/       (external_evaluator, live_qwen_judge)
+  scripts/run_honest_sweep_r3.py     (live 8-query sweep orchestrator)
+  scripts/run_r6_validation.py       (4-query re-run with all R-6 gates)
+  tests/polaris_graph/               (220 passing tests, 0 xfail, 0 fail)
+  outputs/honest_sweep_r6_validation/ (most recent live run artifacts)
+
+Do NOT propose to re-introduce:
+  - faithfulness_score as a single-number quality metric (Phase 1a removed it)
+  - REMEDIATE-LOOP / rewrite-to-pass-metric (Phase 1b removed it)
+  - hallucination_detector.audit_sections_for_hallucination (Phase 1b stubbed)
+  - same-family evaluator pairs (Phase 1c check_family_segregation enforces)
+"""

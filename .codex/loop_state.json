@@ -1,0 +1,24 @@
+{
+  "current_round": 1,
+  "max_rounds": 12,
+  "status": "awaiting_codex",
+  "history": [
+    {
+      "round": 1,
+      "verdict": null,
+      "blocker_count": null,
+      "medium_count": null,
+      "claude_addressed": 0,
+      "claude_deferred": 0,
+      "claude_disputed": 0,
+      "commits": [],
+      "started_iso": "2026-04-18T11:59:00Z",
+      "codex_task_id": "bh4vohivv",
+      "codex_completed_iso": null,
+      "claude_completed_iso": null
+    }
+  ],
+  "verdict_progression": [],
+  "test_suite_state": {"passed": 220, "xfail": 0, "fail": 0},
+  "notes": "Round 1: initial review. .codex/REVIEW_BRIEF.md used as the brief."
+}
