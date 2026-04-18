@@ -1,6 +1,31 @@
 # POLARIS Dependencies
 # =====================
-# Updated: 2026-03-10 (v3 SOTA Parity + Document Ingestion Expansion)
+# Last reviewed: 2026-04-18 (Phase E operational reconciliation)
+#
+# HONEST STATUS (2026-04-18):
+#   This file grew organically across the v2/v3/honest-rebuild arcs.
+#   It is NOT a minimal dep set. Static import analysis of the
+#   post-cleanup tree (docs/live_code_audit.md) shows ~100 external
+#   packages imported. Some deps here are for pipeline B (UI) only;
+#   some were used by now-archived code.
+#
+#   Known gaps (packages imported but NOT listed here):
+#     - duckduckgo_search  (retrieval fallback)
+#     - langchain_fireworks (historical generator)
+#     - openpyxl, pptx, pdfminer, pdfplumber, fpdf  (document ingestion)
+#     - sqlite_vec  (vector storage)
+#     - minicheck  (NLI verifier, installed via pip-install-git; see comment)
+#
+#   Known surplus (listed here but not obviously imported by live code):
+#     - neo4j  (knowledge-graph dep; pipeline C / archived)
+#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+#     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
+#               pipeline C broken — see BUG-M-208)
+#
+#   A proper dep audit (pipeline A minimal, pipeline B minimal,
+#   remove archive-only deps, add missing imports) is queued in
+#   docs/todo_list.md. DO NOT remove lines below without a full
+#   regression run — some transitive imports are subtle.
 
 # ===================
 # POLARIS v3 - NEW

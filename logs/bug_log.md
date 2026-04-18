@@ -1487,3 +1487,186 @@ auditor_revision_count: int
 **Fix required:** Inspect POLISH call site in wiki_composer.py. Remove `call_type=` kwarg from the `generate()` call, or add `call_type` parameter to `LoopbackLLMClient.generate()` if needed.
 
 **USER APPROVAL REQUIRED** before patching.
+
+
+---
+
+## BUG-B-1: strict_verify skipped semantic checks on non-numeric claims (2026-04-18)
+**Status:** CLOSED (commits 724edf5, 9493326)
+**Severity:** P0 — blocker
+**Source:** Codex round 1 finding, then round 2 re-raise (default threshold).
+
+**Symptom:** verify_sentence_provenance only checked numeric-match between sentence and cited span. A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]" passed even if the span only contained "14.9% weight loss" (no overlapping content). Fabricated qualitative claims slipped through.
+
+**Root cause:** No content-word overlap check. The decimal anchor was necessary but not sufficient.
+
+**Fix:** Added _content_words() stopword-filtered tokenizer + MIN_CONTENT_WORD_OVERLAP (env var). Extended verify_sentence_provenance() with a content-overlap check. Round 2 raised default from 1 to 2 after Codex showed single-noun overlap still allowed fabrication.
+
+**Tests:** tests/polaris_graph/test_b1_semantic_grounding.py (11 tests).
+
+## BUG-B-2: Corpus approval gate not enforced (2026-04-18)
+**Status:** CLOSED (commit 724edf5)
+**Severity:** P0 — blocker
+
+**Symptom:** Sweep orchestrator wrote corpus_approval.json with approved=false when a rubber-stamp note hit a corpus with material tier deviation, then proceeded to synthesis anyway.
+
+**Root cause:** No "if not approved:" branch in run_one_query.
+
+**Fix:** Added enforcement branch that writes a pipeline-verdict report.md, sets status=abort_corpus_approval_denied, and returns with zero LLM cost. Added expected_str_for_abort helper.
+
+**Tests:** tests/polaris_graph/test_b2_corpus_approval_enforcement.py (5 tests).
+
+## BUG-B-3: report.md emitted even when all sections failed verification (2026-04-18)
+**Status:** CLOSED (commit 724edf5)
+**Severity:** P0 — blocker
+
+**Symptom:** When every section's dropped_due_to_failure=True, orchestrator still concatenated Methods + Bibliography into a report.md with an empty findings body, then flagged status=fail_no_verified_prose post-hoc.
+
+**Root cause:** No "if not verified_sections:" branch; verdict was advisory, not gate.
+
+**Fix:** Extracted filter_verified_sections() and build_no_verified_sections_abort_body() as pure helpers. Added pre-Methods branch that emits pipeline-verdict artifact.
+
+**Tests:** tests/polaris_graph/test_b3_no_verified_sections.py (7 tests — 2 behavior on pure helpers, 5 source-structure checks).
+
+## BUG-B-4: Budget cap bypassable when OpenRouter omits usage.cost (2026-04-18)
+**Status:** CLOSED (commits 724edf5, 248382e)
+**Severity:** P0 — blocker
+
+**Symptom:** Models that return usage with only input_tokens/output_tokens (no cost field) contributed $0.00 to the run budget. check_run_budget() kept calling past PG_MAX_COST_PER_RUN.
+
+**Root cause:** api_cost = usage_data.get("cost", 0.0) with no token-based fallback.
+
+**Fix:** _impute_cost_from_tokens() with per-model price table (DeepSeek V3.2-Exp, Qwen3-8B, Llama, Opus-tier default). _call() imputes when api_cost is None/0. Round 5 probe revealed negative-token corner — commit 248382e clamps max(0, int(n)) preemptively.
+
+**Tests:** tests/polaris_graph/test_b4_budget_imputation.py (8 tests).
+
+## BUG-B-5: Delimiter breakout via Unicode evasion (2026-04-18)
+**Status:** CLOSED (commits 724edf5, 9493326, 3a90b4f, c2570b2)
+**Severity:** P0 — blocker
+
+**Symptom:** Evidence text containing the <<<end_evidence>>> literal could forge a false evidence boundary and inject directives. Survived through 4 rounds of hardening.
+
+**Root causes (cumulative):** (1) no delimiter-literal redaction; (2) NFKC missed U+2066-U+2069 isolate controls; (3) global string rewrite mutated legit Cyrillic evidence AND missed tag chars/variation selectors/CGJ; (4) precomposed diacritics bypassed NFKC.
+
+**Fix (round 3 architectural):** _build_normalized_view produces a separate normalized view with NFKD + Mn/Mc strip + confusable map + invisible-char strip; delimiter regexes run on the view; matched ranges project back to ORIGINAL text via orig_idx. Non-delimiter content byte-preserved.
+
+**Tests:** tests/polaris_graph/test_b5_delimiter_breakout.py (36 tests).
+
+---
+
+## BUG-B-100: Scope gate never actually rejects (2026-04-18)
+**Status:** OPEN
+**Severity:** P0 — blocker (design-level)
+**Source:** Full-pipeline audit pass 1, Codex finding 1.
+
+**Symptom:** scope_gate.py sets needs_user_review=True on problematic questions but has no rejection branch. Orchestrator in run_honest_sweep_r3.py:288-317 logs the flag then proceeds to retrieval. The documented abort_scope_rejected status is unreachable code.
+
+**Evidence:** outputs/honest_sweep_r6_validation/clinical/clinical_afib_anticoagulation/run_log.txt shows [scope] ... needs_review=True followed by retrieval + generation + [status] ok_thin_corpus.
+
+**Required fix direction:** Either (a) make scope gate a real gate that emits abort_scope_rejected, or (b) remove the unreachable status from docs/taxonomy and explicitly document scope review as advisory.
+
+**Deep-dive round:** queued as #3 per Codex priority.
+
+## BUG-B-101: Success manifest lacks "status" key (2026-04-18)
+**Status:** OPEN
+**Severity:** P0 — blocker (contract drift)
+**Source:** Full-pipeline audit pass 1, Codex finding 7.
+
+**Symptom:** Successful runs emit manifest.json without any "status" key. Only abort runs include it. The manifest contract documented in docs/pipeline_audit_context/03_json_contracts.md and README.md says manifest.status is authoritative. Documentation contradicts code.
+
+**Evidence:** scripts/run_honest_sweep_r3.py:851-907 (success path) has no status key in manifest construction. :915-929 computes summary["status"] (a separate taxonomy). Real artifacts confirm: clinical_afib_anticoagulation/manifest.json has no status; tech_rag_architectures_2024/manifest.json does.
+
+**Required fix direction:** Unify status taxonomy — one taxonomy, one place to read it, written to manifest.json at every success/abort/error exit. Add contract test to tests/polaris_graph/.
+
+**Deep-dive round:** queued as #1 per Codex priority.
+
+## BUG-B-102: Pipeline B (UI production) has zero hardening (2026-04-18)
+**Status:** OPEN
+**Severity:** P0 — blocker (active production gap)
+**Source:** Full-pipeline audit pass 1, Codex finding 11.
+
+**Symptom:** The Docker-default production path (uvicorn scripts.live_server:app -> v1/v2/v3 graphs) has NO matches for strict_verify or sanitize_evidence_text or corpus_approval or abort_no_verified_sections. Users hitting the UI get none of the 5-round audit's hardening.
+
+**Evidence:** scripts/live_server.py:548-602 dispatches to graph.py, graph_v2.py, graph_v3.py — none of which enforce pipeline-A invariants.
+
+**Required fix direction:** Establish which pipeline-A invariants are mandatory for pipeline B, then either (a) back-port them into each graph version, or (b) deprecate v1/v2 and route the UI through a single v4 that wraps the pipeline-A flow.
+
+**Deep-dive round:** queued as #2 per Codex priority.
+
+## BUG-M-201: Retrieval/generator evidence-pool divergence (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** Corpus gates reason over all classified URLs but generation only sees evidence_rows[:PG_LIVE_MAX_EV_TO_GEN] (default 20) in raw retrieval order. This lets the pipeline certify corpus X and synthesize from a different (smaller) corpus.
+
+**Evidence:** scripts/run_honest_sweep_r3.py:623-640. Real run: clinical_afib_anticoagulation/run_log.txt reports total=20 corpus sources, evidence=4 to generator.
+
+**Required fix direction:** Either (a) compute gates over the generator-visible pool, or (b) add explicit tier-balanced + relevance-ranked selection.
+
+## BUG-M-202: Contradiction detector has narrow predicate list (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** contradiction_detector.py:77-92 hard-codes obesity/cardiometabolic predicates. Other domains return zero contradictions even when they exist.
+
+**Evidence:** clinical_afib_anticoagulation/run_log.txt reports numeric_claims=0 contradictions=0 on an anticoagulation guideline query with 20 sources.
+
+**Required fix direction:** Extensible predicate-per-domain table, or LLM-based contradiction extraction with numeric hygiene.
+
+## BUG-M-203: Outline silently collapses to generic "Efficacy" section (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** _parse_outline() doesn't enforce prompt's 3-5 section count or non-overlapping evidence assignment. On empty/invalid planner output, falls back to a single generic "Efficacy" section with no abort signal.
+
+**Evidence:** multi_section_generator.py:624-634 logs "outline empty; falling back". clinical_afib_anticoagulation/manifest.json records outline_sections=["Efficacy"].
+
+**Required fix direction:** Either make planner failure an abort, or retry with a tighter prompt before falling back.
+
+## BUG-M-204: Limitations paragraph bypasses provenance verification (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** provenance_generator.py:755-770 appends every Limitations sentence as is_verified=True with soft_warning. Telemetry claims are trusted on generation output alone.
+
+**Required fix direction:** Separate deterministic verifier for Limitations (match against pipeline telemetry block) or exclude from "verified" counts entirely.
+
+## BUG-M-205: Evaluator is advisory, not gating (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** live_qwen_judge.py:139-143 sends only research_question + report_text to Qwen (no evidence pool). external_evaluator.py:223-245 does keyword-presence checks. Qwen needs_revision verdict doesn't block success.
+
+**Required fix direction:** Define which evaluator outputs are release-blocking vs advisory; replace keyword checks with semantic validation.
+
+## BUG-M-206: Cost ledger is global, not per-run (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** logs/pg_cost_ledger.jsonl is a single global file. Consumers can't correlate a run's cost stream to its run_id without grepping.
+
+**Required fix direction:** Either per-run-dir ledger copy or add strong session_id/run_id columns + indexing helper.
+
+## BUG-M-207: Missing contract tests (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** No test asserts the success-manifest schema. B-101 contract drift would not be caught by current suite.
+
+**Required fix direction:** Add test_manifest_contract.py that runs a sweep against a mocked LLM pair and asserts every exit path writes a conforming manifest.
+
+## BUG-M-208: Frozen pipeline C broken path still advertised (2026-04-18)
+**Status:** OPEN
+**Severity:** medium
+
+**Symptom:** scripts/full_cycle.py imports scripts/run_ragas_v3.py and scripts/final_audit.py which don't exist. Docker research subcommand would crash on any non-trivial run.
+
+**Required fix direction:** Either (a) retire pipeline C entirely, (b) repair missing scripts, or (c) leave-and-warn with an explicit guard in docker_entrypoint.sh. User decision pending.
+
+## BUG-N-301: Cost ledger entries lack session_id (2026-04-18)
+**Status:** OPEN
+**Severity:** minor
+
+**Symptom:** Pipeline A call sites instantiate OpenRouterClient(model=model) without passing a session ID. Cost ledger has session_id column but it's empty for pipeline A entries.
+
+**Required fix direction:** Thread a run_id from sweep orchestrator through to every LLM client instantiation.

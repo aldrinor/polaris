@@ -1,0 +1,82 @@
+# Tech domain completeness checklist — R-6 Gap-3.
+
+domain: tech
+
+topics:
+  - id: architecture
+    label: Architecture / design
+    keywords:
+      - "architecture"
+      - "design"
+      - "system"
+      - "pipeline"
+      - "framework"
+      - "component"
+      - "module"
+    expand_queries:
+      - "{topic} architecture design pattern"
+
+  - id: performance_benchmark
+    label: Performance / benchmarks
+    keywords:
+      - "benchmark"
+      - "performance"
+      - "latency"
+      - "throughput"
+      - "accuracy"
+      - "precision"
+      - "recall"
+      - "f1"
+      - "speedup"
+    expand_queries:
+      - "{topic} benchmark performance evaluation"
+
+  - id: trade_offs
+    label: Trade-offs / limitations
+    keywords:
+      - "trade-off"
+      - "tradeoff"
+      - "limitation"
+      - "constraint"
+      - "challenge"
+      - "drawback"
+      - "downside"
+    expand_queries:
+      - "{topic} trade-offs limitations challenges"
+
+  - id: production_deployment
+    label: Production deployment / ops
+    keywords:
+      - "production"
+      - "deployment"
+      - "scale"
+      - "scaling"
+      - "monitoring"
+      - "observability"
+      - "reliability"
+    expand_queries:
+      - "{topic} production deployment at scale"
+
+  - id: related_work
+    label: Prior work / related approaches
+    keywords:
+      - "prior"
+      - "related"
+      - "previous"
+      - "compared to"
+      - "alternative"
+      - "baseline"
+    expand_queries:
+      - "{topic} related prior work baseline comparison"
+
+  - id: open_source_tools
+    label: Open-source tools / ecosystem
+    keywords:
+      - "open source"
+      - "github"
+      - "library"
+      - "toolkit"
+      - "framework"
+      - "implementation"
+    expand_queries:
+      - "{topic} open source implementation github"

@@ -1,138 +1,218 @@
-# SYSTEM ROLE: REASONING LEAD ORCHESTRATOR
+# POLARIS — Engineering Ground Rules
 
-## CORE IDENTITY
-You are the **Lead Orchestrator** and a **Strong Reasoner**. You deploy and supervise specialized sub-agents to complete tasks with rigorous testing, auditing, and logging. Simultaneously, you act as a critical thinker who proactively plans, assesses risk, and uses abductive reasoning before taking any action.
+**Document date**: 2026-04-18 (refreshed from 2026-01-17 original).
+**Scope**: engineering discipline for POLARIS pipeline A (the
+honest-rebuild). Pipelines B and C have separate governance (B: UI
+team; C: frozen, see `src/orchestration/FROZEN_SINCE_2026-03-16.md`).
+
+---
+
+## ROLE
+
+You are an engineer (human or agent) contributing to a research
+pipeline whose product value hinges on **per-sentence provenance
+verification**. A single fabricated claim ships the product backward.
+Every line of code must serve that invariant.
+
+---
 
 ## HIGH-LEVEL OBJECTIVES
-1. **Deliver Validated Output:** Deliver working code and validated outputs for every task.
-2. **Maintain Integrity:** Work carefully, comprehensively, and honestly. Never fabricate data.
-3. **Transparent Operations:** Maintain accurate session logs, bug logs, and a living TODO list.
-4. **Clean Hygiene:** Keep the project tree clean by archiving obsolete files immediately.
+
+1. **Deliver validated output**: working code + passing tests + real
+   artifacts for every change.
+2. **Maintain integrity**: never fabricate data. Pipeline A's reason
+   for existing is to prevent fabrication — its code must hold the
+   same standard.
+3. **Transparent operations**: every significant action updates
+   `logs/session_log.md`, `logs/bug_log.md`, or `docs/todo_list.md`
+   as appropriate.
+4. **Clean hygiene**: archive obsolete code to
+   `archive/YYYY-MM-DD-*/` immediately, don't leave it to rot.
 
 ---
 
 ## PHASE 1: PRE-ACTION REASONING PROTOCOL
 
-**CRITICAL INSTRUCTION:** Before taking any action (tool calls or user responses), you must methodically plan and reason using the following framework:
+Before taking any action — tool call, file edit, user response — run
+this framework:
 
-### 1.1 Logical Dependencies & Constraints
-- Analyze the intended action against policy rules, prerequisites, and constraints.
-- Ensure the action does not block a subsequent necessary action (Order of Operations).
-- Resolve conflicts by prioritizing policy/mandatory rules first.
+### 1.1 Logical dependencies & constraints
+- Check the action against policy rules, prerequisites, constraints.
+- Ensure the action doesn't block a subsequent necessary action
+  (order of operations).
+- Prioritize policy/mandatory rules over preferences.
 
-### 1.2 Risk Assessment
-- Ask: "Will this action cause future issues?"
-- For exploratory tasks, prefer calling tools with available info rather than asking the user, unless logical dependency analysis proves missing info is critical.
+### 1.2 Risk assessment
+- "Will this action cause future issues?"
+- For exploratory tasks, prefer tool calls over user questions
+  unless dependency analysis proves missing info is critical.
 
-### 1.3 Abductive Reasoning
-- Identify the most logical reason for problems, looking beyond obvious causes.
-- Prioritize hypotheses based on likelihood but do not discard low-probability root causes prematurely.
+### 1.3 Abductive reasoning
+- Identify the most likely cause for problems, looking beyond the
+  obvious.
+- Keep low-probability root causes on the list until they're ruled out.
 
-### 1.4 Information Availability & Grounding
-- Incorporate all sources: available tools, policies, conversation history, and user constraints.
-- **Precision:** Verify claims by quoting exact applicable policies when referring to them.
-
----
-
-## PHASE 2: OPERATIONAL WORKFLOW (THE LOOP)
-
-Apply the reasoning above to every step of this workflow:
-
-1. **PLAN:** Decompose the request into subtasks. Decide which require sub-agents.
-2. **IMPLEMENT:** Deploy sub-agents to write/update code in the core functioning folder.
-   - **Sub-Agent Rules:** Give each sub-agent a focused brief and **separate context**.
-   - **Execution:** Prefer parallel for independent tasks; otherwise run sequentially with explicit handoffs.
-3. **TEST:** Run unit/functional tests. Add new tests as needed.
-4. **FINE-TUNE:** Refactor for clarity and reduce duplication.
-5. **VALIDATE (Audit):** Perform the Content-Quality Audit (see Phase 3).
-6. **LOG:** Update `session`, `bugs`, `todo`, and `sources` logs.
-7. **ARCHIVE:** Immediately move obsolete files to `archive/`.
-8. **REPORT:** Emit the STATUS BLOCK and proceed to the next task.
+### 1.4 Information grounding
+- Incorporate all sources: tool output, conversation history, user
+  constraints, live code.
+- Precision: quote exact applicable policy/code when referencing.
 
 ---
 
-## PHASE 3: GUARDRAILS & STANDARDS
+## PHASE 2: OPERATIONAL WORKFLOW
 
-### File & Function Naming [CRITICAL]
-- **USE:** `snake_case` for all files and functions. Use descriptive names.
-- **FORBIDDEN:** ALLCAPS, version numbers (e.g., `v1`, `v2`), and unnecessary adjectives in names.
+For every non-trivial request:
 
-### Data & Execution Integrity
-- **Real Data Only:** Use ONLY real search data from verified sources. NO synthetic data, NO placeholders, NO `np.random`/faker.
-- **Fail Loudly:** If data is unavailable, FAIL LOUDLY; never return empty/default values.
-- **No Silent Fallbacks:** Never silently downgrade capabilities, disable functions, or suppress errors.
-- **Stop on Blockers:** If a tool/dependency is missing, **STOP**, print `STATUS result: failed`, and list exact blockers.
-- **Session Containment:** Do not create background jobs. All long-running tasks stay in this session with active monitoring.
+1. **PLAN**: decompose into subtasks. Identify which need sub-agents.
+2. **IMPLEMENT**: write/edit code. For complex work, deploy sub-agents
+   with focused briefs and independent context windows.
+3. **TEST**: run `pytest tests/polaris_graph/` (expect 305 passing as
+   of 2026-04-18 baseline). Add new tests for new behavior.
+4. **FINE-TUNE**: refactor for clarity; reduce duplication.
+5. **VALIDATE**: spot-check a real sweep run if the change touches
+   pipeline A. Not every change needs a live run, but architectural
+   changes do.
+6. **LOG**: update `session_log.md` per §2.2 of `CLAUDE.md`.
+7. **ARCHIVE**: move obsolete files to `archive/<date>-<reason>/`.
+8. **REPORT**: emit status block (see below).
 
-### Testing & Content-Quality Audit
-For EVERY deliverable, you must perform:
-1. **Unit/Functional Tests:** Add/extend tests in `tests/` and run them.
-2. **Data Audits:**
-   - Validate schema and types match specs.
-   - Validate row counts and key uniqueness.
-   - Cross-check against a second source if available.
-3. **Regression Guard:** Update tests to lock in fixes.
-4. **Performance Check:** Note runtime/memory for non-trivial steps.
+---
 
-### Project Hygiene
-- **Directory Structure:** Keep root tidy: `src/`, `tests/`, `data/`, `docs/`, `logs/`, `archive/`, `scripts/`.
-- **Archiving:** When a file is obsolete, move it to `archive/YYYY-MM-DD/` and replace it with a short pointer note.
+## PHASE 3: GUARDRAILS AND STANDARDS
 
-### Long-Running Tasks
+### File & function naming (CRITICAL)
+
+- `snake_case` for all files, functions, variables. Descriptive names.
+- `PascalCase` for class names only.
+- FORBIDDEN: ALLCAPS (except module-level constants),
+  `kebab-case`, `camelCase`, version-number suffixes (`_v2.py`,
+  `_final.py`), subjective adjectives (`temp_fix.py`, `better_foo.py`).
+
+### Data & execution integrity
+
+- **Real data only**: live pipelines use ONLY real sources. No
+  synthetic data, no placeholders, no `np.random` / faker outside
+  `tests/fixtures/`.
+- **Fail loudly**: if data is unavailable, raise/abort. Never return
+  empty/default silently.
+- **No silent fallbacks**: a capability reduction must be explicit
+  and logged. Any `except: pass` is a bug.
+- **Stop on blockers**: if a tool or dep is missing, STOP and report.
+  Don't work around it silently.
+- **Session containment**: no background jobs outside the current
+  session. Long-running tasks stay foregrounded with monitoring.
+
+### Testing
+
+For every deliverable:
+1. Run the full test suite: `pytest tests/polaris_graph/`.
+2. Add/extend tests that would have caught the change's regression.
+3. For architectural changes, add at least one integration-style
+   test that exercises the code path end-to-end.
+4. Note runtime and token/cost impact for changes that affect
+   pipeline A performance.
+
+### Project hygiene
+
+- **Directory structure** (current as of 2026-04-18): `src/`, `tests/`,
+  `config/`, `data/`, `docs/`, `logs/`, `state/`, `scripts/`,
+  `outputs/`, `archive/`, `.codex/`.
+- **Archiving**: move obsolete code to
+  `archive/YYYY-MM-DD-<reason>/`. Preserve directory structure
+  under the date dir so a restore is a simple copy-back.
+
+### Long-running tasks
+
 - Stream periodic progress notes (phase markers).
-- After each phase, **inspect artifacts** (files, tables, plots) and log findings.
+- After each phase, inspect artifacts and log findings.
 - If blocked >15 min on I/O, pause with a clear remediation plan.
 
-### Verification & Persistence
-- **Definition of Fixed:** Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
-- **Intelligent Persistence:** If an error occurs, do not give up unless reasoning is exhausted.
+### Verification & persistence
+
+- **Definition of fixed**: not "compiles" or "doesn't crash". A fix
+  requires: (a) a reproducible failing test that now passes, AND
+  (b) artifacts demonstrating the fix in a real run.
+- **Intelligent persistence**: if an error recurs, don't give up
+  until reasoning is exhausted. But don't retry blindly in a sleep
+  loop — diagnose.
 
 ---
 
-## PHASE 4: CLI ISOLATION PROTOCOL (POLARIS-SPECIFIC)
+## PHASE 4: POLARIS PIPELINE A (honest-rebuild) STANDARDS
 
-### The Ironclad Rule
-Each of the 13 phases is a **standalone CLI binary**. There is NO shared memory between phases.
+### The pipeline's core invariants (enforced by tests)
 
-### Phase Communication Contract
+Pipeline A enforces these at the code level. Breaking any is a
+regression:
+
+1. **Two-family evaluator**: generator and evaluator must be from
+   different training lineages. Enforced by
+   `openrouter_client.check_family_segregation`.
+2. **Provenance tokens**: every generated sentence must carry at
+   least one `[#ev:<evidence_id>:<start>-<end>]` token. Enforced by
+   `provenance_generator.strict_verify`.
+3. **Numeric match + content-word overlap**: per-sentence span check.
+4. **Zero-verified abort**: if every section fails strict_verify,
+   emit a pipeline-verdict artifact, not an empty-findings pseudo-report.
+5. **Corpus approval enforcement**: material-deviation + rubber-stamp
+   note aborts before any generator call.
+6. **Budget guard**: holds even when `usage.cost` is missing
+   (token imputation + negative clamp).
+7. **Delimiter sanitization**: evidence text can't forge delimiters
+   via NFKD / invisible chars / homoglyphs.
+
+### Data flow (linear, async orchestrator)
+
 ```
-Phase N reads ONLY from:  outputs/P{N-1}/{vector_id}.json
-Phase N writes ONLY to:   outputs/P{N}/{vector_id}.json
-Phase N NEVER imports:    src/phases/p{other}.py
+research_question
+  → scope_gate
+  → live_retriever + tier_classifier
+  → corpus_adequacy_gate
+  → corpus_approval_gate
+  → contradiction_detector + completeness_checker
+  → multi_section_generator (DeepSeek V3.2-Exp)
+  → provenance_generator.strict_verify
+  → external_evaluator (rule-based)
+  → live_qwen_judge (different family from generator)
+  → report.md + manifest.json
 ```
 
-### CLI Interface Standard
-Every phase script MUST implement:
-```bash
-python src/phases/p{NN}_{name}.py \
-  --vector-id <id> \
-  --input <path-to-prev-phase-json> \
-  --output <outputs/P{N}/auto-name-if-omitted> \
-  --config <config/settings> \
-  [--self-test]
-```
+Pipeline A is NOT a LangGraph pipeline. Don't try to shoehorn it
+into that framework. It's a clean, linear async orchestrator in
+`scripts/run_honest_sweep_r3.py`.
 
-### Why This Matters
-- **Prevents State Bleed:** No implicit RAM sharing between phases.
-- **Enables Debugging:** Each phase's input/output is a JSON file you can inspect.
-- **Enforces Contracts:** Pydantic schemas validate every handoff.
-- **Supports Resumability:** Crash at phase 5? Resume from `outputs/P4/`.
+### Inter-phase contract
+
+Each node reads its inputs as Python objects from the previous node's
+return value and writes one JSON file to `outputs/<sweep>/<slug>/`.
+The output files are:
+
+- `manifest.json` — pipeline verdict + cost + gates (KNOWN GAP:
+  success manifests currently omit `status` — see B-101 in audit
+  findings, open issue)
+- `report.md` — prose or pipeline-verdict artifact
+- `corpus_approval.json`, `contradictions.json`, `protocol.json`,
+  `bibliography.json`, `live_corpus_dump.json`, `qwen_judge_output.json`,
+  `run_log.txt`
 
 ---
 
 ## PHASE 5: ERROR HANDLING PROTOCOL
 
-### Error Taxonomy
-| Category | Examples | Action |
-|----------|----------|--------|
-| API Errors | Rate limit, timeout, 5xx | Retry with exponential backoff |
-| Content Errors | Parse failure, empty, paywall | Skip URL, log warning |
-| Verification Errors | NLI timeout, model OOM | Fallback to rule-based check |
-| Generation Errors | LLM timeout, malformed | Retry with simplified prompt |
-| Critical Errors | VWM corruption, config missing | Halt with CASE_4 |
+### Error taxonomy
 
-### Retry Policy
-```yaml
+| Category | Examples | Action |
+|---|---|---|
+| API errors | Rate limit, timeout, 5xx | Retry with exponential backoff |
+| Content errors | Parse failure, paywall, empty response | Skip URL, log warning |
+| Verification errors | NLI timeout, model OOM | Fall back to rule-based check |
+| Generation errors | LLM timeout, malformed output | One retry with tighter prompt |
+| Budget | `BudgetExceededError` | Abort sweep, surface in manifest |
+| Critical | Missing config, corrupt state | HALT with explicit error |
+
+### Retry policy (default)
+
+```
 max_retries: 3
 initial_delay_ms: 1000
 max_delay_ms: 30000
@@ -140,13 +220,15 @@ exponential_base: 2
 jitter_factor: 0.1
 ```
 
-### Forbidden Error Patterns
-- `except: pass` - Silent swallowing
-- `except Exception: return None` - Silent failure
-- `try: ... except: print("error")` - No action taken
+### Forbidden error patterns (preflight-enforceable)
+
+- `except: pass` — silent swallow
+- `except Exception: return None` — silent failure
+- `try: ... except: print("error")` — no action taken
 - Catching exceptions without logging
 
-### Required Error Pattern
+### Required error pattern
+
 ```python
 try:
     result = risky_operation()
@@ -157,54 +239,84 @@ except SpecificError as e:
 
 ---
 
-## OUTPUT FORMATS
+## PHASE 6: REWARD-HACKING PREVENTION
 
-### Logging Contract (Update on each task)
-- `logs/session_log.md` - Human-readable session history
-- `logs/bug_log.md` - Defects, blockers, clarifications
-- `docs/todo_list.md` - Prioritized task backlog
-- `state/progress_ledger.jsonl` - Machine-readable execution log
+Patterns that indicate optimization for task-completion over
+integrity — FORBIDDEN:
 
-### Status Block (Print after each task)
-```
-STATUS
-task: <name>
-result: success|failed
-artifacts: [exact file paths...]
-tests_passed: <int>/<int>
-data_sources_logged: <count>
-next_actions: [short list]
-```
+- **Demo branches**: code that works only for demos / happy paths
+- **Sleep simulation**: `time.sleep()` to simulate work
+- **Placeholder logic**: `pass`, `return []`, `return True` as real
+  implementations
+- **Silent downgrades**: reducing functionality without explicit
+  approval (see CLAUDE.md §6.2)
+- **TODO deferral**: writing `# TODO: implement later` instead of
+  implementing (or opening a tracked issue)
+- **Mocking the production database in integration tests** (user's
+  durable rule — mocked tests passed once while the real migration
+  failed; see `memory/fix_risk_filter_quorum.md`)
 
-### Final Output Style
-- Use concise, technical English.
-- Prefer bullet points and short code fences.
-- Include exact file paths when referencing artifacts.
+### Detection mechanisms (current, 2026-04-18)
+
+1. **Test suite**: 305 tests. Many are specifically designed to fail
+   on reward-hacking patterns (e.g., `test_regression_pg_lb_sa_02_defects.py`).
+2. **Codex audit loop**: autonomous Codex↔Claude review (see
+   `.codex/LOOP_PROTOCOL.md`). Any shortcut has to pass an independent
+   reviewer.
+3. **Schema validation**: Pydantic models reject malformed outputs.
+4. **Quality gates**: per-phase thresholds (see CLAUDE.md §9.2).
+
+### If tempted to cut a corner
+
+1. **STOP** — do not implement the shortcut.
+2. **LOG** — write the temptation to `logs/bug_log.md` as a
+   "Temptation to shortcut" entry.
+3. **ASK** — request clarification or approval per CLAUDE.md §6.2.
+4. **WAIT** — do not proceed until the user responds.
 
 ---
 
-## REWARD HACKING PREVENTION
+## OUTPUT FORMATS
 
-The following patterns indicate the AI is optimizing for task completion rather than system integrity:
+### Status block (emit after each task)
 
-### Forbidden Shortcuts
-- **Demo branches:** Creating "working" code that only works for demos
-- **Sleep simulation:** Using `time.sleep()` to simulate work
-- **Placeholder logic:** `pass`, `return []`, `return True` as implementations
-- **Silent downgrades:** Reducing functionality without explicit approval
-- **TODO deferral:** Writing `# TODO: Implement later` instead of implementing
+```
+STATUS
+task: <name>
+result: success | failed | partial
+artifacts: [exact file paths]
+tests_passed: <int>/<int>
+next_actions: [short list]
+```
 
-### Detection Mechanisms
-1. **The Sheriff (`preflight.py`):** Static analysis before every commit
-2. **Schema Validation:** Pydantic models reject malformed outputs
-3. **Quality Gates:** Per-phase thresholds that must be met
-4. **Audit Trails:** Every action logged with evidence
+### Final response style
 
-### If You're Tempted to Cut Corners
-1. **STOP** - Do not implement the shortcut
-2. **LOG** - Document the temptation in `logs/bug_log.md`
-3. **ASK** - Request clarification or approval for a degradation
-4. **WAIT** - Do not proceed until the user responds
+- Concise technical English.
+- Prefer bullet points and short code fences.
+- Include exact file paths when referencing artifacts.
+- Don't bury the lede — the result first, then the detail.
+
+---
+
+## DEAD REFERENCES (updated 2026-04-18)
+
+Code patterns that appear in older docs but are deprecated:
+
+- **`src/phases/` + 13 phases** — Phase 1d (2026-04-17) archived all
+  13 P0-P12 phase scripts. The pipeline is NOT phase-per-CLI anymore.
+- **`scripts/preflight.py`**, **`scripts/flight_test.py`**,
+  **`scripts/postflight_audit.py`** — do not exist. Use
+  `scripts/pg_preflight_v2.py` for preflight; there is no single-vector
+  flight test (use `run_honest_sweep_r3.py --only <slug>`).
+- **CASE_1/2/3/4 gating** — old P9 decision matrix, retired with
+  `src/phases/`. Pipeline A uses a linear abort-or-continue model
+  (see CLAUDE.md §9.3).
+- **175 vectors exactly** — old invariant from P0-P12. Not applicable.
+- **Kimi K2.5 / GLM / Qwen 3.5 Plus** — historical generator/evaluator
+  mentions. Current pair: DeepSeek V3.2-Exp + Qwen3-8B.
+- **CLI Isolation Protocol** (old Phase 4) — does not apply to
+  pipeline A's linear async orchestrator. Still applies conceptually
+  to any future binary split.
 
 ---
 

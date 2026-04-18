@@ -1,0 +1,96 @@
+# Due-diligence domain completeness checklist — R-6 Gap-3.
+
+domain: due_diligence
+
+topics:
+  - id: market_position
+    label: Market position / share
+    keywords:
+      - "market share"
+      - "market position"
+      - "competitive"
+      - "leader"
+      - "dominant"
+      - "share"
+    expand_queries:
+      - "{company} {product} market share position"
+
+  - id: financial_performance
+    label: Financial performance (revenue, margin)
+    keywords:
+      - "revenue"
+      - "sales"
+      - "earnings"
+      - "margin"
+      - "profit"
+      - "financial"
+      - "fiscal"
+      - "quarterly"
+    expand_queries:
+      - "{company} revenue earnings 10-K latest"
+
+  - id: competitive_landscape
+    label: Competitors / alternatives
+    keywords:
+      - "competitor"
+      - "rival"
+      - "alternative"
+      - "versus"
+      - "challenger"
+      - "incumbent"
+    expand_queries:
+      - "{company} {product} competitors alternatives rivals"
+
+  - id: pipeline_or_product
+    label: Pipeline / product portfolio
+    keywords:
+      - "pipeline"
+      - "portfolio"
+      - "product"
+      - "launch"
+      - "development"
+      - "clinical trial"
+      - "phase"
+      - "approval"
+    expand_queries:
+      - "{company} pipeline product launches next-generation"
+
+  - id: regulatory_legal_exposure
+    label: Regulatory / legal exposure
+    keywords:
+      - "fda"
+      - "warning letter"
+      - "lawsuit"
+      - "litigation"
+      - "regulatory"
+      - "inspection"
+      - "consent decree"
+      - "settlement"
+    expand_queries:
+      - "{company} FDA warning letter lawsuit litigation"
+
+  - id: supply_manufacturing
+    label: Supply / manufacturing capacity
+    keywords:
+      - "supply"
+      - "manufacturing"
+      - "capacity"
+      - "shortage"
+      - "production"
+      - "plant"
+      - "facility"
+    expand_queries:
+      - "{company} manufacturing capacity supply outlook"
+
+  - id: execution_risk
+    label: Execution / strategic risk
+    keywords:
+      - "risk"
+      - "challenge"
+      - "headwind"
+      - "uncertainty"
+      - "downside"
+      - "exposure"
+      - "disrupt"
+    expand_queries:
+      - "{company} strategic risk execution headwinds"

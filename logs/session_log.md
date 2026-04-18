@@ -3242,3 +3242,94 @@
 
 - STATUS: PG_LB_SA_02 complete. Patch A works but creates quality-brevity tension. Patch B has a critical bug (call_type kwarg). Patch D working. ZCV-P7 unblocked.
 - NEXT_STEP: (1) Fix BUG-POLISH-CALLTYPE in wiki_composer.py POLISH call site; (2) Decide whether to re-run with fixed Patch B; (3) Proceed with ZCV-P7 paid GLM-5.1 run
+
+---
+
+## [2026-04-18 11:58:00] SESSION_INIT — Codex↔Claude autonomous audit loop
+
+- ACTION: Set up infrastructure for 24-hour autonomous audit loop where Codex is the decision-maker; Claude addresses findings + commits + runs tests.
+- RATIONALE: User asked for a robust, honest, exhaustive review that cannot be gamed by circle-jerking. Loop state machine, verdict semantics, anti-circle-jerk rules all baked in.
+- DOCS/RESEARCH: N/A (internal protocol)
+- SYNC: Created `.codex/LOOP_PROTOCOL.md`, `.codex/REVIEW_BRIEF.md`, `.codex/ROUND_N_BRIEF_TEMPLATE.md`, `.codex/loop_state.json`, `.codex/config.toml`.
+- AFFECTED_FILES: .codex/*, scripts/codex_loop_parse.py
+- EVIDENCE/FINDINGS: Infrastructure ready; round 1 launched.
+- STATUS: Loop infrastructure built. Commit 7c20daf.
+- NEXT_STEP: Round 1 Codex brief → findings → Claude fixes.
+
+## [2026-04-18 12:00:00] CODEX ROUND 1 — review + 5 blockers found
+
+- ACTION: Codex exec against 12 attack vectors with full workspace-write sandbox.
+- RATIONALE: Independent review by stronger model; user is decision-maker.
+- DOCS/RESEARCH: N/A (independent audit)
+- SYNC: Round 1 findings at outputs/codex_findings/round_1/findings.md
+- EVIDENCE/FINDINGS: 5 blockers surfaced — B-1 strict_verify semantic check, B-2 corpus approval enforcement, B-3 report.md on 0 verified, B-4 budget cap missing usage.cost, B-5 delimiter breakout.
+- STATUS: Codex NOT_READY, 5 blockers enumerated with file:line.
+- NEXT_STEP: Claude addresses all 5 with code fixes + regression tests.
+
+## [2026-04-18 12:30:00] CLAUDE ROUND 1 — all 5 blockers fixed
+
+- ACTION: Implemented B-1..B-5 fixes with 33 regression tests. Commit 724edf5.
+- RATIONALE: Substantive, not cosmetic — each test would fail against pre-fix code.
+- SYNC: outputs/codex_findings/round_1/claude_response.md
+- EVIDENCE/FINDINGS: 220 → 267 tests passing. B-1 content-word overlap added; B-2 corpus-approval enforcement branch; B-3 refuse report.md on 0 verified; B-4 cost imputation; B-5 delimiter redaction.
+- STATUS: Ready for round 2 re-audit.
+- NEXT_STEP: Launch Codex round 2.
+
+## [2026-04-18 12:35:00] CODEX ROUND 2 — B-1 default + B-5 Unicode gaps
+
+- ACTION: Round 2 Codex review.
+- EVIDENCE/FINDINGS: B-1 default MIN_CONTENT_WORD_OVERLAP was 1 not 2 (single-noun overlap exploit). B-5 missed U+2066-U+2069 isolate controls. B-5 homoglyph claim overstated (Cyrillic 'е' bypassed).
+- STATUS: NOT_READY, 2 blockers + 1 medium. Commit 9493326 addresses all three.
+- NEXT_STEP: Round 3.
+
+## [2026-04-18 12:55:00] CODEX ROUND 3 — architectural rewrite of sanitizer
+
+- ACTION: Codex round 3 found the sanitizer globally rewrote the input (mutating legit Cyrillic text) + missed tag chars (U+E0000+), variation selectors, CGJ, MVS, palochka (U+04CF), 'м' (U+043C).
+- RATIONALE: Rather than extend blacklists forever, restructured around _build_normalized_view + index projection. Original bytes preserved when no delimiter match.
+- EVIDENCE/FINDINGS: Commit 3a90b4f. 280 → 292 tests. Byte-preservation invariant pinned.
+- STATUS: Ready for round 4.
+- NEXT_STEP: Launch Codex round 4.
+
+## [2026-04-18 13:05:00] CODEX ROUND 4 — NFKD + combining-mark strip
+
+- ACTION: Codex round 4 found precomposed/combined diacritics (ĕ U+0115, e+U+0306) bypassed NFKC. Switched to NFKD + strip Mn/Mc category.
+- EVIDENCE/FINDINGS: Commit c2570b2. 292 → 303 tests.
+- STATUS: Ready for round 5.
+- NEXT_STEP: Launch Codex round 5.
+
+## [2026-04-18 13:15:00] CODEX ROUND 5 — READY VERDICT
+
+- ACTION: Codex round 5 probed NFKD/Hangul/CJK/ZWJ emoji/thread pool/citation numbering/family segregation/abort determinism — all clean. Claude had preemptively fixed negative-token budget clamp (commit 248382e).
+- EVIDENCE/FINDINGS: Zero blockers, zero mediums. 305 tests. Loop terminated READY.
+- STATUS: 5-round loop complete. B-1..B-5 hardened with 85 regression tests total.
+- NEXT_STEP: User-requested full-pipeline audit scope expansion.
+
+## [2026-04-18 13:30:00] REPO CLEANUP — Phase A+B+C
+
+- ACTION: User flagged repo was messy. Ran static import-closure analysis (scripts/audit_live_code.py), archived 162 orphan files + 37 stale docs + 56MB scratch dirs. Rewrote README.md + architecture.md (was 135KB, described fictional P0-P12 pipeline). Rebuilt docs/file_directory.md. Refreshed docs/todo_list.md (preserved 1144-line legacy). New docs/runbook.md. Updated CLAUDE.md §5 + §9. Flagged src/orchestration/ as FROZEN.
+- RATIONALE: Cannot do full-pipeline audit on a repo that lies about itself. Docs and code must agree before Codex can review fairly.
+- DOCS/RESEARCH: Used `git log -1` for last-commit dates; `ast.parse` for import graph; `python -m pytest tests/polaris_graph/` for 305-baseline verification.
+- SYNC: README.md, architecture.md, CLAUDE.md §5 + §9, docs/file_directory.md, docs/todo_list.md (legacy preserved), docs/runbook.md (new), .gitignore.
+- AFFECTED_FILES: 165 files changed; net -57K lines.
+- EVIDENCE/FINDINGS: Four false-positive archives restored after test-collection revealed dynamic-import usage: fetch_limiter, quality_metrics, result_cache, circuit_breaker. 305 tests still pass.
+- STATUS: Commit 0cf2a65. Repo now honestly describes three-pipeline reality.
+- NEXT_STEP: Phase D — build audit context bundle + launch full-pipeline audit.
+
+## [2026-04-18 13:50:00] FULL AUDIT BUNDLE + PASS 1
+
+- ACTION: Built docs/pipeline_audit_context/ bundle (8 files: three-pipeline map, prompt extracts, JSON contracts, sample runs, known failure modes, recent commits, audit brief). Committed 3b3d46a. Launched Codex full-audit pass 1.
+- RATIONALE: Give Codex the full big picture, not just narrow attack vectors (learning from round 1-5 scope limits).
+- EVIDENCE/FINDINGS: Codex scoping pass produced PRIORITIZED verdict — 3 blockers, 8 mediums, 1 minor across 12 dimensions.
+  - B-100 intake_scope: scope_gate.py never rejects, only sets needs_user_review=True which orchestrator ignores. abort_scope_rejected status is unreachable code.
+  - B-101 orchestration: success manifest omits "status" key; only abort manifests have it. Contract drift between documented and actual.
+  - B-102 pipeline_b_parity: UI production path (live_server.py + graph{,_v2,_v3}) has zero strict_verify / sanitize_evidence_text / corpus_approval coverage.
+  - Plus 8 mediums (retrieval/generator divergence, narrow contradictions, outline collapse, limitations bypass, advisory-not-gating evaluator, global cost ledger, missing contract tests, frozen C disposition).
+- STATUS: Scoping pass committed. No code fixes yet. 12 deep-dive rounds queued per Codex prioritization.
+- NEXT_STEP: User chose Phase E (operational state reconciliation) before deep-dive rounds.
+
+## [2026-04-18 14:00:00] PHASE E — operational reconciliation
+
+- ACTION: Refreshed ground_rules.md (was describing dead P0-P12 architecture); appended this session_log batch per CLAUDE.md §2.2; appending bug_log entries for all blockers; writing state/restart_instructions.md; fixing Dockerfile + docker_entrypoint.sh to remove broken `research` subcommand advertising; auditing requirements.txt for archived-code deps; verifying .env.example; bundling config/ into audit context; producing consolidated env-var inventory.
+- RATIONALE: User asked "did you update all necessary docs so Codex sees complete picture?" Honest answer was no — operational state files (session_log, bug_log, restart_instructions, Dockerfile, requirements.txt, .env.example, config/, env-var inventory) were all stale or missing. Phase E closes those gaps BEFORE deep-dive rounds so each round doesn't re-discover operational staleness.
+- STATUS: In progress.
+- NEXT_STEP: Commit Phase E; then deep-dive rounds per Codex prioritization.
