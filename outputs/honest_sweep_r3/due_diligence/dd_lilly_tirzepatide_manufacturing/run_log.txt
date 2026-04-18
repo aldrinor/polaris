@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=due_diligence slug=dd_lilly_tirzepatide_manufacturing
+Question: What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=3e07732f531b38d8... needs_review=False
+[retrieval]   pre_filter=16, fetched=12, failed=4, elapsed=77.6s  api_calls={'serper': 2, 's2': 2, 'openalex': 12, 'fetch': 16}
+[corpus]      total=16  T1=19%, T4=12%, T5=12%, T6=38%, UNKNOWN=19%  material_deviation=True
+[contradict]  numeric_claims=2  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=12...
+              elapsed=31.6s outline=3 sections, words=329, verified=9, dropped=12, limitations_words=75
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains evidence-grounded, avoiding promotional language even in sections a
+              [     ACCEPTABLE] completeness: Covers major evidence rows (investments, market growth, regulatory status) but l
+              [           GOOD] citation_tightness: All factual claims are cited with adjacent markers [1]-[11].
+              [ NEEDS_REVISION] hedging_appropriateness: Overconfident projections (e.g., 'expected to grow significantly', 'now expectin
+              [           GOOD] flow: Logical progression from manufacturing investments to market dynamics to long-te
+[cost]        $0.0037 (cap $0.0500)
+[status]      ok

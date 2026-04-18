@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1843,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 950,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims are directly cited with adjacent markers [1]-[9], including regulatory, efficacy, and market data.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose appropriately uses hedging (e.g., 'appears stronger,' 'has been described') to reflect uncertainty, avoiding overconfidence in contested claims.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains neutral and evidence-grounded, discussing competitive dynamics, limitations, and market pressures without promotional language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from comparative analysis to efficacy, regulatory, long-term outcomes, and limitations, with clear section transitions.\"},\n  \"completeness\": {\"verdict\": \"acceptable\", \"note\": \"Major evidence rows (primary trials, regulatory status, safety) are addressed, but key safety data (e.g., long-term adverse effects) and foundational research gaps are underemphasized in the main text.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "All factual claims are directly cited with adjacent markers [1]-[9], including regulatory, efficacy, and market data.",
+      "verdict": "good"
+    },
+    "completeness": {
+      "note": "Major evidence rows (primary trials, regulatory status, safety) are addressed, but key safety data (e.g., long-term adverse effects) and foundational research gaps are underemphasized in the main text.",
+      "verdict": "acceptable"
+    },
+    "flow": {
+      "note": "Logical progression from comparative analysis to efficacy, regulatory, long-term outcomes, and limitations, with clear section transitions.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Prose appropriately uses hedging (e.g., 'appears stronger,' 'has been described') to reflect uncertainty, avoiding overconfidence in contested claims.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Tone remains neutral and evidence-grounded, discussing competitive dynamics, limitations, and market pressures without promotional language.",
+      "verdict": "good"
+    }
+  }
+}

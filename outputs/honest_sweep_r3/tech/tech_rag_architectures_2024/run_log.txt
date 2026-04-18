@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=tech slug=tech_rag_architectures_2024
+Question: What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=5c5df4b82279af98... needs_review=False
+[retrieval]   pre_filter=8, fetched=7, failed=1, elapsed=19.7s  api_calls={'serper': 1, 's2': 1, 'openalex': 8, 'fetch': 8}
+[corpus]      total=8  T1=25%, T4=38%, T6=25%, T7=12%  material_deviation=False
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=7...
+              elapsed=21.1s outline=3 sections, words=475, verified=20, dropped=1, limitations_words=58
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 0, 'needs_revision': 2, 'unknown': 0}
+              [           GOOD] tone_consistency: Maintains evidence-grounded tone throughout, avoiding promotional language.
+              [ NEEDS_REVISION] completeness: Lacks explicit discussion of primary trials, regulatory status, and key safety m
+              [ NEEDS_REVISION] citation_tightness: Limitations section mentions tier distribution gaps without citation; methods se
+              [           GOOD] hedging_appropriateness: Balances confidence with hedging (e.g., 'potential latency', 'no direct contradi
+              [           GOOD] flow: Logical progression from efficacy to mechanism to limitations, with clear sectio
+[cost]        $0.0025 (cap $0.0500)
+[status]      ok

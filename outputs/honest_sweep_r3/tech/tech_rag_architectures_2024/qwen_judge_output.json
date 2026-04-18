@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1608,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 898,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Limitations section mentions tier distribution gaps without citation; methods section references expected tier distribution without adjacent citation markers.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Balances confidence with hedging (e.g., 'potential latency', 'no direct contradictions') and acknowledges limitations.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Maintains evidence-grounded tone throughout, avoiding promotional language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy to mechanism to limitations, with clear section demarcation.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Lacks explicit discussion of primary trials, regulatory status, and key safety measures in major evidence rows.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "Limitations section mentions tier distribution gaps without citation; methods section references expected tier distribution without adjacent citation markers.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Lacks explicit discussion of primary trials, regulatory status, and key safety measures in major evidence rows.",
+      "verdict": "needs_revision"
+    },
+    "flow": {
+      "note": "Logical progression from efficacy to mechanism to limitations, with clear section demarcation.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Balances confidence with hedging (e.g., 'potential latency', 'no direct contradictions') and acknowledges limitations.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Maintains evidence-grounded tone throughout, avoiding promotional language.",
+      "verdict": "good"
+    }
+  }
+}

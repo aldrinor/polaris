@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1076,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1297,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"acceptable\", \"note\": \"All main claims are cited, but the contradiction disclosure lacks specific citations for conflicting data points.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose avoids overconfidence; statements are supported by evidence without unwarranted certainty.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, with balanced discussion of efficacy, safety, and limitations.\"},\n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Efficacy and safety are presented first, followed by limitations and methods, but the transition between sections could be smoother.\"},\n  \"completeness\": {\"verdict\": \"acceptable\", \"note\": \"Major evidence rows (efficacy, safety) are covered, but regulatory status and broader methodological perspectives are underrepresented.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "All main claims are cited, but the contradiction disclosure lacks specific citations for conflicting data points.",
+      "verdict": "acceptable"
+    },
+    "completeness": {
+      "note": "Major evidence rows (efficacy, safety) are covered, but regulatory status and broader methodological perspectives are underrepresented.",
+      "verdict": "acceptable"
+    },
+    "flow": {
+      "note": "Efficacy and safety are presented first, followed by limitations and methods, but the transition between sections could be smoother.",
+      "verdict": "acceptable"
+    },
+    "hedging_appropriateness": {
+      "note": "Prose avoids overconfidence; statements are supported by evidence without unwarranted certainty.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded, with balanced discussion of efficacy, safety, and limitations.",
+      "verdict": "good"
+    }
+  }
+}

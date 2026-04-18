@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1948,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1021,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"The limitations section contains statements without adjacent citations, such as the claim about the corpus skew and lack of contradictory claims.\"}, \n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose appropriately balances claims about DOAC efficacy and safety, acknowledging both benefits and risks without overconfidence.\"}, \n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded throughout, avoiding promotional language and focusing on clinical guidelines and limitations.\"}, \n  \"flow\": {\"verdict\": \"good\", \"note\": \"Sections logically progress from efficacy/safety to dose response, regulatory status, and limitations, with clear context for each claim.\"}, \n  \"completeness\": {\"verdict\": \"acceptable\", \"note\": \"Major evidence areas (efficacy, safety, regulatory guidelines) are covered, but dose response limitations and missing intermediary evidence tiers are noted as gaps.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "The limitations section contains statements without adjacent citations, such as the claim about the corpus skew and lack of contradictory claims.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Major evidence areas (efficacy, safety, regulatory guidelines) are covered, but dose response limitations and missing intermediary evidence tiers are noted as gaps.",
+      "verdict": "acceptable"
+    },
+    "flow": {
+      "note": "Sections logically progress from efficacy/safety to dose response, regulatory status, and limitations, with clear context for each claim.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Prose appropriately balances claims about DOAC efficacy and safety, acknowledging both benefits and risks without overconfidence.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded throughout, avoiding promotional language and focusing on clinical guidelines and limitations.",
+      "verdict": "good"
+    }
+  }
+}

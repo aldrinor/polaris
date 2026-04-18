@@ -1,0 +1,53 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 0,
+  "corpus": {
+    "approved": true,
+    "count": 16,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.1875,
+      "T4": 0.125,
+      "T5": 0.125,
+      "T6": 0.375,
+      "UNKNOWN": 0.1875
+    }
+  },
+  "cost_usd": 0.0037014100000000005,
+  "domain": "due_diligence",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 75,
+    "outline_sections": [
+      "Dose Response",
+      "Population Subgroups",
+      "Long-term Outcomes"
+    ],
+    "sections_kept": 3,
+    "sentences_dropped": 12,
+    "sentences_verified": 9,
+    "words": 329
+  },
+  "protocol_sha256": "3e07732f531b38d8aeadc26fcf34480f52e2a6b589f13a2f788dff300d060037",
+  "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
+  "qwen_verdicts": {
+    "acceptable": 1,
+    "good": 3,
+    "needs_revision": 1,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 16,
+      "openalex": 12,
+      "s2": 2,
+      "serper": 2
+    },
+    "failed": 4,
+    "fetched": 12,
+    "pre_filter": 16
+  },
+  "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776532052",
+  "slug": "dd_lilly_tirzepatide_manufacturing"
+}

@@ -1,0 +1,222 @@
+[
+  {
+    "domain": "ahajournals.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "2023 ACC/AHA/ACCP/HRS Guideline for the Diagnosis and ...",
+    "url": "https://www.ahajournals.org/doi/10.1161/CIR.0000000000001193"
+  },
+  {
+    "domain": "uptodate.com",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 8 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "Atrial fibrillation in adults: Use of oral anticoagulants - UpToDate",
+    "url": "https://www.uptodate.com/contents/atrial-fibrillation-in-adults-use-of-oral-anticoagulants"
+  },
+  {
+    "domain": "pmc.ncbi.nlm.nih.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Oral anticoagulation use in non-valvular atrial fibrillation patients in ...",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11256238/"
+  },
+  {
+    "domain": "escardio.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Novel Oral Anticoagulants for Atrial Fibrillation",
+    "url": "https://www.escardio.org/guidelines/scientific-documents/recommended-reading/heart-rhythm/Novel-Oral-Anticoagulants-for-Atrial-Fibrillation/"
+  },
+  {
+    "domain": "aafp.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: 'article' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
+    ],
+    "tier_rule": "R11_openalex_preprint_or_repo",
+    "title": "Anticoagulation: Updated Guidelines for Outpatient Management",
+    "url": "https://www.aafp.org/pubs/afp/issues/2019/1001/p426.html"
+  },
+  {
+    "domain": "droracle.ai",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 171 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "NOAC Dosing and Contraindications in Non-Valvular Atrial ...",
+    "url": "https://www.droracle.ai/articles/952301/what-are-the-dosing-recommendations-and-contraindications-for-direct"
+  },
+  {
+    "domain": "australianprescriber.tg.org.au",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Oral anticoagulation for adults with atrial fibrillation or venous ...",
+    "url": "https://australianprescriber.tg.org.au/articles/oral-anticoagulation-for-adults-with-atrial-fibrillation-or-venous-thromboembolism.html"
+  },
+  {
+    "domain": "apps.nhslothian.scot",
+    "tier": "T4",
+    "tier_confidence": 0.65,
+    "tier_reasons": [
+      "OpenAlex: 'letter'. T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R11_openalex_letter",
+    "title": "Atrial Fibrillation and Anticoagulation for Non-Valvular AF (NVAF)",
+    "url": "https://apps.nhslothian.scot/refhelp/guidelines/cardiology/atrial-fibrillation-and-anticoagulation-for-non-valvular-af-nvaf/"
+  },
+  {
+    "domain": "ahajournals.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Direct Oral Anticoagulant Use: A Practical Guide to Common Clinical ...",
+    "url": "https://www.ahajournals.org/doi/10.1161/JAHA.120.017559"
+  },
+  {
+    "domain": "pmc.ncbi.nlm.nih.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "2025 Guidelines for direct oral anticoagulants: a practical guidance ...",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12240022/"
+  },
+  {
+    "domain": "acc.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "[PDF] DOAC Dosing for Atrial Fibrillation (AFib)",
+    "url": "https://www.acc.org/-/media/Non-Clinical/Images/Tools-and-Practice-Support/Information-Graphics/2018/10/DOAC-Dosing-for-Atrial-Fibrillation-AFib-UPDATED-Feb-19-19.pdf?la=en&hash=88C84210681FE03A2561ADB9C8967F0E64F54B02"
+  },
+  {
+    "domain": "downstate.edu",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "[PDF] Direct Oral Anticoagulant Guideline",
+    "url": "https://www.downstate.edu/education-training/fellowship-residency-programs/pharmacy/ptsaf-19b-doac-guideline-jan-2026.pdf"
+  },
+  {
+    "domain": "ihs.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "[PDF] Direct Oral Anticoagulants in Atrial Fibrillation -November 2024",
+    "url": "https://www.ihs.gov/sites/nptc/themes/responsive2017/display_objects/documents/guidance/NPTC-Formulary-Brief-DOACs.pdf"
+  },
+  {
+    "domain": "doi.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Direct oral anticoagulants in patients with nonvalvular atrial fibrillation and extreme body weight",
+    "url": "https://doi.org/10.1111/eci.13803"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Periprocedural Management of Direct Oral Anticoagulants: Comment on the 2015 American Society of Regional Anesthesia and Pain Medicine Guidelines",
+    "url": "https://www.semanticscholar.org/paper/0569469e365d3e3ab50e5fc2c4390fe53970cc09"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "New Oral Anticoagulants in Coronary Artery Disease.",
+    "url": "https://www.semanticscholar.org/paper/05c45dd4270aef3b161c2dfce893f4981a7e60cc"
+  },
+  {
+    "domain": "thrombosisresearch.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Electronic alerts for ambulatory patients with atrial fibrillation not prescribed anticoagulation: A randomized, controlled trial (AF-ALERT2).",
+    "url": "http://www.thrombosisresearch.com/article/S0049384823001329/pdf"
+  },
+  {
+    "domain": "jstage.jst.go.jp",
+    "tier": "T4",
+    "tier_confidence": 0.65,
+    "tier_reasons": [
+      "OpenAlex: 'letter'. T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R11_openalex_letter",
+    "title": "Atrial Fibrillation in Patients with End-stage Kidney Disease on Dialysis",
+    "url": "https://www.jstage.jst.go.jp/article/internalmedicine/57/16/57_0735-17/_pdf"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "New Treatment Options Fail to Close the Anticoagulation Gap in Atrial Fibrillation.",
+    "url": "https://www.semanticscholar.org/paper/0acf03f98eec475a64b0597379d2380e2354a5c6"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Perioperative Management of Direct Oral Anticoagulants (DOACs) in Elective Surgery Candidates: A Drug Utilization Evaluation (DUE) Study",
+    "url": "https://www.semanticscholar.org/paper/0ad1285b883ebc6ded183eea4b8480829d103f00"
+  }
+]

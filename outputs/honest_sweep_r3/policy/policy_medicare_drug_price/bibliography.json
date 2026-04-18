@@ -1,0 +1,16 @@
+[
+  {
+    "evidence_id": "ev_000",
+    "num": 1,
+    "statement": "Key Facts About Medicare Drug Price Negotiation - KFF",
+    "tier": "T1",
+    "url": "https://www.kff.org/medicare/key-facts-about-medicare-drug-price-negotiation/"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 2,
+    "statement": "Early impacts of the IRA's Medicare Drug Price Negotiation Program",
+    "tier": "T1",
+    "url": "https://www.vizientinc.com/insights/all/2025/early-impacts-of-the-iras-medicare-drug-price-negotiation-program-pricing-trends"
+  }
+]

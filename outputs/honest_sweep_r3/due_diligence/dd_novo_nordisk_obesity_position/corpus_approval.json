@@ -1,0 +1,110 @@
+{
+  "approved": true,
+  "approved_source_urls": [
+    "https://finance.yahoo.com/sectors/healthcare/articles/eli-lilly-vs-novo-nordisk-152000933.html",
+    "https://www.fiercepharma.com/sponsored/obesity-power-rankings-who-will-challenge-lilly-and-novo",
+    "https://matrixbcg.com/blogs/competitors/novonordisk",
+    "https://intellectia.ai/news/stock/novo-nordisk-faces-intensifying-competition-in-obesity-drug-market",
+    "https://www.euronews.com/business/2024/09/17/weight-loss-market-smaller-rivals-muscle-in-on-eli-lilly-and-novo-nordisk",
+    "https://www.pharmavoice.com/news/novo-nordisk-eli-lilly-obesity-market-dominance-glp1/745823/",
+    "https://portersfiveforce.com/blogs/competitors/novonordisk",
+    "https://www.facebook.com/cnbcinternational/posts/growing-competition-from-smaller-players-is-tightening-the-race-for-market-leade/1227606252560552/",
+    "https://www.theguardian.com/business/2025/sep/18/novo-nordisk-shares-shoot-up-amid-promising-results-for-anti-obesity-pill",
+    "https://m.economictimes.com/news/international/business/novo-nordisks-475-billion-rise-and-fall-as-wegovy-era-gains-wiped-out/articleshow/128723524.cms",
+    "https://finance.yahoo.com/news/novo-nordisk-seeing-slowing-demand-164900175.html",
+    "https://www.fastcompany.com/91381062/blockbuster-weight-loss-drug-wegovy-losing-market-share-u-s-heres-why",
+    "https://www.statista.com/statistics/1416998/sales-wegovy-novo-nordisk-by-quarter/?srsltid=AfmBOooXuWCHG5veGlpXsneRtkBaztRKmAbbt3SHiiLQhqGoFShWEMpf",
+    "https://www.cnbc.com/2025/09/01/wegovy-heart-disease-trial-gives-boost-to-novo-nordisk-amid-us-woes.html",
+    "https://www.mordorintelligence.com/industry-reports/wegovy-market",
+    "https://www.pharmaceutical-technology.com/news/novo-nordisk-cuts-2025-outlook-due-to-compounding-hit-wegovy-demand/",
+    "https://investor.lilly.com/news-releases/news-release-details/zepbound-tirzepatide-most-prescribed-weight-management",
+    "https://investor.lilly.com/news-releases/news-release-details/zepbound-tirzepatide-showed-superior-weight-loss-over-wegovy",
+    "https://zepbound.lilly.com/",
+    "https://investor.lilly.com/news-releases/news-release-details/lillys-zepboundr-tirzepatide-superior-wegovyr-semaglutide-head"
+  ],
+  "decision_at_iso": "2026-04-18T17:06:23Z",
+  "decision_at_unix": 1776531983.9893732,
+  "protocol_sha256": "9d25a855a06c2b2b35afe46b3b8bde8f623b02e049586c5053eb2b7efd8ee2a6",
+  "rejected_source_urls": [],
+  "report": {
+    "auto_approve_allowed": false,
+    "deviations": [
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.2,
+        "expected_max": 0.5,
+        "expected_min": 0.2,
+        "is_material": true,
+        "tier": "T3"
+      },
+      {
+        "actual_fraction": 0.2,
+        "deviation_pp": 0.0,
+        "expected_max": 0.35,
+        "expected_min": 0.1,
+        "is_material": false,
+        "tier": "T5"
+      },
+      {
+        "actual_fraction": 0.45,
+        "deviation_pp": 0.15,
+        "expected_max": 0.3,
+        "expected_min": 0.05,
+        "is_material": true,
+        "tier": "T1"
+      },
+      {
+        "actual_fraction": 0.15,
+        "deviation_pp": 0.0,
+        "expected_max": 0.3,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T6"
+      },
+      {
+        "actual_fraction": 0.05,
+        "deviation_pp": 0.0,
+        "expected_max": 0.2,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T4"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T2"
+      },
+      {
+        "actual_fraction": 0.05,
+        "deviation_pp": 0.0,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T7"
+      }
+    ],
+    "has_material_deviation": true,
+    "tier_counts": {
+      "T1": 9,
+      "T4": 1,
+      "T5": 4,
+      "T6": 3,
+      "T7": 1,
+      "UNKNOWN": 2
+    },
+    "tier_fractions": {
+      "T1": 0.45,
+      "T4": 0.05,
+      "T5": 0.2,
+      "T6": 0.15,
+      "T7": 0.05,
+      "UNKNOWN": 0.1
+    },
+    "total_sources": 20
+  },
+  "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776531870",
+  "user_note": "R-3 sweep. Domain=due_diligence. Auto-approve on sweep."
+}

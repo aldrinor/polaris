@@ -1,0 +1,79 @@
+[
+  {
+    "evidence_id": "ev_009",
+    "num": 1,
+    "statement": "Lilly Increases Manufacturing Investment to $9 Billion at ...",
+    "tier": "T6",
+    "url": "https://www.prnewswire.com/news-releases/lilly-increases-manufacturing-investment-to-9-billion-at-newest-indiana-site-to-boost-api-production-for-tirzepatide-and-pipeline-medicines-302155135.html"
+  },
+  {
+    "evidence_id": "ev_011",
+    "num": 2,
+    "statement": "Lilly injects another $5.3b in Indiana plant to up tirzepatide ...",
+    "tier": "UNKNOWN",
+    "url": "https://www.bioprocessintl.com/facilities-capacity/lilly-injects-another-5-3bn-in-indiana-plant-to-up-tirzepatide-production"
+  },
+  {
+    "evidence_id": "ev_014",
+    "num": 3,
+    "statement": "Lilly to pour $5B more into expanding Zepbound, Mounjaro ...",
+    "tier": "UNKNOWN",
+    "url": "https://www.manufacturingdive.com/news/lilly-zepbound-manufacturing-invest-indiana-tirzepatide/717184/"
+  },
+  {
+    "evidence_id": "ev_012",
+    "num": 4,
+    "statement": "Lilly invests $3 billion to expand Wisconsin plant as obesity ...",
+    "tier": "T6",
+    "url": "https://www.cnbc.com/2024/12/05/lilly-invests-3-billion-to-expand-wisconsin-plant-as-obesity-drug-demand-soars-.html"
+  },
+  {
+    "evidence_id": "ev_013",
+    "num": 5,
+    "statement": "Lilly Pumps $3B Into Wisconsin Site as Compounders ...",
+    "tier": "T4",
+    "url": "https://www.biospace.com/business/lilly-pumps-3b-into-wisconsin-site-as-compounders-close-in-on-tirzepatide"
+  },
+  {
+    "evidence_id": "ev_001",
+    "num": 6,
+    "statement": "Tirzepatide Market Forecast Tirzepatide drug Insight by 2034",
+    "tier": "T1",
+    "url": "https://www.delveinsight.com/report-store/tirzepatide-emerging-drug-insight-and-market-forecast"
+  },
+  {
+    "evidence_id": "ev_003",
+    "num": 7,
+    "statement": "Eli Lilly - Statistics & Facts - Statista",
+    "tier": "T1",
+    "url": "https://www.statista.com/topics/12144/eli-lilly/?srsltid=AfmBOoq2eufoTbZK7uyHpBH-10D17HkpTJ0y2Go94I4sGM6UufD76uS_"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 8,
+    "statement": "How Supply and Demand for Weight Loss Drugs is Playing Out in ...",
+    "tier": "T4",
+    "url": "https://www.jpmorgan.com/insights/global-research/current-events/obesity-drugs"
+  },
+  {
+    "evidence_id": "ev_004",
+    "num": 9,
+    "statement": "Lilly hikes revenue forecasts on booming obesity drug sales",
+    "tier": "T6",
+    "url": "https://www.biopharmadive.com/news/lilly-third-quarter-2025-earnings-zepbound-mounjaro-obesity-sales/804232/"
+  },
+  {
+    "evidence_id": "ev_015",
+    "num": 10,
+    "statement": "Eli Lilly's U.S. Manufacturing Build-Out: A Playbook for ...",
+    "tier": "T1",
+    "url": "https://www.linkedin.com/pulse/eli-lillys-us-manufacturing-build-out-playbook-win-varenas-mba-gqdjc"
+  },
+  {
+    "evidence_id": "ev_000",
+    "num": 11,
+    "statement": "What's next for the weight loss drug market: pills, rivals, insurance",
+    "tier": "T6",
+    "url": "https://www.cnbc.com/2025/11/02/whats-next-for-the-weight-loss-drug-market-pills-rivals-insurance.html"
+  }
+]

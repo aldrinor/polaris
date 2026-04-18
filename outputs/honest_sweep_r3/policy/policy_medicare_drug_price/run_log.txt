@@ -1,0 +1,21 @@
+========================================================================
+SWEEP domain=policy slug=policy_medicare_drug_price
+Question: What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=db2debfddaa057a6... needs_review=False
+[retrieval]   pre_filter=85, fetched=7, failed=13, elapsed=46.7s  api_calls={'serper': 3, 's2': 3, 'openalex': 18, 'fetch': 20}
+[corpus]      total=20  T1=45%, T4=15%, T7=30%, UNKNOWN=10%  material_deviation=True
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=7...
+              elapsed=32.7s outline=2 sections, words=223, verified=6, dropped=7, limitations_words=54
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 3 unhedged: ["'top' in: '# Research report: What is the impact of Medicare drug-price negotiation un
+[judge]       {'good': 2, 'acceptable': 1, 'needs_revision': 2, 'unknown': 0}
+              [           GOOD] tone_consistency: Maintains evidence-grounded tone throughout, avoiding promotional language or un
+              [ NEEDS_REVISION] completeness: Missing key evidence rows including primary trial data, comprehensive safety ana
+              [ NEEDS_REVISION] citation_tightness: Limitations section discusses tier distribution gaps and evidence horizon withou
+              [           GOOD] hedging_appropriateness: Prose appropriately acknowledges uncertainty in efficacy analysis with phrases l
+              [     ACCEPTABLE] flow: Moves from regulatory context to efficacy analysis to limitations, but methods s
+[cost]        $0.0024 (cap $0.0500)
+[status]      ok

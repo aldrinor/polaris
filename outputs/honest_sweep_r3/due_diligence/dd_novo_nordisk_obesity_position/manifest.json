@@ -1,0 +1,55 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 1,
+  "corpus": {
+    "approved": true,
+    "count": 20,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.45,
+      "T4": 0.05,
+      "T5": 0.2,
+      "T6": 0.15,
+      "T7": 0.05,
+      "UNKNOWN": 0.1
+    }
+  },
+  "cost_usd": 0.003966180000000001,
+  "domain": "due_diligence",
+  "evaluator_rule_fail": 1,
+  "evaluator_rule_pass": 12,
+  "generator": {
+    "limitations_words": 66,
+    "outline_sections": [
+      "Comparative",
+      "Regulatory",
+      "Efficacy",
+      "Safety"
+    ],
+    "sections_kept": 4,
+    "sentences_dropped": 11,
+    "sentences_verified": 15,
+    "words": 483
+  },
+  "protocol_sha256": "9d25a855a06c2b2b35afe46b3b8bde8f623b02e049586c5053eb2b7efd8ee2a6",
+  "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
+  "qwen_verdicts": {
+    "acceptable": 1,
+    "good": 3,
+    "needs_revision": 1,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 20,
+      "openalex": 16,
+      "s2": 3,
+      "serper": 3
+    },
+    "failed": 7,
+    "fetched": 13,
+    "pre_filter": 24
+  },
+  "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776531870",
+  "slug": "dd_novo_nordisk_obesity_position"
+}

@@ -1,0 +1,94 @@
+{
+  "approved": true,
+  "approved_source_urls": [
+    "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies",
+    "https://medium.com/data-science-collective/rag-architectures-a-complete-guide-for-2025-daf98a2ede8c",
+    "https://www.chitika.com/retrieval-augmented-generation-rag-the-definitive-guide-2025/",
+    "https://www.reddit.com/r/LocalLLaMA/comments/1fluepi/whats_the_best_current_setup_for/",
+    "https://arxiv.org/html/2506.00054v1",
+    "https://www.glean.com/blog/rag-retrieval-augmented-generation",
+    "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i",
+    "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+  ],
+  "decision_at_iso": "2026-04-18T17:02:37Z",
+  "decision_at_unix": 1776531757.4735262,
+  "protocol_sha256": "5c5df4b82279af9887fca4c1020c567ab93d0d6fe335302041492011bbfe6194",
+  "rejected_source_urls": [],
+  "report": {
+    "auto_approve_allowed": true,
+    "deviations": [
+      {
+        "actual_fraction": 0.25,
+        "deviation_pp": 0.0,
+        "expected_max": 0.5,
+        "expected_min": 0.2,
+        "is_material": false,
+        "tier": "T1"
+      },
+      {
+        "actual_fraction": 0.375,
+        "deviation_pp": 0.025,
+        "expected_max": 0.35,
+        "expected_min": 0.1,
+        "is_material": false,
+        "tier": "T4"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.05,
+        "expected_max": 0.25,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T2"
+      },
+      {
+        "actual_fraction": 0.25,
+        "deviation_pp": 0.0,
+        "expected_max": 0.25,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T6"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T3"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T5"
+      },
+      {
+        "actual_fraction": 0.125,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T7"
+      }
+    ],
+    "has_material_deviation": false,
+    "tier_counts": {
+      "T1": 2,
+      "T4": 3,
+      "T6": 2,
+      "T7": 1
+    },
+    "tier_fractions": {
+      "T1": 0.25,
+      "T4": 0.375,
+      "T6": 0.25,
+      "T7": 0.125
+    },
+    "total_sources": 8
+  },
+  "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+  "user_note": "R-3 sweep. Domain=tech. Auto-approve on sweep."
+}

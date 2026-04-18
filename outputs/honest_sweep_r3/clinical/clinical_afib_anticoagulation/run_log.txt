@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=clinical slug=clinical_afib_anticoagulation
+Question: What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=6ff224a76a90325b... needs_review=True
+[retrieval]   pre_filter=658, fetched=12, failed=8, elapsed=54.8s  api_calls={'serper': 3, 's2': 3, 'openalex': 20, 'fetch': 20}
+[corpus]      total=20  T1=40%, T4=30%, T7=30%  material_deviation=True
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=12...
+              elapsed=39.5s outline=4 sections, words=467, verified=19, dropped=7, limitations_words=60
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains evidence-grounded throughout, avoiding promotional language and foc
+              [     ACCEPTABLE] completeness: Major evidence areas (efficacy, safety, regulatory guidelines) are covered, but 
+              [ NEEDS_REVISION] citation_tightness: The limitations section contains statements without adjacent citations, such as 
+              [           GOOD] hedging_appropriateness: Prose appropriately balances claims about DOAC efficacy and safety, acknowledgin
+              [           GOOD] flow: Sections logically progress from efficacy/safety to dose response, regulatory st
+[cost]        $0.0058 (cap $0.0500)
+[status]      ok

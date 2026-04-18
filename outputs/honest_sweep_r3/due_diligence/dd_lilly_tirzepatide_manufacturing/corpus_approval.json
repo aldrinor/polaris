@@ -1,0 +1,104 @@
+{
+  "approved": true,
+  "approved_source_urls": [
+    "https://www.cnbc.com/2025/11/02/whats-next-for-the-weight-loss-drug-market-pills-rivals-insurance.html",
+    "https://www.delveinsight.com/report-store/tirzepatide-emerging-drug-insight-and-market-forecast",
+    "https://investor.lilly.com/news-releases/news-release-details/lilly-reports-full-q4-2024-financial-results-and-provides-2025",
+    "https://www.statista.com/topics/12144/eli-lilly/?srsltid=AfmBOoq2eufoTbZK7uyHpBH-10D17HkpTJ0y2Go94I4sGM6UufD76uS_",
+    "https://www.biopharmadive.com/news/lilly-third-quarter-2025-earnings-zepbound-mounjaro-obesity-sales/804232/",
+    "https://www.jpmorgan.com/insights/global-research/current-events/obesity-drugs",
+    "https://www.reuters.com/business/healthcare-pharmaceuticals/eli-lilly-plans-launch-mounjaro-china-india-brazil-mexico-by-2026-cfo-says-2025-03-10/",
+    "https://pharmaphorum.com/news/lilly-says-tirzepatide-supply-issues-are-resolving",
+    "https://investor.lilly.com/news-releases/news-release-details/lilly-increases-manufacturing-investment-9-billion-newest",
+    "https://www.prnewswire.com/news-releases/lilly-increases-manufacturing-investment-to-9-billion-at-newest-indiana-site-to-boost-api-production-for-tirzepatide-and-pipeline-medicines-302155135.html",
+    "https://www.fiercepharma.com/manufacturing/lillys-manufacturing-splurge-continues-200m-expansion-china",
+    "https://www.bioprocessintl.com/facilities-capacity/lilly-injects-another-5-3bn-in-indiana-plant-to-up-tirzepatide-production",
+    "https://www.cnbc.com/2024/12/05/lilly-invests-3-billion-to-expand-wisconsin-plant-as-obesity-drug-demand-soars-.html",
+    "https://www.biospace.com/business/lilly-pumps-3b-into-wisconsin-site-as-compounders-close-in-on-tirzepatide",
+    "https://www.manufacturingdive.com/news/lilly-zepbound-manufacturing-invest-indiana-tirzepatide/717184/",
+    "https://www.linkedin.com/pulse/eli-lillys-us-manufacturing-build-out-playbook-win-varenas-mba-gqdjc"
+  ],
+  "decision_at_iso": "2026-04-18T17:08:50Z",
+  "decision_at_unix": 1776532130.1939826,
+  "protocol_sha256": "3e07732f531b38d8aeadc26fcf34480f52e2a6b589f13a2f788dff300d060037",
+  "rejected_source_urls": [],
+  "report": {
+    "auto_approve_allowed": false,
+    "deviations": [
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.2,
+        "expected_max": 0.5,
+        "expected_min": 0.2,
+        "is_material": true,
+        "tier": "T3"
+      },
+      {
+        "actual_fraction": 0.125,
+        "deviation_pp": 0.0,
+        "expected_max": 0.35,
+        "expected_min": 0.1,
+        "is_material": false,
+        "tier": "T5"
+      },
+      {
+        "actual_fraction": 0.1875,
+        "deviation_pp": 0.0,
+        "expected_max": 0.3,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T1"
+      },
+      {
+        "actual_fraction": 0.375,
+        "deviation_pp": 0.075,
+        "expected_max": 0.3,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T6"
+      },
+      {
+        "actual_fraction": 0.125,
+        "deviation_pp": 0.0,
+        "expected_max": 0.2,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T4"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T2"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T7"
+      }
+    ],
+    "has_material_deviation": true,
+    "tier_counts": {
+      "T1": 3,
+      "T4": 2,
+      "T5": 2,
+      "T6": 6,
+      "UNKNOWN": 3
+    },
+    "tier_fractions": {
+      "T1": 0.1875,
+      "T4": 0.125,
+      "T5": 0.125,
+      "T6": 0.375,
+      "UNKNOWN": 0.1875
+    },
+    "total_sources": 16
+  },
+  "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776532052",
+  "user_note": "R-3 sweep. Domain=due_diligence. Auto-approve on sweep."
+}

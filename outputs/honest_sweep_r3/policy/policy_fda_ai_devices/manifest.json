@@ -1,0 +1,52 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 0,
+  "corpus": {
+    "approved": true,
+    "count": 20,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.25,
+      "T3": 0.2,
+      "T4": 0.15,
+      "T7": 0.4
+    }
+  },
+  "cost_usd": 0.00238099,
+  "domain": "policy",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 73,
+    "outline_sections": [
+      "Regulatory",
+      "Mechanism",
+      "Safety"
+    ],
+    "sections_kept": 3,
+    "sentences_dropped": 4,
+    "sentences_verified": 16,
+    "words": 456
+  },
+  "protocol_sha256": "b64b0b4533e3ce7fcfc87e90d3653cd24b28392314914c717053da924c0ea2da",
+  "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
+  "qwen_verdicts": {
+    "acceptable": 1,
+    "good": 2,
+    "needs_revision": 2,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 20,
+      "openalex": 20,
+      "s2": 2,
+      "serper": 2
+    },
+    "failed": 9,
+    "fetched": 11,
+    "pre_filter": 22
+  },
+  "run_id": "SWEEP_policy_policy_fda_ai_devices_1776531560",
+  "slug": "policy_fda_ai_devices"
+}

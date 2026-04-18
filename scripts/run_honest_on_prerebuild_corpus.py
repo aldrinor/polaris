@@ -181,12 +181,21 @@ async def main_async() -> int:
         log_f.write(msg + "\n")
         log_f.flush()
 
+    # R-2: reset the shared run-cost counter so the per-run cap applies
+    # to THIS run only. PG_MAX_COST_PER_RUN (default $0.10) will abort
+    # further LLM calls if exceeded.
+    from src.polaris_graph.llm.openrouter_client import (
+        current_run_cost, reset_run_cost, PG_MAX_COST_PER_RUN,
+    )
+    reset_run_cost()
+
     question = pre.get("original_query", "").strip()
     _log("=" * 72)
     _log(f"APPLES-TO-APPLES run_id={run_id}")
     _log("=" * 72)
     _log(f"Using pre-rebuild corpus from {pre_path}")
     _log(f"Pre-rebuild query (verbatim): {question!r}")
+    _log(f"Budget cap (PG_MAX_COST_PER_RUN): ${PG_MAX_COST_PER_RUN:.4f}")
     _log("")
 
     # Phase 2b scope gate
@@ -265,6 +274,14 @@ async def main_async() -> int:
         section_max_tokens=1200,
         min_kept_fraction=0.4,
         max_parallel_sections=3,
+        # R-1: pipeline telemetry for Limitations synthesis
+        tier_fractions=dist.tier_fractions,
+        contradictions=[asdict(c) for c in contradictions],
+        date_range=(
+            protocol_dict.get("date_range")
+            if isinstance(protocol_dict.get("date_range"), dict)
+            else None
+        ),
     )
     dt = time.time() - t0
     _log(f"       elapsed={dt:.1f}s  outline={len(multi.outline)} sections, "
@@ -305,6 +322,13 @@ async def main_async() -> int:
             continue
         section_bodies.append(f"### {sr.title}\n\n{sr.verified_text}")
     sections_concat = "\n\n".join(section_bodies)
+
+    # R-1: add the Limitations paragraph (if generated) after sections,
+    # before Methods.
+    if multi.limitations_text:
+        sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
+        _log(f"       limitations: +{multi.limitations_output_tokens} tokens, "
+             f"{len(multi.limitations_text.split())} words")
 
     biblio = multi.bibliography
 
@@ -490,6 +514,8 @@ async def main_async() -> int:
         vcounts = {v: sum(1 for j in jr.verdicts.values() if j["verdict"] == v)
                    for v in ("good", "acceptable", "needs_revision", "unknown")}
         _log(f"  Qwen judge:            {vcounts}")
+    _log(f"  Run cost (USD):        ${current_run_cost():.4f} "
+         f"(cap ${PG_MAX_COST_PER_RUN:.4f})")
     _log("")
     _log(f"  Artifacts in:          {run_dir}")
     log_f.close()

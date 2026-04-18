@@ -1,0 +1,37 @@
+[
+  {
+    "evidence_id": "ev_000",
+    "num": 1,
+    "statement": "RAG in 2025: 7 Proven Strategies to Deploy Retrieval- ...",
+    "tier": "T4",
+    "url": "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies"
+  },
+  {
+    "evidence_id": "ev_006",
+    "num": 2,
+    "statement": "Retrieval-Augmented Generation in 2025: Solving LLM's ...",
+    "tier": "T6",
+    "url": "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i"
+  },
+  {
+    "evidence_id": "ev_007",
+    "num": 3,
+    "statement": "RAG: An Architectural Review and Strategic Outlook for 2025",
+    "tier": "T4",
+    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+  },
+  {
+    "evidence_id": "ev_004",
+    "num": 4,
+    "statement": "Retrieval-Augmented Generation: A Comprehensive ...",
+    "tier": "T4",
+    "url": "https://arxiv.org/html/2506.00054v1"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 5,
+    "statement": "What is Retrieval Augmented Generation(RAG) in 2025?",
+    "tier": "T1",
+    "url": "https://www.glean.com/blog/rag-retrieval-augmented-generation"
+  }
+]

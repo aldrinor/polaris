@@ -141,12 +141,62 @@ def _normalize_predicate(text: str) -> Optional[str]:
 
 
 def _normalize_subject(text: str, fallback: str = "unknown") -> str:
-    """Extract a drug name or fallback."""
+    """Extract the first drug name in the text, or fallback.
+
+    This is the legacy API used when no positional anchor is available.
+    Prefer _subject_near_position() when you know where the numeric value
+    is and want to attribute the number to the nearest drug, not the
+    first drug to appear in the wider text.
+    """
     from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
     m = _DRUG_NAME_RE.search(text or "")
     if m:
         return m.group(1).lower()
     return fallback
+
+
+def _subject_near_position(
+    text: str,
+    anchor_pos: int,
+    fallback: str = "unknown",
+    window: int = 150,
+) -> str:
+    """R-5 Fix B: return the drug name whose match is CLOSEST to
+    anchor_pos in `text`, within ±window chars.
+
+    Used for cross-drug comparisons like:
+        "Eli Lilly's Zepbound achieving 25.5% compared to Novo Nordisk's
+        CagriSema at 23%, with Lilly's retatrutide at 28.7% and ..."
+
+    Legacy `_normalize_subject(quote)` would return the first drug in
+    the full quote (often 'retatrutide' here, even though 25.5% belongs
+    to Zepbound). This function searches all drug matches inside the
+    ±window chars around anchor_pos and returns the match with the
+    smallest absolute distance.
+
+    Falls back to _normalize_subject(text) (first-in-text) only if
+    ZERO matches are found inside the window. Returns `fallback` if
+    still nothing.
+    """
+    from src.polaris_graph.nodes.scope_gate import _DRUG_NAME_RE
+
+    if not text:
+        return fallback
+    lo = max(0, anchor_pos - window)
+    hi = min(len(text), anchor_pos + window)
+    local = text[lo:hi]
+    matches = list(_DRUG_NAME_RE.finditer(local))
+    if not matches:
+        # Widen search to full text as last resort
+        return _normalize_subject(text, fallback)
+    # Pick the match whose center is closest to the (anchor_pos - lo)
+    # position inside `local`.
+    anchor_local = anchor_pos - lo
+    best = min(
+        matches,
+        key=lambda m: abs(((m.start() + m.end()) // 2) - anchor_local),
+    )
+    return best.group(1).lower()
 
 
 # Fix-1 reject patterns. Numbers that sit inside these contexts are
@@ -230,10 +280,12 @@ def _extract_endpoint_phrase(text: str) -> str:
     return ""
 
 
-def _find_value_in_context(text: str, predicate: str) -> Optional[tuple[float, str, str]]:
+def _find_value_in_context(
+    text: str, predicate: str,
+) -> Optional[tuple[float, str, str, int]]:
     """Find a numeric value that sits INSIDE a value-phrase context.
 
-    Returns (value, unit, matched_context) or None.
+    Returns (value, unit, matched_context, anchor_position_in_text) or None.
 
     The algorithm:
       1. Find all percentage matches.
@@ -241,6 +293,10 @@ def _find_value_in_context(text: str, predicate: str) -> Optional[tuple[float, s
          (a) A value-phrase verb  AND
          (b) NOT a reject pattern (placebo, threshold, trial acronym, duration)
       3. Return the first match that satisfies both.
+
+    R-5 Fix B: also returns the anchor position so the caller can
+    attribute subject (drug name) to the drug NEAREST the value,
+    not the first drug appearing in the full quote.
     """
     if not text:
         return None
@@ -254,7 +310,10 @@ def _find_value_in_context(text: str, predicate: str) -> Optional[tuple[float, s
             if not _VALUE_PHRASE_VERBS.search(window):
                 continue
             try:
-                return (float(m.group("value")), "percentage_points", window)
+                return (
+                    float(m.group("value")), "percentage_points",
+                    window, m.start(),
+                )
             except ValueError:
                 continue
         return None
@@ -269,7 +328,7 @@ def _find_value_in_context(text: str, predicate: str) -> Optional[tuple[float, s
         if not _VALUE_PHRASE_VERBS.search(window):
             continue
         try:
-            return (float(m.group("value")), "%", window)
+            return (float(m.group("value")), "%", window, m.start())
         except ValueError:
             continue
     return None
@@ -309,7 +368,7 @@ def _extract_numeric_value(text: str, predicate: str) -> Optional[tuple[float, s
         return None
     result = _find_value_in_context(text, predicate)
     if result:
-        v, u, _ctx = result
+        v, u, _ctx, _pos = result
         return (v, u)
 
     # Fallback: if no value-phrase match, fall back to the previous
@@ -353,14 +412,22 @@ def extract_numeric_claims(
         predicate = _normalize_predicate(quote)
         if not predicate:
             continue
-        subject = _normalize_subject(quote)
 
         # Fix-1 uses _find_value_in_context which returns the matched
         # window so we can store the endpoint phrase.
         in_context = _find_value_in_context(quote, predicate)
         if in_context is None:
             continue
-        value, unit, ctx_window = in_context
+        value, unit, ctx_window, anchor_pos = in_context
+
+        # R-5 Fix B: subject must be the drug NEAREST the numeric value,
+        # not the first drug in the quote. Cross-drug comparison quotes
+        # like "Zepbound 25.5% compared to CagriSema 23%" were mis-
+        # attributing to the first drug mentioned earlier in the full
+        # direct_quote (often the paragraph's primary topic, e.g.
+        # retatrutide). _subject_near_position searches ±150 chars
+        # around the value's position and picks the closest drug match.
+        subject = _subject_near_position(quote, anchor_pos, fallback="unknown")
 
         dose = _extract_dose(ctx_window) or _extract_dose(quote)
         # arm classification: if the value sits in a placebo context

@@ -1,0 +1,51 @@
+[
+  {
+    "evidence_id": "ev_005",
+    "num": 1,
+    "statement": "Can anything threaten Novo and Lilly's obesity market dominance?",
+    "tier": "T1",
+    "url": "https://www.pharmavoice.com/news/novo-nordisk-eli-lilly-obesity-market-dominance-glp1/745823/"
+  },
+  {
+    "evidence_id": "ev_000",
+    "num": 2,
+    "statement": "Eli Lilly vs Novo Nordisk: Which Obesity Drug Stock Is the Better Buy?",
+    "tier": "T1",
+    "url": "https://finance.yahoo.com/sectors/healthcare/articles/eli-lilly-vs-novo-nordisk-152000933.html"
+  },
+  {
+    "evidence_id": "ev_008",
+    "num": 3,
+    "statement": "Novo Nordisk shares climb after positive anti-obesity pill ...",
+    "tier": "T6",
+    "url": "https://www.theguardian.com/business/2025/sep/18/novo-nordisk-shares-shoot-up-amid-promising-results-for-anti-obesity-pill"
+  },
+  {
+    "evidence_id": "ev_012",
+    "num": 4,
+    "statement": "Novo Nordisk: Wegovy sales by quarter 2025",
+    "tier": "T1",
+    "url": "https://www.statista.com/statistics/1416998/sales-wegovy-novo-nordisk-by-quarter/?srsltid=AfmBOooXuWCHG5veGlpXsneRtkBaztRKmAbbt3SHiiLQhqGoFShWEMpf"
+  },
+  {
+    "evidence_id": "ev_014",
+    "num": 5,
+    "statement": "Wegovy Market Size, Share & Growth Outlook to 2030",
+    "tier": "UNKNOWN",
+    "url": "https://www.mordorintelligence.com/industry-reports/wegovy-market"
+  },
+  {
+    "evidence_id": "ev_003",
+    "num": 6,
+    "statement": "Novo Nordisk Faces Intensifying Competition in Obesity Drug Market",
+    "tier": "T1",
+    "url": "https://intellectia.ai/news/stock/novo-nordisk-faces-intensifying-competition-in-obesity-drug-market"
+  },
+  {
+    "evidence_id": "ev_004",
+    "num": 7,
+    "statement": "Weight loss market: Eli Lilly and Novo Nordisk's rivals muscle in",
+    "tier": "T1",
+    "url": "https://www.euronews.com/business/2024/09/17/weight-loss-market-smaller-rivals-muscle-in-on-eli-lilly-and-novo-nordisk"
+  }
+]

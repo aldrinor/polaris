@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1266,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1738,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims are cited with adjacent markers [1] or [2], and references are listed in the bibliography.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"acceptable\", \"note\": \"The report presents definitive statements (e.g., 'accuracy often reduces') without explicit hedging, but limitations are acknowledged. Overconfidence is not overtly present.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, avoiding promotional language and focusing on technical analysis.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy, mechanism, limitations, methods, and bibliography maintains coherence.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing key safety and regulatory status information, which are major evidence rows. Primary trials are mentioned but not elaborated beyond source classification.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "All factual claims are cited with adjacent markers [1] or [2], and references are listed in the bibliography.",
+      "verdict": "good"
+    },
+    "completeness": {
+      "note": "Missing key safety and regulatory status information, which are major evidence rows. Primary trials are mentioned but not elaborated beyond source classification.",
+      "verdict": "needs_revision"
+    },
+    "flow": {
+      "note": "Logical progression from efficacy, mechanism, limitations, methods, and bibliography maintains coherence.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "The report presents definitive statements (e.g., 'accuracy often reduces') without explicit hedging, but limitations are acknowledged. Overconfidence is not overtly present.",
+      "verdict": "acceptable"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded, avoiding promotional language and focusing on technical analysis.",
+      "verdict": "good"
+    }
+  }
+}

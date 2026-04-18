@@ -1,0 +1,50 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 0,
+  "corpus": {
+    "approved": true,
+    "count": 8,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T4": 0.5,
+      "T6": 0.25,
+      "UNKNOWN": 0.25
+    }
+  },
+  "cost_usd": 0.00405495,
+  "domain": "tech",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 55,
+    "outline_sections": [
+      "Efficacy",
+      "Mechanism"
+    ],
+    "sections_kept": 2,
+    "sentences_dropped": 3,
+    "sentences_verified": 11,
+    "words": 335
+  },
+  "protocol_sha256": "a167fbdae72db098b271b4d621933257199ca72c9d0a0c4c3ea9197d750da144",
+  "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
+  "qwen_verdicts": {
+    "acceptable": 1,
+    "good": 3,
+    "needs_revision": 1,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 8,
+      "openalex": 8,
+      "s2": 1,
+      "serper": 1
+    },
+    "failed": 2,
+    "fetched": 6,
+    "pre_filter": 8
+  },
+  "run_id": "SWEEP_tech_tech_long_context_transformer_1776531796",
+  "slug": "tech_long_context_transformer"
+}

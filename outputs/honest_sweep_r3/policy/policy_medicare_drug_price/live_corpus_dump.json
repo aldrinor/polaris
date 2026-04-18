@@ -1,0 +1,222 @@
+[
+  {
+    "domain": "kff.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Key Facts About Medicare Drug Price Negotiation - KFF",
+    "url": "https://www.kff.org/medicare/key-facts-about-medicare-drug-price-negotiation/"
+  },
+  {
+    "domain": "sciencedirect.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Spending Impact of the First Ten Drugs Selected for Medicare Drug ...",
+    "url": "https://www.sciencedirect.com/science/article/pii/S1098301526001129"
+  },
+  {
+    "domain": "accessiblemeds.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Long-Term Effects of Medicare Price Negotiations on Drug ...",
+    "url": "https://accessiblemeds.org/resources/blog/long-term-effects-of-medicare-price-negotiations-on-drug-competition/"
+  },
+  {
+    "domain": "pmc.ncbi.nlm.nih.gov",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Negotiating Medicare Drug Prices: A New Attempt to Control ... - PMC",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12179530/"
+  },
+  {
+    "domain": "cms.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Selected Drugs and Negotiated Prices - CMS",
+    "url": "https://www.cms.gov/priorities/medicare-prescription-drug-affordability/overview/medicare-drug-price-negotiation-program/selected-drugs-negotiated-prices"
+  },
+  {
+    "domain": "vizientinc.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Early impacts of the IRA's Medicare Drug Price Negotiation Program",
+    "url": "https://www.vizientinc.com/insights/all/2025/early-impacts-of-the-iras-medicare-drug-price-negotiation-program-pricing-trends"
+  },
+  {
+    "domain": "gao.gov",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Initial Implementation of Medicare Drug Pricing Provisions | U.S. GAO",
+    "url": "https://www.gao.gov/products/gao-25-106996"
+  },
+  {
+    "domain": "schaeffer.usc.edu",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "The Inflation Reduction Act's Harms Go Beyond Drug Pricing",
+    "url": "https://schaeffer.usc.edu/research/the-inflation-reduction-acts-harms-go-beyond-drug-pricing-theyre-threatening-your-medicare/"
+  },
+  {
+    "domain": "cms.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Medicare Drug Price Negotiation Program - CMS",
+    "url": "https://www.cms.gov/priorities/medicare-prescription-drug-affordability/overview/medicare-drug-price-negotiation-program"
+  },
+  {
+    "domain": "medicarerights.org",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Negotiated Prices Take Effect for Ten Drugs in 2026",
+    "url": "https://www.medicarerights.org/medicare-watch/2025/10/09/negotiated-prices-take-effect-for-ten-drugs-in-2026"
+  },
+  {
+    "domain": "phrma.org",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 31 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "Inflation Reduction Act | PhRMA",
+    "url": "https://phrma.org/policy-issues/government-price-setting/inflation-reduction-act"
+  },
+  {
+    "domain": "pubmed.ncbi.nlm.nih.gov",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Medicare price negotiation and pharmaceutical innovation following ...",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/38297186/"
+  },
+  {
+    "domain": "commonwealthfund.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Medicare Drug Price Negotiations: All You Need to Know",
+    "url": "https://www.commonwealthfund.org/publications/explainer/2025/may/medicare-drug-price-negotiations-all-you-need-know"
+  },
+  {
+    "domain": "aspe.hhs.gov",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "[PDF] \u2014Inflation Reduction Act Research Series\u2014 Medicare Drug Price ...",
+    "url": "https://aspe.hhs.gov/sites/default/files/documents/4bf549a55308c3aadc74b34abcb7a1d1/ira-drug-negotiation-report.pdf"
+  },
+  {
+    "domain": "doi.org",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Use of real-world evidence in the Medicare Drug Price Negotiation Program: A checklist for the Centers for Medicare and Medicaid Services and manufacturers",
+    "url": "https://doi.org/10.1093/haschl/qxaf030"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Medicare's Historic Prescription Drug Price Negotiations.",
+    "url": "https://www.semanticscholar.org/paper/04dc59bad8e97a0bd91d18c81a0385cd450fb473"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "1047-P: Estimating QALY-Based Price Ranges for Diabetes Drugs under IRA Negotiation",
+    "url": "https://www.semanticscholar.org/paper/080afd9b42588595282213f18d9766060cf89727"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Medicare Drug Pricing Negotiations: Assessing Constitutional Structural Limits",
+    "url": "https://www.semanticscholar.org/paper/0875d2f2b4628f8e7295f29c828ff16696890d03"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "The Inflation Reduction Act: How Will Medicare Negotiating Drug Prices Impact Patients with Heart Disease?",
+    "url": "https://www.semanticscholar.org/paper/09b3592e585f3f391e847b08815aac6415d21605"
+  },
+  {
+    "domain": "semanticscholar.org",
+    "tier": "T7",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+    ],
+    "tier_rule": "R6_abstract_only_domain",
+    "title": "Medicare drug price negotiations: impact on healthcare development and patient access to medicines",
+    "url": "https://www.semanticscholar.org/paper/0c4211598b8d77885f6237795af019b66edc50c8"
+  }
+]

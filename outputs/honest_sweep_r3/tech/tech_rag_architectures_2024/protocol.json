@@ -1,0 +1,84 @@
+{
+  "comparator": null,
+  "created_at_iso": "2026-04-18T17:02:17Z",
+  "created_at_unix": 1776531737.717326,
+  "criteria": {
+    "exclusion": [
+      "Conference abstracts without accompanying papers.",
+      "Tutorial sites republishing documentation without attribution.",
+      "Unattributed AI-generated summaries.",
+      "Vendor marketing pages used as primary claims (allowed as context)."
+    ],
+    "inclusion": [
+      "Official documentation from major open-source projects (with version).",
+      "Peer-reviewed conference papers (NeurIPS, ICML, ACL, SIGMOD, USENIX, etc.).",
+      "Peer-reviewed journal articles (IEEE, ACM, Nature Machine Intelligence).",
+      "Preprints from arXiv / bioRxiv / SSRN with clear authorship.",
+      "Standards documents (IETF RFCs, W3C specs, ISO).",
+      "Technical blog posts from named engineers at reputable orgs."
+    ]
+  },
+  "date_range": {
+    "end": null,
+    "start": "2018-01-01"
+  },
+  "domain": "tech",
+  "excluded_sponsors": [],
+  "expected_tier_distribution": [
+    {
+      "max_fraction": 0.5,
+      "min_fraction": 0.2,
+      "rationale": "Peer-reviewed primary research (conference + journal) is the foundation of novel-contribution claims.\n",
+      "tier": "T1"
+    },
+    {
+      "max_fraction": 0.35,
+      "min_fraction": 0.1,
+      "rationale": "Preprints and narrative surveys — essential for fast-moving fields where conference cycles lag.\n",
+      "tier": "T4"
+    },
+    {
+      "max_fraction": 0.25,
+      "min_fraction": 0.05,
+      "rationale": "Survey / systematic review papers for established areas.\n",
+      "tier": "T2"
+    },
+    {
+      "max_fraction": 0.25,
+      "min_fraction": 0.05,
+      "rationale": "Technical blog posts and engineering postmortems — often contain production-grade findings not published elsewhere.\n",
+      "tier": "T6"
+    },
+    {
+      "max_fraction": 0.15,
+      "min_fraction": 0.0,
+      "rationale": "Standards bodies (IETF, W3C, ISO) when the research question touches interoperability or compliance.\n",
+      "tier": "T3"
+    },
+    {
+      "max_fraction": 0.1,
+      "min_fraction": 0.0,
+      "rationale": "Vendor technical documentation and marketing.\n",
+      "tier": "T5"
+    },
+    {
+      "max_fraction": 0.15,
+      "min_fraction": 0.0,
+      "rationale": "Conference abstracts and workshop papers — early-stage signal.\n",
+      "tier": "T7"
+    }
+  ],
+  "geography": [],
+  "intervention": null,
+  "languages": [
+    "en"
+  ],
+  "needs_user_review": false,
+  "notes": [],
+  "outcome": null,
+  "population": null,
+  "research_question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+  "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+  "template_used": "config/scope_templates/tech.yaml",
+  "user_overrides": {}
+}

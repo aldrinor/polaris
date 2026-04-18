@@ -1,0 +1,83 @@
+{
+  "comparator": null,
+  "created_at_iso": "2026-04-18T17:00:49Z",
+  "created_at_unix": 1776531649.5427153,
+  "criteria": {
+    "exclusion": [
+      "Law-firm commentary used as primary regulatory interpretation (cite the underlying regulation, not the law firm).",
+      "Opinion pieces in general-interest media unless written by a named policy analyst with disclosed affiliation.",
+      "Press releases from pharmaceutical manufacturers without a regulatory decision document to corroborate."
+    ],
+    "inclusion": [
+      "Government press releases and public statements.",
+      "HTA agency reports (ICER, NICE, CADTH, IQWiG, HAS, AHRQ).",
+      "NGO reports with traceable funding disclosure.",
+      "Peer-reviewed health policy / health economics journal articles.",
+      "Regulatory documents from FDA, EMA, Health Canada, MHRA, TGA, PMDA, NMPA.",
+      "UN / WHO reports."
+    ]
+  },
+  "date_range": {
+    "end": null,
+    "start": "2015-01-01"
+  },
+  "domain": "policy",
+  "excluded_sponsors": [],
+  "expected_tier_distribution": [
+    {
+      "max_fraction": 0.7,
+      "min_fraction": 0.35,
+      "rationale": "Regulatory documents and HTA reports are the primary evidence base for policy research.\n",
+      "tier": "T3"
+    },
+    {
+      "max_fraction": 0.3,
+      "min_fraction": 0.1,
+      "rationale": "Peer-reviewed primary studies (health economics, epidemiology) supporting the policy claims.\n",
+      "tier": "T1"
+    },
+    {
+      "max_fraction": 0.25,
+      "min_fraction": 0.05,
+      "rationale": "Systematic reviews and HTA-style evidence synthesis.\n",
+      "tier": "T2"
+    },
+    {
+      "max_fraction": 0.25,
+      "min_fraction": 0.05,
+      "rationale": "Policy commentary from named analysts and NGO reports. Treat as interpretive layer on top of primary regulatory documents.\n",
+      "tier": "T6"
+    },
+    {
+      "max_fraction": 0.15,
+      "min_fraction": 0.0,
+      "rationale": "Narrative reviews of the policy landscape.\n",
+      "tier": "T4"
+    },
+    {
+      "max_fraction": 0.1,
+      "min_fraction": 0.0,
+      "rationale": "Industry policy pages — allowed when corroborated by T3.\n",
+      "tier": "T5"
+    },
+    {
+      "max_fraction": 0.05,
+      "min_fraction": 0.0,
+      "rationale": "Conference abstracts — rarely relevant for policy research.\n",
+      "tier": "T7"
+    }
+  ],
+  "geography": [],
+  "intervention": null,
+  "languages": [
+    "en"
+  ],
+  "needs_user_review": false,
+  "notes": [],
+  "outcome": null,
+  "population": null,
+  "research_question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
+  "run_id": "SWEEP_policy_policy_medicare_drug_price_1776531649",
+  "template_used": "config/scope_templates/policy.yaml",
+  "user_overrides": {}
+}

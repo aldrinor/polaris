@@ -1,0 +1,16 @@
+[
+  {
+    "evidence_id": "ev_000",
+    "num": 1,
+    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+  },
+  {
+    "evidence_id": "ev_002",
+    "num": 2,
+    "statement": "Efficacy and safety of tirzepatide for weight loss in patients ... - Frontiers",
+    "tier": "T4",
+    "url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full"
+  }
+]

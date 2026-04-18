@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=policy slug=policy_fda_ai_devices
+Question: How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=0a1ee45e6b6f378c... needs_review=False
+[retrieval]   pre_filter=22, fetched=11, failed=9, elapsed=38.2s  api_calls={'serper': 2, 's2': 2, 'openalex': 20, 'fetch': 20}
+[corpus]      total=20  T1=10%, T3=20%, T4=10%, T5=10%, T6=5%, T7=45%  material_deviation=True
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=9...
+              elapsed=25.8s outline=3 sections, words=481, verified=19, dropped=3, limitations_words=57
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 0, 'needs_revision': 2, 'unknown': 0}
+              [           GOOD] flow: The report follows a logical structure: regulatory framework -> mechanism -> saf
+              [ NEEDS_REVISION] completeness: Key safety evidence from primary trials (T1 sources) is not integrated into the 
+              [           GOOD] tone_consistency: The tone remains evidence-grounded, focusing on regulatory mechanisms and safety
+              [           GOOD] hedging_appropriateness: The prose presents factual claims about FDA guidance and PCCP framework without 
+              [ NEEDS_REVISION] citation_tightness: The Limitations section states factual claims about corpus tier distribution and
+[cost]        $0.0028 (cap $0.0500)
+[status]      ok

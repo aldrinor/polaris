@@ -1,0 +1,52 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 0,
+  "corpus": {
+    "approved": true,
+    "count": 8,
+    "material_deviation": false,
+    "tier_fractions": {
+      "T1": 0.25,
+      "T4": 0.375,
+      "T6": 0.25,
+      "T7": 0.125
+    }
+  },
+  "cost_usd": 0.002504516,
+  "domain": "tech",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 58,
+    "outline_sections": [
+      "Efficacy",
+      "Comparative",
+      "Mechanism"
+    ],
+    "sections_kept": 3,
+    "sentences_dropped": 1,
+    "sentences_verified": 20,
+    "words": 475
+  },
+  "protocol_sha256": "5c5df4b82279af9887fca4c1020c567ab93d0d6fe335302041492011bbfe6194",
+  "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+  "qwen_verdicts": {
+    "acceptable": 0,
+    "good": 3,
+    "needs_revision": 2,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 8,
+      "openalex": 8,
+      "s2": 1,
+      "serper": 1
+    },
+    "failed": 1,
+    "fetched": 7,
+    "pre_filter": 8
+  },
+  "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+  "slug": "tech_rag_architectures_2024"
+}

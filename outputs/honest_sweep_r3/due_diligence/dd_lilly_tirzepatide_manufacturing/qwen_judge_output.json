@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1817,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1473,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims are cited with adjacent markers [1]-[11].\"},\n  \"hedging_appropriateness\": {\"verdict\": \"needs_revision\", \"note\": \"Overconfident projections (e.g., 'expected to grow significantly', 'now expecting full-year revenue') lack hedging language despite reliance on lower-tier sources.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, avoiding promotional language even in sections about revenue growth.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from manufacturing investments to market dynamics to long-term strategies, followed by limitations.\"}, \n  \"completeness\": {\"verdict\": \"acceptable\", \"note\": \"Covers major evidence rows (investments, market growth, regulatory status) but lacks specific current capacity metrics and safety data.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "All factual claims are cited with adjacent markers [1]-[11].",
+      "verdict": "good"
+    },
+    "completeness": {
+      "note": "Covers major evidence rows (investments, market growth, regulatory status) but lacks specific current capacity metrics and safety data.",
+      "verdict": "acceptable"
+    },
+    "flow": {
+      "note": "Logical progression from manufacturing investments to market dynamics to long-term strategies, followed by limitations.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Overconfident projections (e.g., 'expected to grow significantly', 'now expecting full-year revenue') lack hedging language despite reliance on lower-tier sources.",
+      "verdict": "needs_revision"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded, avoiding promotional language even in sections about revenue growth.",
+      "verdict": "good"
+    }
+  }
+}

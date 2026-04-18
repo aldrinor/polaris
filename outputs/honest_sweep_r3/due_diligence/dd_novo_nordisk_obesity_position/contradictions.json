@@ -1,0 +1,38 @@
+[
+  {
+    "absolute_difference": 5.3,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "rious, leading to a mean weight loss of 20.2% compared to the latter's 13.7% in the 7",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_000",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://finance.yahoo.com/sectors/healthcare/articles/eli-lilly-vs-novo-nordisk-152000933.html",
+        "subject": "retatrutide",
+        "unit": "%",
+        "value": 20.2
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "und achieving an average weight loss of 25.5% compared to CagriSema's 23%, intensifyi",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_003",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://intellectia.ai/news/stock/novo-nordisk-faces-intensifying-competition-in-obesity-drug-market",
+        "subject": "retatrutide",
+        "unit": "%",
+        "value": 25.5
+      }
+    ],
+    "predicate": "weight loss",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 0.2624,
+    "severity": "high",
+    "subject": "retatrutide"
+  }
+]

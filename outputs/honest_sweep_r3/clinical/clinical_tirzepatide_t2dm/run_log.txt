@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=clinical slug=clinical_tirzepatide_t2dm
+Question: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=b55de950464f823f... needs_review=False
+[retrieval]   pre_filter=300, fetched=2, failed=18, elapsed=66.4s  api_calls={'serper': 3, 's2': 3, 'openalex': 20, 'fetch': 20}
+[corpus]      total=20  T1=40%, T3=5%, T4=30%, T5=5%, T7=20%  material_deviation=False
+[contradict]  numeric_claims=2  contradictions=1
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=2...
+              elapsed=27.3s outline=1 sections, words=175, verified=4, dropped=5, limitations_words=81
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 2, 'acceptable': 3, 'needs_revision': 0, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains evidence-grounded, with balanced discussion of efficacy, safety, an
+              [     ACCEPTABLE] completeness: Major evidence rows (efficacy, safety) are covered, but regulatory status and br
+              [     ACCEPTABLE] citation_tightness: All main claims are cited, but the contradiction disclosure lacks specific citat
+              [           GOOD] hedging_appropriateness: Prose avoids overconfidence; statements are supported by evidence without unwarr
+              [     ACCEPTABLE] flow: Efficacy and safety are presented first, followed by limitations and methods, bu
+[cost]        $0.0034 (cap $0.0500)
+[status]      ok

@@ -1,0 +1,506 @@
+[
+  {
+    "cost_usd": 0.0033759199999999997,
+    "domain": "clinical",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 1,
+      "corpus": {
+        "approved": true,
+        "count": 20,
+        "material_deviation": false,
+        "tier_fractions": {
+          "T1": 0.4,
+          "T3": 0.05,
+          "T4": 0.3,
+          "T5": 0.05,
+          "T7": 0.2
+        }
+      },
+      "cost_usd": 0.0033759199999999997,
+      "domain": "clinical",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 81,
+        "outline_sections": [
+          "Efficacy"
+        ],
+        "sections_kept": 1,
+        "sentences_dropped": 5,
+        "sentences_verified": 4,
+        "words": 175
+      },
+      "protocol_sha256": "b55de950464f823fbb0f64661a58365ef418c394f8d56b6fd2028eb5471b1e97",
+      "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+      "qwen_verdicts": {
+        "acceptable": 3,
+        "good": 2,
+        "needs_revision": 0,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 20,
+          "s2": 3,
+          "serper": 3
+        },
+        "failed": 18,
+        "fetched": 2,
+        "pre_filter": 300
+      },
+      "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776531325",
+      "slug": "clinical_tirzepatide_t2dm"
+    },
+    "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\clinical\\clinical_tirzepatide_t2dm",
+    "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776531325",
+    "slug": "clinical_tirzepatide_t2dm",
+    "status": "ok",
+    "wall_time_seconds": 122.5
+  },
+  {
+    "cost_usd": 0.00578247,
+    "domain": "clinical",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 20,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.4,
+          "T4": 0.3,
+          "T7": 0.3
+        }
+      },
+      "cost_usd": 0.00578247,
+      "domain": "clinical",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 60,
+        "outline_sections": [
+          "Efficacy",
+          "Safety",
+          "Dose Response",
+          "Regulatory"
+        ],
+        "sections_kept": 4,
+        "sentences_dropped": 7,
+        "sentences_verified": 19,
+        "words": 467
+      },
+      "protocol_sha256": "6ff224a76a90325ba0b8196b533ea2308e335f94e494ad33eb5cca3e00f3107b",
+      "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 3,
+        "needs_revision": 1,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 20,
+          "s2": 3,
+          "serper": 3
+        },
+        "failed": 8,
+        "fetched": 12,
+        "pre_filter": 658
+      },
+      "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776531447",
+      "slug": "clinical_afib_anticoagulation"
+    },
+    "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\clinical\\clinical_afib_anticoagulation",
+    "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776531447",
+    "slug": "clinical_afib_anticoagulation",
+    "status": "ok",
+    "wall_time_seconds": 112.9
+  },
+  {
+    "cost_usd": 0.00238099,
+    "domain": "policy",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 20,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.25,
+          "T3": 0.2,
+          "T4": 0.15,
+          "T7": 0.4
+        }
+      },
+      "cost_usd": 0.00238099,
+      "domain": "policy",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 73,
+        "outline_sections": [
+          "Regulatory",
+          "Mechanism",
+          "Safety"
+        ],
+        "sections_kept": 3,
+        "sentences_dropped": 4,
+        "sentences_verified": 16,
+        "words": 456
+      },
+      "protocol_sha256": "b64b0b4533e3ce7fcfc87e90d3653cd24b28392314914c717053da924c0ea2da",
+      "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 2,
+        "needs_revision": 2,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 20,
+          "s2": 2,
+          "serper": 2
+        },
+        "failed": 9,
+        "fetched": 11,
+        "pre_filter": 22
+      },
+      "run_id": "SWEEP_policy_policy_fda_ai_devices_1776531560",
+      "slug": "policy_fda_ai_devices"
+    },
+    "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\policy\\policy_fda_ai_devices",
+    "run_id": "SWEEP_policy_policy_fda_ai_devices_1776531560",
+    "slug": "policy_fda_ai_devices",
+    "status": "ok",
+    "wall_time_seconds": 89.0
+  },
+  {
+    "cost_usd": 0.002380789,
+    "domain": "policy",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 20,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.45,
+          "T4": 0.15,
+          "T7": 0.3,
+          "UNKNOWN": 0.1
+        }
+      },
+      "cost_usd": 0.002380789,
+      "domain": "policy",
+      "evaluator_rule_fail": 1,
+      "evaluator_rule_pass": 12,
+      "generator": {
+        "limitations_words": 54,
+        "outline_sections": [
+          "Regulatory",
+          "Efficacy"
+        ],
+        "sections_kept": 2,
+        "sentences_dropped": 7,
+        "sentences_verified": 6,
+        "words": 223
+      },
+      "protocol_sha256": "db2debfddaa057a6083593bf5c0e81b4faa6c1978abd38e4f1c97f6cf2ba719f",
+      "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 2,
+        "needs_revision": 2,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 18,
+          "s2": 3,
+          "serper": 3
+        },
+        "failed": 13,
+        "fetched": 7,
+        "pre_filter": 85
+      },
+      "run_id": "SWEEP_policy_policy_medicare_drug_price_1776531649",
+      "slug": "policy_medicare_drug_price"
+    },
+    "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\policy\\policy_medicare_drug_price",
+    "run_id": "SWEEP_policy_policy_medicare_drug_price_1776531649",
+    "slug": "policy_medicare_drug_price",
+    "status": "ok",
+    "wall_time_seconds": 88.2
+  },
+  {
+    "cost_usd": 0.002504516,
+    "domain": "tech",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 8,
+        "material_deviation": false,
+        "tier_fractions": {
+          "T1": 0.25,
+          "T4": 0.375,
+          "T6": 0.25,
+          "T7": 0.125
+        }
+      },
+      "cost_usd": 0.002504516,
+      "domain": "tech",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 58,
+        "outline_sections": [
+          "Efficacy",
+          "Comparative",
+          "Mechanism"
+        ],
+        "sections_kept": 3,
+        "sentences_dropped": 1,
+        "sentences_verified": 20,
+        "words": 475
+      },
+      "protocol_sha256": "5c5df4b82279af9887fca4c1020c567ab93d0d6fe335302041492011bbfe6194",
+      "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+      "qwen_verdicts": {
+        "acceptable": 0,
+        "good": 3,
+        "needs_revision": 2,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 8,
+          "openalex": 8,
+          "s2": 1,
+          "serper": 1
+        },
+        "failed": 1,
+        "fetched": 7,
+        "pre_filter": 8
+      },
+      "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+      "slug": "tech_rag_architectures_2024"
+    },
+    "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\tech\\tech_rag_architectures_2024",
+    "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+    "slug": "tech_rag_architectures_2024",
+    "status": "ok",
+    "wall_time_seconds": 59.2
+  },
+  {
+    "cost_usd": 0.00405495,
+    "domain": "tech",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 8,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T4": 0.5,
+          "T6": 0.25,
+          "UNKNOWN": 0.25
+        }
+      },
+      "cost_usd": 0.00405495,
+      "domain": "tech",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 55,
+        "outline_sections": [
+          "Efficacy",
+          "Mechanism"
+        ],
+        "sections_kept": 2,
+        "sentences_dropped": 3,
+        "sentences_verified": 11,
+        "words": 335
+      },
+      "protocol_sha256": "a167fbdae72db098b271b4d621933257199ca72c9d0a0c4c3ea9197d750da144",
+      "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 3,
+        "needs_revision": 1,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 8,
+          "openalex": 8,
+          "s2": 1,
+          "serper": 1
+        },
+        "failed": 2,
+        "fetched": 6,
+        "pre_filter": 8
+      },
+      "run_id": "SWEEP_tech_tech_long_context_transformer_1776531796",
+      "slug": "tech_long_context_transformer"
+    },
+    "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\tech\\tech_long_context_transformer",
+    "run_id": "SWEEP_tech_tech_long_context_transformer_1776531796",
+    "slug": "tech_long_context_transformer",
+    "status": "ok",
+    "wall_time_seconds": 73.5
+  },
+  {
+    "cost_usd": 0.003966180000000001,
+    "domain": "due_diligence",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 1,
+      "corpus": {
+        "approved": true,
+        "count": 20,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.45,
+          "T4": 0.05,
+          "T5": 0.2,
+          "T6": 0.15,
+          "T7": 0.05,
+          "UNKNOWN": 0.1
+        }
+      },
+      "cost_usd": 0.003966180000000001,
+      "domain": "due_diligence",
+      "evaluator_rule_fail": 1,
+      "evaluator_rule_pass": 12,
+      "generator": {
+        "limitations_words": 66,
+        "outline_sections": [
+          "Comparative",
+          "Regulatory",
+          "Efficacy",
+          "Safety"
+        ],
+        "sections_kept": 4,
+        "sentences_dropped": 11,
+        "sentences_verified": 15,
+        "words": 483
+      },
+      "protocol_sha256": "9d25a855a06c2b2b35afe46b3b8bde8f623b02e049586c5053eb2b7efd8ee2a6",
+      "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 3,
+        "needs_revision": 1,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 16,
+          "s2": 3,
+          "serper": 3
+        },
+        "failed": 7,
+        "fetched": 13,
+        "pre_filter": 24
+      },
+      "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776531870",
+      "slug": "dd_novo_nordisk_obesity_position"
+    },
+    "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\due_diligence\\dd_novo_nordisk_obesity_position",
+    "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776531870",
+    "slug": "dd_novo_nordisk_obesity_position",
+    "status": "ok",
+    "wall_time_seconds": 182.2
+  },
+  {
+    "cost_usd": 0.0037014100000000005,
+    "domain": "due_diligence",
+    "error": "",
+    "manifest": {
+      "budget_cap_usd": 0.05,
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 16,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.1875,
+          "T4": 0.125,
+          "T5": 0.125,
+          "T6": 0.375,
+          "UNKNOWN": 0.1875
+        }
+      },
+      "cost_usd": 0.0037014100000000005,
+      "domain": "due_diligence",
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "generator": {
+        "limitations_words": 75,
+        "outline_sections": [
+          "Dose Response",
+          "Population Subgroups",
+          "Long-term Outcomes"
+        ],
+        "sections_kept": 3,
+        "sentences_dropped": 12,
+        "sentences_verified": 9,
+        "words": 329
+      },
+      "protocol_sha256": "3e07732f531b38d8aeadc26fcf34480f52e2a6b589f13a2f788dff300d060037",
+      "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
+      "qwen_verdicts": {
+        "acceptable": 1,
+        "good": 3,
+        "needs_revision": 1,
+        "unknown": 0
+      },
+      "retrieval": {
+        "api_calls": {
+          "fetch": 16,
+          "openalex": 12,
+          "s2": 2,
+          "serper": 2
+        },
+        "failed": 4,
+        "fetched": 12,
+        "pre_filter": 16
+      },
+      "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776532052",
+      "slug": "dd_lilly_tirzepatide_manufacturing"
+    },
+    "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
+    "run_dir": "C:\\POLARIS\\outputs\\honest_sweep_r3\\due_diligence\\dd_lilly_tirzepatide_manufacturing",
+    "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776532052",
+    "slug": "dd_lilly_tirzepatide_manufacturing",
+    "status": "ok",
+    "wall_time_seconds": 135.7
+  }
+]

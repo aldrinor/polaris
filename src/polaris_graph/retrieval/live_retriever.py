@@ -251,6 +251,55 @@ def _domain_of(url: str) -> str:
 _DECIMAL_PATTERN = re.compile(r"-?\d+\.\d+")
 
 
+_PDF_METADATA_PATTERNS = (
+    re.compile(r"^\s*%PDF", re.MULTILINE),
+    re.compile(r"endobj|xref|startxref|trailer", re.IGNORECASE),
+    re.compile(r"\.(pdf|obj|endstream)\s+\d+", re.IGNORECASE),
+)
+_FORMATTING_NOISE_MARKERS = (
+    "/Contents", "/MediaBox", "/Font", "/FontName",
+    "<<", ">>", "stream\n",
+)
+
+
+def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
+    """R-5 Fix D: detect evidence rows whose fetched content is PDF
+    metadata / formatting fragments / empty text — not useful prose.
+
+    Returns True if the content should NOT be passed to the generator
+    (because the LLM would admit it has no answer, wasting tokens).
+
+    Heuristics:
+      - Length of visible text < min_useful_chars
+      - PDF metadata markers dominate
+      - Ratio of alphabetic chars to total chars is low
+    """
+    if not content or len(content.strip()) < min_useful_chars:
+        return True
+
+    # PDF-metadata dominance check
+    pdf_hits = 0
+    for pat in _PDF_METADATA_PATTERNS:
+        if pat.search(content):
+            pdf_hits += 1
+    if pdf_hits >= 2:
+        return True
+
+    # Formatting-marker dominance check
+    marker_count = sum(content.count(m) for m in _FORMATTING_NOISE_MARKERS)
+    if marker_count > 20 and marker_count / max(1, len(content) / 100) > 0.5:
+        return True
+
+    # Alphabetic ratio: if less than 40% of chars are letters, probably
+    # not readable prose (e.g., binary-looking PDF remnants).
+    alpha = sum(1 for ch in content if ch.isalpha())
+    total = len(content)
+    if total > 0 and alpha / total < 0.4:
+        return True
+
+    return False
+
+
 def _build_provenance_quote(
     content: str,
     head_chars: int = 1500,
@@ -471,18 +520,28 @@ def run_live_retrieval(
         # Nature paper). Without this, strict_verify drops real data
         # because the number it's looking for is outside the head window.
         if content:
-            direct_quote = _build_provenance_quote(
-                content, head_chars=1500, window_chars=500,
-            )
-            evidence_rows.append({
-                "evidence_id": f"ev_{i:03d}",
-                "source_url": cand.url,
-                "statement": cand.title[:300],
-                "direct_quote": direct_quote,
-                "tier": tier_result.tier.value,
-                "source": cand.source,
-                "full_content_length": len(content),
-            })
+            # R-5 Fix D: skip content-starved evidence (PDF metadata,
+            # empty body, formatting noise). Passing these to the
+            # generator wastes tokens and produces "no extractable
+            # text" admissions in the output.
+            if is_content_starved(content):
+                logger.info(
+                    "[live_retriever] skipping content-starved evidence "
+                    "for %r (len=%d)", cand.url, len(content),
+                )
+            else:
+                direct_quote = _build_provenance_quote(
+                    content, head_chars=1500, window_chars=500,
+                )
+                evidence_rows.append({
+                    "evidence_id": f"ev_{i:03d}",
+                    "source_url": cand.url,
+                    "statement": cand.title[:300],
+                    "direct_quote": direct_quote,
+                    "tier": tier_result.tier.value,
+                    "source": cand.source,
+                    "full_content_length": len(content),
+                })
 
     return LiveRetrievalResult(
         classified_sources=classified_sources,

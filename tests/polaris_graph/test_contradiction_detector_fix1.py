@@ -43,7 +43,9 @@ def test_fix1_placebo_arm_number_not_extracted() -> None:
     result = _find_value_in_context(quote, "weight loss")
     # Should pick 14.9 (treatment arm), NOT 2.4 (placebo arm)
     assert result is not None
-    value, unit, _ = result
+    # R-5 Fix B: _find_value_in_context now returns a 4-tuple
+    # (value, unit, ctx_window, anchor_position). Unpack with *_.
+    value, unit, *_ = result
     assert value == 14.9
 
 
@@ -55,7 +57,7 @@ def test_fix1_achievement_threshold_not_extracted_as_claim() -> None:
     result = _find_value_in_context(quote, "weight loss")
     # Should pick 77.1 (the actual value), NOT 5 (threshold)
     assert result is not None
-    value, _, _ = result
+    value, *_ = result
     assert value == 77.1
 
 
@@ -67,7 +69,7 @@ def test_fix1_trial_acronym_integer_not_extracted() -> None:
     )
     result = _find_value_in_context(quote, "weight loss")
     assert result is not None
-    value, _, _ = result
+    value, *_ = result
     assert value == 15.2
 
 

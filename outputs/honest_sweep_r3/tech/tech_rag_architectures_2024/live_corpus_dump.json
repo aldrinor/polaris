@@ -1,0 +1,90 @@
+[
+  {
+    "domain": "morphik.ai",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: 'preprint' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
+    ],
+    "tier_rule": "R11_openalex_preprint_or_repo",
+    "title": "RAG in 2025: 7 Proven Strategies to Deploy Retrieval- ...",
+    "url": "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies"
+  },
+  {
+    "domain": "medium.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'medium.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "RAG Architectures: A Complete Guide for 2025",
+    "url": "https://medium.com/data-science-collective/rag-architectures-a-complete-guide-for-2025-daf98a2ede8c"
+  },
+  {
+    "domain": "chitika.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Retrieval-Augmented Generation (RAG): 2025 Definitive ...",
+    "url": "https://www.chitika.com/retrieval-augmented-generation-rag-the-definitive-guide-2025/"
+  },
+  {
+    "domain": "reddit.com",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 37 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "What's the Best Current Setup for Retrieval-Augmented ...",
+    "url": "https://www.reddit.com/r/LocalLLaMA/comments/1fluepi/whats_the_best_current_setup_for/"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Retrieval-Augmented Generation: A Comprehensive ...",
+    "url": "https://arxiv.org/html/2506.00054v1"
+  },
+  {
+    "domain": "glean.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "What is Retrieval Augmented Generation(RAG) in 2025?",
+    "url": "https://www.glean.com/blog/rag-retrieval-augmented-generation"
+  },
+  {
+    "domain": "dev.to",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'dev.to' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Retrieval-Augmented Generation in 2025: Solving LLM's ...",
+    "url": "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i"
+  },
+  {
+    "domain": "linkedin.com",
+    "tier": "T4",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title signals narrative review / commentary / perspective / update. T4."
+    ],
+    "tier_rule": "R9_openalex_narrative_review",
+    "title": "RAG: An Architectural Review and Strategic Outlook for 2025",
+    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+  }
+]

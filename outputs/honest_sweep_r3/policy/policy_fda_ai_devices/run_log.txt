@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=policy slug=policy_fda_ai_devices
+Question: How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=b64b0b4533e3ce7f... needs_review=False
+[retrieval]   pre_filter=22, fetched=11, failed=9, elapsed=43.8s  api_calls={'serper': 2, 's2': 2, 'openalex': 20, 'fetch': 20}
+[corpus]      total=20  T1=25%, T3=20%, T4=15%, T7=40%  material_deviation=True
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=11...
+              elapsed=25.0s outline=3 sections, words=456, verified=16, dropped=4, limitations_words=73
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 2, 'acceptable': 1, 'needs_revision': 2, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains neutral and evidence-grounded throughout, avoiding promotional lang
+              [ NEEDS_REVISION] completeness: Missing key safety evidence (e.g., specific trial data) and primary trial refere
+              [ NEEDS_REVISION] citation_tightness: Claims about the FDA's framework and tier distribution lack adjacent citations. 
+              [     ACCEPTABLE] hedging_appropriateness: The report presents FDA guidance as definitive without explicit hedging, but thi
+              [           GOOD] flow: Logical progression from regulatory framework to mechanism, safety, and limitati
+[cost]        $0.0024 (cap $0.0500)
+[status]      ok

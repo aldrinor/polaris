@@ -1,0 +1,38 @@
+[
+  {
+    "absolute_difference": 89.3,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "53 mmol/mol), \u22646.5% (48 mmol/mol), and <5.7% (39 mmol/mol); mean change from baselin",
+        "dose": "15 mg",
+        "endpoint_phrase": "mean change",
+        "evidence_id": "ev_000",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "nts with type 2 diabetes lost \u20136.17 kg (95% CI: \u20137.16 to \u20135.17; p < 0.00001) at 5 m",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_002",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      }
+    ],
+    "predicate": "weight loss (15 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 15.6667,
+    "severity": "high",
+    "subject": "tirzepatide"
+  }
+]

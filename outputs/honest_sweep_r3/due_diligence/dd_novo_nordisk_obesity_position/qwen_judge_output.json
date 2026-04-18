@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1844,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1700,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims are cited with adjacent markers [1]-[7] or referenced in contradiction disclosures.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"needs_revision\", \"note\": \"The report presents conflicting evidence on retatrutide's efficacy without explicitly hedging (e.g., 'best-in-class' claim without acknowledging the 26.2% discrepancy in values [20.2, 25.5]% in contradiction disclosures).\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, avoiding promotional language despite terms like 'blockbuster potential' and 'market need' which are contextualized with citations.\"},\n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Sections follow logical progression (context -> evidence -> limitations), but competitive dynamics (e.g., Roche/Pfizer) are mentioned in Safety section rather than Comparative for clarity.\"},\n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Primary trials, regulatory status, and key safety data are covered; major evidence rows are addressed despite limitations in source tier distribution.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "All factual claims are cited with adjacent markers [1]-[7] or referenced in contradiction disclosures.",
+      "verdict": "good"
+    },
+    "completeness": {
+      "note": "Primary trials, regulatory status, and key safety data are covered; major evidence rows are addressed despite limitations in source tier distribution.",
+      "verdict": "good"
+    },
+    "flow": {
+      "note": "Sections follow logical progression (context -> evidence -> limitations), but competitive dynamics (e.g., Roche/Pfizer) are mentioned in Safety section rather than Comparative for clarity.",
+      "verdict": "acceptable"
+    },
+    "hedging_appropriateness": {
+      "note": "The report presents conflicting evidence on retatrutide's efficacy without explicitly hedging (e.g., 'best-in-class' claim without acknowledging the 26.2% discrepancy in values [20.2, 25.5]% in contradiction disclosures).",
+      "verdict": "needs_revision"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded, avoiding promotional language despite terms like 'blockbuster potential' and 'market need' which are contextualized with citations.",
+      "verdict": "good"
+    }
+  }
+}

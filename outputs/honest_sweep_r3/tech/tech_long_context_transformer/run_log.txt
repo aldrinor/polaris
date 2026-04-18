@@ -1,0 +1,20 @@
+========================================================================
+SWEEP domain=tech slug=tech_long_context_transformer
+Question: What techniques extend transformer context length beyond 128K tokens while preserving recall quality?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=a167fbdae72db098... needs_review=False
+[retrieval]   pre_filter=8, fetched=6, failed=2, elapsed=21.3s  api_calls={'serper': 1, 's2': 1, 'openalex': 8, 'fetch': 8}
+[corpus]      total=8  T4=50%, T6=25%, UNKNOWN=25%  material_deviation=True
+[contradict]  numeric_claims=0  contradictions=0
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=6...
+              elapsed=22.0s outline=2 sections, words=335, verified=11, dropped=3, limitations_words=55
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains evidence-grounded, avoiding promotional language and focusing on te
+              [ NEEDS_REVISION] completeness: Missing key safety and regulatory status information, which are major evidence r
+              [           GOOD] citation_tightness: All factual claims are cited with adjacent markers [1] or [2], and references ar
+              [     ACCEPTABLE] hedging_appropriateness: The report presents definitive statements (e.g., 'accuracy often reduces') witho
+              [           GOOD] flow: Logical progression from efficacy, mechanism, limitations, methods, and bibliogr
+[cost]        $0.0041 (cap $0.0500)
+[status]      ok

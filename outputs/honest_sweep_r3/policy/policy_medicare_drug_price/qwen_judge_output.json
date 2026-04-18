@@ -1,0 +1,29 @@
+{
+  "input_tokens": 1072,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 739,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Limitations section discusses tier distribution gaps and evidence horizon without adjacent citations. Methods section lacks citations for key claims about corpus composition and retrieval dates.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose appropriately acknowledges uncertainty in efficacy analysis with phrases like 'mixed impact' and 'acceleration observed in some drug categories' without overconfidence.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Maintains evidence-grounded tone throughout, avoiding promotional language or undue certainty in claims about regulatory actions and efficacy outcomes.\"},\n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Moves from regulatory context to efficacy analysis to limitations, but methods section abruptly follows limitations without clear transitional logic.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing key evidence rows including primary trial data, comprehensive safety analysis, and detailed regulatory status beyond selection criteria mentioned in the regulatory section.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "Limitations section discusses tier distribution gaps and evidence horizon without adjacent citations. Methods section lacks citations for key claims about corpus composition and retrieval dates.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Missing key evidence rows including primary trial data, comprehensive safety analysis, and detailed regulatory status beyond selection criteria mentioned in the regulatory section.",
+      "verdict": "needs_revision"
+    },
+    "flow": {
+      "note": "Moves from regulatory context to efficacy analysis to limitations, but methods section abruptly follows limitations without clear transitional logic.",
+      "verdict": "acceptable"
+    },
+    "hedging_appropriateness": {
+      "note": "Prose appropriately acknowledges uncertainty in efficacy analysis with phrases like 'mixed impact' and 'acceleration observed in some drug categories' without overconfidence.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Maintains evidence-grounded tone throughout, avoiding promotional language or undue certainty in claims about regulatory actions and efficacy outcomes.",
+      "verdict": "good"
+    }
+  }
+}

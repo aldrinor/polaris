@@ -1,0 +1,21 @@
+========================================================================
+SWEEP domain=due_diligence slug=dd_novo_nordisk_obesity_position
+Question: What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?
+Budget cap: $0.0500
+========================================================================
+[scope]       sha256=9d25a855a06c2b2b... needs_review=False
+[retrieval]   pre_filter=24, fetched=13, failed=7, elapsed=113.6s  api_calls={'serper': 3, 's2': 3, 'openalex': 16, 'fetch': 20}
+[corpus]      total=20  T1=45%, T4=5%, T5=20%, T6=15%, T7=5%, UNKNOWN=10%  material_deviation=True
+[contradict]  numeric_claims=6  contradictions=1
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=13...
+              elapsed=35.8s outline=4 sections, words=483, verified=15, dropped=11, limitations_words=66
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 4 unhedged: ["'worse than' in: 'Over the past year, both stocks have lagged broader equities, though
+[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] tone_consistency: Tone remains evidence-grounded, avoiding promotional language despite terms like
+              [           GOOD] completeness: Primary trials, regulatory status, and key safety data are covered; major eviden
+              [           GOOD] citation_tightness: All factual claims are cited with adjacent markers [1]-[7] or referenced in cont
+              [ NEEDS_REVISION] hedging_appropriateness: The report presents conflicting evidence on retatrutide's efficacy without expli
+              [     ACCEPTABLE] flow: Sections follow logical progression (context -> evidence -> limitations), but co
+[cost]        $0.0040 (cap $0.0500)
+[status]      ok

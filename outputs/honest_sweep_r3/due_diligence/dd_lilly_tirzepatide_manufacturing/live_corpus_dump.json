@@ -1,0 +1,178 @@
+[
+  {
+    "domain": "cnbc.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'cnbc.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "What's next for the weight loss drug market: pills, rivals, insurance",
+    "url": "https://www.cnbc.com/2025/11/02/whats-next-for-the-weight-loss-drug-market-pills-rivals-insurance.html"
+  },
+  {
+    "domain": "delveinsight.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Tirzepatide Market Forecast Tirzepatide drug Insight by 2034",
+    "url": "https://www.delveinsight.com/report-store/tirzepatide-emerging-drug-insight-and-market-forecast"
+  },
+  {
+    "domain": "investor.lilly.com",
+    "tier": "T5",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'investor.lilly.com' is a pharmaceutical-industry HCP portal or brand site. Industry marketing material \u2014 T5 regardless of OpenAlex indexing. (Peer-reviewed papers from the same company published in a journal should be cited via the journal URL, where they classify to T1/T2/T4.)"
+    ],
+    "tier_rule": "R3_industry_marketing_domain",
+    "title": "Lilly reports full Q4 2024 financial results and provides 2025 guidance",
+    "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-reports-full-q4-2024-financial-results-and-provides-2025"
+  },
+  {
+    "domain": "statista.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Eli Lilly - Statistics & Facts - Statista",
+    "url": "https://www.statista.com/topics/12144/eli-lilly/?srsltid=AfmBOoq2eufoTbZK7uyHpBH-10D17HkpTJ0y2Go94I4sGM6UufD76uS_"
+  },
+  {
+    "domain": "biopharmadive.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'biopharmadive.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Lilly hikes revenue forecasts on booming obesity drug sales",
+    "url": "https://www.biopharmadive.com/news/lilly-third-quarter-2025-earnings-zepbound-mounjaro-obesity-sales/804232/"
+  },
+  {
+    "domain": "jpmorgan.com",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "How Supply and Demand for Weight Loss Drugs is Playing Out in ...",
+    "url": "https://www.jpmorgan.com/insights/global-research/current-events/obesity-drugs"
+  },
+  {
+    "domain": "reuters.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'reuters.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Eli Lilly plans to launch weight-loss drug in emerging markets this year",
+    "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/eli-lilly-plans-launch-mounjaro-china-india-brazil-mexico-by-2026-cfo-says-2025-03-10/"
+  },
+  {
+    "domain": "pharmaphorum.com",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Lilly says tirzepatide supply issues are resolving - pharmaphorum",
+    "url": "https://pharmaphorum.com/news/lilly-says-tirzepatide-supply-issues-are-resolving"
+  },
+  {
+    "domain": "investor.lilly.com",
+    "tier": "T5",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'investor.lilly.com' is a pharmaceutical-industry HCP portal or brand site. Industry marketing material \u2014 T5 regardless of OpenAlex indexing. (Peer-reviewed papers from the same company published in a journal should be cited via the journal URL, where they classify to T1/T2/T4.)"
+    ],
+    "tier_rule": "R3_industry_marketing_domain",
+    "title": "Lilly Increases Manufacturing Investment to $9 Billion at ...",
+    "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-increases-manufacturing-investment-9-billion-newest"
+  },
+  {
+    "domain": "prnewswire.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'prnewswire.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Lilly Increases Manufacturing Investment to $9 Billion at ...",
+    "url": "https://www.prnewswire.com/news-releases/lilly-increases-manufacturing-investment-to-9-billion-at-newest-indiana-site-to-boost-api-production-for-tirzepatide-and-pipeline-medicines-302155135.html"
+  },
+  {
+    "domain": "fiercepharma.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'fiercepharma.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Lilly plans $200M expansion in China to make tirzepatide ...",
+    "url": "https://www.fiercepharma.com/manufacturing/lillys-manufacturing-splurge-continues-200m-expansion-china"
+  },
+  {
+    "domain": "bioprocessintl.com",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Lilly injects another $5.3b in Indiana plant to up tirzepatide ...",
+    "url": "https://www.bioprocessintl.com/facilities-capacity/lilly-injects-another-5-3bn-in-indiana-plant-to-up-tirzepatide-production"
+  },
+  {
+    "domain": "cnbc.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'cnbc.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Lilly invests $3 billion to expand Wisconsin plant as obesity ...",
+    "url": "https://www.cnbc.com/2024/12/05/lilly-invests-3-billion-to-expand-wisconsin-plant-as-obesity-drug-demand-soars-.html"
+  },
+  {
+    "domain": "biospace.com",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Lilly Pumps $3B Into Wisconsin Site as Compounders ...",
+    "url": "https://www.biospace.com/business/lilly-pumps-3b-into-wisconsin-site-as-compounders-close-in-on-tirzepatide"
+  },
+  {
+    "domain": "manufacturingdive.com",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Lilly to pour $5B more into expanding Zepbound, Mounjaro ...",
+    "url": "https://www.manufacturingdive.com/news/lilly-zepbound-manufacturing-invest-indiana-tirzepatide/717184/"
+  },
+  {
+    "domain": "linkedin.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Eli Lilly's U.S. Manufacturing Build-Out: A Playbook for ...",
+    "url": "https://www.linkedin.com/pulse/eli-lillys-us-manufacturing-build-out-playbook-win-varenas-mba-gqdjc"
+  }
+]

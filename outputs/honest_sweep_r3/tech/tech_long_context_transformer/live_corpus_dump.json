@@ -1,0 +1,90 @@
+[
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "A Survey of Techniques to Extend the Context Length in ...",
+    "url": "https://arxiv.org/html/2402.02244v2"
+  },
+  {
+    "domain": "medium.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'medium.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Unleashing the Power of Long Context in Large Language ...",
+    "url": "https://medium.com/@263akash/unleashing-the-power-of-long-context-in-large-language-models-10c106551bdd"
+  },
+  {
+    "domain": "towardsdatascience.com",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Extending Context Length in Large Language Models",
+    "url": "https://towardsdatascience.com/extending-context-length-in-large-language-models-74e59201b51f/"
+  },
+  {
+    "domain": "amaarora.github.io",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: 'preprint' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
+    ],
+    "tier_rule": "R11_openalex_preprint_or_repo",
+    "title": "How LLMs Scaled from 512 to 2M Context",
+    "url": "https://amaarora.github.io/posts/2025-09-21-rope-context-extension.html"
+  },
+  {
+    "domain": "lims.ac.uk",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Breaking the Limits of Transformer Context Length with ...",
+    "url": "https://lims.ac.uk/documents/paper-beyond-attention-breaking-the-limits-of-transformer-context-length-with-recurrent-memory.pdf"
+  },
+  {
+    "domain": "natesnewsletter.substack.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'natesnewsletter.substack.com' is a news / blog / commentary source. T6."
+    ],
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Context Windows Are a Lie: The Myth Blocking AGI\u2014And ...",
+    "url": "https://natesnewsletter.substack.com/p/context-windows-are-a-lie-the-myth"
+  },
+  {
+    "domain": "agenta.ai",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Top techniques to Manage Context Lengths in LLMs",
+    "url": "https://agenta.ai/blog/top-6-techniques-to-manage-context-length-in-llms"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "How to Train Long-Context Language Models (Effectively)",
+    "url": "https://arxiv.org/html/2410.02660v4"
+  }
+]

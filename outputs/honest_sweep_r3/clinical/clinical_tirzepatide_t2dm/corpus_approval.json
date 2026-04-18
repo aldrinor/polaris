@@ -1,0 +1,108 @@
+{
+  "approved": true,
+  "approved_source_urls": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+    "https://www.mdpi.com/1424-8247/18/5/668",
+    "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full",
+    "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+    "https://www.pharmacytimes.com/view/tirzepatide-shows-significant-improvements-in-glycemic-control-weight-loss-among-patients-with-type-2-diabetes",
+    "https://pubmed.ncbi.nlm.nih.gov/40430487/",
+    "https://investor.lilly.com/news-releases/news-release-details/treatment-tirzepatide-adults-pre-diabetes-and-obesity-or",
+    "https://www.2minutemedicine.com/tirzepatide-improves-glycemic-control-and-weight-loss-in-patients-with-type-2-diabetes/",
+    "https://www.nejm.org/doi/full/10.1056/NEJMoa2206038",
+    "https://pubmed.ncbi.nlm.nih.gov/40510020/",
+    "https://jamanetwork.com/journals/jama/fullarticle/2812936",
+    "https://diabetesjournals.org/care/article/49/1/161/163859/Tirzepatide-in-Adults-With-Type-1-Diabetes-A-Phase",
+    "https://news.vumc.org/2023/10/17/tirzepatide-trial-shows-additional-21-1-weight-loss-following-intensive-lifestyle-intervention/",
+    "https://www.nejm.org/doi/full/10.1056/NEJMoa2416394",
+    "https://clinicaltrials.gov/study/NCT05912621",
+    "https://www.sciencedirect.com/science/article/pii/S126236362500031X",
+    "https://www.semanticscholar.org/paper/006dea8542634af190c5e2ec79c4e640ccbd6573",
+    "https://www.semanticscholar.org/paper/0140009e6bb62b40f0918fe84daeee9379fdad52",
+    "https://www.semanticscholar.org/paper/014f1e4551915bcf540521e9f41a1de865338560",
+    "https://www.semanticscholar.org/paper/0486c37fdd18583eeda1fe652bcb031a37984b26"
+  ],
+  "decision_at_iso": "2026-04-18T16:56:31Z",
+  "decision_at_unix": 1776531391.5181777,
+  "protocol_sha256": "b55de950464f823fbb0f64661a58365ef418c394f8d56b6fd2028eb5471b1e97",
+  "rejected_source_urls": [],
+  "report": {
+    "auto_approve_allowed": true,
+    "deviations": [
+      {
+        "actual_fraction": 0.4,
+        "deviation_pp": 0.0,
+        "expected_max": 0.6,
+        "expected_min": 0.3,
+        "is_material": false,
+        "tier": "T1"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.15,
+        "expected_max": 0.4,
+        "expected_min": 0.15,
+        "is_material": false,
+        "tier": "T2"
+      },
+      {
+        "actual_fraction": 0.05,
+        "deviation_pp": 0.0,
+        "expected_max": 0.25,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T3"
+      },
+      {
+        "actual_fraction": 0.3,
+        "deviation_pp": 0.1,
+        "expected_max": 0.2,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T4"
+      },
+      {
+        "actual_fraction": 0.05,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T5"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T6"
+      },
+      {
+        "actual_fraction": 0.2,
+        "deviation_pp": 0.1,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T7"
+      }
+    ],
+    "has_material_deviation": false,
+    "tier_counts": {
+      "T1": 8,
+      "T3": 1,
+      "T4": 6,
+      "T5": 1,
+      "T7": 4
+    },
+    "tier_fractions": {
+      "T1": 0.4,
+      "T3": 0.05,
+      "T4": 0.3,
+      "T5": 0.05,
+      "T7": 0.2
+    },
+    "total_sources": 20
+  },
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776531325",
+  "user_note": "R-3 sweep. Domain=clinical. Auto-approve on sweep."
+}

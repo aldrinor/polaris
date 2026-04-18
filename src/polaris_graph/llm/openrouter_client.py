@@ -46,6 +46,60 @@ OPENROUTER_BASE_URL = os.getenv(
 OPENROUTER_MODEL = os.getenv("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.5-plus-02-15")
 OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 
+# R-2 (readiness gate): hard per-run cost cap. A single honest-rebuild
+# run (scope+retrieval+generate+judge) should cost $0.005-$0.01. Cap at
+# $0.10 default so a runaway regen loop or recursive outline can't burn
+# hours of budget before we notice. Measured by cumulative cost across
+# ALL OpenRouterClient instances instantiated within a single run.
+PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
+
+# Module-level shared counter. Each OpenRouterClient contributes to it
+# after every successful call. Use reset_run_cost() at the top of a run
+# to start clean; query current_run_cost() before a call to decide.
+_RUN_COST_LOCK = __import__("threading").Lock()
+_RUN_COST_USD: float = 0.0
+
+
+class BudgetExceededError(RuntimeError):
+    """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
+
+
+def reset_run_cost() -> None:
+    """Reset the shared run-cost counter to 0. Call at the start of a run."""
+    global _RUN_COST_USD
+    with _RUN_COST_LOCK:
+        _RUN_COST_USD = 0.0
+
+
+def current_run_cost() -> float:
+    """Return the cumulative cost of the current run (USD)."""
+    with _RUN_COST_LOCK:
+        return _RUN_COST_USD
+
+
+def _add_run_cost(delta: float) -> None:
+    global _RUN_COST_USD
+    with _RUN_COST_LOCK:
+        _RUN_COST_USD += float(delta)
+
+
+def check_run_budget(anticipated_additional: float = 0.0) -> None:
+    """Raise BudgetExceededError if the next call would exceed the cap.
+
+    anticipated_additional: optional estimate of the upcoming call cost
+    (used only for guard-before-call — the actual cost is recorded by
+    `_add_run_cost()` after the call returns).
+    """
+    current = current_run_cost()
+    projected = current + max(0.0, float(anticipated_additional))
+    if projected > PG_MAX_COST_PER_RUN:
+        raise BudgetExceededError(
+            f"PG_MAX_COST_PER_RUN={PG_MAX_COST_PER_RUN:.4f} exceeded: "
+            f"current=${current:.4f} + anticipated=${anticipated_additional:.4f} "
+            f"= ${projected:.4f}. Set PG_MAX_COST_PER_RUN higher or call "
+            f"reset_run_cost() between runs."
+        )
+
 # HONEST-REBUILD Phase 1c (plan: C:/Users/msn/.claude/plans/lovely-finding-firefly.md)
 # ─────────────────────────────────────────────────────────────────────────────
 # Two-family architecture: generator and evaluator MUST be from different
@@ -928,6 +982,12 @@ class OpenRouterClient:
                 f">= ${self.usage.budget_usd:.2f}"
             )
 
+        # R-2: check the shared per-run budget cap. Each client
+        # contributes to _RUN_COST_USD after each call; here we abort
+        # early if the cap is already breached rather than fire another
+        # call and discover the overage after the fact.
+        check_run_budget(anticipated_additional=0.0)
+
         # K2-3: Filter reasoning_content: null from messages to prevent
         # prompt pollution (literal "null" causes model confusion).
         sanitized_messages = []
@@ -1208,6 +1268,9 @@ class OpenRouterClient:
             duration_ms=duration_ms,
             api_cost=api_cost,
         )
+        # R-2: contribute to the shared run-cost counter AFTER the call.
+        # Checking the cap BEFORE is done by callers via check_run_budget().
+        _add_run_cost(api_cost)
 
         # COT-1: Strict separation — NEVER mix reasoning into content.
         # The API separates content and reasoning_content correctly.

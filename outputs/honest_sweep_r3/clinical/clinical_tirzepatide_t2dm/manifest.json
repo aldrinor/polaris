@@ -1,0 +1,51 @@
+{
+  "budget_cap_usd": 0.05,
+  "contradictions_found": 1,
+  "corpus": {
+    "approved": true,
+    "count": 20,
+    "material_deviation": false,
+    "tier_fractions": {
+      "T1": 0.4,
+      "T3": 0.05,
+      "T4": 0.3,
+      "T5": 0.05,
+      "T7": 0.2
+    }
+  },
+  "cost_usd": 0.0033759199999999997,
+  "domain": "clinical",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "generator": {
+    "limitations_words": 81,
+    "outline_sections": [
+      "Efficacy"
+    ],
+    "sections_kept": 1,
+    "sentences_dropped": 5,
+    "sentences_verified": 4,
+    "words": 175
+  },
+  "protocol_sha256": "b55de950464f823fbb0f64661a58365ef418c394f8d56b6fd2028eb5471b1e97",
+  "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "qwen_verdicts": {
+    "acceptable": 3,
+    "good": 2,
+    "needs_revision": 0,
+    "unknown": 0
+  },
+  "retrieval": {
+    "api_calls": {
+      "fetch": 20,
+      "openalex": 20,
+      "s2": 3,
+      "serper": 3
+    },
+    "failed": 18,
+    "fetched": 2,
+    "pre_filter": 300
+  },
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776531325",
+  "slug": "clinical_tirzepatide_t2dm"
+}

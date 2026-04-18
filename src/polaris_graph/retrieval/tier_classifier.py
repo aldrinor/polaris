@@ -230,7 +230,45 @@ LEGAL_COMMENTARY_DOMAINS = frozenset({
     "cov.com", "sullcrom.com",
     "natlawreview.com", "lexology.com",
     "law360.com", "mcguirewoods.com",
+    # R-5 Fix A: healthcare regulatory consulting firms were being
+    # tiered T1 via OpenAlex because they publish blog-style analysis
+    # of FDA decisions. Not peer-reviewed research.
+    "mcdermottplus.com", "mcdermottwill.com",
+    "hoganlovells.com", "faegredrinker.com",
+    "ropesandgray.com",
 })
+
+# R-5 Fix A: Vendor blogs / product marketing from SaaS or AI companies.
+# These often rank highly in search, contain specific benchmark numbers
+# (e.g., "embedding costs $0.00002 per 1K tokens"), and were escaping to
+# T1/T4 via OpenAlex enrichment. Not peer-reviewed or independent.
+VENDOR_BLOG_DOMAINS = frozenset({
+    # RAG / ML vendors flagged in the R-3 sweep
+    "morphik.ai", "glean.com", "intellectia.ai",
+    "medcrypt.com", "complizen.ai", "intertek.com",
+    # Other common AI/ML SaaS blogs that show up for tech queries
+    "langchain.com", "llamaindex.ai", "pinecone.io",
+    "weaviate.io", "anthropic.com", "openai.com",  # when scraping blog posts
+    "huggingface.co",  # hub pages, not papers — but papers should come via arxiv
+    # Cloud / infrastructure vendor blogs
+    "databricks.com", "snowflake.com", "cloudflare.com",
+    "aws.amazon.com", "cloud.google.com", "azure.microsoft.com",
+    # Finance / market-research platforms posing as primary analysis
+    "seekingalpha.com", "fool.com", "motleyfool.com",
+    "zacks.com", "marketwatch.com",
+    # Yahoo Finance / Bloomberg-hosted opinion pieces
+    "finance.yahoo.com",  # articles, not primary
+})
+
+# R-5 Fix A: Self-publishing platforms. LinkedIn Pulse, Medium, Substack
+# etc. were already in NEWS_BLOG_DOMAINS, but LinkedIn specifically needs
+# a pulse/article subpath check because linkedin.com is also a valid
+# professional profile URL. Handled in the classifier by matching the
+# subdomain + path (see SELF_PUBLISH_PATH_MARKERS below).
+SELF_PUBLISH_PATH_MARKERS = (
+    "linkedin.com/pulse/",
+    "linkedin.com/in/",  # personal profiles, rarely a research source
+)
 
 # News / blog / commentary (T6). Non-exhaustive; supplemented by
 # source_type_hint == "news".
@@ -593,6 +631,34 @@ def classify_source_tier(
         result.matched_rules.append("R4_news_blog_domain")
         result.reasons.append(
             f"Domain {domain!r} is a news / blog / commentary source. T6."
+        )
+        return result
+
+    # ── Rule 4a (T5): Vendor / SaaS product blogs. R-5 Fix A.
+    # These domains appear in search results for tech/policy queries
+    # with specific benchmark numbers that look authoritative but are
+    # product marketing. Tier T5 (industry) not T1 primary.
+    if _domain_matches(domain, VENDOR_BLOG_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.95
+        result.matched_rules.append("R4a_vendor_blog_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a vendor / SaaS product blog. "
+            f"Benchmark numbers and product claims originate from the "
+            f"vendor; treat as industry-adjacent (T5), not peer-reviewed."
+        )
+        return result
+
+    # ── Rule 4b (T6): Self-publishing platforms with a path marker.
+    # LinkedIn pulse articles, personal Medium pages etc. R-5 Fix A.
+    url_lower = (signals.url or "").lower()
+    if any(m in url_lower for m in SELF_PUBLISH_PATH_MARKERS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.9
+        result.matched_rules.append("R4b_self_publish_path")
+        result.reasons.append(
+            f"URL {signals.url!r} matches a self-publishing path marker "
+            f"(LinkedIn Pulse, personal profile). T6 commentary."
         )
         return result
 

@@ -1,0 +1,92 @@
+{
+  "approved": true,
+  "approved_source_urls": [
+    "https://arxiv.org/html/2402.02244v2",
+    "https://medium.com/@263akash/unleashing-the-power-of-long-context-in-large-language-models-10c106551bdd",
+    "https://towardsdatascience.com/extending-context-length-in-large-language-models-74e59201b51f/",
+    "https://amaarora.github.io/posts/2025-09-21-rope-context-extension.html",
+    "https://lims.ac.uk/documents/paper-beyond-attention-breaking-the-limits-of-transformer-context-length-with-recurrent-memory.pdf",
+    "https://natesnewsletter.substack.com/p/context-windows-are-a-lie-the-myth",
+    "https://agenta.ai/blog/top-6-techniques-to-manage-context-length-in-llms",
+    "https://arxiv.org/html/2410.02660v4"
+  ],
+  "decision_at_iso": "2026-04-18T17:03:38Z",
+  "decision_at_unix": 1776531818.2066395,
+  "protocol_sha256": "a167fbdae72db098b271b4d621933257199ca72c9d0a0c4c3ea9197d750da144",
+  "rejected_source_urls": [],
+  "report": {
+    "auto_approve_allowed": false,
+    "deviations": [
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.2,
+        "expected_max": 0.5,
+        "expected_min": 0.2,
+        "is_material": true,
+        "tier": "T1"
+      },
+      {
+        "actual_fraction": 0.5,
+        "deviation_pp": 0.15,
+        "expected_max": 0.35,
+        "expected_min": 0.1,
+        "is_material": true,
+        "tier": "T4"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": -0.05,
+        "expected_max": 0.25,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T2"
+      },
+      {
+        "actual_fraction": 0.25,
+        "deviation_pp": 0.0,
+        "expected_max": 0.25,
+        "expected_min": 0.05,
+        "is_material": false,
+        "tier": "T6"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T3"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.1,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T5"
+      },
+      {
+        "actual_fraction": 0.0,
+        "deviation_pp": 0.0,
+        "expected_max": 0.15,
+        "expected_min": 0.0,
+        "is_material": false,
+        "tier": "T7"
+      }
+    ],
+    "has_material_deviation": true,
+    "tier_counts": {
+      "T4": 4,
+      "T6": 2,
+      "UNKNOWN": 2
+    },
+    "tier_fractions": {
+      "T4": 0.5,
+      "T6": 0.25,
+      "UNKNOWN": 0.25
+    },
+    "total_sources": 8
+  },
+  "run_id": "SWEEP_tech_tech_long_context_transformer_1776531796",
+  "user_note": "R-3 sweep. Domain=tech. Auto-approve on sweep."
+}
