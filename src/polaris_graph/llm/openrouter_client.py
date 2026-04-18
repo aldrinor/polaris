@@ -52,22 +52,34 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
 # 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
 #
-# Phase 0 web research (loopback/audit/_open_source_models_2026.md, verified
-# 2026-04-17) recommends:
+# Defaults pin the latest-release 2026 Q2 pair per user direction 2026-04-17:
+#   Generator: z-ai/glm-5.1             (released 2026-04-12, already in
+#                                       POLARIS _ALWAYS_REASON_MODELS list)
+#   Evaluator: qwen/qwen3.5-plus-02-15  (released 2026-02-15, project default
+#                                       for OPENROUTER_DEFAULT_MODEL)
+# Genuinely distinct families (Zhipu AI vs Alibaba).
+#
+# HONEST CAVEAT: Neither of these models has a verified HHEM hallucination
+# rate on the Vectara 20-Mar-2026 leaderboard snapshot. GLM-5 (precursor)
+# measured 10.1% HHEM — borderline. GLM-5.1 and Qwen 3.5 Plus factuality on
+# grounded-generation tasks is UNVERIFIED as of 2026-04-17. This must be
+# measured in-pipeline during Phase 0 validation before Phase 5 relies on
+# the evaluator for quality judgments. See
+# loopback/audit/_open_source_models_2026.md section 4 for the gap list
+# and _open_source_models_2026_april_followup.md for the April-specific
+# research pass.
+#
+# Alternative pair with VERIFIED HHEM (commented out; swap if in-pipeline
+# HHEM shows GLM-5.1 / Qwen 3.5 Plus are too hallucinatory for the task):
 #   Generator: deepseek/deepseek-v3.2-exp  (Vectara HHEM 6.3%, MIT, 128K)
 #   Evaluator: qwen/qwen3-32b              (Vectara HHEM 5.9%, Apache 2.0, 128K)
-# Blended cost ~$0.07-$0.10 per report.
 #
 # Family derivation uses the OpenRouter model-name prefix (publisher slug).
-# OpenRouter normalizes to "publisher/model-name" so the prefix captures the
-# training lineage. A Llama-3-fine-tune served under a different slug is
-# still Llama family; that is a known limitation — when genuinely
-# distinguishing base lineage matters, override with PG_{GEN,EVAL}_FAMILY.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    os.getenv("OPENROUTER_DEFAULT_MODEL", "deepseek/deepseek-v3.2-exp"),
+    os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-5.1"),
 )
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-32b")
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3.5-plus-02-15")
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
