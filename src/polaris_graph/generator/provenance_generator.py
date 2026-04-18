@@ -722,18 +722,88 @@ def split_findings_and_limitations(text: str) -> tuple[str, str]:
     return findings, limitations
 
 
+def verify_limitations_sentence_against_telemetry(
+    sentence: str,
+    telemetry_block: str,
+) -> SentenceVerification:
+    """BUG-M-204 fix (deep-dive R10): check that every decimal / integer
+    quoted in a Limitations sentence appears verbatim in the telemetry
+    block. Sentences that make unsupported numeric claims about the
+    pipeline's own corpus are dropped, not passed through.
+
+    Returns SentenceVerification with is_verified=True/False.
+    """
+    import re as _re
+    tokens = parse_provenance_tokens(sentence)
+    # Extract all decimal-or-integer numeric literals from the sentence.
+    # Allow percentages; strip '%'.
+    sentence_nums = _re.findall(
+        r"(?<![A-Za-z\d])-?\d+(?:\.\d+)?(?:%)?", sentence,
+    )
+    # Only include numbers that are NOT trivial (e.g., "1" in "table 1"
+    # isn't a claim; 3+ digit or decimal is more likely a real number).
+    substantive = [n for n in sentence_nums if
+                   len(n.replace("-", "").replace("%", "").replace(".", "")) >= 2
+                   or "." in n or "%" in n]
+
+    failures: list[str] = []
+    if not telemetry_block:
+        # No telemetry to check against; treat as pass-through (backward
+        # compat when caller doesn't pass the block).
+        return SentenceVerification(
+            sentence=sentence, tokens=tokens,
+            is_verified=True, failure_reasons=[],
+            soft_warnings=["limitations_pass_through_no_telemetry"],
+        )
+    for num in substantive:
+        # Strip trailing % for matching (telemetry may or may not carry it).
+        # Use word-boundary-like check so "5" doesn't spuriously match
+        # inside "15%" or "2015" in the telemetry block.
+        bare = num.rstrip("%")
+        # Escape the bare number for regex.
+        bare_escaped = _re.escape(bare)
+        # Require the number to NOT be surrounded by other digits in
+        # telemetry (i.e., it must be its own token).
+        if _re.search(rf"(?<![\d.]){bare_escaped}(?![\d])", telemetry_block):
+            continue
+        # Also match the full token with '%' if present.
+        if num != bare and _re.search(
+            rf"(?<![\d.]){_re.escape(num)}(?![\d])", telemetry_block,
+        ):
+            continue
+        failures.append(f"limitations_number_not_in_telemetry:{num}")
+
+    if failures:
+        return SentenceVerification(
+            sentence=sentence, tokens=tokens,
+            is_verified=False, failure_reasons=failures,
+            soft_warnings=["limitations_paragraph"],
+        )
+    return SentenceVerification(
+        sentence=sentence, tokens=tokens,
+        is_verified=True, failure_reasons=[],
+        soft_warnings=["limitations_paragraph_verified"],
+    )
+
+
 def strict_verify(
     draft_text: str,
     evidence_pool: dict[str, dict[str, Any]],
     *,
     require_number_match: bool = True,
+    telemetry_block: str | None = None,
 ) -> StrictVerificationReport:
     """Run strict verification on a draft. Drops failing sentences.
 
-    Gap-3: the Limitations paragraph is verified separately — its
-    sentences are accepted without provenance tokens because they
-    discuss the pipeline, not the evidence. Limitations sentences are
-    added to `kept_sentences` but their `.tokens` list may be empty.
+    Gap-3 (original): the Limitations paragraph was pass-through because
+    it discusses pipeline telemetry, not evidence.
+
+    BUG-M-204 fix (deep-dive R10): when `telemetry_block` is supplied,
+    Limitations sentences ARE verified against it — every numeric
+    claim in the sentence must appear verbatim in the telemetry block.
+    This catches a fabricated "only 3% of sources are T1" claim when
+    the telemetry actually says "T1: 9%". Backward-compatible: if
+    telemetry_block is None (default), falls back to pass-through.
     """
     findings_text, limitations_text = split_findings_and_limitations(draft_text)
 
@@ -752,22 +822,27 @@ def strict_verify(
         else:
             dropped.append(v)
 
-    # Limitations: pass-through. Each sentence becomes a kept
-    # SentenceVerification with no tokens (resolve_provenance_to_citations
-    # will emit it without numbered markers).
+    # Limitations: telemetry-grounded verification if block supplied,
+    # else pass-through (M-204 backward-compat).
     limitations_sentences = split_into_sentences(limitations_text)
     for s in limitations_sentences:
-        tokens = parse_provenance_tokens(s)
-        # Limitations sentences may optionally carry [ev_XXX] if the
-        # generator cites its own telemetry-referenced sources; that's
-        # fine but not required.
-        kept.append(SentenceVerification(
-            sentence=s,
-            tokens=tokens,
-            is_verified=True,
-            failure_reasons=[],
-            soft_warnings=["limitations_paragraph_pass_through"],
-        ))
+        if telemetry_block is not None:
+            v = verify_limitations_sentence_against_telemetry(
+                s, telemetry_block,
+            )
+            if v.is_verified:
+                kept.append(v)
+            else:
+                dropped.append(v)
+        else:
+            tokens = parse_provenance_tokens(s)
+            kept.append(SentenceVerification(
+                sentence=s,
+                tokens=tokens,
+                is_verified=True,
+                failure_reasons=[],
+                soft_warnings=["limitations_paragraph_pass_through"],
+            ))
 
     total_in = len(findings_sentences) + len(limitations_sentences)
     return StrictVerificationReport(
