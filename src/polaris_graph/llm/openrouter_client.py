@@ -116,8 +116,20 @@ def _impute_cost_from_tokens(
 ) -> float:
     """Estimate $/call from token counts + published prices. Reasoning
     tokens bill at the output rate (matches OpenAI / Anthropic practice).
-    Used by the budget guard when OpenRouter omits usage.cost."""
-    if input_tokens <= 0 and output_tokens <= 0 and reasoning_tokens <= 0:
+    Used by the budget guard when OpenRouter omits usage.cost.
+
+    Defensive: token counts are clamped to >=0. A corrupted API response
+    returning negative tokens must NOT produce a negative cost that
+    would silently shrink the accumulated run budget and let a runaway
+    loop keep calling past PG_MAX_COST_PER_RUN.
+    """
+    # Clamp negative token counts — these can only come from a
+    # corrupted API response. A negative cost here would be silently
+    # absorbed by _add_run_cost and weaken the budget guard.
+    input_tokens = max(0, int(input_tokens))
+    output_tokens = max(0, int(output_tokens))
+    reasoning_tokens = max(0, int(reasoning_tokens))
+    if input_tokens == 0 and output_tokens == 0 and reasoning_tokens == 0:
         return 0.0
     model_lower = (model or "").lower()
     input_rate, output_rate = _DEFAULT_PRICE_PER_M

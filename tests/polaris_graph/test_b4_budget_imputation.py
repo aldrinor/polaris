@@ -75,6 +75,30 @@ def test_b4_budget_guard_not_bypassable_when_cost_missing(
     importlib.reload(mod)
 
 
+def test_b4_negative_tokens_clamped_to_zero() -> None:
+    """Codex round 5 probe: a corrupted API response with negative
+    token counts must NOT produce a negative cost that would silently
+    reduce the accumulated run budget."""
+    mod = _mod()
+    # All-negative: returns 0
+    assert mod._impute_cost_from_tokens("deepseek/x", -100, -50, -10) == 0.0
+    # Partial negative: negative inputs clamp to 0, positives still count
+    cost = mod._impute_cost_from_tokens(
+        "deepseek/deepseek-v3.2-exp", -100, 50, 0,
+    )
+    assert cost >= 0.0, f"Cost must be non-negative, got {cost}"
+    # Should equal the cost of (0 input, 50 output, 0 reasoning)
+    expected = 50 * 0.38 / 1_000_000
+    assert abs(cost - expected) < 1e-9
+
+
+def test_b4_float_tokens_coerced_via_int() -> None:
+    """If an upstream handler passes floats, the clamp cast must not crash."""
+    mod = _mod()
+    cost = mod._impute_cost_from_tokens("deepseek/x", 100.7, 50.3, 0)
+    assert cost > 0
+
+
 def test_b4_legacy_cost_field_still_honored() -> None:
     """If OpenRouter DOES return usage.cost, we use it verbatim."""
     mod = _mod()
