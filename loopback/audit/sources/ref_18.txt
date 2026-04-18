@@ -1,0 +1,270 @@
+=== REF [18] ===
+Biblio title: Chronic Weight Management Trial Results | Wegovy (semaglutide)
+Authors: ['Novo Nordisk']
+Year: 2025
+DOI: 
+URL: https://novomedlink.com/obesity/products/treatments/wegovy/efficacy-safety/chronic-weight-management.html
+Authority tier: UNKNOWN
+Source type: industry_report
+Content length: 25000
+---
+In addition to diet and exercise, to reduce the risk of MACE (CV death, non-fatal MI, or non-fatal stroke) in adults with established CVD and either overweight or obesity and for chronic weight management in adults with obesity or overweight with at least one weight-related comorbidity. Click for Limitations of Use.
+Efficacy & Safety
+Undeniably powerful weight loss in both the pen and pill
+Actor portrayals.
+Learn more about either Wegovy® pen or pill by selecting the tab below.
+STEP 5: In adults with obesity or overweight with at least one weight-related comorbidity, along with diet and exercise,
+Significant weight loss that lasts with Wegovy®1
+Co-primary end point: Mean change in body weight (%) from week 0 to week 1041
+Patients in both arms received instruction for reduced-calorie diet and increased physical activity
+During the trial, 13% of patients in the Wegovy® arm discontinued treatment compared with 27% in the placebo arm.1
+Missing data were imputed from retrieved subjects of the same randomized treatment arm (RD-MI).
+*p<0.0001 (unadjusted 2-sided) for superiority.1
+†Difference from placebo was -12.6%.1
+BMI, body mass index.
+STEP 51: A 104-week trial of 304 adults with obesity (BMI ≥30 kg/m2) or overweight (BMI 27 kg/m2-29.9 kg/m2) and ≥1 weight-related comorbidity, randomized 1:1 to Wegovy® or placebo, both with a reduced-calorie diet and increased physical activity. Discontinuation rate: Wegovy®=13%, placebo=27%. Click to see full study design below.
+In the same study,
+With Wegovy®, the majority of patients maintained significant weight loss at 2 years1
+≥20% weight loss maintained with Wegovy® by one-third of patients at 2 years1‡§
+Observed weight loss at 104 weeks1
+Supportive secondary end point
+~1 out of 3 (36.1%) patients taking Wegovy® achieved even greater weight loss1‡
+at 2 years
+vs 2.3% of patients with placebo
+Mean baseline body weight:
+Wegovy®=232.8 lb; placebo=234.8 lb.
+Mean baseline BMI: 38.5 kg/m2.1
+‡Supportive secondary end points were not included in the statistical testing hierarchy and, as such, not controlled for multiplicity.1
+Weight loss in pounds (lb) calculated as 5%, 10%, 15%, and 20% of mean baseline body weight of Wegovy® and placebo patients.
+§Observed data include only patients who had a body-weight assessment at week 104 (144 of 152 for Wegovy® arm and 128 of 152 for placebo arm) and do not include all randomized patients.
+In the same study,
+Benefits beyond the scale® with Wegovy®
+Patients taking Wegovy® pen 2.4 mg experienced improvements across most cardiometabolic risk factors1
+Confirmatory secondary end points:
+Change from baseline to week 104 in1:
+Waist circumference:
+5.7-inch reduction
+2-inch reduction with placebo
+Systolic blood pressure:
+5.7 mm Hg reduction
+1.6 mm Hg reduction with placebo
+Supportive secondary end points: Change from baseline to week 104 in1:
+Lipid profile:
+Total cholesterol
+3.3% reduction
+1.4% increase with placebo
+LDL
+6.1% reduction
+2.7% reduction with placebo
+HDL
+9.6% increase
+8.1% increase with placebo
+Triglycerides
+19% reduction
+3.7% increase with placebo
+Diastolic blood pressure:
+4.4 mm Hg reduction
+0.8 mm Hg reduction with placebo
+A1c:
+0.4% reduction
+0.1% reduction with placebo
+Safety end point: Change in1:
+Heart rate:
+3.3 bpm increase
+0.8 bpm reduction with placebo
+Wegovy® is not indicated to treat hypertension, type 2 diabetes, or dyslipidemia.
+The supportive secondary efficacy end points were not included in the statistical testing hierarchy and, as such, the analyses were not adjusted for multiplicity.
+A1c, glycated hemoglobin; bpm, beats per minute; HDL, high-density lipoprotein; LDL, low-density lipoprotein.
+In an additional analysis for efficacy in the same study,
+Trial product estimand: Efficacy in an idealized, but hypothetical scenario in which treatment is not discontinued and other therapies are not initiated1
+Co-primary end point: Change in body weight (%) from week 0 to week 104
+Patients in both arms received instruction for reduced-calorie diet and increased physical activity
+Co-primary end point1
+Percentage of patients achieving ≥5% weight loss at 104 weeks
+83.3% Wegovy® patients vs 34.9% of placebo patients
+Trial product estimand analysis was not included in the statistical testing hierarchy and, as such, was not controlled for multiplicity.
+The trial product estimand data here measure the hypothetical change in body weight of patients on Wegovy® if all participants remained on randomized treatment without discontinuation or use of rescue intervention (ie, any other obesity medication or bariatric surgery).
+The treatment policy estimand data above (15.2% mean weight loss with Wegovy® pen vs 2.6% with placebo at 2 years) measure the change in body weight among all randomly assigned participants on Wegovy®, regardless of treatment discontinuation or use of rescue intervention. This estimand is based on the intention-to-treat principle and was used as the primary analysis method.
+Mean baseline body weight: Wegovy®=232.8 lb; placebo=234.8 lb.
+Mean baseline BMI: 38.5 kg/m2.
+Hypothetical estimand data are based on trial population: Wegovy®, n=132; placebo, n=109, without discontinuation seen in trial population.
+WeGoTogether® Real-World Study
+Randomized clinical trials (RCTs)2,3
+- Evaluate the safety and efficacy of a treatment in specific populations under controlled conditions
+- Prospective designs with prespecified, well-defined inclusion/exclusion criteria, outcomes, and end points
+- Patients are randomly assigned to treatment or comparator
+Limitations:
+- Tightly controlled conditions and inclusion/exclusion criteria of RCTs may limit generalizability to real-world conditions or clinical populations
+- Can be expensive and time-consuming
+Randomized clinical trials are designed to show causality2,3
+Real-world observational studies3,4
+- Use data from routine clinical practice
+- Capture outcomes across broad patient populations
+- Offer insight into how treatments perform outside of a controlled clinical trial setting
+- Should be viewed as complementary to clinical trial data
+Limitations:
+- Susceptible to bias and confounding due to factors such as lack of randomization, missing or duplicative data, coding inaccuracies, and data variability reflecting routine clinical practice
+Real-world studies evaluate associations and cannot determine causality3,4
+In a retrospective, observational study of US adults with obesity,
+Wegovy® effectiveness reported in the real world
+Limitations5: All data were self-reported, which may be prone to bias. Weight change was analyzed descriptively. Self-reported first injection start date (index) may not reflect Wegovy® initiation. Collected baseline patient data were limited, preventing further characterization of patients (comorbidities and concomitant medication use, including obesity medication, GLP-1 RA, or GIP/GLP-1 RA). Adherence to Wegovy® at time of self-reported weight is unknown. WeGoTogether® does not include a control group for comparison.
+Results should be interpreted in the context of limitations of this study.
+To complement, not replace, your care, the WeGoTogether® app was developed by Novo Nordisk, the maker of Wegovy®, to support your patients as they work to lose weight and keep it off.
+Rooted in behavior change to help patients reach their goals, patients learn skill building in areas like goal setting, habit formation, nutrition, and handling social situations around food.
+Get patients started at Wegovy.com
+Patients are advised to consult their HCP about treatment-related questions.
+Study design
+WeGoTogether® Real-World Weight Outcomes: A retrospective, observational study of US adults with obesity (BMI ≥30 kg/m2) treated with Wegovy® injection and enrolled in the WeGoTogether® patient support program evaluating patient-reported weight data. Among the 7,604 patients with obesity, 296 patients had reported weight values 24 months post index (±30 days).5
+Time periods and definitions: Study period: June 4, 2021 to April 10, 2025; index date: Reported date of enrollment (first injection start date) in the WeGoTogether® program.6
+End point:
+- Mean percent weight change at 2 years5
+GIP, glucose-dependent insulinotropic polypeptide; GLP-1 RA, glucagon-like peptide-1 receptor agonist; HCP, health care professional.
+STEP 4: In adults with obesity or overweight with at least one weight-related comorbidity, along with diet and exercise,
+Patients who stayed on Wegovy® achieved sustained results against weight regain7,8
+After a 20-week run-in period, patients who continued taking Wegovy® lost more weight and kept it off6
+Primary end point: Mean change in body weight (%) from randomization (week 20) to week 687,8
+Randomized patients (shown) do not include 99 patients who discontinued during the 20-week run-in period.8
+Missing data were imputed from retrieved subjects of the same randomized treatment arm (RD-MI).7
+¶p<0.001 (unadjusted 2-sided) for superiority, controlled for multiplicity.7
+#Difference from placebo was -14.8%.7
+Supportive secondary end point
+Patients taking Wegovy® achieved5**
+from week 0 to 68
+vs 5% (~12 lb) weight loss with placebo8
+Mean baseline body weight (week 0): 236.3 lb.
+Mean body weight at randomization (week 20): 211.9 lb.
+Mean baseline BMI (week 0): 38.4 kg/m2.6
+Mean BMI at randomization (week 20): 34.4 kg/m2.8
+**Supportive secondary end points were not included in the statistical testing hierarchy and, as such, not controlled for multiplicity.8
+STEP 47,8: A 64-week trial of 902 adults with obesity or with overweight and at least one weight-related comorbidity. All patients received Wegovy® for 20 weeks. The 803 patients who achieved the 2.4 mg maintenance dose were randomized 2:1 to either continue Wegovy® or receive placebo. Click to see full study design below.
+STEP 1: In adults with obesity or overweight with at least one weight-related comorbidity, along with diet and exercise,
+With the power of Wegovy®, patients achieved significant weight loss that started early7,9
+Co-primary end point: Mean change in body weight (%) from week 0 to week 687
+Patients in both arms received instruction for reduced-calorie diet and increased physical activity
+Missing data were imputed from retrieved subjects of the same randomized treatment arm (RD-MI).7
+During the trial, 17% of patients in the Wegovy® arm discontinued treatment compared with 22% in the placebo arm.9
+††p<0.0001 (unadjusted 2-sided) for superiority.7
+‡‡Difference from placebo was -12.4%.7
+STEP 17,9: A 68-week trial of 1,961 adults with obesity or with overweight and at least one weight-related comorbidity, randomized 2:1 to Wegovy® or placebo. Discontinuation rate: Wegovy®=17%, placebo=22%. Click to see full study design below.
+In the same study,
+With Wegovy®, patients achieved 5%-20% or greater weight loss6,7,9
+The majority of patients taking Wegovy® achieved clinically meaningful weight loss
+Estimated weight loss at 68 weeks6,7,9
+Supportive secondary end point7,9
+~1 out of 3 Wegovy® patients achieved§§
+at 68 weeks
+vs 1.7% of patients with placebo
+Mean baseline body weight:
+Wegovy®=232.4 lb; placebo=231.9 lb.
+Mean baseline BMI: 37.9 kg/m2.7
+§§Supportive secondary end points were not included in the statistical testing hierarchy and, as such, not controlled for multiplicity. These data are from the cumulative frequency distribution for change in body weight.9
+Weight loss in pounds (lb) calculated as 5%, 10%, 15%, and 20% of mean baseline body weight of Wegovy® and placebo patients.
+In the same study,
+Benefits beyond the scale® with Wegovy® from baseline to week 687,9
+Wegovy® pen 2.4 mg demonstrated improvements in cardiometabolic risk factors at week 687,9
+Confirmatory secondary end points:
+Change in7∥∥:
+Waist circumference:
+5.3-inch reduction
+1.6-inch reduction with placebo
+Systolic blood pressure:
+6.2 mm Hg reduction
+1.1 mm Hg reduction with placebo
+Supportive secondary end points: Change in7∥∥:
+Lipid profile:
+Total cholesterol
+3.3% reduction
+0.1% increase with placebo
+LDL
+2.5% reduction
+1.3% increase with placebo
+HDL
+5.2% increase
+1.4% increase with placebo
+Triglycerides
+21.9% reduction
+7.3% reduction with placebo
+Diastolic blood pressure:
+2.8 mm Hg reduction
+0.4 mm Hg reduction with placebo
+A1c:
+0.4% reduction
+0.2% reduction with placebo
+Safety end point: Change in7:
+Heart rate:
+3.5 bpm increase
+0.7 bpm reduction with placebo
+Wegovy® is not indicated to treat hypertension, type 2 diabetes, or dyslipidemia.
+The supportive secondary efficacy end points were not included in the statistical testing hierarchy and, as such, the analyses were not adjusted for multiplicity.
+∥∥Least squares mean change from baseline.
+Study designs
+STEP 51: A 104-week trial of 304 adults with obesity (BMI ≥30 kg/m2) or with overweight (BMI 27 kg/m2-29.9 kg/m2) and at least one weight-related comorbid condition, such as dyslipidemia or hypertension, cardiovascular disease, or obstructive sleep apnea; patients with diabetes mellitus were excluded. Patients were randomized 1:1 to once-weekly Wegovy® injection 2.4 mg or placebo (with a 16-week dose escalation), both in conjunction with a reduced-calorie diet (~500 kcal/day deficit) and increased physical activity (recommended to a minimum of 150 min/week).
+Co-primary end points1:
+- Mean percentage change in body weight from baseline to week 104
+- Percentage of patients achieving ≥5% weight loss from baseline to week 104
+Relevant confirmatory secondary end points1:
+- Percentage of patients achieving ≥10% weight loss from baseline to week 104
+- Percentage of patients achieving ≥15% weight loss from baseline to week 104
+- Change in waist circumference from baseline to week 104
+- Change in systolic blood pressure from baseline to week 104
+Relevant supportive secondary end points1:
+- Percentage of patients achieving ≥20% weight loss from baseline to week 104
+- Change in A1c from baseline to week 104
+- Change in diastolic blood pressure from baseline to week 104
+- Change in lipids¶¶ from baseline to week 104
+¶¶LDL, HDL, triglycerides, and total cholesterol.
+STEP 47,8: A 68-week trial that enrolled 902 adults with obesity (BMI ≥30 kg/m2) or with overweight (BMI 27 kg/m2-29.9 kg/m2) and at least one weight-related comorbid condition, such as treated or untreated dyslipidemia or hypertension; patients with type 2 diabetes mellitus were excluded. All patients received once-weekly Wegovy® injection during the run-in period of 20 weeks, which included 16 weeks of dose escalation. 803 patients achieved Wegovy® injection 2.4 mg dose and were then randomized in a 2:1 ratio to either continue on Wegovy® or receive placebo. All patients received instruction for a reduced-calorie diet (~500 kcal/day deficit) and increased physical activity counseling (recommended to a minimum of 150 min/week) through the trial.
+Primary end point7,8:
+- Mean percentage change in body weight from randomization (week 20) to week 68
+Relevant confirmatory secondary end points8:
+Randomization (week 20) to week 68:
+- Change in waist circumference
+- Change in systolic blood pressure
+Relevant supportive secondary end point8:
+- Change in body weight (%) from week 0 to week 68
+STEP 17,9: A 68-week trial of 1,961 adults with obesity (BMI ≥30 kg/m2) or with overweight (BMI 27 kg/m2-29.9 kg/m2) and at least one weight-related comorbid condition, such as treated or untreated dyslipidemia or hypertension; patients with type 2 diabetes mellitus were excluded. Patients were randomized in a 2:1 ratio to either once-weekly Wegovy® injection 2.4 mg or placebo (with a 16-week dose escalation), both in conjunction with a reduced-calorie diet (~500 kcal/day deficit) and increased physical activity (recommended to a minimum of 150 min/week).
+Co-primary end points7,9:
+- Mean percentage change in body weight from baseline to week 68
+- Percentage of patients achieving ≥5% weight loss from baseline to week 68
+Relevant confirmatory secondary end points9:
+- Percentage of patients achieving ≥10% weight loss from baseline to week 68
+- Percentage of patients achieving ≥15% weight loss from baseline to week 68
+- Change in waist circumference from baseline to week 68
+- Change in systolic blood pressure from baseline to week 68
+Relevant supportive secondary end points9:
+- Percentage of patients achieving ≥20% weight loss from baseline to week 68
+- Change in A1c from baseline to week 68
+- Change in diastolic blood pressure from baseline to week 68
+- Change in lipids## from baseline to week 68
+##LDL, HDL, triglycerides, and total cholesterol.
+Start their weight-loss conversation with the Wegovy® pen today
+How are you treating patients with long-term weight challenges?
+Looking for lasting weight loss after previous failed weight-loss attempts
+Age: 47
+BMI: 36 kg/m2
+Likes an option she only has to take once a week
+Age: 32
+BMI: 32 kg/m2 with weight-related comorbidity
+Actor portrayals. Hypothetical patients for demonstrative purposes only.
+See Wegovy® and MACE risk reduction data
+Get your patients started on Wegovy®
+MACE, major adverse cardiovascular events.
+Important Safety Information for Wegovy®
+WARNING: RISK OF THYROID C-CELL TUMORS
+- In rodents, semaglutide causes dose-dependent and treatment-duration-dependent thyroid C-cell tumors at clinically relevant exposures. It is unknown whether Wegovy® causes thyroid C-cell tumors, including medullary thyroid carcinoma (MTC), in humans as human relevance of semaglutide-induced rodent thyroid C-cell tumors has not been determined
+- Wegovy® is contraindicated in patients with a personal or family history of MTC or in patients with Multiple Endocrine Neoplasia syndrome type 2 (MEN 2). Counsel patients regarding the potential risk for MTC with the use of Wegovy® and inform them of symptoms of thyroid tumors (e.g. a mass in the neck, dysphagia, dyspnea, persistent hoarseness). Routine monitoring of serum calcitonin or using thyroid ultrasound is of uncertain value for early detection of MTC in patients treated with Wegovy®
+Contraindications
+- Wegovy® is contraindicated in patients with a personal or family history of MTC or in patients with MEN 2, and in patients with a prior serious hypersensitivity reaction to semaglutide or to any of the excipients in Wegovy®. Serious hypersensitivity reactions, including anaphylaxis and angioedema have been reported with Wegovy®
+Warnings and Precautions
+- Risk of Thyroid C-Cell Tumors: Patients should be further evaluated if serum calcitonin is measured and found to be elevated or thyroid nodules are noted on physical examination or neck imaging
+- Acute Pancreatitis: Acute pancreatitis, including fatal and non-fatal hemorrhagic or necrotizing pancreatitis, has been observed in patients treated with GLP-1 receptor agonists, including Wegovy®. Observe patients carefully for signs and symptoms of acute pancreatitis, which may include persistent or severe abdominal pain (sometimes radiating to the back), and which may or may not be accompanied by nausea, or vomiting. If pancreatitis is suspected, discontinue Wegovy® and initiate appropriate management
+- Acute Gallbladder Disease: Treatment with Wegovy® is associated with an increased occurrence of cholelithiasis and cholecystitis. The incidence of cholelithiasis and cholecystitis was higher in Wegovy® injection-treated pediatric patients aged ≥12 years than in Wegovy® injection-treated adults. In clinical trials in adult patients, cholelithiasis was reported by 1.6% of Wegovy® injection-treated patients and 0.7% of placebo treated patients, and by 2.5% of Wegovy® tablet-treated patients and 1% of placebo treated patients. Cholecystitis was reported by 0.6% of Wegovy® injection-treated adult patients and 0.2% of placebo treated patients. In a clinical trial in pediatric patients aged ≥12 years, cholelithiasis was reported by 3.8% of Wegovy® injection-treated patients and 0% placebo treated patients. Cholecystitis was reported by 0.8% of Wegovy® injection-treated pediatric patients and 0% placebo treated patients. Substantial or rapid weight loss can increase the risk of cholelithiasis; however, the incidence of acute gallbladder disease was greater in Wegovy® patients than in placebo patients, even after accounting for the degree of weight loss. If cholelithiasis is suspected, gallbladder studies and appropriate clinical follow-up are indicated
+- Hypoglycemia: Wegovy® lowers blood glucose and can cause hypoglycemia. In a trial of Wegovy® injection in adult patients with type 2 diabetes (T2D) and a BMI ≥27 kg/m2, hypoglycemia was reported in more patients treated with Wegovy® versus placebo. In glycemic control clinical trials, the risk of hypoglycemia was increased when semaglutide injection or tablet was used concomitantly with insulin or an insulin secretagogue (e.g., sulfonylurea). Patients with diabetes taking Wegovy® with an insulin or insulin secretagogue may have an increased risk of hypoglycemia, including severe hypoglycemia. The use of Wegovy® in patients with type 1 diabetes or in combination with insulin has not been evaluated. Inform patients of the risk of hypoglycemia and educate them on the signs and symptoms. Monitor blood glucose in patients with diabetes
+- Acute Kidney Injury Due to Volume Depletion: There have been postmarketing reports of acute kidney injury, in some cases requiring hemodialysis, in patients treated with semaglutide. The majority of the reported events occurred in patients who experienced gastrointestinal reactions leading to dehydration such as nausea, vomiting, or diarrhea. Monitor renal function in patients reporting adverse reactions to Wegovy® that could lead to volume depletion, especially during initiation and escalation of Wegovy®
+- Severe Gastrointestinal (GI) Adverse Reactions: Use of Wegovy® has been associated with GI adverse reactions, sometimes severe. In adult clinical trials, severe GI adverse reactions were reported more frequently among patients receiving Wegovy® than placebo. Severe GI adverse reactions were reported in 4.1% and 0.9% of Wegovy®-injection treated and placebo treated patients, respectively, and in 2% of Wegovy® tablet-treated and 0% of placebo treated patients, respectively. Severe GI adverse reactions have also been reported postmarketing with GLP-1 receptor agonists. Wegovy® is not recommended in patients with severe gastroparesis
+- Hypersensitivity Reactions: Serious hypersensitivity reactions (e.g., anaphylaxis, angioedema) have been reported with Wegovy®. If hypersensitivity reactions occur, discontinue use of Wegovy®, treat promptly per standard of care, and monitor until signs and symptoms resolve. Use caution in a patient with a history of anaphylaxis or angioedema with another GLP-1 receptor agonist
+- Diabetic Retinopathy Complications in Patients with T2D: In a trial of adult patients with T2D and BMI ≥27 kg/m2, diabetic retinopathy was reported by 4% of Wegovy® injection-treated patients and 2.7% of placebo patients. In a glycemic control trial evaluating a dose comparable to the 9 mg dose and the 25 mg semaglutide tablet doses in patients with T2D, 1.3% and 1.9% of patients in the 9 mg and 25 mg semaglutide group, respectively, reported moderate-severe non-proliferative diabetic retinopathy events, and 0% and 0.4% reported proliferative retinopathy events, respectively. Rapid improvement in glucose control has been associated with a temporary worsening of diabetic retinopathy. Patients with a history of diabetic retinopathy should be monitored for progression of diabetic retinopathy
+- Heart Rate Increase: Mean increases in resting heart rate of 1 to 4 beats per minute (bpm) were observed in Wegovy® injection-treated adult patients compared to placebo in clinical trials. More adults treated with Wegovy® injection compared with placebo had maximum changes from baseline of 10 to 19 bpm (41% vs 34%) and 20 bpm or more (26% vs 16%). In a clinical trial in pediatric patients aged ≥12 years with normal baseline heart rate, more patients treated with Wegovy® injection compared to placebo had maximum changes in heart rate of 20 bpm or more (54% vs 39%). Findings were similar in a trial with the Wegovy® tablets. Monitor heart rate at regular intervals and instruct patients to report palpitations or feelings of a racing heartbeat while at rest. If patients experience a sustained increase in resting heart rate, discontinue Wegovy®
+- Pulmonary Aspiration During General Anesthesia or Deep Sedation: Wegovy® delays gastric emptying. There have been rare postmarketing reports of pulmonary aspiration in patients receiving GLP-1 receptor agonists undergoing elective surgeries or procedures requiring general anesthesia or deep sedation who had residual gastric contents despite reported adherence to preoperative fasting recommendations. Instruct patients to inform healthcare providers prior to any planned surgeries or procedures if they are taking Wegovy®
+Adverse Reactions
+- Most common adverse reactions (incidence ≥5%) are: nausea, diarrhea, vomiting, constipation, abdominal pain, dysesthes

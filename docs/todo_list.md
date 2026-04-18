@@ -1,8 +1,45 @@
 # POLARIS Sovereign Deep Research Platform — Ultimate Todo List
 
-**Last Updated**: 2026-04-15 (PG_LOOPBACK_MIN audit — D1/D2/D3 fixed, D3 production-critical)
+**Last Updated**: 2026-04-17 (honest-rebuild plan approved; Phase 0 and Phase 1 active in parallel)
 
-## Session 59 Top Priorities (2026-04-15)
+---
+
+## Session 60 Top Priorities (2026-04-17) — HONEST-BY-CONSTRUCTION REBUILD
+
+**Context**: PG_LB_SA_02 deep content audit (`loopback/audit/PG_LB_SA_02_CONTENT_AUDIT.md`) found ≥15 agent-written fabrications, 3 sections failing to deliver titles, broken Patch B (`call_type` crash), silently-broken Patch C (setid regex), Patch D over-assigning GOLD at ~24% error. `faithfulness_score=1.0` is survivorship-biased. 2026 field research confirms no commercial/academic system has broken through — we stop chasing autonomous systematic review and rebuild around an honest-by-construction product thesis. Full plan at `C:/Users/msn/.claude/plans/lovely-finding-firefly.md`.
+
+**User-confirmed decisions**: Phase 0 runs parallel with Phase 1; human external reviewer; stakeholder metric-drop pre-agreed; all four pilot personas in Phase 0.
+
+**Phase 0 — Pre-commitment and plan review (active, parallel with Phase 1)**
+- [ ] Interview 5–10 pilot users across all 4 personas (clinical researcher, regulatory affairs, policy analyst, due-diligence) — Phase 2 blocker
+- [ ] External human plan reviewer identified and engaged — Phase 2 blocker
+- [~] Open-source model research for April 2026 pair pin (agent running background) — Phase 2 blocker
+- [ ] Legal review of source-caching and bundle-distribution posture — Phase 2 blocker
+
+**Phase 1 — Kill the lies (active, parallel with Phase 0)**
+- [ ] **1a**: Remove `faithfulness_score` from output schema + UI; remove FIX-QM7 / FIX-043A filter-then-recompute flow in `src/agents/auditor_agent.py`
+- [ ] **1b**: Delete `src/polaris_graph/agents/hallucination_detector.py`; remove REMEDIATE-LOOP invocation in `wiki_composer.py`
+- [ ] **1c**: Add per-call family routing to `src/polaris_graph/llm/openrouter_client.py`; env vars `PG_GENERATOR_MODEL` + `PG_EVALUATOR_MODEL`; fail-fast on same-family pair
+- [ ] **1d**: Archive 3 deprecated architectures (`src/phases/`, legacy `src/orchestration/`, polaris_graph v1) using `git mv` to `archive/2026-Q2_deprecated_*/`. **USER CONFIRMATION BEFORE EXECUTION**
+- [ ] **1e**: Migration script `scripts/migrate_old_runs.py` for pre-existing POLARIS run JSONs
+- [ ] **1f**: Regression tests keyed to documented PG_LB_SA_02 defects (`tests/polaris_graph/test_regression_pg_lb_sa_02_defects.py`)
+- [ ] Commit plan + audit findings to PL branch; create PL-honest-rebuild-phase-1 branch for engineering work
+
+**Phase 2+ (blocked pending Phase 0 validation gate)**
+- [ ] Phase 2: Tier-first retrieval + corpus-approval gate + pre-registered protocol artifact
+- [ ] Phase 3: Contradiction detector + contradiction-resolution gate + trial-ID extraction
+- [ ] Phase 4: Provenance-emitting generator (draft-then-strict-verify primary, constrained-decoding secondary) + prompt injection defense
+- [ ] Phase 5: External non-same-family evaluator + auto mode + disagreement amplifier + PRISMA-trAIce disclosure + mode labels
+- [ ] Phase 6: Bundle signer + Docker package + 3 pilot users × 3 runs
+- [ ] Phase 7: Quarterly external benchmark re-runs (WikiContradict, AstaBench, SourceCheckup) — ongoing discipline
+
+**Deprecated from prior sessions (moved to archive):**
+- Prior SOTA patches A/B/C/D shipped on d638446 / c82c5c3 — retained in history but their NLI-gaming / survivorship-biased mechanics are being removed in Phase 1
+- `faithfulness_score=1.0` quality claim — removed, replaced by external evaluator output
+
+---
+
+## Session 59 Top Priorities (2026-04-15) — SUPERSEDED by Session 60 honest-rebuild
 
 **COMPLETED THIS SESSION (LOOPBACK AUDIT):**
 - [x] PG_LOOPBACK_MIN code-path coverage audit (5-point: nodes, ERR/WARN, W3 gates, 7 fixes, JSON structure)

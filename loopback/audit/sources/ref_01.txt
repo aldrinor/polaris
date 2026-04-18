@@ -1,0 +1,338 @@
+=== REF [1] ===
+Biblio title: Affordable Access to GLP-1 Obesity Medications - ICER
+Authors: ['Pearson SD', 'Whaley CM', 'Emond SK']
+Year: 2025
+DOI: 
+URL: https://icer.org/wp-content/uploads/2025/04/Affordable-Access-to-GLP-1-Obesity-Medications-_-ICER-White-Paper-_-04.09.2025.pdf
+Authority tier: GOLD
+Source type: industry_report
+Content length: 25000
+---
+Affordable Access to GLP-1 Obesity Medications: 
+Strategies to Guide Market Action  
+and Policy Solutions 
+ 
+April 9, 2025 
+ 
+ 
+Steven D. Pearson, MD, MSc 
+Special Advisor 
+Institute for Clinical and Economic Review 
+ 
+Christopher M. Whaley, PhD 
+Associate Professor 
+Department of Health Services, Policy, and Practice 
+Brown University 
+ 
+Sarah K. Emond, MPP 
+President and Chief Executive Officer 
+Institute for Clinical and Economic Review 
+ 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 2 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+Table of Contents 
+Introduction ..................................................................................................................................... 3 
+Methods........................................................................................................................................... 5 
+Background ...................................................................................................................................... 6 
+Obesity Medications ..................................................................................................................... 6 
+The Advent of GLP-1 Receptor Agonists ........................................................................................ 7 
+Compounded Versions of GLP-1 Drugs ........................................................................................12 
+Pipeline of Future GLP-1 Obesity Medications and Pricing Implications .......................................13 
+Current Coverage Patterns and Financial Impact of GLP-1s ..........................................................16 
+Potential Market Strategies .............................................................................................................20 
+1. Temporary Coverage Denial.....................................................................................................20 
+2. Enhanced Prior Authorization and Formulary Management .....................................................23 
+3. Provider Network Management...............................................................................................30 
+4. Innovative Payment Arrangements ..........................................................................................31 
+5. Carve-out Programs for Obesity Management Services ...........................................................33 
+Potential Federal Policy Interventions .............................................................................................35 
+1. Improve Access by Offering Coverage for Obesity Drugs in Medicare.......................................35 
+2. Improve Access in Private Insurance Through Action by the USPSTF ........................................37 
+3. Reduce Costs Through Aggressive Federal Drug Price Negotiation ...........................................38 
+4. Reduce Costs by Providing Federal Subsidies for Private Insurance Coverage of Obesity 
+Treatments ..................................................................................................................................38 
+5. Reduce Costs by Licensing GLP-1 Products from Drugmakers...................................................39 
+Conclusion.......................................................................................................................................40 
+Appendix A: 2024 ICER Policy Summit Attendees ............................................................................42 
+References ......................................................................................................................................43 
+ 
+ 
+ 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 3 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+Introduction  
+Glucagon-like peptide 1 (GLP-1) receptor agonists and GLP-1/gastric inhibitory polypeptide (GIP) 
+receptor agonists are among the most noteworthy and widely known medical innovations of the 
+past few decades. These new obesity medications (OMs), currently exemplified by semaglutide 
+(Wegovy®, Novo Nordisk) and tirzepatide (Zepbound®, Eli Lilly and Company), offer weight 
+reduction and associated health benefits that, if sustained over time, have the potential to 
+markedly improve population health. However, over 40% of U.S. adults have obesity, translating 
+into more than 100 million potential new users of OMs. Standing in the way of the major 
+opportunity to improve health for these individuals is the massive and likely ongoing cost of 
+treating such a large segment of the population. Although ICER has judged the net price for 
+semaglutide, and by extension for tirzepatide, as meeting reasonable cost-effectiveness levels in 
+the U.S. market,1 the number of potential users creates a scale of spending on a single drug class 
+that some analysts have estimated will reach over $100 billion annually within the next five years.2,3 
+At this scale of potential use, there is a stark distinction between a new treatment being “cost-
+effective” as opposed to it being “affordable.” Cost-effectiveness analyses measure the estimated 
+long-term benefits against the cumulative costs and cost offsets of new treatments. But whether a 
+treatment is or is not affordable reflects a shorter-term view, often judged over a year or two, of 
+whether those paying the costs for the new intervention have the budgetary elasticity to absorb 
+those new costs. Conceptually, new spending for a treatment should not exceed amounts that 
+would cause short-term increases to insurance premiums or shifts in other spending that would, 
+overall, produce serious negative consequences outweighing the clinical benefits realized by 
+patients receiving the new treatment. Therefore, despite analyses suggesting that the long-term 
+outcomes and costs at current net pricing of GLP-1 drugs represent a reasonable value to the health 
+system, the rising tide of GLP-1 use and the scale of potentially eligible individuals has raised serious 
+affordability concerns among both public and private payers. Considerations of fair pricing 
+therefore cannot be based solely on a paradigm of long-term cost-effectiveness, and prioritization 
+of patients to receive coverage becomes a critical issue. Unfortunately, one potential, if not likely, 
+outcome is that the U.S. will stumble badly in the introduction of new OMs, reaping less of the 
+benefit than it could, while reinforcing deeply entrenched disparities in access and health outcomes 
+across different groups in society. 
+Although the new OMs cast in high relief the tension between the scale of the opportunity for 
+improved health and the magnitude of the financial implications, the tension is far from unique. 
+Among other diseases affecting more than 10 million Americans are major depression, high 
+cholesterol, type 2 diabetes, and dementia.4  Gene therapies and other major advances in the care 
+for these conditions are in development. The prospect of a new transformative therapy for any of 
+these conditions would raise major opportunities for public health improvement with attendant 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 4 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+budgetary concerns, as was demonstrated by the tense debates over the financial implications for 
+Medicare should new amyloid-reducing drugs for Alzheimer’s disease be widely adopted.5     
+But is the outlook always so dire when trying to manage costs and access to widely used 
+transformative treatments? Despite several important contextual differences, the story of the 
+rollout of new treatments for hepatitis C, starting in 2014, suggests to some that treatment of large 
+segments of the population can be made affordable through market forces and the regular 
+functioning of competition to drive more choice and lower costs. Unlike new OMs, the novel 
+hepatitis C treatments are short-term treatments that usually provide a complete cure. When they 
+were first introduced, the competitive landscape allowed for rapid adoption of single-formulary 
+approaches, and the lack of clinical experts skilled in their prescription led to a natural dampening 
+of uptake. Nonetheless, the new treatments for hepatitis C presented the health system with the 
+same fundamental tension between substantial cost in the short term and resulting health benefits 
+and cost offsets that only accrued years downstream. Relatively rapidly, however, prices dropped 
+substantially after a growing number of competing treatments were introduced, allowing private 
+and public payers to accommodate treatment for a large percentage of eligible patients without 
+compromising affordability.  
+Whether the experience with hepatitis C drugs represents a template for what to expect with new 
+OMs can be hotly debated, and even with the price reductions seen with hepatitis C treatments, 
+many public health experts still view the story as one in which financial constraints have continued 
+to prevent the U.S. from achieving a broader public health triumph. What is clear is that the new 
+generation of OMs represents another challenge, at an even greater scale, and a chance to do a 
+better job of providing affordable and equitable access to transformative therapies at a population 
+level. New ideas, new strategies, and new policies will be needed to make progress toward the 
+common goal of ensuring affordable and equitable access for new OMs.  
+The purpose of this white paper is to analyze the range of emerging market approaches and 
+possible policy reforms that have the potential to help achieve this goal. There are stark differences 
+between approaches, which range from relatively “open door” coverage and payment to denial of 
+coverage for any treatment of obesity. Within this paper, we analyze the relative advantages, the 
+barriers, and the potential unintended consequences for each market or policy option, and explore 
+the pros and cons of combining strategies either internally within an insurance system or externally 
+through stand-alone obesity management providers. None of the market actions or policy reforms 
+we will discuss are “silver bullets” that can singlehandedly solve all the barriers and tensions 
+inherent in trying to maximize affordable access while retaining incentives for future innovation. 
+Still, we seek to present policymakers and industry leaders with insights and lessons learned from 
+experts while offering a menu of options for the future that will help all stakeholders play an active 
+part in an innovative future of pricing, coverage, and payment for new OMs.  
+ 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 5 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+Methods 
+Information to inform this paper was gathered in two ways: a targeted literature review, and 
+interviews with key content experts, policymakers, and representatives from organizations that 
+participate in ICER’s Policy Leadership Forum. 
+The targeted literature review included keyword and hand searches for peer-reviewed and gray 
+literature articles focusing on the use of obesity medications in the U.S. This included examination 
+of clinical trial data, real-world effectiveness studies, and analyses of safety and long-term 
+outcomes. Additional information was gathered from relevant clinical guidelines, publications from 
+professional medical societies, purchaser coalition white papers, and patient advocacy group 
+materials.   
+Guided by perspectives gathered through this literature review, the ICER research team created a 
+structured discussion guide and a list of a menu of potential market or policy actions that could be 
+considered in helping to achieve affordable access to OMs. We then conducted fourteen 45-minute 
+interviews with key policy experts to explore their experience in the OM landscape and their views 
+on potential new market or policy options for the future, including, but not limited to, the menu of 
+options developed as a starting point by the ICER team.  
+In December 2024, senior policy leaders from 26 payer and life science companies were joined by 
+patient advocacy, employer, state, and Medicaid experts at a two-day meeting to deliberate on the 
+potential market strategies and federal policy interventions and provide suggestions for revisions to 
+a draft version of this paper. The participants in this meeting are shown in Appendix A. None of 
+these participants or their organizations should be considered as approving of any element of this 
+paper. The perspectives and recommendations presented here are those of the editorial team at 
+ICER and Brown University alone. 
+ 
+ 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 6 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+Background 
+Obesity is one of most significant public health crises in the United States. Using a threshold of BMI 
+≥30 (weight in kilograms/height in meters2) as the diagnostic criterion, the proportion of adults with 
+obesity in the U.S. has increased from 13 percent in 1960 to over 40 percent today.6 The proportion 
+of Americans who meet the broader criteria for overweight, or BMI ≥27, rises to over 70%. 
+Numerous studies link obesity to increased risks for diabetes, cardiovascular disease, cancer, and 
+overall mortality. Obesity also drives increased health care costs, with the direct costs of obesity 
+now estimated at between $170 and $260 billion per year in the U.S.7,8  Broader economic and 
+societal costs are undoubtedly far higher.9  
+All these negative health and economic effects are not borne equally, with non-white and lower-
+income populations having notably higher rates of obesity.10  People living with obesity are also 
+subject to widespread stigma that has always overshadowed care for this chronic condition.11,12 
+Because obesity can start in childhood, the stigma can affect social interactions, educational 
+development, relationships, and work. The net effect is that obesity can have a profound impact on 
+all aspects of patients’ lives and those of their families. 
+The stigma of obesity arises from societal perceptions that attribute weight gain to an individual’s 
+inability to control what they eat or to engage in adequate physical activity. However, it is becoming 
+more widely recognized that energy balance dysregulation is the result of complex and not fully 
+understood interactions among complex genetic factors and dietary, societal, and economic 
+influences that have contributed to the rise in obesity in nations across the globe.13,14  
+Multiple public policies have sought to stem the “obesity epidemic,” ranging from early-life 
+interventions, such as school nutrition and exercise programs, to taxes on unhealthy foods, to 
+health system requirements for nutritional counseling programs. Despite the importance of 
+preventive efforts at the societal level, they have had limited success and the number of people 
+living with obesity has only continued to grow over time, with major negative consequences for 
+health and well-being. 
+Obesity Medications  
+The goal of therapy for obesity is to prevent, treat, or reverse its complications, including its impact 
+on quality of life. Efforts by individuals to attain healthy weight, as well as initial weight loss 
+interventions suggested or prescribed by clinicians, usually start with a focus on healthful nutrition, 
+increased physical activity, and behavioral modifications. Though helpful for some, the weight loss 
+achieved through changes to diet and exercise is usually modest, and many people regain weight 
+over time, frequently leading to long, repeated, and frustrating cycles of ineffective efforts to 
+achieve durable weight loss.  
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 7 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+For people who do not achieve desired weight loss with lifestyle changes alone, various 
+pharmacotherapy options, such as earlier generations of OMs, can support weight loss when 
+combined with calorie reduction and physical activity. Obesity medications approved by the U.S. 
+Food and Drug Administration (FDA) prior to the new generation of GLP-1 therapies include 
+phentermine (1959), orlistat (Xenical®, H2 Pharma, 2007), phentermine/topiramate (Qysmia®, 
+Vivus, 2012) and bupropion/naltrexone (Contrave®, Currax Pharmaceuticals, 2014).  
+These earlier OMs are oral drugs taken daily. Because orlistat causes intestinal side effects and 
+results in only modest weight loss, it is less commonly used for initial medication management. 
+Phentermine is an amphetamine-like medication that suppresses appetite and is approved for 
+short-term use (less than 12 weeks). It is also available in combination with topiramate, a carbonic 
+anhydrase inhibitor used to treat seizures. Another treatment option combines bupropion, an 
+inhibitor of norepinephrine and dopamine approved as a treatment for depression and anxiety, 
+with naltrexone, an opioid antagonist that blocks the effect of opioid pain medications. Since 
+phentermine, topiramate, bupropion, and naltrexone are all available as single agents, clinicians 
+may also use them off label alone and in various combinations for weight loss.    
+ICER reviewed these earlier OMs in 2022 in a report also evaluating early data on semaglutide.1  
+Given no head-to-head comparative data, ICER performed an indirect network meta-analysis across 
+all existing trials that found an average weight loss, when drugs were combined with calorie 
+reduction and physical activity, of 13.7% for semaglutide, 9.1% for phentermine/topiramate, and 
+4.6% for bupropion/naltrexone. Side effects were noted to be higher for earlier OMs, and more 
+recent observational data from the Department of Veterans Affairs (VA) has found discontinuation 
+due to adverse effects between 21%-26% for earlier OMs in comparison to discontinuation from 
+side effects of 14% among patients taking semaglutide.15   
+The cost of earlier OMs, even in their combination branded forms, is much less than that for 
+currently available brand GLP-1 medications. For example, the annual cost of 
+phentermine/topiramate (Qsymia) is approximately $1,465, while buproprion/naltrexone 
+(Contrave) costs $2,095. 1 Due to their relatively low cost and the lack of alternative treatment 
+options, these medications have been commonly used for many years by obesity specialists. The 
+role of these earlier OMs within current obesity management platforms being offered to purchasers 
+and insurers will be discussed later in this paper.   
+The Advent of GLP-1 Receptor Agonists 
+The arrival of the new generation of OMs came after almost two decades of the use of GLP-1 
+medications in the care of patients with type 2 diabetes.16  Clinical trials targeting diabetes 
+outcomes had demonstrated that these drugs also produced weight loss, leading drugmakers to 
+pursue formal approval for this new indication. The first GLP-1 receptor agonist in the U.S. 
+approved for treatment of obesity was liraglutide (Saxenda®, Novo Nordisk), in 2014. Seven years 
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 8 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+later, semaglutide, first developed by Novo Nordisk under the trade name Ozempic®, which had 
+been used for diabetes since 2017, received a new FDA approval for obesity as Wegovy® in 2021. 
+Tirzepatide, a combination GLP-1/GIP receptor agonist that also had an earlier life as a treatment 
+for diabetes under the trade name Mounjaro®, received approval for the treatment of obesity as 
+Zepbound® in November 2023. Both semaglutide and tirzepatide are given by weekly subcutaneous 
+injection. Because liraglutide produces less weight loss and requires daily injections, clinical interest 
+to date has centered on semaglutide and tirzepatide as the primary options within the new 
+generation of OMs. An overview of each new OM, including its current FDA label and pricing for 
+obesity treatment, is shown in Table 1.  
+GLP-1 medications stimulate insulin release, suppress glucagon, and decrease appetite in the 
+brain.17  Functionally, these new OMs slow the passage of food from the stomach to the intestine, 
+resulting in feeling full for a longer period of time.18  The most common side effects are nausea, 
+vomiting, diarrhea, and constipation. These symptoms are usually more pronounced at the 
+beginning of treatment and decrease over time, but high rates of discontinuation of treatment with 
+GLP-1 drugs have been noted in observational analyses. In a study from Prime Therapeutics of over 
+16 million commercially insured people in 2021 who did not have diabetes but were treated with 
+GLP-1 drugs, adherence to treatment over one year was only 36% for patients who initiated 
+treatment with Wegovy, and 47% with Ozempic.19  This report should be viewed cautiously given 
+that in 2021 patients without diabetes treated with Ozempic were being treated off-label, GLP-1 
+products were in shortage, and patients may have faced new cost sharing and insurance restrictions 
+that curtailed ongoing use. A follow-on study presented in April 2025 showed that only 14.3% of 
+patients were still on therapy at the end of two years. 
+A report from Blue Health Intelligence in May 2024 showed that less than half of patients 
+prescribed semaglutide remained on the prescription for 12 weeks or more.20  Similarly, a 
+retrospective study of 1,959 patients in the VA found that 43% of patients had discontinued 
+treatment by 12 months.21  Similar findings were reported from a large study across multiple 
+private sector health systems. Discontinuation rates for drugs treating other chronic conditions are 
+often similar, or higher. For example, real-world discontinuation rates for statins in the treatment of 
+hypercholesterolemia have been found to range from 25%-50%.22,23  It is also important to note 
+that in all of the studies on GLP-1 use to date, none other than the VA study has sought to 
+determine the reason for lack of persistence. In the VA study, approximately 30% of patients who 
+discontinued treatment (14% of all patients prescribed) did so due to adverse side effects. Another 
+25% of patients who discontinued faced difficulty obtaining their drug due to drug shortages.14   
+Clinical trials of GLP-1s for obesity have consistently demonstrated substantial average weight loss 
+and, in some cases, broader health benefits such as reduced cardiovascular events and 
+improvements in obstructive sleep apnea. The full ICER report details these benefits.1  However, 
+there are important remaining uncertainties that should not be overlooked. Whether individuals 
+sustain weight loss over longer time periods is a major question given that any reduction in long-
+
+
+ 
+©Institute for Clinical and Economic Review, 2025 
+ 
+Page 9 
+Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions 
+term cardiovascular or other benefits may require ongoing adherence to treatment. Uncertainties 
+also remain about how many patients will decide to discontinue use after achieving target weight 
+loss, and whether cardiac or other benefits are sustained following discontinuation of GLP-1s. In 
+addition, while GLP-1s have a nearly 20-year history of safe use for diabetes treatment, long-term 
+data on the safety of the higher doses used for obesity treatment are not yet available. All GLP-1s 
+have FDA black box warnings for a potential association with thyroid cancer.  
+Another area of uncertainty relates to lifestyle management. Although cardiometabolic treatments 
+have been indicated as an adjunct to diet and exercise for decades, evidence-based guidance on 
+which lifestyle and weight management programs are most effective in complementing GLP-1 drugs 
+is lacking. Given that most patients with obesity do not face a significant risk of an adverse event in 
+the short term, for some of the stakeholders we interviewed in the purchaser and payer 
+communities, the remaining uncertainties about GLP-1s suggest that broad use for obesity should 
+be cautiously advanced, with priority given to treating patients at greatest risk of complications 
+from obesity, until longer-term data on safety and effectiveness are available. Clinical experts, 
+patient advocates, and the majority of purchasers and payers we spoke with do not harbor 
+significant concerns about the safety and effectiveness of GLP-1s. For them, cost is the most 
+challenging issue.  
+As shown in Table 1, current estimated annual net prices for GLP-1s used for

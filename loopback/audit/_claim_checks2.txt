@@ -1,0 +1,103 @@
+=== REF [5] (content_len=15000) ===
+  [FOUND] "RR 2.37": 2% of participants randomized to placebo (Supplementary Appendix 5, Table 3). Compared with participants randomized to placebo, participants randomized to semaglutide were more likely to achieve ≥5% (RR 2.37, 95% CI 1.67 to 3.36), ≥10% (RR 4.27, 95% 
+  [FOUND] "2.37": of participants randomized to placebo (Supplementary Appendix 5, Table 3). Compared with participants randomized to placebo, participants randomized to semaglutide were more likely to achieve ≥5% (RR 2.37, 95% CI 1.67 to 3.36), ≥10% (RR 4.27, 95% CI 
+  [FOUND] "1.67": ts randomized to placebo (Supplementary Appendix 5, Table 3). Compared with participants randomized to placebo, participants randomized to semaglutide were more likely to achieve ≥5% (RR 2.37, 95% CI 1.67 to 3.36), ≥10% (RR 4.27, 95% CI 2.55 to 7.15)
+  [FOUND] "3.36": mized to placebo (Supplementary Appendix 5, Table 3). Compared with participants randomized to placebo, participants randomized to semaglutide were more likely to achieve ≥5% (RR 2.37, 95% CI 1.67 to 3.36), ≥10% (RR 4.27, 95% CI 2.55 to 7.15), ≥15% (
+  [ABSENT] "STEP 1": 
+  [ABSENT] "STEP 3": 
+  [FOUND] "STEP": tes. Our systematic review and meta-analysis included 4 RCTs that met our inclusion criteria ( Figure 1). The included trials were all part of the Semaglutide Treatment Effect in People with Obesity (STEP) program, published between 2021 and 2022. A 
+=== REF [1] (content_len=25000) ===
+  [FOUND] "13.7%": rative data, ICER performed an indirect network meta-analysis across  all existing trials that found an average weight loss, when drugs were combined with calorie  reduction and physical activity, of 13.7% for semaglutide, 9.1% for phentermine/topira
+  [FOUND] "indirect network": n various combinations for weight loss.     ICER reviewed these earlier OMs in 2022 in a report also evaluating early data on semaglutide.1   Given no head-to-head comparative data, ICER performed an indirect network meta-analysis across  all existin
+  [FOUND] "network meta-analysis":  combinations for weight loss.     ICER reviewed these earlier OMs in 2022 in a report also evaluating early data on semaglutide.1   Given no head-to-head comparative data, ICER performed an indirect network meta-analysis across  all existing trials 
+  [FOUND] "calorie reduction": ions  For people who do not achieve desired weight loss with lifestyle changes alone, various  pharmacotherapy options, such as earlier generations of OMs, can support weight loss when  combined with calorie reduction and physical activity. Obesity m
+  [FOUND] "lifestyle": cal and Economic Review, 2025    Page 7  Affordable Access to GLP-1 Obesity Medications: Strategies to Guide Market Action and Policy Solutions  For people who do not achieve desired weight loss with lifestyle changes alone, various  pharmacotherapy 
+  [FOUND] "ICER":  and Economic Review    Christopher M. Whaley, PhD  Associate Professor  Department of Health Services, Policy, and Practice  Brown University    Sarah K. Emond, MPP  President and Chief Executive Officer  Institute for Clinical and Economic Review  
+=== REF [14] (content_len=22316) ===
+  [FOUND] "STEP 1": present study is whether intensive behavioral therapy and an initial low-calorie, meal-replacement diet were necessary to achieve the long-term reduction in baseline weight seen with semaglutide. The STEP 1 trial examined semaglutide, 2.4 mg, combine
+  [FOUND] "STEP 3": subcutaneous semaglutide, 2.4 mg, to intensive behavioral therapy, the latter of which was also combined with an initial 8-week low-calorie diet to boost total weight loss. Study Design and Oversight STEP 3 was a 68-week, randomized, double-blind, pl
+  [FOUND] "intensive behavioral": Quiz Ref IDIntensive behavioral interventions for obesity providing 14 or more counseling sessions in 6 months induce mean losses of 5% to 10% of baseline body weight.1 Weight loss can be increased by an additional 3 to 5 percentag
+  [ABSENT] "IBT": 
+  [FOUND] "body weight": Quiz Ref IDIntensive behavioral interventions for obesity providing 14 or more counseling sessions in 6 months induce mean losses of 5% to 10% of baseline body weight.1 Weight loss can be increased by an additional 3 to 5 percentage points by includi
+  [ABSENT] "Wadden": 
+  [ABSENT] "Wilding": 
+=== REF [17] (content_len=22962) ===
+  [ABSENT] "rebound": 
+  [FOUND] "regain": e lost an additional 10% of body weight during the randomized period with a mean change in weight of −7.9% vs +6.9% in semaglutide and placebo groups respectively from week 20 to week 68 [27]. Weight regain after withdrawal of treatment Step 1 trial 
+  [FOUND] "withdrawal": itional 10% of body weight during the randomized period with a mean change in weight of −7.9% vs +6.9% in semaglutide and placebo groups respectively from week 20 to week 68 [27]. Weight regain after withdrawal of treatment Step 1 trial extension con
+  [FOUND] "step 4": d that semaglutide significantly lowers body weight and is efficient in treating obesity in the non-diabetic or diabetic population. Effects of continued 2.4 mg SC semaglutide Rubino et al. conducted Step 4 trial, where 803 participants after achievi
+  [FOUND] "STEP 4": d that semaglutide significantly lowers body weight and is efficient in treating obesity in the non-diabetic or diabetic population. Effects of continued 2.4 mg SC semaglutide Rubino et al. conducted Step 4 trial, where 803 participants after achievi
+=== REF [2] (content_len=15000) ===
+  [FOUND] "body mass index": is a glucagon-like peptide-1 (GLP-1) receptor agonist indicated as an adjunct to a reduced calorie diet and increased physical activity for chronic weight management in adult patients with an initial body mass index (BMI) of • 30 kg/m 2 or greater (o
+  [FOUND] "30 kg": 1 (GLP-1) receptor agonist indicated as an adjunct to a reduced calorie diet and increased physical activity for chronic weight management in adult patients with an initial body mass index (BMI) of • 30 kg/m 2 or greater (obesity) or • 27 kg/m 2 or g
+  [FOUND] "27 kg":  as an adjunct to a reduced calorie diet and increased physical activity for chronic weight management in adult patients with an initial body mass index (BMI) of • 30 kg/m 2 or greater (obesity) or • 27 kg/m 2 or greater (overweight) in the presence 
+  [FOUND] "obesity": nist indicated as an adjunct to a reduced calorie diet and increased physical activity for chronic weight management in adult patients with an initial body mass index (BMI) of • 30 kg/m 2 or greater (obesity) or • 27 kg/m 2 or greater (overweight) in
+  [ABSENT] "comorbidity": 
+  [FOUND] "chronic weight": CATIONS AND USAGE ∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙∙ WEGOVY is a glucagon-like peptide-1 (GLP-1) receptor agonist indicated as an adjunct to a reduced calorie diet and increased physical activity for chronic weight management in adult patients with a
+=== REF [3] (content_len=25000) ===
+  [ABSENT] "patient-group": 
+  [FOUND] "survey": ent groups: GI Society, Obesity Canada, Obesity Matters, Fatty  Liver Alliance, HeartLife Foundation, and Diabetes Canada. Input from the GI Society, Obesity Canada, and  Diabetes Canada was based on surveys of individuals with obesity or diabetes co
+  [FOUND] "lack long-term":  benefits of these treatments  in managing obesity described them as “life-changing,” with most (94%) considering the side effects to be  manageable. However, it was also noted that these medications lack long-term effectiveness, with many  individua
+  [FOUND] "5 years": 4%) considering the side effects to be  manageable. However, it was also noted that these medications lack long-term effectiveness, with many  individuals gaining back the weight that was lost within 5 years. Bariatric surgery, while currently consid
+  [FOUND] "within 5 years": most (94%) considering the side effects to be  manageable. However, it was also noted that these medications lack long-term effectiveness, with many  individuals gaining back the weight that was lost within 5 years. Bariatric surgery, while currently
+  [ABSENT] "regaining": 
+=== REF [26] (content_len=25000) ===
+  [ABSENT] "setid": 
+  [ABSENT] "set-id": 
+  [ABSENT] "set-ids": 
+  [FOUND] "cholelithiasis": may not be accompanied by nausea or vomiting. If pancreatitis is suspected, discontinue WEGOVY and initiate appropriate management. Treatment with WEGOVY is associated with an increased occurrence of cholelithiasis and cholecystitis. The incidence of
+  [FOUND] "cholecystitis": ied by nausea or vomiting. If pancreatitis is suspected, discontinue WEGOVY and initiate appropriate management. Treatment with WEGOVY is associated with an increased occurrence of cholelithiasis and cholecystitis. The incidence of cholelithiasis and
+=== REF [27] (content_len=8723) ===
+  [FOUND] "2021":  to Ozempic and Wegovy,” added Sanders, who chairs the US Senate Health, Education, Labor, and Pensions Committee. FDA approval for weight management While GLP-1 drugs were made to treat diabetes, in 2021 the US Food and Drug Administration (FDA) app
+  [FOUND] "BMI": approval for weight management While GLP-1 drugs were made to treat diabetes, in 2021 the US Food and Drug Administration (FDA) approved Wegovy for weight management in people with a body-mass index (BMI) of over 30, or a BMI of over 27 with underlyi
+  [FOUND] "over 30":  for weight management While GLP-1 drugs were made to treat diabetes, in 2021 the US Food and Drug Administration (FDA) approved Wegovy for weight management in people with a body-mass index (BMI) of over 30, or a BMI of over 27 with underlying condi
+  [FOUND] "over 27": t While GLP-1 drugs were made to treat diabetes, in 2021 the US Food and Drug Administration (FDA) approved Wegovy for weight management in people with a body-mass index (BMI) of over 30, or a BMI of over 27 with underlying conditions such as high bl
+  [FOUND] "high blood pressure": etes, in 2021 the US Food and Drug Administration (FDA) approved Wegovy for weight management in people with a body-mass index (BMI) of over 30, or a BMI of over 27 with underlying conditions such as high blood pressure. “Novo Nordisk and Eli Lilly a
+  [FOUND] "underlying":  drugs were made to treat diabetes, in 2021 the US Food and Drug Administration (FDA) approved Wegovy for weight management in people with a body-mass index (BMI) of over 30, or a BMI of over 27 with underlying conditions such as high blood pressure.
+=== REF [18] (content_len=25000) ===
+  [ABSENT] "4.3%": 
+  [FOUND] "0.7%": treated pediatric patients aged ≥12 years than in Wegovy® injection-treated adults. In clinical trials in adult patients, cholelithiasis was reported by 1.6% of Wegovy® injection-treated patients and 0.7% of placebo treated patients, and by 2.5% of W
+  [FOUND] "pediatric": sease: Treatment with Wegovy® is associated with an increased occurrence of cholelithiasis and cholecystitis. The incidence of cholelithiasis and cholecystitis was higher in Wegovy® injection-treated pediatric patients aged ≥12 years than in Wegovy® 
+  [ABSENT] "permanent discontinuation": 
+=== REF [19] (content_len=25000) ===
+  [FOUND] "pediatric": rdial infarction, or non-fatal stroke) in adults with established CV disease and either obesity or overweight. (1)• To reduce excess body weight and maintain weight reduction long term in: Adults and pediatric patients aged 12 years and older with ob
+  [FOUND] "12 year": -fatal stroke) in adults with established CV disease and either obesity or overweight. (1)• To reduce excess body weight and maintain weight reduction long term in: Adults and pediatric patients aged 12 years and older with obesity. (1) Adults with o
+  [ABSENT] "adolescent": 
+  [ABSENT] "MACE": 
+  [FOUND] "cardiovascular": is a glucagon-like peptide-1 (GLP-1) receptor agonist. WEGOVY ® injection is indicated in combination with a reduced calorie diet and increased physical activity:• To reduce the risk of major adverse cardiovascular (CV) events (CV death, non-fatal my
+=== REF [21] (content_len=23287) ===
+  [ABSENT] "FDA-approved": 
+  [FOUND] "FDA approved": Choose what Wegovy® can do for your patients In combination with a reduced-calorie diet and increased physical activity FDA approved for: Choose what Wegovy® can do for your patients In combination with a reduced-calorie diet and increased physical a
+  [ABSENT] "approved to reduce": 
+  [FOUND] "MACE": ith obesity Adolescents aged 12 years and older with obesity, to reduce excess body weight and maintain weight reduction long term Adults living with obesity and established CVD To reduce the risk of MACE (cardiovascular death, non-fatal MI, or non-f
+  [FOUND] "reduce the risk": dolescents living with obesity Adolescents aged 12 years and older with obesity, to reduce excess body weight and maintain weight reduction long term Adults living with obesity and established CVD To reduce the risk of MACE (cardiovascular death, non
+=== REF [23] (content_len=500) ===
+  [FOUND] "tirzepatide":  in patients with preexisting cardiovascular disease and obesity. This study assessed the efficacy and safety of the incretin‐based obesity treatments, once‐weekly subcutaneous semaglutide 2.4 mg and tirzepatide 10 or 15 mg, in people with obesity wi
+  [ABSENT] "heart failure": 
+  [ABSENT] "lower risk": 
+  [ABSENT] "similar safety": 
+  [ABSENT] "real-world": 
+  [FOUND] "cardiovascular": Potent incretin‐based therapy shows promise for the treatment of obesity along with reduced incidence of cardiovascular events in patients with preexisting cardiovascular disease and obesity. This study assessed the efficacy and safety of the increti
+=== REF [29] (content_len=5707) ===
+  [FOUND] "MD: -8.20%":  inclusion criteria. All trials were deemed to have a low risk of bias. Our meta-analysis indicated that treatment with semaglutide 2.4 mg resulted in significantly greater reductions in body weight (MD: -8.20%; 95% confidence interval [CI]: -10.06 t
+  [FOUND] "-8.20": lusion criteria. All trials were deemed to have a low risk of bias. Our meta-analysis indicated that treatment with semaglutide 2.4 mg resulted in significantly greater reductions in body weight (MD: -8.20%; 95% confidence interval [CI]: -10.06 to -6
+  [FOUND] "8.20": usion criteria. All trials were deemed to have a low risk of bias. Our meta-analysis indicated that treatment with semaglutide 2.4 mg resulted in significantly greater reductions in body weight (MD: -8.20%; 95% confidence interval [CI]: -10.06 to -6.
+  [FOUND] "Asian": Efficacy and safety of once-weekly subcutaneous semaglutide 2.4 mg for the management of overweight or obesity in Asian populations: A systematic review, meta-analysis and meta-regression of randomised trials - PMID: 40859897 - DOI: 10.1111/dom.70073
+  [FOUND] "I2 = 84": isk of bias. Our meta-analysis indicated that treatment with semaglutide 2.4 mg resulted in significantly greater reductions in body weight (MD: -8.20%; 95% confidence interval [CI]: -10.06 to -6.35; I2 = 84%), waist circumference (MD: -6.47 cm; 95% 
+=== REF [30] (content_len=16262) ===
+  [FOUND] "9.6": enging. The novel anti-obesity medication semaglutide 2.4 mg injected subcutaneously once weekly as an adjunct to a reduced-calorie diet and physical activity helps patients achieve average losses of 9.6– 17.4% of initial body weight at week 68, as w
+  [FOUND] "17.4": g. The novel anti-obesity medication semaglutide 2.4 mg injected subcutaneously once weekly as an adjunct to a reduced-calorie diet and physical activity helps patients achieve average losses of 9.6– 17.4% of initial body weight at week 68, as well a
+  [ABSENT] "68 week": 
+  [FOUND] "STEP program": Sci-Hub: статья отсутствует в базе. Что делать? Вот незадача! Полного текста этой статьи нет в моей базе: Cardiometabolic risk factors efficacy of semaglutide in the STEP program Postgraduate Medicine, 2022 People with overweight or obesity often suf
+  [FOUND] "cardiometabolic": Sci-Hub: статья отсутствует в базе. Что делать? Вот незадача! Полного текста этой статьи нет в моей базе: Cardiometabolic risk factors efficacy of semaglutide in the STEP program Postgraduate Medicine, 2022 People with overweight or obesity often suf
+=== REF [31] (content_len=25000) ===
+  [FOUND] "12.4 percentage": st a background of individual lifestyle counseling sessions every 4 weeks. Semaglutide-treated patients lost 14.9% of baseline weight compared with 2.4% for placebo (estimated treatment difference = −12.4 percentage points, 95% CI −13.4 to −11.5; Tab
+  [FOUND] "largest": ic weight management. This paper reviews data on the mechanism of action, weight-loss and cardiometabolic efficacy, and safety of semaglutide 2.4 mg/week for obesity. Semaglutide has demonstrated the largest weight loss of any obesity medication to d
+  [FOUND] "14.9%": nts were randomly assigned to once-weekly subcutaneous 2.4 mg semaglutide or placebo, against a background of individual lifestyle counseling sessions every 4 weeks. Semaglutide-treated patients lost 14.9% of baseline weight compared with 2.4% for pl
+  [FOUND] "2.4%": ly subcutaneous 2.4 mg semaglutide or placebo, against a background of individual lifestyle counseling sessions every 4 weeks. Semaglutide-treated patients lost 14.9% of baseline weight compared with 2.4% for placebo (estimated treatment difference =
+  [FOUND] "STEP 1": ith obesity (STEP) was a pivotal, global phase 3 clinical development program that evaluated semaglutide 2.4 mg once weekly for weight management.(33) We summarize here the published results from the STEP 1–4 trials (Figures 2 and 3; Table 1) and upd
+=== REF [32] (content_len=25000) ===
+  [FOUND] "2.8 mg": 71 kg/m2; 95% CI: −4.33 to −3.09; p ˂ 0.00001). The funnel plot on BMI was also basically symmetric (Supplementary Figure S2C). Subgroup analyses of BMI change revealed that semaglutide 1.0, 2.4, and 2.8 mg led to larger reductions than placebo and m
+  [ABSENT] "dose-dependent": 
+  [FOUND] "weight loss": Abstract Objectives: This study aims to explore the weight loss effect and safety of semaglutide as a conventional anti-obesity drug systematically in obese or overweight patients without diabetes. Methods: The randomized controlled trials (RCTs) of 
+  [FOUND] "2.4 mg": ng et al. (2022) designed the study in non-diabetic patients intriguingly, but only contained three or four RCTs about semaglutide and placebo. Additionally, all the aforementioned studies focused on 2.4 mg-dosed semaglutide and placebo. In order to 

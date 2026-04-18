@@ -1,0 +1,83 @@
+=== REF [25] ===
+Biblio title: FDA clarifies policies for compounders as national GLP-1 supply begins to stabilize
+Authors: ['U.S. Food and Drug Administration']
+Year: 2026
+DOI: 
+URL: https://fda.gov/drugs/drug-alerts-and-statements/fda-clarifies-policies-compounders-national-glp-1-supply-begins-stabilize
+Authority tier: GOLD
+Source type: government_report
+Content length: 14534
+---
+FDA clarifies policies for compounders as national GLP-1 supply begins to stabilize
+[4/1/2026] FDA reminds compounders certain conditions must be met for compounded drugs to qualify for the exemptions under sections 503A and 503B of the FD&C Act, including the highlights below.
+Under section 503A:
+- The drug product is compounded for an individual patient based on receipt of a prescription.
+- The compounder does not compound, regularly or in inordinate amounts, any that are essentially copies of a commercially available drug product.
+As stated in guidance, the agency intends to consider a compounded drug product to be essentially a copy of a commercially available drug product if:
+- the compounded drug product has the same active pharmaceutical ingredient(s) (API) as the commercially available drug product in the same, similar or an easily substitutable strength, and
+- the commercially available drug product can be used by the same route of administration (regardless of how it is labeled) prescribed for the compounded drug product.
+This is unless a prescriber determines and documents the compounded drug product contains a change that produces a significant difference from the commercially available drug product for an identified individual patient.
+FDA intends to consider a compounded drug product to be essentially a copy of a commercially available drug product if:
+- the compounded drug product contains the same APIs as two or more commercially available drug products in the same, similar or easily substitutable strength and
+- the commercially available drug product can be used (regardless of how it is labeled) by the same route of administration prescribed for the compounded drug product, unless there is documentation of a prescriber determination of a significant difference.
+For example, FDA may consider a compounded drug product that combines semaglutide API and another API, such as vitamin B12 (cyanocobalamin), to be essentially a copy of a commercially available drug product when the:
+- drug products are used by the same route of administration – the compounded drug product is given the same way as the commercially available drug products, such as an injectable
+- drug products are the same, similar or easily substitutable strength – the amounts of semaglutide and vitamin B12 in the compounded drug product are within 10% of the strengths of the respective commercially available drug products.
+FDA has stated, at this time, it does not intend to take action against a compounder for compounding a drug product that is essentially a copy of a commercially available drug product regularly or in inordinate amounts if the compounder fills four or fewer prescriptions of that compounded drug product during a calendar month.
+Under section 503B:
+- Outsourcing facilities are restricted from compounding drugs using bulk drug substances (or API) unless:
+- the bulk drug substance appears on a list identifying bulk drug substances for which there is a clinical need, which is referred to as the 503B bulks list or
+- the drug compounded from the bulk drug substance is on FDA’s drug shortage list at the time of compounding, distribution and dispensing.
+Tirzepatide and semaglutide do not currently appear on the 503B bulks list or on FDA’s drug shortage list.
+[4/28/2025] On April 24, 2025, the district court denied the plaintiffs’ preliminary injunction motion in Outsourcing Facilities Association v. FDA, 4:25-cv-00174 (N.D. Tex.) regarding compounded semaglutide. Therefore, consistent with FDA’s March 10, 2025, update:
+- For a state-licensed pharmacy or physician compounding, dispensing or distributing semaglutide injection products under section 503A of the FD&C Act, the period of enforcement discretion (described below) has ended.
+- For outsourcing facilities compounding, distributing or dispensing semaglutide injection products under section 503B, FDA does not intend to take action for violations of the FD&C Act arising from conditions that depend on semaglutide injection products’ inclusion on FDA’s drug shortage list until May 22, 2025.
+FDA may still take action regarding violations of any other statutory or regulatory requirements, such as to address findings that a product may be of substandard quality or otherwise unsafe.
+[3-10-25] FDA is providing the following timeline updates for compounders:
+Tirzepatide: On March 5, 2025, the district court denied the plaintiffs’ preliminary injunction motion in Outsourcing Facilities Association v. FDA, 4:24-cv-00953 (N.D. Tex.). Therefore, consistent with FDA’s February 11, 2025 update:
+- For a state-licensed pharmacy or physician compounding under section 503A of the FD&C Act, the period of enforcement discretion described below has ended.
+- For outsourcing facilities under section 503B, FDA does not intend to take action against compounders for violations of the FD&C Act arising from conditions that depend on tirzepatide injection products’ inclusion on FDA’s drug shortage list until March 19, 2025.
+Semaglutide: The timeframes during which the agency does not intend to take action against compounders for violations of the FD&C Act arising from conditions that depend on semaglutide injection products’ inclusion on FDA’s drug shortage list are:
+- For a state-licensed pharmacy or physician compounding under section 503A of the FD&C Act, until April 22, 2025, or until the date of the district court’s decision on the plaintiffs’ forthcoming preliminary injunction motion in Outsourcing Facilities Association (OFA) v. FDA, 4:25-cv-00174 (N.D. Tex.), whichever is later.
+- For outsourcing facilities under section 503B of the FD&C Act, until May 22, 2025, or until the date of the district court’s decision on the plaintiffs’ forthcoming preliminary injunction motion in OFA v. FDA, 4:25-cv-00174, whichever is later.
+FDA may still take action regarding violations of any other statutory or regulatory requirements, such as to address findings that a product may be of substandard quality or otherwise unsafe.
+[2/21/2025] FDA has determined the shortage of semaglutide injection products, a glucagon-like peptide 1 (GLP-1) medication, is resolved. Semaglutide injection products have been in shortage since 2022 due to increased demand.
+FDA confirmed with the drug’s manufacturer that their stated product availability and manufacturing capacity can meet the present and projected national demand. Patients and prescribers may still see intermittent and limited localized supply disruptions as the products move through the supply chain from the manufacturer and distributors to local pharmacies.
+To avoid unnecessary disruption to patient treatment, the agency does not intend to take action against compounders for violations of the FD&C Act arising from conditions that depend on semaglutide injection products’ inclusion on FDA’s drug shortage list:
+- For a state-licensed pharmacy or physician compounding under section 503A of the FD&C Act: compounding, distributing or dispensing semaglutide injection products that are essentially a copy of an FDA-approved product within 60 calendar days from today’s announcement, until April 22, 2025.
+- For outsourcing facilities under section 503B of the FD&C Act: compounding, distributing or dispensing semaglutide injection products that are essentially a copy of an FDA-approved drug product within 90 calendar days from today’s announcement, until May 22, 2025.
+FDA may still take action regarding violations of any other statutory or regulatory requirements, such as to address findings that a product may be of substandard quality or otherwise unsafe.
+Current shortage status of other GLP-1 products (as of February 21, 2025):
+FDA continues to actively monitor drug availability and is currently working to determine whether the demand or projected demand for each drug in shortage exceeds the available supply.
+- Dulaglutide injection: In shortage. Manufacturer has reported all presentations are available.
+- Liraglutide injection: In shortage. Manufacturer has reported two presentations are available, and three have limited availability.
+When a status is noted as “available,” that reflects the most current information from the manufacturer but is not an FDA determination that the shortage has been resolved.
+[02/11/2025] FDA has not changed its intentions regarding enforcement discretion as described below. To clarify, the timeframes during which the agency does not intend to take action against compounders for violations of the FD&C Act arising from conditions that depend on tirzepatide injection products’ inclusion on FDA’s drug shortage list are:
+- For a state-licensed pharmacy or physician compounding under section 503A of the FD&C Act until February 18, 2025, or until the date of the district court’s decision on the plaintiffs’ preliminary injunction motion in Outsourcing Facilities Association (OFA) v. FDA (N.D. Tex.), whichever is longer.
+- For outsourcing facilities under section 503B until March 19, 2025, or until the date of the district court’s decision on the plaintiffs’ preliminary injunction motion in OFA v. FDA, whichever is longer.
+FDA may still take action regarding violations of any other statutory or regulatory requirements, such as to address findings that a product may be of substandard quality or otherwise unsafe.
+[12/19/2024] FDA re-evaluated its determination from October 2, 2024, on the status of the tirzepatide shortage. Today, FDA has issued a new decision determining the tirzepatide injection shortage is resolved. FDA’s determination is based on its analysis of all the information before the agency.
+In addition to the statements FDA made regarding enforcement in connection with litigation (see FDA’s updates on October 22, 2024, below), to avoid unnecessary disruption to patient treatment, the agency does not intend to take action against compounders for violations of the FD&C Act arising from conditions that depend on tirzepatide injection products’ inclusion on FDA’s drug shortage list:
+- For a state-licensed pharmacy under section 503A of the FD&C Act compounding, distributing or dispensing tirzepatide injections within 60 calendar days from today’s announcement, until February 18, 2025.
+- For outsourcing facilities under section 503B compounding, distributing or dispensing tirzepatide injections within 90 calendar days from today’s announcement, until March 19, 2025.
+FDA may still take action regarding violations of any other statutory or regulatory requirements, such as to address findings that a product may be of substandard quality or otherwise unsafe.
+Current shortage status of other GLP-1 products (as of December 19, 2024):
+FDA continues to actively monitor drug availability and is currently working to determine whether the demand or projected demand for each drug in shortage exceeds the available supply.
+- Dulaglutide injection: In shortage. Manufacturer has reported all presentations are available.
+- Semaglutide injection: In shortage. Manufacturer has reported all presentations are available.
+- Liraglutide injection: In shortage. Manufacturer has reported two presentations are available, and three have limited availability.
+When a status is noted as “available,” that reflects the most current information from the manufacturer but is not an FDA determination that the shortage has been resolved.
+[10/22/2024] As part of litigation, the decision to remove tirzepatide from the FDA drug shortage list has been remanded to the agency for reevaluation. FDA sent a letter on October 17, 2024, in response to a question regarding the agency’s intended approach to the compounding of tirzepatide drug products during the reevaluation period.
+[10/02/2024] The U.S. Food and Drug Administration has determined the shortage of tirzepatide injection, a glucagon-like peptide 1 (GLP-1) medication, has been resolved. Tirzepatide injection has been in shortage since 2022 due to increased demand.
+FDA confirmed with the drug’s manufacturer that their stated product availability and manufacturing capacity can meet the present and projected national demand. Patients and prescribers may still see intermittent localized supply disruptions as the products move through the supply chain from the manufacturer and distributors to local pharmacies.
+FDA reminds compounders of the legal restrictions on making copies of FDA-approved drugs
+Compounded drugs are not approved by FDA. FDA-approved drugs go through FDA’s rigorous review for safety, effectiveness, and quality as part of the premarket approval process. Compounded drugs must meet conditions to qualify for exemptions under sections 503A and 503B of the Federal Food, Drug and Cosmetic (FD&C) Act. Among the conditions are:
+- Section 503A of the FD&C Act includes restrictions on compounding drugs that are essentially copies of a commercially available drug. When a drug shortage is resolved, FDA generally considers the drug to be commercially available. Certain amounts are permissible under the law as long as the compounding is not done “regularly or in inordinate amounts.”
+- Section 503B of the FD&C Act restricts outsourcing facilities from making compounded drugs that are essentially a copy of one or more FDA-approved drugs. Among other things, this means the compounded drug may not be identical or nearly identical to an FDA-approved drug unless the approved drug is on FDA’s drug shortage list.
+Current shortage status of GLP-1 products (as of October 02, 2024):
+- Tirzepatide injection: Shortage resolved.
+- Dulaglutide injection: In shortage.
+- Semaglutide injection: In shortage. Manufacturer has reported all but one of the presentations are available.
+- Liraglutide injection: In shortage. Manufacturer has reported 2 presentations are available, and three have limited availability.
+The agency will continue to work with manufacturers to help resolve the current shortages, and, as shortages resolve, will closely monitor the situation and provide any assistance we can to help manufacturers ensure an adequate supply. Before determining that a shortage is resolved, FDA considers a variety of factors, including the company's ability to meet current and historical demand, the amount in a manufacturer’s stock, affected market share, ability of alternate manufacturers to cover the demand, and confirmed market stabilization. Please visit FDA’s Drug Shortages Database for the most recent information on the status of GLP-1 medicines and other drugs in shortage.
+For more information:

@@ -1,0 +1,11 @@
+=== REF [28] ===
+Biblio title: Cost-effectiveness of weight-management pharmacotherapies in Canada: a societal perspective
+Authors: []
+Year: 2024
+DOI: 10.1038/s41366-024-01467-w
+URL: https://nature.com/articles/s41366-024-01467-w.pdf
+Authority tier: GOLD
+Source type: journal_article
+Content length: 500
+---
+This study aimed to assess the cost-effectiveness of weight-management pharmacotherapies approved by Canada Health, i.e., orlistat, naltrexone 32 mg/bupropion 360 mg (NB-32), liraglutide 3.0 mg and semaglutide 2.4 mg as compared to the current standard of care (SoC). Analyses were conducted using a cohort with a mean starting age 50 years, body mass index (BMI) 37.5 kg/m2, and 27.6% having type 2 diabetes. Using treatment-specific changes in surrogate endpoints from the STEP trials (BMI, glycemi

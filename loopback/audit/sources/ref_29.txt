@@ -1,0 +1,47 @@
+=== REF [29] ===
+Biblio title: Efficacy and safety of once-weekly subcutaneous semaglutide 2.4 mg for the management of overweight or obesity in Asian populations: A systematic review, meta-analysis and meta-regression of randomised trials
+Authors: []
+Year: 2025
+DOI: 10.1111/dom.70073
+URL: https://pubmed.ncbi.nlm.nih.gov/40859897
+Authority tier: GOLD
+Source type: journal_article
+Content length: 5707
+---
+Efficacy and safety of once-weekly subcutaneous semaglutide 2.4 mg for the management of overweight or obesity in Asian populations: A systematic review, meta-analysis and meta-regression of randomised trials
+- PMID: 40859897
+- DOI: 10.1111/dom.70073
+Efficacy and safety of once-weekly subcutaneous semaglutide 2.4 mg for the management of overweight or obesity in Asian populations: A systematic review, meta-analysis and meta-regression of randomised trials
+Abstract
+Aims: The rising prevalence of overweight and obesity among Asian populations poses a critical public health concern. Semaglutide 2.4 mg, a glucagon-like peptide-1 receptor agonist, has demonstrated promising weight-reduction effects in global populations, but its efficacy and safety profile in Asians remain less comprehensively examined. This meta-analysis aimed to evaluate the effectiveness and tolerability of semaglutide 2.4 mg compared to placebo in Asian individuals with overweight or obesity.
+Materials and methods: A systematic literature search was conducted in Medline, ScienceDirect, Europe pubMed central (PMC) and the Cochrane Library up to 15 June 2025. Eligible studies were randomised controlled trials (RCTs) comparing semaglutide 2.4 mg with placebo in overweight or obese Asian individuals. Risk of bias was evaluated using the Cochrane Risk of Bias v2 tool. Pooled outcomes were analysed using random-effects models to estimate mean differences (MDs) and odds ratios, and heterogeneity was assessed with the I2 statistic.
+Results: Five RCTs involving 2614 participants met the inclusion criteria. All trials were deemed to have a low risk of bias. Our meta-analysis indicated that treatment with semaglutide 2.4 mg resulted in significantly greater reductions in body weight (MD: -8.20%; 95% confidence interval [CI]: -10.06 to -6.35; I2 = 84%), waist circumference (MD: -6.47 cm; 95% CI: -8.26 to -4.68; I2 = 84%), body mass index (MD: -3.22 kg/m2; 95% CI: -4.01 to -2.44; I2 = 66%) and systolic blood pressure (MD: -3.46 mmHg; 95% CI: -5.29 to -1.62; I2 = 28%) compared to placebo. A higher proportion of participants in semaglutide 2.4 mg achieved weight loss exceeding 5%, 10% and 15%. Gastrointestinal symptoms were the most commonly reported adverse effects, generally mild to moderate and self-limiting.
+Conclusions: Semaglutide 2.4 mg significantly improves weight-related and cardiometabolic outcomes in Asian adults with overweight or obesity. Further studies are warranted to assess long-term effects, real-world applicability and variability across subpopulations.
+Keywords: Asian; GLP‐1 receptor agonist; obesity; semaglutide; weight loss.
+© 2025 John Wiley & Sons Ltd.
+Similar articles
+- Semaglutide for adults living with obesity.Cochrane Database Syst Rev. 2025 Oct 30;10(10):CD015092. doi: 10.1002/14651858.CD015092.pub2.Cochrane Database Syst Rev. 2025.PMID: 41161683
+- Efficacy and safety of semaglutide 2.4 mg for weight loss in overweight or obese adults without diabetes: An updated systematic review and meta-analysis including the 2-year STEP 5 trial.Diabetes Obes Metab. 2024 Mar;26(3):911-923. doi: 10.1111/dom.15386. Epub 2023 Nov 28.Diabetes Obes Metab. 2024.PMID: 38016699
+- Indirect comparative efficacy and safety of tirzepatide 10 and 15 mg versus semaglutide 2.4 mg for the management of obesity and overweight in patients with type 2 diabetes.Diabetes Obes Metab. 2025 Sep;27(9):4709-4719. doi: 10.1111/dom.16508. Epub 2025 Jun 19.Diabetes Obes Metab. 2025.PMID: 40537987Free PMC article.Clinical Trial.
+- Efficacy and safety of once-weekly subcutaneous semaglutide on weight loss in patients with overweight or obesity without diabetes mellitus-A systematic review and meta-analysis of randomized controlled trials.Obes Rev. 2024 Sep;25(9):e13792. doi: 10.1111/obr.13792. Epub 2024 Jun 23.Obes Rev. 2024.PMID: 38923272
+- Effect of Continued Weekly Subcutaneous Semaglutide vs Placebo on Weight Loss Maintenance in Adults With Overweight or Obesity: The STEP 4 Randomized Clinical Trial.JAMA. 2021 Apr 13;325(14):1414-1425. doi: 10.1001/jama.2021.3224.JAMA. 2021.PMID: 33755728Free PMC article.Clinical Trial.
+References
+REFERENCES
+-
+- GBD 2021 Adult BMI Collaborators. Global, regional, and national prevalence of adult overweight and obesity, 1990–2021, with forecasts to 2050: a forecasting study for the global burden of disease study 2021. Lancet. 2025;405(10481):813‐838. doi:10.1016/S0140‐6736(25)00355‐1
+-
+- Flegal KM, Kit BK, Orpana H, Graubard BI. Association of all‐cause mortality with overweight and obesity using standard body mass index categories: a systematic review and meta‐analysis. JAMA. 2013;309(1):71‐82. doi:10.1001/jama.2012.113905
+-
+- Islam ANMS, Sultana H, Nazmul Hassan Refat M, Farhana Z, Abdulbasah Kamil A, Meshbahur RM. The global burden of overweight‐obesity and its association with economic status, benefiting from STEPs survey of WHO member states: a meta‐analysis. Prev Med Rep. 2024;5(46):102882. doi:10.1016/j.pmedr.2024.102882
+-
+- Rubino D, Abrahamsson N, Davies M, et al. Effect of continued weekly subcutaneous semaglutide vs placebo on weight loss maintenance in adults with overweight or obesity: the STEP 4 randomized clinical trial. JAMA. 2021;325(14):1414‐1425. doi:10.1001/jama.2021.3224
+-
+- McGowan BM, Bruun JM, Capehorn M, et al. Efficacy and safety of once‐weekly semaglutide 2·4 mg versus placebo in people with obesity and prediabetes (STEP 10): a randomised, double‐blind, placebo‐controlled, multicentre phase 3 trial. Lancet Diabetes Endocrinol. 2024;12(9):631‐642. doi:10.1016/S2213‐8587(24)00182‐7
+Publication types
+MeSH terms
+Substances
+LinkOut - more resources
+Full Text Sources
+Medical
+Research Materials
+Miscellaneous

@@ -1,0 +1,594 @@
+=== REF [10] ===
+Biblio title: Wegovy Product Monograph (Novo Nordisk Canada)
+Authors: ['Novo Nordisk Canada Inc.']
+Year: 2025
+DOI: 
+URL: https://novonordisk.ca/content/dam/nncorp/ca/en/products/Wegovy-product-monograph.pdf
+Authority tier: GOLD
+Source type: government_report
+Content length: 25000
+---
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 1 of 77 
+Unclassified / Non classifié 
+Product Monograph 
+Including Patient Medication Information 
+ 
+PRWEGOVY® 
+ 
+semaglutide injection 
+ 
+Solution for Subcutaneous Injection in a pre-filled pen 
+ 
+Produced by recombinant DNA technology in Saccharomyces cerevisiae 
+ 
+Single-use pre-filled pen delivering doses of 0.25 mg, 0.5 mg, 1 mg, 1.7 mg or 2.4 mg 
+ 
+0.25 mg/pen (0.25 mg/0.5 mL) 
+0.5 mg/pen (0.5 mg/0.5 mL) 
+1 mg/pen (1 mg/0.5 mL) 
+1.7 mg/pen (1.7 mg/0.75 mL) 
+2.4 mg/pen (2.4 mg/0.75 mL) 
+ 
+and 
+ 
+Multi-use pre-filled pen (FlexTouch®) delivering doses of 0.25 mg, 0.5 mg, 1 mg, 1.7 mg or 2.4 
+mg 
+ 
+1 mg/pen (0.68 mg/mL) 
+2 mg/pen (0.68 mg/mL or 1.34 mg/mL) 
+4 mg/pen (1.34 mg/mL) 
+6.8 mg/pen (2.27 mg/mL) 
+9.6 mg/pen (3.2 mg/mL) 
+ 
+ 
+ 
+Glucagon-like Peptide-1 (GLP-1) Receptor Agonist 
+ 
+ 
+WEGOVY®, indicated for: 
+- the treatment of non-cirrhotic metabolic dysfunction-associated steatohepatitis (MASH) in 
+adults with moderate to advanced liver fibrosis (consistent with stages F2 to F3 fibrosis).  
+ 
+has been issued market authorization with conditions, pending the results of trials to verify its 
+clinical benefit. Patients should be advised of the nature of the authorization. For further 
+information for WEGOVY® please refer to Health Canada’s Notice of Compliance with 
+conditions - drug products web site. 
+ 
+WEGOVY®, indicated: 
+- as an adjunct to a reduced calorie diet and increased physical activity for chronic weight 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 2 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+management in: 
+Adult patients with an initial body mass index (BMI) of 30 kg/m2 or greater (obesity), or 27 kg/m2 
+or greater (overweight) in the presence of at least one weight-related comorbidity such as 
+hypertension, type 2 diabetes mellitus, dyslipidemia, or obstructive sleep apnea. 
+Pediatric patients aged 12 to less than 18 years: with an initial BMI at the 95th percentile or 
+greater for age and sex (obesity; see Table 1), and a body weight above 60 kg (132 lbs), and an 
+inadequate response to reduced calorie diet and physical activity alone. 
+- to reduce the risk of non-fatal myocardial infarction in adults with established cardiovascular 
+disease and BMI equal to or greater than 27 kg/m2. 
+ 
+has been issued market authorization without conditions. 
+ 
+ 
+ 
+ 
+ 
+Novo Nordisk Canada Inc. 
+101-2476 Argentia Road 
+Mississauga, Ontario 
+L5N 6M1 
+Date of Authorization: 
+December 10, 2025 
+ 
+ 
+Submission Control No: 296143 
+ 
+ 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 3 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+What is a Notice of Compliance with Conditions (NOC/c)? 
+A NOC/c is a form of market approval granted to a product on the basis of promising 
+evidence of clinical effectiveness following review of the submission by Health Canada. 
+Products authorized under Health Canada’s NOC/c policy are intended for the treatment, 
+prevention or diagnosis of a serious, life-threatening or severely debilitating illness. They 
+have demonstrated promising benefit, are of high quality and possess an acceptable safety 
+profile based on a benefit/risk assessment. In addition, they either respond to a serious 
+unmet medical need in Canada or have demonstrated a significant improvement in the 
+benefit/risk profile over existing therapies. Health Canada has provided access to this 
+product on the condition that sponsors carry out additional clinical trials to verify the 
+anticipated benefit within an agreed upon time frame. 
+ 
+Recent Major Label Changes  
+1 Indications 
+ 2025-10 
+1.2 Geriatrics 
+2024-11 
+4.2 Recommended Dose and Dosage Adjustment 
+2024-11 
+7 Warnings and Precautions, Dependence, Tolerance and/or Abuse 
+Liability 
+2025-03 
+7 Warnings and Precautions, Gastrointestinal 
+2025-04 
+7 Warnings and Precautions, Gastrointestinal 
+2024-03 
+7 Warnings and Precautions, Hepatic/Biliary/Pancreatic 
+2024-11 
+7 Warnings and Precautions, Perioperative Considerations  
+2025-04 
+7.1.4 Geriatrics 
+2024-11 
+ 
+Table Of Contents  
+Certain sections or subsections that are not applicable at the time of the preparation of the most 
+recent authorized product monograph are not listed.  
+ 
+Recent Major Label Changes ....................................................................................... 3 
+Table Of Contents ......................................................................................................... 3 
+Part 1: Healthcare Professional Information ............................................................... 6 
+1 
+Indications ........................................................................................................... 6 
+1.1 
+Pediatrics ................................................................................................... 6 
+1.2 
+Geriatrics ................................................................................................... 7 
+2 
+Contraindications ............................................................................................... 8 
+3 
+Serious Warnings and Precautions Box .......................................................... 8 
+4 
+Dosage and Administration ............................................................................... 8 
+4.1 
+Dosing Considerations ............................................................................... 8 
+4.2 
+Recommended Dose and Dosage Adjustment .......................................... 9 
+4.4 
+Administration .......................................................................................... 10 
+4.5 
+Missed Dose ............................................................................................ 10 
+5 
+Overdose ........................................................................................................... 10 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 4 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+6 
+Dosage Forms, Strengths, Composition, and Packaging ............................. 11 
+7 
+Warnings and Precautions .............................................................................. 13 
+Carcinogenesis and Genotoxicity ....................................................................... 13 
+Cardiovascular .................................................................................................... 13 
+Dependence, Tolerance and/or Abuse Liability .................................................. 14 
+Driving and Operating Machinery ....................................................................... 14 
+Endocrine and Metabolism ................................................................................. 14 
+Gastrointestinal ................................................................................................... 14 
+Hepatic/Biliary/Pancreatic ................................................................................... 15 
+Immune .............................................................................................................. 15 
+Ophthalmologic ................................................................................................... 16 
+Perioperative Considerations.............................................................................. 16 
+Psychiatric .......................................................................................................... 16 
+Renal .................................................................................................................. 16 
+Reproductive Health ........................................................................................... 16 
+7.1 
+Special Populations ................................................................................. 17 
+7.1.1 
+Pregnancy ............................................................................................ 17 
+7.1.2 
+Breastfeeding ....................................................................................... 17 
+7.1.3 
+Pediatrics ............................................................................................. 17 
+7.1.4 
+Geriatrics .............................................................................................. 17 
+7.1.5 
+Hepatic Insufficiency ............................................................................ 17 
+7.1.6 
+Renal Insufficiency ............................................................................... 18 
+8 
+Adverse Reactions ........................................................................................... 18 
+8.1 
+Adverse Reaction Overview ..................................................................... 18 
+8.2 
+Clinical Trial Adverse Reactions .............................................................. 18 
+8.2.1 
+Clinical Trial Adverse Reactions – Pediatrics ....................................... 22 
+8.3 
+Less Common Clinical Trial Adverse Reactions ...................................... 23 
+8.3.1 
+Less Common Clinical Trial Adverse Reactions – Pediatrics ............... 23 
+8.4 
+Abnormal Laboratory Findings: Hematologic, Clinical Chemistry and Other 
+Quantitative Data ................................................................................................ 23 
+8.5 
+Post Market Adverse Reactions ............................................................... 24 
+9 
+Drug Interactions .............................................................................................. 24 
+9.2 
+Drug Interactions Overview ...................................................................... 24 
+9.4 
+Drug-Drug Interactions ............................................................................. 24 
+9.5 
+Drug-Food Interactions ............................................................................ 25 
+9.6 
+Drug-Herb Interactions ............................................................................. 25 
+9.7 
+Drug-Laboratory Test Interactions ........................................................... 25 
+10 
+Clinical Pharmacology ..................................................................................... 25 
+10.1 Mechanism of Action ............................................................................... 25 
+10.2 Pharmacodynamics ................................................................................. 26 
+10.3 Pharmacokinetics .................................................................................... 27 
+10.4 Immunogenicity ........................................................................................ 28 
+11 
+Storage, Stability and Disposal ....................................................................... 28 
+12 
+Special Handling Instructions ......................................................................... 29 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 5 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+Part 2: Scientific Information ..................................................................................... 30 
+13 
+Pharmaceutical Information ............................................................................ 30 
+14 
+Clinical Trials .................................................................................................... 30 
+14.1 Clinical Trials by Indication ...................................................................... 30 
+Chronic Weight Management ............................................................................. 30 
+Risk Reduction of Non-fatal Myocardial Infarction .............................................. 44 
+Noncirrhotic Metabolic dysfunction-Associated Steatohepatitis (MASH) in Adults 
+with Moderate to Advanced Liver Fibrosis .......................................................... 47 
+15 
+Microbiology ..................................................................................................... 49 
+16 
+Non-Clinical Toxicology ................................................................................... 49 
+Patient Medication Information .................................................................................. 53 
+ 
+ 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 6 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+Part 1: Healthcare Professional Information  
+1 
+Indications  
+WEGOVY® (semaglutide injection) is indicated: 
+• 
+as an adjunct to a reduced calorie diet and increased physical activity for chronic weight 
+management in: 
+o Adult patients with an initial body mass index (BMI) of  
+▪ 
+30 kg/m2 or greater (obesity), or 
+▪ 
+27 kg/m2 or greater (overweight) in the presence of at least one weight-related 
+comorbidity such as hypertension, type 2 diabetes mellitus, dyslipidemia, or 
+obstructive sleep apnea. 
+o Pediatric patients aged 12 to less than 18 years: 
+▪ 
+with an initial BMI at the 95th percentile or greater for age and sex (obesity; see 
+Table 1), and 
+▪ 
+a body weight above 60 kg (132 lbs), and 
+▪ 
+an inadequate response to reduced calorie diet and physical activity alone. 
+• 
+to reduce the risk of non-fatal myocardial infarction in adults with established 
+cardiovascular disease and BMI equal to or greater than 27 kg/m2 
+• 
+for the treatment of non-cirrhotic metabolic dysfunction-associated steatohepatitis 
+(MASH) in adults with moderate to advanced liver fibrosis (consistent with stages F2 to 
+F3 fibrosis).  
+ 
+The indication for the treatment of MASH in adults with moderate to advanced liver 
+fibrosis (consistent with stages F2 to F3 fibrosis), is authorized under the NOC/c Policy 
+based on histopathological improvements. Continued approval for this indication may be 
+contingent upon the verification and description of clinical benefit in a confirmatory trial. 
+ 
+Limitations of Use 
+• 
+WEGOVY® should not be used in combination with any other semaglutide-containing 
+drug (e.g. Ozempic®, Rybelsus®) or any other GLP-1 receptor agonist. 
+• 
+The efficacy and safety of WEGOVY® in combination with other products intended for 
+weight management, including prescription drugs, over-the-counter drugs, and herbal 
+preparations, have not been established. 
+• 
+WEGOVY® is not indicated for the treatment of Type 1 diabetes mellitus or for the 
+treatment of diabetic ketoacidosis. 
+• 
+Safety and efficacy data in pediatric (12 to less than 18 years) patients with type 2 
+diabetes mellitus are limited (see 8.2.1 Clinical Trial Adverse Reactions – Pediatrics, 14 
+Clinical Trials).  
+ 
+1.1 
+Pediatrics  
+Weight Management: 
+ 
+Pediatrics (aged 12 to less than 18 years of age): Based on the data submitted and reviewed 
+by Health Canada, the safety and efficacy of WEGOVY® in pediatric patients aged 12 to less 
+than 18 years has been established; therefore, Health Canada has authorized an indication for 
+pediatric use in patients aged 12 to less than 18 years. 
+ 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 7 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+The safety and efficacy of WEGOVY® in children and adolescents aged 12 to less than 18 years 
+with secondary causes of obesity (i.e., hypothalamic, monogenic, or endocrine causes) has not 
+been studied.  
+ 
+Table 1 shows the age and sex-specific cut-offs for treatment eligibility. 
+ 
+Table 1 BMI (kg/m2) cut-off points for obesity (≥95th percentile) by sex and age for 
+pediatric patients aged 12 to less than 18 years1  
+Age (years) 
+Body Mass Index – 95th percentile 
+Males 
+Females 
+12.0 
+24.2 
+25.2 
+12.5 
+24.7 
+25.7 
+13.0 
+25.1 
+26.3 
+13.5 
+25.6 
+26.8 
+14.0 
+26.0 
+27.2 
+14.5 
+26.4 
+27.7 
+15.0 
+26.8 
+28.1 
+15.5 
+27.2 
+28.5 
+16.0 
+27.5 
+28.9 
+16.5 
+27.9 
+29.3 
+17.0 
+28.2 
+29.6 
+17.5 
+28.6 
+30.0 
+1 United States Center for Disease Control criteria 
+ 
+Non-fatal Myocardial Infarction Risk Reduction 
+No data are available to Health Canada; therefore, Health Canada has not authorized an 
+indication for pediatric use. 
+ 
+ 
+MASH 
+No data are available to Health Canada; therefore, Health Canada has not authorized an 
+indication for pediatric use. 
+1.2 
+Geriatrics  
+Geriatrics (> 65 years of age): In the WEGOVY® phase 3a weight management clinical trials, 
+233 (9.0%) WEGOVY®-treated patients were between 65 and 74 years of age and 23 (1%) 
+were ≥ 75 years of age. In SELECT, the Cardiovascular Outcomes Trial (CVOT), 2656 (30%) 
+WEGOVY®-treated patients were between 65 and 74 years of age, and 703 (8.0%) of 
+WEGOVY® treated patients were 75 years of age and over. There is limited exposure to 
+patients over the age of 85. No overall differences in safety or efficacy were detected between 
+these patients and younger patients, but greater sensitivity of older individuals cannot be ruled 
+out (see also 7.1.4 Geriatrics). 
+ 
+In the WEGOVY® clinical trial in patients with MASH, 138 (25.8%) WEGOVY® treated patients 
+were aged 65 years and older (see 14 Clinical Trials). There is limited exposure to patients with 
+MASH over the age of 75. No overall differences in safety or efficacy were detected between 
+these patients and younger patients, but greater sensitivity of older individuals cannot be ruled 
+out. 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 8 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+2 
+Contraindications  
+• 
+WEGOVY® is contraindicated in patients who are hypersensitive to this drug or to any 
+ingredient in the formulation, including any non-medicinal ingredient, or component of 
+the container. For a complete listing, see 6 Dosage Forms, Strengths, Composition and 
+Packaging. See also 7 Warnings and Precautions and 8 Adverse Reactions. 
+• 
+WEGOVY® is contraindicated in patients with a personal or family history of medullary 
+thyroid carcinoma (MTC) or in patients with Multiple Endocrine Neoplasia syndrome type 
+2 (MEN 2) (see 3 Serious Warnings and Precautions Box and 7 Warnings and 
+Precautions)  
+• 
+WEGOVY® should not be used during pregnancy or breastfeeding (see 7.1.1 Pregnancy 
+or 7.1.2 Breastfeeding) 
+ 
+3 
+Serious Warnings and Precautions Box  
+ 
+4 
+Dosage and Administration  
+4.1 
+Dosing Considerations  
+• 
+WEGOVY® should not be used in combination with any other semaglutide-containing 
+drug (e.g. Ozempic®, Rybelsus®) or any other GLP-1 receptor agonist. 
+• 
+In patients with Type 2 diabetes mellitus, monitor blood glucose prior to starting and 
+during WEGOVY® treatment. Discontinuation of WEGOVY® in these patients may result 
+in an increase in blood glucose. Safety and efficacy data in pediatric (12 to less than 18 
+years) patients with type 2 diabetes mellitus are limited (see 8.2.1 Clinical Trial Adverse 
+Reactions – Pediatrics, 14 Clinical Trials). 
+• 
+WEGOVY® is not a substitute for insulin. 
+• 
+WEGOVY® should be discontinued in cases of pregnancy, acute pancreatitis, or 
+hypersensitivity reactions. 
+• In rodents, semaglutide causes dose-dependent and treatment-duration-dependent 
+thyroid C-cell tumours at clinically relevant exposures. It is unknown whether WEGOVY® 
+causes thyroid C-cell tumours, including medullary thyroid carcinoma (MTC), in humans 
+as human relevance of semaglutide-induced rodent thyroid C-cell tumours has not been 
+determined (see 7 Warnings and Precautions and 16 Non-Clinical Toxicology).  
+• WEGOVY® is contraindicated in patients with a personal or family history of MTC or in 
+patients with Multiple Endocrine Neoplasia syndrome type 2 (MEN 2) Counsel patients 
+regarding the potential risk for MTC with the use of WEGOVY® and inform them of 
+symptoms of thyroid tumours (e.g. a mass in the neck, dysphagia, dyspnea, persistent 
+hoarseness). Routine monitoring of serum calcitonin or using thyroid ultrasound is of 
+uncertain value for early detection of MTC in patients treated with WEGOVY® (see 2 
+Contraindications, 7 Warnings and Precautions, 8 Adverse Reactions and 16 Non-
+Clinical Toxicology).  
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 9 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+4.2 
+Recommended Dose and Dosage Adjustment  
+Adults and Pediatrics (aged 12 years or older) 
+The therapeutic and maintenance dose of 2.4 mg semaglutide once-weekly is reached by 
+starting with a dose of 0.25 mg and then following a dose escalation regimen, with dose 
+increases every 4 weeks (to doses of 0.5, 1, 1.7 and 2.4 mg/week) until the 
+therapeutic/maintenance dose of 2.4 mg once-weekly is reached after 16 weeks as shown in 
+Table 2. Follow the dose escalation to reduce the likelihood of gastrointestinal symptoms. If 
+patients do not tolerate a dose during dose escalation, consider delaying dose escalation for 4 
+weeks.  
+ 
+Table 2 
+Dose Escalation Schedule  
+Week 1-4 
+Week 5-8 
+Week 9-12 
+Week 13-16 
+Week 17 and on 
+Dose Escalation 
+Therapeutic/Maintenance Dose 
+0.25 mg 
+0.5 mg 
+1 mg 
+1.7 mg 
+2.4 mg 
+ 
+Adults (aged 18 years and older) 
+If patients do not tolerate the therapeutic/maintenance 2.4 mg dose, the dose can be 
+temporarily decreased to 1.7 mg weekly, for a maximum of 4 weeks. Patients should re-escalate 
+to the therapeutic/maintenance 2.4 mg dose. 
+ 
+Pediatrics (aged 12 to less than 18 years) 
+For adolescents from the age of 12 to less than 18 years old, the same dose escalation 
+schedule as for adults should be applied (see Table 2). Patients should aim at reaching the 
+maintenance 2.4 mg once-weekly dose following the dose escalation schedule in Table 2. 
+ 
+If patients cannot reach the 2.4 mg dose or do not tolerate 2.4 mg, the patient may remain at a 
+dose level of 1.7 mg once-weekly. Discontinue WEGOVY® treatment if the patient cannot 
+tolerate the 1.7 mg once-weekly dose. Evaluate patient progress and reassess continuation of 
+treatment after 12 weeks on the maintenance dose of 2.4 mg or maximum tolerated dose; 
+patients not demonstrating progress by 12 weeks of maintenance treatment are less likely to 
+achieve and sustain clinically meaningful BMI improvement with continued treatment.  
+ 
+Patients with Type 2 diabetes mellitus  
+Patients with Type 2 diabetes taking sulfonylureas or insulin have an increased risk of 
+hypoglycemia when taking WEGOVY®. When initiating WEGOVY®, consider reducing the dose 
+of concomitantly administered insulin or insulin secretagogues (such as sulfonylureas) to reduce 
+the risk of hypoglycemia (see 7 Warnings and Precautions and 8 Adverse Reactions). 
+ 
+Geriatrics (> 65 years of age) 
+From population-PK modelling, no dose adjustment is required based on age (see 10 Clinical 
+Pharmacology). Therapeutic experience of WEGOVY® is limited in patients ≥ 85 years of age. 
+ 
+Pediatrics (< 12 years of age) 
+The efficacy and safety of WEGOVY® in pediatric patients for chronic weight management, 
+aged below 12 years have not been studied. WEGOVY® is not indicated for the treatment of 
+pediatric patients below 12 years of age. 
+ 
+The efficacy and safety of WEGOVY® in children and adolescents with MASH or for non-fatal 
+myocardial risk reduction below 18 years have not been studied.  
+ 
+
+
+ 
+ 
+Wegovy® (semaglutide injection) Product Monograph 
+ 
+Page 10 of 77 
+Unclassified / Non classifié 
+Unclassified / Non classifié 
+Patients with renal insufficiency 
+Based on population-PK modelling, no dosage adjustment is required for patients with renal 
+insufficiency (see 10 Clinical Pharmacology). WEGOVY® is not recommended for use in 
+patients with end-stage renal disease (see 7 Warnings and Precautions, Renal, Acute Kidney 
+Injury and 10 Clinical Pharmacology). 
+ 
+Patients with hepatic insufficiency (Child-Pugh A, B or C) 
+The efficacy and safety of WEGOVY® in patients with severe hepatic insufficiency Child-Pugh 
+C) has not been studied. Therefore, WEGOVY® should be used with caution in this patient 
+population (see 10 Clinical Pharmacology).  
+4.4 Administration  
+WEGOVY® solution should be inspected visually prior to each injection and should be clear, 
+colourless, and contain no particles. Do not use WEGOVY® if particulate matter or colouration is 
+seen. 
+ 
+Administer WEGOVY® subcutaneously in the abdomen, thigh, or upper arm. Change (i.e. 
+rotate) the site of injection for each administration. The time of day of the injection and the 
+injection site can be changed without dose adjustment. Do not administer WEGOVY® 
+intravenously or intramuscularly. 
+ 
+Administer WEGOVY® once weekly, on the same day each week, at any time of day, with or 
+without meals.  
+ 
+The day of weekly administration can be changed if necessary, as long as the time between two 
+doses is at least 3 days (≥ 72 hours). 
+4.5 Missed Dose  
+If a patient misses one dose and the next scheduled dose is at least 2 days (48 hours) away, 
+instruct the patient to administer WEGOVY® as soon as possible. If a patient misses one dose 
+and the next schedule dose is less than 2 days (48 hours) away, inform the patient to not take 
+that dose of WEGOVY®. The patients can resume their once-weekly dosing as scheduled. 
+ 
+If a patient misses more than 2 consecut

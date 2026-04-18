@@ -1,0 +1,67 @@
+Bibliography: 33
+Matched to fetched_content (www-normalized): 33
+Still unmatched: 0
+
+Fetched but unused (not in bibliography): 27
+  UNUSED (   500c): Comparative effectiveness of glucagon‐like peptide‐1 receptor agonists | https://www.semanticscholar.org/paper/14d747f4b835a2362490b8f01cb6182a83034dac
+  UNUSED (   500c): Effect of glucagon-like peptide-1 receptor agonists and co-agonists on | https://www.semanticscholar.org/paper/2c7ac2dcddcc2f007e23502cae78dc9fa183c6f4
+  UNUSED (   289c): Efficacy and safety of GLP-1 receptor agonists versus SGLT-2 inhibitor | https://bmjopen.bmj.com/content/bmjopen/13/3/e061807.full.pdf
+  UNUSED (   500c): Obesity, Cardiovascular Disease, and the Promising Role of Semaglutide | https://www.semanticscholar.org/paper/0065553d71f28656ccecee3cf1aba9e35f05bb67
+  UNUSED ( 25000c): Effect of Continued Weekly Subcutaneous Semaglutide vs ... | https://jamanetwork.com/journals/jama/fullarticle/2777886
+  UNUSED (  1087c): Semaglutide 2.4 Mg for the Management of Overweight and Obesity: Syste | https://www.dovepress.com/getfile.php?fileID=86225
+  UNUSED (   358c): Effect of semaglutide 2.4 mg once weekly on 10‐year type 2 diabetes ri | https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/oby.23842
+  UNUSED (   500c): Pharmaceutical Therapies for the Treatment of Obesity: A Network Meta- | https://www.semanticscholar.org/paper/1a7d20360b773f058e1bfa193e3dcca8ad92e48f
+  UNUSED ( 25000c): [PDF] WEGOVY (semaglutide) injection, for subcutaneous use | https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215256s024lbl.pdf
+  UNUSED (   500c): Semaglutide: a key medication for managing cardiovascular-kidney-metab | https://www.semanticscholar.org/paper/0ab72bda12ccf091647016038be60e3eec2f1726
+  UNUSED ( 12525c): Prescribing Information - Wegovy | https://www.wegovy.com/prescribing-information.html
+  UNUSED (   500c): 80-OR: Treatment with Once-Weekly Semaglutide 2.4 mg Improves Cardiome | https://www.semanticscholar.org/paper/22ad441d98744fe527de3de6179a1faafb60fac9
+  UNUSED (   500c): 82-OR: Effect of Semaglutide 2.4 mg on Glucose Metabolism and Body Wei | https://www.semanticscholar.org/paper/06f66415be00de80abd7038522850aad1edec368
+  UNUSED (   500c): Comparative Efficacy of Semaglutide versus Liraglutide on Weight Loss  | https://www.semanticscholar.org/paper/1c352feffef5b178be9de3efd447e1f66296b8d7
+  UNUSED (   500c): Effectiveness of GLP-1 RAs and SGLT2 inhibitors in preventing T2DM in  | https://www.semanticscholar.org/paper/2460b97f4527faccc2144ab5ca64335b81d5adb6
+  UNUSED ( 25000c): Natural Products to Counteract the Epidemic of Cardiovascular and Meta | https://www.mdpi.com/1420-3049/21/6/807/pdf?version=1466601267
+  UNUSED (  5610c): The pros, cons, and unknowns of popular weight-loss drugs - JHU Hub | https://hub.jhu.edu/2024/01/11/ozempic-wegovy-weight-loss-drugs-pros-cons/
+  UNUSED ( 15000c): Semaglutide (Wegovy) - NCBI Bookshelf - NIH | https://www.ncbi.nlm.nih.gov/books/NBK617241
+  UNUSED (   291c): Wegovy vs. Ozempic: The truth about new 'weight-loss' drugs | https://www.uchealth.org/today/wegovy-vs-ozempic-the-truth-about-new-weight-loss-drugs/
+  UNUSED (   650c): Two-year effects of semaglutide in adults with overweight or obesity | https://www.nature.com/articles/s41591-022-02026-4
+  UNUSED (  6080c): Health benefits of semaglutide | Beyond weight loss | https://mcpress.mayoclinic.org/living-well/health-benefits-of-semaglutide-beyond-weight-loss/
+  UNUSED (   281c): The Ethics of Ozempic and Wegovy | https://jme.bmj.com/content/52/3/185
+  UNUSED ( 25000c): Impact of Bariatric Surgery on Left Ventricular Structure and Function | https://www.ahajournals.org/doi/pdf/10.1161/JAHA.123.031505
+  UNUSED (   526c): Ozempic and other forms of semaglutide are offering a new ... | https://www.facebook.com/northwesternmedicine/posts/ozempic-and-other-forms-of-semaglutide-are-offering-a-new-approach-to-managing-o/1045317894294277/
+  UNUSED (  6275c): Practitioner observations of oral nicotine use in elite sport: You snu | https://researchonline.ljmu.ac.uk/id/eprint/14151/1/Practitioner%20observations%20of%20oral%20nicotine%20use%20in%20elite%20sport%20You%20snus%20you%20lose.pdf
+  UNUSED (  8912c): Are lower- and middle-income countries ready for the roll-out of anti  | https://www.weforum.org/stories/2025/01/anti-obesity-medication-lower-middle-income-countries/
+  UNUSED ( 23947c): Analysis of the Association between Fast Food on Oral Health and Hygie | http://medicopublication.com/index.php/ijfmt/article/download/12530/11532
+
+=== Content length per ref (all 33) ===
+[ 1]  25000c | tier=GOLD | industry_report      | Affordable Access to GLP-1 Obesity Medications - ICER
+[ 2]  15000c | tier=GOLD | government_report    | WEGOVY (semaglutide) injection - FDA Prescribing Information
+[ 3]  25000c | tier=UNKNOWN | government_report    | Semaglutide (Wegovy) - Canada's Drug Agency Combined Review 
+[ 4]  15628c | tier=GOLD | journal_article      | The Upcoming Weekly Tides (Semaglutide vs. Tirzepatide) agai
+[ 5]  15000c | tier=GOLD | journal_article      | A Systematic Review and Meta-Analysis of Randomized Controll
+[ 6]   1930c | tier=GOLD | journal_article      | 1745-P: Long-Term Safety and Efficacy of Once-Weekly Dosage 
+[ 7]  25000c | tier=GOLD | journal_article      | Efficacy and safety of semaglutide for weight loss in obesit
+[ 8]  15000c | tier=GOLD | journal_article      | Semaglutide 2.4 Mg for the Management of Overweight and Obes
+[ 9]   5644c | tier=GOLD | news                 | Study identifies benefits, risks linked to popular weight-lo
+[10]  25000c | tier=GOLD | government_report    | Wegovy Product Monograph (Novo Nordisk Canada)
+[11]   7283c | tier=UNKNOWN | other                | Oral Semaglutide and the GLP-1 Compounding Reckoning
+[12]  25000c | tier=GOLD | journal_article      | Semaglutide-associated kidney injury
+[13]  25000c | tier=GOLD | journal_article      | Exploring GLP-1 Weight Loss Drugs: Affordability and Accessi
+[14]  22316c | tier=GOLD | journal_article      | Effect of Subcutaneous Semaglutide vs Placebo as an Adjunct 
+[15]  25000c | tier=GOLD | journal_article      | Semaglutide 2.4 mg long-term clinical outcomes in patients w
+[16]  25000c | tier=GOLD | journal_article      | Once-weekly 2.4 mg Semaglutide for Weight Management in Obes
+[17]  22962c | tier=GOLD | journal_article      | Efficacy of Semaglutide in Treating Obesity: A Systematic Re
+[18]  25000c | tier=UNKNOWN | industry_report      | Chronic Weight Management Trial Results | Wegovy (semaglutid
+[19]  25000c | tier=UNKNOWN | government_report    | WEGOVY® (semaglutide) Prescribing Information Highlights (Re
+[20]  25000c | tier=GOLD | industry_report      | Wegovy Side Effects & Safety Profile - novoMEDLINK
+[21]  23287c | tier=GOLD | industry_report      | Wegovy (semaglutide) Indications & HCP Information
+[22]    500c | tier=GOLD | journal_article      | Obesity update: cardiovascular risk and therapeutic innovati
+[23]    500c | tier=GOLD | journal_article      | Potent incretin-based therapy for obesity: A systematic revi
+[24]   1826c | tier=GOLD | news                 | Ozempic generics are coming. But will low-income countries b
+[25]  14534c | tier=GOLD | government_report    | FDA clarifies policies for compounders as national GLP-1 sup
+[26]  25000c | tier=GOLD | government_report    | WEGOVY (semaglutide) injection/tablet - FDA Prescribing Info
+[27]   8723c | tier=BRONZE | news                 | Access Battle For New Generation Obesity Drugs
+[28]    500c | tier=GOLD | journal_article      | Cost-effectiveness of weight-management pharmacotherapies in
+[29]   5707c | tier=GOLD | journal_article      | Efficacy and safety of once-weekly subcutaneous semaglutide 
+[30]  16262c | tier=GOLD | journal_article      | Cardiometabolic risk factors efficacy of semaglutide in the 
+[31]  25000c | tier=GOLD | journal_article      | Semaglutide for the Treatment of Obesity
+[32]  25000c | tier=GOLD | journal_article      | Efficacy and safety of semaglutide on weight loss in obese o
+[33]  25000c | tier=GOLD | journal_article      | Efficacy and safety of subcutaneous semaglutide in adults wi
