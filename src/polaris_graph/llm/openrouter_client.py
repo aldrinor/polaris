@@ -52,34 +52,52 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # training lineages to avoid self-bias (Play Favorites arXiv:2508.06709 Aug
 # 2025; DeepHalluBench arXiv:2601.22984 Jan 2026).
 #
-# Defaults pin the latest-release 2026 Q2 pair per user direction 2026-04-17:
-#   Generator: z-ai/glm-5.1             (released 2026-04-12, already in
-#                                       POLARIS _ALWAYS_REASON_MODELS list)
-#   Evaluator: qwen/qwen3.5-plus-02-15  (released 2026-02-15, project default
-#                                       for OPENROUTER_DEFAULT_MODEL)
-# Genuinely distinct families (Zhipu AI vs Alibaba).
+# Defaults pin the VERIFIED-ON-GROUNDED-FACTUALITY pair (user decision
+# 2026-04-17 after multi-axis reasoning):
 #
-# HONEST CAVEAT: Neither of these models has a verified HHEM hallucination
-# rate on the Vectara 20-Mar-2026 leaderboard snapshot. GLM-5 (precursor)
-# measured 10.1% HHEM — borderline. GLM-5.1 and Qwen 3.5 Plus factuality on
-# grounded-generation tasks is UNVERIFIED as of 2026-04-17. This must be
-# measured in-pipeline during Phase 0 validation before Phase 5 relies on
-# the evaluator for quality judgments. See
-# loopback/audit/_open_source_models_2026.md section 4 for the gap list
-# and _open_source_models_2026_april_followup.md for the April-specific
-# research pass.
+#   Generator: deepseek/deepseek-v3.2-exp  (role-fit: long-form grounded
+#                                          synthesis)
+#       - Vectara HHEM 5.3% (rank 15 of 77+ open-weight), primary source:
+#         github.com/vectara/hallucination-leaderboard/commits/main PR #181
+#       - MMLU-Pro 85.0 / GPQA-D 79.9 / AIME 89.3 (strong synthesis reasoning)
+#       - 128K context, MIT license, ~$0.27 in / $0.38 out per M tokens on
+#         DeepInfra / OpenRouter
+#       - Released 2025-09-29 (not the newest, but role-verified on THREE
+#         axes: grounded faithfulness + synthesis reasoning + cost)
 #
-# Alternative pair with VERIFIED HHEM (commented out; swap if in-pipeline
-# HHEM shows GLM-5.1 / Qwen 3.5 Plus are too hallucinatory for the task):
-#   Generator: deepseek/deepseek-v3.2-exp  (Vectara HHEM 6.3%, MIT, 128K)
-#   Evaluator: qwen/qwen3-32b              (Vectara HHEM 5.9%, Apache 2.0, 128K)
+#   Evaluator: qwen/qwen3-8b             (role-fit: per-claim faithfulness
+#                                         judgment, runs 100s of times per
+#                                         report)
+#       - Vectara HHEM 4.8% (rank #9 — lower than Qwen3-32B's 5.9%)
+#       - Apache 2.0 license, 128K context
+#       - ~$0.05 in / $0.40 out per M tokens — cheapest of the verified-
+#         factuality evaluators; affordable to ensemble over 2-3 samples
+#       - Different family from generator (Alibaba vs DeepSeek) —
+#         check_family_segregation() allows this pair
 #
-# Family derivation uses the OpenRouter model-name prefix (publisher slug).
+# WHY NOT GLM 5.1 + Qwen 3.5 Plus (rejected after multi-axis analysis
+# 2026-04-17):
+#   - GLM-5.1's strengths (SWE-Bench Pro 58.4, BrowseComp 68.0, AIME 92.7)
+#     are for agentic coding tasks, NOT our role. Grounded-generation
+#     faithfulness is the core requirement; GLM-5 ancestor ranks 57/77 on
+#     Vectara at 10.1%. GLM-5.1 has no Vectara data but inherits the signal.
+#   - Qwen 3.5 Plus has zero Vectara data. Sibling Qwen 3.5 397B has 88%
+#     fabrication rate on AA-Omniscience. Unverified factuality is exactly
+#     the "no honest metric" pattern the rebuild is trying to escape.
+#   - Cost: GLM 5.1 at $2.15/M blended is ~5x the combined DeepSeek +
+#     Qwen3-8B cost per call.
+#
+# Research trail:
+#   loopback/audit/_open_source_models_2026.md
+#   loopback/audit/_open_source_models_2026_april_followup.md
+#
+# Escape hatch for fine-tunes / licensed redistributions: PG_*_FAMILY_OVERRIDE.
+# Family derivation uses OpenRouter publisher-slug prefix.
 PG_GENERATOR_MODEL = os.getenv(
     "PG_GENERATOR_MODEL",
-    os.getenv("OPENROUTER_DEFAULT_MODEL", "z-ai/glm-5.1"),
+    "deepseek/deepseek-v3.2-exp",
 )
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3.5-plus-02-15")
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
