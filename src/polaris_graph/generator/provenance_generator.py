@@ -144,10 +144,15 @@ _INVISIBLE_CHARS_RE = re.compile(
 # showed Cyrillic palochka (U+04CF ≈ l) and Cyrillic 'м' (U+043C) also
 # bypass the previous narrow map.
 #
-# Coverage: every lowercase letter that appears in our four delimiter
-# keywords — evidence, end, pipeline, telemetry — is here: a, c, d, e,
-# i, l, m, n, o, p, r, t, v, y. Uppercase variants are covered too
-# (the regex is case-insensitive).
+# Coverage: lowercase letters in our four delimiter keywords —
+# evidence, end, pipeline, telemetry — that have close Cyrillic OR
+# Greek confusables: {a, c, d, e, i, l, m, n, o, p, t, v, y}. 'r' is
+# deliberately NOT mapped: the closest Cyrillic visual ('г' U+0433) is
+# the common Russian letter ge and mapping it would mangle legitimate
+# Russian prose. Diacritic variants of 'r' (ŕ, ř, ŗ, etc.) are covered
+# by the NFKD decomposition + Mn-strip in _build_normalized_view.
+# Uppercase variants are covered because the delimiter regex uses
+# re.IGNORECASE.
 _CONFUSABLE_ASCII_MAP: dict[int, str] = {
     # Cyrillic Small Letters → Latin (confusables used in delimiter keywords)
     0x0430: "a",   # а
@@ -207,25 +212,28 @@ def _build_normalized_view(text: str) -> tuple[str, list[int]]:
     norm_chars: list[str] = []
     orig_idx: list[int] = []
     for i, ch in enumerate(text):
-        # NFKC on a single char may expand (e.g., ligature → two chars).
-        for nfkc_ch in unicodedata.normalize("NFKC", ch):
-            # Skip invisible/format characters. These contribute nothing
-            # visible and an attacker uses them to break up delimiters.
-            if _INVISIBLE_CHARS_RE.fullmatch(nfkc_ch):
+        # NFKD decomposes both compatibility forms AND diacritics.
+        # Example: 'ﬁ' (U+FB01) → 'f' + 'i'. 'ĕ' (U+0115) → 'e' + U+0306
+        # (combining breve). Full-width 'ｅ' → 'e'. Math bold '𝐞' → 'e'.
+        # We then skip Mn/Mc combining marks so the remaining view
+        # contains only base letters, unlocking delimiter detection
+        # against Latin-with-diacritic and ligature evasions.
+        for dcmp_ch in unicodedata.normalize("NFKD", ch):
+            cat = unicodedata.category(dcmp_ch)
+            # Skip invisible/format characters.
+            if _INVISIBLE_CHARS_RE.fullmatch(dcmp_ch):
                 continue
-            # Category-based belt-and-suspenders: any Cf (Format) char
-            # that we haven't enumerated above is also elided. This
-            # catches future additions to the Unicode spec without code
-            # changes. We preserve Cc (Control) only for whitespace
-            # that matters — \s in the regex already tolerates it.
-            if unicodedata.category(nfkc_ch) == "Cf":
+            # Skip Cf (Format) — catches future additions without code
+            # changes. Skip Mn/Mc (combining marks) so diacritical
+            # homoglyphs like ĕ reduce to 'e'.
+            if cat in ("Cf", "Mn", "Mc"):
                 continue
             # Map narrow Cyrillic/Greek confusables to ASCII Latin.
-            mapped = _CONFUSABLE_ASCII_MAP.get(ord(nfkc_ch))
+            mapped = _CONFUSABLE_ASCII_MAP.get(ord(dcmp_ch))
             if mapped is not None:
                 norm_chars.append(mapped)
             else:
-                norm_chars.append(nfkc_ch)
+                norm_chars.append(dcmp_ch)
             orig_idx.append(i)
     return "".join(norm_chars), orig_idx
 
