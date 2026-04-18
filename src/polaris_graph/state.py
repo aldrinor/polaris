@@ -151,7 +151,22 @@ PG_PREFER_MARKDOWN = os.getenv("PG_PREFER_MARKDOWN", "1") == "1"
 
 # SOTA Sprint: Source quality controls
 PG_SOURCE_AUTHORITY_ENABLED = os.getenv("PG_SOURCE_AUTHORITY_ENABLED", "1") == "1"
-PG_OFFTOPIC_THRESHOLD = float(os.getenv("PG_OFFTOPIC_THRESHOLD", "0.15"))
+# HONEST-REBUILD Phase 2d: raise off-topic threshold 0.15 -> 0.35.
+# PG_LB_SA_02_CONTENT_AUDIT Section E-03 found that threshold=0.15 let
+# evidence with near-zero semantic similarity to the research question
+# leak into the synthesis corpus. The legacy "risk-axis retain below
+# threshold" path pinned the floor at 0.15 even when the main filter
+# was raised, which defeated every tightening attempt. Phase 2d raises
+# the main threshold to 0.35 AND the risk-axis floor to 0.20 so risk
+# evidence must still be at least weakly on-topic.
+PG_OFFTOPIC_THRESHOLD = float(os.getenv("PG_OFFTOPIC_THRESHOLD", "0.35"))
+PG_OFFTOPIC_RISK_FLOOR = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
+# Pre-fetch filter: when we have search-result snippets but haven't
+# fetched full content yet, a looser threshold is appropriate because
+# snippets are short. Still tighter than the legacy 0.15.
+PG_OFFTOPIC_PREFETCH_THRESHOLD = float(
+    os.getenv("PG_OFFTOPIC_PREFETCH_THRESHOLD", "0.25")
+)
 PG_MIN_PEER_REVIEWED_PCT = float(os.getenv("PG_MIN_PEER_REVIEWED_PCT", "0.30"))
 
 # SOTA Sprint: Jina Reader + Firecrawl fetch (D1/D2)

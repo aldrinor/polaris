@@ -2846,7 +2846,7 @@ def _filter_offtopic_evidence(
                 "concern", "danger",
             )
         )
-        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.15"))
+        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
         risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
         risk_keywords = (
             "adverse", "contraindicat", "side effect", "side-effect",
@@ -3053,7 +3053,7 @@ async def _unified_embedding_pass(
                 "concern", "danger",
             )
         )
-        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.15"))
+        risk_floor = float(os.getenv("PG_OFFTOPIC_RISK_FLOOR", "0.20"))
         risk_categories = {"risk", "adverse_event", "contraindication", "safety"}
         risk_keywords = (
             "adverse", "contraindicat", "side effect", "side-effect",
