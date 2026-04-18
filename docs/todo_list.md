@@ -10,9 +10,45 @@ note at end of this file).
 
 ## Active
 
-### Pipeline audit (in progress)
+### Deep-dive rounds in progress
 
-- [ ] **Full-pipeline Codex audit** — replaces the narrow 5-round B-1..B-5 audit. Context bundle in `docs/pipeline_audit_context/`. Will produce prioritized risk register across ~12 pipeline dimensions, then partition into deep-dive rounds. See `outputs/codex_findings/full_audit_*/` (once launched).
+Priority order per Codex scoping pass:
+
+- [x] R1 orchestration — BUG-B-101 manifest status contract (commit `c764ddb`, 9 tests)
+- [~] R2 pipeline_b_parity — BUG-B-102 UI un-hardened. **SCOPED (strategy C accepted); implementation queued as R2a-R2h** (see below)
+- [ ] R3 intake_scope — BUG-B-100 scope gate never rejects — NEXT
+- [ ] R4 generation — BUG-M-203 outline collapse
+- [ ] R5 evaluator — BUG-M-205 advisory vs gating
+- [ ] R6 retrieval_tiering — BUG-M-201 gate/generator divergence
+- [ ] R7 contradictions — BUG-M-202 narrow predicates
+- [ ] R8 observability — BUG-M-206 cost ledger per-run
+- [ ] R9 testing — BUG-M-207 contract coverage
+- [ ] R10 strict_verify — BUG-M-204 limitations bypass (light touch)
+- [ ] R11 budget_cost — BUG-N-301 session_id threading (light touch)
+- [ ] R12 frozen_c_disposition — BUG-M-208 retire/repair/leave decision (user-facing)
+
+### R2 (pipeline_b_parity) sub-tasks — multi-session implementation
+
+Strategy C per Codex: add `graph_v4` shim wrapping pipeline A. See
+`outputs/codex_findings/deep_dive_round_2/` for scope.
+
+- [ ] **R2a**: extract pipeline-A `run_one_query` into reusable
+  `src/polaris_graph/sweep_orchestrator.py::orchestrate_one_query`.
+  `scripts/run_honest_sweep_r3.py` becomes a thin wrapper. Zero behavior change.
+- [ ] **R2b**: add `config/scope_templates/custom.yaml` +
+  `config/completeness_checklists/custom.yaml` as fallbacks for free-form UI queries.
+- [ ] **R2c**: write `src/polaris_graph/graph_v4.py` with v1/v2/v3-compatible
+  signature delegating to orchestrator.
+- [ ] **R2d**: add trace-event sink to orchestrator so SSE progress events
+  emit during the run.
+- [ ] **R2e**: add `v4` branch to `live_server.py::_run_pipeline` as OPT-IN
+  via `PG_GRAPH_VERSION=v4`. Do not change default yet.
+- [ ] **R2f**: write the 8 integration tests Codex specified.
+- [ ] **R2g**: after R2a-R2f land + soak, flip default dispatch to v4.
+- [ ] **R2h**: either parameterize tests across v1/v2/v3 OR deprecate
+  legacy variants and remove from dispatch (prefer removal).
+
+Estimated total: 10-14 hours across 8 sub-rounds.
 
 ### Frozen subsystem decision (pending)
 
