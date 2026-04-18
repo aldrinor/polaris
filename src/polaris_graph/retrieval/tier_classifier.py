@@ -1,0 +1,794 @@
+"""
+Tier classifier for retrieved sources — T1 through T7 + UNKNOWN.
+
+Part of HONEST-REBUILD Phase 2 (plan:
+C:/Users/msn/.claude/plans/lovely-finding-firefly.md).
+
+Classifies every retrieved URL at fetch time into a tier so the pipeline
+can surface the corpus quality distribution to the user BEFORE composition
+starts. Fixes the defects documented in PG_LB_SA_02_CONTENT_AUDIT.md
+Section E-01:
+    - Patch D over-assigned GOLD at ~24% error rate
+    - Novo HCP portals tagged GOLD (should be BRONZE/industry)
+    - News and student journals tagged GOLD
+    - Regulatory documents (CDA-AMC) tagged UNKNOWN when they should be GOLD
+    - No-match defaulted to BRONZE silently
+
+Key discipline:
+    1. UNKNOWN on no-match (NOT silent BRONZE) — surfaces misconfiguration
+       rather than hiding it. The plan A-F04 "UNKNOWN ambiguity" gets
+       resolved by BRONZE vs UNKNOWN being meaningfully different:
+       UNKNOWN = "rules could not decide; requires user review";
+       BRONZE = "rules positively identified low-tier source".
+    2. Rules fire in priority order; first match wins.
+    3. Each ClassificationResult carries the reasons list so the user
+       can audit the decision (and so later reshapes can pin regressions
+       to specific rule matches).
+    4. No LLM call in the classifier — pure rules. An LLM-in-the-loop
+       variant may come later, but for Phase 2 a deterministic classifier
+       is the right primitive.
+
+Tier taxonomy:
+    T1 — Peer-reviewed primary study (RCT, prospective cohort, case-control,
+          cross-sectional with clear protocol, ClinicalTrials.gov with
+          results, etc.)
+    T2 — Peer-reviewed systematic review, meta-analysis, Cochrane review,
+          network meta-analysis
+    T3 — Government / regulatory body (FDA, EMA, NICE, CDA-AMC, WHO,
+          MHRA, Health Canada, TGA, PMDA)
+    T4 — Peer-reviewed narrative review, commentary, editorial, perspective
+    T5 — Industry-funded report (pharmaceutical company HCP portal, drug
+          monograph from manufacturer, industry advocacy with funding
+          disclosure)
+    T6 — News / blog / non-peer-reviewed web content (mainstream news,
+          industry press release distribution, commentary blog)
+    T7 — Abstract-only / conference abstract / Semantic Scholar stub
+          (content < 1000 chars) / paper behind paywall where only title
+          + abstract were retrieved
+    UNKNOWN — rules could not decide; user review required
+
+Non-goals of this module:
+    - Not a quality judgment of the CONTENT (that's the evaluator's job)
+    - Not a hallucination detector (that's Vectara / our Phase 5 evaluator)
+    - Not a plagiarism / novelty checker
+    - Not a decision about whether to INCLUDE the source — only how to
+      label it. The user (or auto-mode rules) decides inclusion.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
+
+
+class TierLevel(str, Enum):
+    """Seven tiers plus UNKNOWN for surfacing classifier misconfiguration."""
+
+    T1 = "T1"  # Peer-reviewed primary study
+    T2 = "T2"  # Peer-reviewed SR / MA
+    T3 = "T3"  # Government / regulatory
+    T4 = "T4"  # Peer-reviewed narrative / commentary
+    T5 = "T5"  # Industry-funded
+    T6 = "T6"  # News / blog / non-peer-reviewed
+    T7 = "T7"  # Abstract-only / stub
+    UNKNOWN = "UNKNOWN"  # Rules could not decide — user review needed
+
+
+@dataclass
+class ClassificationSignals:
+    """Input signals the classifier uses. All optional — partial signals OK."""
+
+    url: str = ""
+    fetched_content_length: int = 0  # chars of body fetched
+    # OpenAlex-derived fields (when available)
+    openalex_publication_type: str = ""  # "article", "preprint", "review", ...
+    openalex_source_type: str = ""       # "journal", "repository", ...
+    openalex_is_retracted: bool = False
+    openalex_venue: str = ""             # journal or venue name
+    openalex_is_peer_reviewed: bool | None = None  # None = unknown
+    # Bibliography-layer fields (when available)
+    source_type_hint: str = ""  # upstream string like "industry_report"
+    publisher: str = ""
+    author_affiliations: list[str] = field(default_factory=list)
+    funding_disclosures: list[str] = field(default_factory=list)
+    # Free text for future keyword rules (e.g., title keywords)
+    title: str = ""
+
+
+@dataclass
+class ClassificationResult:
+    """What the classifier returns. Always includes the reasoning trail."""
+
+    tier: TierLevel
+    confidence: float  # 0.0-1.0; 1.0 for deterministic rules, <1 for fuzzy
+    reasons: list[str] = field(default_factory=list)
+    matched_rules: list[str] = field(default_factory=list)
+    signals_used: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_decided(self) -> bool:
+        return self.tier != TierLevel.UNKNOWN
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Domain sets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Regulatory bodies (T3). Extendable via config later.
+#
+# CRITICAL: Do NOT include ncbi.nlm.nih.gov, pmc.ncbi.nlm.nih.gov,
+# pubmed.ncbi.nlm.nih.gov here. Those are NIH-hosted peer-reviewed
+# journal aggregators — T1/T2/T4 based on content, NOT T3 regulatory.
+# The subdomain overlap with nih.gov is misleading.
+REGULATORY_DOMAINS = frozenset({
+    # US
+    "fda.gov", "accessdata.fda.gov", "nctr-crs.fda.gov",
+    "cdc.gov", "nasa.gov",
+    "clinicaltrials.gov",
+    # EU
+    "ema.europa.eu", "europa.eu",
+    # UK
+    "nice.org.uk", "mhra.gov.uk", "gov.uk",
+    # Canada
+    "cda-amc.ca", "hc-sc.gc.ca", "canada.ca",
+    # Australia / NZ
+    "tga.gov.au", "medsafe.govt.nz",
+    # Japan
+    "pmda.go.jp",
+    # International
+    "who.int", "iarc.who.int",
+    # Other national
+    "bfarm.de", "ansm.sante.fr",
+})
+
+# Explicit NIH literature-aggregator hosts. These are peer-reviewed
+# journal content; route through the peer-review journal rule, not
+# through regulatory.
+NIH_LITERATURE_HOSTS = frozenset({
+    "ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov",
+    "pmc.ncbi.nlm.nih.gov",
+    "pubmed.ncbi.nlm.nih.gov",
+    "nlm.nih.gov",
+})
+
+# Pharmaceutical-industry HCP portals and brand sites (T5). These are
+# manufacturer-controlled pages; peer-reviewed content from the same
+# company (e.g., an investigator-authored RCT paper) is T1/T4 via its
+# journal URL, not via these domains. MEMORY lesson: Patch D tagged
+# these GOLD; they are industry-marketing.
+INDUSTRY_MARKETING_DOMAINS = frozenset({
+    # Novo Nordisk
+    "novomedlink.com", "wegovy.com", "ozempic.com", "novonordisk.com",
+    "novonordisk.ca", "novomedinfo.com",
+    # Eli Lilly
+    "lilly.com", "mounjaro.com", "zepbound.com",
+    # Pfizer
+    "pfizer.com", "pfizermedicalinformation.com",
+    # Merck
+    "merck.com", "merckconnect.com",
+    # GSK
+    "gsk.com", "gskpro.com",
+    # AstraZeneca
+    "astrazeneca.com", "azmedical.us",
+    # Roche / Genentech
+    "roche.com", "genentech.com", "gene.com",
+    # Sanofi
+    "sanofi.com", "sanofimedicalinformation.com",
+    # Bayer
+    "bayer.com", "pharma.bayer.com",
+    # Boehringer Ingelheim
+    "boehringer-ingelheim.com",
+    # Takeda
+    "takeda.com",
+    # Johnson & Johnson
+    "jnj.com", "janssen.com", "janssenmd.com",
+    # Bristol Myers Squibb
+    "bms.com",
+    # Abbvie
+    "abbvie.com", "abbviepro.com",
+})
+
+# Branded physician-portal domains that LOOK like journals but are
+# industry-adjacent commentary sites (T5 / T6 depending on sponsorship
+# transparency). Added in response to PG_LB_SA_02 spot-check: [16] and
+# [30] touchendocrinology.com "game-changer" commentary got T1'd by
+# rules; these domains do not do independent peer review.
+PHYSICIAN_PORTAL_COMMENTARY_DOMAINS = frozenset({
+    "touchendocrinology.com", "touchneurology.com",
+    "touchoncology.com", "touchcardio.com", "touchrespiratory.com",
+    "touchimmunology.com", "touchgastroenterology.com",
+    "medscape.com",  # often commentary + CME, not primary
+})
+
+# Low-provenance document hosts (T6). A government document re-hosted
+# on Scribd is not a guaranteed-authentic copy; tier down regardless
+# of source_type_hint. Patch C / Patch D called these GOLD/government
+# via upstream metadata, which was the F-05-adjacent defect.
+LOW_PROVENANCE_HOSTS = frozenset({
+    "scribd.com", "slideshare.net", "academia.edu",
+    "researchgate.net",  # author-uploaded reprints; not a peer-review venue
+    "issuu.com", "docdroid.net",
+})
+
+# Law-firm and consulting-firm commentary sites (T6). Legal opinions
+# and pharma-regulatory analysis; not peer-reviewed research.
+LEGAL_COMMENTARY_DOMAINS = frozenset({
+    "bipc.com", "buchananingersoll.com",
+    "ropesgray.com", "reedsmith.com",
+    "cov.com", "sullcrom.com",
+    "natlawreview.com", "lexology.com",
+    "law360.com", "mcguirewoods.com",
+})
+
+# News / blog / commentary (T6). Non-exhaustive; supplemented by
+# source_type_hint == "news".
+NEWS_BLOG_DOMAINS = frozenset({
+    # General news
+    "reuters.com", "ap.org", "apnews.com",
+    "nytimes.com", "wsj.com", "ft.com", "bloomberg.com",
+    "bbc.com", "bbc.co.uk", "theguardian.com",
+    "cnn.com", "cnbc.com", "npr.org", "pbs.org",
+    # Health / medical news
+    "healthline.com", "medicalnewstoday.com", "statnews.com",
+    "medscape.com", "webmd.com", "drugs.com",
+    "medpagetoday.com", "healthnews.com",
+    # Industry / pharma trade press
+    "fiercepharma.com", "biopharmadive.com", "endpts.com",
+    "pharmatimes.com", "pharmamanufacturing.com",
+    # Blogs / substack / medium / dev.to
+    "substack.com", "medium.com", "dev.to", "blogspot.com",
+    "wordpress.com",
+    # Tech news (for tech-domain queries)
+    "techcrunch.com", "theverge.com", "wired.com", "arstechnica.com",
+    "venturebeat.com", "siliconangle.com",
+    # Affiliate / content-farm markers
+    "aimultiple.com", "intuitionlabs.ai", "serenitiesai.com",
+})
+
+# Peer-reviewed medical / scientific journal domains where articles
+# are typically T1 (primary) or T2 (SR/MA) unless OpenAlex says
+# otherwise. Venue-level hints only — not definitive on their own.
+PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
+    "nejm.org", "jamanetwork.com", "thelancet.com", "bmj.com",
+    "nature.com", "science.org", "cell.com",
+    "sciencedirect.com", "springer.com", "wiley.com",
+    "onlinelibrary.wiley.com",
+    "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov",
+    "frontiersin.org", "mdpi.com", "plos.org", "plosone.org",
+    "ahajournals.org", "diabetesjournals.org", "endocrine.org",
+    "acc.org", "acpjournals.org",
+    "acs.org", "pubs.acs.org", "rsc.org", "pubs.rsc.org",
+    "ieee.org", "acm.org",
+    "academic.oup.com",  # OUP journals
+    "cureus.com",  # peer-reviewed but low-barrier; caller should tier-down
+    "bmcmedicine.com", "biomedcentral.com",
+    "jme.bmj.com",  # Journal of Medical Ethics
+})
+
+# Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
+# tier-down further based on funding disclosure).
+PREPRINT_DOMAINS = frozenset({
+    "arxiv.org", "biorxiv.org", "medrxiv.org", "ssrn.com",
+    "preprints.org", "researchsquare.com", "papers.ssrn.com",
+    "osf.io",
+})
+
+# Student-journal / low-credibility-journal patterns. Plan A-S3-A note
+# flagged nhsjs.com (National High School Journal of Science) as
+# inappropriately tagged GOLD in PG_LB_SA_02. These are not predatory
+# per se but don't meet T1/T2 peer-review standards.
+STUDENT_JOURNAL_DOMAINS = frozenset({
+    "nhsjs.com",
+})
+
+# Abstract-only / stub-content domains where typical content is just a
+# title + abstract. Used as a hint; falls through to content-length check.
+ABSTRACT_ONLY_DOMAINS = frozenset({
+    "semanticscholar.org",
+    "openalex.org",
+})
+
+# Content-length thresholds (chars of fetched body).
+MIN_T1_T4_CONTENT_CHARS = 3000  # below this, downgrade to T7 stub
+T7_STUB_CONTENT_CHARS = 1000    # below this, always T7 stub
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _normalize_domain(url: str) -> str:
+    """Extract lowercase domain from URL, stripping www. and path."""
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        host = (parsed.hostname or "").lower()
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+def _domain_matches(domain: str, domain_set: frozenset[str]) -> bool:
+    """Check whether domain (or any parent) is in the set."""
+    if not domain:
+        return False
+    if domain in domain_set:
+        return True
+    # Parent-domain match: foo.fda.gov matches fda.gov
+    parts = domain.split(".")
+    for i in range(len(parts)):
+        parent = ".".join(parts[i:])
+        if parent in domain_set:
+            return True
+    return False
+
+
+def _detect_systematic_review_from_title(title: str) -> bool:
+    """Heuristic: title contains 'systematic review' / 'meta-analysis'."""
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in (
+        "systematic review", "meta-analysis", "meta analysis",
+        "network meta-analysis", "cochrane review", "umbrella review",
+        "scoping review",
+    ))
+
+
+def _detect_narrative_review_from_title(title: str) -> bool:
+    """Heuristic: title contains 'review' but not systematic / meta."""
+    if not title:
+        return False
+    t = title.lower()
+    if "review" in t and not _detect_systematic_review_from_title(title):
+        return True
+    # Commentary / editorial / perspective markers
+    return any(k in t for k in (
+        "commentary", "editorial", "perspective", "opinion",
+        "viewpoint",
+    ))
+
+
+def _detect_conference_abstract(title: str, url: str = "") -> bool:
+    """Heuristic: title / URL signals a conference abstract.
+
+    Matches:
+    - explicit keywords (conference abstract, poster, oral presentation)
+    - "1745-P:" / "82-OR:" / "P-123:" abstract-number prefixes commonly
+      used by ADA, ENDO, ESC, etc.
+    - URLs containing "/Supplement_" or "/abstract/" or journal-issue
+      supplement paths
+    """
+    if title:
+        t = title.lower()
+        if any(k in t for k in (
+            "conference abstract", "poster", "oral presentation",
+            "abstract p", "abstract po",
+        )):
+            return True
+        # Numbered abstract prefix (e.g., "1745-P: Long-Term Safety...")
+        if re.match(r"^\s*\d+-[A-Z]+:", title):
+            return True
+        # Numbered "P-" prefix
+        if re.match(r"^\s*P-\d+", title):
+            return True
+    if url:
+        u = url.lower()
+        if "/supplement_" in u or "/supplement/" in u:
+            return True
+    return False
+
+
+# Narrative-review / commentary-flavored keywords. Broader than the
+# "systematic review" family. Surfaces commentary-ish articles in
+# peer-reviewed venues (J Obes Metab Syndr, Postgraduate Med, etc.).
+_NARRATIVE_FLAVOR_KEYWORDS = (
+    "a game changer", "game-changer", "game changer",
+    "update on ", "the role of ",
+    "overview of ", "advances in ",
+    "a review of ",
+    "the upcoming", "the coming", "on the horizon",
+    "perspectives on", "viewpoints on",
+    "against obesity", "for obesity",  # marketing-flavored framings
+    # Bare "X for the Treatment of Y" / "X for the Management of Y" are
+    # narrative-review title patterns. Primary trial papers usually add a
+    # study-design suffix ("... : A Randomized Controlled Trial") or a
+    # specific outcome focus ("Effect of X on Y in ...").
+    "for the treatment of", "for the management of",
+    # Secondary analyses of a labeled trial program are, by convention in
+    # endocrinology / cardiology journals, narrative reviews of pooled
+    # trial data when the title is written as "... in the [PROGRAM]
+    # program". The STEP / SURPASS / SURMOUNT / REWIND / LEADER / SUSTAIN
+    # suite uses this pattern.
+    "in the step program", "in the step programme",
+    "in the surpass program", "in the surmount program",
+    "in the rewind program", "in the leader program",
+    "in the sustain program", "in the pioneer program",
+    "in the select program",
+)
+
+
+def _detect_narrative_flavor_from_title(title: str) -> bool:
+    """Stronger-than-generic detector for narrative / commentary flavor."""
+    if not title:
+        return False
+    t = title.lower()
+    if _detect_narrative_review_from_title(title):
+        return True
+    return any(k in t for k in _NARRATIVE_FLAVOR_KEYWORDS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The classifier
+# ─────────────────────────────────────────────────────────────────────────────
+
+def classify_source_tier(
+    signals: ClassificationSignals,
+) -> ClassificationResult:
+    """Classify a source into T1-T7 (or UNKNOWN) using rules.
+
+    Rules fire in priority order. The first match wins; later rules
+    cannot overturn an earlier decision (so rule ordering is
+    load-bearing). Every match appends to result.reasons so the user
+    can audit why a tier was assigned.
+
+    Returns TierLevel.UNKNOWN rather than silent BRONZE when no rule
+    matches — see module docstring for rationale.
+    """
+    result = ClassificationResult(
+        tier=TierLevel.UNKNOWN,
+        confidence=0.0,
+    )
+    domain = _normalize_domain(signals.url)
+    result.signals_used = {
+        "domain": domain,
+        "source_type_hint": signals.source_type_hint,
+        "publication_type": signals.openalex_publication_type,
+        "content_length": signals.fetched_content_length,
+    }
+
+    # ── Rule 0 (BLOCKED): Retracted papers are never classified positively
+    if signals.openalex_is_retracted:
+        result.tier = TierLevel.UNKNOWN  # caller should exclude; not T1-T7
+        result.confidence = 1.0
+        result.matched_rules.append("R0_retracted")
+        result.reasons.append(
+            "Paper flagged retracted by OpenAlex; excluded from tier scoring. "
+            "Caller should filter retracted sources before composition."
+        )
+        return result
+
+    # ── Rule 1 (T7 stub): Tiny content = stub regardless of venue
+    # This runs early because even a JAMA paper fetched as 500-char
+    # abstract is effectively a stub for evaluator purposes.
+    if signals.fetched_content_length and signals.fetched_content_length < T7_STUB_CONTENT_CHARS:
+        result.tier = TierLevel.T7
+        result.confidence = 1.0
+        result.matched_rules.append("R1_stub_content_length")
+        result.reasons.append(
+            f"Fetched body is {signals.fetched_content_length} chars "
+            f"(< {T7_STUB_CONTENT_CHARS} threshold) — classified T7 stub "
+            f"regardless of venue. Full-text retrieval would be needed "
+            f"to upgrade."
+        )
+        return result
+
+    # ── Rule 2a (T6): Low-provenance document hosts. A government PDF
+    # re-hosted on Scribd has unknown authenticity; do NOT elevate to T3
+    # just because source_type_hint says "government_report". This fires
+    # before the regulatory rule specifically to catch laundering.
+    if _domain_matches(domain, LOW_PROVENANCE_HOSTS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2a_low_provenance_host")
+        result.reasons.append(
+            f"Domain {domain!r} is a user-upload document host with no "
+            f"provenance guarantees. T6 regardless of upstream metadata "
+            f"hints; the authentic source should be located at the "
+            f"original issuer's URL."
+        )
+        return result
+
+    # ── Rule 2b (T6): Legal / consulting commentary
+    if _domain_matches(domain, LEGAL_COMMENTARY_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_legal_commentary")
+        result.reasons.append(
+            f"Domain {domain!r} is a law-firm or legal-commentary site. "
+            f"Not peer-reviewed research. T6."
+        )
+        return result
+
+    # ── Rule 2c (T3): Industry-hosted regulatory content (product
+    # monographs, prescribing information) — overrides industry-marketing
+    # classification because the CONTENT is a regulatory-approved label
+    # even though the HOSTING is manufacturer-controlled.
+    _url_lower = (signals.url or "").lower()
+    _title_lower = (signals.title or "").lower()
+    _regulatory_content_markers = (
+        "product-monograph", "product_monograph",
+        "prescribing-information", "prescribing_information",
+        "215256s",  # FDA label revision pattern
+    )
+    _regulatory_title_markers = (
+        "product monograph", "prescribing information",
+    )
+    if any(m in _url_lower for m in _regulatory_content_markers) or \
+       any(m in _title_lower for m in _regulatory_title_markers):
+        result.tier = TierLevel.T3
+        result.confidence = 0.9
+        result.matched_rules.append("R2c_regulatory_content_marker")
+        result.reasons.append(
+            "URL or title contains regulatory-content marker (product "
+            "monograph / prescribing information / FDA label revision "
+            "pattern). T3 regardless of hosting domain."
+        )
+        return result
+
+    # ── Rule 2d (T3): Regulatory domains
+    if _domain_matches(domain, REGULATORY_DOMAINS):
+        result.tier = TierLevel.T3
+        result.confidence = 1.0
+        result.matched_rules.append("R2d_regulatory_domain")
+        result.reasons.append(
+            f"Domain {domain!r} matches regulatory body list. "
+            f"T3 regulatory/government source."
+        )
+        return result
+
+    # ── Rule 3 (T5): Pharmaceutical-industry HCP portals / brand sites
+    # (This fires BEFORE peer-reviewed-journal rule because some pharma
+    # companies host their own pseudo-journal content.)
+    if _domain_matches(domain, INDUSTRY_MARKETING_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 1.0
+        result.matched_rules.append("R3_industry_marketing_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a pharmaceutical-industry HCP portal or "
+            f"brand site. Industry marketing material — T5 regardless of "
+            f"OpenAlex indexing. (Peer-reviewed papers from the same "
+            f"company published in a journal should be cited via the "
+            f"journal URL, where they classify to T1/T2/T4.)"
+        )
+        return result
+
+    # ── Rule 3b (T5): Branded physician-portal commentary (touchX, medscape)
+    if _domain_matches(domain, PHYSICIAN_PORTAL_COMMENTARY_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.9
+        result.matched_rules.append("R3b_physician_portal_commentary")
+        result.reasons.append(
+            f"Domain {domain!r} is a branded physician-portal commentary "
+            f"site (CME + sponsored content, not peer-reviewed primary "
+            f"research). T5 industry-adjacent."
+        )
+        return result
+
+    # ── Rule 4 (T6): News / blog domains
+    if _domain_matches(domain, NEWS_BLOG_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 1.0
+        result.matched_rules.append("R4_news_blog_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a news / blog / commentary source. T6."
+        )
+        return result
+
+    # ── Rule 5: source_type_hint dominates when caller knows what it has
+    hint = (signals.source_type_hint or "").strip().lower()
+    hint_to_tier: dict[str, TierLevel] = {
+        "government_report": TierLevel.T3,
+        "industry_report": TierLevel.T5,
+        "news": TierLevel.T6,
+        "news_blog": TierLevel.T6,
+        "blog": TierLevel.T6,
+        "commercial": TierLevel.T6,
+        "marketing": TierLevel.T5,
+        "opinion": TierLevel.T6,
+        "affiliate": TierLevel.T6,
+        "sponsored": TierLevel.T6,
+    }
+    if hint in hint_to_tier:
+        result.tier = hint_to_tier[hint]
+        result.confidence = 0.9
+        result.matched_rules.append(f"R5_source_type_hint:{hint}")
+        result.reasons.append(
+            f"Upstream source_type hint {hint!r} -> {result.tier.value}"
+        )
+        return result
+
+    # ── Rule 6 (T7): Abstract-only domain stubs
+    if _domain_matches(domain, ABSTRACT_ONLY_DOMAINS):
+        result.tier = TierLevel.T7
+        result.confidence = 0.95
+        result.matched_rules.append("R6_abstract_only_domain")
+        result.reasons.append(
+            f"Domain {domain!r} typically serves abstracts/stubs only "
+            f"without full-text retrieval. T7."
+        )
+        return result
+
+    # ── Rule 7: Preprint servers (T4 — not peer-reviewed yet)
+    if _domain_matches(domain, PREPRINT_DOMAINS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.9
+        result.matched_rules.append("R7_preprint_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a preprint server. Not peer-reviewed "
+            f"(yet); T4 narrative/unreviewed."
+        )
+        return result
+
+    # ── Rule 8: Student-journal domains (T4 ceiling at best; often T6)
+    if _domain_matches(domain, STUDENT_JOURNAL_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R8_student_journal_domain")
+        result.reasons.append(
+            f"Domain {domain!r} is a student-authored journal — does not "
+            f"meet peer-review standards for T1/T2. T6."
+        )
+        return result
+
+    # ── Rule 9: OpenAlex-indexed peer-reviewed journal article
+    # Needs: publication_type in {article, review} AND source_type=journal
+    pub_type = (signals.openalex_publication_type or "").lower()
+    src_type = (signals.openalex_source_type or "").lower()
+    is_peer_reviewed_hint = (
+        signals.openalex_is_peer_reviewed is True
+        or src_type == "journal"
+    )
+    if is_peer_reviewed_hint and pub_type in ("article", "review"):
+        # Conference abstract check first (supplement paths, numbered abstracts)
+        if _detect_conference_abstract(signals.title, signals.url):
+            result.tier = TierLevel.T7
+            result.confidence = 0.85
+            result.matched_rules.append("R9_conference_abstract")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed journal {pub_type!r}, but title "
+                f"or URL signals conference abstract / supplement issue. T7."
+            )
+            return result
+        # Determine T1 / T2 / T4 from title heuristics + OpenAlex pub_type
+        if _detect_systematic_review_from_title(signals.title):
+            result.tier = TierLevel.T2
+            result.confidence = 0.85
+            result.matched_rules.append("R9_openalex_sr_or_ma")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; title "
+                f"signals systematic review / meta-analysis. T2."
+            )
+        elif _detect_narrative_flavor_from_title(signals.title):
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_narrative_review")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; title "
+                f"signals narrative review / commentary / perspective / "
+                f"update. T4."
+            )
+        elif pub_type == "review":
+            # OpenAlex explicitly marks this as a "review" but the title
+            # didn't trip the SR/MA or narrative-flavor detectors. Default
+            # to T4 narrative review — OpenAlex's type field is informative
+            # even when the title is a bare drug-plus-condition phrasing.
+            # If it were actually a systematic review, the title would
+            # contain the SR/MA marker (PRISMA requires it).
+            result.tier = TierLevel.T4
+            result.confidence = 0.7
+            result.matched_rules.append("R9_openalex_pubtype_review")
+            result.reasons.append(
+                f"OpenAlex: publication_type == 'review' but title does "
+                f"not signal systematic review. Defaulting to T4 narrative "
+                f"review; manual review recommended if this paper is "
+                f"actually a network-meta-analysis or scoping review with "
+                f"a non-standard title."
+            )
+        else:
+            result.tier = TierLevel.T1
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_primary_study")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal; "
+                f"title does not signal review. Classified as T1 primary "
+                f"study. (A stronger classifier would inspect study-design "
+                f"keywords in the title / abstract.)"
+            )
+        return result
+
+    # ── Rule 10: Peer-reviewed-journal-domain heuristic when no OpenAlex data.
+    # Also fires for NIH_LITERATURE_HOSTS (PMC, PubMed) which are peer-
+    # reviewed literature aggregators, NOT regulatory.
+    is_nih_lit = _domain_matches(domain, NIH_LITERATURE_HOSTS)
+    if _domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS) or is_nih_lit:
+        # Conference abstract check BEFORE anything else — '1745-P:' and
+        # similar prefixes are T7 regardless of journal prestige.
+        if _detect_conference_abstract(signals.title, signals.url):
+            result.tier = TierLevel.T7
+            result.confidence = 0.85
+            result.matched_rules.append("R10_conference_abstract")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal but title "
+                f"or URL signals conference abstract / poster / supplement "
+                f"issue. T7."
+            )
+            return result
+        if _detect_systematic_review_from_title(signals.title):
+            result.tier = TierLevel.T2
+            result.confidence = 0.75
+            result.matched_rules.append("R10_journal_domain_sr_title")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals SR / MA. T2."
+            )
+            return result
+        if _detect_narrative_flavor_from_title(signals.title):
+            result.tier = TierLevel.T4
+            result.confidence = 0.7
+            result.matched_rules.append("R10_journal_domain_narrative")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal; title "
+                f"signals narrative review / commentary / perspective. T4."
+            )
+            return result
+        # Journal domain without OpenAlex or clear title signal
+        result.tier = TierLevel.T1
+        result.confidence = 0.6
+        result.matched_rules.append("R10_journal_domain_presumed_primary")
+        result.reasons.append(
+            f"Domain {domain!r} is a peer-reviewed journal "
+            f"{'(NIH literature aggregator) ' if is_nih_lit else ''}"
+            f"and title does not signal review or abstract. "
+            f"Presumed T1 primary (low confidence — consider manual review)."
+        )
+        return result
+
+    # ── Rule 11 fallthrough: OpenAlex preprint/book-chapter/dataset
+    if pub_type == "preprint" or src_type == "repository":
+        result.tier = TierLevel.T4
+        result.confidence = 0.7
+        result.matched_rules.append("R11_openalex_preprint_or_repo")
+        result.reasons.append(
+            f"OpenAlex: {pub_type!r} / {src_type!r} — preprint or "
+            f"repository; not peer-reviewed. T4."
+        )
+        return result
+    if pub_type in ("book-chapter", "book", "dataset", "editorial", "letter"):
+        result.tier = TierLevel.T4
+        result.confidence = 0.65
+        result.matched_rules.append(f"R11_openalex_{pub_type}")
+        result.reasons.append(
+            f"OpenAlex: {pub_type!r}. T4 narrative/unreviewed."
+        )
+        return result
+
+    # ── No rule matched: honest UNKNOWN
+    result.tier = TierLevel.UNKNOWN
+    result.confidence = 0.0
+    result.matched_rules.append("no_rule_matched")
+    result.reasons.append(
+        "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so "
+        "misconfiguration surfaces. Typical fixes: add the domain to "
+        "REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; "
+        "supply a source_type_hint upstream; provide OpenAlex metadata."
+    )
+    return result
+
+
+# Convenience one-shot helpers for simpler call sites.
+def classify_url(url: str, content_length: int = 0, **extra: Any) -> ClassificationResult:
+    """Classify a source by URL + content length + optional extras."""
+    signals = ClassificationSignals(
+        url=url,
+        fetched_content_length=content_length,
+        **extra,
+    )
+    return classify_source_tier(signals)
