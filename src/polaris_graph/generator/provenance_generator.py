@@ -100,65 +100,134 @@ _REDACTION = "[REDACTED_INJECTION_ATTEMPT]"
 _DELIMITER_REDACTION = "[REDACTED_DELIMITER]"
 
 
-# Zero-width / invisible Unicode codepoints that an attacker can embed
+# Invisible / format Unicode codepoints that an attacker can embed
 # INSIDE a delimiter literal to evade a naive regex. Example:
 # "<<<end\u200bevidence>>>" renders identically to "<<<end_evidence>>>"
 # in many terminals but the regex `<<<end_evidence>>>` won't match.
 #
-# Codex round 2 finding: U+2066..U+2069 (LRI, RLI, FSI, PDI — bidi
-# isolate controls) must be in this set too. They are invisible and
-# were missed in the round-1 fix.
+# Codex round 2 finding: U+2066..U+2069 (bidi isolate controls) missed.
+# Codex round 3 finding: also missed U+E0000..U+E007F (tag chars),
+# U+FE00..U+FE0F (variation selectors 1-16), U+E0100..U+E01EF (variation
+# selectors 17-256), U+034F (CGJ), U+180E (Mongolian vowel separator),
+# U+17B4/U+17B5 (Khmer inherent vowels — deprecated, invisible),
+# U+2028/U+2029 (line/paragraph separators — generally invisible),
+# U+115F/U+1160 (Hangul Jungseong filler — zero-width),
+# U+3164/U+FFA0 (Hangul filler — zero-width). Any char in Unicode
+# category Cf (Format) or Cc (Control minus normal whitespace) is a
+# candidate. Rather than enumerate by hand, we use the unicodedata
+# category check inside _normalize_for_matching() — see below.
 _INVISIBLE_CHARS_RE = re.compile(
     "["
     "\u200b-\u200f"     # zero-width space, ZWNJ, ZWJ, LRM, RLM
     "\u202a-\u202e"     # LRE, RLE, PDF, LRO, RLO
     "\u2060-\u2064"     # word joiner, invisible separator/times/plus
-    "\u2066-\u2069"     # LRI, RLI, FSI, PDI (Codex round 2)
+    "\u2066-\u2069"     # LRI, RLI, FSI, PDI
+    "\u034f"            # combining grapheme joiner
+    "\u115f\u1160"      # Hangul Jungseong filler (zero-width)
+    "\u17b4\u17b5"      # deprecated Khmer inherent vowels
+    "\u180e"            # Mongolian vowel separator
+    "\u2028\u2029"      # line/paragraph separators
+    "\u3164\ufffc"      # Hangul filler, object-replacement char
+    "\ufe00-\ufe0f"     # variation selectors 1-16
     "\ufeff"            # BOM
-    "]",
+    "\uffa0"            # half-width Hangul filler
+    "]"
+    # Tag characters (supplementary plane): U+E0000..U+E007F
+    "|[\U000e0000-\U000e007f]"
+    # Variation selectors 17-256 (supplementary plane)
+    "|[\U000e0100-\U000e01ef]",
 )
 
-# Codex round 2 finding: NFKC does NOT collapse cross-script homoglyphs.
-# An attacker writing "<<<еnd_evidence>>>" with a Cyrillic 'е' (U+0435)
-# survives normalization and regex redaction because the regex expects
-# Latin 'e'. Map the Cyrillic/Greek confusables that appear in the
-# ASCII subset used by our delimiter keywords (evidence, end, pipeline,
-# telemetry) back to Latin before the regex pass. We do NOT attempt a
-# full confusables table — only the minimal set needed to defend
-# delimiter keywords. Legitimate evidence content in Russian/Greek is
-# left untouched everywhere else (the mapping only runs over the full
-# string, which in the worst case rewrites a few letters; the redaction
-# pass only fires when they form a delimiter literal).
-_CONFUSABLE_ASCII_MAP = str.maketrans({
-    # Cyrillic Small Letters → Latin
-    "\u0430": "a",  # а
-    "\u0435": "e",  # е
-    "\u0440": "p",  # р
-    "\u043e": "o",  # о
-    "\u0441": "c",  # с
-    "\u0443": "y",  # у
-    "\u0445": "x",  # х
-    "\u0456": "i",  # і (Ukrainian)
-    "\u0458": "j",  # ј (Serbian)
-    # Cyrillic Capital Letters → Latin (case-insensitive regex catches both)
-    "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041a": "K",
-    "\u041c": "M", "\u041d": "H", "\u041e": "O", "\u0420": "P",
-    "\u0421": "C", "\u0422": "T", "\u0425": "X",
-    # Greek Small Letters that look like Latin
-    "\u03b5": "e",  # ε (epsilon — visually close to Latin e)
-    "\u03bf": "o",  # ο
-    "\u03bd": "v",  # ν
-    "\u03b9": "i",  # ι
-    "\u03ba": "k",  # κ
-    "\u03c1": "p",  # ρ
-    "\u03c7": "x",  # χ
-    "\u03c5": "y",  # υ
+# Codex round 2/3 finding: NFKC does NOT collapse cross-script
+# homoglyphs. An attacker writing "<<<еnd_evidence>>>" with a Cyrillic
+# 'е' (U+0435) would survive NFKC untouched. Codex round 3 additionally
+# showed Cyrillic palochka (U+04CF ≈ l) and Cyrillic 'м' (U+043C) also
+# bypass the previous narrow map.
+#
+# Coverage: every lowercase letter that appears in our four delimiter
+# keywords — evidence, end, pipeline, telemetry — is here: a, c, d, e,
+# i, l, m, n, o, p, r, t, v, y. Uppercase variants are covered too
+# (the regex is case-insensitive).
+_CONFUSABLE_ASCII_MAP: dict[int, str] = {
+    # Cyrillic Small Letters → Latin (confusables used in delimiter keywords)
+    0x0430: "a",   # а
+    0x0441: "c",   # с
+    0x0501: "d",   # ԁ (Cyrillic komi de — visual 'd')
+    0x0435: "e",   # е
+    0x0456: "i",   # і (Ukrainian)
+    0x0458: "j",   # ј (Serbian)
+    0x04cf: "l",   # ӏ (Cyrillic palochka — visual 'l')
+    0x043c: "m",   # м (round 3 finding)
+    0x043d: "n",   # н (visual 'h' but also used as 'n' in some contexts)
+    0x043e: "o",   # о
+    0x0440: "p",   # р
+    0x0442: "t",   # т (lowercase т looks like Latin 'm' in italic; also 'T')
+    0x0443: "y",   # у
+    0x0445: "x",   # х
+    # Cyrillic Capital Letters → Latin
+    0x0410: "A", 0x0412: "B", 0x0415: "E", 0x041a: "K",
+    0x041c: "M", 0x041d: "H", 0x041e: "O", 0x0420: "P",
+    0x0421: "C", 0x0422: "T", 0x0425: "X",
+    # Greek Small Letters that look like Latin (as used in delimiter keywords)
+    0x03b1: "a",   # α (alpha ≈ a)
+    0x03b5: "e",   # ε (epsilon — close to Latin e)
+    0x03bf: "o",   # ο
+    0x03bd: "v",   # ν
+    0x03b9: "i",   # ι
+    0x03ba: "k",   # κ
+    0x03c1: "p",   # ρ
+    0x03c4: "t",   # τ (tau ≈ t)
+    0x03c7: "x",   # χ
+    0x03c5: "y",   # υ
     # Greek Capital Letters
-    "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0396": "Z",
-    "\u0397": "H", "\u0399": "I", "\u039a": "K", "\u039c": "M",
-    "\u039d": "N", "\u039f": "O", "\u03a1": "P", "\u03a4": "T",
-    "\u03a5": "Y", "\u03a7": "X",
-})
+    0x0391: "A", 0x0392: "B", 0x0395: "E", 0x0396: "Z",
+    0x0397: "H", 0x0399: "I", 0x039a: "K", 0x039c: "M",
+    0x039d: "N", 0x039f: "O", 0x03a1: "P", 0x03a4: "T",
+    0x03a5: "Y", 0x03a7: "X",
+}
+
+
+def _build_normalized_view(text: str) -> tuple[str, list[int]]:
+    """Build a normalized view of the input for delimiter matching.
+
+    Codex round 3 architectural fix: instead of rewriting the original
+    string with NFKC + invisible-strip + confusable-map (which mutates
+    legitimate Cyrillic/Greek content), we build a SEPARATE normalized
+    view and track a per-char index back to the original. Delimiter
+    regexes run on the normalized view; when a match is found, we
+    redact the CORRESPONDING range in the original text. Non-delimiter
+    content is returned byte-preserved.
+
+    Returns (normalized_text, orig_idx_for_each_normalized_char).
+    For normalized character at index `i`, the original character it
+    came from is at index `orig_idx[i]`. NFKC can expand one original
+    char to multiple normalized chars; the map still points back to
+    the single original index.
+    """
+    norm_chars: list[str] = []
+    orig_idx: list[int] = []
+    for i, ch in enumerate(text):
+        # NFKC on a single char may expand (e.g., ligature → two chars).
+        for nfkc_ch in unicodedata.normalize("NFKC", ch):
+            # Skip invisible/format characters. These contribute nothing
+            # visible and an attacker uses them to break up delimiters.
+            if _INVISIBLE_CHARS_RE.fullmatch(nfkc_ch):
+                continue
+            # Category-based belt-and-suspenders: any Cf (Format) char
+            # that we haven't enumerated above is also elided. This
+            # catches future additions to the Unicode spec without code
+            # changes. We preserve Cc (Control) only for whitespace
+            # that matters — \s in the regex already tolerates it.
+            if unicodedata.category(nfkc_ch) == "Cf":
+                continue
+            # Map narrow Cyrillic/Greek confusables to ASCII Latin.
+            mapped = _CONFUSABLE_ASCII_MAP.get(ord(nfkc_ch))
+            if mapped is not None:
+                norm_chars.append(mapped)
+            else:
+                norm_chars.append(nfkc_ch)
+            orig_idx.append(i)
+    return "".join(norm_chars), orig_idx
 
 
 def sanitize_evidence_text(text: str) -> tuple[str, int]:
@@ -172,40 +241,56 @@ def sanitize_evidence_text(text: str) -> tuple[str, int]:
     a new opening delimiter, breaking out of the DATA block into a
     spoofed block the generator would treat as authentic.
 
-    Defense-in-depth against Unicode evasion: NFKC-normalize the input
-    (collapses full-width, ligature, and compatibility variants) AND
-    strip zero-width / bidi-override codepoints that could be embedded
-    inside a delimiter to evade the regex. Both happen before the
-    delimiter-literal pass.
+    Codex round 3 architectural fix: the prior version globally
+    rewrote the whole string (NFKC + invisible-strip + confusable-map),
+    which silently mutated legitimate Cyrillic/Greek evidence content.
+    The new approach builds a normalized VIEW, runs delimiter regexes
+    on the view, and redacts the corresponding ranges in the ORIGINAL
+    text. Non-delimiter content is byte-preserved. Delimiter lookalikes
+    (NFKC variants, invisible-char embeds, cross-script homoglyphs)
+    are still caught.
 
     Returns (sanitized_text, num_redactions).
     """
     if not text:
         return "", 0
-    # Normalize Unicode compatibility forms (full-width, ligatures, etc.)
-    # and strip invisible/bidi codepoints BEFORE pattern matching. This
-    # defeats `<<<end\u200bevidence>>>` and `<<<ｅｎｄ_ｅｖｉｄｅｎｃｅ>>>`
-    # style evasions. Then map the narrow set of Cyrillic/Greek
-    # confusables used in our delimiter keywords back to Latin; Codex
-    # round 2 showed that `<<<еnd_evidence>>>` with a Cyrillic 'е'
-    # would otherwise pass through untouched.
-    normalized = unicodedata.normalize("NFKC", text)
-    stripped = _INVISIBLE_CHARS_RE.sub("", normalized)
-    deconfused = stripped.translate(_CONFUSABLE_ASCII_MAP)
-    out = deconfused
+    out = text
     redactions = 0
-    # Pass 1: classical injection directives
+    # Pass 1: classical injection directives on the RAW text. These
+    # patterns target ASCII directives that don't need normalization.
     for pat in _INJECTION_PATTERNS:
         new, n = pat.subn(_REDACTION, out)
         if n > 0:
             redactions += n
             out = new
-    # Pass 2: delimiter-literal redaction (B-5)
+    # Pass 2: delimiter-literal redaction via normalized view with
+    # index projection back to the (post-pass-1) original.
+    normalized, orig_idx = _build_normalized_view(out)
+    # Collect ranges to redact, expressed as (original_start, original_end).
+    ranges: list[tuple[int, int]] = []
     for pat in _DELIMITER_LITERAL_PATTERNS:
-        new, n = pat.subn(_DELIMITER_REDACTION, out)
-        if n > 0:
-            redactions += n
-            out = new
+        for m in pat.finditer(normalized):
+            ns, ne = m.start(), m.end()
+            if ns >= len(orig_idx) or ne == 0:
+                continue
+            orig_start = orig_idx[ns]
+            orig_end = (
+                orig_idx[ne - 1] + 1 if ne - 1 < len(orig_idx)
+                else len(out)
+            )
+            ranges.append((orig_start, orig_end))
+    if ranges:
+        # Merge overlapping ranges and apply in reverse (preserves indices)
+        ranges.sort()
+        merged: list[tuple[int, int]] = []
+        for s, e in ranges:
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        for s, e in reversed(merged):
+            out = out[:s] + _DELIMITER_REDACTION + out[e:]
+            redactions += 1
     return out, redactions
 
 

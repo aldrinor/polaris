@@ -1,7 +1,7 @@
 {
-  "current_round": 2,
+  "current_round": 3,
   "max_rounds": 12,
-  "status": "awaiting_codex_round_3",
+  "status": "awaiting_codex_round_4",
   "history": [
     {
       "round": 1,
@@ -48,9 +48,31 @@
       "new_mediums": [
         {"id": "B-5b", "label": "homoglyph claim overstated (NFKC doesn't handle cross-script)", "fix": "_CONFUSABLE_ASCII_MAP added for Cyrillic/Greek ASCII-confusable letters", "test_count_added": 5}
       ]
+    },
+    {
+      "round": 3,
+      "verdict": "NOT_READY",
+      "blocker_count": 1,
+      "medium_count": 2,
+      "claude_addressed": 3,
+      "claude_deferred": 0,
+      "claude_disputed": 0,
+      "commits": ["pending"],
+      "started_iso": "2026-04-18T12:52:00Z",
+      "codex_completed_iso": "2026-04-18T12:55:00Z",
+      "claude_completed_iso": "2026-04-18T13:10:00Z",
+      "findings_file": "outputs/codex_findings/round_3/findings.md",
+      "response_file": "outputs/codex_findings/round_3/claude_response.md",
+      "reraised_blockers": [
+        {"id": "B-5c", "label": "more invisible chars (U+E0000 tag, U+FE0F varsel, U+034F CGJ, U+180E MVS)", "fix": "extended _INVISIBLE_CHARS_RE + category-Cf fallback + architectural rewrite", "test_count_added": 6}
+      ],
+      "new_mediums": [
+        {"id": "B-5d", "label": "confusable map missed U+04CF palochka, U+043C м", "fix": "expanded _CONFUSABLE_ASCII_MAP for all delimiter-keyword letters", "test_count_added": 2},
+        {"id": "B-5e", "label": "global string rewrite mutated legit Cyrillic content", "fix": "architectural: _build_normalized_view() + index projection; original bytes preserved when no delimiter match", "test_count_added": 4}
+      ]
     }
   ],
-  "verdict_progression": ["NOT_READY", "NOT_READY"],
-  "test_suite_state": {"passed": 280, "xfail": 0, "fail": 0},
-  "notes": "Round 2: Codex confirmed B-2/B-3/B-4 substantive, re-raised B-1 (threshold default 1→2) and B-5 (missed U+2066-U+2069 + homoglyphs). All addressed. +13 new tests. Next: commit, launch round 3 to verify these round-2 fixes."
+  "verdict_progression": ["NOT_READY", "NOT_READY", "NOT_READY"],
+  "test_suite_state": {"passed": 292, "xfail": 0, "fail": 0},
+  "notes": "Round 3: Codex confirmed B-1 fixed, found 1 blocker + 2 mediums around Unicode coverage AND architectural mutation. Fixed via sanitizer rewrite using normalized view + index projection. +12 tests. Byte-preservation invariant now enforced."
 }
