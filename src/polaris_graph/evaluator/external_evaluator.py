@@ -303,19 +303,31 @@ def run_rule_checks(
     text_stripped = re.sub(r"\[#ev:[^\]]+\]", "", prose_only)
     # Only check DECIMAL numbers (the empirical claims) — integers like
     # study-ID "STEP 1" or "week 68" are study markers, not claims.
+    #
+    # Look-ahead is to the end of the current sentence (up to `.!?`),
+    # not a fixed 80-char window — decimals early in a long sentence
+    # should get credit for a citation attached at the sentence end.
     numeric_matches = list(re.finditer(
         r"(?<![A-Za-z0-9.])(-?\d+\.\d+)",
         text_stripped,
     ))
     uncited = 0
     for m in numeric_matches:
-        snippet_after = text_stripped[m.end():m.end() + 80]
-        # Look for [n] or [#ev:...] markers within 80 chars
+        # Find sentence end (next ., !, ?) or fall back to 150 chars
+        after_text = text_stripped[m.end():m.end() + 200]
+        end_match = re.search(r"[.!?](?:\s|$)", after_text)
+        lookahead_end = end_match.end() if end_match else min(150, len(after_text))
+        snippet_after = after_text[:lookahead_end]
         if not re.search(r"\[\d+\]|\[#ev:", snippet_after):
-            # Also allow markers BEFORE the number (sometimes citation
-            # comes first). Check 20 chars before.
-            start = max(0, m.start() - 20)
-            snippet_before = text_stripped[start:m.start()]
+            # Fallback: allow markers BEFORE the number (sometimes
+            # citation comes first). Check back to previous sentence end.
+            back_text = text_stripped[max(0, m.start() - 200):m.start()]
+            last_sentence_end = max(
+                back_text.rfind(". "),
+                back_text.rfind("! "),
+                back_text.rfind("? "),
+            )
+            snippet_before = back_text[last_sentence_end + 1:] if last_sentence_end >= 0 else back_text
             if not re.search(r"\[\d+\]|\[#ev:", snippet_before):
                 uncited += 1
     pt11 = uncited < max(3, len(numeric_matches) // 10)  # allow <=10% uncited

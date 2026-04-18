@@ -198,6 +198,27 @@ _DOSE_PATTERN_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Placebo-comparator phrase. Numbers inside these phrases describe the
+# comparator arm; they are structural to the sentence, not the claim
+# being verified. Strip them so the verifier doesn't require them to
+# appear in the treatment-arm evidence's direct_quote.
+_PLACEBO_COMPARATOR_RE = re.compile(
+    r"(?:vs\.?|versus|v\.|compared\s+to|compared\s+with)\s+"
+    r"(?:approximately\s+)?-?\d+(?:\.\d+)?\s*%?\s*(?:with\s+)?"
+    r"placebo|"
+    r"-?\d+(?:\.\d+)?\s*%?\s+(?:with\s+)?placebo|"
+    r"placebo\s+(?:group|arm|recipients)\s*(?:achieving|had|showed|with)?\s*"
+    r"-?\d+(?:\.\d+)?\s*%?",
+    re.IGNORECASE,
+)
+
+# Achievement threshold phrase. Numbers in "≥5%", "at least 5%",
+# "5% threshold" are thresholds, not measurements.
+_THRESHOLD_RE = re.compile(
+    r"(?:≥|>=|>|at\s+least|achiev\w+\s+at\s+least)\s*-?\d+(?:\.\d+)?\s*%?",
+    re.IGNORECASE,
+)
+
 
 def _strip_dose_patterns(text: str) -> str:
     return _DOSE_PATTERN_RE.sub(" ", text or "")
@@ -241,6 +262,19 @@ def verify_sentence_provenance(
             failure_reasons=["no_provenance_token"],
         )
 
+    # Fix-3b: When a sentence has multiple citations (e.g.,
+    # [#ev:a][#ev:b][#ev:c]), the decimals in the sentence may come
+    # from DIFFERENT cited spans — the ICER trial's 86.6% treatment
+    # arm AND the placebo-comparator 47.6% from a different span. The
+    # verifier should require that each decimal in the sentence is
+    # found in SOME cited span (union), not in every span.
+    #
+    # Also: placebo-arm numbers (e.g., "vs 2.4% with placebo") and
+    # achievement thresholds ("≥5%") are filtered from the set of
+    # decimals we require to verify — they're comparator/structural,
+    # not the claim itself.
+    aggregated_span_decimals: set[str] = set()
+    valid_token_found = False
     for tok in tokens:
         ev = evidence_pool.get(tok.evidence_id)
         if ev is None:
@@ -257,36 +291,45 @@ def verify_sentence_provenance(
                 f"span_invalid:{tok.evidence_id}:{tok.start}-{tok.end}"
             )
             continue
+        valid_token_found = True
         span_text = direct_quote[tok.start:tok.end]
-        if require_number_match:
-            # Strip dose patterns ("2.4 mg", "1.0 mg") from both sides
-            # before comparing — dose is a drug identifier, not the
-            # empirical claim under verification.
-            sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
-            span_stripped = _strip_dose_patterns(span_text)
-            # Only require DECIMAL numbers (14.9, 16.0, 3.4) to appear
-            # in the span, not integers (STEP 1, week 68, 104). The
-            # decimal numbers are the evidence-backed claim; integers
-            # are almost always study identifiers or duration markers
-            # that don't need separate provenance.
-            sentence_decimals = _decimals_in(sentence_stripped)
-            span_decimals = _decimals_in(span_stripped)
-            # If the sentence has NO decimals but has any integers,
-            # fall back to require at least ONE integer in the span.
-            if sentence_decimals:
-                missing = sentence_decimals - span_decimals
-                if missing:
-                    failures.append(
-                        f"number_not_in_span:{tok.evidence_id}:"
-                        f"missing={sorted(missing)}"
-                    )
-            else:
-                sentence_numbers = _numbers_in(sentence_stripped)
-                span_numbers = _numbers_in(span_stripped)
-                if sentence_numbers and not (sentence_numbers & span_numbers):
-                    failures.append(
-                        f"no_integer_overlap:{tok.evidence_id}"
-                    )
+        span_stripped = _strip_dose_patterns(span_text)
+        aggregated_span_decimals |= _decimals_in(span_stripped)
+
+    if require_number_match and valid_token_found:
+        sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
+        # Strip placebo-comparator phrases (treat their numbers as
+        # structural, not claim). Examples: "vs 2.4% with placebo",
+        # "versus 47.6% placebo", "compared to 5% placebo".
+        sentence_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", sentence_stripped)
+        # Strip achievement-threshold patterns.
+        sentence_stripped = _THRESHOLD_RE.sub(" ", sentence_stripped)
+
+        sentence_decimals = _decimals_in(sentence_stripped)
+        if sentence_decimals:
+            missing = sentence_decimals - aggregated_span_decimals
+            if missing:
+                # Aggregate evidence IDs for clearer diagnostic
+                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+                failures.append(
+                    f"number_not_in_any_cited_span:{ev_ids}:"
+                    f"missing={sorted(missing)}"
+                )
+        else:
+            sentence_numbers = _numbers_in(sentence_stripped)
+            aggregated_span_numbers: set[str] = set()
+            for tok in tokens:
+                ev = evidence_pool.get(tok.evidence_id)
+                if ev is None:
+                    continue
+                direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+                span_text = direct_quote[tok.start:tok.end]
+                aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
+            if sentence_numbers and not (sentence_numbers & aggregated_span_numbers):
+                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+                failures.append(
+                    f"no_integer_overlap_any_cited_span:{ev_ids}"
+                )
 
     is_verified = len(failures) == 0
     return SentenceVerification(

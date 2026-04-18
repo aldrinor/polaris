@@ -1,0 +1,54 @@
+{
+  "contradictions_found": 0,
+  "corpus_source": "outputs/polaris_graph/PG_LB_SA_02.json",
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 12,
+  "generator": {
+    "input_tokens": 2676,
+    "model": "deepseek/deepseek-v3.2-exp",
+    "output_tokens": 299,
+    "sentences_dropped": 1,
+    "sentences_kept": 5
+  },
+  "original_query": "What are the proven health benefits and risks of semaglutide (Ozempic/Wegovy) for adults with obesity?",
+  "protocol_sha256": "249393f7a9ddde1f3b239a838f5b3bc903990853b64fc2938bff4fbbf1204e79",
+  "qwen_judge": {
+    "verdicts": {
+      "citation_tightness": {
+        "note": "All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN.",
+        "verdict": "good"
+      },
+      "completeness": {
+        "note": "Primary trials, regulatory status, and key safety data are addressed.",
+        "verdict": "good"
+      },
+      "flow": {
+        "note": "Logical progression from key findings to methods, but lacks explicit limitations section.",
+        "verdict": "acceptable"
+      },
+      "hedging_appropriateness": {
+        "note": "The comparison with tirzepatide is presented as a definitive finding without hedging, despite potential evidence disagreements.",
+        "verdict": "needs_revision"
+      },
+      "tone_consistency": {
+        "note": "Tone remains evidence-grounded without promotional language.",
+        "verdict": "good"
+      }
+    }
+  },
+  "run_id": "APPLES_1776527953",
+  "sources": {
+    "approved": true,
+    "count": 33,
+    "has_material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.0909,
+      "T2": 0.2121,
+      "T3": 0.1515,
+      "T4": 0.1515,
+      "T5": 0.1515,
+      "T6": 0.1818,
+      "T7": 0.0606
+    }
+  }
+}

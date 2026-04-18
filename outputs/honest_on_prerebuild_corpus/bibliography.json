@@ -1,0 +1,51 @@
+[
+  {
+    "evidence_id": "ev_001",
+    "num": 1,
+    "statement": "86.6% of semaglutide participants vs 47.6% of placebo achieved at least 5% body-weight loss at week 68.",
+    "tier": "T1",
+    "url": "https://jamanetwork.com/journals/jama/articlepdf/2777025/jama_wadden_2021_oi_210014_1618250237.04792.pdf"
+  },
+  {
+    "evidence_id": "ev_006",
+    "num": 2,
+    "statement": "Semaglutide participants were 2.37 times as likely to achieve \u22655% weight loss (RR 2.37, 95% CI 1.67 to 3.36).",
+    "tier": "UNKNOWN",
+    "url": "https://www.ajconline.org/article/S00029149(24)00319-9/fulltext"
+  },
+  {
+    "evidence_id": "ev_007",
+    "num": 3,
+    "statement": "Semaglutide participants were 15.08 times as likely to achieve \u226520% weight loss (RR 15.08, 95% CI 9.31 to 24.43).",
+    "tier": "UNKNOWN",
+    "url": "https://www.ajconline.org/article/S00029149(24)00319-9/fulltext"
+  },
+  {
+    "evidence_id": "ev_014",
+    "num": 4,
+    "statement": "Semaglutide improved waist circumference, fasting plasma glucose, and lipid profiles compared to placebo (p<0.01).",
+    "tier": "T7",
+    "url": "https://diabetesjournals.org/diabetes/article/74/Supplement_1/1745-P/160264/1745-P-Long-Term-Safety-and-Efficacy-of-Once"
+  },
+  {
+    "evidence_id": "ev_019",
+    "num": 5,
+    "statement": "Wegovy is FDA approved to reduce MACE risk in adults with established CVD and obesity or overweight.",
+    "tier": "UNKNOWN",
+    "url": "https://www.novomedlink.com/multiple-indications/wegovy-gateway.html"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 6,
+    "statement": "The most common adverse events with semaglutide were gastrointestinal (nausea, diarrhea), generally mild-to-moderate and transient.",
+    "tier": "UNKNOWN",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9769143/"
+  },
+  {
+    "evidence_id": "ev_010",
+    "num": 7,
+    "statement": "A referenced real-world analysis found tirzepatide had lower cardiovascular-event risk than semaglutide in non-diabetic adults with obesity, especially incident heart failure.",
+    "tier": "UNKNOWN",
+    "url": "https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22012"
+  }
+]

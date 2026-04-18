@@ -166,8 +166,13 @@ def _rewrite_draft_with_spans(
                 # Sentence has decimals but the direct_quote (which now
                 # includes head + decimal-window snippets via
                 # _build_provenance_quote) doesn't contain any of them.
-                # This is a genuine provenance gap — leave [ev_XXX]
-                # unconverted so strict_verify drops the sentence.
+                # This is a genuine provenance gap — STRIP the citation
+                # from the sentence so downstream verifier + PT11 don't
+                # see stray `[ev_XXX]` markers. The sentence may still
+                # verify via OTHER citations in the same sentence (union
+                # check). If all citations are stripped, the sentence
+                # has no provenance token and strict_verify drops it.
+                new_sent = new_sent.replace(f"[{marker}]", "", 1)
                 unverifiable += 1
                 continue
             if span is None:

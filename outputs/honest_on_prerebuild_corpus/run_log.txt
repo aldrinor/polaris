@@ -1,0 +1,55 @@
+========================================================================
+APPLES-TO-APPLES run_id=APPLES_1776527953
+========================================================================
+Using pre-rebuild corpus from C:\POLARIS\outputs\polaris_graph\PG_LB_SA_02.json
+Pre-rebuild query (verbatim): 'What are the proven health benefits and risks of semaglutide (Ozempic/Wegovy) for adults with obesity?'
+
+[1/6] scope_gate: protocol sha256=249393f7a9ddde1f...
+[2/6] Re-classified 33 pre-rebuild sources
+       T1: 3
+       T2: 7
+       T3: 5
+       T4: 5
+       T5: 5
+       T6: 6
+       T7: 2
+[3/6] corpus_approval: approved=True, material_deviation=True
+[4/6] contradictions: 4 claims extracted, 0 contradictions flagged
+[5/6] DeepSeek V3.2-Exp generation (evidence=20)...
+       elapsed=11.6s input_tok=2676 output_tok=299 sentences=6 converted=8 unverifiable=1
+       strict_verify: kept=5/6, dropped=1
+       final report: 3200 chars, 372 words
+[6/6] evaluator + Qwen3-8B judge
+       rule checks: 12/12 pass
+         [PASS] PT01 Pre-registered protocol reference present
+         [PASS] PT02 Generator model disclosed
+         [PASS] PT03 Evaluator model disclosed (separate family)
+         [PASS] PT04 Retrieval date disclosed
+         [PASS] PT05 Inclusion / exclusion criteria listed
+         [PASS] PT06 Tier taxonomy (T1-T7) referenced
+         [PASS] PT07 Expected-vs-actual tier distribution reported
+         [PASS] PT08 All detected contradictions disclosed in report
+         [PASS] PT09 Sponsor / COI filter applied
+         [PASS] PT10 Prompt-injection sanitization enabled
+         [PASS] PT11 Numeric claims have citation markers
+         [PASS] PT12 Citation markers don't exceed bibliography size
+       Qwen judge: parse_ok=True input_tok=1355 output_tok=1302
+         [           GOOD] completeness: Primary trials, regulatory status, and key safety data are addressed.
+         [ NEEDS_REVISION] hedging_appropriateness: The comparison with tirzepatide is presented as a definitive finding without hedging, desp
+         [           GOOD] tone_consistency: Tone remains evidence-grounded without promotional language.
+         [     ACCEPTABLE] flow: Logical progression from key findings to methods, but lacks explicit limitations section.
+         [           GOOD] citation_tightness: All factual claims have adjacent citations, though some sources are marked as tier UNKNOWN
+
+Writing side_by_side.md...
+
+========================================================================
+APPLES-TO-APPLES COMPLETE
+========================================================================
+  Honest-rebuild corpus: 33
+  Tier distribution:     T1=9%, T2=21%, T3=15%, T4=15%, T5=15%, T6=18%, T7=6%
+  Contradictions:        0
+  Sentences verified:    5/6
+  Rule checks:           12/12 pass
+  Qwen judge:            {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
+
+  Artifacts in:          C:\POLARIS\outputs\honest_on_prerebuild_corpus

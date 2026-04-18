@@ -102,7 +102,10 @@ def test_verify_sentence_fails_when_span_missing_number() -> None:
     sentence = "Weight loss was 14.9% [#ev:ev_step1:0-20]."
     v = verify_sentence_provenance(sentence, evidence_pool)
     assert v.is_verified is False
-    assert any("number_not_in_span" in r for r in v.failure_reasons)
+    # Post-Fix-3b the failure reason is "number_not_in_any_cited_span"
+    # (the verifier now aggregates across all tokens before declaring
+    # missing-ness).
+    assert any("number_not_in" in r for r in v.failure_reasons)
 
 
 def test_verify_sentence_fails_when_evidence_missing() -> None:
