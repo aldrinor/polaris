@@ -1,0 +1,84 @@
+{
+  "contradictions_disclosed": 1,
+  "contradictions_missing": [],
+  "evaluator_family": "qwen",
+  "evaluator_model": "qwen/qwen3-8b",
+  "generator_family": "deepseek",
+  "generator_model": "deepseek/deepseek-v3.2-exp",
+  "llm_judgments": [],
+  "notes": [],
+  "rule_checks": [
+    {
+      "details": "",
+      "item_id": "PT01",
+      "name": "Pre-registered protocol reference present",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT02",
+      "name": "Generator model disclosed",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT03",
+      "name": "Evaluator model disclosed (separate family)",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT04",
+      "name": "Retrieval date disclosed",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT05",
+      "name": "Inclusion / exclusion criteria listed",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT06",
+      "name": "Tier taxonomy (T1-T7) referenced",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT07",
+      "name": "Expected-vs-actual tier distribution reported",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT08",
+      "name": "All detected contradictions disclosed in report",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT09",
+      "name": "Sponsor / COI filter applied",
+      "passed": true
+    },
+    {
+      "details": "",
+      "item_id": "PT10",
+      "name": "Prompt-injection sanitization enabled",
+      "passed": true
+    },
+    {
+      "details": "4 numeric claims without adjacent citation marker (out of 12 decimals in prose).",
+      "item_id": "PT11",
+      "name": "Numeric claims have citation markers",
+      "passed": false
+    },
+    {
+      "details": "",
+      "item_id": "PT12",
+      "name": "Citation markers don't exceed bibliography size",
+      "passed": true
+    }
+  ]
+}

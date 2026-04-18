@@ -1,0 +1,30 @@
+[
+  {
+    "evidence_id": "ev_006",
+    "num": 1,
+    "statement": "Semaglutide 2.4 mg injection demonstrated significant weight loss ...",
+    "tier": "T4",
+    "url": "https://www.prnewswire.com/news-releases/semaglutide-2-4-mg-injection-demonstrated-significant-weight-loss-versus-placebo-when-added-to-intensive-behavioral-therapy-301167230.html"
+  },
+  {
+    "evidence_id": "ev_008",
+    "num": 2,
+    "statement": "Two-year effects of semaglutide in adults with overweight or obesity",
+    "tier": "T1",
+    "url": "https://www.nature.com/articles/s41591-022-02026-4"
+  },
+  {
+    "evidence_id": "ev_003",
+    "num": 3,
+    "statement": "Semaglutide 2.4mg: Efficacy & Safety in Overweight Patients on ...",
+    "tier": "T4",
+    "url": "https://breakthroughsforphysicians.nm.org/endocrinology-research-podcast-obesity-management-diabetes-semaglutide"
+  },
+  {
+    "evidence_id": "ev_013",
+    "num": 4,
+    "statement": "STEP UP Trial: Significant Weight Loss Observed With Higher Dose ...",
+    "tier": "T4",
+    "url": "https://www.endocrinologyadvisor.com/news/step-up-trial-significant-weight-loss-observed-with-higher-dose-semaglutide/"
+  }
+]

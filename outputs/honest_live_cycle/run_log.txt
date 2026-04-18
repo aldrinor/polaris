@@ -1,0 +1,73 @@
+========================================================================
+LIVE HONEST-REBUILD CYCLE  run_id=LIVE_HONEST_1776526419
+========================================================================
+Run dir:    C:\POLARIS\outputs\honest_live_cycle
+Question:   What is the efficacy and safety of semaglutide 2.4mg for weight loss in adults with obesity?
+Time start: 2026-04-18 08:33:39
+
+[1/7] SCOPE GATE — writing protocol.json
+       sha256=29b9fef4ee9b2c27...  needs_review=False
+
+[2/7] LIVE RETRIEVAL — Serper + Semantic Scholar + OpenAlex enrich
+       pre-filter candidates=554, fetched=8, failed_fetch=16, elapsed=73.6s
+       api_calls={'serper': 4, 's2': 4, 'openalex': 23, 'fetch': 24}
+       note: scope_query_validator: 4 kept / 1 dropped
+
+[3/7] CORPUS APPROVAL GATE — computing tier distribution
+       total=24  distribution: T1=38%, T3=4%, T4=38%, T5=4%, T7=17%
+       material_deviation=True
+       deviation-approval: ACCEPTED  
+
+[4/7] CONTRADICTION DETECTION
+       extracted=4 numeric claims, contradictions=1
+       - semaglutide/weight loss rel_diff=314.0% severity=high
+
+[5/7] DEEPSEEK V3.2-EXP LIVE GENERATION
+       model=deepseek/deepseek-v3.2-exp  elapsed=13.5s
+       input_tok=5638 output_tok=358
+       raw_draft_chars=1403
+       sentences=8 citations_converted=6 unverifiable=1
+
+[6/7] STRICT PROVENANCE VERIFICATION
+       total=8, verified=6, dropped=2
+   dropped: In adults with overweight or obesity, semaglutide 2.4 mg once weekly demonstrates signific
+      reasons: no_provenance_token
+   dropped: The long-term STEP 5 trial showed a mean body weight change from baseline to week 104 of -
+      reasons: no_provenance_token
+       final report: 2997 chars, 371 words, biblio=4
+
+[7/7] EVALUATOR — rule checks + Qwen3-8B judge
+       rule checks: pass=11 fail=1
+         [PASS] PT01 Pre-registered protocol reference present
+         [PASS] PT02 Generator model disclosed
+         [PASS] PT03 Evaluator model disclosed (separate family)
+         [PASS] PT04 Retrieval date disclosed
+         [PASS] PT05 Inclusion / exclusion criteria listed
+         [PASS] PT06 Tier taxonomy (T1-T7) referenced
+         [PASS] PT07 Expected-vs-actual tier distribution reported
+         [PASS] PT08 All detected contradictions disclosed in report
+         [PASS] PT09 Sponsor / COI filter applied
+         [PASS] PT10 Prompt-injection sanitization enabled
+         [FAIL] PT11 Numeric claims have citation markers — 4 numeric claims without adjacent citation marker (out of 12 decimals in prose).
+         [PASS] PT12 Citation markers don't exceed bibliography size
+
+       Qwen3-8B live judge call...
+       model=qwen/qwen3-8b elapsed=18.5s parse_ok=True input_tok=1211 output_tok=1049
+       [           GOOD] tone_consistency: Maintains evidence-grounded tone without promotional language
+       [ NEEDS_REVISION] completeness: Missing regulatory status information despite T3 sources in bibliography
+       [ NEEDS_REVISION] citation_tightness: Contradiction disclosure lacks citation markers for the discrepancy values [5.0,
+       [     ACCEPTABLE] hedging_appropriateness: Claims are supported by citations but contradiction disclosure lacks hedging for
+       [     ACCEPTABLE] flow: Logical progression from efficacy to safety, but contradiction disclosure disrup
+
+========================================================================
+LIVE CYCLE COMPLETE
+========================================================================
+  Sources retrieved:      24
+  Tier fractions:         T1=38%, T3=4%, T4=38%, T5=4%, T7=17%
+  Contradictions:         1
+  Sentences verified:     6/8
+  Rule checks:            11/12 pass
+  Qwen judge:             {'good': 1, 'acceptable': 2, 'needs_revision': 2, 'unknown': 0}
+
+  Artifacts in:           C:\POLARIS\outputs\honest_live_cycle
+
