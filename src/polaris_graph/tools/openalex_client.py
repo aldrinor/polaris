@@ -67,6 +67,53 @@ class OpenAlexWork:
             return "SILVER"
         return "BRONZE"
 
+    def authority_tier_t7(
+        self,
+        *,
+        url: str = "",
+        source_type_hint: str = "",
+        fetched_content_length: int = 0,
+        publisher: str = "",
+    ) -> str:
+        """HONEST-REBUILD Phase 2f — return a T1-T7 tier via the new rules.
+
+        Runs the OpenAlex metadata through the Phase 2a tier_classifier
+        so regulatory documents (T3), industry marketing (T5), student
+        journals (T6), conference abstracts (T7), and other tiers that
+        the legacy GOLD/SILVER/BRONZE scheme conflated are separated
+        cleanly.
+
+        Returns one of: "T1", "T2", "T3", "T4", "T5", "T6", "T7",
+        "UNKNOWN". Callers should prefer this over .authority_tier()
+        for anything downstream that shows tier distribution to the
+        user (Phase 2g corpus-approval gate) or filters synthesis
+        (Phase 4 generator).
+
+        Retraction check stays here: retracted works are returned as
+        "UNKNOWN" to signal they should be excluded from the corpus
+        regardless of tier.
+        """
+        if self.is_retracted or self.type == "erratum":
+            return "UNKNOWN"
+        from src.polaris_graph.retrieval.tier_classifier import (  # noqa: E402
+            ClassificationSignals,
+            classify_source_tier,
+        )
+        sig = ClassificationSignals(
+            url=url,
+            title=self.title or "",
+            publisher=publisher or self.source_name or "",
+            fetched_content_length=fetched_content_length,
+            openalex_publication_type=self.type or "",
+            openalex_source_type=self.source_type or "",
+            openalex_is_peer_reviewed=(
+                self.type in {"article", "review"} and self.source_type == "journal"
+            ),
+            source_type_hint=source_type_hint or "",
+        )
+        result = classify_source_tier(sig)
+        return result.tier.value
+
 
 def _cache_init() -> None:
     CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
