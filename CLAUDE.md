@@ -150,50 +150,94 @@ If any required file is missing, unreadable, or if the APD cannot be synthesized
 
 ## §5. POLARIS Repository Layout
 
+**Current state as of 2026-04-18 cleanup. See `architecture.md` and
+`docs/file_directory.md` for full detail.** POLARIS currently hosts
+**three parallel pipelines** (A: honest-rebuild sweep, B: UI web
+server, C: frozen legacy CLI). This is honest repo state, not ideal
+state — retirement of pipeline C is tracked in `docs/todo_list.md`.
+
 ```
 POLARIS/
 ├── CLAUDE.md              # This file (Project directives)
-├── architecture.md        # System architecture specification
+├── architecture.md        # Current-state architecture (rewritten 2026-04-18)
 ├── ground_rules.md        # Engineering ground rules
-├── .env                   # Environment variables (API keys)
+├── README.md              # Three-pipeline overview
+├── .env                   # Environment variables (API keys) — gitignored
 ├── requirements.txt       # Python dependencies
 │
 ├── src/
-│   ├── phases/            # 13 CLI phase scripts (p00-p12)
-│   ├── schemas/           # Pydantic models (The Law)
-│   ├── state/             # Ledger and state management
-│   ├── memory/            # ChromaDB wrappers (VWM/LTM)
-│   └── utils/             # Shared utilities
+│   ├── polaris_graph/     # ACTIVE. Pipelines A + B. 159 commits in last 60 days.
+│   │   ├── nodes/         # Pre-generation gates (scope, approval, adequacy, completeness)
+│   │   ├── retrieval/     # live_retriever, tier_classifier, domain_backends, ...
+│   │   ├── generator/     # multi_section, live_deepseek, provenance (strict_verify)
+│   │   ├── evaluator/     # external_evaluator, live_qwen_judge
+│   │   ├── llm/           # openrouter_client + two-family segregation
+│   │   ├── graph.py, graph_v2.py, graph_v3.py  # LangGraph variants (pipeline B)
+│   │   ├── memory/        # campaign/cross-vector/content cache (pipeline B)
+│   │   └── ...
+│   ├── orchestration/     # FROZEN 2026-03-16 (pipeline C). See folder README.
+│   ├── auth/              # Auth middleware (pipeline B UI)
+│   ├── tools/             # Active tool clients
+│   ├── audit/             # Automated deep audit
+│   ├── config/            # Config loaders
+│   └── ...                # See docs/file_directory.md for full inventory
 │
 ├── config/
-│   └── settings/          # YAML configuration files
+│   ├── settings/          # YAML configuration files
+│   ├── scope_templates/   # Per-domain scope protocols
+│   └── completeness_checklists/
 │
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/          # Test data (only place for mock data)
+│   └── polaris_graph/     # 305 tests, all passing against pipeline A
 │
-├── outputs/
-│   └── P{0-12}/           # Phase outputs (JSON contracts)
+├── outputs/               # Runtime artifacts (gitignored, except codex_findings/)
+│   ├── honest_sweep_*/    # Pipeline A sweep artifacts
+│   └── codex_findings/    # 5-round Codex↔Claude audit record (tracked)
 │
-├── state/
-│   ├── work_queue.json    # 175 vectors to process
-│   ├── progress_ledger.jsonl  # Append-only execution log
-│   └── last_pointer.json  # Resume point
-│
-├── logs/
+├── state/                 # Pipeline state files (gitignored)
+├── logs/                  # Runtime logs (gitignored)
 │   ├── session_log.md
-│   └── bug_log.md
+│   ├── bug_log.md
+│   └── pg_cost_ledger.jsonl
 │
 ├── docs/
-│   ├── todo_list.md
-│   ├── file_directory.md
-│   └── runbook.md
+│   ├── todo_list.md       # Prioritized backlog
+│   ├── file_directory.md  # Inventory of active code
+│   ├── runbook.md         # How to run each pipeline end-to-end
+│   ├── live_code_audit.md # Static import-closure analysis
+│   └── compliance/        # Compliance references
 │
-└── scripts/
-    ├── preflight.py       # The Sheriff (static analysis)
-    └── flight_test.py     # Single vector test runner
+├── scripts/
+│   ├── run_honest_sweep_r3.py    # Pipeline A main entry
+│   ├── run_r6_validation.py      # Pipeline A 4-query revalidation
+│   ├── live_server.py            # Pipeline B FastAPI UI (Docker default)
+│   ├── full_cycle.py             # Pipeline C (FROZEN, has broken imports)
+│   ├── audit_live_code.py        # Static import-closure analysis
+│   ├── codex_loop_parse.py       # Codex verdict parser
+│   ├── pg_preflight_v2.py        # Environment check (Docker `preflight` subcommand)
+│   └── ...                       # 130 total scripts; many are one-off tools
+│
+├── .codex/                # Codex↔Claude audit loop infrastructure
+├── Dockerfile             # python:3.11-slim + WeasyPrint, ENTRYPOINT → live_server
+├── docker-compose.yml     # web + chromadb (+ searxng + vllm in sovereign profile)
+│
+└── archive/               # Historical snapshots (gitignored, ~36GB)
+    └── 2026-04-18-pre-audit-cleanup/  # Recent repo cleanup artifacts
 ```
+
+**Paths that NO LONGER EXIST** (removed or never existed in the
+current codebase, despite appearing in older documentation):
+
+- `src/phases/` (the old "P0-P12" 13-phase scripts) — removed 2026-04-17
+- `src/runner.py` — never existed in current tree
+- `scripts/preflight.py`, `scripts/flight_test.py`,
+  `scripts/postflight_audit.py` — replaced by `pg_preflight_v2.py`;
+  single-vector testing now happens via `run_honest_sweep_r3.py --only`
+- `outputs/P{0..12}/` — no longer the output layout
+- `state/work_queue.json` with "175 vectors exactly" — deprecated invariant
+- `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced by
+  pipeline C but do not exist; pipeline C is broken until these are
+  either restored or pipeline C is retired
 
 ---
 
@@ -259,41 +303,73 @@ next_actions: [short list]
 
 ## §9. POLARIS-Specific Invariants
 
+**Applies to pipeline A (honest-rebuild). Pipeline B (UI) and pipeline
+C (frozen legacy) are governed separately — see `architecture.md`.**
+
 ### 9.1 Core Invariants (Non-Negotiable)
-1. **175 Vectors Exactly:** System halts if vector count != 175.
-2. **13 Phases as Binaries:** Each phase is a standalone CLI script.
-3. **JSON Contracts:** Phases communicate ONLY via JSON files in `outputs/`.
-4. **Late-Binding Citations:** [CITE:chunk_id] tokens resolved in Phase 11 only.
-5. **Tri-Level Memory:** VWM (session) → LTM-Stage (stage) → LTM-Global (persistent).
 
-### 9.2 Quality Gates
-| Phase | Gate | Threshold | Fail Action |
-|-------|------|-----------|-------------|
-| 2 | Query count | >= 20 | Retry |
-| 3 | Fetch success | >= 60% | Warn |
-| 4 | Chunks passed | >= 10 | CASE_2 |
-| 6 | Integrity score | >= 0.70 | CASE_4 |
-| 11 | Word count | >= 2000 | Revise |
-| 11 | Citation count | >= 5 | Revise |
+1. **Two-family evaluator**: generator and evaluator MUST be from
+   different training lineages. `openrouter_client.check_family_segregation`
+   raises `RuntimeError` at construction if violated.
+2. **Provenance tokens**: every generated sentence carries
+   `[#ev:<evidence_id>:<start>-<end>]` tokens. Sentences without valid
+   tokens are dropped by `strict_verify`.
+3. **Strict verify**: per-sentence check enforces (a) evidence-id in pool,
+   (b) span bounds valid, (c) every decimal in sentence appears in span,
+   (d) sentence and span share ≥2 content words
+   (`PG_PROVENANCE_MIN_CONTENT_OVERLAP`). Fabricated claims fail at least
+   one of these.
+4. **Zero-verified abort**: if every section fails strict_verify,
+   `report.md` is a pipeline-verdict artifact (not an empty-findings
+   pseudo-report). Status: `abort_no_verified_sections`.
+5. **Corpus approval enforcement**: a corpus with material tier deviation
+   plus a rubber-stamp note aborts before any generator token is billed.
+   Status: `abort_corpus_approval_denied`.
+6. **Budget cap holds even without `usage.cost`**: `_impute_cost_from_tokens`
+   backstops token-only responses. Negative tokens clamp to zero.
+7. **Delimiter sanitization** (prompt-injection defense): evidence text
+   containing `<<<evidence:...>>>` or other delimiter literals —
+   including via NFKD/invisible-char/homoglyph evasions — is neutralized
+   before prompt wrapping. Byte-preserves legitimate multilingual content.
 
-### 9.3 Gating Cases
-| Case | Condition | Action |
-|------|-----------|--------|
-| CASE_1 | Sufficient evidence, high confidence | Finalize, promote to LTM-Global |
-| CASE_2 | Partial evidence | Schedule refinement iteration |
-| CASE_3 | Insufficient evidence | Return gap report, retry |
-| CASE_4 | Critical failure | HALT, escalate for review |
+### 9.2 Quality Gates (pipeline A)
 
-### 9.4 The Sheriff
-`scripts/preflight.py` enforces code quality automatically. If it fails, the build is rejected.
+| Gate | Threshold | Fail Action |
+|---|---|---|
+| Corpus adequacy | Min sources per tier (template-driven) | `abort_corpus_inadequate` |
+| Corpus approval | Auto-approved OR substantive operator note | `abort_corpus_approval_denied` |
+| Strict verify (per sentence) | Numeric match + ≥2 content-word overlap | Drop sentence |
+| Strict verify (per section) | ≥40% sentences verified | Attempt one regeneration |
+| Strict verify (pipeline) | At least one section with verified prose | `abort_no_verified_sections` |
+| Budget | Accumulated cost ≤ `PG_MAX_COST_PER_RUN` | `BudgetExceededError` |
 
-**Forbidden Patterns:**
-- `try: ... except: pass` (silent failure)
-- `import unittest.mock` in production code
-- Hard-coded vector IDs in `src/phases/`
-- Magic numbers (`if score > 0.7` instead of `config.thresholds.gold`)
+### 9.3 Pipeline verdict statuses (manifest.json)
+
+| Status | Condition |
+|---|---|
+| `success` | All gates passed, generator produced verified prose |
+| `abort_scope_rejected` | Scope gate rejected the research question |
+| `abort_corpus_inadequate` | Corpus adequacy gate failed (not enough sources) |
+| `abort_corpus_approval_denied` | Corpus approval gate rejected (rubber-stamp note on material deviation) |
+| `abort_no_verified_sections` | Every generated section failed strict_verify |
+| `error_*` | Unexpected failure (API outage, malformed response, etc.) |
+
+### 9.4 Code hygiene (enforced by test suite, not a separate Sheriff)
+
+**Forbidden patterns** (tests in `tests/polaris_graph/` detect these):
+
+- `try: ... except: pass` without logging or re-raise (silent failure)
+- `import unittest.mock` or `from unittest.mock import ...` in `src/`
+  production code
+- Magic numbers (`if score > 0.7` instead of a named constant or env var)
 - `time.sleep()` to simulate work
-- `# TODO`, `# FIXME`, `pass` as function body
+- `# TODO`, `# FIXME`, `# XXX`, `pass` as function body
+- Mocking the live-evidence database in integration tests (per user
+  feedback memory: integration tests must hit real data sources)
+
+Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
+currently meet these invariants. It is frozen; see
+`src/orchestration/FROZEN_SINCE_2026-03-16.md`.
 
 ---
 

@@ -1,162 +1,214 @@
-# POLARIS Research Pipeline
+# POLARIS
 
-A high-integrity, multi-phase research pipeline for evidence-based analysis with citation verification and adversarial quality assurance.
+High-integrity research pipeline: turns a plain-language research
+question into a grounded, per-sentence-verified markdown report with
+bibliography, corpus-approval gate, and a separate-family evaluator.
 
-## Overview
+## Current state (2026-04-18)
 
-POLARIS implements a 13-phase pipeline (P0-P12) for automated research:
+POLARIS currently runs **three parallel pipelines**. This is not by
+design — it is the honest state of the repo. See `architecture.md` and
+`docs/live_code_audit.md` for why.
 
-| Phase | Name | Function |
-|-------|------|----------|
-| P0 | Initialization | Vector registration, novelty check |
-| P1 | Contextualization | Strategic research planning (HPRP) |
-| P2 | Query Generation | Multi-modal search query creation |
-| P3 | Search Execution | Federated search across 4 engines |
-| P4 | Relevance Filtering | Two-stage IsREL with cross-encoder |
-| P5 | VWM Indexing | Vector embedding + ChromaDB storage |
-| P6 | NLI Integrity | DeBERTa contradiction detection |
-| P7 | Dual RAG | Dense + Sparse retrieval fusion |
-| P8 | Adversarial QA | Skeptical question generation |
-| P9 | Gating Logic | CASE_1/2/3/4 decision matrix |
-| P10 | Knowledge Integration | LTM promotion, claim archival |
-| P11 | Research Packaging | Citation binding, report generation |
-| P12 | Narrative Synthesis | Cross-vector pattern extraction |
+| Pipeline | Purpose | Entry | Status |
+|---|---|---|---|
+| **A. Honest-rebuild** | Clean-room sweep orchestrator. Writes per-query manifests + `report.md` under `outputs/honest_sweep_*/`. Used for the 8-query validation sweep. | `python -m scripts.run_honest_sweep_r3` | Active — 159 commits in last 60 days. Hardened via 5-round Codex↔Claude audit (see `outputs/codex_findings/`). |
+| **B. UI server** | FastAPI web server that the Docker default entrypoint (`serve`) launches. Hosts a single-vector research UI that uses the v1/v2/v3 LangGraph variants under `src/polaris_graph/`. | `uvicorn scripts.live_server:app` (Docker default) | Active — last updated 2026-04-17. |
+| **C. Legacy CLI research** | Docker `research` subcommand → `full_cycle.py` → `src/orchestration/graph.run_research()`. | `python -m scripts.full_cycle` | **Frozen since 2026-03-16**. Also has broken imports (`scripts/final_audit.py` and `scripts/run_ragas_v3.py` no longer exist). See `src/orchestration/FROZEN_SINCE_2026-03-16.md`. |
 
-## Installation
+> The prior README advertised a fictional 13-phase "P0-P12" pipeline
+> that has not existed in this repo for months. That document was
+> archived on 2026-04-18 and replaced with the current-state description
+> in `architecture.md`.
+
+## Quick start — pipeline A (the one we actively test)
 
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd POLARIS
-
-# Create virtual environment
+# 1. Install
 python -m venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Linux/Mac
-
-# Install dependencies
+.venv\Scripts\activate    # Windows
+# source .venv/bin/activate  # macOS/Linux
 pip install -r requirements.txt
 
-# Copy environment template
-cp .env.example .env
-# Edit .env with your API keys:
-# - GEMINI_API_KEY
-# - SERPER_API_KEY
+# 2. Configure — set these in .env
+#    OPENROUTER_API_KEY=...     (required for generator + evaluator)
+#    SERPER_API_KEY=...         (required for primary web search)
+#    SEMANTIC_SCHOLAR_API_KEY=... (optional — academic search)
+
+# 3. Run one query against the 8-query validation sweep
+python -m scripts.run_honest_sweep_r3 \
+    --only clinical_tirzepatide_t2dm \
+    --out-root outputs/dev_smoke
+
+# 4. Or run all 8 queries
+python -m scripts.run_honest_sweep_r3
+
+# 5. Inspect
+ls outputs/dev_smoke/*/
+#   manifest.json  — pipeline verdict + cost + gates
+#   report.md      — verified findings OR pipeline-verdict artifact
+#   corpus_approval.json, contradictions.json, etc.
 ```
 
-## Quick Start
+Each run produces one of three manifest statuses:
+
+- `success` — all gates passed, `report.md` has verified findings + bibliography
+- `abort_*` — a pipeline gate refused to continue (e.g.
+  `abort_corpus_approval_denied`, `abort_no_verified_sections`,
+  `abort_corpus_inadequate`). No LLM tokens billed past the abort
+  point. `report.md` is a pipeline-verdict artifact, not a content report.
+- `error_*` — an unexpected failure
+
+## Quick start — pipeline B (the web UI)
 
 ```bash
-# Run preflight checks
-python scripts/preflight.py
+# Local
+uvicorn scripts.live_server:app --host 0.0.0.0 --port 8000
 
-# Run a single vector through the full pipeline
-python scripts/flight_test.py --vector-id S1V1_Household_Water_Filter_NORTH_AMERICA
-
-# Run P6-P12 only (for vectors with existing P0-P5 outputs)
-python -m src.runner --vector-id S1V1_Household_Water_Filter_NORTH_AMERICA
-
-# Run postflight audit on outputs
-python scripts/postflight_audit.py --dir outputs/P11
+# Or via Docker
+docker compose up web
+# Visit http://localhost:8000
 ```
 
-## Gating Cases
+## Pipeline A architecture at a glance
 
-The P9 gating logic produces one of four outcomes:
+```
+research_question
+    │
+    ▼
+scope_gate ──────────────────► if off-topic → abort_scope_rejected
+    │
+    ▼
+live_retriever ──► corpus_adequacy_gate ──► if too thin → abort_corpus_inadequate
+    │                 (tier mix check)
+    ▼
+corpus_approval_gate ──► if rubber-stamp on material deviation → abort_corpus_approval_denied
+    │                  (human note required when corpus deviates)
+    ▼
+contradiction_detector  ──► contradictions.json
+    │
+    ▼
+multi_section_generator (DeepSeek V3.2-Exp)
+    │   — outline → parallel sections → per-sentence provenance tokens
+    │
+    ▼
+provenance_generator.strict_verify   ──► drop sentences whose
+    │                                    [#ev:id:start-end] span
+    │                                    doesn't contain the numeric
+    │                                    claim AND ≥2 content-word
+    │                                    overlap. If zero verified →
+    │                                    abort_no_verified_sections.
+    ▼
+live_qwen_judge (Qwen3-8B, DIFFERENT FAMILY from generator)
+    │
+    ▼
+external_evaluator.run_external_evaluation
+    │
+    ▼
+report.md + manifest.json
+```
 
-| Case | Condition | Action |
-|------|-----------|--------|
-| CASE_1 | Sufficiency >= 0.60, Confidence >= 0.50, Integrity >= 0.55 | Finalize (P10-P12) |
-| CASE_2 | Sufficiency >= 0.40, Integrity >= 0.55, iterations < 3 | Re-iterate P7-P9 |
-| CASE_3 | Integrity >= 0.55, insufficient evidence | Generate gap report |
-| CASE_4 | Integrity < 0.55 | Generate failure report |
+## Hardness invariants (round-tested)
 
-## Directory Structure
+Five invariants were stress-tested through a 5-round Codex↔Claude
+audit (2026-04-18). All closed. See `outputs/codex_findings/round_*/`
+for full findings + responses.
+
+- **B-1 semantic grounding**: non-numeric claims require ≥2 content-word
+  overlap between sentence and cited span.
+- **B-2 corpus-approval enforcement**: rubber-stamp note on a corpus
+  with material tier deviation aborts before the first generator token.
+- **B-3 zero-verified abort**: if every generated section fails
+  strict_verify, `report.md` is a pipeline-verdict artifact, not an
+  empty-findings report masquerading as success.
+- **B-4 budget cap**: `PG_MAX_COST_PER_RUN` holds even when OpenRouter
+  omits `usage.cost` in its response (token-based imputation; negative
+  tokens clamped to zero).
+- **B-5 delimiter sanitization**: evidence content containing
+  `<<<evidence:...>>>` / `<<<end_evidence>>>` literals, including via
+  NFKC/NFKD Unicode evasions, zero-width/invisible codepoints, bidi
+  overrides, and Cyrillic/Greek homoglyphs, cannot forge a false
+  evidence boundary and inject directives.
+
+## Repo layout
 
 ```
 POLARIS/
-├── config/
-│   ├── settings/
-│   │   ├── thresholds.yaml    # Quality thresholds
-│   │   ├── models.yaml        # LLM configuration
-│   │   └── search_sources.yaml
-│   └── vector_library.py      # Vector definitions (175 vectors)
+├── architecture.md          — current-state architecture (rewritten 2026-04-18)
+├── CLAUDE.md                — operational directives (non-negotiable)
+├── ground_rules.md          — engineering ground rules
+├── README.md                — this file
 │
 ├── src/
-│   ├── phases/                # P0-P12 implementations
-│   ├── schemas/               # Pydantic models
-│   ├── memory/                # ChromaDB integration
-│   ├── llm/                   # Gemini client
-│   ├── search/                # Search engines
-│   ├── state/                 # Ledger management
-│   ├── utils/                 # Citation registry, cost tracker
-│   └── runner.py              # P6-P12 orchestrator
+│   ├── polaris_graph/       — pipelines A + B (active, 159 commits in last 60 days)
+│   │   ├── nodes/           — scope_gate, corpus_approval_gate, ...
+│   │   ├── retrieval/       — live_retriever, tier_classifier, ...
+│   │   ├── generator/       — multi_section, live_deepseek, provenance
+│   │   ├── evaluator/       — external_evaluator, live_qwen_judge
+│   │   ├── llm/             — openrouter_client (with two-family check)
+│   │   ├── graph.py, graph_v2.py, graph_v3.py  — LangGraph variants (pipeline B)
+│   │   ├── memory/          — campaign/cross-vector stores (pipeline B)
+│   │   └── ...
+│   ├── orchestration/       — pipeline C (FROZEN 2026-03-16, see folder's README)
+│   ├── auth/                — auth middleware for pipeline B UI
+│   ├── tools/               — active tool clients
+│   ├── audit/               — automated deep audit
+│   ├── config/              — config loaders
+│   ├── agents/              — agent-style helpers
+│   └── ...                  — see docs/file_directory.md
 │
 ├── scripts/
-│   ├── preflight.py           # Environment checks
-│   ├── flight_test.py         # Full pipeline runner
-│   ├── postflight_audit.py    # Output verification
-│   ├── debug_p6.py            # NLI contradiction analyzer
-│   └── clean_vwm_garbage.py   # VWM data cleanup
+│   ├── run_honest_sweep_r3.py   — pipeline A entry (active)
+│   ├── run_r6_validation.py     — 4-query revalidation
+│   ├── live_server.py           — pipeline B FastAPI (active)
+│   ├── full_cycle.py            — pipeline C (frozen)
+│   ├── audit_live_code.py       — static import-closure audit
+│   ├── codex_loop_parse.py      — Codex verdict parser
+│   └── ...                      — see docs/file_directory.md
 │
-├── outputs/                   # Phase outputs (P0-P12)
-├── state/                     # Progress ledger, cost tracker
-└── memory/chroma_db/          # Vector database
+├── tests/polaris_graph/     — 305 tests, all passing against pipeline A
+│
+├── config/settings/         — active YAML configuration
+├── data/                    — reproducible benchmarks (gitignored)
+├── outputs/                 — runtime artifacts (gitignored), except
+│                              outputs/codex_findings/ (audit record)
+├── logs/                    — runtime logs (gitignored)
+├── state/                   — pipeline state files (gitignored)
+│
+├── docs/
+│   ├── file_directory.md    — inventory of active code
+│   ├── todo_list.md         — prioritized backlog
+│   ├── live_code_audit.md   — static import-closure analysis
+│   └── runbook.md           — how to run each pipeline end-to-end
+│
+├── .codex/                  — Codex↔Claude audit loop infrastructure
+│   └── LOOP_PROTOCOL.md
+│
+└── archive/                 — historical snapshots (gitignored, 36GB+)
+    └── 2026-04-18-pre-audit-cleanup/   — this cleanup's artifacts
 ```
 
-## Configuration
-
-All thresholds are in `config/settings/thresholds.yaml`:
-
-```yaml
-gating:
-  case1_sufficiency: 0.60
-  case1_confidence: 0.50
-  case4_integrity: 0.55
-
-output:
-  min_word_count: 500
-  min_citations: 5
-```
-
-## Cost Tracking
-
-The pipeline tracks LLM costs with a default $5.00 budget:
+## Running the test suite
 
 ```bash
-# Check current spend
-python -c "from src.utils.cost_tracker import get_cost_tracker; ct = get_cost_tracker(); print(f'Spent: {ct.get_total_cost()}, Remaining: {ct.get_remaining_budget()}')"
-
-# Reset cost tracker
-python -c "from src.utils.cost_tracker import get_cost_tracker; get_cost_tracker().reset()"
+python -m pytest tests/polaris_graph/ -v
+# Expected: 305 passed
 ```
 
-## Troubleshooting
+## Observability
 
-### CASE_4 Results
+- `logs/pg_cost_ledger.jsonl` — per-call cost tracking (JSONL)
+- `logs/session_log.md` — append-only operational log
+- `logs/bug_log.md` — defects and blockers register
 
-If vectors produce CASE_4 (failure reports):
+## Further reading
 
-1. **Run debug script**: `python scripts/debug_p6.py <vector_id>`
-2. **Check for garbage data**: Binary/PDF/EXIF metadata in chunks
-3. **Clean VWM**: `python scripts/clean_vwm_garbage.py --vector-id <id> --execute`
-4. **Re-run pipeline**: `python -m src.runner --vector-id <id>`
-
-### Common Issues
-
-- **P8 returns 0 evidence**: Check ChromaDB collection exists
-- **High contradiction count**: Run VWM garbage cleanup
-- **Budget exceeded**: Reset cost tracker or increase limit
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `preflight.py` | Environment and dependency checks |
-| `flight_test.py` | Full P0-P12 pipeline execution |
-| `postflight_audit.py` | Output verification (citation integrity, logic consistency) |
-| `debug_p6.py` | Analyze NLI contradictions and garbage data |
-| `clean_vwm_garbage.py` | Remove binary/metadata garbage from VWM |
+- `architecture.md` — detailed architecture (current state only)
+- `docs/runbook.md` — how to run each pipeline end-to-end
+- `docs/live_code_audit.md` — which files are reachable from which entry points
+- `outputs/codex_findings/round_{1..5}/` — 5-round Codex↔Claude audit record
+- `CLAUDE.md` — operational directives (non-negotiable)
+- `ground_rules.md` — engineering ground rules
 
 ## License
 

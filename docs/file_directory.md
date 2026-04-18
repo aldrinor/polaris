@@ -1,865 +1,243 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-12 (Session 57 — wiki/mesh Unit 10 complete — ALL 10 UNITS DONE)
-**Status**: 204 v3 tests passing. 283/283 wiki mesh Unit 1-10 tests green. 10 of 10 mesh units complete.
+**Last Updated**: 2026-04-18 (post-audit cleanup)
+**Status**: 305 tests passing against pipeline A. Repo cleaned: 162 orphans archived, 37 stale docs archived, 56MB of working-tree scratch moved to `archive/2026-04-18-pre-audit-cleanup/`.
+
+**This document describes only ACTIVE code.** For the static
+import-closure analysis that produced this view, see
+`docs/live_code_audit.md`. For the full file inventory the audit
+produced, see `docs/live_code_audit.json`.
 
 ---
 
-## Key Architecture Notes
-
-- **TWO SYSTEMS**: `src/polaris_graph/` = PRODUCTION, `src/phases/` + `src/orchestration/` = LEGACY (kept for reference only)
-- **Entry point**: `src/polaris_graph/graph.py::build_and_run()`
-- **LLM**: All calls via OpenRouter -> Kimi K2.5 1T
-- **Major cleanup 2026-02-23**: 13 dead `src/` dirs removed, 27 legacy scripts archived, 14 stale docs archived, 8.5GB duplicate checkpoints archived, empty output dirs removed, old logs archived
-
----
-
-## 1. Root Level Files
-
-| File | Purpose | Status |
-|------|---------|--------|
-| `CLAUDE.md` | AI agent operational directives and project laws | ACTIVE |
-| `architecture.md` | Complete system architecture specification | ACTIVE |
-| `ground_rules.md` | Engineering ground rules and conventions | ACTIVE |
-| `README.md` | Project overview and quick start guide | ACTIVE |
-| `requirements.txt` | Python dependencies (incl. fastapi, uvicorn, sse-starlette, slowapi, weasyprint) | ACTIVE |
-| `pytest.ini` | Pytest configuration | ACTIVE |
-| `.env` | Environment variables (API keys, feature flags, thresholds, 1540+ lines) | ACTIVE - SENSITIVE |
-| `Dockerfile` | Python 3.11-slim container with WeasyPrint deps and health check | ACTIVE |
-| `docker-compose.yml` | 4-service compose: web, chromadb, searxng (sovereign), vllm (sovereign) | ACTIVE |
-| `.dockerignore` | Excludes logs/, outputs/, archive/, .env, __pycache__, tests/ | ACTIVE |
-
----
-
-## 2. src/polaris_graph/ -- PRODUCTION System (Core Files)
-
-The production LangGraph research pipeline. Entry point: `graph.py::build_and_run()`.
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 33 | Module exports |
-| `graph.py` | 1437 | v1 LangGraph workflow (8-node: plan, search, storm_interviews, analyze, verify, evaluate, synthesize, search_gaps) |
-| `graph_v2.py` | ~500 | **v2 CRAG pipeline** (11-node: plan->search->storm->fetch_content->crag_analyze->plan_outline->blueprint->write*N->verify*N->assemble). Send API parallel writers/verifiers. PG_V2_ENABLED toggle. |
-| `state.py` | ~525 | Pipeline state TypedDict and env var management. Added memory_ltm_priors, uploaded_documents (Sprint 1), smart_art_diagrams (Sprint 2) |
-| `document_ingester.py` | ~400 | Local document parser: 9 formats (PDF/DOCX/XLSX/PPTX/TXT/MD/CSV/HTML). Zero external API calls (A7.2) |
-| `schemas.py` | 1355 | Pydantic models for pipeline state (EvidencePiece, ClusterPlan, SectionDraft, ReportOutline, etc.) |
-| `tracing.py` | 228 | JSONL execution tracing (11 event types: +reasoning_capture, storm_transcript, iteration_decision) |
-| `checkpoint_manager.py` | 595 | Checkpoint save/restore for pipeline resume. Extended Sprint 2: list_checkpoints(), get_checkpoint_state(), rewind_to_checkpoint() (A2) |
-| `pipeline_definition.py` | ~310 | Pipeline schema (Sprint 4, A4.1): StageType enum (11 types), PipelineStage, MacroStage, PipelineDefinition Pydantic models. Dependency validation, cycle detection (Kahn's algorithm), topological sort execution ordering, YAML serialization, template loading |
-| `dynamic_graph.py` | ~310 | Dynamic graph builder (Sprint 4, A4.2): builds LangGraph StateGraph from PipelineDefinition. Stage handler registry (11 types), macro sub-graph compilation, state pruning between MacroStages (A8.1), run_custom_pipeline() high-level API |
-| `pipeline_wizard.py` | ~380 | Pipeline wizard engine (Sprint 4, A3): 6-stage conversational interview (problem→sources→analysis→verification→output→constraints). WizardSession class, heuristic-based pipeline generation from keyword responses, per-stage prompts + quick-reply chips |
-| `batch_progress.py` | 101 | Batch progress tracking (SQLite-backed) |
-| `dashboard.py` | 300 | Rich live dashboard display |
-| `verify_subgraph.py` | 119 | Verification subgraph (ARCH-2, disabled) |
-
----
-
-## 3. src/polaris_graph/agents/ -- Pipeline Agents
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 3 | Module exports |
-| `synthesizer.py` | 2285 | Main synthesis orchestrator: map-reduce clustering, short-ID remapping, programmatic merge, evidence caps, fallback outline |
-| `analyzer.py` | 2651 | Evidence analysis: extraction, per-piece BRONZE scoring, anti-embellishment prompt, quote validation |
-| `searcher.py` | ~2263 | Search execution: Serper, Semantic Scholar, DuckDuckGo, Exa, Tavily, Jina Reader, Firecrawl, Crawl4AI, domain blocklist, authority scoring. A1.1: raw HTML capture + readability extraction |
-| `verifier.py` | 1466 | Claim verification: NLI cascade (MiniCheck + LLM), incremental verify, auto-scale timeout, content cap alignment |
-| `storm_interviews.py` | 1361 | STORM perspective interviews (8 perspectives) |
-| `nli_verifier.py` | 832 | NLI verification: MiniCheck flan-t5-large on CUDA, quote context extraction, 96x faster than LLM |
-| `planner.py` | 475 | Research planning: query generation, learned strategies from LTM, fallback planner. A7.4: human override retrieval + injection in plan_queries() and plan_seed_queries() |
-| `cross_reference.py` | 332 | Cross-reference grouping and corroboration |
-| `source_confidence.py` | 299 | Source confidence scoring: domain authority, peer-reviewed enforcement |
-| `citation_agent.py` | 229 | Citation handling: S2 citation chasing, bibliography validation (ARCH-3) |
-| `hallucination_detector.py` | 331 | NLI-based post-synthesis hallucination audit: MiniCheck claim-level verification, replaces LettuceDetect |
-| `evidence_deepener.py` | 920 | Evidence deepening loop: named study extraction (LLM), S2 paper ID resolution (DOI/PMID/ArXiv), backward+forward snowballing, S2 recommendations, mechanism keyword search, PDF fetch. Closes Gemini/ChatGPT source depth gap. Feature flag: PG_EVIDENCE_DEEPENER=1. |
-
----
-
-## 3b. src/polaris_graph/tools/ -- ReAct Analysis Agent & Tools
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `react_agent.py` | ~7200 | **ReAct analysis agent**: 6-phase scaffold interpretation, quality gate (template echo, grammar, phantom citation detection), _post_process_interpretation() (CoT scrub, P2 citation validation, Wave 4 parroting rewrite, P7 number grounding, CiteFix, bare-item cleanup, phantom stripping). Score: 86 mean across PFAS+DVS. |
-| `analysis_toolkit.py` | ~450 | Analysis tools: extract_numeric_data, statistical_summary, comparison_table (FIX-D2 header sanitization), rank_by_impact |
-| `analysis_notebook.py` | ~300 | AnalysisNotebook + AnalysisStep: ordered step tracking, synthesis context builder, entry export |
-| `tool_registry.py` | ~430 | ToolRegistry + ToolDefinition: tool registration, lookup, execution. FIX-D2 absurd value filtering |
-| `evidence_database.py` | ~200 | Evidence SQLite database for structured queries |
-| `evidence_extractor.py` | ~250 | Evidence extraction from raw content |
-| `code_executor.py` | ~150 | Safe Python code execution sandbox |
-| `data_analyzer.py` | ~200 | Data analysis utilities |
-| `pdf_table_extractor.py` | ~180 | PDF table extraction |
-| `package_installer.py` | ~100 | Runtime package installation |
-
----
-
-## 4. src/polaris_graph/synthesis/ -- Synthesis Pipeline
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 3 | Module exports |
-| `section_writer.py` | 1822 | Section outline and content generation, LTM prior knowledge injection, expand thin sections |
-| `report_assembler.py` | 1688 | Final report assembly: orphan citation fix, wire backfill, redundancy gate, grounded abstract |
-| `citation_mapper.py` | 573 | Citation token resolution: [CITE:id] to [N] mapping, duplicate adjacent dedup, multi-citation split |
-| `cross_section_reflector.py` | 459 | Cross-section reflection and revision: bond input, targeted revision, 130% upper bound |
-| `peptide_flow.py` | 483 | Narrative flow optimization between sections (zero LLM cost, M-11) |
-| `covalent_binder.py` | 319 | Claim-evidence binding verification (zero LLM cost, M-08) |
-| `evidence_explorer.py` | 303 | Evidence exploration and embedding cosine similarity scoring |
-| `disulfide_bridge.py` | 243 | Cross-section source consistency enforcement (zero LLM cost, M-10) |
-| `ionic_rebalancer.py` | 195 | Evidence-section affinity rebalancing (zero LLM cost, M-09) |
-| `section_utils.py` | 36 | Shared evidence_ids sync helper (M-01) |
-| `smart_art_generator.py` | 597 | Smart art generation (A5): LLM-generated Mermaid.js diagrams. 7 types: process_flow, comparison_matrix, causal_chain, hierarchy, timeline, pros_cons, decision_tree |
-| `synthesizer_v2.py` | ~350 | **v2** parallel section writers via LangGraph Send API, fallback to sequential on error |
-| `verifier_v2.py` | ~300 | **v2** parallel claim scoring + sequential surgical rewrites, CancelledError propagation |
-| `report_assembler_v2.py` | ~250 | **v2** grounded bibliography (2-pass regex [SRC-NNN] scan), section pruning |
-
----
-
-## 4c. src/polaris_graph/retrieval/ -- v2 CRAG Retrieval Pipeline (NEW)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | ~10 | Module exports |
-| `crag_retriever.py` | ~400 | CRAG retrieval gate: local embedding-based evidence scoring ($0, replaces 126 LLM calls) |
-| `source_registry.py` | ~250 | URL-indexed evidence store: topic/domain tracking, dedup |
-| `pooled_embedder.py` | ~200 | sentence-transformers pooled inference for evidence embeddings |
-| `section_blueprint.py` | ~250 | Evidence-to-section assignment via cosine similarity thresholds |
-| `llm_throttle.py` | ~150 | Semaphore-based LLM concurrency with CancelledError propagation |
-| `verify_context.py` | ~200 | Evidence window builder for claim-level verification |
-| `verify_schemas.py` | ~100 | VerifyBatch, ClaimVerdict, SectionVerifyResult Pydantic models |
-| `citation_normalizer.py` | ~200 | [SRC-NNN] token resolution with grounded bibliography output |
-| `fetch_limiter.py` | ~150 | Concurrent URL fetch with per-domain rate limits |
-| `synthesis_prompts.py` | ~200 | Evidence-first section writing prompts with anti-hallucination constraints |
-| `content_quality_gate.py` | ~115 | RC-4: Post-extraction content quality scoring (heuristic, zero-cost). Rejects garbled/boilerplate/low-info content |
-
----
-
-## 4d. src/polaris_graph/wiki/mesh/ -- Persistent Wiki Mesh (ALL 10 UNITS COMPLETE)
-
-Single-file SQLite database (with sqlite-vec for vector KNN) that holds the persistent research mesh: source pages, claims, edges, entities, topics, questions, answers. One transaction boundary eliminates the dual-store consistency race (FIX D1 from the advisor design review). See `docs/wiki_mesh_design.md` for the full 10-unit architecture and `state/restart_instructions.md` for the build status.
-
-**Unit 1 (Session 57) — schema + store foundation**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 25 | Package exports (MeshStore, MeshStoreError, create_schema, SCHEMA_VERSION) |
-| `schema.py` | 266 | DDL for 11 core + 4 mapping + 4 vec0 virtual tables. CHECK constraints enforce edges.usage_boost <= 0.2 (FIX S4), entities.confidence in [0,1] (FIX D2), tier/kind enums. FK cascades on workspace delete. sqlite-vec virtual tables at float[384] (matches production embed_texts, corrected during Unit 2 CP-C). |
-| `store.py` | ~957 | MeshStore CRUD with transaction context wrapping SQL+vec0 atomically (D1), over-fetch KNN search (k*3 then filter then LIMIT k) to defend against lossy JOIN+WHERE, entity quarantine (D2), usage_boost cap helper (S4), idempotent insert_claim/insert_entity, try-INSERT-catch-UPDATE vec0 upsert (vec0 does not support INSERT OR REPLACE). Unit 2 added workspace_dir / sources_dir properties. |
-
-**Unit 2 (Session 57) — ingest + claim extraction**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `ingest.py` | ~370 | L1 write path. `ingest_file()` handles uploads (PDF via docling, HTML via trafilatura, markdown/text plain), `ingest_web_content()` handles web-fetched HTML/markdown. Content-hash dedup, deterministic src_id prediction, atomic file write (temp + rename). `read_source_text()` strips the internal `<!-- src_id: ... -->` header so downstream char-span lookups reference the source BODY, not raw file bytes (the ~64-char offset bug the advisor caught at CP-B). |
-| `claim_extract.py` | ~520 | L2 write path. Reuses production `ANALYSIS_SYSTEM` prompt and `SourceAnalysisBatch` schema (no duplication). Split into `_parse_batch_to_claims` (pure function — 80% of test surface) + `extract_claims_from_source` (orchestrator — reads source body, calls LLM, embeds, inserts atomically). Filters: short statement, short quote (PG_MIN_QUOTE_WORDS=15), URL fragments, cookie boilerplate. Tier assignment: 3-signal v1 (relevance + source_quality + quote_verified). Unverifiable quotes get sentinel span (0,1) + BRONZE. has_numeric regex catches CI/p/n/±/percentages. Embeddings via `embed_texts` (384-dim) BEFORE transaction — atomicity preserved because vector insert happens inside the same tx as the claim row. **Unit 3 extension**: `MESH_SYSTEM` wraps `ANALYSIS_SYSTEM` with a suffix asking the LLM to populate `entities` on each AtomicFact, parser propagates `entities` into claim dicts, orchestrator batches surface-form embeds once per source and calls `canonicalize_entities_for_claim` inside the same transaction as `insert_claim`. |
-
-**Unit 3 (Session 57) — entity canonicalization (L3 write path)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `entity.py` | ~600 | 5-step FIX D2 canonicalization pipeline: (1) exact `canonical_name` match → conf 1.0, (2) alias match case-insensitive → conf 0.95, (3) cosine ≥ 0.92 → merge at conf=cosine, (4) cosine 0.80-0.92 → LLM disambig (YES → conf 0.70, still quarantined; NO or missing client → fall through), (5) new quarantined insert at conf 0.5. Heuristic `classify_entity_type()` returns compound/method/organization/person/metric/concept (person regex requires honorific prefix OR middle-initial dot to avoid mis-classifying "Water Research Foundation"). Cross-type filter in step 3 (compound won't merge into organization at high cosine). `canonicalize_entities_for_claim()` bulk-canonicalizes surface forms for one claim with optional precomputed embedding dict; idempotent via `store.link_claim_entity`. L2 distance → cosine conversion: `cos = 1 - 0.5 * d²` (unit vectors assumed, empirically verified against sqlite-vec). |
-
-**Unit 4 (Session 57) — edge discovery + snowball formulas (L4 write path)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `edge_discovery.py` | ~230 | Cosine-only v1 edge typing (no NLI). `discover_edges_for_claims(store, workspace_id, new_claim_ids)` runs KNN per new claim (top-20 candidates), applies non-overlapping thresholds: `corroborates` at cosine ≥ 0.85 (any source pair), `contradicts` at cosine ∈ [0.80, 0.85) from different sources only. `evidence_weight = max(0.7, cosine)` for corroborates, `= cosine` for contradicts. Runs OUTSIDE the claim-insert transaction. `_read_claim_embedding` reads back from vec0 via mapping table. `_distance_to_cosine` uses the verified `1 - 0.5·d²` formula. Idempotent via store.insert_edge. v1 limitation: contradiction edges are cosine-based candidates, not NLI-confirmed. |
-| `snowball.py` | ~110 | Pure bounded feedback formulas from design doc §8 (FIX D3, FIX S4). M1 `usage_bonus(times_used, age_days)` age-decayed ≥ 1.0 (max ~1.46). M2 `corroboration_factor(count)` sqrt-bounded ≥ 1.0. M3 `contradiction_penalty(has_contradiction)` ×0.7. M4 `upload_gravity_boost(is_upload)` ×1.3. `lethal_snowball_score()` composes all 4 multiplicatively. Triggers deferred to Units 5-7 (retrieval, compose, Q&A). |
-
-**Unit 5 (Session 57) — lethal retrieval + gap classification (L5 read path)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `retrieve/__init__.py` | 12 | Package exports (lethal_retrieve, RetrievalResult, classify_gap, GapCategory, check_nearby_budget) |
-| `retrieve/lethal.py` | ~310 | 6-stage lethal retrieval: (1) KNN seed over ALL tiers, (2) entity expansion with FIX D2 quarantine gate + FIX S5 cosine filter ≥ 0.5, (3) corroboration walk 1-hop with 0.7 decay, (4) contradiction surface at score 0.3, (5) elaboration follow (no-op until v2), (6) lethal re-rank with 8 factors (base_score × sig_authority × corroboration_factor × contradiction_penalty × upload_gravity × entity_match × recency × usage_bonus) + 10% exploration reservation for unseen GOLD claims. Synchronous (no LLM in v1). Stage 0 coreference accepts optional `resolved_question` for Unit 7. |
-| `retrieve/gap_classify.py` | ~90 | 4-category gap classifier (IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL) based on claim counts + max score. FIX S6 NEARBY budget: `check_nearby_budget` resets daily counter, `increment_nearby_budget` tracks usage. Auto-expansion trigger deferred to Unit 7+. |
-
-**Unit 6 (Session 57) — compose + artifact directives (FIX S7)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `compose/__init__.py` | 10 | Package exports (compose_answer, ComposeResult, render_artifacts) |
-| `compose/composer.py` | ~200 | Single-answer composition from RetrievalResult. Hydrates claims + builds inline bibliography (by first source appearance, dedupes URLs). LLM via `_ComposeClient` protocol (same pattern as Units 2-3). Post-processing: CoT scrub → [REF:N]→[N] normalization → artifact rendering. Simpler prompt than wiki_composer's 13-rule academic COMPOSE_SYSTEM. Empty retrieval returns "no claims" without LLM call. |
-| `compose/artifact_directives.py` | ~120 | FIX S7 validation + rendering framework. Validates claim_ids exist before rendering, strips invalid blocks with logged warning. TABLE renderer: inline markdown from claims with keyword matching. CHART/FLOW/DECK/FLASHCARDS: stub entries returning "deferred" message (v2). |
-
-**Unit 7 (Session 57) — Q&A layer + multi-turn threads (FIX S8)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `qa/__init__.py` | 5 | Package exports (ask, AskResult) |
-| `qa/ask.py` | ~160 | `ask()` orchestrator: insert question → build thread context → retrieve → check NEARBY budget → compose → insert answer. Coreference via simple concatenation of last 3 Q&A pairs (no LLM in v1). `_build_resolved_question` truncates answers to 500 chars. NEARBY budget check sets `AskResult.nearby_budget_available` for CLI to act on. |
-| `store.py` additions | ~100 | 5 new methods: `insert_question`, `get_question`, `insert_answer`, `get_answer_for_question`, `get_thread_history` (walks parent_id chain backward, reverses to chronological, pops current question, limits to last_n). |
-
-**Unit 8 (Session 57) — CLI presentation layer**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `cli/__init__.py` | 5 | Package exports (main) |
-| `cli/main.py` | ~210 | argparse-based CLI with 6 subcommands: workspace-create, workspace-list, ask (with --dry-run), ingest, stats, entities-review. Each handler opens store, calls mesh function, prints result, closes. `asyncio.run()` bridges async ask(). `--dry-run` calls lethal_retrieve directly without LLM. `_make_llm_client()` fails loudly if OpenRouterClient unavailable. Snapshots + confirm/reject/merge deferred. |
-
-**Unit 9 (Session 57) — REST API**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `api/__init__.py` | 2 | Package marker |
-| `api/server.py` | ~260 | Standalone FastAPI app with 7 routes: POST /workspaces (201), GET /workspaces, POST /workspaces/{id}/ask (LLM), POST /workspaces/{id}/ask/dry-run (retrieval only), POST /workspaces/{id}/ingest (file upload via UploadFile → temp → ingest_file), GET /workspaces/{id}/stats, GET /workspaces/{id}/entities/quarantined. Lifespan manages store lifecycle with `check_same_thread=False`. Pydantic response models enforce output shape. CORS allow_origins=["*"]. `_make_llm_client` fails loudly → 503. |
-
-**Unit 10 (Session 57) — integration tests + snapshots (final unit)**
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `snapshot.py` | ~80 | zstd-compressed backup/restore. File-to-file streaming (not in-memory). `create_snapshot` → ISO-timestamped .mesh.zst file. `restore_snapshot` → decompress + replace. `list_snapshots` → sorted by timestamp descending. Level 3 compression. |
-
-| Test File | Purpose |
-|-----------|---------|
-| `tests/unit/test_mesh_snapshot.py` | 8 tests: create (3 inc. missing db, auto-create dir), restore roundtrip (2), list (3). |
-| `tests/integration/test_mesh_e2e.py` | 2 tests: golden path E2E (workspace→ingest→extract→entities→edges→retrieve→compose→Q&A thread→verify persistence) + snapshot roundtrip (create→destroy→restore→verify). |
-
-**Backlog tracked in docs/todo_list.md**:
-- `vacuum_orphan_vectors` (vec0 tables not in FK cascades — Unit 1)
-- Schema migration tool for future SCHEMA_VERSION bumps
-- `_row_id_to_int` hash collision (negligible below ~4e8 vectors/table — Unit 1)
-- Decouple `ANALYSIS_SYSTEM` from `agents/analyzer.py` into a standalone prompt file to eliminate import-time coupling (Unit 2, advisor CP-D)
-- Real OpenRouter E2E test for claim extraction (Unit 2 orchestrator currently only tested with MockClient)
-- Exception-string fragility in `_insert_vector` (Unit 1)
-
----
-
-## 4b. src/polaris_graph/export/ -- Report Export (Sprint 1, A8.4)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 1 | Module marker |
-| `docx_exporter.py` | 580 | Microsoft Word (.docx) export with corporate styling. Title page, TOC, bibliography, quality summary, audit certificate. |
-
----
-
-## 5. src/polaris_graph/memory/ -- SQLite Caches
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 1 | Module marker |
-| `evidence_hierarchy.py` | 358 | Evidence hierarchy cache (SQLite): tier tracking, cross-iteration persistence |
-| `cross_vector.py` | 600 | Cross-vector memory (ChromaDB): shared findings across research vectors. Sprint 3: list_ltm_items(), delete_ltm_item(), store_human_override(), query_human_overrides() (A7.4 human correction collection) |
-| `session_feedback.py` | 329 | Session feedback cache (SQLite): quality signals, iteration history |
-| `content_cache.py` | ~250 | Content cache (SQLite): fetched URL content dedup. Extended with raw_html, readability_html columns, extract_readability_html() (A1.1) |
-| `search_cache.py` | 145 | Search cache (SQLite): query result dedup |
-| `campaign_store.py` | 364 | Campaign persistence (SQLite): CRUD for multi-query campaigns (Sprint 1, Task 1A.2) |
-| `local_document_rag.py` | ~300 | Session-scoped ChromaDB RAG over uploaded documents (A7.2 + A8.1) |
-
----
-
-## 6. src/polaris_graph/llm/ -- LLM Client
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 5 | Module exports |
-| `openrouter_client.py` | ~1620 | OpenRouter API client: SSE streaming, generate/generate_structured/reason, CoT scrubbing, stub JSON detection, truncation repair, non-SSE fallback, OBS reasoning capture. A8.2: global concurrency semaphore via _call()→_call_impl() delegation |
-
----
-
-## 7. src/ (Shared Utilities)
-
-### src/search/ -- Search Infrastructure
+## 1. Root-level files
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Module exports |
-| `engines.py` | Search engine implementations (Tavily, Serper, Academic) |
-| `serper_client.py` | Serper.dev API client |
-| `query_amplifier.py` | 10x query variants generation |
-| `fan_out_executor.py` | Parallel search with circuit breaker |
-
-### src/utils/ -- 35 Utility Modules
-
-| File | Purpose |
-|------|---------|
-| `academic_fetcher.py` | Academic source fetching (CrossRef, S2, OpenAlex) |
-| `academic_orchestrator.py` | Academic search orchestration |
-| `atomic_decomposer.py` | LLM-based atomic fact decomposition |
-| `circuit_breaker.py` | Circuit breaker for API resilience |
-| `citation_chainer.py` | Citation chain following |
-| `citation_registry.py` | Late-binding citation resolution |
-| `claim_decomposer.py` | Claim decomposition Pydantic schemas |
-| `content_deduplicator.py` | Content deduplication with MinHash |
-| `cost_tracker.py` | API cost tracking and budgeting |
-| `cot_post_filter.py` | Chain-of-thought post-filter |
-| `cot_scrubber.py` | Chain-of-thought scrubber |
-| `crossref_client.py` | CrossRef API client |
-| `crossref_resolver.py` | CrossRef DOI resolution |
-| `embedding_service.py` | Embedding generation (sentence-transformers) |
-| `evaluation.py` | FactScore + G-Eval metrics |
-| `fact_extractor.py` | LLM + regex fact extraction |
-| `geographic_tagger.py` | Geographic metadata tagging |
-| `hybrid_retrieval.py` | Hybrid retrieval (dense + BM25) |
-| `ingest.py` | Content fetching and processing |
-| `inline_verifier.py` | MiniCheck inline verification wrapper |
-| `language_handler.py` | Multi-language support |
-| `logging_config.py` | Logging configuration |
-| `openalex_client.py` | OpenAlex API client |
-| `quality_metrics.py` | Quality metrics calculation |
-| `query_utils.py` | Query utilities |
-| `question_classifier.py` | Question type classification |
-| `ragas_evaluator.py` | RAGAS evaluation framework |
-| `rate_limiter.py` | API rate limiting |
-| `result_cache.py` | Search result caching |
-| `safe_verifier.py` | SAFE verification loop |
-| `self_refinement.py` | Self-refinement critique loop |
-| `semantic_chunking.py` | Semantic text chunking |
-| `semantic_scholar_client.py` | Semantic Scholar API client |
-| `source_quality.py` | Source quality scoring (RCS Map) |
-| `source_router.py` | Multi-source routing with RRF |
-| `unpaywall_client.py` | Unpaywall API client |
-| `url_blacklist.py` | URL/domain blacklist management |
-
-### src/tools/ -- Agent Tools (11 files)
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `access_bypass.py` | Unpaywall, Archive.org, proxy access, nav boilerplate stripping |
-| `agent_swarm_full.py` | Agent swarm orchestrator |
-| `browser_automation.py` | Playwright JS rendering, SPA extraction |
-| `file_analyzer.py` | Excel/CSV/PDF/JSON analysis + ChartGenerator |
-| `long_form_generator.py` | 100K+ token document generation + CoherenceValidator |
-| `pdf_parser.py` | PDF parsing with PyMuPDF |
-| `streaming_reasoner.py` | Real-time reasoning token streaming |
-| `user_feedback.py` | Mid-research user feedback/checkpoint |
-| `vision_processor.py` | Vision processing (CLIP, OCR, Gemini fallback) |
-| `vision_tool.py` | Gemini vision analysis |
-| `visual_generator.py` | Visual output generation |
-
-### src/auth/ -- Authentication & RBAC (Session 10)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 1 | Module marker |
-| `auth_manager.py` | 259 | AuthManager: Role enum, HMAC-SHA256 tokens, user CRUD, file-based user store |
-| `auth_middleware.py` | 101 | FastAPI dependencies: get_current_user, require_role, require_action |
-| `auth_routes.py` | 127 | 7 API endpoints at /api/auth/*: login, register, me, refresh, users, update, delete |
-| `session_manager.py` | 170 | SessionManager: concurrent sessions, queue, history, MAX_CONCURRENT_RESEARCH |
-
-### src/providers/ -- Provider Abstraction for Sovereign Mode (Session 10)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `__init__.py` | 1 | Module marker |
-| `llm_provider.py` | ~300 | LLM provider abstraction (A7.3 + A8.2): sovereign mode toggle, global concurrency semaphore, exponential backoff with jitter, GPU memory monitoring, provider factory |
-| `search_provider.py` | 138 | Search provider factory: cloud (Serper+Exa+S2), searxng (self-hosted), internal (corpus) |
-| `deployment_validator.py` | 151 | assert_sovereign_mode(), assert_not_sovereign(), validate_deployment_mode() -- sovereign/cloud mode validation with fail-loudly errors |
-
-### src/memory/ -- ChromaDB Legacy Memory
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module marker |
-| `chroma_client.py` | VWM/LTM-Stage/LTM-Global ChromaDB management |
-
-### src/state/ -- State Management
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `ledger.py` | Progress ledger management |
-| `session.py` | Session state management |
-| `orchestration.py` | Orchestration state utilities |
-| `cost_ledger.json` | API cost tracking data |
-| `last_pointer.json` | Last processed vector pointer |
-| `progress_ledger.jsonl` | Append-only execution log |
-| `ledger.lock` | Lock file for concurrent access |
-
-### src/config/ -- Configuration Management
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `core.py` | Core configuration loading (PolarisConfig) |
-| `thresholds.py` | Threshold dataclasses |
-
-### src/audit/ -- Audit System
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `automated_deep_audit.py` | 10-dimension automated deep audit (D1-D10) |
-| `benchmark_audit.py` | RAGAS + NLI benchmark evaluation |
-| `collector.py` | Comprehensive audit data collection |
-| `runner_audit.py` | Runner audit execution |
-| `archive/deep_audit.py` | Deep audit (archived, kept for reference) |
-| `archive/lightweight_audit.py` | Lightweight audit (archived) |
-| `archive/phase_hooks.py` | Phase hooks (archived) |
-
-### src/quality/ -- Quality Gates
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `gates.py` | Quality gate measurements |
-| `bias_detector.py` | Bias detection and balanced viewpoints |
-| `output_quality_gate.py` | CoT leakage, internal markers, near-duplicate, PDF noise detection |
-
-### src/benchmarks/ -- SOTA Validation Framework
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `auditor_strict.py` | Strict auditor without gaming mechanisms |
-| `hle_benchmark.py` | HLE benchmark runner |
-| `hle_dataset.py` | HLE dataset handler |
-| `metrics_strict.py` | Strict metrics with real atomic decomposition |
-| `report_generator.py` | Publication-grade comparison reports |
-| `stats_analysis.py` | Statistical tests (t-test, Wilcoxon, bootstrap CI) |
-
-### src/llm/ -- LLM Clients (Legacy Track)
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `deberta_client.py` | DeBERTa NLI client (local inference) |
-| `factory.py` | LLM factory |
-| `gemini_client.py` | Gemini API client (fallback) |
-| `kimi_client.py` | KIMI K2.5 via Fireworks AI |
-
-### src/schemas/ -- Pydantic Data Models
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `api_query.py` | API query models |
-| `decomposed_query.py` | SubQuery, DecomposedQuery models |
-| `extracted_facts.py` | 8 fact type models |
-| `phase_models.py` | Pydantic models for all phases |
-| `question_types.py` | QuestionType enum and profiles |
-| `validation_criteria.py` | 10 criterion types (DeCE-style) |
-
-### src/agents/ -- Research Agents (Legacy Track)
-
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Module exports |
-| `analyst_agent.py` | Entity/fact/claim extraction with LLM |
-| `auditor_agent.py` | Post-hoc verification and citation correction |
-| `base_agent.py` | Abstract base class for all agents |
-| `citation_enricher_agent.py` | Citation enrichment |
-| `citefirst_synthesizer.py` | Cite-first synthesis (FIX-117) |
-| `clarification_agent.py` | Pre-research query clarification |
-| `critic_agent.py` | RAGAS-style quality evaluation |
-| `planner_agent.py` | STORM-style query decomposition |
-| `search_agent.py` | Multi-source search |
-| `supervisor_agent.py` | Workflow coordination |
-| `synthesizer_agent.py` | Report generation with [CITE:] tokens |
-| `triage_agent.py` | Query complexity classification |
-| `verifier_agent.py` | NLI claim verification |
-| `citefirst/` | Cite-first sub-modules (claim_processing, evidence_clustering, prose_generation, report_composition, revision_loop, synthesizer) |
+| `README.md` | Project overview + quick start (rewritten 2026-04-18) |
+| `architecture.md` | Current-state architecture (rewritten 2026-04-18) |
+| `CLAUDE.md` | Operational directives (non-negotiable) |
+| `ground_rules.md` | Engineering ground rules |
+| `requirements.txt` | Python deps |
+| `pytest.ini` | Pytest config |
+| `Dockerfile` | Python 3.11-slim + WeasyPrint + uvicorn |
+| `docker-compose.yml` | `web`, `chromadb`, `searxng` (sovereign profile), `vllm` (sovereign profile) |
+| `docker-compose.override.yml` | Local overrides — gitignored |
+| `.env` | Secrets + env-var config — gitignored |
+| `.env.example` | Template showing required variables |
+| `.gitignore` | Updated 2026-04-18 to block scratch-dir accumulation |
 
 ---
 
-## 8. src/ (Legacy -- Kept for Reference)
+## 2. Source tree — `src/`
 
-These directories are from the original 13-phase CLI pipeline. They are NOT used by the production system (`src/polaris_graph/`).
+### Active subsystems
 
-### src/orchestration/ -- Legacy LangGraph State Machine
+| Path | Role | Pipelines | Notes |
+|------|------|-----------|-------|
+| `src/polaris_graph/nodes/` | Pre-generation gates | A | `scope_gate`, `corpus_approval_gate`, `corpus_adequacy_gate`, `completeness_checker` |
+| `src/polaris_graph/retrieval/` | Source retrieval + tiering | A | `live_retriever`, `tier_classifier`, `domain_backends`, `scope_query_validator`, `contradiction_detector`, `prefetch_offtopic_filter`, `fetch_limiter` |
+| `src/polaris_graph/generator/` | Prose generation + strict verify | A | `multi_section_generator`, `live_deepseek_generator`, `provenance_generator` |
+| `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_qwen_judge` |
+| `src/polaris_graph/llm/` | OpenRouter gateway | A, B | `openrouter_client` enforces two-family segregation, budget guard, cost imputation |
+| `src/polaris_graph/agents/` | Agent helpers | A | `nli_verifier` |
+| `src/polaris_graph/graph.py` | LangGraph v1 | B | UI pipeline variant |
+| `src/polaris_graph/graph_v2.py` | LangGraph v2 (CRAG) | B | UI pipeline variant |
+| `src/polaris_graph/graph_v3.py` | LangGraph v3 (ReAct) | B | UI pipeline variant |
+| `src/polaris_graph/memory/` | Campaign/cross-vector/content cache | B | UI state |
+| `src/polaris_graph/document_ingester.py` | Upload ingestion | B | |
+| `src/polaris_graph/checkpoint_manager.py` | LangGraph checkpointer | B | |
+| `src/polaris_graph/tracing.py` | JSONL trace writer | A | |
+| `src/auth/` | Auth routes + middleware | B | |
+| `src/tools/` | Active tool clients (8 commits in last 60 days) | B | |
+| `src/audit/` | Automated deep audit | B | |
+| `src/config/` | Config loaders | A, B | |
+| `src/providers/llm_provider.py` | Provider abstraction | A | |
+
+### Frozen subsystems (NOT under active maintenance)
+
+| Path | Last commit | Status |
+|------|-------------|--------|
+| `src/orchestration/` | 2026-03-16 | FROZEN — see `src/orchestration/FROZEN_SINCE_2026-03-16.md`. Pipeline C. |
+| `src/auth/` (non-core files) | 2026-03-16 | Frozen but imported by pipeline B |
+| `src/benchmarks/` | 2026-03-16 | Frozen |
+| `src/llm/` (non-polaris_graph) | 2026-03-16 | Frozen |
+| `src/memory/` (non-polaris_graph) | 2026-03-16 | Frozen |
+| `src/quality/` | 2026-03-16 | Frozen |
+| `src/schemas/` (non-polaris_graph) | 2026-03-16 | Frozen |
+| `src/search/` | 2026-03-16 | Frozen |
+| `src/state/` | 2026-03-16 | Frozen |
+| `src/utils/` | mixed | Partially frozen — `circuit_breaker`, `quality_metrics`, `result_cache` still imported by tests |
+
+Archived 75 orphaned src/ files to `archive/2026-04-18-pre-audit-cleanup/src/`
+on 2026-04-18 (plus the 4 that turned out to still be imported dynamically
+were restored immediately).
+
+---
+
+## 3. Scripts — `scripts/`
+
+### Active orchestrators
+
+| Script | Role | Pipeline |
+|--------|------|----------|
+| `run_honest_sweep_r3.py` | 8-query sweep orchestrator (main entry) | A |
+| `run_r6_validation.py` | 4-query revalidation slice | A |
+| `run_honest_on_prerebuild_corpus.py` | Sweep against historical corpora | A |
+| `run_live_honest_cycle.py` | Single-cycle driver | A |
+| `run_honest_full_cycle.py` | Full-cycle driver | A |
+| `live_server.py` | FastAPI UI server (214KB) | B |
+| `full_cycle.py` | Legacy CLI research driver (has broken imports) | C — FROZEN |
+
+### Active utilities
+
+| Script | Role |
+|--------|------|
+| `audit_live_code.py` | Static import-closure analysis (produces `docs/live_code_audit.*`) |
+| `codex_loop_parse.py` | Parse Codex verdict frontmatter |
+| `compare_live_vs_pg_lb_sa_02.py` | Delta diagnostics |
+| `migrate_old_runs.py` | Migrate pre-rebuild run JSONs |
+| `tier_classifier_spotcheck.py` | Tier-classifier correctness probe |
+
+### Preflight / smoke
+
+- `pg_preflight_v2.py` — environment check (Docker `preflight` subcommand)
+- `pg_smoke_test.py`, `pg_integration_smoke.py`, `pg_loopback_smoke.py`, `pg_search_full_smoke.py`
+- `pg_session_fix_verify.py`, `pg_subagent_validate.py`
+
+### Ad-hoc / one-off (still in tree, should graduate to tests or be archived)
+
+There are ~80 remaining scripts that are single-use test runners,
+one-off validation drivers, dispatcher/serve variants, auto-pilot
+helpers, etc. These survived the Phase A archive because they contain
+`if __name__ == "__main__":` (making them "reachable" by my
+static-analysis criterion). Candidates for future cleanup:
+
+- `loopback_*.py` family (dispatcher, auto_*, extend_quotes, status,
+  run_all_10, reason_autopilot) — 15+ files
+- `pg_micro_test_*`, `pg_empirical_*`, `pg_smoke_*` families — many
+  are superseded by the tests/ suite
+- `debug_*.py` (if any remain), `monitor_*.py`, `audit_*.py` family
+
+Full list of what's in `scripts/` now: `ls scripts/*.py | wc -l` → 130.
+
+---
+
+## 4. Tests — `tests/`
+
+| Path | Contents |
+|------|----------|
+| `tests/polaris_graph/` | 305 tests covering pipeline A + invariants B-1..B-5 |
+| `tests/polaris_graph/fixtures/` | (if present) pinned fixtures for deterministic tests |
+
+Run all: `python -m pytest tests/polaris_graph/ -v`
+
+Selected files:
+
+- `test_b1_semantic_grounding.py` — 11 tests for the content-word-overlap invariant
+- `test_b2_corpus_approval_enforcement.py` — 5 tests for corpus-approval enforcement
+- `test_b3_no_verified_sections.py` — 7 tests for zero-verified-sections abort
+- `test_b4_budget_imputation.py` — 8 tests for budget cap under missing/negative `usage.cost`
+- `test_b5_delimiter_breakout.py` — 36 tests for delimiter sanitization + Unicode evasions + byte preservation
+- `test_regression_pg_lb_sa_02_defects.py` — prior-defect pinning
+- ~90 other tests covering nodes, retrieval, generator, evaluator, tier classifier, etc.
+
+---
+
+## 5. Config — `config/`
+
+| Path | Purpose |
+|------|---------|
+| `config/settings/*.yaml` | Active configuration (thresholds, model choices, retrieval caps) |
+| `config/scope_templates/` | Per-domain scope protocol templates (clinical, tech, DD, policy) |
+| `config/completeness_checklists/` | Per-domain completeness checklists |
+| `config/searxng/` | SearXNG instance config (sovereign mode) |
+
+---
+
+## 6. Docs — `docs/`
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Module exports |
-| `graph.py` | Legacy LangGraph workflow definition |
-| `state.py` | Legacy ResearchState TypedDict |
-| `iteration_manager.py` | ReAct loop iteration control |
-| `persistence.py` | JSON state save/load |
-| `dynamic_replanner.py` | Adaptive re-planning |
-| `stopping_mechanism.py` | Coverage-based stopping |
+| `file_directory.md` | THIS file — inventory of active code |
+| `todo_list.md` | Prioritized backlog |
+| `runbook.md` | How to run each pipeline end-to-end |
+| `live_code_audit.md` | Static import-closure analysis (human-readable) |
+| `live_code_audit.json` | Same, machine-readable |
+| `compliance/` | Compliance reference materials |
+| `compliance_templates/` | Compliance templates |
 
-### src/phases/ -- 14 Legacy CLI Phase Scripts
-
-| File | Phase | Purpose |
-|------|-------|---------|
-| `p00_init.py` | P0 | VWM initialization |
-| `p01_contextualization.py` | P1 | LTM query, strategic plan |
-| `p02_query_generation.py` | P2 | STORM query generation |
-| `p03_search.py` | P3 | Federated search |
-| `p04_relevance_filter.py` | P4 | RCS Map + source quality |
-| `p05_indexing.py` | P5 | Semantic chunking, VWM indexing |
-| `p06_nli_integrity.py` | P6 | NLI verification |
-| `p07_dual_rag.py` | P7 | Outline-first + thematic clustering |
-| `p08_claim_verification.py` | P8 | FactScore atomic decomposition |
-| `p09_adversarial_qa.py` | P9 | Adversarial QA |
-| `p10_gating.py` | P10 | Gating decision matrix |
-| `p11_knowledge_integration.py` | P11 | LTM promotion |
-| `p12_research_packaging.py` | P12 | Self-refinement + SAFE |
-| `p13_narrative_synthesis.py` | P13 | Cross-vector synthesis |
-| `sota_classification.py` | -- | Question type classification |
-
-### src/runner.py -- Legacy Pipeline Runner
-
-Main pipeline orchestrator for P6-P13 execution. Not used by production system.
+37 stale docs (architecture_v{2,3,4}*, pg_test_*_audit, pitch_decks,
+deployment plans, survey docs, etc.) archived to
+`archive/2026-04-18-pre-audit-cleanup/docs/` on 2026-04-18.
 
 ---
 
-## 9. scripts/ -- Production Scripts (16 files)
+## 7. Runtime dirs — all gitignored
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `generate_dashboard.py` | 680 | JSONL trace -> self-contained HTML dashboard (ChatGPT Dark Mode, 10 collapsible sections) |
-| `live_server.py` | ~3320 | FastAPI + SSE live server. CORS, auth, RBAC enforcement, rate limiting, security headers, health check, PDF/DOCX export, SSE streaming, research history, campaign management, document upload/parse, memory stats/search/items/delete, mind map API, overrides API. 45+ endpoints: /api/campaigns/* (5), /api/research/* (11 incl. mindmap, chain, checkpoints, rewind, overrides), /api/auth/* (8), /api/documents/* (5), /api/memory/* (4), /health, /api/events, /api/snapshot, /static/* |
-| `docker_entrypoint.sh` | 48 | Docker entrypoint: 4 modes (serve, research, preflight, shell) |
-| `live_monitor.py` | ~430 | Standalone backend anomaly detector. 9 categories, 40+ rules. Tails trace JSONL + polaris_graph.log. Outputs to logs/live_anomaly_log.jsonl + .md |
-| `forensic_audit.py` | ~580 | Post-run exhaustive 11-section forensic analysis. Reads all trace + cost + result + report. Outputs outputs/forensic_report_{vid}.md + .json |
-| `playwright_audit.py` | 280 | Automated headless browser audit of HTML dashboard (15 checks, screenshots, JSON report) |
-| `pg_preflight_v2.py` | 1816 | Preflight v2: 40-test async validation (4 tiers: hard failures, config, integration, quality) |
-| `pg_preflight_032.py` | 868 | Preflight for PG_TEST_032: 10-test real-API validation |
-| `pg_preflight_047.py` | 425 | Preflight for PG_TEST_047 |
-| `pg_sota_smoke_test.py` | 636 | 30-item SOTA smoke test automation |
-| `pg_smoke_test.py` | 533 | 9-test polaris_graph smoke test |
-| `pg_gemini_preflight.py` | 480 | Gemini Gap fire tests: Layer 1 (local, $0), Layer 2 (API, $0.20), Layer 3 (integration, $0.30) |
-| `pg_component_verify.py` | 542 | Component-level verification |
-| `full_cycle.py` | 585 | Full cycle pipeline execution |
-| `pg_test_061.py` | -- | PG_TEST_061 test runner script |
-| `run_audit.py` | 127 | Automated deep audit CLI (`python scripts/run_audit.py --result-file <path>`) |
-| `audit_v3_report.py` | 260 | v3 Hybrid forensic audit: 4 quality layers (analytical depth, structure, integrity, surface), A-F grading, JSON+text output. `python scripts/audit_v3_report.py <report.md> [--json]` |
-| `react_stress_test.py` | ~1770 | **ReAct stress test**: 14 test sets (PFAS/DVS/Adhesion), 6-axis scoring (100pts) + hygiene score (15pts), Bayesian CI multi-run, Wilcoxon A/B comparison, NLI faithfulness audit, async MiniCheck. `python -u -m scripts.react_stress_test --fast --runs 7` |
-| `react_full_scale_test.py` | -- | Full-scale ReAct test runner |
-| `run_s1v1_full.py` | 229 | Run S1V1 full pipeline (legacy) |
-| `playwright_visual_overhaul.py` | ~850 | Closed-loop Playwright visual audit: 40 checks across 9 tabs, 3 breakpoints, screenshots + JSON audit report. Manages inject->server->browser lifecycle. |
-| `deploy.sh` | ~1215 | **Sprint 5**: Production deployment script. Prerequisites check (Python/pip/CUDA/Docker/port), GPU detection (nvidia-smi/CUDA/VRAM), venv setup, .env validation + template generation, directory creation, health check (start server, poll /health, verify /api/system/info), Docker mode (compose build/up, GPU passthrough). CLI flags: --check-only, --docker, --gpu, --no-gpu, --port, --help. Colored output, trap cleanup, cross-platform venv paths. |
-| `inject_test_trace.py` | ~600 | Synthetic JSONL trace generator for dashboard testing. Produces all event types: LLM calls, evidence, STORM, cross-ref, conflicts, verification batches, sections, quality gates. |
-| `visual_qa_audit.py` | 2270 | **Session 31B**: Exhaustive visual QA audit (WCAG 2.2 AA + production-grade). Async Playwright. 12 sections (A-L): navigation uniqueness (15 states), axe-core WCAG (32 runs), focus audit, hover/active states, touch targets, cross-browser structural checks (3 engines), 7-viewport responsive + 320px reflow, print/PDF, CSS hardcoded scan, visual regression baselines, JSON+HTML report. `python scripts/visual_qa_audit.py --port 8766` |
-| `playwright_interaction_audit.py` | 1757 | **Session 39**: Interaction audit — 58 checks across 8 categories (IA-IH): citation system (13), view switching & navigation (8), evidence browser (7), metrics & data display (8), export & action buttons (5), real-time indicators (5), workspace-specific (8), console errors & robustness (4). Async Playwright. JSON report output. |
-
-### scripts/templates/ -- HTML Templates
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `live_dashboard.html` | ~483 | Modular HTML shell (Sprint 1, A7.1). Loads 6 CSS files + 9 JS files from `/static/`. Contains only HTML body structure. |
-
-### scripts/static/css/ -- Modular CSS (Sprint 1-2)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `base.css` | 294 | CSS variables (dark/light themes), reset, typography, scrollbar, accessibility (skip-link, focus-visible) |
-| `layout.css` | 440 | App shell, header, nav bar, research view layout, responsive breakpoints, print styles |
-| `components.css` | 460 | Buttons, badges, cards, toasts, modals, form controls, animations, auth UI, history, bookmarks |
-| `report.css` | 661 | Report view, citations, TOC, STORM sidebar, quality banners, bibliography, section styles |
-| `evidence.css` | 149 | Evidence view layout, evidence cards, graph area, tier badges, signal bars |
-| `operator.css` | 1556 | Advanced tabs, STORM personas, operator panels, landing page, campaign management, trace cards |
-| `citation_chain.css` | 290 | Citation chain-of-custody modal (A1): 4-tab layout, source preview iframe, reasoning chain, tier badges, responsive bottom sheet (Sprint 2) |
-
-### scripts/static/js/ -- Modular JavaScript (Sprint 1-2)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `core.js` | ~390 | Constants, state object (incl. smartArtDiagrams), theme toggle (Mermaid re-render), view switching, stepper, utility functions |
-| `event_processor.js` | ~375 | SSE event dispatch, event type handlers, updateMetrics. Calls fetchCheckpoints() on pipeline completion |
-| `research_view.js` | 281 | Research view rendering, faith gauge, strength meter, funnel, Gantt, signal radar |
-| `graph_viz.js` | 195 | Cross-ref graph, citation map, source network visualizations |
-| `evidence_browser.js` | 330 | Evidence cards, tier filtering, sorting, detail panel, radar chart |
-| `report_view.js` | ~570 | Report rendering, citation popovers, TOC, export (PDF/MD/DOCX/JSONL), Word export, _renderMermaidDiagrams() for smart art |
-| `operator_console.js` | 264 | Cost breakdown, quality metrics, audit export, model info, operator panels |
-| `sse_connection.js` | 377 | SSE connection/reconnect, BroadcastChannel, snapshot hydration, polling |
-| `advanced_tabs.js` | ~1140 | Advanced sub-tabs, view mode, research submission (with document_ids), auth UI, campaigns, bookmarks, memory indicator, checkpoint init, DOMContentLoaded |
-| `citation_chain.js` | 438 | Chain-of-custody modal (A1): 4-tab interface (Summary, Source Preview, Reasoning Chain, Metadata), sandboxed iframe with mark.js quote highlighting, tier badges, fallback to blockquote |
-| `checkpoint_timeline.js` | 1107 | Checkpoint timeline (A2): horizontal dot timeline, state inspector drawer, rewind-to-checkpoint, metrics display, keyboard accessible |
-| `document_upload.js` | 890 | Document upload (A7.2): drag-and-drop zone, file type validation, progress bars, delete support, auto-load from server |
-
-| `mind_map.js` | 1358 | Radial mind map SVG renderer (Sprint 3): center→sections→findings→sources. 36 functions. Zoom/pan, click-to-highlight, cross-cutting halos, stats bar, info panel, tooltips. Performance: 150 findings cap, 100 sources cap, rAF debouncing |
-| `memory_dashboard.js` | 1562 | Memory dashboard tab (Sprint 3): stats bar (tier counts, domain chart), knowledge cluster bubble chart (force-directed packing), search (debounced 300ms), item list (pagination, delete), timeline (sessions bar chart). 27 functions, 4 API integrations |
-
-### scripts/static/js/ -- Sprint 4 Pipeline Files
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `pipeline_editor.js` | 1379 | Pipeline DAG editor (Sprint 4): collapsible macro-stage SVG canvas, topological layout engine, expand/collapse macro groups, stage config panel (11 types, key-value editor), zoom/pan/fit, drag-and-drop stages between macros, template picker, saved pipeline CRUD, validation with inline errors, minimap, keyboard shortcuts (Del/Esc/Ctrl+S). 43 internal + 12 global functions |
-| `pipeline_wizard.js` | 981 | Pipeline wizard chat UI (Sprint 4): 6-stage progress bar with animated fill, chat interface (user/bot bubbles, markdown, typing indicator), quick-reply chips, pipeline draft preview card ("Use This Pipeline"/"Edit Manually"), session management (start/chat/finalize API), error recovery with session expiry detection. ~30 functions |
-
-### scripts/static/css/ -- Sprint 4 Pipeline Styles
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `pipelines.css` | 753 | Pipeline-specific CSS (Sprint 4): 3-column layout, template/saved cards, DAG canvas, macro-box/stage-node styles, edges, config panel with field styles, wizard chat/progress/chips/draft, toolbar, minimap, drag-and-drop states, validation error overlays, responsive breakpoint at 1024px |
+| Path | Contents |
+|------|----------|
+| `outputs/` | Runtime artifacts. Exception: `outputs/codex_findings/` is version-controlled (audit record). |
+| `logs/` | `pg_cost_ledger.jsonl`, `session_log.md`, `bug_log.md`, per-run logs |
+| `state/` | Pipeline state files (checkpoints, ledger, last_pointer) |
+| `data/` | Reproducible benchmarks and documents |
+| `models/` | ML weights (multi-GB) |
+| `memory/chroma_db/` | ChromaDB vector store (pipeline B) |
+| `.pytest_cache/` | Pytest cache |
 
 ---
 
-## 10. config/ -- Configuration Files
+## 8. Audit-loop infrastructure — `.codex/`, `outputs/codex_findings/`
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `evaluation_strict.env` | Strict evaluation environment overrides |
-| `sota_baselines.json` | SOTA comparison baselines |
-| `vector_library.py` | 175 vector definitions |
-
-### config/pipeline_templates/ -- Pipeline Templates (Sprint 4, A4.1)
-
-| File | Nodes | Macros | Purpose |
-|------|-------|--------|---------|
-| `standard_research.yaml` | 8 | 5 | Default pipeline: plan→search→storm→analyze→verify→evaluate→synthesize→gap_search |
-| `quick_scan.yaml` | 4 | 4 | Fast 15-min scan: plan→search→analyze→synthesize (no verify/STORM) |
-| `academic_focus.yaml` | 8 | 5 | Academic research: citation chasing, S2 priority, 80% faithfulness, 15K words |
-| `compliance_review.yaml` | 8 | 5 | Regulatory/legal: conflict detection, 85% faithfulness, strict verification |
-| `multi_vector.yaml` | 14 | 5 | Deep C-POLAR 175-sub-question: 5 iterations, 180 min, STORM+citation chase+conflict detection, 20K words |
-
-### config/settings/ -- YAML Configuration (11 files)
-
-| File | Purpose |
-|------|---------|
-| `chunking.yaml` | Chunking parameters |
-| `concurrency.yaml` | Concurrency limits |
-| `extraction.yaml` | Extraction parameters |
-| `geographic_regions.yaml` | Regional definitions |
-| `models.yaml` | Model configurations |
-| `quality_gates.yaml` | Quality gate thresholds |
-| `retry.yaml` | Retry policy |
-| `search.yaml` | Search parameters |
-| `search_sources.yaml` | Search engine configs |
-| `sota_parameters.yaml` | SOTA-aligned parameters |
-| `thresholds.yaml` | Detailed thresholds |
+| `.codex/LOOP_PROTOCOL.md` | Loop state machine and anti-circle-jerk rules |
+| `.codex/REVIEW_BRIEF.md` | Round-1 initial brief (template for others) |
+| `.codex/ROUND_N_BRIEF_TEMPLATE.md` | Per-round brief template |
+| `.codex/config.toml` | Project-local Codex config (inherits OAuth) |
+| `.codex/loop_state.json` | Persistent loop state |
+| `.codex/round_{2,3,4,5}/BRIEF.md` | Per-round briefs |
+| `outputs/codex_findings/round_{1..5}/findings.md` | Codex output (verdict + findings) |
+| `outputs/codex_findings/round_{1..5}/claude_response.md` | Claude's response |
 
 ---
 
-## 11. tests/ -- Test Suite
+## 9. Archive — `archive/`
 
-### tests/v3/ -- ReAct Agent Tests (204 tests)
+Gitignored. Historical snapshots. Notable recent subdirs:
 
-| File | Tests | Purpose |
-|------|-------|---------|
-| `test_react_agent.py` | 204 | Comprehensive ReAct agent tests: tool selection, timeout, provenance, parroting, structural rewrite, quality gate (template echo, grammar, phantom), post-processor (P2 cleanup, P7 grounding, R3 scale guard, expanded decimal, CiteFix, citation normalization), hygiene scoring, MiniCheck async integration. 20 tests added Session 50. |
+- `archive/2026-04-18-pre-audit-cleanup/` — this cleanup's artifacts
+  - `scripts/` — 61 archived one-off/debug scripts
+  - `src/` — 71 archived orphan modules
+  - `docs/` — 37 archived stale design/audit/marketing docs
+  - `root_junk/` — 12 archived root-level files (audit_*.txt, current_ui*.png, mojibake filename)
+  - `nested_legacy/POLARIS_APEX/` — old nested repo copy
+  - `loopback/`, `tmp/`, `wiki/`, `cache/` — scratch dirs
 
-### tests/unit/ -- 34 Unit Test Files
-
-| File | Purpose |
-|------|---------|
-| `test_mesh_store.py` | **Session 57**: Wiki mesh Unit 1 — MeshStore CRUD + sqlite-vec KNN + transaction atomicity + entity quarantine (FIX D2) + edge usage_boost cap (FIX S4) + over-fetch defense against lossy KNN + vector persistence across reopen + FK cascade. 43 tests. |
-| `test_mesh_ingest.py` | **Session 57**: Wiki mesh Unit 2 — ingest_file + ingest_web_content + read_source_text (header strip prevents char-offset corruption) + src_id prediction mirrors store._make_id + dedup via content hash + metadata persistence + round-trip with char-offset verification. 21 tests. |
-| `test_mesh_claim_extract.py` | **Session 57**: Wiki mesh Unit 2 — the killer 5-fact integration test (GOLD/filtered/filtered/BRONZE/has_numeric) + individual filters (short statement, short quote, URL fragment, cookie) + 4 tier branches + char-span lookup + numeric regex parametrized + orchestrator with MockClient + transaction rollback on partial batch failure + KNN verification after extraction. 28 tests. |
-| `test_mesh_api.py` | **Session 57**: Wiki mesh Unit 9 — REST API: workspace create (2), workspace list (2), dry-run ask (3 inc. empty + invalid), stats (2), quarantined entities (3 inc. shows quarantined). 12 tests. |
-| `test_mesh_cli.py` | **Session 57**: Wiki mesh Unit 8 — CLI: workspace-create (2), workspace-list (2), ask --dry-run (2), stats (1), entities-review (2 inc. quarantined display), error handling (2). 11 tests. |
-| `test_mesh_qa.py` | **Session 57**: Wiki mesh Unit 7 — Q&A layer: insert_question (4 inc. parent, empty raises), insert_answer (2), thread history (4 inc. chronological order, last_n limit), context concatenation (2), ask orchestration (4 inc. E2E, follow-up with context, empty workspace ORTHOGONAL, unknown workspace raises). 16 tests. |
-| `test_mesh_compose.py` | **Session 57**: Wiki mesh Unit 6 — compose + artifacts: CoT scrub (3), ref normalization (3), claim formatting (1), bib formatting (1), hydration + bibliography building (3), end-to-end compose with mock LLM (4), payload parsing (3), artifact directives FIX S7 (6 inc. missing-ids stripped, deferred stubs, valid TABLE), pattern matching (2). 26 tests. |
-| `test_mesh_lethal_retrieve.py` | **Session 57**: Wiki mesh Unit 5 — lethal retrieval: recency factor (4), distance formula (1), basic retrieval (4 inc. empty workspace → ORTHOGONAL, single claim found, BRONZE included in seed, unknown workspace raises), corroboration walk (1), contradiction surface (1), re-rank upload-higher ordering (1), exploration reservation (1), gap classify (5), NEARBY budget depletion (3), entity match fraction (4). 25 tests. |
-| `test_mesh_edge_discovery.py` | **Session 57**: Wiki mesh Unit 4 — edge discovery: `_distance_to_cosine` formula (3), `_read_claim_embedding` round-trip (2), corroboration edges (3 inc. same-source allowed + evidence_weight clamp), contradiction edges (2 inc. same-source exclusion), no-edge below threshold (1), self-match exclusion (1), idempotent re-run (1), validation (4 inc. empty/missing/wrong-workspace/unknown-workspace), precomputed embedding path (1), multi-claim batch (1). 20 tests. |
-| `test_mesh_snowball.py` | **Session 57**: Wiki mesh Unit 4 — snowball formulas: M1 usage_bonus (8 inc. design doc bounds 1.46/1.06, decay + monotonicity), M2 corroboration_factor (7 inc. sqrt growth at 1/4/9/100, sublinearity), M3 contradiction_penalty (2), M4 upload_gravity_boost (2), composite lethal_snowball_score (6 inc. all-factors, zero-base, worst-case max bounded <10x). 25 tests. |
-| `test_mesh_entity.py` | **Session 57**: Wiki mesh Unit 3 — `classify_entity_type` heuristic (7 tests inc. "Water Research Foundation" → organization, "Dr. Jane Smith" → person), `_find_by_canonical` + `_find_by_alias` + `_vec_neighbours` helpers (7 tests inc. cosine formula verification), 5-step canonicalization pipeline (all 5 paths + 3 path-4 sub-branches + cross-type filter + validation, 11 tests), `canonicalize_entities_for_claim` orchestration (6 tests inc. dedup, over-long skip, precomputed embedding pathway, idempotent linking), `llm_disambiguate` with mock client (3 tests), FIX D2 quarantine semantics (4 tests), end-to-end claim_extract + entity integration via real `extract_claims_from_source` with `_MockLLMClient` (3 tests inc. backward-compat path with no `entities` field). 46 tests total. |
-| `test_fix_048.py` | FIX-048: 4 root cause fix tests (quote substance, content pre-filter, corroboration, B2B detection) |
-| `test_fix_045.py` | FIX-045: orphan citations, nav boilerplate, abstract metrics, citation renumbering |
-| `test_agentic_search.py` | Agentic search depth, pages per round, content reasoning |
-| `test_analyst_resilience.py` | Analyst agent resilience |
-| `test_bias_detector.py` | Bias detection |
-| `test_clarification_agent.py` | Pre-research clarification |
-| `test_config_thresholds.py` | Configuration thresholds |
-| `test_content_deduplicator.py` | Content deduplication with MinHash |
-| `test_critical_fixes.py` | Critical fix verification |
-| `test_cross_section_reflector.py` | Cross-section reflector (130% upper bound guard) |
-| `test_depth_config.py` | Depth configuration |
-| `test_domain_diversity.py` | Domain diversity checks |
-| `test_evidence_explorer.py` | Evidence exploration |
-| `test_exception_handling.py` | Exception handling |
-| `test_feedback_collector.py` | Mid-research feedback |
-| `test_gemini_fixes.py` | Gemini audit regression tests |
-| `test_hle_benchmark.py` | HLE benchmark runner |
-| `test_language_handler.py` | Multi-language support |
-| `test_memory_cross_vector.py` | Cross-vector memory |
-| `test_memory_evidence_hierarchy.py` | Evidence hierarchy cache |
-| `test_memory_session_feedback.py` | Session feedback cache |
-| `test_orchestration_state.py` | State management |
-| `test_output_formatter.py` | Output format flexibility |
-| `test_perspective_tracking.py` | STORM perspective health checks |
-| `test_real_factscore.py` | Real FactScore via atomic decomposition |
-| `test_return_handling.py` | Return value handling |
-| `test_streaming_progress.py` | Streaming progress |
-| `test_visual_generator.py` | Visual output generation |
-| `test_live_monitor.py` | Live anomaly detector: 9 categories (CoT, stub, evidence, verification, synthesis, cost, gates, timing, log errors) + writer + state (42 tests) |
-| `test_forensic_audit.py` | Forensic audit: helpers, 11 section builders, full run with fixtures, edge cases (45 tests) |
-| `test_live_server.py` | Live server: TraceTailer JSONL tailing, async tail, discover_trace_file, 7 FastAPI endpoints incl. cost session_id filtering (19 tests) |
-
-### tests/e2e/ -- End-to-End Tests (Sprint 5)
-
-| File | Purpose |
-|------|---------|
-| `dashboard_tests.py` | **Sprint 5**: 153-test Playwright suite (195 assertions, 14 test classes). Covers: page load & structure, navigation & view switching, theme toggle, research input, report view, evidence view, pipelines view, memory view, advanced view, responsive (375/768/1440px), conflict modal, view mode toggle, research view internals, global JS functions. |
-| `conftest_visual.py` | **Session 31/31B**: Visual regression test config — viewports (375/768/1024/1440), browser list, theme/nav helpers, dynamic counter freeze. **Updated 31B**: navigate_to_view uses operator mode + switchView() for reliable navigation. |
-| `visual_regression_suite.py` | **Session 31/31B**: Playwright native visual regression (64 screenshots across 8 views x 4 viewports x 2 themes) + 11 interactive element tests (hover, focus, click, keyboard, scroll, modal, overflow). **Updated 31B**: _navigate_to_view_safe uses operator mode + switchView(). |
-
-### tests/e2e/fixtures/ -- Visual Test Fixtures
-
-| File | Purpose |
-|------|---------|
-| `visual_test_data.py` | **Session 31**: Deterministic mock data for visual tests — SSE events, report HTML, evidence cards, citation chain, API response, JS counter freeze |
-
-### tests/fixtures/ -- Test Data
-
-| File | Purpose |
-|------|---------|
-| `mindmap_test_result.json` | Real-schema mind map result fixture (3 sections, 8 evidence, 4 bibliography) |
-
-### tests/integration/ -- 15 Integration Test Files
-
-| File | Purpose |
-|------|---------|
-| `test_polaris_graph.py` | Core polaris_graph integration tests (56 tests) |
-| `test_fix_043.py` | FIX-043 integration tests |
-| `test_most_integration.py` | MoST bond module integration tests |
-| `test_memory_integration.py` | Memory subsystem integration |
-| `test_serper_sync.py` | Serper synchronization |
-| `test_sota_compliance.py` | SOTA compliance |
-| `test_sota_quality_sprint.py` | SOTA quality sprint tests |
-| `test_document_pipeline_wiring.py` | Document upload → pipeline wiring (9 tests: ResearchRequest, DocumentIngester, analyzer GOLD chunking, planner context, API endpoint) |
-| `test_citation_chain_integration.py` | Citation chain of custody API (12 tests: A-B-C-D chain logic, summary, tier breakdowns, API endpoints) |
-| `test_checkpoint_rewind.py` | Checkpoint rewind/resume (22 tests: state summary extraction, list/get/rewind logic, state patching, auto-resume, API disabled endpoints, serialization, thread ID) |
-| `test_mind_map_integration.py` | Mind map ASGI endpoint (19 tests: real httpx.ASGITransport, center/sections/findings/sources/edges/stats, cross-cutting, caps, edge cases, 404) — Session 29 REWRITE |
-| `test_memory_search_integration.py` | LTM memory lifecycle (25 tests: promote with quality gates, stats, semantic search, pagination, deletion, full lifecycle, disk persistence with PersistentClient) — Session 29 expanded |
-| `test_override_feedback_loop.py` | Human override feedback loop (17 tests: store/query/inject cycle, cross-vector semantic search, node filtering, planner prompt injection) |
-| `test_campaign_persistence.py` | Campaign SQLite persistence (15 tests: CRUD, re-init persistence, concurrent creates, unicode, lifecycle) — Session 28 |
-| `test_ltm_priors_injection.py` | LTM priors injection (22 tests: real ChromaDB embeddings, promote/query LTM, human overrides, planner prompt injection, relevance ordering, truncation caps) — Session 28 |
-| `test_concurrency_cap.py` | Concurrency cap enforcement (15 tests: real asyncio.Semaphore, peak concurrent count, singleton, exception/timeout release, retry_with_backoff) — Session 28 |
-| `test_docx_export.py` | DOCX export validation (19 tests: real python-docx generation/reading, title/TOC/body/bibliography/quality/audit certificate, large reports, special chars) — Session 28 |
-| `test_pipeline_crud.py` | Pipeline CRUD API (22 tests: real ASGI endpoints, Pydantic validation, YAML templates, cycle detection, topological sort, round-trip) — Session 28 |
-| `test_wizard_flow.py` | Pipeline wizard flow (15 tests: real PipelineWizard heuristic engine, 6-stage progression, keyword-based generation, concurrent sessions, API round-trip) — Session 28 |
-| `test_performance_sla.py` | Performance SLA validation (13 tests: API <500ms, dashboard <2s, LTM <500ms, batch burst, health/templates/memory/system/history/status/snapshot/pipelines/campaigns/documents) — Session 29 |
+- `archive/2026-Q2_deprecated_phases/`, `archive/docs_historical_2026012{7,9}/`,
+  `archive/logs_historical_*` — earlier cleanups
 
 ---
 
-## 12. docs/ -- Documentation
+## 10. Deprecated references you may encounter
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `todo_list.md` | ~447 | Active project definition (APD) -- 174-item prioritized task backlog |
-| `file_directory.md` | ~610 | This file -- comprehensive file inventory |
-| `ui_ux_design_prompt.md` | 1177 | UI/UX design brief for all 9 dashboard screens (Amendment A6). Standalone prompt for Figma-ready wireframe generation. Covers: design system, color palette, typography, 9 screen specs, interaction patterns, responsive behavior, component library. |
-| `deployment_guide.md` | 1059 | Cloud, sovereign, air-gapped deployment guide with hardware specs and troubleshooting |
-| `architecture_diagram.md` | 603 | System architecture diagrams: pipeline, data flow, security model, memory architecture |
-| `landing_page.html` | 1879 | Static marketing landing page: hero, pipeline viz, comparison, pricing, demo form |
-| `pitch_deck.md` | 271 | 10-slide pitch deck: problem, solution, moats, market, pricing, GTM, ask |
-| `pitch_deck.html` | 335 | HTML presentation version: 10 slides, keyboard nav, responsive, print-ready |
-| `feature_comparison.md` | 154 | 56-feature comparison: POLARIS vs Perplexity vs ChatGPT vs Gemini vs Claude |
-| `benchmark_questions.md` | 304 | 10-question benchmark suite with scoring rubrics and evaluation protocol |
-| `case_study_template.md` | ~200 | Reusable case study template: profile, challenge, solution, results, ROI |
-| `partner_enablement.md` | ~200 | Partner program kit: overview, pricing/revenue share, technical requirements, differentiation, implementation timeline, sales playbook, demo script |
+The following appear in some remaining scripts or old doc strings but
+point to non-existent paths / deprecated concepts. Treat as stale:
 
-### docs/compliance_templates/ -- Compliance Export Templates (Session 10)
+- `src/phases/` — the P0-P12 directory structure. Removed before
+  2026-04-18. The README's old "13-phase pipeline" description was
+  fiction as of this cleanup.
+- `src/runner.py` — referenced in old README, does not exist.
+- `scripts/preflight.py`, `scripts/flight_test.py`,
+  `scripts/postflight_audit.py` — referenced in old README, do not
+  exist. Use `scripts/pg_preflight_v2.py` instead.
+- `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
+  by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
+  is broken until these are either restored or removed.
+- "Kimi K2.5 1T" — historical generator. Current generator is
+  DeepSeek V3.2-Exp. Current evaluator is Qwen3-8B.
+- "175 vectors exactly" — old invariant from P0-P12. Not applicable
+  to any currently-active pipeline.
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `eu_ai_act_article_11.md` | 317 | EU AI Act Article 11 conformity: risk classification, data governance, transparency |
-| `soc2_evidence_mapping.md` | 196 | SOC 2 Type II: all 5 Trust Service Criteria mapped to POLARIS controls |
-| `hipaa_audit_trail.md` | 320 | HIPAA Security Rule: access, audit, integrity, transmission safeguards |
-| `fedramp_documentation.md` | 319 | FedRAMP: 17 control families, continuous monitoring, incident response |
-
-### docs/compliance/ -- Additional Compliance Templates (Session 10)
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `eu_ai_act_template.md` | 311 | EU AI Act with model inventory and conformity assessment |
-| `soc2_evidence_map.md` | 186 | SOC 2 with evidence collection schedule and auditor guidance |
-| `hipaa_audit_trail.md` | 414 | HIPAA with PHI detection controls and sovereign deployment advantages |
-
----
-
-## 13. state/ -- State Persistence
-
-| File/Dir | Purpose |
-|----------|---------|
-| `restart_instructions.md` | Resume instructions for session recovery |
-| `cost_ledger.json` | API cost tracking |
-| `pg_batch_progress.sqlite` | Batch progress tracking (SQLite) |
-| `pg_checkpoints.sqlite` | Pipeline checkpoints (SQLite) |
-| `pg_content_cache.sqlite` | Content cache (SQLite) |
-| `pg_evidence_hierarchy.sqlite` | Evidence hierarchy cache (SQLite) |
-| `pg_search_cache.sqlite` | Search cache (SQLite) |
-| `pg_session_feedback.sqlite` | Session feedback cache (SQLite) |
-| `feedback_checkpoints/` | Feedback checkpoint JSONs (ckpt_0000-0002) |
-
----
-
-## 14. logs/ -- Active Logs
-
-| File | Purpose |
-|------|---------|
-| `session_log.md` | Chronological session audit trail (APD component) |
-| `bug_log.md` | Bug and issue registry |
-| `polaris_graph.log` | Persistent pipeline log (dual console+file) |
-| `serper_diag.log` | Serper API diagnostic log |
-| `pg_cost_ledger.jsonl` | JSONL cost ledger |
-| `pg_trace_PG_TEST_040.jsonl` | PG_TEST_040 trace |
-| `pg_trace_PG_TEST_041.jsonl` | PG_TEST_041 trace |
-| `pg_trace_PG_TEST_042.jsonl` | PG_TEST_042 trace |
-| `pg_trace_PG_TEST_043.jsonl` | PG_TEST_043 trace |
-| `pg_trace_PG_TEST_044.jsonl` | PG_TEST_044 trace |
-| `pg_trace_PG_TEST_045.jsonl` | PG_TEST_045 trace |
-| `pg_trace_PG_TEST_046.jsonl` | PG_TEST_046 trace |
-| `pg_trace_PG_TEST_046_MOST.jsonl` | PG_TEST_046 MoST trace |
-| `pg_trace_PG_TEST_047.jsonl` | PG_TEST_047 trace |
-
----
-
-## 15. outputs/ -- Pipeline Outputs
-
-| Directory | Purpose |
-|-----------|---------|
-| `polaris_graph/` | Production pipeline outputs (PG_TEST_040 through PG_TEST_047 JSON + reports) |
-| `polaris_graph/audit_047/` | PG_TEST_047 audit artifacts (claims, evidence, sections, bibliography, clusters, report, metadata) |
-| `audit/` | Legacy audit results (audit_pack_v4_fix61, SOTA readiness JSONs) |
-| `archive/` | Archived S1V1 outputs |
-
----
-
-## 16. archive/ -- Archived Files
-
-| Directory | Contents |
-|-----------|----------|
-| `cleanup_20260223/` | **Major cleanup**: 13 dead src dirs, 27 scripts, 14 docs, 8.5GB ckpts, logs, config, docker, monitoring, tests, state, outputs |
-| `cleanup_20260221/` | Pre-cleanup: exports, logs, outputs, scripts, state |
-| `cleanup_20260129_sota_validation/` | Post-SOTA validation cleanup |
-| `docs_historical_20260127/` | 14 historical docs |
-| `ground_rules_original.txt` | Original ground rules |
-| `logs_historical_20260127/` | Historical logs (Jan 27) |
-| `logs_historical_20260131/` | Historical logs (Jan 27-28) |
-| `POLARIS_APEX/` | Legacy v1 codebase |
-| `state_history_20260131/` | Old test/validation run state |
-
-### cleanup_20260223 Detail
-
-| Subdirectory | What Was Archived |
-|--------------|-------------------|
-| `src_dead/` | 13 dead directories: api, budget, callbacks, cli, depth, evaluation, feedback, formatters, functions, graph, monitoring, reasoning, storage |
-| `scripts/` | 27 legacy scripts: ablation, clean, diagnostics, resume, validation, evaluation scripts |
-| `docs/` | 14 stale docs: benchmark_analysis, competitor_analysis, deployment plan, gemini audit, how_we_work, memory plan, runbook, SOTA reports, etc. |
-| `ckpts_duplicate/` | 8.5GB duplicate model checkpoints (MiniCheck-Flan-T5-Large) |
-| `chroma_db_legacy/` | Legacy ChromaDB SQLite database |
-| `logs/` | 90+ historical run logs (s1v1, s1v6, s1v7, s1v9, run10-18, pg_test_016-039, snowball, etc.) |
-| `config/` | Old thresholds.yaml |
-| `docker/` | Dockerfile, docker-compose.yml |
-| `monitoring/` | prometheus.yml |
-| `tests/` | conftest.py, test_phases.py |
-| `state/` | Old last_pointer.json, v3 state directory |
-| `outputs/` | Empty (output dirs were already clean) |
-| `root/` | Empty |
-
----
-
-## 17. helm/polaris/ -- Kubernetes Helm Chart (Session 10)
-
-| File | Purpose |
-|------|---------|
-| `Chart.yaml` | Helm chart metadata (name, version, description) |
-| `values.yaml` | Default values: replicas, image, resources, ports, env vars, sovereign mode |
-| `templates/_helpers.tpl` | Template helpers (labels, selector labels, fullname) |
-| `templates/deployment.yaml` | Kubernetes Deployment: pod spec, volumes, health checks, resource limits |
-| `templates/service.yaml` | Kubernetes Service: ClusterIP, port mapping |
-| `templates/pvc.yaml` | PersistentVolumeClaim: output and model storage |
-| `templates/ingress.yaml` | Optional Ingress: host routing, TLS |
-
----
-
-## Other Directories
-
-| Directory | Purpose |
-|-----------|---------|
-| `models/minicheck/` | MiniCheck-RoBERTa-Large model weights (HuggingFace cache) |
-| `data/benchmarks/` | HLE dataset cache (`hle_dataset_cache.json`) |
-
----
-
-## Naming Convention Compliance
-
-Per CLAUDE.md LAW V:
-- **All Python files**: snake_case (COMPLIANT)
-- **All directories**: snake_case (COMPLIANT)
-- **Generated artifacts**: UPPERCASE allowed (state files, test output JSONs)
-- **Root docs**: PascalCase allowed (CLAUDE.md, README.md)
+See `archive/2026-04-18-pre-audit-cleanup/docs/architecture_legacy_2026-01-31.md`
+for the document that described these now-deprecated concepts.

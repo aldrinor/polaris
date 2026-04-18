@@ -77,3 +77,23 @@ POLARIS_APEX/
 
 # --- Data (benchmarks, documents — reproducible) ---
 data/
+
+# --- Accidental scratch dirs that accumulate at repo root ---
+# These appeared during 2026-Q1 development and were archived
+# on 2026-04-18. Block them from reappearing untracked.
+tmp/
+wiki/
+cache/
+loopback/
+
+# --- Root-level audit/debug dumps ---
+audit_*.txt
+loopback_inspect_pages.txt
+
+# --- Codex loop ephemera ---
+.codex/round_*/stdout.log
+.codex/round_*/stderr.log
+outputs/codex_findings/round_*/stdout.log
+outputs/codex_findings/round_*/stderr.log
+outputs/codex_findings/round_*/tmp_probe/
+outputs/codex_findings/round_*/last_message.txt
