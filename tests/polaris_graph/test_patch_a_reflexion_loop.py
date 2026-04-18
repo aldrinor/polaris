@@ -1,10 +1,17 @@
-"""PATCH-A: Reflexion re-audit loop tests.
+"""PATCH-A: Reflexion re-audit loop tests — DEPRECATED by HONEST-REBUILD Phase 1b.
 
-Tests the bounded rewrite+re-audit loop in wiki_composer.compose_from_wiki
-that closes the "rewrote but never re-audited" defect found in PG_LB_SA_01.
+HONEST-REBUILD status (2026-04-18): Phase 1b stripped the REMEDIATE-LOOP
+from wiki_composer entirely (see commit 85f08b5 and
+loopback/audit/PG_LB_SA_02_CONTENT_AUDIT.md). The Reflexion-style
+rewrite-to-pass-metric loop was itself a source of NLI-gaming: iter-2
+rewrites compressed sections by ~60% to beat the metric, deleting
+evidence-synthesis content. The honest-rebuild replaces this with
+strict_verify drop-on-failure + multi-section regen-once-if-kept-
+fraction-too-low (see Gap-4 multi_section_generator.py).
 
-Source pattern: noahshinn/reflexion — nested while loop with verify-rewrite-
-verify cycle, bounded by MAX_REWRITE_ITERS.
+These tests remain in the tree as a historical marker — they exercise
+code that was intentionally removed. Marked xfail so the suite reads
+clean.
 """
 from __future__ import annotations
 
@@ -13,6 +20,15 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+pytestmark = pytest.mark.xfail(
+    reason=(
+        "Phase 1b removed the REMEDIATE-LOOP from wiki_composer. "
+        "These tests exercise deprecated Patch-A Reflexion code "
+        "(commit 85f08b5). Kept as historical marker."
+    ),
+    strict=False,
+)
 
 from src.polaris_graph.wiki.wiki_builder import WikiResult
 
