@@ -45,7 +45,8 @@ def test_weight_loss_contradiction_detected() -> None:
     assert len(records) == 1
     r = records[0]
     assert r.subject == "semaglutide"
-    assert r.predicate == "weight loss"
+    # Fix-1: predicate now carries dose suffix like "weight loss (2.4 mg)".
+    assert r.predicate.startswith("weight loss")
     # Values 14.9 and 17.4 -> relative diff ~0.168, abs 2.5
     assert r.relative_difference > 0.10
     assert r.absolute_difference >= 2.5

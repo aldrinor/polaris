@@ -163,33 +163,39 @@ NIH_LITERATURE_HOSTS = frozenset({
 # journal URL, not via these domains. MEMORY lesson: Patch D tagged
 # these GOLD; they are industry-marketing.
 INDUSTRY_MARKETING_DOMAINS = frozenset({
-    # Novo Nordisk
+    # Novo Nordisk — corporate, HCP, medical education, research portal.
+    # Live-run FP-1 (2026-04-18): OpenAlex tiered novonordiskmedical.com
+    # as T1 peer-reviewed. Added medical / sciencehub / nnmedinfo variants.
     "novomedlink.com", "wegovy.com", "ozempic.com", "novonordisk.com",
-    "novonordisk.ca", "novomedinfo.com",
+    "novonordisk.ca", "novomedinfo.com", "nnmedinfo.com",
+    "novonordiskmedical.com", "novonordiskpro.com",
+    "sciencehub.novonordisk.com",
     # Eli Lilly
     "lilly.com", "mounjaro.com", "zepbound.com",
+    "lillymedical.com", "lillypro.com",
     # Pfizer
-    "pfizer.com", "pfizermedicalinformation.com",
+    "pfizer.com", "pfizermedicalinformation.com", "pfizermedical.com",
+    "pfizerpro.com",
     # Merck
-    "merck.com", "merckconnect.com",
+    "merck.com", "merckconnect.com", "merckmanuals.com",
     # GSK
-    "gsk.com", "gskpro.com",
+    "gsk.com", "gskpro.com", "gskmedical.com",
     # AstraZeneca
-    "astrazeneca.com", "azmedical.us",
+    "astrazeneca.com", "azmedical.us", "azmerck.com",
     # Roche / Genentech
-    "roche.com", "genentech.com", "gene.com",
+    "roche.com", "genentech.com", "gene.com", "rochemedical.com",
     # Sanofi
-    "sanofi.com", "sanofimedicalinformation.com",
+    "sanofi.com", "sanofimedicalinformation.com", "sanofimedical.com",
     # Bayer
     "bayer.com", "pharma.bayer.com",
     # Boehringer Ingelheim
-    "boehringer-ingelheim.com",
+    "boehringer-ingelheim.com", "bipharma.com",
     # Takeda
     "takeda.com",
     # Johnson & Johnson
     "jnj.com", "janssen.com", "janssenmd.com",
     # Bristol Myers Squibb
-    "bms.com",
+    "bms.com", "bmsstudyconnect.com",
     # Abbvie
     "abbvie.com", "abbviepro.com",
 })
@@ -238,9 +244,17 @@ NEWS_BLOG_DOMAINS = frozenset({
     "healthline.com", "medicalnewstoday.com", "statnews.com",
     "medscape.com", "webmd.com", "drugs.com",
     "medpagetoday.com", "healthnews.com",
+    "endocrinologyadvisor.com", "rheumatologyadvisor.com",
+    "oncologynursingnews.com", "cardiologyadvisor.com",
     # Industry / pharma trade press
     "fiercepharma.com", "biopharmadive.com", "endpts.com",
     "pharmatimes.com", "pharmamanufacturing.com",
+    # Press-release wire services (live-run FP-2: prnewswire got tiered
+    # T4 by OpenAlex because it marked it pub_type=review; wires are
+    # actually commentary on primary sources and should be T6).
+    "prnewswire.com", "businesswire.com", "globenewswire.com",
+    "prweb.com", "prlog.org", "einpresswire.com", "marketwired.com",
+    "newswire.com", "presswire.com", "pharmabiz.com",
     # Blogs / substack / medium / dev.to
     "substack.com", "medium.com", "dev.to", "blogspot.com",
     "wordpress.com",

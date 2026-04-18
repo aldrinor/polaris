@@ -104,6 +104,9 @@ class ExtractedNumericClaim:
     context_snippet: str  # original text for display
     source_url: str = ""
     source_tier: str = ""
+    dose: str = ""             # "2.4 mg", "7.2 mg", or "" if not present
+    arm: str = "treatment"     # "treatment", "placebo", "comparator"
+    endpoint_phrase: str = ""  # e.g., "at week 68", "from baseline", "mean change"
 
 
 @dataclass
@@ -146,41 +149,187 @@ def _normalize_subject(text: str, fallback: str = "unknown") -> str:
     return fallback
 
 
-def _extract_numeric_value(text: str, predicate: str) -> Optional[tuple[float, str]]:
-    """Extract the numeric value + unit that most likely belongs to the predicate."""
+# Fix-1 reject patterns. Numbers that sit inside these contexts are
+# filtered BEFORE we pull the value, because they're structurally not
+# the claim-under-measurement:
+#   - "placebo N%" / "vs placebo" / "versus placebo" → comparator arm
+#   - "≥5%" / "at least 5%" / "5% or more" / "5% threshold" → achievement
+#     threshold, not the value being measured
+#   - "STEP N" / "SUSTAIN N" → trial-program integer, not a value
+#   - "week N" / "month N" / "year N" → duration
+_PLACEBO_CONTEXT_RE = re.compile(
+    r"(?:vs\.?|versus|v\.)\s+placebo|"
+    r"placebo\s+(?:recipients|group|arm|patients)|"
+    r"in\s+(?:the\s+)?placebo",
+    re.IGNORECASE,
+)
+_ACHIEVEMENT_THRESHOLD_RE = re.compile(
+    r"(?:at\s+least|≥|>=|>)\s*-?\d+(?:\.\d+)?\s*%|"
+    r"-?\d+(?:\.\d+)?\s*%\s*(?:or\s+more|or\s+greater|threshold|achievement)",
+    re.IGNORECASE,
+)
+_TRIAL_ACRONYM_NUM_RE = re.compile(
+    r"\b(?:STEP|SUSTAIN|SURPASS|SURMOUNT|REWIND|LEADER|PIONEER|SELECT)\s*-?\s*\d+",
+    re.IGNORECASE,
+)
+_DURATION_NUM_RE = re.compile(
+    r"(?:week|month|year|day)s?\s+-?\d+(?:\.\d+)?|"
+    r"-?\d+(?:\.\d+)?\s*(?:week|month|year|day)s?",
+    re.IGNORECASE,
+)
+# A valid claim usually carries a value-phrase verb. "Achieved 14.9%",
+# "reduced by 12%", "loss of 15%", "mean change -14.9%". This
+# whitelist prevents us from pulling random decimals that happen to be
+# in the quote.
+_VALUE_PHRASE_VERBS = re.compile(
+    r"(?:achiev\w+|reduc\w+|los[ts]?|loss|decreas\w+|"
+    r"mean\s+(?:change|weight|reduction|loss|difference)|"
+    r"experienc\w+\s+a?\s*\d+|"
+    r"reported|produc\w+|demonstrat\w+|"
+    r"at\s+(?:week|month|year)\s+\d+)",
+    re.IGNORECASE,
+)
+
+# Dose pattern (captures the full "X.X mg" string for grouping).
+_DOSE_CAPTURE_RE = re.compile(
+    r"(\d+(?:\.\d+)?\s*m[gc]g?|\d+(?:\.\d+)?\s*[µu]g|\d+(?:\.\d+)?\s*g\b)",
+    re.IGNORECASE,
+)
+
+
+def _extract_dose(text: str) -> str:
+    """Extract the most-salient dose token from the text (for grouping)."""
+    m = _DOSE_CAPTURE_RE.search(text or "")
+    if not m:
+        return ""
+    return m.group(1).replace(" ", " ").lower()
+
+
+def _detect_placebo_arm(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_PLACEBO_CONTEXT_RE.search(text))
+
+
+def _extract_endpoint_phrase(text: str) -> str:
+    """Extract a short endpoint descriptor ('at week 68', 'from baseline')."""
+    if not text:
+        return ""
+    low = text.lower()
+    for pat in (
+        r"at\s+week\s+\d+", r"at\s+\d+\s+weeks?",
+        r"at\s+month\s+\d+", r"at\s+\d+\s+months?",
+        r"from\s+baseline", r"mean\s+change",
+        r"intent\s*-?\s*to\s*-?\s*treat",
+        r"per\s+protocol",
+        r"trial\s+product\s+estimand",
+    ):
+        m = re.search(pat, low)
+        if m:
+            return m.group(0)
+    return ""
+
+
+def _find_value_in_context(text: str, predicate: str) -> Optional[tuple[float, str, str]]:
+    """Find a numeric value that sits INSIDE a value-phrase context.
+
+    Returns (value, unit, matched_context) or None.
+
+    The algorithm:
+      1. Find all percentage matches.
+      2. For each, check a ±40-char window for:
+         (a) A value-phrase verb  AND
+         (b) NOT a reject pattern (placebo, threshold, trial acronym, duration)
+      3. Return the first match that satisfies both.
+    """
     if not text:
         return None
-    t = text
 
-    # Pick a regex based on predicate
+    # Predicate-specific unit handling
     if "hba1c" in predicate or "a1c" in predicate:
-        m = _HBA1C_RE.search(t)
+        for m in _HBA1C_RE.finditer(text):
+            window = text[max(0, m.start() - 40): min(len(text), m.end() + 40)]
+            if _is_reject_context(window, m.start() - max(0, m.start() - 40)):
+                continue
+            if not _VALUE_PHRASE_VERBS.search(window):
+                continue
+            try:
+                return (float(m.group("value")), "percentage_points", window)
+            except ValueError:
+                continue
+        return None
+
+    for m in _PCT_RE.finditer(text):
+        start_win = max(0, m.start() - 40)
+        end_win = min(len(text), m.end() + 40)
+        window = text[start_win:end_win]
+        # Reject if window is a comparator/threshold/acronym/duration
+        if _is_reject_context(window, m.start() - start_win):
+            continue
+        if not _VALUE_PHRASE_VERBS.search(window):
+            continue
+        try:
+            return (float(m.group("value")), "%", window)
+        except ValueError:
+            continue
+    return None
+
+
+def _is_reject_context(window: str, num_pos_in_window: int) -> bool:
+    """Return True if the number at `num_pos_in_window` is in a reject context.
+
+    We check the immediate left/right 30 chars around the number only —
+    this prevents a distant "placebo" elsewhere in the window from
+    wrongly rejecting a treatment-arm claim.
+    """
+    near_start = max(0, num_pos_in_window - 30)
+    near_end = min(len(window), num_pos_in_window + 30)
+    near = window[near_start:near_end]
+    if _PLACEBO_CONTEXT_RE.search(near):
+        return True
+    if _ACHIEVEMENT_THRESHOLD_RE.search(near):
+        return True
+    if _TRIAL_ACRONYM_NUM_RE.search(near):
+        return True
+    # Duration reject: only if the number itself is inside a week/month/year span
+    m = _DURATION_NUM_RE.search(near)
+    if m and m.start() <= num_pos_in_window - near_start <= m.end():
+        return True
+    return False
+
+
+def _extract_numeric_value(text: str, predicate: str) -> Optional[tuple[float, str]]:
+    """Back-compat: returns (value, unit) without the context.
+
+    The new pipeline uses _find_value_in_context() directly to also
+    capture the endpoint phrase; this shim keeps older call-sites
+    working during the Fix-1 rollout.
+    """
+    if not text:
+        return None
+    result = _find_value_in_context(text, predicate)
+    if result:
+        v, u, _ctx = result
+        return (v, u)
+
+    # Fallback: if no value-phrase match, fall back to the previous
+    # loose extraction — but ONLY for the predicate-specific regex,
+    # not the generic "any percentage in the quote" fallback which
+    # was the source of Fix-1 false positives.
+    if "hba1c" in predicate or "a1c" in predicate:
+        m = _HBA1C_RE.search(text)
         if m:
             try:
                 return float(m.group("value")), "percentage_points"
             except ValueError:
                 return None
-    if "reduction" in predicate or "weight" in predicate or "incidence" in predicate or "rate" in predicate:
-        m = _PCT_RE.search(t)
-        if m:
-            try:
-                return float(m.group("value")), "%"
-            except ValueError:
-                return None
     if "duration" in predicate:
-        m = _DURATION_RE.search(t)
+        m = _DURATION_RE.search(text)
         if m:
             try:
                 return float(m.group("value")), m.group("unit").lower()
             except ValueError:
                 return None
-    # Fallback: first percentage in the text
-    m = _PCT_RE.search(t)
-    if m:
-        try:
-            return float(m.group("value")), "%"
-        except ValueError:
-            return None
     return None
 
 
@@ -191,6 +340,10 @@ def extract_numeric_claims(
 
     Each evidence dict should have 'evidence_id', 'direct_quote' (or
     'statement'), 'source_url', 'tier'. Missing fields are handled.
+
+    Fix-1: now also extracts dose + arm + endpoint_phrase, filters
+    placebo-arm numbers, filters achievement thresholds, and requires
+    a value-phrase verb in the local context.
     """
     claims: list[ExtractedNumericClaim] = []
     for ev in evidence:
@@ -201,19 +354,37 @@ def extract_numeric_claims(
         if not predicate:
             continue
         subject = _normalize_subject(quote)
-        numeric = _extract_numeric_value(quote, predicate)
-        if numeric is None:
+
+        # Fix-1 uses _find_value_in_context which returns the matched
+        # window so we can store the endpoint phrase.
+        in_context = _find_value_in_context(quote, predicate)
+        if in_context is None:
             continue
-        value, unit = numeric
+        value, unit, ctx_window = in_context
+
+        dose = _extract_dose(ctx_window) or _extract_dose(quote)
+        # arm classification: if the value sits in a placebo context
+        # it wouldn't have passed _find_value_in_context, but we also
+        # tag "comparator" when the ctx includes "vs placebo" farther
+        # out (this is additional info for display, not a filter).
+        if _detect_placebo_arm(ctx_window):
+            arm = "comparator_adjacent"
+        else:
+            arm = "treatment"
+        endpoint_phrase = _extract_endpoint_phrase(ctx_window) or _extract_endpoint_phrase(quote)
+
         claims.append(ExtractedNumericClaim(
             evidence_id=str(ev.get("evidence_id", "")),
             subject=subject,
             predicate=predicate,
             value=value,
             unit=unit,
-            context_snippet=quote[:200],
+            context_snippet=ctx_window[:200],
             source_url=ev.get("source_url", ""),
             source_tier=ev.get("tier", ""),
+            dose=dose,
+            arm=arm,
+            endpoint_phrase=endpoint_phrase,
         ))
     return claims
 
@@ -250,19 +421,26 @@ def detect_contradictions(
     rel_threshold: Optional[float] = None,
     abs_threshold: Optional[float] = None,
 ) -> list[ContradictionRecord]:
-    """Group claims by (subject, predicate, unit) and flag discrepancies."""
+    """Group claims by (subject, predicate, unit, dose) and flag discrepancies.
+
+    Fix-1: grouping key now includes DOSE. A 2.4 mg weight-loss result
+    and a 7.2 mg weight-loss result are NOT a contradiction — they're
+    expected dose-response differences. They will only be grouped
+    together if both happen to have no dose tag (e.g., a narrative
+    review that doesn't specify dose).
+    """
     if rel_threshold is None:
         rel_threshold = PG_CONTRADICTION_REL_THRESHOLD
     if abs_threshold is None:
         abs_threshold = PG_CONTRADICTION_ABS_THRESHOLD
 
-    grouped: dict[tuple[str, str, str], list[ExtractedNumericClaim]] = {}
+    grouped: dict[tuple[str, str, str, str], list[ExtractedNumericClaim]] = {}
     for c in claims:
-        key = (c.subject, c.predicate, c.unit)
+        key = (c.subject, c.predicate, c.unit, c.dose or "")
         grouped.setdefault(key, []).append(c)
 
     records: list[ContradictionRecord] = []
-    for (subject, predicate, unit), group in grouped.items():
+    for (subject, predicate, unit, dose), group in grouped.items():
         if len(group) < 2:
             continue
         values = [c.value for c in group]
@@ -271,9 +449,12 @@ def detect_contradictions(
         rel = abs(vmax - vmin) / denom
         abs_diff = abs(vmax - vmin)
         if rel >= rel_threshold and abs_diff >= abs_threshold:
+            predicate_display = predicate
+            if dose:
+                predicate_display = f"{predicate} ({dose})"
             records.append(ContradictionRecord(
                 subject=subject,
-                predicate=predicate,
+                predicate=predicate_display,
                 claims=sorted(group, key=lambda c: c.value),
                 relative_difference=round(rel, 4),
                 absolute_difference=round(abs_diff, 4),

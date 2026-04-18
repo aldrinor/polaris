@@ -248,6 +248,70 @@ def _domain_of(url: str) -> str:
         return ""
 
 
+_DECIMAL_PATTERN = re.compile(r"-?\d+\.\d+")
+
+
+def _build_provenance_quote(
+    content: str,
+    head_chars: int = 1500,
+    window_chars: int = 500,
+    max_total_chars: int = 12000,
+    max_windows: int = 20,
+) -> str:
+    """Build a direct_quote that contains the head of the document AND
+    500-char windows around every decimal found in the full content.
+
+    Fixes Fix-3: strict_verify was dropping sentences that cited real
+    numbers living outside the first 1500 chars (e.g., STEP 5 -15.2%
+    in the results section of a Nature paper). Caller stores the result
+    as evidence.direct_quote; Phase 4 _find_span_for_decimal will now
+    find the decimal because a window containing it is in the quote.
+
+    Returns a concatenation: head || "\\n\\n[...]\\n\\n" || window_1 || ...
+    Deduplicates overlapping windows. Caps total length at max_total_chars
+    to keep prompt budget under control.
+    """
+    if not content:
+        return ""
+    head = content[:head_chars]
+    if len(content) <= head_chars:
+        return head
+
+    # Find all decimal positions in the full content
+    positions: list[tuple[int, int]] = []
+    for m in _DECIMAL_PATTERN.finditer(content):
+        start = max(0, m.start() - window_chars // 2)
+        end = min(len(content), m.end() + window_chars // 2)
+        positions.append((start, end))
+
+    # De-overlap: merge adjacent windows that touch each other
+    positions.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in positions:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    # Drop windows already fully inside the head
+    merged = [(s, e) for s, e in merged if e > head_chars]
+
+    # Cap count
+    merged = merged[:max_windows]
+
+    chunks = [head]
+    total = len(head)
+    for s, e in merged:
+        chunk = content[s:e]
+        # Stop if we'd exceed the total cap
+        if total + len(chunk) + 6 > max_total_chars:
+            break
+        chunks.append(chunk)
+        total += len(chunk) + 6  # rough separator overhead
+
+    return "\n\n[...]\n\n".join(chunks)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
@@ -400,11 +464,16 @@ def run_live_retrieval(
             tier_reasons=list(tier_result.reasons),
         ))
 
-        # Build an evidence row: snippet + up-to-1k content window
+        # Build direct_quote: head-window (first 1500 chars) PLUS 500-char
+        # windows around every decimal in the full content. This way the
+        # Phase-4 provenance verifier can find numeric claims that live
+        # deep in the fetched HTML (e.g., STEP 5 -15.2% on page 3 of a
+        # Nature paper). Without this, strict_verify drops real data
+        # because the number it's looking for is outside the head window.
         if content:
-            # Use the first 1500 chars as the direct_quote surrogate —
-            # good enough for provenance verification in the live test.
-            direct_quote = content[:1500]
+            direct_quote = _build_provenance_quote(
+                content, head_chars=1500, window_chars=500,
+            )
             evidence_rows.append({
                 "evidence_id": f"ev_{i:03d}",
                 "source_url": cand.url,
@@ -412,6 +481,7 @@ def run_live_retrieval(
                 "direct_quote": direct_quote,
                 "tier": tier_result.tier.value,
                 "source": cand.source,
+                "full_content_length": len(content),
             })
 
     return LiveRetrievalResult(
