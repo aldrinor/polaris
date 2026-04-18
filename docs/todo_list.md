@@ -19,10 +19,10 @@
 **Phase 1 — Kill the lies (active, parallel with Phase 0)**
 - [~] **1a FIRST PASS DONE** (commit 11252bc): removed FIX-043A survivorship-bias recomputation in `synthesizer.py`; removed UI display of faithfulness from `live_server.py`; dashboard shows "LEGACY METRIC" for pre-rebuild runs. Remaining: label faithfulness_score in final output JSON (deferred to Phase 1e migration script).
 - [x] **1b DONE** (commit 85f08b5): stripped 314 lines of REMEDIATE-LOOP + hallucination audit + abstract re-audit + POLISH invocation from `wiki_composer.py`; replaced `hallucination_detector.py` with 96-line stub that preserves import surface and emits DeprecationWarning.
-- [ ] **1c**: Add per-call family routing to `src/polaris_graph/llm/openrouter_client.py`; env vars `PG_GENERATOR_MODEL` + `PG_EVALUATOR_MODEL`; fail-fast on same-family pair; verified pair is DeepSeek V3.2 + Qwen 3 32B per `loopback/audit/_open_source_models_2026.md`
-- [ ] **1d**: Archive 3 deprecated architectures (`src/phases/`, legacy `src/orchestration/`, polaris_graph v1) using `git mv` to `archive/2026-Q2_deprecated_*/`. **USER CONFIRMATION BEFORE EXECUTION**
-- [ ] **1e**: Migration script `scripts/migrate_old_runs.py` for pre-existing POLARIS run JSONs
-- [ ] **1f**: Regression tests keyed to documented PG_LB_SA_02 defects (`tests/polaris_graph/test_regression_pg_lb_sa_02_defects.py`)
+- [x] **1c DONE** (commit 3f0425d): added `family_from_model()` and `check_family_segregation()` in `openrouter_client.py`; env vars `PG_GENERATOR_MODEL` (default `deepseek/deepseek-v3.2-exp`) + `PG_EVALUATOR_MODEL` (default `qwen/qwen3-32b`); verified pair per `loopback/audit/_open_source_models_2026.md` (HHEM 6.3% vs 5.9%, both commercially licensable). Fail-fast on same-family pair (RuntimeError); `PG_*_FAMILY_OVERRIDE` escape hatch for fine-tunes.
+- [ ] **1d BLOCKED ON USER**: Archive 3 deprecated architectures (`src/phases/`, legacy `src/orchestration/`, polaris_graph v1) using `git mv` to `archive/2026-Q2_deprecated_*/`. **USER CONFIRMATION BEFORE EXECUTION** — this is a large destructive rename across the repo; needs explicit sign-off per auto-mode safety posture.
+- [x] **1e DONE** (commit f5de7dc): `scripts/migrate_old_runs.py` with idempotency guard, archive, and manifest. Dry-run on current `outputs/polaris_graph` identified 73 files needing migration, 26 already clean. Script ready; execution deferred until user opts in.
+- [x] **1f DONE** (commit 70f8a15): `tests/polaris_graph/test_regression_pg_lb_sa_02_defects.py` — 15 tests, 8 passing (Phase 1a/1b/1c locks + D-027 kwarg), 6 xfailed for Phase 2-4, 1 skipped.
 - [x] Plan + audit committed to PL; PL-honest-rebuild-phase-1 branch created; commits 11252bc + 85f08b5 + audit 9b82bdc chain
 
 **Phase 2+ (blocked pending Phase 0 validation gate)**
