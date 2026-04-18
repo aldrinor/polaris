@@ -763,8 +763,27 @@ async def run_one_query(
              f"contradictions={len(contradictions)}")
 
         # Multi-section generation with Limitations (R-1)
+        # BUG-M-201 fix (deep-dive R6): tier-balanced + relevance-ranked
+        # selection instead of raw-order truncation. Previously the
+        # generator saw evidence_rows[:20] in retrieval order, diverging
+        # from what the gates certified.
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation,
+        )
         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
-        evidence_for_gen = retrieval.evidence_rows[:max_ev]
+        evidence_selection = select_evidence_for_generation(
+            research_question=q["question"],
+            protocol=protocol,
+            classified_sources=retrieval.classified_sources,
+            evidence_rows=retrieval.evidence_rows,
+            max_rows=max_ev,
+        )
+        evidence_for_gen = evidence_selection.selected_rows
+        _log(f"[select]      strategy={evidence_selection.selection_strategy} "
+             f"selected={len(evidence_for_gen)} of {len(retrieval.evidence_rows)} "
+             f"dropped={evidence_selection.dropped_count}")
+        _log(f"              full_tiers={evidence_selection.full_counts} "
+             f"selected_tiers={evidence_selection.selected_counts}")
         _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
              f"evidence={len(evidence_for_gen)}...")
         t0 = time.time()
@@ -1048,6 +1067,8 @@ async def run_one_query(
             # BUG-M-205: evaluator gate decision surfaced to downstream
             "release_allowed": eval_gate.release_allowed,
             "evaluator_gate": eval_gate.to_dict(),
+            # BUG-M-201: generator-visible evidence provenance.
+            "evidence_selection": evidence_selection.to_dict(),
             "protocol_sha256": scope.protocol_sha256,
             "retrieval": {
                 "pre_filter": retrieval.total_candidates_pre_filter,
