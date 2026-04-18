@@ -1,7 +1,7 @@
 {
-  "current_round": 1,
+  "current_round": 2,
   "max_rounds": 12,
-  "status": "awaiting_codex_round_2",
+  "status": "awaiting_codex_round_3",
   "history": [
     {
       "round": 1,
@@ -11,7 +11,7 @@
       "claude_addressed": 5,
       "claude_deferred": 0,
       "claude_disputed": 0,
-      "commits": ["pending"],
+      "commits": ["724edf5b79d246614b940dd1beb2976cc63a8b94"],
       "started_iso": "2026-04-18T11:59:00Z",
       "codex_task_id": "bh4vohivv",
       "codex_completed_iso": "2026-04-18T12:05:00Z",
@@ -19,15 +19,38 @@
       "findings_file": "outputs/codex_findings/round_1/findings.md",
       "response_file": "outputs/codex_findings/round_1/claude_response.md",
       "blockers": [
-        {"id": "B-1", "label": "strict_verify semantic check",     "status": "fixed", "test_file": "tests/polaris_graph/test_b1_semantic_grounding.py",       "test_count": 7},
-        {"id": "B-2", "label": "corpus approval enforcement",      "status": "fixed", "test_file": "tests/polaris_graph/test_b2_corpus_approval_enforcement.py", "test_count": 5},
-        {"id": "B-3", "label": "refuse report.md on 0 verified",   "status": "fixed", "test_file": "tests/polaris_graph/test_b3_no_verified_sections.py",       "test_count": 7},
-        {"id": "B-4", "label": "budget cap imputation",            "status": "fixed", "test_file": "tests/polaris_graph/test_b4_budget_imputation.py",          "test_count": 6},
-        {"id": "B-5", "label": "delimiter breakout sanitization",  "status": "fixed", "test_file": "tests/polaris_graph/test_b5_delimiter_breakout.py",         "test_count": 15}
+        {"id": "B-1", "label": "strict_verify semantic check",     "status": "reraised_round_2", "test_file": "tests/polaris_graph/test_b1_semantic_grounding.py",       "test_count": 7},
+        {"id": "B-2", "label": "corpus approval enforcement",      "status": "confirmed_fixed",  "test_file": "tests/polaris_graph/test_b2_corpus_approval_enforcement.py", "test_count": 5},
+        {"id": "B-3", "label": "refuse report.md on 0 verified",   "status": "confirmed_fixed",  "test_file": "tests/polaris_graph/test_b3_no_verified_sections.py",       "test_count": 7},
+        {"id": "B-4", "label": "budget cap imputation",            "status": "confirmed_fixed",  "test_file": "tests/polaris_graph/test_b4_budget_imputation.py",          "test_count": 6},
+        {"id": "B-5", "label": "delimiter breakout sanitization",  "status": "reraised_round_2", "test_file": "tests/polaris_graph/test_b5_delimiter_breakout.py",         "test_count": 15}
+      ]
+    },
+    {
+      "round": 2,
+      "verdict": "NOT_READY",
+      "blocker_count": 2,
+      "medium_count": 1,
+      "claude_addressed": 3,
+      "claude_deferred": 0,
+      "claude_disputed": 0,
+      "commits": ["pending"],
+      "started_iso": "2026-04-18T12:33:00Z",
+      "codex_task_id": "019da215-5db9-7ce3-8278-e524ce2b4da9",
+      "codex_completed_iso": "2026-04-18T12:36:00Z",
+      "claude_completed_iso": "2026-04-18T12:50:00Z",
+      "findings_file": "outputs/codex_findings/round_2/findings.md",
+      "response_file": "outputs/codex_findings/round_2/claude_response.md",
+      "reraised_blockers": [
+        {"id": "B-1", "label": "default threshold 1 was exploitable",   "fix": "default raised to 2", "test_file": "tests/polaris_graph/test_b1_semantic_grounding.py", "test_count_added": 4},
+        {"id": "B-5a", "label": "isolate controls U+2066..U+2069 missed", "fix": "added to _INVISIBLE_CHARS_RE", "test_file": "tests/polaris_graph/test_b5_delimiter_breakout.py", "test_count_added": 4}
+      ],
+      "new_mediums": [
+        {"id": "B-5b", "label": "homoglyph claim overstated (NFKC doesn't handle cross-script)", "fix": "_CONFUSABLE_ASCII_MAP added for Cyrillic/Greek ASCII-confusable letters", "test_count_added": 5}
       ]
     }
   ],
-  "verdict_progression": ["NOT_READY"],
-  "test_suite_state": {"passed": 267, "xfail": 0, "fail": 0},
-  "notes": "Round 1 complete. 5/5 blockers addressed with regression tests. Claude response pinned at outputs/codex_findings/round_1/claude_response.md. Next: commit all B-1..B-5 fixes, launch Codex round 2 with instruction to verify substantive vs cosmetic."
+  "verdict_progression": ["NOT_READY", "NOT_READY"],
+  "test_suite_state": {"passed": 280, "xfail": 0, "fail": 0},
+  "notes": "Round 2: Codex confirmed B-2/B-3/B-4 substantive, re-raised B-1 (threshold default 1→2) and B-5 (missed U+2066-U+2069 + homoglyphs). All addressed. +13 new tests. Next: commit, launch round 3 to verify these round-2 fixes."
 }

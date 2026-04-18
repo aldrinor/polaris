@@ -133,3 +133,77 @@ def test_b1_env_override_relaxed_overlap() -> None:
     finally:
         del os.environ["PG_PROVENANCE_MIN_CONTENT_OVERLAP"]
         importlib.reload(mod)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Codex round 2 re-raised tests: the default threshold must prevent
+# single-token-overlap fabrications from passing.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_b1_default_threshold_is_at_least_two() -> None:
+    """Codex round 2 re-raise: default=1 was exploitable. Pin default>=2
+    so single-noun-overlap fabrications are rejected."""
+    import importlib
+    import os
+    # Ensure no stale env var from a prior test
+    os.environ.pop("PG_PROVENANCE_MIN_CONTENT_OVERLAP", None)
+    import src.polaris_graph.generator.provenance_generator as mod
+    importlib.reload(mod)
+    assert mod.MIN_CONTENT_WORD_OVERLAP >= 2, (
+        f"Default MIN_CONTENT_WORD_OVERLAP={mod.MIN_CONTENT_WORD_OVERLAP} is "
+        f"too low; Codex round 2 showed <2 lets 'Aspirin reduced pain' "
+        f"verify against 'Aspirin caused bleeding' (single overlap='aspirin')."
+    )
+
+
+def test_b1_codex_round2_aspirin_reproducer_rejected() -> None:
+    """Exact Codex round 2 reproducer: fabricated predicate sharing
+    one anchor noun with cited span must be rejected at default config."""
+    import importlib
+    import os
+    os.environ.pop("PG_PROVENANCE_MIN_CONTENT_OVERLAP", None)
+    import src.polaris_graph.generator.provenance_generator as mod
+    importlib.reload(mod)
+    ev = {"ev1": {"direct_quote": "Aspirin caused bleeding"}}
+    res = mod.verify_sentence_provenance(
+        "Aspirin reduced pain [#ev:ev1:0-23].", ev,
+    )
+    assert res.is_verified is False, (
+        "Codex round 2: 'Aspirin reduced pain' must NOT verify against "
+        "'Aspirin caused bleeding' (single shared token 'aspirin')"
+    )
+    assert any("no_content_word_overlap" in r for r in res.failure_reasons)
+
+
+def test_b1_codex_round2_drug_effective_reproducer_rejected() -> None:
+    """The milder Codex round 2 reproducer: 'The drug was effective'
+    cited to 'The drug was prescribed' (shared: 'drug'). Must reject."""
+    import importlib
+    import os
+    os.environ.pop("PG_PROVENANCE_MIN_CONTENT_OVERLAP", None)
+    import src.polaris_graph.generator.provenance_generator as mod
+    importlib.reload(mod)
+    ev = {"ev1": {"direct_quote": "The drug was prescribed"}}
+    res = mod.verify_sentence_provenance(
+        "The drug was effective [#ev:ev1:0-23].", ev,
+    )
+    assert res.is_verified is False
+
+
+def test_b1_overlap_of_two_genuine_content_words_still_passes() -> None:
+    """With default=2, a sentence that genuinely shares 2+ content words
+    with the span should still pass — we're not over-blocking."""
+    import importlib
+    import os
+    os.environ.pop("PG_PROVENANCE_MIN_CONTENT_OVERLAP", None)
+    import src.polaris_graph.generator.provenance_generator as mod
+    importlib.reload(mod)
+    ev = {"ev1": {"direct_quote": "Aspirin inhibits platelet aggregation"}}
+    # Sentence shares {aspirin, inhibits, platelet} with span — three
+    # content words overlap, well above the default of 2.
+    res = mod.verify_sentence_provenance(
+        "Aspirin inhibits platelet function [#ev:ev1:0-36].", ev,
+    )
+    assert res.is_verified is True, (
+        f"Expected pass, got failures={res.failure_reasons}"
+    )

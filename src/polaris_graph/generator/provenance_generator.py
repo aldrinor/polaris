@@ -104,14 +104,61 @@ _DELIMITER_REDACTION = "[REDACTED_DELIMITER]"
 # INSIDE a delimiter literal to evade a naive regex. Example:
 # "<<<end\u200bevidence>>>" renders identically to "<<<end_evidence>>>"
 # in many terminals but the regex `<<<end_evidence>>>` won't match.
+#
+# Codex round 2 finding: U+2066..U+2069 (LRI, RLI, FSI, PDI — bidi
+# isolate controls) must be in this set too. They are invisible and
+# were missed in the round-1 fix.
 _INVISIBLE_CHARS_RE = re.compile(
     "["
     "\u200b-\u200f"     # zero-width space, ZWNJ, ZWJ, LRM, RLM
     "\u202a-\u202e"     # LRE, RLE, PDF, LRO, RLO
-    "\u2060-\u2064"     # word joiner, etc.
+    "\u2060-\u2064"     # word joiner, invisible separator/times/plus
+    "\u2066-\u2069"     # LRI, RLI, FSI, PDI (Codex round 2)
     "\ufeff"            # BOM
     "]",
 )
+
+# Codex round 2 finding: NFKC does NOT collapse cross-script homoglyphs.
+# An attacker writing "<<<еnd_evidence>>>" with a Cyrillic 'е' (U+0435)
+# survives normalization and regex redaction because the regex expects
+# Latin 'e'. Map the Cyrillic/Greek confusables that appear in the
+# ASCII subset used by our delimiter keywords (evidence, end, pipeline,
+# telemetry) back to Latin before the regex pass. We do NOT attempt a
+# full confusables table — only the minimal set needed to defend
+# delimiter keywords. Legitimate evidence content in Russian/Greek is
+# left untouched everywhere else (the mapping only runs over the full
+# string, which in the worst case rewrites a few letters; the redaction
+# pass only fires when they form a delimiter literal).
+_CONFUSABLE_ASCII_MAP = str.maketrans({
+    # Cyrillic Small Letters → Latin
+    "\u0430": "a",  # а
+    "\u0435": "e",  # е
+    "\u0440": "p",  # р
+    "\u043e": "o",  # о
+    "\u0441": "c",  # с
+    "\u0443": "y",  # у
+    "\u0445": "x",  # х
+    "\u0456": "i",  # і (Ukrainian)
+    "\u0458": "j",  # ј (Serbian)
+    # Cyrillic Capital Letters → Latin (case-insensitive regex catches both)
+    "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041a": "K",
+    "\u041c": "M", "\u041d": "H", "\u041e": "O", "\u0420": "P",
+    "\u0421": "C", "\u0422": "T", "\u0425": "X",
+    # Greek Small Letters that look like Latin
+    "\u03b5": "e",  # ε (epsilon — visually close to Latin e)
+    "\u03bf": "o",  # ο
+    "\u03bd": "v",  # ν
+    "\u03b9": "i",  # ι
+    "\u03ba": "k",  # κ
+    "\u03c1": "p",  # ρ
+    "\u03c7": "x",  # χ
+    "\u03c5": "y",  # υ
+    # Greek Capital Letters
+    "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0396": "Z",
+    "\u0397": "H", "\u0399": "I", "\u039a": "K", "\u039c": "M",
+    "\u039d": "N", "\u039f": "O", "\u03a1": "P", "\u03a4": "T",
+    "\u03a5": "Y", "\u03a7": "X",
+})
 
 
 def sanitize_evidence_text(text: str) -> tuple[str, int]:
@@ -138,10 +185,14 @@ def sanitize_evidence_text(text: str) -> tuple[str, int]:
     # Normalize Unicode compatibility forms (full-width, ligatures, etc.)
     # and strip invisible/bidi codepoints BEFORE pattern matching. This
     # defeats `<<<end\u200bevidence>>>` and `<<<ｅｎｄ_ｅｖｉｄｅｎｃｅ>>>`
-    # style evasions.
+    # style evasions. Then map the narrow set of Cyrillic/Greek
+    # confusables used in our delimiter keywords back to Latin; Codex
+    # round 2 showed that `<<<еnd_evidence>>>` with a Cyrillic 'е'
+    # would otherwise pass through untouched.
     normalized = unicodedata.normalize("NFKC", text)
     stripped = _INVISIBLE_CHARS_RE.sub("", normalized)
-    out = stripped
+    deconfused = stripped.translate(_CONFUSABLE_ASCII_MAP)
+    out = deconfused
     redactions = 0
     # Pass 1: classical injection directives
     for pat in _INJECTION_PATTERNS:
@@ -367,10 +418,14 @@ def _content_words(text: str) -> set[str]:
 
 
 # Minimum content-word overlap between a sentence and any of its cited
-# spans. 1 is the safe default — if the sentence shares NOT EVEN ONE
-# real content word with the cited span, the citation is confabulated.
+# spans. Default is 2 (Codex round 2 finding): overlap=1 is exploitable
+# because a fabricated predicate sharing one anchor noun with the source
+# (e.g., "Aspirin reduced pain" cited to "Aspirin caused bleeding") would
+# verify with nothing but "aspirin" in common. The operator can lower
+# via PG_PROVENANCE_MIN_CONTENT_OVERLAP=1 for legitimate short sentences,
+# but the default must enforce a real semantic floor.
 MIN_CONTENT_WORD_OVERLAP = int(
-    os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "1")
+    os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
 )
 
 

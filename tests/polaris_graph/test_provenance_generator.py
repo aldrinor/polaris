@@ -137,16 +137,15 @@ def test_split_into_sentences() -> None:
 def test_strict_verify_keeps_good_drops_bad() -> None:
     evidence_pool = {
         "ev1": {"direct_quote": "Weight loss was 14.9% at week 68."},
-        "ev2": {"direct_quote": "Nausea rate was 20%."},
+        "ev2": {"direct_quote": "Nausea reported in 20% of patients."},
     }
-    # Spans must cover both number AND content words (post-B-1).
-    # ev1 "Weight loss was 14.9% at week 68.":
-    #   span 0-26 = "Weight loss was 14.9% at we" — includes weight/loss/14.9
-    # ev2 "Nausea rate was 20%.":
-    #   span 0-20 = whole string — includes nausea/rate/20
+    # Spans must cover number AND >=2 content words (post-Codex round 2
+    # default MIN_CONTENT_WORD_OVERLAP=2).
+    # ev1 span 0-26 = "Weight loss was 14.9% at we" — weight/loss + 14.9
+    # ev2 span 0-34 covers nausea/reported/patients + 20
     draft = (
         "Semaglutide achieved 14.9% weight loss [#ev:ev1:0-26]. "
-        "Nausea was reported in 20% of patients [#ev:ev2:0-20]. "
+        "Nausea was reported in 20% of patients [#ev:ev2:0-34]. "
         "A made-up claim without evidence [#ev:ev_gone:0-5]."
     )
     report = strict_verify(draft, evidence_pool)
@@ -160,27 +159,28 @@ def test_strict_verify_keeps_good_drops_bad() -> None:
 def test_resolve_to_citations_produces_numbered_markers() -> None:
     evidence_pool = {
         "ev_a": {
-            "direct_quote": "Value was 14.9% here.",
+            "direct_quote": "Reported value was 14.9% here.",
             "statement": "A statement.",
             "source_url": "https://a/",
             "tier": "T1",
         },
         "ev_b": {
-            "direct_quote": "Value was 17.4% here.",
+            "direct_quote": "Observed value was 17.4% here.",
             "statement": "B statement.",
             "source_url": "https://b/",
             "tier": "T1",
         },
     }
-    # Spans cover both number AND content word "value" (post-B-1).
-    # ev_a/ev_b both start with "Value was": span 0-21 covers it.
+    # Spans cover number AND >=2 content words (post-Codex round 2 default=2).
+    # ev_a span 0-29 covers "Reported value was 14.9% here" → reported/value/here.
+    # ev_b span 0-29 covers "Observed value was 17.4% here" → observed/value/here.
     kept = [
         verify_sentence_provenance(
-            "Value was 14.9% [#ev:ev_a:0-21].",
+            "Reported value was 14.9% here [#ev:ev_a:0-29].",
             evidence_pool,
         ),
         verify_sentence_provenance(
-            "Second value was 17.4% [#ev:ev_b:0-21].",
+            "Observed value was 17.4% here [#ev:ev_b:0-29].",
             evidence_pool,
         ),
     ]
