@@ -337,7 +337,13 @@ class CampaignQueryStatus(BaseModel):
     current_node: Optional[str] = None
     node_status: dict = {}       # {node_name: "idle"|"running"|"passed"|"warning"|"failed"}
     node_metrics: dict = {}      # {node_name: {evidence_count, faithfulness, duration_ms}}
+    # HONEST-REBUILD Phase 1a: faithfulness is kept for backwards compat with
+    # pre-rebuild runs but is no longer populated from internal self-graded
+    # metrics. It should remain None on new runs until Phase 5 wires in the
+    # non-same-family external evaluator. UI should prefer `evaluator_output`
+    # when present; fall back to "—" (not 0.0, not 1.0) when absent.
     faithfulness: Optional[float] = None
+    evaluator_output: Optional[dict] = None  # Phase 5 — external non-same-family grader
     source_count: Optional[int] = None
     citation_count: Optional[int] = None
     elapsed_ms: Optional[int] = None
@@ -1031,14 +1037,19 @@ class CampaignManager:
                 if e.get("citation_key")
             ))
             quality_metrics = data.get("quality_metrics") or {}
-            faithfulness = quality_metrics.get(
-                "faithfulness_score",
-                data.get("faithfulness_score", 0.0),
-            )
+            # HONEST-REBUILD Phase 1a: faithfulness_score is no longer a
+            # trustworthy quality signal. It was survivorship-biased
+            # (FIX-QM7 filtered unfaithful evidence, FIX-043A recomputed on
+            # the survivors, yielding cooked 100% scores). The field is not
+            # displayed to users. Replacement is the external non-same-family
+            # evaluator output (Phase 5). For backwards compat, legacy runs
+            # still carry the field but we do not propagate it to the UI.
+            evaluator_output = data.get("evaluator_output")  # Phase 5 wiring
 
             query_status.word_count = word_count
             query_status.evidence_count = evidence_count
-            query_status.faithfulness = faithfulness
+            query_status.faithfulness = None  # honest: no trustworthy internal metric
+            query_status.evaluator_output = evaluator_output
             query_status.source_count = source_count
             query_status.citation_count = citation_count
 
@@ -1146,9 +1157,14 @@ class CampaignManager:
                                 "total", query_status.evidence_count
                             )
                     elif ev_type == "verification_batch":
-                        faith = ev.get("faithfulness")
-                        if faith is not None:
-                            query_status.faithfulness = faith
+                        # HONEST-REBUILD Phase 1a: verification_batch reports
+                        # faithfulness based on the same pipeline's self-grading.
+                        # This is not a trustworthy quality signal (same-family
+                        # evaluator collapse + survivorship bias when FIX-QM7
+                        # filter runs). Do NOT populate query_status.faithfulness
+                        # from this event. External non-same-family evaluator
+                        # output will replace it in Phase 5.
+                        pass
                     elif ev_type == "bibliography":
                         src_count = ev.get("count")
                         if src_count is not None:
@@ -4741,12 +4757,22 @@ def _build_pdf_html(result: dict, report_md: str, url_health: list[dict] | None 
     )
 
     # Quality metrics
+    # HONEST-REBUILD Phase 1a: For pre-rebuild runs, quality_metrics may
+    # include faithfulness_score / faithfulness_pct — these are LEGACY
+    # METRICS (self-graded, survivorship-biased) and must be rendered as
+    # such so users don't mistake them for current-pipeline quality signals.
+    # New runs emit `evaluator_output` (Phase 5) instead.
     quality = result.get("quality_metrics", {}) or {}
-    faithfulness = quality.get("faithfulness_pct", quality.get("faithfulness", "N/A"))
-    if isinstance(faithfulness, (int, float)):
-        faithfulness_str = f"{faithfulness:.1f}%"
+    evaluator_output = result.get("evaluator_output")
+    if evaluator_output:
+        # New-pipeline run: display external evaluator profile, not a single number
+        faithfulness_str = "see Evaluator Output section (external non-same-family)"
     else:
-        faithfulness_str = html.escape(str(faithfulness))
+        legacy_val = quality.get("faithfulness_pct", quality.get("faithfulness"))
+        if isinstance(legacy_val, (int, float)):
+            faithfulness_str = f"{legacy_val:.1f}% (LEGACY METRIC — self-graded)"
+        else:
+            faithfulness_str = "— (no external evaluator output recorded)"
 
     evidence_count = len(result.get("evidence", []))
     bibliography = result.get("bibliography", [])

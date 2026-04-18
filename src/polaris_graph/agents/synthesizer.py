@@ -4450,23 +4450,16 @@ async def analyze_gaps(
             removed_claims = before_claims - len(claims)
             if removed_claims > 0:
                 logger.info(
-                    "[polaris graph] FIX-043A: Removed %d/%d orphaned claims "
-                    "(evidence_ids removed by FIX-QM7)",
+                    "[polaris graph] HONEST-REBUILD Phase 1a: Removed %d/%d "
+                    "orphaned claims (their evidence was filtered by the "
+                    "faithfulness gate). Faithfulness is NOT recomputed on "
+                    "the surviving claims — the survivorship-biased "
+                    "FIX-043A recomputation was removed in PG_LB_SA_02 "
+                    "honest rebuild. The pre-filter faithfulness metric "
+                    "(computed earlier in this function) is the honest "
+                    "number. Downstream code should not display a "
+                    "post-filter recomputed score as a quality signal.",
                     removed_claims, before_claims,
-                )
-                verified_claims = [
-                    c for c in claims
-                    if c.get("verification_method") != "api_error"
-                ]
-                faithful_count = sum(
-                    1 for c in verified_claims if c.get("is_faithful")
-                )
-                faithfulness = faithful_count / max(len(verified_claims), 1)
-                logger.info(
-                    "[polaris graph] FIX-043A: Recomputed faithfulness: "
-                    "%d/%d = %.1f%%",
-                    faithful_count, len(verified_claims),
-                    faithfulness * 100,
                 )
         else:
             # FIX-B1: Log diagnostic — if we have unfaithful claims but no
