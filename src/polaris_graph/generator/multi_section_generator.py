@@ -109,6 +109,25 @@ class MultiSectionResult:
     limitations_text: str = ""
     limitations_input_tokens: int = 0
     limitations_output_tokens: int = 0
+    # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
+    # the orchestrator can emit partial_outline_fallback when planner
+    # output doesn't meet the 3-5 section contract.
+    outline_ok: bool = True
+    outline_retry_attempted: bool = False
+    outline_fallback_used: bool = False
+    outline_reason_codes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class OutlineParseResult:
+    """BUG-M-203 fix: outline parser now returns structured validation
+    metadata so callers can decide to retry, fall back, or abort based
+    on the specific reason the planner output was rejected.
+    """
+    plans: list[SectionPlan]
+    ok: bool
+    reason_codes: list[str] = field(default_factory=list)
+    raw: str = ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,10 +152,21 @@ RULES:
 OUTPUT: return ONLY the JSON object. No preamble, no sign-off, no markdown fence."""
 
 
-def _parse_outline(raw: str) -> list[SectionPlan]:
-    """Extract JSON from an outline response and validate."""
+def _parse_outline(
+    raw: str,
+    allowed_ev_ids: set[str] | None = None,
+) -> OutlineParseResult:
+    """Extract JSON from an outline response and validate.
+
+    BUG-M-203 fix (deep-dive R4): returns structured OutlineParseResult
+    with validation metadata. If allowed_ev_ids is provided, rejects
+    sections that reference unknown evidence IDs.
+    """
+    reason_codes: list[str] = []
     if not raw:
-        return []
+        return OutlineParseResult(
+            plans=[], ok=False, reason_codes=["empty_response"], raw=raw,
+        )
     stripped = raw.strip()
     # Strip code fences
     stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
@@ -145,36 +175,125 @@ def _parse_outline(raw: str) -> list[SectionPlan]:
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end == -1:
-        return []
+        return OutlineParseResult(
+            plans=[], ok=False, reason_codes=["no_json_object"], raw=raw,
+        )
     try:
         obj = json.loads(stripped[start:end + 1])
     except json.JSONDecodeError as exc:
         logger.warning("[multi_section] outline JSON decode failed: %s", exc)
-        return []
+        return OutlineParseResult(
+            plans=[], ok=False, reason_codes=["json_decode_error"], raw=raw,
+        )
 
     sections_raw = obj.get("sections", [])
     if not isinstance(sections_raw, list):
-        return []
+        return OutlineParseResult(
+            plans=[], ok=False, reason_codes=["sections_not_list"], raw=raw,
+        )
 
     plans: list[SectionPlan] = []
     allowed = {s.lower() for s in _ALLOWED_SECTIONS}
-    for entry in sections_raw[:6]:
+    seen_titles: set[str] = set()
+    all_ev_ids: list[str] = []  # tracks overlap across sections
+    for entry in sections_raw:
         if not isinstance(entry, dict):
             continue
         title = str(entry.get("title", "")).strip()
-        if title.lower() not in allowed:
+        title_lower = title.lower()
+        if title_lower not in allowed:
             logger.info("[multi_section] outline dropped off-list title %r", title)
+            continue
+        if title_lower in seen_titles:
+            reason_codes.append(f"duplicate_title:{title_lower}")
             continue
         focus = str(entry.get("focus", "")).strip()
         ev_ids_raw = entry.get("ev_ids", [])
         if not isinstance(ev_ids_raw, list):
             continue
         ev_ids = [str(e).strip() for e in ev_ids_raw if isinstance(e, (str, int))]
+        # Deduplicate within a section BEFORE counting.
+        ev_ids = list(dict.fromkeys(ev_ids))
+        # Reject unknown evidence IDs if pool is supplied.
+        if allowed_ev_ids is not None:
+            unknown = [e for e in ev_ids if e not in allowed_ev_ids]
+            if unknown:
+                reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
+                continue
         if len(ev_ids) < 2:
-            logger.info("[multi_section] outline dropped %r (<2 ev_ids)", title)
+            logger.info("[multi_section] outline dropped %r (<2 unique ev_ids)", title)
             continue
         plans.append(SectionPlan(
             title=title, focus=focus or title, ev_ids=ev_ids,
+        ))
+        seen_titles.add(title_lower)
+        all_ev_ids.extend(ev_ids)
+
+    # Overall outline validation (not per-section)
+    ok = True
+    if len(plans) < 3:
+        reason_codes.append("section_count_below_min")
+        ok = False
+    if len(plans) > 5:
+        # Truncate to 5 but flag the violation.
+        plans = plans[:5]
+        reason_codes.append("section_count_above_max")
+        ok = False
+    # Overlap across sections (Counter-based would be cleaner but clearer this way)
+    ev_counts: dict[str, int] = {}
+    for e in all_ev_ids:
+        ev_counts[e] = ev_counts.get(e, 0) + 1
+    overlapping = [e for e, n in ev_counts.items() if n > 1]
+    if overlapping:
+        reason_codes.append(f"overlapping_ev_ids:{','.join(overlapping[:3])}")
+        ok = False
+
+    return OutlineParseResult(
+        plans=plans, ok=ok, reason_codes=reason_codes, raw=raw,
+    )
+
+
+def _build_deterministic_fallback_outline(
+    evidence: list[dict[str, Any]],
+) -> list[SectionPlan]:
+    """BUG-M-203 fix (deep-dive R4): deterministic 3-section fallback
+    when the planner collapses. Uses round-robin evidence assignment
+    to three allowed titles so each section has >=2 unique,
+    non-overlapping evidence IDs. Returns [] if evidence is insufficient.
+    """
+    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+    ev_ids = [e for e in ev_ids if e]  # drop empty
+    # Need at least 6 unique IDs to guarantee 3 sections with >=2 each.
+    if len(set(ev_ids)) < 6:
+        return []
+
+    titles = ["Efficacy", "Safety", "Comparative"]
+    # Filter to titles that exist in the allowed list.
+    allowed_titles = [t for t in titles if t in _ALLOWED_SECTIONS]
+    if len(allowed_titles) < 3:
+        # Extremely defensive; the three titles above are in the canonical set.
+        return []
+
+    focuses = {
+        "Efficacy": "Summarize the efficacy endpoints supported by the evidence.",
+        "Safety": "Summarize the safety signals and adverse-event profile.",
+        "Comparative": (
+            "Summarize comparisons against alternative interventions "
+            "when evidence supports such comparison."
+        ),
+    }
+
+    # Round-robin: section i gets ev_ids[i::3].
+    plans: list[SectionPlan] = []
+    for i, title in enumerate(allowed_titles):
+        section_ev = ev_ids[i::3]
+        if len(section_ev) < 2:
+            # If slicing leaves a section too thin, bail out.
+            return []
+        plans.append(SectionPlan(
+            title=title,
+            focus=focuses[title],
+            ev_ids=section_ev,
         ))
     return plans
 
@@ -185,7 +304,13 @@ async def _call_outline(
     model: str,
     temperature: float,
     max_tokens: int,
-) -> tuple[list[SectionPlan], str, int, int]:
+    retry_on_invalid: bool = True,
+) -> tuple[OutlineParseResult, bool, int, int]:
+    """Call the planner. Returns (parse_result, retry_attempted, in_tok, out_tok).
+
+    BUG-M-203 fix (deep-dive R4): one retry with a tighter prompt when
+    validation fails. Retries are capped at 1.
+    """
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
     # Build a compact evidence summary (title + tier + 100 chars of quote)
@@ -208,7 +333,13 @@ async def _call_outline(
         f"Return the JSON section plan."
     )
 
+    allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+    allowed_ev_ids.discard("")
+
     client = OpenRouterClient(model=model)
+    total_in = 0
+    total_out = 0
+    retry_attempted = False
     try:
         response = await client.generate(
             prompt=prompt,
@@ -216,6 +347,51 @@ async def _call_outline(
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        total_in += response.input_tokens
+        total_out += response.output_tokens
+        raw = (response.content or "").strip()
+        parse_result = _parse_outline(raw, allowed_ev_ids=allowed_ev_ids)
+
+        # BUG-M-203: one retry with a tighter prompt if validation fails.
+        if (not parse_result.ok) and retry_on_invalid:
+            retry_attempted = True
+            reason_summary = "; ".join(parse_result.reason_codes[:5]) or "invalid"
+            tighter_system = (
+                OUTLINE_SYSTEM_PROMPT
+                + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
+                + reason_summary
+                + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
+                + "1. Return EXACTLY 3-5 sections. Not 1, not 2, not 6+.\n"
+                + "2. NO evidence ID may appear in more than one section — "
+                + "enforce no-overlap across the entire plan.\n"
+                + "3. Only use evidence IDs from this allowed set: "
+                + ", ".join(sorted(allowed_ev_ids)[:100])
+                + "\n4. Return ONLY the JSON object — no preamble, no "
+                + "markdown, no explanation.\n"
+            )
+            retry_response = await client.generate(
+                prompt=prompt,
+                system=tighter_system,
+                max_tokens=max_tokens,
+                temperature=max(0.0, temperature - 0.2),  # cooler retry
+            )
+            total_in += retry_response.input_tokens
+            total_out += retry_response.output_tokens
+            retry_raw = (retry_response.content or "").strip()
+            retry_parse = _parse_outline(retry_raw, allowed_ev_ids=allowed_ev_ids)
+            # Use the retry result if it's better (ok OR more plans).
+            if retry_parse.ok or len(retry_parse.plans) > len(parse_result.plans):
+                parse_result = retry_parse
+            else:
+                # Retry didn't help — keep first result's plans but append
+                # retry's reason codes for telemetry.
+                parse_result = OutlineParseResult(
+                    plans=parse_result.plans,
+                    ok=False,
+                    reason_codes=parse_result.reason_codes
+                                 + [f"retry_also_invalid:{c}" for c in retry_parse.reason_codes],
+                    raw=raw,
+                )
     finally:
         if hasattr(client, "close"):
             try:
@@ -223,9 +399,7 @@ async def _call_outline(
             except Exception:
                 pass
 
-    raw = (response.content or "").strip()
-    plans = _parse_outline(raw)
-    return plans, raw, response.input_tokens, response.output_tokens
+    return parse_result, retry_attempted, total_in, total_out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -617,25 +791,43 @@ async def generate_multi_section_report(
     gen_model = model or PG_GENERATOR_MODEL
 
     # Stage 1: outline
-    plans, raw_outline, outline_in_tok, outline_out_tok = await _call_outline(
-        research_question, evidence, gen_model,
-        outline_temperature, outline_max_tokens,
-    )
-    if not plans:
-        logger.warning(
-            "[multi_section] outline empty; falling back to single generic "
-            "'Efficacy' section"
+    outline_parse, retry_attempted, outline_in_tok, outline_out_tok = \
+        await _call_outline(
+            research_question, evidence, gen_model,
+            outline_temperature, outline_max_tokens,
         )
-        # Fallback: single section with all evidence
-        plans = [SectionPlan(
-            title="Efficacy",
-            focus="Summarize the efficacy and safety evidence.",
-            ev_ids=[ev.get("evidence_id", "") for ev in evidence],
-        )]
+    plans = outline_parse.plans
+    outline_ok = outline_parse.ok
+    outline_reason_codes = list(outline_parse.reason_codes)
+    outline_fallback_used = False
+
+    # BUG-M-203 fix (deep-dive R4): if the planner (plus retry) did not
+    # produce a valid 3-5 section plan, build a DETERMINISTIC 3-section
+    # fallback from the evidence pool instead of a single generic
+    # "Efficacy" section. Record the fallback so the orchestrator can
+    # emit manifest.status=partial_outline_fallback.
+    if not plans or not outline_ok:
+        logger.warning(
+            "[multi_section] outline invalid (reasons=%s); using "
+            "deterministic fallback",
+            outline_reason_codes,
+        )
+        fallback_plans = _build_deterministic_fallback_outline(evidence)
+        if fallback_plans:
+            plans = fallback_plans
+            outline_fallback_used = True
+            if not outline_reason_codes:
+                outline_reason_codes = ["empty_plans"]
+        elif not plans:
+            # Not enough evidence even for the deterministic fallback.
+            # Leave plans empty so the rest of the pipeline fails into
+            # abort_no_verified_sections downstream.
+            outline_reason_codes.append("insufficient_evidence_for_fallback")
 
     logger.info(
-        "[multi_section] outline: %d sections: %s",
+        "[multi_section] outline: %d sections: %s (ok=%s fallback=%s retry=%s)",
         len(plans), [p.title for p in plans],
+        outline_ok, outline_fallback_used, retry_attempted,
     )
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
@@ -713,4 +905,8 @@ async def generate_multi_section_report(
         limitations_text=lim_text,
         limitations_input_tokens=lim_in_tok,
         limitations_output_tokens=lim_out_tok,
+        outline_ok=outline_ok,
+        outline_retry_attempted=retry_attempted,
+        outline_fallback_used=outline_fallback_used,
+        outline_reason_codes=outline_reason_codes,
     )

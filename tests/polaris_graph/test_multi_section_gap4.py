@@ -20,6 +20,8 @@ from src.polaris_graph.generator.multi_section_generator import (
 
 
 def test_gap4_parse_outline_basic() -> None:
+    """BUG-M-203 R4: _parse_outline now returns OutlineParseResult.
+    Access .plans for the SectionPlan list."""
     raw = """
     {
       "sections": [
@@ -32,21 +34,27 @@ def test_gap4_parse_outline_basic() -> None:
       ]
     }
     """
-    plans = _parse_outline(raw)
-    assert len(plans) == 3
-    assert plans[0].title == "Efficacy"
-    assert plans[0].ev_ids == ["ev_001", "ev_002", "ev_003"]
-    assert plans[2].title == "Regulatory"
+    result = _parse_outline(raw)
+    assert result.ok is True
+    assert len(result.plans) == 3
+    assert result.plans[0].title == "Efficacy"
+    assert result.plans[0].ev_ids == ["ev_001", "ev_002", "ev_003"]
+    assert result.plans[2].title == "Regulatory"
 
 
 def test_gap4_parse_outline_with_markdown_fence() -> None:
+    """Markdown fence stripped; single-section outline is parsed but
+    flagged as invalid (section_count_below_min)."""
     raw = """```json
     {"sections": [{"title": "Efficacy", "focus": "x",
                    "ev_ids": ["ev_a", "ev_b"]}]}
     ```"""
-    plans = _parse_outline(raw)
-    assert len(plans) == 1
-    assert plans[0].title == "Efficacy"
+    result = _parse_outline(raw)
+    assert len(result.plans) == 1
+    assert result.plans[0].title == "Efficacy"
+    # Only one section → fails validation, caller decides fallback/retry
+    assert result.ok is False
+    assert "section_count_below_min" in result.reason_codes
 
 
 def test_gap4_parse_outline_rejects_off_list_title() -> None:
@@ -56,8 +64,8 @@ def test_gap4_parse_outline_rejects_off_list_title() -> None:
         {"title": "Marketing", "focus": "y", "ev_ids": ["c", "d"]}
     ]}
     """
-    plans = _parse_outline(raw)
-    titles = [p.title for p in plans]
+    result = _parse_outline(raw)
+    titles = [p.title for p in result.plans]
     assert "Efficacy" in titles
     assert "Marketing" not in titles
 
@@ -68,15 +76,16 @@ def test_gap4_parse_outline_rejects_singleton_evidence() -> None:
         {"title": "Efficacy", "focus": "x", "ev_ids": ["ev_001"]}
     ]}
     """
-    plans = _parse_outline(raw)
-    # Dropped because only 1 ev_id (need >= 2)
-    assert plans == []
+    result = _parse_outline(raw)
+    # Dropped because only 1 ev_id (need >= 2); no plans survive
+    assert result.plans == []
+    assert result.ok is False
 
 
 def test_gap4_parse_outline_malformed_returns_empty() -> None:
-    assert _parse_outline("") == []
-    assert _parse_outline("not json") == []
-    assert _parse_outline("{} no sections") == []
+    assert _parse_outline("").plans == []
+    assert _parse_outline("not json").plans == []
+    assert _parse_outline("{} no sections").plans == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

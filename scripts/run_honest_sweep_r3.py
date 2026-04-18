@@ -97,8 +97,9 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "partial_thin_corpus",
     "partial_incomplete_corpus",
     "partial_rule_check_warnings",
+    "partial_outline_fallback",  # BUG-M-203: planner failed, deterministic fallback used
     # abort — pipeline refused to produce a report
-    "abort_scope_rejected",      # reserved for future enforcing scope gate (BUG-B-100)
+    "abort_scope_rejected",
     "abort_no_sources",
     "abort_corpus_inadequate",
     "abort_corpus_approval_denied",
@@ -112,6 +113,7 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "ok": "success",
     "ok_thin_corpus": "partial_thin_corpus",
     "ok_incomplete_corpus": "partial_incomplete_corpus",
+    "ok_outline_fallback": "partial_outline_fallback",
     "warn_rule_checks": "partial_rule_check_warnings",
     "fail_no_sources": "abort_no_sources",
     "fail_no_verified_prose": "abort_no_verified_sections",
@@ -992,6 +994,11 @@ async def run_one_query(
             summary_status = "fail_no_sources"
         elif multi.total_sentences_verified == 0:
             summary_status = "fail_no_verified_prose"
+        elif getattr(multi, "outline_fallback_used", False):
+            # BUG-M-203: planner failed/retry-failed; deterministic
+            # fallback produced the outline. Report exists but the
+            # section structure is machine-generated, not planner-vetted.
+            summary_status = "ok_outline_fallback"
         elif ev_out.rule_check_fail_count >= 3:
             summary_status = "warn_rule_checks"
         elif adequacy.decision == "expand":

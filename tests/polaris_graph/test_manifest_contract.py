@@ -38,6 +38,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "partial_thin_corpus",
         "partial_incomplete_corpus",
         "partial_rule_check_warnings",
+        "partial_outline_fallback",   # added by BUG-M-203 (R4)
         "abort_scope_rejected",
         "abort_no_sources",
         "abort_corpus_inadequate",
