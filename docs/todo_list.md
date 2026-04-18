@@ -16,16 +16,15 @@ Priority order per Codex scoping pass:
 
 - [x] R1 orchestration — BUG-B-101 manifest status contract (commit `c764ddb`, 9 tests)
 - [~] R2 pipeline_b_parity — BUG-B-102 UI un-hardened. **SCOPED (strategy C accepted); implementation queued as R2a-R2h** (see below)
-- [ ] R3 intake_scope — BUG-B-100 scope gate never rejects — NEXT
-- [ ] R4 generation — BUG-M-203 outline collapse
-- [ ] R5 evaluator — BUG-M-205 advisory vs gating
-- [ ] R6 retrieval_tiering — BUG-M-201 gate/generator divergence
-- [~] R7 contradictions — BUG-M-202 narrow predicates (minimum-viable: domain routing + AF/tech/policy/DD predicate expansion; **followup R7b** = generic numeric-claim mining + domain YAML profile loader + per-row multi-claim emission per Codex R7 §4)
-- [ ] R8 observability — BUG-M-206 cost ledger per-run
-- [ ] R9 testing — BUG-M-207 contract coverage
-- [ ] R10 strict_verify — BUG-M-204 limitations bypass (light touch)
-- [ ] R11 budget_cost — BUG-N-301 session_id threading (light touch)
-- [ ] R12 frozen_c_disposition — BUG-M-208 retire/repair/leave decision (user-facing)
+- [x] R3 intake_scope — BUG-B-100 scope gate never rejects (commit `95a9709`, 7 tests)
+- [x] R4 generation — BUG-M-203 outline collapse + fallback (9 tests)
+- [x] R5 evaluator — BUG-M-205 evaluator gate (10 tests)
+- [x] R6 retrieval_tiering — BUG-M-201 tier-balanced selector (9 tests)
+- [~] R7 contradictions — BUG-M-202 MVP done (domain routing + 5-domain predicates + 9 tests); **followup R7b** = generic numeric-claim mining + domain YAML profile loader + per-row multi-claim emission per Codex R7 §4
+- [x] R8 + R11 — BUG-M-206 per-run cost ledger + BUG-N-301 ambient run_id (10 tests, combined commit)
+- [x] R9 testing — BUG-M-207 invariant coverage audit (11 tests)
+- [x] R10 strict_verify — BUG-M-204 limitations telemetry verifier (10 tests)
+- [x] R12 frozen_c_disposition — BUG-M-208 **decision: RETIRE** (staged in `src/orchestration/FROZEN_SINCE_2026-03-16.md`; archive move deferred to dedicated cleanup session because ~60 scripts import from `src/orchestration/`)
 
 ### R2 (pipeline_b_parity) sub-tasks — multi-session implementation
 

@@ -1,6 +1,11 @@
-# FROZEN: `src/orchestration/` subsystem
+# FROZEN / RETIRING: `src/orchestration/` subsystem
 
-**Status**: frozen since 2026-03-16 (33+ days).
+**Status**: frozen since 2026-03-16 (33+ days); **retire decision
+signed off 2026-04-18** (deep-dive R12). Actual archive move deferred
+to a dedicated cleanup session because ~60 scripts under `scripts/`
+still import from this subsystem (most are ad-hoc one-offs that will
+be archived as part of R2h / future scripts-cleanup).
+
 **Last-audit date**: 2026-04-18.
 
 ## What this subsystem is
@@ -21,25 +26,48 @@ with the `research` subcommand (see `scripts/docker_entrypoint.sh`).
 3. **Not exercised by any test in `tests/polaris_graph/`**. The 305
    passing tests all target pipeline A.
 
-## What to do with it
+## Decision (2026-04-18, deep-dive R12): option (a) RETIRE
 
-Three options (pick one deliberately, not by default):
+Rationale:
+  - 33+ days of no commits; no active owner.
+  - `scripts/full_cycle.py` imports two files that don't exist in the
+    repo (`scripts/run_ragas_v3.py`, `scripts/final_audit.py`) — the
+    Docker `research` subcommand was already broken.
+  - Pipeline A (`scripts/run_honest_sweep_r3.py`) now carries all the
+    hardening invariants and is the active product path.
+  - Pipeline B (`scripts/live_server.py`) will back-port pipeline-A
+    invariants via R2a-R2h (graph_v4 shim).
+  - Pipeline C has no test coverage and no production users.
 
-**(a) Retire**: archive this folder + `scripts/full_cycle.py` + the
-`research` branch of `docker_entrypoint.sh`. Remove from README and
-docs. This is the cleanest option if the pipeline is genuinely abandoned.
+Retire execution (staged):
 
-**(b) Repair**: re-create the missing `scripts/final_audit.py` and
-`scripts/run_ragas_v3.py`, wire them back in, and add integration
-tests to prevent rot. Only worth it if this CLI is a real product entry.
+1. **2026-04-18 (done)**: `scripts/docker_entrypoint.sh` no longer
+   dispatches to pipeline C. The `research` subcommand now returns a
+   deprecation error explaining to use `sweep` (pipeline A) or
+   `serve` (pipeline B) instead. See commit 6a0a041 (Phase E).
 
-**(c) Leave as-is**: acknowledge it's frozen, do not advertise it,
-but keep the code around in case a future requirement brings it back.
-This README marker serves the "acknowledge" part.
+2. **2026-04-18 (done)**: `README.md` and `architecture.md` list
+   pipeline C as FROZEN with a pointer to this file.
 
-Until an option is chosen, the code here is **read-only by convention**.
-No patches should be accepted against this folder without first picking
-(a), (b), or (c).
+3. **Deferred to a dedicated cleanup session (not this one)**:
+    - Archive `src/orchestration/` to
+      `archive/YYYY-MM-DD-retire-pipeline-c/src/orchestration/`.
+    - Archive `scripts/full_cycle.py` to the same archive dir.
+    - Archive the ~60 scripts under `scripts/` that import from
+      `src/orchestration/` (many are ad-hoc one-offs already flagged
+      for R2h).
+    - Remove pipeline C entirely from README + architecture.md +
+      file_directory.md + runbook.md.
+    - Remove the `research` branch from `scripts/docker_entrypoint.sh`
+      (currently it just errors; then remove the case entirely).
+
+The deferral is because archiving `src/orchestration/` right now
+would break ~60 `scripts/`. Those scripts need to be individually
+reviewed for whether they're worth preserving (most are not, per
+the R2 Codex scoping pass). That review is a separate session.
+
+Until the deferred archive happens, the code here remains read-only
+by convention. No patches should land against this folder.
 
 ## Related
 
