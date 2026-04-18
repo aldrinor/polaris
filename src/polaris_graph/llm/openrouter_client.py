@@ -59,6 +59,27 @@ PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
 _RUN_COST_LOCK = __import__("threading").Lock()
 _RUN_COST_USD: float = 0.0
 
+# BUG-N-301 fix (deep-dive R11): ambient run-id. Pipeline A call sites
+# instantiate many OpenRouterClients without passing session_id. Rather
+# than threading session_id through every signature (multi_section
+# generator, live_deepseek, judge, external evaluator, ...), set a
+# module-level current run_id at the top of run_one_query and pick it
+# up in OpenRouterClient.__init__ as the fallback for session_id.
+_CURRENT_RUN_ID: str | None = None
+
+
+def set_current_run_id(run_id: str | None) -> None:
+    """Set the ambient run-id used by OpenRouterClient when no explicit
+    session_id is passed. Call at the top of an orchestrator run and
+    reset to None at end.
+    """
+    global _CURRENT_RUN_ID
+    _CURRENT_RUN_ID = run_id
+
+
+def current_run_id() -> str | None:
+    return _CURRENT_RUN_ID
+
 
 class BudgetExceededError(RuntimeError):
     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
@@ -742,9 +763,15 @@ class OpenRouterClient:
         self.api_key = api_key or OPENROUTER_API_KEY
         self.model = model or OPENROUTER_MODEL
         self.base_url = (base_url or OPENROUTER_BASE_URL).rstrip("/")
+        # BUG-N-301 fix (deep-dive R11): fall back to the ambient run_id
+        # set by the orchestrator via set_current_run_id(). This threads
+        # session_id into cost ledger entries without requiring every
+        # call site (multi_section_generator, live_deepseek, judge,
+        # external evaluator) to pass it explicitly.
+        effective_session_id = session_id or _CURRENT_RUN_ID or ""
         self.usage = UsageTracker(
             budget_usd=budget_usd or OPENROUTER_BUDGET_USD,
-            session_id=session_id or "",
+            session_id=effective_session_id,
         )
         if not self.api_key:
             raise ValueError(

@@ -52,6 +52,7 @@ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     PG_MAX_COST_PER_RUN,
     current_run_cost,
     reset_run_cost,
+    set_current_run_id,
 )
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
@@ -146,6 +147,42 @@ def expected_str_for_abort(protocol: dict) -> str:
         if tier:
             parts.append(f"{tier} {mn:.0f}-{mx:.0f}%")
     return ", ".join(parts) or "per scope template"
+
+
+def write_per_run_cost_ledger(run_dir: Path, run_id: str) -> int:
+    """BUG-M-206 fix (deep-dive R8): filter the global cost ledger for
+    entries tagged with this run_id and write a per-run copy to
+    <run_dir>/cost_ledger.jsonl. Returns the count of entries written.
+
+    The global ledger stays authoritative (monotonic append-only log),
+    but per-run consumers don't have to grep it by run_id anymore.
+    """
+    global_path = Path(
+        os.environ.get("PG_COST_LEDGER_PATH", "logs/pg_cost_ledger.jsonl")
+    )
+    if not global_path.exists():
+        return 0
+    out_path = run_dir / "cost_ledger.jsonl"
+    n = 0
+    try:
+        with open(global_path, "r", encoding="utf-8") as src, \
+                open(out_path, "w", encoding="utf-8") as dst:
+            for line in src:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("session_id") == run_id:
+                    dst.write(line + "\n")
+                    n += 1
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "per-run cost ledger write failed: %s", exc,
+        )
+    return n
 
 
 def filter_verified_sections(sections) -> list:
@@ -320,6 +357,9 @@ async def run_one_query(
     run_dir = out_root / q["domain"] / q["slug"]
     run_dir.mkdir(parents=True, exist_ok=True)
     run_id = f"SWEEP_{q['domain']}_{q['slug']}_{int(time.time())}"
+    # BUG-N-301 fix: set ambient run_id so every downstream
+    # OpenRouterClient tags its cost-ledger entries with this run.
+    set_current_run_id(run_id)
 
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
@@ -411,6 +451,9 @@ async def run_one_query(
             )
             summary["manifest"] = abort_manifest
             summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            set_current_run_id(None)
             log_f.close()
             return summary
 
@@ -461,6 +504,9 @@ async def run_one_query(
             )
             summary["manifest"] = abort_manifest
             summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            set_current_run_id(None)
             log_f.close()
             return summary
 
@@ -670,6 +716,9 @@ async def run_one_query(
             )
             summary["manifest"] = manifest
             summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            set_current_run_id(None)
             log_f.close()
             return summary
 
@@ -746,6 +795,9 @@ async def run_one_query(
             )
             summary["manifest"] = manifest
             summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            set_current_run_id(None)
             log_f.close()
             return summary
 
@@ -878,6 +930,9 @@ async def run_one_query(
             )
             summary["manifest"] = manifest
             summary["cost_usd"] = run_cost
+            try: write_per_run_cost_ledger(run_dir, run_id)
+            except Exception: pass
+            set_current_run_id(None)
             log_f.close()
             return summary
 
@@ -1171,6 +1226,16 @@ async def run_one_query(
             # Don't mask the original exception if the best-effort
             # manifest write itself fails.
             _log(f"[FATAL]       manifest-write-also-failed: {manifest_exc}")
+
+    # BUG-M-206 + BUG-N-301 teardown: per-run ledger copy + run_id reset.
+    try:
+        n_ledger = write_per_run_cost_ledger(run_dir, run_id)
+        summary["cost_ledger_entries"] = n_ledger
+    except Exception as ledger_exc:
+        logging.getLogger(__name__).warning(
+            "per-run ledger copy failed: %s", ledger_exc
+        )
+    set_current_run_id(None)
 
     log_f.close()
     return summary
