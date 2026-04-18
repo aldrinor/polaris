@@ -97,13 +97,15 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "partial_thin_corpus",
     "partial_incomplete_corpus",
     "partial_rule_check_warnings",
-    "partial_outline_fallback",  # BUG-M-203: planner failed, deterministic fallback used
+    "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
+    "partial_qwen_advisory",         # BUG-M-205: Qwen judge flagged critical axes
     # abort — pipeline refused to produce a report
     "abort_scope_rejected",
     "abort_no_sources",
     "abort_corpus_inadequate",
     "abort_corpus_approval_denied",
     "abort_no_verified_sections",
+    "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     # error — unhandled exception
     "error_unexpected",
 })
@@ -114,6 +116,7 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "ok_thin_corpus": "partial_thin_corpus",
     "ok_incomplete_corpus": "partial_incomplete_corpus",
     "ok_outline_fallback": "partial_outline_fallback",
+    "ok_qwen_advisory": "partial_qwen_advisory",
     "warn_rule_checks": "partial_rule_check_warnings",
     "fail_no_sources": "abort_no_sources",
     "fail_no_verified_prose": "abort_no_verified_sections",
@@ -121,6 +124,7 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_inadequate": "abort_corpus_inadequate",
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
+    "abort_evaluator_critical": "abort_evaluator_critical",
     "error": "error_unexpected",
 }
 
@@ -990,15 +994,41 @@ async def run_one_query(
         # Manifest — compute unified status BEFORE the write
         # so manifest.status is authoritative (BUG-B-101 fix).
         run_cost = current_run_cost()
+
+        # BUG-M-205: evaluator gate combines deterministic rule failures
+        # (PT08 contradiction disclosure, PT11 uncited numerics, PT12
+        # invalid citation marker) with Qwen judge verdicts to produce
+        # a release-gating decision. Abort class blocks success; partial
+        # class prevents clean success but still ships the report.
+        from src.polaris_graph.evaluator.evaluator_gate import (  # noqa: E402
+            compute_evaluator_gate,
+        )
+        eval_gate = compute_evaluator_gate(
+            ev_out=ev_out,
+            qwen_result=jr if (jr and jr.parse_ok) else None,
+            adequacy=adequacy,
+            completeness=completeness,
+        )
+        _log(f"[eval_gate]   class={eval_gate.gate_class} "
+             f"release_allowed={eval_gate.release_allowed} "
+             f"reasons={eval_gate.reasons}")
+
         if dist.total_sources == 0:
             summary_status = "fail_no_sources"
         elif multi.total_sentences_verified == 0:
             summary_status = "fail_no_verified_prose"
+        elif eval_gate.gate_class == "abort":
+            # BUG-M-205: evaluator found an integrity failure
+            # (PT08 contradiction missing, PT11 uncited numerics,
+            # PT12 invalid citation marker).
+            summary_status = "abort_evaluator_critical"
         elif getattr(multi, "outline_fallback_used", False):
-            # BUG-M-203: planner failed/retry-failed; deterministic
-            # fallback produced the outline. Report exists but the
-            # section structure is machine-generated, not planner-vetted.
+            # BUG-M-203: planner failed/retry-failed; fallback used.
             summary_status = "ok_outline_fallback"
+        elif eval_gate.gate_class == "partial" and eval_gate.qwen_critical_axes:
+            # BUG-M-205: Qwen flagged critical axes (citation_tightness,
+            # or hedging+tone pair, or multi-axis).
+            summary_status = "ok_qwen_advisory"
         elif ev_out.rule_check_fail_count >= 3:
             summary_status = "warn_rule_checks"
         elif adequacy.decision == "expand":
@@ -1015,6 +1045,9 @@ async def run_one_query(
             "domain": q["domain"],
             "question": q["question"],
             "status": unified_status,
+            # BUG-M-205: evaluator gate decision surfaced to downstream
+            "release_allowed": eval_gate.release_allowed,
+            "evaluator_gate": eval_gate.to_dict(),
             "protocol_sha256": scope.protocol_sha256,
             "retrieval": {
                 "pre_filter": retrieval.total_candidates_pre_filter,
