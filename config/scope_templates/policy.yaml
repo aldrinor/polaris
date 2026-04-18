@@ -1,0 +1,79 @@
+# Policy domain scope template — HONEST-REBUILD Phase 2c.
+#
+# Used when the user is researching regulatory decisions, reimbursement
+# policy, public health guidance, health technology assessments, or
+# cross-country access comparisons. The corpus should be dominated by
+# regulatory documents (T3), HTA agency reports, and commentary (T6)
+# from credible policy analysts. Primary clinical studies (T1) and
+# SR/MA (T2) are included as supporting evidence.
+
+domain: policy
+description: >
+  Regulatory-dominant corpus for health policy, reimbursement, and
+  access research. Welcome government and HTA reports; treat industry
+  pages with scepticism.
+
+inclusion_criteria:
+  - Regulatory documents from FDA, EMA, Health Canada, MHRA, TGA, PMDA, NMPA.
+  - HTA agency reports (ICER, NICE, CADTH, IQWiG, HAS, AHRQ).
+  - Peer-reviewed health policy / health economics journal articles.
+  - Government press releases and public statements.
+  - UN / WHO reports.
+  - NGO reports with traceable funding disclosure.
+
+exclusion_criteria:
+  - Law-firm commentary used as primary regulatory interpretation
+    (cite the underlying regulation, not the law firm).
+  - Press releases from pharmaceutical manufacturers without a regulatory
+    decision document to corroborate.
+  - Opinion pieces in general-interest media unless written by a named
+    policy analyst with disclosed affiliation.
+
+expected_tier_distribution:
+  - tier: T3
+    min_fraction: 0.35
+    max_fraction: 0.70
+    rationale: >
+      Regulatory documents and HTA reports are the primary evidence base
+      for policy research.
+  - tier: T1
+    min_fraction: 0.10
+    max_fraction: 0.30
+    rationale: >
+      Peer-reviewed primary studies (health economics, epidemiology)
+      supporting the policy claims.
+  - tier: T2
+    min_fraction: 0.05
+    max_fraction: 0.25
+    rationale: >
+      Systematic reviews and HTA-style evidence synthesis.
+  - tier: T6
+    min_fraction: 0.05
+    max_fraction: 0.25
+    rationale: >
+      Policy commentary from named analysts and NGO reports. Treat as
+      interpretive layer on top of primary regulatory documents.
+  - tier: T4
+    min_fraction: 0.00
+    max_fraction: 0.15
+    rationale: >
+      Narrative reviews of the policy landscape.
+  - tier: T5
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Industry policy pages — allowed when corroborated by T3.
+  - tier: T7
+    min_fraction: 0.00
+    max_fraction: 0.05
+    rationale: >
+      Conference abstracts — rarely relevant for policy research.
+
+date_range:
+  start: "2015-01-01"
+  end: null
+
+geography: []
+languages:
+  - en
+excluded_sponsors: []

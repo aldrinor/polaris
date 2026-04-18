@@ -1,0 +1,107 @@
+# Clinical domain scope template — HONEST-REBUILD Phase 2c.
+#
+# Used when the user is researching drug efficacy, safety, mechanism,
+# clinical guidelines, meta-analyses, or treatment comparisons. The
+# corpus should be dominated by peer-reviewed primary studies (T1)
+# and systematic reviews (T2), with regulatory documents (T3) as the
+# authoritative source for labelled indications and safety warnings.
+#
+# Industry marketing / HCP-portal sources (T5) are allowed but capped
+# at <=15% and must not dominate any section. Commentary / blog (T6)
+# and conference abstracts / preprints (T7) are allowed only as
+# supporting or hypothesis-generating evidence.
+
+domain: clinical
+description: >
+  Peer-reviewed-primary-evidence-dominant corpus for clinical research.
+  Follows PRISMA-style inclusion / exclusion patterns.
+
+# Default PICO framing overrides. The scope gate will attempt heuristic
+# extraction from the query first; these are fallback defaults.
+pico_defaults:
+  comparator: placebo or standard of care
+
+# Inclusion criteria surfaced to the user in the pre-registered protocol.
+inclusion_criteria:
+  - Peer-reviewed journal article indexed in PubMed / OpenAlex / Semantic Scholar.
+  - Human studies.
+  - Published in English, or with a certified English translation.
+  - Reports quantitative outcomes (efficacy, safety, PK/PD, or QoL).
+  - Regulatory documents (FDA/EMA/Health Canada/MHRA/TGA/PMDA/NMPA) when
+    discussing labelled indications, contraindications, or safety warnings.
+
+# Exclusion criteria surfaced to the user in the pre-registered protocol.
+exclusion_criteria:
+  - User-upload document hosts (Scribd, SlideShare, ResearchGate) unless
+    the document is also available at the original issuer's URL.
+  - Student journals (high school journals, undergraduate journals).
+  - Press releases from pharmaceutical manufacturers without a peer-reviewed
+    primary source to corroborate claims.
+  - Blog posts and law-firm commentary used as primary evidence (allowed as
+    supplementary context only).
+  - In vitro and animal-only studies when the research question is human-
+    clinical (allowed for mechanistic sections only).
+
+# Expected final-corpus tier distribution. The corpus-approval gate
+# (Phase 2g) checks actual retrieval against this and shows the delta
+# to the user.
+expected_tier_distribution:
+  - tier: T1
+    min_fraction: 0.30
+    max_fraction: 0.60
+    rationale: >
+      Peer-reviewed primary studies (RCTs, cohort, case-control) are the
+      foundation of clinical efficacy and safety claims.
+  - tier: T2
+    min_fraction: 0.15
+    max_fraction: 0.40
+    rationale: >
+      Systematic reviews and meta-analyses consolidate primary evidence
+      and are the preferred source for magnitude estimates.
+  - tier: T3
+    min_fraction: 0.05
+    max_fraction: 0.25
+    rationale: >
+      Regulatory documents (FDA labels, EMA EPARs, Health Canada monographs)
+      are authoritative for labelled indications and safety warnings.
+  - tier: T4
+    min_fraction: 0.00
+    max_fraction: 0.20
+    rationale: >
+      Narrative reviews and clinical guideline articles — useful for
+      context and mechanism, but not for novel efficacy claims.
+  - tier: T5
+    min_fraction: 0.00
+    max_fraction: 0.15
+    rationale: >
+      Industry HCP portals and marketing pages — allowed for labelled
+      claims that are already corroborated by T3 regulatory sources.
+  - tier: T6
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Commentary, news, and blog posts — allowed only as context,
+      not as primary evidence.
+  - tier: T7
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Conference abstracts and preprints — hypothesis-generating only.
+      Should not dominate a systematic review corpus.
+
+# Date range. null means unbounded.
+date_range:
+  start: "2010-01-01"
+  end: null
+
+# Geography filter. Empty = no filter.
+geography: []
+
+# Languages filter.
+languages:
+  - en
+
+# Sponsor exclusion. Common pattern: exclude pharma-only-funded studies
+# where no independent adjudication committee was involved. The corpus-
+# approval gate shows funding sources alongside each source.
+excluded_sponsors: []

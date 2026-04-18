@@ -1,0 +1,78 @@
+# Tech domain scope template — HONEST-REBUILD Phase 2c.
+#
+# Used when the user is researching a technology, algorithm, software
+# system, or engineering approach. Corpus is preprint-tolerant (arXiv,
+# bioRxiv, SSRN — T4 or T7 depending on venue maturity) and accepts
+# technical blog posts from named authors as T6 commentary. Peer-
+# reviewed conference / journal papers (T1) are preferred for claims
+# of novel contribution.
+
+domain: tech
+description: >
+  Preprint-tolerant corpus for technology research. Accepts arXiv/
+  bioRxiv/SSRN and technical documentation. Treat vendor marketing
+  pages as industry claims.
+
+inclusion_criteria:
+  - Peer-reviewed conference papers (NeurIPS, ICML, ACL, SIGMOD, USENIX, etc.).
+  - Peer-reviewed journal articles (IEEE, ACM, Nature Machine Intelligence).
+  - Preprints from arXiv / bioRxiv / SSRN with clear authorship.
+  - Official documentation from major open-source projects (with version).
+  - Technical blog posts from named engineers at reputable orgs.
+  - Standards documents (IETF RFCs, W3C specs, ISO).
+
+exclusion_criteria:
+  - Unattributed AI-generated summaries.
+  - Tutorial sites republishing documentation without attribution.
+  - Vendor marketing pages used as primary claims (allowed as context).
+  - Conference abstracts without accompanying papers.
+
+expected_tier_distribution:
+  - tier: T1
+    min_fraction: 0.20
+    max_fraction: 0.50
+    rationale: >
+      Peer-reviewed primary research (conference + journal) is the
+      foundation of novel-contribution claims.
+  - tier: T4
+    min_fraction: 0.10
+    max_fraction: 0.35
+    rationale: >
+      Preprints and narrative surveys — essential for fast-moving fields
+      where conference cycles lag.
+  - tier: T2
+    min_fraction: 0.05
+    max_fraction: 0.25
+    rationale: >
+      Survey / systematic review papers for established areas.
+  - tier: T6
+    min_fraction: 0.05
+    max_fraction: 0.25
+    rationale: >
+      Technical blog posts and engineering postmortems — often contain
+      production-grade findings not published elsewhere.
+  - tier: T3
+    min_fraction: 0.00
+    max_fraction: 0.15
+    rationale: >
+      Standards bodies (IETF, W3C, ISO) when the research question
+      touches interoperability or compliance.
+  - tier: T5
+    min_fraction: 0.00
+    max_fraction: 0.10
+    rationale: >
+      Vendor technical documentation and marketing.
+  - tier: T7
+    min_fraction: 0.00
+    max_fraction: 0.15
+    rationale: >
+      Conference abstracts and workshop papers — early-stage signal.
+
+date_range:
+  start: "2018-01-01"
+  end: null
+
+geography: []
+languages:
+  - en
+excluded_sponsors: []
