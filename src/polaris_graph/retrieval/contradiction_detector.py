@@ -75,7 +75,13 @@ _DURATION_RE = re.compile(
 
 
 # Predicate keywords — the ones we most want to catch contradictions on.
-_EFFICACY_PREDICATES = (
+# BUG-M-202 fix (deep-dive R7): expanded coverage beyond the original
+# obesity/cardiometabolic-only set. A proper domain-YAML-driven
+# profile loader is tracked as a follow-up (see docs/todo_list.md);
+# this expansion is the minimum-viable fix to close the AF
+# anticoagulation silent-failure reproducer.
+_EFFICACY_PREDICATES_METABOLIC = (
+    # Original obesity / GLP-1 / lipid
     "weight loss", "body weight", "weight reduction",
     "hba1c reduction", "a1c reduction",
     "systolic blood pressure reduction", "diastolic blood pressure reduction",
@@ -84,12 +90,80 @@ _EFFICACY_PREDICATES = (
     "mortality reduction",
 )
 
-_SAFETY_PREDICATES = (
+_EFFICACY_PREDICATES_ANTICOAGULATION = (
+    # AF anticoagulation + guideline endpoints (BUG-M-202 R7)
+    "stroke rate", "stroke risk", "ischemic stroke",
+    "systemic embolism", "stroke or systemic embolism",
+    "major bleeding", "clinically relevant non-major bleeding",
+    "intracranial hemorrhage", "gastrointestinal bleeding",
+    "time in therapeutic range", "ttr", "inr",
+    "cha2ds2-vasc", "has-bled",
+    "hazard ratio", "relative risk", "odds ratio",
+)
+
+_EFFICACY_PREDICATES_TECH = (
+    # Tech / ML benchmark endpoints
+    "accuracy", "f1 score", "f1-score",
+    "precision", "recall", "auc", "roc auc",
+    "error rate", "latency", "throughput",
+    "inference time", "model size",
+    "perplexity", "exact match",
+    "exact-match accuracy",
+)
+
+_EFFICACY_PREDICATES_POLICY = (
+    # Policy / regulatory quantitative endpoints
+    "compliance rate", "adoption rate", "enforcement rate",
+    "penalty rate", "coverage rate", "participation rate",
+    "emissions reduction", "cost savings",
+)
+
+_EFFICACY_PREDICATES_DD = (
+    # Due diligence / financial endpoints
+    "revenue growth", "ebitda margin", "gross margin",
+    "operating margin", "market share",
+    "customer acquisition cost", "churn rate",
+    "debt-to-equity", "cash flow",
+)
+
+_EFFICACY_PREDICATES = (
+    _EFFICACY_PREDICATES_METABOLIC
+    + _EFFICACY_PREDICATES_ANTICOAGULATION
+    + _EFFICACY_PREDICATES_TECH
+    + _EFFICACY_PREDICATES_POLICY
+    + _EFFICACY_PREDICATES_DD
+)
+
+_SAFETY_PREDICATES_METABOLIC = (
     "incidence of nausea", "incidence of vomiting",
     "discontinuation rate", "adverse event rate",
     "serious adverse event rate", "pancreatitis incidence",
     "hypoglycemia incidence", "thyroid c-cell",
 )
+
+_SAFETY_PREDICATES_ANTICOAGULATION = (
+    "bleeding rate", "fatal bleeding", "mortality",
+    "all-cause mortality", "cardiovascular mortality",
+)
+
+_SAFETY_PREDICATES = (
+    _SAFETY_PREDICATES_METABOLIC
+    + _SAFETY_PREDICATES_ANTICOAGULATION
+)
+
+# Per-domain predicate set for the `domain` kwarg. The union is still
+# the default when no domain is passed (backward-compat).
+_DOMAIN_PREDICATES: dict[str, tuple] = {
+    "clinical": (
+        _EFFICACY_PREDICATES_METABOLIC
+        + _EFFICACY_PREDICATES_ANTICOAGULATION
+        + _SAFETY_PREDICATES_METABOLIC
+        + _SAFETY_PREDICATES_ANTICOAGULATION
+    ),
+    "tech": _EFFICACY_PREDICATES_TECH,
+    "policy": _EFFICACY_PREDICATES_POLICY,
+    "due_diligence": _EFFICACY_PREDICATES_DD,
+}
 
 
 @dataclass
@@ -131,9 +205,24 @@ class ContradictionRecord:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _normalize_predicate(text: str) -> Optional[str]:
-    """Return the predicate keyword if present in the text."""
+def _normalize_predicate(
+    text: str, domain: str | None = None,
+) -> Optional[str]:
+    """Return the predicate keyword if present in the text.
+
+    BUG-M-202 fix (deep-dive R7): when a domain is supplied, prefer
+    domain-specific predicates first (higher specificity), then fall
+    back to the union set. Previously, only the metabolic-centric
+    union was checked — so AF anticoagulation queries returned zero
+    matches because stroke/bleeding vocabulary wasn't in the table.
+    """
     t = (text or "").lower()
+    # Domain-specific first (more specific endpoints win ties).
+    if domain and domain in _DOMAIN_PREDICATES:
+        for p in _DOMAIN_PREDICATES[domain]:
+            if p in t:
+                return p
+    # Fall back to union.
     for p in _EFFICACY_PREDICATES + _SAFETY_PREDICATES:
         if p in t:
             return p
@@ -394,22 +483,23 @@ def _extract_numeric_value(text: str, predicate: str) -> Optional[tuple[float, s
 
 def extract_numeric_claims(
     evidence: list[dict[str, Any]],
+    domain: str | None = None,
 ) -> list[ExtractedNumericClaim]:
     """Extract structured numeric claims from evidence rows.
 
     Each evidence dict should have 'evidence_id', 'direct_quote' (or
     'statement'), 'source_url', 'tier'. Missing fields are handled.
 
-    Fix-1: now also extracts dose + arm + endpoint_phrase, filters
-    placebo-arm numbers, filters achievement thresholds, and requires
-    a value-phrase verb in the local context.
+    BUG-M-202 fix (deep-dive R7): `domain` parameter routes to a
+    broader predicate set for non-clinical queries. Default None
+    preserves the union-fallback (original behavior).
     """
     claims: list[ExtractedNumericClaim] = []
     for ev in evidence:
         quote = ev.get("direct_quote") or ev.get("statement") or ""
         if not quote:
             continue
-        predicate = _normalize_predicate(quote)
+        predicate = _normalize_predicate(quote, domain=domain)
         if not predicate:
             continue
 

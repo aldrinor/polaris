@@ -20,7 +20,7 @@ Priority order per Codex scoping pass:
 - [ ] R4 generation — BUG-M-203 outline collapse
 - [ ] R5 evaluator — BUG-M-205 advisory vs gating
 - [ ] R6 retrieval_tiering — BUG-M-201 gate/generator divergence
-- [ ] R7 contradictions — BUG-M-202 narrow predicates
+- [~] R7 contradictions — BUG-M-202 narrow predicates (minimum-viable: domain routing + AF/tech/policy/DD predicate expansion; **followup R7b** = generic numeric-claim mining + domain YAML profile loader + per-row multi-claim emission per Codex R7 §4)
 - [ ] R8 observability — BUG-M-206 cost ledger per-run
 - [ ] R9 testing — BUG-M-207 contract coverage
 - [ ] R10 strict_verify — BUG-M-204 limitations bypass (light touch)

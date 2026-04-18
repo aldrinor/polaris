@@ -750,7 +750,13 @@ async def run_one_query(
             return summary
 
         # Contradiction detection (now on the possibly-expanded evidence set)
-        numeric_claims = extract_numeric_claims(retrieval.evidence_rows)
+        # BUG-M-202 fix: pass domain so per-domain predicates are checked
+        # first (AF anticoagulation, tech benchmarks, policy rates, DD
+        # financial metrics). Default union-fallback preserves original
+        # obesity/GLP-1 coverage.
+        numeric_claims = extract_numeric_claims(
+            retrieval.evidence_rows, domain=q["domain"],
+        )
         contradictions = detect_contradictions(numeric_claims)
         (run_dir / "contradictions.json").write_text(
             json.dumps(
