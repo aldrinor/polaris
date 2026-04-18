@@ -90,18 +90,23 @@ def test_tech_and_due_diligence_templates_load(tmp_path: Path) -> None:
 
 
 def test_needs_user_review_when_pico_missing(tmp_path: Path) -> None:
-    # A clinical question with no recognizable drug name and no population.
+    """BUG-B-100 deep-dive R3: a clinical question with BOTH PICO
+    anchors missing is now REJECTED (not flag-only). The old behavior
+    was to set needs_user_review=True and proceed, which let the
+    pipeline spend retrieval budget on an unscoped query."""
     result = run_scope_gate(
         research_question="Tell me about cardiovascular outcomes.",
         run_dir=tmp_path / "run_vague",
         run_id="TEST_VAGUE",
         domain="clinical",
     )
-    doc = json.loads(result.protocol_path.read_text(encoding="utf-8"))
-    assert doc["needs_user_review"] is True
-    # At least one note about missing PICO
-    joined = " ".join(doc["notes"])
-    assert "PICO" in joined or "population" in joined.lower() or "intervention" in joined.lower()
+    # Neither "cardiovascular outcomes" nor any drug name can be
+    # extracted as population or intervention — so reject.
+    assert result.protocol.scope_decision == "reject"
+    assert result.protocol.scope_rejected is True
+    assert result.protocol.scope_rejection_code == "clinical_pico_unscoped"
+    reasons = " ".join(result.protocol.scope_reasons).lower()
+    assert "population" in reasons or "intervention" in reasons or "pico" in reasons
 
 
 def test_sha256_stable_across_identical_content(tmp_path: Path) -> None:
@@ -175,18 +180,116 @@ def test_empty_query_raises() -> None:
         )
 
 
-def test_unsupported_domain_falls_back() -> None:
-    # Should warn and fall back to clinical
-    from src.polaris_graph.nodes import scope_gate
+def test_unsupported_domain_rejects() -> None:
+    """BUG-B-100 deep-dive R3: unsupported domain is now REJECTED
+    (previously fell back to clinical silently — a category error
+    hiding as a warning log). The original defective test name
+    was `test_unsupported_domain_falls_back`."""
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         result = run_scope_gate(
             research_question="Something about semaglutide.",
             run_dir=td,
-            run_id="TEST_FALLBACK",
+            run_id="TEST_UNSUPPORTED",
             domain="made_up_domain",
         )
-        assert result.protocol.domain == scope_gate.DEFAULT_DOMAIN
+        assert result.protocol.scope_decision == "reject"
+        assert result.protocol.scope_rejected is True
+        assert result.protocol.scope_rejection_code == "unsupported_domain"
+        # The original domain is preserved in the record, not silently coerced.
+        assert result.protocol.domain == "made_up_domain"
+
+
+# ─────────────────────────────────────────────────────────────────
+# BUG-B-100 deep-dive R3 — 5 tests per Codex specification.
+# ─────────────────────────────────────────────────────────────────
+
+def test_b100_scope_rejects_unsupported_domain(tmp_path: Path) -> None:
+    """Spec test 1: unsupported domain → reject with unsupported_domain."""
+    result = run_scope_gate(
+        research_question="What is the best espresso machine for home use?",
+        run_dir=tmp_path / "run_espresso",
+        run_id="TEST_B100_1",
+        domain="finance",
+    )
+    assert result.protocol.scope_decision == "reject"
+    assert result.protocol.scope_rejected is True
+    assert result.protocol.scope_rejection_code == "unsupported_domain"
+
+
+def test_b100_scope_rejects_unscoped_clinical(tmp_path: Path) -> None:
+    """Spec test 2: clinical question with neither population nor
+    intervention → reject with clinical_pico_unscoped."""
+    result = run_scope_gate(
+        research_question="Tell me about safety outcomes.",
+        run_dir=tmp_path / "run_unscoped",
+        run_id="TEST_B100_2",
+        domain="clinical",
+    )
+    assert result.protocol.scope_decision == "reject"
+    assert result.protocol.scope_rejection_code == "clinical_pico_unscoped"
+
+
+def test_b100_scope_flags_partial_clinical(tmp_path: Path) -> None:
+    """Spec test 3: clinical question with exactly ONE of population /
+    intervention missing → review (flag-only, not reject)."""
+    # "Semaglutide outcomes" has intervention but no population.
+    result = run_scope_gate(
+        research_question="What are the outcomes of semaglutide?",
+        run_dir=tmp_path / "run_partial",
+        run_id="TEST_B100_3",
+        domain="clinical",
+    )
+    # At least intervention should extract
+    assert result.protocol.intervention is not None
+    # Population likely missing (no explicit demographic)
+    if result.protocol.population is None:
+        assert result.protocol.scope_decision == "review"
+        assert result.protocol.scope_rejected is False
+        assert result.protocol.needs_user_review is True
+
+
+def test_b100_scope_proceeds_for_adequately_scoped_clinical(tmp_path: Path) -> None:
+    """Spec test 4: clinical question with both anchors → proceed."""
+    result = run_scope_gate(
+        research_question=(
+            "What is the efficacy of semaglutide for weight loss in "
+            "adults with obesity?"
+        ),
+        run_dir=tmp_path / "run_proceed",
+        run_id="TEST_B100_4",
+        domain="clinical",
+    )
+    assert result.protocol.population is not None
+    assert result.protocol.intervention is not None
+    assert result.protocol.scope_decision == "proceed"
+    assert result.protocol.scope_rejected is False
+
+
+def test_b100_orchestrator_aborts_before_retrieval_on_reject() -> None:
+    """Spec test 5: source-level guard that the orchestrator has an
+    abort branch reading scope.protocol.scope_rejected BEFORE any
+    call to run_live_retrieval."""
+    import ast, inspect
+    import scripts.run_honest_sweep_r3 as sweep
+    source = inspect.getsource(sweep.run_one_query)
+    # Find the position of the scope_rejected check
+    reject_idx = source.find("scope.protocol.scope_rejected")
+    retrieval_idx = source.find("run_live_retrieval(")
+    assert reject_idx > 0, "expected scope_rejected check in run_one_query"
+    assert retrieval_idx > 0, "expected run_live_retrieval call"
+    assert reject_idx < retrieval_idx, (
+        "scope_rejected check must precede run_live_retrieval — "
+        "otherwise the abort fires too late"
+    )
+    # The branch must contain an abort-scope-rejected manifest
+    after_check = source[reject_idx:retrieval_idx]
+    assert '"status": "abort_scope_rejected"' in after_check, (
+        "scope-rejected branch must write manifest.status=abort_scope_rejected"
+    )
+    assert "return summary" in after_check, (
+        "scope-rejected branch must return summary before retrieval"
+    )
 
 
 def test_extract_pico_heuristic_drug_detection() -> None:

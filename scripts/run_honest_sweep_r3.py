@@ -115,6 +115,7 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "warn_rule_checks": "partial_rule_check_warnings",
     "fail_no_sources": "abort_no_sources",
     "fail_no_verified_prose": "abort_no_verified_sections",
+    "abort_scope_rejected": "abort_scope_rejected",
     "abort_corpus_inadequate": "abort_corpus_inadequate",
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
@@ -348,7 +349,64 @@ async def run_one_query(
         )
         protocol = scope.protocol.to_json_dict()
         _log(f"[scope]       sha256={scope.protocol_sha256[:16]}... "
+             f"decision={scope.protocol.scope_decision} "
              f"needs_review={scope.protocol.needs_user_review}")
+
+        # BUG-B-100 fix (deep-dive R3): the scope gate is now a real
+        # gate. If it rejects, abort BEFORE retrieval with a pipeline-
+        # verdict artifact and manifest.status=abort_scope_rejected.
+        if scope.protocol.scope_rejected:
+            reasons_text = "; ".join(scope.protocol.scope_reasons) or "(no reasons)"
+            _log(f"[ABORT]       Scope rejected: "
+                 f"{scope.protocol.scope_rejection_code} — {reasons_text}")
+            summary["status"] = "abort_scope_rejected"
+            summary["error"] = (
+                f"scope rejected: {scope.protocol.scope_rejection_code}"
+            )
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The scope gate refused to proceed with this research "
+                "question. The pipeline is refusing to spend retrieval "
+                "and generation budget on a query that would not produce "
+                "a meaningful evidence corpus.\n\n"
+                f"### Rejection code\n\n`{scope.protocol.scope_rejection_code}`\n\n"
+                "### Reasons\n\n"
+                + "\n".join(f"- {r}" for r in scope.protocol.scope_reasons)
+                + "\n\n### Suggested next steps\n\n"
+                "- Refine the research question with explicit scope hints "
+                "(e.g., add population / intervention for clinical queries).\n"
+                "- Choose a supported domain: clinical, policy, tech, or "
+                "due_diligence.\n"
+                "- Provide user_overrides via the caller's protocol to "
+                "supply the missing scope anchors directly.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            abort_manifest = {
+                "run_id": run_id,
+                "slug": q["slug"],
+                "domain": q["domain"],
+                "question": q["question"],
+                "status": "abort_scope_rejected",
+                "protocol_sha256": scope.protocol_sha256,
+                "scope": {
+                    "decision": scope.protocol.scope_decision,
+                    "rejected": scope.protocol.scope_rejected,
+                    "rejection_code": scope.protocol.scope_rejection_code,
+                    "reasons": scope.protocol.scope_reasons,
+                },
+                "cost_usd": run_cost,
+                "budget_cap_usd": PG_MAX_COST_PER_RUN,
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = abort_manifest
+            summary["cost_usd"] = run_cost
+            log_f.close()
+            return summary
 
         # Live retrieval
         t0 = time.time()

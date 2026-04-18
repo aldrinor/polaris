@@ -149,6 +149,19 @@ class ProtocolDocument:
     needs_user_review: bool = False
     notes: list[str] = field(default_factory=list)
 
+    # BUG-B-100 fix (deep-dive R3): explicit decision outcome so the
+    # orchestrator can gate on a real signal rather than advisory
+    # needs_user_review. scope_decision is one of:
+    #   "proceed" — pipeline should continue
+    #   "review"  — pipeline should continue, but the protocol is
+    #               uncertain and a human should verify assumptions
+    #   "reject"  — pipeline MUST abort; retrieval and generation
+    #               would be unsafe or wasteful
+    scope_decision: str = "proceed"
+    scope_rejected: bool = False
+    scope_rejection_code: Optional[str] = None
+    scope_reasons: list[str] = field(default_factory=list)
+
     def to_json_dict(self) -> dict[str, Any]:
         """Serialize, converting tuple date range to a dict."""
         data = asdict(self)
@@ -306,20 +319,44 @@ def run_scope_gate(
     """
     if not research_question or not research_question.strip():
         raise ValueError("research_question must be non-empty.")
+
+    # BUG-B-100 fix (deep-dive R3): the scope gate is now an actual gate.
+    # Track reject/review/proceed explicitly instead of silently coercing
+    # unsupported inputs. Reject decisions cause the orchestrator to
+    # abort BEFORE retrieval with manifest.status=abort_scope_rejected.
+    scope_decision = "proceed"
+    scope_rejected = False
+    scope_rejection_code: Optional[str] = None
+    scope_reasons: list[str] = []
+
+    # Hard reject #1: unsupported domain. Previously silently fell back
+    # to DEFAULT_DOMAIN ("clinical") — that's a silent category error
+    # for any query that legitimately should route elsewhere.
     if domain not in SUPPORTED_DOMAINS:
-        logger.warning(
-            "[scope_gate] domain=%r not supported; falling back to %r",
-            domain, DEFAULT_DOMAIN,
+        scope_decision = "reject"
+        scope_rejected = True
+        scope_rejection_code = "unsupported_domain"
+        scope_reasons.append(
+            f"domain={domain!r} is not in SUPPORTED_DOMAINS. "
+            f"Options: {sorted(SUPPORTED_DOMAINS)}."
         )
-        domain = DEFAULT_DOMAIN
+        # Keep domain as-is for the record; the orchestrator will
+        # abort before any domain-specific logic fires.
 
     run_dir_path = Path(run_dir)
     run_dir_path.mkdir(parents=True, exist_ok=True)
     overrides = dict(user_overrides or {})
 
-    # 1. Load template
-    template = load_scope_template(domain)
-    template_path_rel = f"config/scope_templates/{domain}.yaml"
+    # 1. Load template. If domain is rejected, skip the template load
+    # (it would raise) and use an empty template; the protocol document
+    # still needs to be assembled so the orchestrator can emit an
+    # abort manifest.
+    if scope_rejected:
+        template = {}
+        template_path_rel = f"config/scope_templates/<rejected:{domain}>.yaml"
+    else:
+        template = load_scope_template(domain)
+        template_path_rel = f"config/scope_templates/{domain}.yaml"
 
     # 2. PICO heuristic extraction
     pico = extract_pico_heuristic(research_question)
@@ -385,23 +422,47 @@ def run_scope_gate(
     if "excluded_sponsors" in overrides:
         excluded_sponsors = list(overrides["excluded_sponsors"] or [])
 
-    # 6. Sanity checks — populate needs_user_review when heuristics failed
+    # 6. Decision block (BUG-B-100 fix): compute scope_decision +
+    # populate reasons + notes + needs_user_review as a function of
+    # heuristic + protocol completeness.
     notes: list[str] = []
     needs_review = False
-    if domain == "clinical":
+
+    # If already rejected for unsupported domain, just record why in notes.
+    if scope_rejected:
+        notes.extend(scope_reasons)
+    elif domain == "clinical":
+        pico_missing: list[str] = []
         if not pico["population"]:
             notes.append(
                 "PICO population could not be extracted from the research "
                 "question. User should confirm the target population."
             )
-            needs_review = True
+            pico_missing.append("population")
         if not pico["intervention"]:
             notes.append(
                 "PICO intervention could not be extracted. User should "
                 "confirm the drug / procedure under study."
             )
+            pico_missing.append("intervention")
+        if len(pico_missing) == 2:
+            # Both anchors missing: retrieval would be poorly scoped.
+            # Hard reject rather than flag-only.
+            scope_decision = "reject"
+            scope_rejected = True
+            scope_rejection_code = "clinical_pico_unscoped"
+            scope_reasons.append(
+                "Clinical question has neither extractable population nor "
+                "intervention after overrides; retrieval would be too broad "
+                "to produce a meaningful evidence corpus."
+            )
+            needs_review = False
+        elif pico_missing:
+            # One anchor missing: flag for review but still proceed.
+            scope_decision = "review"
             needs_review = True
-    if not tier_expectations:
+
+    if not tier_expectations and not scope_rejected:
         notes.append(
             f"Template {template_path_rel} did not define "
             f"expected_tier_distribution. Corpus-approval gate will "
@@ -432,6 +493,10 @@ def run_scope_gate(
         user_overrides=overrides,
         needs_user_review=needs_review,
         notes=notes,
+        scope_decision=scope_decision,
+        scope_rejected=scope_rejected,
+        scope_rejection_code=scope_rejection_code,
+        scope_reasons=scope_reasons,
     )
 
     # 8. Write atomically + compute SHA-256
