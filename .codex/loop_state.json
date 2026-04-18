@@ -34,7 +34,7 @@
       "claude_addressed": 3,
       "claude_deferred": 0,
       "claude_disputed": 0,
-      "commits": ["pending"],
+      "commits": ["9493326447dd8ad228bdc88b87f4488bd03a49b5"],
       "started_iso": "2026-04-18T12:33:00Z",
       "codex_task_id": "019da215-5db9-7ce3-8278-e524ce2b4da9",
       "codex_completed_iso": "2026-04-18T12:36:00Z",
