@@ -64,12 +64,14 @@ def test_gap2_soft_warning_does_not_drop_sentence() -> None:
     """Unhedged superlatives are a SOFT warning; the sentence still verifies
     if its numbers line up."""
     ev_pool = {
+        # Span must cover both 14.9 AND content words (post-B-1).
+        # "Weight loss was 14.9% at week 68." — span 0-26 covers it.
         "ev_a": {"direct_quote": "Weight loss was 14.9% at week 68."},
     }
     # Note: unhedged "largest", but a valid provenance token
     sentence = (
         "Semaglutide achieves the largest weight loss of 14.9% "
-        "[#ev:ev_a:14-21]."
+        "[#ev:ev_a:0-26]."
     )
     v = verify_sentence_provenance(sentence, ev_pool)
     assert v.is_verified is True  # not dropped
@@ -78,10 +80,12 @@ def test_gap2_soft_warning_does_not_drop_sentence() -> None:
 
 def test_gap2_hedged_sentence_has_no_soft_warning() -> None:
     ev_pool = {
+        # Span must cover both 14.9 AND content words (post-B-1).
+        # "Weight loss was 14.9% at week 68." — span 0-26 covers it.
         "ev_a": {"direct_quote": "Weight loss was 14.9% at week 68."},
     }
     sentence = (
-        "One trial reports weight loss of 14.9% [#ev:ev_a:14-21]."
+        "One trial reports weight loss of 14.9% [#ev:ev_a:0-26]."
     )
     v = verify_sentence_provenance(sentence, ev_pool)
     assert v.is_verified is True

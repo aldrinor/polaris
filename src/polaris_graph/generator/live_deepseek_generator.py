@@ -106,7 +106,10 @@ def _format_telemetry_block(
       - date_range: from protocol
       - uncovered_topics: completeness-checklist gaps (R-6 Gap-3)
     """
-    lines: list[str] = ["<<<pipeline_telemetry>>>"]
+    # B-5 fix: build body WITHOUT structural delimiters, sanitize the body
+    # only, then wrap. Otherwise the sanitizer redacts our own structural
+    # delimiters because the delimiter-literal pass doesn't know caller intent.
+    lines: list[str] = []
 
     if tier_fractions:
         # Sort so T1 first, then T2, etc.
@@ -141,15 +144,21 @@ def _format_telemetry_block(
         for t in uncovered_topics[:8]:
             lines.append(f"  - {t}")
 
-    # Sanitize any accidental injection patterns inside telemetry values
-    # (defense in depth — same as evidence wrapping).
-    joined = "\n".join(lines)
-    sanitized, n = sanitize_evidence_text(joined)
+    # Sanitize the BODY only (defense in depth — same as evidence wrapping),
+    # then wrap with structural delimiters. The wrapper's own delimiters
+    # are never subject to redaction because they are emitted AFTER the
+    # sanitize pass (B-5 fix).
+    body = "\n".join(lines)
+    sanitized_body, n = sanitize_evidence_text(body)
     if n > 0:
         logger.warning(
             "[live_deepseek] Redacted %d pattern(s) from telemetry block", n,
         )
-    return sanitized + "\n<<<end_telemetry>>>"
+    return (
+        "<<<pipeline_telemetry>>>\n"
+        + sanitized_body
+        + "\n<<<end_telemetry>>>"
+    )
 
 
 def build_prompt(

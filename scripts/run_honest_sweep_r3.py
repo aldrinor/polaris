@@ -75,6 +75,64 @@ from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
 )
 
 
+def expected_str_for_abort(protocol: dict) -> str:
+    """Render expected tier distribution for abort-artifact text."""
+    parts = []
+    for entry in protocol.get("expected_tier_distribution", []) or []:
+        tier = entry.get("tier")
+        mn = (entry.get("min_fraction", 0) or 0) * 100
+        mx = (entry.get("max_fraction", 1) or 1) * 100
+        if tier:
+            parts.append(f"{tier} {mn:.0f}-{mx:.0f}%")
+    return ", ".join(parts) or "per scope template"
+
+
+def filter_verified_sections(sections) -> list:
+    """Codex round 1 B-3: the single-source-of-truth predicate for
+    "did this section survive Phase-4 strict_verify?". A section
+    qualifies only if it was NOT dropped AND has non-empty verified_text.
+    """
+    return [
+        sr for sr in sections
+        if not getattr(sr, "dropped_due_to_failure", True)
+        and getattr(sr, "verified_text", "")
+    ]
+
+
+def build_no_verified_sections_abort_body(
+    research_question: str,
+    sections,
+) -> str:
+    """Codex round 1 B-3: build the pipeline-verdict markdown body used
+    when ZERO sections survived strict_verify. Pure function so a
+    behavior test can call it without mocking run_one_query."""
+    head = (
+        f"# Research report: {research_question}\n\n"
+        "## Pipeline verdict\n\n"
+        f"DeepSeek V3.2-Exp generated {len(sections)} "
+        "section(s), but EVERY section failed Phase-4 strict_verify: "
+        "the cited evidence did not support the claims, or the "
+        "generator did not emit provenance tokens.\n\n"
+        "### Per-section verdict\n\n"
+    )
+    rows = "\n".join(
+        f"- **{sr.title}** — verified={sr.sentences_verified}, "
+        f"dropped={sr.sentences_dropped}, "
+        f"regen_attempted={sr.regen_attempted}, "
+        f"error={sr.error!r}"
+        for sr in sections
+    )
+    tail = (
+        "\n\n### Suggested next steps\n\n"
+        "- Widen retrieval so the generator has anchor evidence "
+        "to cite.\n"
+        "- Tune the generator prompt for stricter citation "
+        "discipline.\n"
+        "- Abort and refine the research question.\n"
+    )
+    return head + rows + tail
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 8-query manifest. Two per domain. Deliberately diverse within each
 # domain so novel failure modes have a chance to appear.
@@ -476,8 +534,10 @@ async def run_one_query(
         if dist.has_material_deviation:
             ok, err = check_auto_approve_allowed(dist, note)
             approved = ok
+            approval_error = err
         else:
             approved = True
+            approval_error = ""
         decision = CorpusApprovalDecision(
             run_id=run_id,
             decision_at_unix=time.time(),
@@ -488,6 +548,63 @@ async def run_one_query(
             report=dist, protocol_sha256=scope.protocol_sha256,
         )
         save_approval_decision(decision, run_dir)
+
+        # Codex round 1 B-2: ENFORCE the corpus-approval gate. Previously
+        # the orchestrator wrote corpus_approval.json and then proceeded
+        # regardless of `approved`. Now we short-circuit exactly like the
+        # adequacy-abort path when approval was denied (material deviation
+        # + rubber-stamp note). No LLM call, pipeline verdict artifact only.
+        if not approved:
+            _log(f"[ABORT]       Corpus approval denied "
+                 f"(material deviation without substantive note). "
+                 f"Refusing to synthesize.")
+            summary["status"] = "abort_corpus_approval_denied"
+            summary["error"] = approval_error or "approval_denied"
+            (run_dir / "report.md").write_text(
+                f"# Research report: {q['question']}\n\n"
+                "## Pipeline verdict\n\n"
+                "The corpus has a material deviation from the "
+                f"pre-registered protocol for domain {q['domain']} and "
+                "the approval step did not receive a substantive note "
+                "explaining the deviation. The pipeline is refusing to "
+                "synthesize a report over an unapproved corpus.\n\n"
+                "### Approval failure\n\n"
+                f"- {approval_error or 'no substantive note provided'}\n\n"
+                "### Tier distribution\n\n"
+                f"Expected: {expected_str_for_abort(protocol)}\n"
+                f"Actual:   {tier_summary}\n\n"
+                "### Suggested next steps\n\n"
+                "- Provide a substantive approval note (>=30 chars) that "
+                "explains why the deviation is acceptable for this "
+                "research question.\n"
+                "- Widen retrieval to align the actual tier distribution "
+                "with the expected range.\n"
+                "- Abort and refine the research question.\n",
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = {
+                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
+                "question": q["question"],
+                "status": "abort_corpus_approval_denied",
+                "approval_error": approval_error,
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                    "material_deviation": dist.has_material_deviation,
+                    "approved": False,
+                },
+                "cost_usd": run_cost,
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            log_f.close()
+            return summary
 
         # Contradiction detection (now on the possibly-expanded evidence set)
         numeric_claims = extract_numeric_claims(retrieval.evidence_rows)
@@ -551,6 +668,50 @@ async def run_one_query(
         sections_concat = "\n\n".join(section_bodies)
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
+
+        # Codex round 1 B-3: if ZERO sections survived verification,
+        # refuse to ship report.md. The old code would write a Methods
+        # + Bibliography file with an empty findings body, and only then
+        # mark status=fail_no_verified_prose as a post-hoc flag.
+        verified_sections = filter_verified_sections(multi.sections)
+        if not verified_sections:
+            _log(f"[ABORT]       All {len(multi.sections)} sections "
+                 f"failed verification. Refusing to write a report body.")
+            summary["status"] = "abort_no_verified_sections"
+            summary["error"] = (
+                f"all {len(multi.sections)} sections dropped at strict_verify"
+            )
+            (run_dir / "report.md").write_text(
+                build_no_verified_sections_abort_body(q["question"], multi.sections),
+                encoding="utf-8",
+            )
+            run_cost = current_run_cost()
+            manifest = {
+                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
+                "question": q["question"],
+                "status": "abort_no_verified_sections",
+                "adequacy": asdict(adequacy),
+                "corpus": {
+                    "count": dist.total_sources,
+                    "tier_fractions": dist.tier_fractions,
+                    "approved": approved,
+                },
+                "generator": {
+                    "outline_sections": [p.title for p in multi.outline],
+                    "sections_total": len(multi.sections),
+                    "sections_dropped": len(multi.sections),
+                    "sentences_verified": 0,
+                },
+                "cost_usd": run_cost,
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            summary["manifest"] = manifest
+            summary["cost_usd"] = run_cost
+            log_f.close()
+            return summary
 
         from src.polaris_graph.llm.openrouter_client import (
             PG_EVALUATOR_MODEL, PG_GENERATOR_MODEL,

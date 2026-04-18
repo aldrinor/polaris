@@ -83,6 +83,54 @@ def _add_run_cost(delta: float) -> None:
         _RUN_COST_USD += float(delta)
 
 
+# Codex round 1 B-4: conservative per-model prices used when OpenRouter
+# omits usage.cost. Prices are $/M tokens and represent the UPPER END of
+# published rates for each provider family (if a cheaper provider is used
+# we overcharge the run cost, which is the safe direction for a budget
+# guard). When the model is unknown we use OPUS-tier defaults.
+_PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
+    # model prefix  :  (input $/M, output $/M)
+    "deepseek/":       (0.27, 0.38),
+    "qwen/qwen3-8b":   (0.05, 0.40),
+    "qwen/qwen3-32b":  (0.10, 0.60),
+    "qwen/":           (0.10, 0.60),
+    "z-ai/glm-5.1":    (0.60, 2.20),
+    "z-ai/":           (0.60, 2.20),
+    "meta-llama/":     (0.30, 0.90),
+    "google/gemma":    (0.05, 0.30),
+    "google/gemini":   (1.25, 5.00),
+    "mistralai/":      (0.30, 0.90),
+    "moonshotai/":     (0.60, 2.50),
+    "openai/":         (3.00, 10.00),
+    "anthropic/":      (3.00, 15.00),
+}
+
+_DEFAULT_PRICE_PER_M = (3.00, 15.00)  # Opus-tier worst-case
+
+
+def _impute_cost_from_tokens(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    reasoning_tokens: int,
+) -> float:
+    """Estimate $/call from token counts + published prices. Reasoning
+    tokens bill at the output rate (matches OpenAI / Anthropic practice).
+    Used by the budget guard when OpenRouter omits usage.cost."""
+    if input_tokens <= 0 and output_tokens <= 0 and reasoning_tokens <= 0:
+        return 0.0
+    model_lower = (model or "").lower()
+    input_rate, output_rate = _DEFAULT_PRICE_PER_M
+    for prefix, (in_r, out_r) in _PRICE_TABLE_USD_PER_M.items():
+        if model_lower.startswith(prefix):
+            input_rate, output_rate = in_r, out_r
+            break
+    return (
+        (input_tokens / 1_000_000.0) * input_rate
+        + ((output_tokens + reasoning_tokens) / 1_000_000.0) * output_rate
+    )
+
+
 def check_run_budget(anticipated_additional: float = 0.0) -> None:
     """Raise BudgetExceededError if the next call would exceed the cap.
 
@@ -1256,8 +1304,31 @@ class OpenRouterClient:
             if ctd:
                 reasoning_tokens = ctd.get("reasoning_tokens", 0)
 
-        # FIX-C2: Extract API-reported cost for accurate billing
-        api_cost = usage_data.get("cost", 0.0)
+        # FIX-C2: Extract API-reported cost for accurate billing.
+        # Codex round 1 B-4: OpenRouter omits `usage.cost` for some models,
+        # which let the run budget record $0.00 even when tokens were
+        # consumed. Now: if cost is missing AND tokens were consumed,
+        # impute a conservative upper bound from published per-model rates.
+        api_cost = usage_data.get("cost", None)
+        if api_cost is None or api_cost == 0:
+            # Use per-model price table; defaults reflect observed upper-
+            # bound ($10/M output for opus-tier models) so the guard is
+            # always conservative. Token totals may be 0 if the response
+            # carried no usage block at all.
+            imputed = _impute_cost_from_tokens(
+                self.model, input_tokens, output_tokens, reasoning_tokens,
+            )
+            if api_cost is None and imputed > 0:
+                logger.warning(
+                    "[polaris graph] B-4: OpenRouter omitted usage.cost "
+                    "for model=%r; imputed cost=$%.6f from tokens "
+                    "(in=%d out=%d reasoning=%d). Budget guard uses the "
+                    "imputed value so a missing cost field cannot bypass "
+                    "PG_MAX_COST_PER_RUN.",
+                    self.model, imputed, input_tokens, output_tokens,
+                    reasoning_tokens,
+                )
+            api_cost = max(api_cost or 0.0, imputed)
 
         # Track usage
         self.usage.record(

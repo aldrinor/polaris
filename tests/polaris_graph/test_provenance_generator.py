@@ -87,8 +87,9 @@ def test_verify_sentence_passes_with_valid_span() -> None:
             "statement": "STEP 1 weight loss result.",
         }
     }
-    # span 72-77 = "14.9%" (verified via len check)
-    sentence = "Weight loss was 14.9% [#ev:ev_step1:72-77]."
+    # Span must cover both the number AND some content words (B-1 check).
+    # span 57-77 = "weight loss of 14.9%"
+    sentence = "Weight loss was 14.9% [#ev:ev_step1:57-77]."
     v = verify_sentence_provenance(sentence, evidence_pool)
     assert v.is_verified is True
 
@@ -138,13 +139,14 @@ def test_strict_verify_keeps_good_drops_bad() -> None:
         "ev1": {"direct_quote": "Weight loss was 14.9% at week 68."},
         "ev2": {"direct_quote": "Nausea rate was 20%."},
     }
-    # ev1 direct_quote: "Weight loss was 14.9% at week 68."
-    #   span 16-21 = "14.9%"
-    # ev2 direct_quote: "Nausea rate was 20%."
-    #   span 16-19 = "20%"
+    # Spans must cover both number AND content words (post-B-1).
+    # ev1 "Weight loss was 14.9% at week 68.":
+    #   span 0-26 = "Weight loss was 14.9% at we" — includes weight/loss/14.9
+    # ev2 "Nausea rate was 20%.":
+    #   span 0-20 = whole string — includes nausea/rate/20
     draft = (
-        "Semaglutide achieved 14.9% weight loss [#ev:ev1:16-21]. "
-        "Nausea was reported in 20% of patients [#ev:ev2:16-19]. "
+        "Semaglutide achieved 14.9% weight loss [#ev:ev1:0-26]. "
+        "Nausea was reported in 20% of patients [#ev:ev2:0-20]. "
         "A made-up claim without evidence [#ev:ev_gone:0-5]."
     )
     report = strict_verify(draft, evidence_pool)
@@ -170,13 +172,15 @@ def test_resolve_to_citations_produces_numbered_markers() -> None:
             "tier": "T1",
         },
     }
+    # Spans cover both number AND content word "value" (post-B-1).
+    # ev_a/ev_b both start with "Value was": span 0-21 covers it.
     kept = [
         verify_sentence_provenance(
-            "Value was 14.9% [#ev:ev_a:10-16].",
+            "Value was 14.9% [#ev:ev_a:0-21].",
             evidence_pool,
         ),
         verify_sentence_provenance(
-            "Second source reported 17.4% [#ev:ev_b:10-16].",
+            "Second value was 17.4% [#ev:ev_b:0-21].",
             evidence_pool,
         ),
     ]

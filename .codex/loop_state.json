@@ -1,24 +1,33 @@
 {
   "current_round": 1,
   "max_rounds": 12,
-  "status": "awaiting_codex",
+  "status": "awaiting_codex_round_2",
   "history": [
     {
       "round": 1,
-      "verdict": null,
-      "blocker_count": null,
-      "medium_count": null,
-      "claude_addressed": 0,
+      "verdict": "NOT_READY",
+      "blocker_count": 5,
+      "medium_count": 0,
+      "claude_addressed": 5,
       "claude_deferred": 0,
       "claude_disputed": 0,
-      "commits": [],
+      "commits": ["pending"],
       "started_iso": "2026-04-18T11:59:00Z",
       "codex_task_id": "bh4vohivv",
-      "codex_completed_iso": null,
-      "claude_completed_iso": null
+      "codex_completed_iso": "2026-04-18T12:05:00Z",
+      "claude_completed_iso": "2026-04-18T12:45:00Z",
+      "findings_file": "outputs/codex_findings/round_1/findings.md",
+      "response_file": "outputs/codex_findings/round_1/claude_response.md",
+      "blockers": [
+        {"id": "B-1", "label": "strict_verify semantic check",     "status": "fixed", "test_file": "tests/polaris_graph/test_b1_semantic_grounding.py",       "test_count": 7},
+        {"id": "B-2", "label": "corpus approval enforcement",      "status": "fixed", "test_file": "tests/polaris_graph/test_b2_corpus_approval_enforcement.py", "test_count": 5},
+        {"id": "B-3", "label": "refuse report.md on 0 verified",   "status": "fixed", "test_file": "tests/polaris_graph/test_b3_no_verified_sections.py",       "test_count": 7},
+        {"id": "B-4", "label": "budget cap imputation",            "status": "fixed", "test_file": "tests/polaris_graph/test_b4_budget_imputation.py",          "test_count": 6},
+        {"id": "B-5", "label": "delimiter breakout sanitization",  "status": "fixed", "test_file": "tests/polaris_graph/test_b5_delimiter_breakout.py",         "test_count": 15}
+      ]
     }
   ],
-  "verdict_progression": [],
-  "test_suite_state": {"passed": 220, "xfail": 0, "fail": 0},
-  "notes": "Round 1: initial review. .codex/REVIEW_BRIEF.md used as the brief."
+  "verdict_progression": ["NOT_READY"],
+  "test_suite_state": {"passed": 267, "xfail": 0, "fail": 0},
+  "notes": "Round 1 complete. 5/5 blockers addressed with regression tests. Claude response pinned at outputs/codex_findings/round_1/claude_response.md. Next: commit all B-1..B-5 fixes, launch Codex round 2 with instruction to verify substantive vs cosmetic."
 }

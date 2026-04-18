@@ -92,7 +92,7 @@ def test_gap3_limitations_sentences_verified_without_tokens() -> None:
         "ev_a": {"direct_quote": "Weight loss was 14.9% at week 68."},
     }
     draft = (
-        "Weight loss was 14.9% [#ev:ev_a:14-21].\n\n"
+        "Weight loss was 14.9% [#ev:ev_a:0-26].\n\n"
         "Limitations: only 9% of sources are T1 primary studies. "
         "Sources disagree on magnitude."
     )
@@ -117,7 +117,7 @@ def test_gap3_resolver_puts_limitations_in_separate_paragraph() -> None:
         },
     }
     draft = (
-        "Weight loss was 14.9% [#ev:ev_a:14-21].\n\n"
+        "Weight loss was 14.9% [#ev:ev_a:0-26].\n\n"
         "Limitations: only 9% of sources are T1. Sources disagree."
     )
     report = strict_verify(draft, ev_pool)

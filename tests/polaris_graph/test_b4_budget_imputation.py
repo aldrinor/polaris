@@ -1,0 +1,85 @@
+"""
+Codex round 1 B-4 regression tests: budget cap must NOT be $0 when
+tokens were consumed but OpenRouter omitted usage.cost.
+"""
+from __future__ import annotations
+
+import importlib
+
+
+def _mod():
+    import src.polaris_graph.llm.openrouter_client as m
+    return m
+
+
+def test_b4_deepseek_tokens_impute_nonzero() -> None:
+    mod = _mod()
+    cost = mod._impute_cost_from_tokens(
+        "deepseek/deepseek-v3.2-exp", 5000, 500, 0,
+    )
+    # DeepSeek rates: $0.27 in / $0.38 out per M
+    # expected: 5000*0.27/1e6 + 500*0.38/1e6 = 0.00135 + 0.00019 = 0.00154
+    assert cost > 0.001
+    assert cost < 0.01, f"unexpectedly expensive: {cost}"
+
+
+def test_b4_qwen_8b_tokens_impute_cheap() -> None:
+    mod = _mod()
+    cost = mod._impute_cost_from_tokens(
+        "qwen/qwen3-8b", 1000, 100, 50,
+    )
+    # Qwen3-8B: $0.05 in / $0.40 out; reasoning tokens billed at output rate
+    # expected: 1000*0.05/1e6 + (100+50)*0.40/1e6 = 0.00005 + 0.00006 = 0.00011
+    assert 0 < cost < 0.001
+
+
+def test_b4_unknown_model_uses_opus_tier_default() -> None:
+    mod = _mod()
+    cost = mod._impute_cost_from_tokens(
+        "unknown-vendor/mystery-model-3.0", 1000, 100, 0,
+    )
+    # Opus-tier worst-case: $3/M in, $15/M out
+    # expected: 1000*3/1e6 + 100*15/1e6 = 0.003 + 0.0015 = 0.0045
+    assert cost > 0.003
+
+
+def test_b4_zero_tokens_zero_cost() -> None:
+    mod = _mod()
+    assert mod._impute_cost_from_tokens("deepseek/x", 0, 0, 0) == 0.0
+
+
+def test_b4_budget_guard_not_bypassable_when_cost_missing(
+    monkeypatch,
+) -> None:
+    """If OpenRouter omits cost but tokens were used, the budget guard
+    must still accumulate a non-zero amount per call."""
+    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+    import src.polaris_graph.llm.openrouter_client as mod
+    importlib.reload(mod)
+    mod.reset_run_cost()
+    # Simulate what the _call() code path does when api_cost is None
+    # and tokens were consumed: the imputed cost is fed into _add_run_cost.
+    for _ in range(10):
+        imputed = mod._impute_cost_from_tokens(
+            "unknown-vendor/mystery", 2000, 500, 0,
+        )
+        assert imputed > 0
+        mod._add_run_cost(imputed)
+    # 10 calls × ~$0.0135 imputed > $0.10 budget → check_run_budget raises
+    # (10 × (2000*3 + 500*15)/1M = 0.135)
+    assert mod.current_run_cost() > 0.10
+    import pytest
+    with pytest.raises(mod.BudgetExceededError):
+        mod.check_run_budget()
+    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+    importlib.reload(mod)
+
+
+def test_b4_legacy_cost_field_still_honored() -> None:
+    """If OpenRouter DOES return usage.cost, we use it verbatim."""
+    mod = _mod()
+    mod.reset_run_cost()
+    # Simulate the _call path when api_cost=0.005 was returned by API
+    api_cost = 0.005
+    mod._add_run_cost(api_cost)
+    assert abs(mod.current_run_cost() - 0.005) < 1e-9

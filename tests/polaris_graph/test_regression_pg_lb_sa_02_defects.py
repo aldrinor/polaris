@@ -96,12 +96,12 @@ def test_d_001_strict_verify_drops_unsourced_scope_qualifier_loss():
     # The faithful sentence cites a span that contains 20.0
     faithful = (
         "Semaglutide reduced major adverse cardiovascular events by "
-        "20.0% [#ev:ev_select:138-150] in adults with overweight or obesity."
+        "20.0% [#ev:ev_select:0-164] in adults with overweight or obesity."
     )
     # The defective sentence contains a fabricated number not in the quote
     fabricated = (
         "Semaglutide reduced major adverse cardiovascular events by "
-        "35.0% [#ev:ev_select:138-150] in adults with obesity."
+        "35.0% [#ev:ev_select:0-164] in adults with obesity."
     )
     report_faithful = strict_verify(faithful, evidence_pool)
     report_fab = strict_verify(fabricated, evidence_pool)
