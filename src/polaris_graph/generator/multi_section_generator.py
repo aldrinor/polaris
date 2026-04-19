@@ -458,6 +458,29 @@ write, prefer the highest-tier evidence that supports the claim:
 - [T3] regulatory agency documents anchor label/boxed-warning/contraindication claims.
 - [T4]-[T7] are SUPPORTIVE at best. For any core clinical claim, if T1/T2/T3 evidence is available in this section's evidence subset, cite THAT — do not cite T5/T6/T7 press releases, trade news, or conference abstracts as the lead citation for a pivotal trial finding.
 
+TRIAL-SPECIFIC CITATION RULE (CRITICAL — M-20):
+When you are making a claim ABOUT A SPECIFIC NAMED TRIAL (SURPASS-N,
+SURMOUNT-N, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP-N,
+AP-Combo, etc.), you MUST cite the PRIMARY PUBLICATION of that trial
+if it appears in this section's evidence subset. Do NOT cite a
+comprehensive review / overview article that summarizes many trials
+at once (e.g., "Efficacy and Safety of Tirzepatide in Adults With
+Type 2 Diabetes" style summary) for a claim specifically about
+SURPASS-1 or SURPASS-3.
+
+How to identify primary trial papers in the evidence:
+- Title contains the trial's name with a colon or parenthesis,
+  e.g., "SURPASS-3: Tirzepatide versus Insulin Degludec..."
+  or "Tirzepatide versus insulin glargine ... (SURPASS-4)"
+- Published in NEJM, Lancet, JAMA, Diabetes Care, Diabetologia, etc.
+- Title describes a single randomized comparison
+- Tier tagged [T1]
+
+When a review [T1] and a primary trial paper [T1] both appear in the
+evidence, PREFER the primary trial paper for claims about that
+specific trial. Use the review only for cross-trial integration or
+as a secondary citation.
+
 Scope discipline: the question is about a specific population (see FOCUS above). When evidence is from a DIFFERENT population (e.g., obesity-without-diabetes evidence in a T2D question), flag it: "in a related obesity trial without diabetes [ev_XXX]" — do NOT present it as direct evidence for the scoped population.
 
 Hedging: adjust claim strength to evidence strength. A single indirect-treatment-comparison is weaker than a direct head-to-head RCT; a post-hoc subgroup analysis is weaker than the primary pre-specified endpoint. Use "one analysis reports" / "a post-hoc subgroup analysis found" / "an indirect comparison estimated" rather than a bare declarative.
