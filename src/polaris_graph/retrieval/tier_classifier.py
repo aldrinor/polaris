@@ -481,6 +481,56 @@ PEER_REVIEWED_JOURNAL_DOMAINS = frozenset({
     "jme.bmj.com",  # Journal of Medical Ethics
 })
 
+# M-18a (DR audit pass 1): when the fetcher records the URL as
+# doi.org/<prefix>/<suffix>, the classifier cannot know from the
+# domain alone that this is a peer-reviewed journal. These DOI
+# prefixes are registered to specific peer-reviewed publishers and
+# can be trusted as equivalent to PEER_REVIEWED_JOURNAL_DOMAINS
+# membership. Source: Crossref registrant records.
+PEER_REVIEWED_DOI_PREFIXES = frozenset({
+    "10.1056",  # NEJM
+    "10.1001",  # JAMA Network
+    "10.1016",  # Elsevier (Lancet, Cell, Cell Metabolism, etc.)
+    "10.1038",  # Nature Publishing Group
+    "10.1126",  # Science / AAAS
+    "10.1136",  # BMJ
+    "10.1002",  # Wiley
+    "10.1007",  # Springer
+    "10.1111",  # Wiley
+    "10.1210",  # Endocrine Society
+    "10.2337",  # American Diabetes Association
+    "10.1093",  # Oxford University Press
+    "10.1161",  # American Heart Association
+    "10.1152",  # American Physiological Society
+    "10.4239",  # World Journal of Diabetes
+    "10.1172",  # J Clin Invest
+    "10.1059",  # Am Coll Physicians / ACP
+    "10.3389",  # Frontiers
+    "10.3390",  # MDPI
+    "10.1371",  # PLOS
+    "10.7759",  # Cureus
+    "10.1080",  # Taylor & Francis
+    "10.1089",  # Mary Ann Liebert
+    "10.1155",  # Hindawi (peer-reviewed but mixed quality)
+})
+
+
+def _has_peer_reviewed_doi_prefix(url: str) -> bool:
+    """Return True if URL points at a DOI with a peer-reviewed
+    publisher prefix (M-18a DR audit fix)."""
+    if not url:
+        return False
+    u = url.lower()
+    if "doi.org/" not in u:
+        return False
+    # Extract DOI after doi.org/
+    try:
+        tail = u.split("doi.org/", 1)[1]
+        prefix = tail.split("/", 1)[0]
+        return prefix in PEER_REVIEWED_DOI_PREFIXES
+    except (IndexError, ValueError):
+        return False
+
 # Preprint servers (T4/T5 candidates — not peer-reviewed; caller may
 # tier-down further based on funding disclosure).
 PREPRINT_DOMAINS = frozenset({
@@ -617,57 +667,79 @@ def _detect_conference_abstract(title: str, url: str = "") -> bool:
 # Narrative-review / commentary-flavored keywords. Broader than the
 # "systematic review" family. Surfaces commentary-ish articles in
 # peer-reviewed venues (J Obes Metab Syndr, Postgraduate Med, etc.).
-_NARRATIVE_FLAVOR_KEYWORDS = (
+# M-18a (DR audit pass 1): STRONG narrative markers — always fire
+# regardless of primary-study signals. These phrases unambiguously
+# indicate that the paper is NOT a primary RCT even if it references
+# one (e.g., post-hoc analyses of a SURPASS trial ARE narrative).
+_NARRATIVE_FLAVOR_STRONG_MARKERS = (
+    # Case reports / series — always narrative regardless of primary terms
+    "case report", "case reports", "case study",
+    "a case of", "a case report",
+    # Secondary / post-hoc analyses — always narrative; the primary
+    # paper is the parent RCT, not the post-hoc report
+    "post hoc", "post-hoc", "post hoc analysis", "post-hoc analysis",
+    "secondary analysis",
+    "pooled analysis",
+    "subgroup analysis",
+    # Program-level pooled reporting — still narrative
+    "in the step program", "in the step programme",
+    "in the surpass program", "in the surmount program",
+    "in the rewind program", "in the leader program",
+    "in the sustain program", "in the pioneer program",
+    "in the select program",
+)
+
+# M-18a: WEAK narrative markers — defer to primary-study signals when
+# present. These phrases can appear in both narrative reviews AND in
+# primary RCT titles (e.g., NEJM "X as Compared with Y for the
+# Treatment of Z" uses "for the treatment of" as a study population
+# delimiter, not as a narrative frame).
+_NARRATIVE_FLAVOR_WEAK_MARKERS = (
     "a game changer", "game-changer", "game changer",
     "update on ", "the role of ",
     "overview of ", "advances in ",
     "a review of ",
     "the upcoming", "the coming", "on the horizon",
     "perspectives on", "viewpoints on",
-    "against obesity", "for obesity",  # marketing-flavored framings
-    # Bare "X for the Treatment of Y" / "X for the Management of Y" are
-    # narrative-review title patterns. Primary trial papers usually add a
-    # study-design suffix ("... : A Randomized Controlled Trial") or a
-    # specific outcome focus ("Effect of X on Y in ...").
+    "against obesity", "for obesity",
     "for the treatment of", "for the management of",
-    # Secondary analyses of a labeled trial program are, by convention in
-    # endocrinology / cardiology journals, narrative reviews of pooled
-    # trial data when the title is written as "... in the [PROGRAM]
-    # program". The STEP / SURPASS / SURMOUNT / REWIND / LEADER / SUSTAIN
-    # suite uses this pattern.
-    "in the step program", "in the step programme",
-    "in the surpass program", "in the surmount program",
-    "in the rewind program", "in the leader program",
-    "in the sustain program", "in the pioneer program",
-    "in the select program",
-    # Pass-12 additions (Codex pass 12): perspective/guidance articles
     "perspective for", "perspective on ", "a perspective",
     "perspectives for",
     "primary care providers", "primary care physician",
     "for clinicians", "for physicians",
-    "prescribing ",  # "prescribing information", "prescribing recommendations"
+    "prescribing ",
     "what the clinician", "what clinicians",
-    # Pass-16 additions (Codex full-scale pass 1): case reports and
-    # post-hoc/secondary analyses that Codex found labeled T1 via R10
-    # fallback. "case report" on a PMC page with no conference-abstract
-    # marker would otherwise get T1 presumed-primary.
-    "case report", "case reports", "case study",
-    "a case of", "a case report",
-    "post hoc", "post-hoc", "post hoc analysis", "post-hoc analysis",
-    "secondary analysis",
-    "pooled analysis",  # narrative review / meta-analytic summary
-    "subgroup analysis",  # secondary analysis flavor
+)
+
+# Preserve the combined tuple for backwards compatibility with any
+# downstream code that imports _NARRATIVE_FLAVOR_KEYWORDS directly.
+_NARRATIVE_FLAVOR_KEYWORDS = (
+    _NARRATIVE_FLAVOR_STRONG_MARKERS + _NARRATIVE_FLAVOR_WEAK_MARKERS
 )
 
 
 def _detect_narrative_flavor_from_title(title: str) -> bool:
-    """Stronger-than-generic detector for narrative / commentary flavor."""
+    """Stronger-than-generic detector for narrative / commentary flavor.
+
+    M-18a (DR audit pass 1): split narrative markers into STRONG (case
+    report, post-hoc analysis, pooled analysis, program-level) and
+    WEAK (for the treatment of, update on, perspective for). Strong
+    markers always fire. Weak markers defer to primary-study signals
+    so NEJM head-to-head RCTs like "Tirzepatide as Compared with
+    Semaglutide for the Treatment of Obesity" are not demoted.
+    """
     if not title:
         return False
     t = title.lower()
     if _detect_narrative_review_from_title(title):
         return True
-    return any(k in t for k in _NARRATIVE_FLAVOR_KEYWORDS)
+    # STRONG narrative markers fire regardless of primary-study signals.
+    if any(k in t for k in _NARRATIVE_FLAVOR_STRONG_MARKERS):
+        return True
+    # WEAK markers defer to primary-study signals.
+    if _detect_primary_study_signal(title):
+        return False
+    return any(k in t for k in _NARRATIVE_FLAVOR_WEAK_MARKERS)
 
 
 # Pass-10 addition (BUG-M-10): title markers that indicate guideline,
@@ -787,6 +859,12 @@ _PRIMARY_STUDY_TITLE_MARKERS = (
     "double-blind", "double blind",
     "single-blind", "single blind",
     "placebo-controlled", "placebo controlled",
+    # M-18a (DR audit pass 1): NEJM head-to-head RCTs often use the
+    # "X as Compared with Y" formula (e.g. "Tirzepatide as Compared
+    # with Semaglutide for the Treatment of Obesity"). Without this
+    # marker, the "for the treatment of" narrative-flavor keyword
+    # wins and the primary RCT is demoted to T4.
+    "as compared with", "as compared to",
     # Phase markers (clinical)
     "phase 1", "phase 2", "phase 3", "phase 4",
     "phase i ", "phase ii ", "phase iii ", "phase iv ",
@@ -861,6 +939,25 @@ def classify_source_tier(
         result.reasons.append(
             "Paper flagged retracted by OpenAlex; excluded from tier scoring. "
             "Caller should filter retracted sources before composition."
+        )
+        return result
+
+    # ── Rule Pre-1 (T6, M-18b from DR audit pass 1): Social platform
+    # / general-interest portal exclusion. Must fire BEFORE R1 stub-
+    # content so that Facebook/Twitter/Reddit pages are classified by
+    # domain authority, not by how much text happened to be fetched.
+    # A Facebook "Black Box Warning" post is not more citable just
+    # because its body happens to be > 1000 chars.
+    if _domain_matches(domain, SOCIAL_PLATFORM_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.98
+        result.matched_rules.append("RP1_social_platform_early")
+        result.reasons.append(
+            f"Domain {domain!r} is a social platform / general-interest "
+            f"portal. User-generated or aggregator content; never T1 "
+            f"primary research regardless of content length or OpenAlex "
+            f"metadata. M-18b: fires BEFORE R1 stub so tier cannot be "
+            f"laundered via large body text."
         )
         return result
 
@@ -1339,7 +1436,8 @@ def classify_source_tier(
             # hallucinations in cycle 3). Domains outside the
             # allowlist route to T4 narrative instead.
             if not (_domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS)
-                    or _domain_matches(domain, NIH_LITERATURE_HOSTS)):
+                    or _domain_matches(domain, NIH_LITERATURE_HOSTS)
+                    or _has_peer_reviewed_doi_prefix(signals.url)):
                 result.tier = TierLevel.T4
                 result.confidence = 0.65
                 result.matched_rules.append(
@@ -1349,7 +1447,8 @@ def classify_source_tier(
                     f"OpenAlex said peer-reviewed {pub_type!r} in journal, "
                     f"but domain {domain!r} is NOT on the known "
                     f"peer-reviewed-journal allowlist "
-                    f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS). "
+                    f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS "
+                    f"or PEER_REVIEWED_DOI_PREFIXES). "
                     f"Routing to T4 to avoid overclassifying industry / "
                     f"trade / web content as primary research. Add the "
                     f"domain to the allowlist if it is genuinely a "
