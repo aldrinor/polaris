@@ -610,6 +610,13 @@ _NARRATIVE_FLAVOR_KEYWORDS = (
     "in the rewind program", "in the leader program",
     "in the sustain program", "in the pioneer program",
     "in the select program",
+    # Pass-12 additions (Codex pass 12): perspective/guidance articles
+    "perspective for", "perspective on ", "a perspective",
+    "perspectives for",
+    "primary care providers", "primary care physician",
+    "for clinicians", "for physicians",
+    "prescribing ",  # "prescribing information", "prescribing recommendations"
+    "what the clinician", "what clinicians",
 )
 
 
@@ -667,6 +674,59 @@ def _detect_guideline_or_explainer_title(title: str) -> bool:
         return False
     t = title.lower()
     return any(k in t for k in _GUIDELINE_EXPLAINER_TITLE_MARKERS)
+
+
+# Pass-12 addition (BUG-M-12, Codex pass 12): positive primary-study
+# signals. R9_openalex_primary_study previously granted T1 on any
+# allowlisted journal host when OpenAlex said article+journal. Codex
+# found that truncated Serper snippet titles hid SR/MA suffixes, so
+# real meta-analyses (MDPI + Frontiers tirzepatide papers) slipped
+# through to T1. Codex recommendation: require at least one positive
+# primary-study marker before granting T1, not just absence of
+# SR/MA/narrative markers.
+_PRIMARY_STUDY_TITLE_MARKERS = (
+    # Randomized / controlled trial markers
+    "randomized", "randomised",
+    "controlled trial", "controlled-trial",
+    "rct",
+    "double-blind", "double blind",
+    "single-blind", "single blind",
+    "placebo-controlled", "placebo controlled",
+    # Phase markers (clinical)
+    "phase 1", "phase 2", "phase 3", "phase 4",
+    "phase i ", "phase ii ", "phase iii ", "phase iv ",
+    "phase-1", "phase-2", "phase-3", "phase-4",
+    # Specific named trials / acronyms that unambiguously name a study
+    "surpass-", "surmount-", "step ", "select trial",
+    "leader trial", "sustain trial", "rewind trial", "pioneer ",
+    # Observational study markers
+    "cohort study", "cohort-study",
+    "case-control", "case control",
+    "cross-sectional",
+    "prospective study", "retrospective study",
+    "observational study",
+    "registry analysis", "registry-based",
+    "longitudinal study",
+    "post-marketing surveillance", "post marketing surveillance",
+    "real-world evidence study", "real-world data study",
+    # Primary lab / mechanism markers (for tech/bench research)
+    "effect of ", "effects of ",  # "Effect of X on Y" pattern
+    # Explicit "trial"
+    " trial:", " trial of ", " a trial ",
+    "first-in-human", "first in human",
+)
+
+
+def _detect_primary_study_signal(title: str) -> bool:
+    """Return True if the title contains a positive primary-research
+    signal (randomized trial, cohort study, named phase trial, etc.).
+    Used by R9 to require positive evidence before granting T1 —
+    merely passing OpenAlex article+journal is not enough.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _PRIMARY_STUDY_TITLE_MARKERS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1114,6 +1174,15 @@ def classify_source_tier(
                     f"peer-reviewed journal."
                 )
                 return result
+            # BUG-M-12 (Codex pass 12): the primary-signal requirement
+            # was too strict — bare NEJM/Lancet/JAMA papers with
+            # titles like "Tirzepatide in type 2 diabetes" or
+            # "Semaglutide in Obesity" are legitimate primary trials
+            # but lack positive RCT/phase markers in the title. Rely
+            # instead on (i) OpenAlex full-title enrichment in
+            # live_retriever (so SR/MA suffixes aren't truncated) and
+            # (ii) expanded narrative markers ("perspective for",
+            # "for clinicians") to catch guidance articles.
             result.tier = TierLevel.T1
             result.confidence = 0.8
             result.matched_rules.append("R9_openalex_primary_study")

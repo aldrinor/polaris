@@ -188,6 +188,12 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 and source.get("type") == "journal"
             ),
             "openalex_id": work.get("id", ""),
+            # BUG-M-12 (Codex pass 12): preserve OpenAlex's full
+            # display_name. Serper snippet titles are often truncated
+            # mid-title, losing "systematic review and meta-analysis",
+            # "perspective for primary care providers", etc. suffixes
+            # that the classifier needs to demote false T1s.
+            "openalex_full_title": work.get("display_name", "") or "",
         }
     except Exception as exc:
         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
@@ -643,9 +649,15 @@ def run_live_retrieval(
 
         # Classify via tier_classifier
         domain_ = _domain_of(cand.url)
+        # BUG-M-12 (Codex pass 12): prefer OpenAlex full title over the
+        # truncated Serper snippet title. OpenAlex display_name contains
+        # the complete "systematic review and meta-analysis" /
+        # "perspective for primary care providers" suffixes that the
+        # classifier needs to detect SR/MA and narrative flavor.
+        classifier_title = oa.get("openalex_full_title") or cand.title
         signals = ClassificationSignals(
             url=cand.url,
-            title=cand.title,
+            title=classifier_title,
             publisher="",
             fetched_content_length=len(content),
             openalex_publication_type=oa.get("openalex_pub_type", "") or "",

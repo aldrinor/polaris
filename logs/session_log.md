@@ -3574,3 +3574,19 @@
   - Regression: PMC/NEJM/Lancet/JAMA/PubMed/Frontiers all still T1
 - STATUS: Cycle-4 remediation complete. Ready to re-sweep and dispatch Codex pass 12.
 - NEXT_STEP: commit; re-run 8-query sweep; Codex pass 12 content re-audit.
+
+[2026-04-19 03:30:00]
+- ACTION: Codex pass 12 verdict BLOCKED-ON-ISSUE. 4 more T1 hallucinations — but ROOT CAUSE identified as Serper snippet title TRUNCATION. MDPI/Frontiers SR/MA papers ship with "...: Systematic Review and Meta-Analysis" but only see "..." in the truncated title. Implemented M-12 in two parts: (1) live_retriever._openalex_enrich now preserves work.display_name as openalex_full_title; live_retriever prefers that over truncated Serper snippet title when passing to classifier. (2) Expanded _NARRATIVE_FLAVOR_KEYWORDS with "perspective for", "for clinicians", "primary care providers", "prescribing" to catch guidance articles. Initial attempt added a positive-primary-signal requirement but that was too strict (broke legitimate bare NEJM/Lancet titles); reverted. 509 tests pass (+16 M-12, +1 existing updated, -8 removed over-strict tests).
+- RATIONALE: The truncation fix is the authentic root cause — we now have the full SR/MA title suffix. The narrative marker expansion is the safety net for guidance/perspective articles. Reverting the too-strict primary-signal requirement keeps real bare-title primaries (NEJM STEP-1 "Semaglutide in Obesity" etc.) correctly at T1.
+- SYNC: Task #131 (M-12) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/live_retriever.py (OpenAlex display_name enrichment + classifier_title selection)
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (expanded _NARRATIVE_FLAVOR_KEYWORDS, kept _PRIMARY_STUDY_TITLE_MARKERS + _detect_primary_study_signal as declared helpers for future use, reverted T1 gating)
+  - CREATED: tests/polaris_graph/test_m12_pass12_primary_study_signal.py (12 tests: full-title captures SR/MA, expanded narrative markers, regressions for bare NEJM/Lancet and prior M-fixes)
+- EVIDENCE/FINDINGS:
+  - 509 tests pass
+  - Full title with "Systematic Review and Meta-Analysis" suffix now correctly routes MDPI/Frontiers SR/MAs to T2 via existing _detect_systematic_review_from_title
+  - "Perspective for Primary Care Providers" full title now routes to T4 via expanded narrative markers
+  - Bare "Tirzepatide in type 2 diabetes" / "Semaglutide in Obesity" still correctly T1
+- STATUS: Cycle-5 remediation complete. Ready to re-sweep and dispatch Codex pass 13.
+- NEXT_STEP: commit, re-sweep, Codex pass 13.
