@@ -186,56 +186,118 @@ _DOI_FROM_URL_RE = re.compile(
 #  bounded secondary narrative/SR signal extractor that inspects
 #  high-signal fetched regions only."
 
-_BODY_ARTICLE_TYPE_MARKERS: tuple[tuple[str, str], ...] = (
-    # (regex_pattern, signal_tag)
-    # Meta tags (publisher-set article-type)
-    (r'<meta[^>]+citation_article_type[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
-    (r'<meta[^>]+article:section[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
-    (r'<meta[^>]+prism\.section[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
+# BUG-M-17b (Codex pass 3 BLOCKED fix): tightened to require context,
+# not lone keywords. Explicit publisher metadata and section headers
+# are trusted; lone body keywords are REJECTED because primary papers
+# routinely cite prior systematic reviews, meta-analyses, case series,
+# and guidelines in their background/methods without themselves being
+# that article type.
+
+# High-precision metadata patterns — trust these alone.
+# Each entry: (regex_pattern, attribute_order_flexible)
+_BODY_META_ARTICLE_TYPE_TAGS: tuple[str, ...] = (
+    # HTML meta citation_article_type (both attr orders)
+    r'<meta[^>]+citation_article_type[^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+citation_article_type',
+    r'<meta[^>]+article:section[^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+article:section',
+    r'<meta[^>]+prism\.section[^>]+content=["\']([^"\']+)["\']',
+    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+prism\.section',
     # JSON-LD
-    (r'"articleType"\s*:\s*"([^"]+)"', "jsonld_articleType"),
-    (r'"@type"\s*:\s*"(ScholarlyArticle|MedicalScholarlyArticle|Article)"', "jsonld_type"),
-    # Frontiers: "SYSTEMATIC REVIEW article" appears prominently
-    (r'\b(SYSTEMATIC REVIEW|META[- ]ANALYSIS|NETWORK META[- ]ANALYSIS|'
-     r'CASE REPORT|PERSPECTIVE|EDITORIAL|REVIEW|GUIDELINE|COMMENTARY|'
-     r'LETTER|BRIEF REPORT|OPINION) article', "jfm_article_type"),
-    # Nature family: section header "Article type: ..."
-    (r'Article type:?\s*([A-Z][A-Za-z /-]+)', "nature_article_type"),
+    r'"articleType"\s*:\s*"([^"]+)"',
 )
 
-_BODY_SR_MA_PATTERNS = (
-    r'\bsystematic review\b',
-    r'\bmeta[- ]analysis\b',
-    r'\bnetwork meta[- ]analysis\b',
-    r'\bcochrane review\b',
-    r'\bPRISMA\s*(?:2020|2009)?\b',  # PRISMA flow diagram reference
-    r'\bumbrella review\b',
-    r'\bscoping review\b',
+# Publisher-embedded article-type HEADERS (top-of-page text).
+# Frontiers "SYSTEMATIC REVIEW article", Nature "Article type: X" etc.
+_BODY_PUBLISHER_HEADERS: tuple[str, ...] = (
+    # Frontiers-style: "SYSTEMATIC REVIEW article" (all caps, with space + "article")
+    r'\b(SYSTEMATIC REVIEW|META[- ]ANALYSIS|NETWORK META[- ]ANALYSIS|'
+    r'CASE REPORT|CASE SERIES|PERSPECTIVE|EDITORIAL|'
+    r'GUIDELINE|COMMENTARY|LETTER|BRIEF REPORT|OPINION) article\b',
+    # Nature family: "Article type: <Type>"
+    r'Article type:?\s*(Systematic Review|Meta-Analysis|Meta[- ]Analysis|'
+    r'Network Meta[- ]Analysis|Case Report|Case Series|Perspective|'
+    r'Editorial|Commentary|Letter|Brief Report|Opinion|Guideline)',
 )
 
-_BODY_CASE_REPORT_PATTERNS = (
-    r'\bcase report\b',
-    r'\bcase series\b',
-    r'\bwe (report|describe|present) (?:a|the) case\b',
-    r'\b(a|this)\s+\d+[- ]year[- ]old\s+(man|woman|male|female|patient)\b',
+# Strong contextual patterns that need to co-occur to call SR_MA from body.
+# NEVER fire on a lone keyword — require the declared-intent-or-method shape.
+_BODY_SR_MA_CONTEXT_PATTERNS: tuple[str, ...] = (
+    # "objective: to conduct a systematic review / meta-analysis"
+    r'objective[s]?:\s*to\s+(conduct|perform|undertake)\s+(a\s+)?(systematic review|meta[- ]analysis)',
+    # "we conducted a systematic review"
+    r'we\s+(conducted|performed|undertook)\s+(a\s+)?(systematic review|meta[- ]analysis)',
+    # "this systematic review and meta-analysis"
+    r'this\s+(systematic review(?:\s+and\s+meta[- ]analysis)?|meta[- ]analysis)',
+    # "PRISMA" with contextual search/selection/extraction/flow diagram
+    # (allow up to 40 chars between; accept "PRISMA 2020 flow diagram")
+    r'PRISMA.{0,40}(search|selection|extraction|flow diagram)',
+    r'(search|selection|extraction|flow diagram).{0,40}PRISMA',
+    # Cochrane systematic review declared
+    r'cochrane (systematic )?review',
+    # Conclusive meta-analytic methods signature: "pooled estimate" + "random-effects"
+    r'(pooled (estimate|effect|odds ratio|risk ratio|hazard ratio)).{0,200}(random[- ]effects|fixed[- ]effects)',
+    r'(random[- ]effects|fixed[- ]effects).{0,200}(pooled (estimate|effect|odds ratio|risk ratio|hazard ratio))',
 )
 
-_BODY_PERSPECTIVE_PATTERNS = (
-    r'\b(a )?perspective (for|on|from)\b',
-    r'\bperspectives\s+(for|on|from)\b',
-    r'\bfor primary care providers\b',
-    r'\bfor clinicians\b',
-    r'\bclinical perspective\b',
+# Case report body patterns — require declarative "we report/present"
+# OR the X-year-old patient opener together with PATIENT-centered framing.
+_BODY_CASE_REPORT_CONTEXT_PATTERNS: tuple[str, ...] = (
+    # "we report/describe/present a/the case"  (declarative)
+    r'we\s+(report|describe|present)\s+(a|the)\s+case\b',
+    # "here we report/describe a case"
+    r'here\s+we\s+(report|describe|present)\s+(a|the)\s+case\b',
+    # "we report a X-year-old patient" (opener)
+    r'we\s+report\s+(a|an)\s+\d+[- ]year[- ]old',
+    # Patient opener at very beginning of abstract (first 300 chars)
+    # handled separately below — not in this tuple.
 )
 
-_BODY_GUIDELINE_PATTERNS = (
-    r'\bclinical practice guideline\b',
-    r'\bpractice guideline\b',
-    r'\bconsensus statement\b',
-    r'\bconsensus recommendation\b',
-    r'\bexpert consensus\b',
-    r'\bpractical guidance\b',
+# Guideline body patterns — declarative intent.
+_BODY_GUIDELINE_CONTEXT_PATTERNS: tuple[str, ...] = (
+    r'this\s+(clinical\s+practice\s+)?guideline',
+    r'(clinical\s+practice\s+)?guideline\s+(provides|recommends|was developed)',
+    r'this\s+consensus\s+statement',
+    r'consensus\s+statement\s+from\s+(the\s+)?',
+    r'expert\s+consensus\s+(panel|group)\s+',
+    r'we\s+(developed|provide)\s+(this\s+)?(clinical|practical)\s+guidance',
 )
+
+# Perspective/commentary body patterns — declarative framing, not
+# audience phrases alone.
+_BODY_PERSPECTIVE_CONTEXT_PATTERNS: tuple[str, ...] = (
+    # "In this perspective / commentary / editorial"
+    r'in\s+this\s+(perspective|commentary|editorial|opinion)',
+    # "This perspective examines / reviews"
+    r'this\s+(perspective|commentary|editorial)\s+(examines|reviews|discusses|considers)',
+    # "offer a perspective on"
+    r'(offer|present|provide)\s+a\s+perspective\s+(on|for|of)',
+)
+
+
+def _classify_from_meta_keywords(captured: str) -> str:
+    """Map a captured metadata/header value to a tier signal. Used
+    for publisher-embedded explicit article-type tags (high precision).
+    """
+    c = (captured or "").lower().strip()
+    if not c:
+        return ""
+    if any(k in c for k in ("systematic review", "meta-analysis",
+                            "meta analysis", "cochrane",
+                            "network meta-analysis",
+                            "network meta analysis")):
+        return "SR_MA"
+    if "case report" in c or "case series" in c:
+        return "CASE_REPORT"
+    if "perspective" in c:
+        return "PERSPECTIVE"
+    if "guideline" in c or "consensus" in c:
+        return "GUIDELINE"
+    if "editorial" in c or "commentary" in c:
+        return "PERSPECTIVE"
+    if "letter" in c or "opinion" in c or "brief report" in c:
+        return "PERSPECTIVE"
+    return ""
 
 
 def _detect_article_type_from_body(raw_content: str) -> str:
@@ -245,53 +307,68 @@ def _detect_article_type_from_body(raw_content: str) -> str:
     or "" (no signal). Inspects only the first 8KB of content to keep
     cost bounded.
 
-    Precedence: explicit meta/JSON-LD/Frontiers-article-type tags
-    first (most reliable), then body text patterns in the first 4KB
-    (abstract/methods lead area).
+    M-17b (Codex pass 3 BLOCKED): tightened to avoid false positives
+    from primary papers citing prior systematic reviews / case reports
+    as background. Now requires either:
+
+    (P1) explicit publisher-embedded article-type metadata
+         (HTML meta tag, JSON-LD articleType, Nature-style "Article
+         type:" header, Frontiers-style "SYSTEMATIC REVIEW article"
+         section marker), OR
+    (P2) a declarative contextual body pattern that indicates the
+         fetched article IS the given type (not merely citing it).
+
+    Lone keywords like "systematic review" or "case report" alone
+    are NOT sufficient — primary trial abstracts commonly cite prior
+    reviews in their background, and primary-study methods often
+    mention excluding case series.
     """
     if not raw_content:
         return ""
     # Bound the scan window
     head = raw_content[:8000]
-    head_lower = head.lower()
+    lead = head[:4000]
+    lead_lower = lead.lower()
 
-    # Priority 1: explicit article-type metadata
-    for pattern, tag in _BODY_ARTICLE_TYPE_MARKERS:
+    # ── Priority 1a: explicit meta / JSON-LD article-type tags
+    for pattern in _BODY_META_ARTICLE_TYPE_TAGS:
         m = re.search(pattern, head, re.IGNORECASE)
-        if m:
-            captured = (m.group(1) if m.lastindex else m.group(0)).lower()
-            if any(k in captured for k in ("systematic review",
-                                            "meta-analysis",
-                                            "meta analysis",
-                                            "cochrane")):
-                return "SR_MA"
-            if "case report" in captured or "case series" in captured:
-                return "CASE_REPORT"
-            if "perspective" in captured:
-                return "PERSPECTIVE"
-            if "guideline" in captured or "consensus" in captured:
-                return "GUIDELINE"
-            if "review" in captured and "meta" not in captured:
-                # "review" without SR/MA → narrative review
-                return "PERSPECTIVE"
-            if "editorial" in captured or "commentary" in captured:
-                return "PERSPECTIVE"
-            if "letter" in captured or "opinion" in captured:
-                return "PERSPECTIVE"
+        if m and m.lastindex:
+            signal = _classify_from_meta_keywords(m.group(1))
+            if signal:
+                return signal
 
-    # Priority 2: body text patterns (bounded to first 4KB lead)
-    lead = head_lower[:4000]
-    for pattern in _BODY_SR_MA_PATTERNS:
-        if re.search(pattern, lead, re.IGNORECASE):
+    # ── Priority 1b: publisher-embedded article-type headers
+    # These are ALL-CAPS or structured banners at the page top
+    # (Frontiers "SYSTEMATIC REVIEW article", Nature "Article type: X")
+    for pattern in _BODY_PUBLISHER_HEADERS:
+        m = re.search(pattern, head, re.IGNORECASE)
+        if m and m.lastindex:
+            signal = _classify_from_meta_keywords(m.group(1))
+            if signal:
+                return signal
+
+    # ── Priority 2: declarative body patterns (must co-occur with
+    # study-type context, not lone keywords)
+    for pattern in _BODY_SR_MA_CONTEXT_PATTERNS:
+        if re.search(pattern, lead_lower, re.IGNORECASE):
             return "SR_MA"
-    for pattern in _BODY_CASE_REPORT_PATTERNS:
-        if re.search(pattern, lead, re.IGNORECASE):
+    for pattern in _BODY_CASE_REPORT_CONTEXT_PATTERNS:
+        if re.search(pattern, lead_lower, re.IGNORECASE):
             return "CASE_REPORT"
-    for pattern in _BODY_GUIDELINE_PATTERNS:
-        if re.search(pattern, lead, re.IGNORECASE):
+    # "X-year-old patient" opener as first significant content in abstract
+    # (look only in first 500 chars to avoid methods/exclusion-criteria false positives)
+    opener = lead_lower[:500]
+    if re.search(
+        r'^\s*(a|this)\s+\d+[- ]year[- ]old\s+(man|woman|male|female|patient)\s+(presented|was\s+admitted|with)',
+        opener,
+    ):
+        return "CASE_REPORT"
+    for pattern in _BODY_GUIDELINE_CONTEXT_PATTERNS:
+        if re.search(pattern, lead_lower, re.IGNORECASE):
             return "GUIDELINE"
-    for pattern in _BODY_PERSPECTIVE_PATTERNS:
-        if re.search(pattern, lead, re.IGNORECASE):
+    for pattern in _BODY_PERSPECTIVE_CONTEXT_PATTERNS:
+        if re.search(pattern, lead_lower, re.IGNORECASE):
             return "PERSPECTIVE"
 
     return ""
