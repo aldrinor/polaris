@@ -405,16 +405,37 @@ def run_rule_checks(
         ):
             question_superlatives.add(m.group(0))
 
+    # M-6 refinement (Codex pass 6 medium): require the prose sentence
+    # to share ≥2 content words with the research question before we
+    # exempt a single-word superlative. Without this, an adversarial or
+    # overloaded research_question (e.g., stuffed with every superlative
+    # in the family) would silently suppress PT13 advisories in
+    # unrelated generator prose. Lexical echo is the tightest test that
+    # still accepts the legitimate case where the prose directly quotes
+    # or paraphrases the question.
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+        _content_words,
+    )
+    question_content_words = (
+        _content_words(question_text) if question_text else set()
+    )
+    _ECHO_MIN_CONTENT_WORDS = 2
+
     unhedged_examples: list[str] = []
     for sent in split_into_sentences(prose_for_hedging):
         found = _detect_unhedged_superlative(sent)
         if not found:
             continue
-        # Exempt if the matched phrase consists solely of a single
-        # question-inherited word (multiword phrases like
-        # "better than placebo" don't collapse to a single question word).
+        # Exempt if (a) the matched phrase is a single question-
+        # inherited word AND (b) the prose sentence shares ≥2 content
+        # words with the question (lexical echo — means the sentence
+        # is quoting or paraphrasing the question topic, not asserting
+        # an independent superlative claim).
         if found.lower().strip() in question_superlatives:
-            continue
+            sent_content = _content_words(sent)
+            echo_overlap = sent_content & question_content_words
+            if len(echo_overlap) >= _ECHO_MIN_CONTENT_WORDS:
+                continue
         unhedged_examples.append(f"{found!r} in: {sent[:90]!r}")
     pt13 = len(unhedged_examples) <= 1
     results.append(RuleCheckResult(

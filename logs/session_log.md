@@ -3423,3 +3423,19 @@
   - Tech smoke post-all-fixes: PT13 unhedged count 6 → 2 (M-6 exempted "best" title + echoes); gate.reasons contains "advisory_pt13_unhedged_superlatives" (M-3 surfacing). The run had release=False this time due to stochastic qwen_citation_tightness variance, not a fix regression.
 - STATUS: All 4 non-gating follow-ups addressed. Ready for Codex pass 6 final verification before 8-query sweep.
 - NEXT_STEP: Commit M-3/M-4/M-6/M-2 together; dispatch Codex pass 6.
+
+[2026-04-19 00:10:00]
+- ACTION: Processed Codex pass 6 verdict (CONDITIONAL on commit 3921bc0). Codex found one new medium: M-6's PT13 exemption could be evaded by an adversarial research_question stuffed with superlative words — globally suppressed PT13 in unrelated prose. Also flagged an M-4 runbook factual looseness (auto-approve is disabled on material_deviation; only the note-substantivity check gates release). Fixed both: (1) M-6 refinement requires prose sentences to share ≥2 content words with research_question before exempting question-inherited superlatives (lexical echo requirement); (2) M-4 runbook corrected to state auto-approve is disabled on material_deviation and the note check is length/pattern-based not semantic. Suite 430 pass.
+- RATIONALE: Both items are clearly correct per Codex's direct evaluator-call reproducer (the adversarial question pattern). The lexical-echo requirement is the tightest fix that still accepts the legitimate case (prose echoes the question naturally). Cap-to-N approach was considered but lexical-echo is cleaner — it handles the semantics, not just the word count.
+- DOCS/RESEARCH: Re-read `provenance_generator._content_words` to confirm imports are clean; reused it in PT13 without layering problems.
+- SYNC: Tasks #116 (Codex pass 6), #117 (M-6 refinement), #118 (M-4 factual correction) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/evaluator/external_evaluator.py (PT13 lexical-echo requirement in M-6 exemption)
+  - MODIFIED: tests/polaris_graph/test_external_evaluator.py (+2 tests: adversarial case, legitimate echo case; previous legitimate-case test still passes because it flags 1 unhedged which is <= the PT13 threshold)
+  - MODIFIED: docs/runbook.md (M-4 factual correction — auto-approve disabled, note check shallow)
+- EVIDENCE/FINDINGS:
+  - Tests: 430 pass (+2 new for M-6 refinement).
+  - Codex's adversarial reproducer now correctly flagged by PT13 (4 unhedged surfaced).
+  - Legitimate lexical-echo case (question: "best practices for RAG", prose: "The best practices for RAG include...") still exempted (overlap=3 ≥ 2).
+- STATUS: Codex pass 6 CONDITIONAL verdict fully remediated. All M-1/M-2/M-3/M-4/M-5/M-6 items closed. 430 tests pass. Ready for final Codex pass 7 quick re-verify OR directly to 8-query sweep.
+- NEXT_STEP: Commit remediation; dispatch short Codex pass 7 to re-verify M-6 refinement isn't too strict (could over-flag legitimate reports), then run 8-query sweep.

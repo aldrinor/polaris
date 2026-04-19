@@ -206,13 +206,26 @@ Edit `scripts/run_honest_sweep_r3.py`:
 
 The corpus tier distribution skewed outside the template's expected
 ranges (e.g., clinical template expects T1 ≥ 30%, run retrieved only
-25%; tech template allows T4 ≤ 20%, run retrieved 70%). The run can
-still ship if:
+25%; tech template allows T4 ≤ 20%, run retrieved 70%).
 
-1. The corpus approval gate auto-approved OR the operator note is
-   substantive (not a rubber-stamp).
-2. Downstream stages (adequacy, generator, strict_verify, evaluator)
-   pass.
+**When material_deviation is true, auto-approve is disabled.**
+`compute_tier_distribution()` sets `auto_approve_allowed=False` and
+the sweep runner requires an operator/sweep note. The note
+substantivity check (`check_approval_note_substantive()`) is
+length/pattern-based: ≥ 30 stripped characters and not one of a
+small set of trivial phrases ("ok", "approved", "looks fine"). It
+does NOT perform a semantic review. An operator can therefore pass
+the check with a generic sentence that references the sweep, so
+downstream readers of a `material_deviation=true` release should
+cross-check the note content (in `corpus_approval.json`) against
+the actual tier skew before trusting the report.
+
+If the note check fails, the sweep emits
+`abort_corpus_approval_denied` before any generator token spends.
+
+The run ships only if (1) the note substantivity check passes AND
+(2) downstream stages (adequacy, generator, strict_verify, evaluator)
+pass.
 
 **How to read a `material_deviation=true` release**: treat the 8-query
 sweep output as a **pipeline reliability signal** — the honest-

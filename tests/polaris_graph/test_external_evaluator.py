@@ -222,6 +222,86 @@ def test_pt13_exempts_title_and_question_inherited_superlatives() -> None:
     )
 
 
+def test_pt13_exemption_requires_lexical_echo_of_research_question() -> None:
+    """BUG-M-6 refinement (Codex pass 6): an adversarial research
+    question stuffed with superlatives must not globally suppress
+    PT13 detection. The exemption requires the prose sentence to
+    share >=2 content words with the research question (lexical
+    echo), which rejects unrelated prose even if the superlative
+    itself appears in the question."""
+    # Adversarial question: every single-word superlative in the family
+    adversarial_question = (
+        "What is the best leading superior top unparalleled unmatched "
+        "unprecedented largest highest greatest approach for drug X?"
+    )
+    # Prose sentences each use a different question-listed superlative
+    # but do NOT share >=2 content words with the question (only the
+    # superlative itself overlaps). Under the pre-refinement M-6, all
+    # of these would have been exempted. Under the refinement, they
+    # should all flag.
+    report = (
+        "# Research report: drug X study\n"
+        "\n"
+        "This method is unparalleled.\n"
+        "Results were unmatched.\n"
+        "The outcome is greatest.\n"
+        "The effect is superior.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18.\n"
+    )
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": adversarial_question,
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert not pt13.passed, (
+        "Adversarial research_question must NOT globally suppress PT13. "
+        f"Got: {pt13.details}"
+    )
+    # Details start with "<count> unhedged:" — confirm count is 4.
+    assert pt13.details.startswith("4 unhedged"), (
+        f"expected 4 unhedged; got: {pt13.details}"
+    )
+
+
+def test_pt13_exemption_applies_when_prose_echoes_question() -> None:
+    """Legitimate case: prose sentence shares >=2 content words with
+    the research question (lexical echo), so the question-inherited
+    superlative exemption applies."""
+    report = (
+        "# Research report: What are the best practices for RAG?\n"
+        "\n"
+        "The best practices for RAG include hybrid retrieval.\n"
+        "Dense retrieval works well for many queries.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18.\n"
+    )
+    # Question content words: {best, practices, rag}
+    # Prose sentence 1 content words: {best, practices, rag, include,
+    # hybrid, retrieval}; overlap = {best, practices, rag} = 3 >= 2
+    # → exempted. Prose sentence 2 has no superlative.
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": "What are the best practices for RAG?",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert pt13.passed, (
+        f"Legitimate lexical-echo prose must be exempted. Got: {pt13.details}"
+    )
+
+
 def test_pt13_still_flags_real_generator_superlatives() -> None:
     """Regression guard for M-6 — PT13 must still flag generator
     superlatives that do NOT appear in the research question."""
