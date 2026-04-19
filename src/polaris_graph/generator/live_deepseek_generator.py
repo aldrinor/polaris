@@ -224,6 +224,96 @@ def _find_span_for_decimal(
     return (start, end)
 
 
+# BUG-M-2 (Codex pass 4 medium): the 200-char default span for no-decimal
+# sentences and the +-30-char decimal window both frequently fail the
+# content-word overlap check in strict_verify. Root-cause diagnosis on
+# outputs/m2_diag_clinical: 11/24 failure reasons were
+# no_content_word_overlap, 10/24 were numeric mismatches — both symptoms
+# of spans being too narrow/mis-positioned to actually support the claim.
+# Fix: pick the window (default 500 chars, stride 100) that maximizes
+# content-word overlap with the sentence AND contains every sentence
+# decimal. Tunable via PG_PROVENANCE_SPAN_WINDOW / PG_PROVENANCE_SPAN_STRIDE.
+def _find_best_span_for_sentence(
+    sentence: str,
+    direct_quote: str,
+    *,
+    window: int | None = None,
+    stride: int | None = None,
+) -> Optional[tuple[int, int]]:
+    """Return the span in direct_quote that best supports the sentence.
+
+    Scoring: (a) hard-require every sentence-decimal appears in the span
+    (after dose/placebo/threshold stripping — same rules strict_verify
+    uses); (b) maximize content-word overlap among spans that satisfy
+    (a). If no window satisfies (a), returns the (0, window) fallback
+    so the caller can still emit a provenance token — strict_verify
+    will then drop the sentence honestly instead of the rewriter
+    silently stripping the citation.
+    """
+    from src.polaris_graph.generator.provenance_generator import (
+        _content_words, _decimals_in, _strip_dose_patterns,
+        _PLACEBO_COMPARATOR_RE, _THRESHOLD_RE,
+    )
+
+    if not direct_quote:
+        return None
+
+    if window is None:
+        try:
+            window = int(os.getenv("PG_PROVENANCE_SPAN_WINDOW", "500"))
+        except ValueError:
+            window = 500
+    if stride is None:
+        try:
+            stride = int(os.getenv("PG_PROVENANCE_SPAN_STRIDE", "100"))
+        except ValueError:
+            stride = 100
+    window = max(100, window)
+    stride = max(20, stride)
+
+    sent_stripped = _strip_dose_patterns(sentence)
+    sent_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", sent_stripped)
+    sent_stripped = _THRESHOLD_RE.sub(" ", sent_stripped)
+    sent_decimals = _decimals_in(sent_stripped)
+    sent_words = _content_words(sent_stripped)
+
+    n = len(direct_quote)
+    if n <= window:
+        # Whole quote fits in one window.
+        return (0, n)
+
+    best: Optional[tuple[int, int]] = None
+    best_score = -1
+    for i in range(0, n - window + 1, stride):
+        end = min(i + window, n)
+        wtxt = _strip_dose_patterns(direct_quote[i:end])
+        if sent_decimals:
+            wdec = _decimals_in(wtxt)
+            if not sent_decimals.issubset(wdec):
+                continue
+        wwords = _content_words(wtxt)
+        overlap = len(sent_words & wwords)
+        if overlap > best_score:
+            best_score = overlap
+            best = (i, end)
+    # Also consider the tail window (if n % stride != 0 it may be missed).
+    tail_start = max(0, n - window)
+    end = n
+    wtxt = _strip_dose_patterns(direct_quote[tail_start:end])
+    if (not sent_decimals) or sent_decimals.issubset(_decimals_in(wtxt)):
+        wwords = _content_words(wtxt)
+        overlap = len(sent_words & wwords)
+        if overlap > best_score:
+            best = (tail_start, end)
+
+    if best is not None:
+        return best
+    # Hard requirement (all decimals in span) couldn't be satisfied.
+    # Return the widest valid span so strict_verify can drop the
+    # sentence honestly with a clear failure reason.
+    return (0, min(window, n))
+
+
 def _rewrite_draft_with_spans(
     raw_draft: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -257,30 +347,18 @@ def _rewrite_draft_with_spans(
                 unverifiable += 1
                 continue
             direct_quote = ev.get("direct_quote", "") or ""
-            span: Optional[tuple[int, int]] = None
-            for dec in sentence_decimals:
-                span = _find_span_for_decimal(direct_quote, dec)
-                if span:
-                    break
-            if span is None and sentence_decimals:
-                # Sentence has decimals but the direct_quote (which now
-                # includes head + decimal-window snippets via
-                # _build_provenance_quote) doesn't contain any of them.
-                # This is a genuine provenance gap — STRIP the citation
-                # from the sentence so downstream verifier + PT11 don't
-                # see stray `[ev_XXX]` markers. The sentence may still
-                # verify via OTHER citations in the same sentence (union
-                # check). If all citations are stripped, the sentence
-                # has no provenance token and strict_verify drops it.
+            # BUG-M-2: use content-aware span finder instead of the
+            # legacy (±30 around decimal) / (0,200) default paths.
+            # The new finder picks the window that satisfies the
+            # decimal hard-requirement AND maximizes content-word
+            # overlap, which is what strict_verify actually checks.
+            span = _find_best_span_for_sentence(sent, direct_quote)
+            if span is None:
+                # Empty direct_quote; sentence will drop at verify
+                # with no_provenance_token (after we strip [marker]).
                 new_sent = new_sent.replace(f"[{marker}]", "", 1)
                 unverifiable += 1
                 continue
-            if span is None:
-                # Sentence has NO decimals (topic / synthesis sentence).
-                # Use first 200 chars of the quote as the span — the
-                # number-match check skips when the sentence has no
-                # decimals, so any in-bounds span is acceptable.
-                span = (0, min(200, len(direct_quote)))
             # Rewrite [ev_XXX] -> [#ev:ev_XXX:start-end]
             token = f"[#ev:{marker}:{span[0]}-{span[1]}]"
             new_sent = new_sent.replace(f"[{marker}]", token, 1)

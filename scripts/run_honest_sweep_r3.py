@@ -47,6 +47,7 @@ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
 )
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     resolve_provenance_to_citations,
+    strict_verify,
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     PG_MAX_COST_PER_RUN,
@@ -1042,8 +1043,69 @@ async def run_one_query(
             encoding="utf-8",
         )
 
-        # Evaluator rule checks
+        # BUG-M-2 diagnostic: re-run strict_verify on the preserved
+        # rewritten_draft per section to capture the dropped-sentence
+        # detail (sentence, failure_reasons, soft_warnings). The raw
+        # StrictVerificationReport's `dropped_sentences` list isn't on
+        # SectionResult, but strict_verify is pure computation so we
+        # can reconstruct it here without an LLM call.
         ev_pool = {ev["evidence_id"]: ev for ev in evidence_for_gen}
+        verif_details = {
+            "sections": [],
+            "totals": {
+                "sentences_verified": multi.total_sentences_verified,
+                "sentences_dropped": multi.total_sentences_dropped,
+            },
+        }
+        for sr in multi.sections:
+            if not sr.rewritten_draft:
+                continue
+            rpt = strict_verify(sr.rewritten_draft, ev_pool)
+            verif_details["sections"].append({
+                "title": sr.title,
+                "dropped_due_to_failure": sr.dropped_due_to_failure,
+                "total_in": rpt.total_in,
+                "total_kept": rpt.total_kept,
+                "total_dropped": rpt.total_dropped,
+                "kept": [
+                    {
+                        "sentence": sv.sentence,
+                        "tokens": [
+                            {"evidence_id": t.evidence_id,
+                             "start": t.start, "end": t.end}
+                            for t in sv.tokens
+                        ],
+                        "soft_warnings": sv.soft_warnings,
+                    }
+                    for sv in rpt.kept_sentences
+                ],
+                "dropped": [
+                    {
+                        "sentence": sv.sentence,
+                        "failure_reasons": sv.failure_reasons,
+                        "tokens": [
+                            {"evidence_id": t.evidence_id,
+                             "start": t.start, "end": t.end}
+                            for t in sv.tokens
+                        ],
+                    }
+                    for sv in rpt.dropped_sentences
+                ],
+            })
+        # Per-reason tally across all sections.
+        reason_counts: dict[str, int] = {}
+        for s in verif_details["sections"]:
+            for d in s["dropped"]:
+                for r in d["failure_reasons"]:
+                    key = r.split(":", 1)[0]  # collapse parameterized detail
+                    reason_counts[key] = reason_counts.get(key, 0) + 1
+        verif_details["drop_reason_counts"] = reason_counts
+        (run_dir / "verification_details.json").write_text(
+            json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+
+        # Evaluator rule checks
         ev_out = run_external_evaluation(
             report_text=final_report,
             protocol=protocol,

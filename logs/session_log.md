@@ -3369,3 +3369,22 @@
   - Post-remediation suite: 415 pass including the new timeout test.
 - STATUS: Pass 4 M-1 closed; 3 follow-up mediums tracked in todo_list. Pipeline A is ready to run the 8-query sweep pending user go/no-go.
 - NEXT_STEP: User decides: (a) Codex pass 5 micro-review of the timeout fix before sweep; (b) run 8-query sweep now; (c) address one or more of M-2/M-3/M-4 first.
+
+[2026-04-18 22:35:00]
+- ACTION: M-2 content-starvation root cause diagnosed and fixed. Added verification_details.json artifact (re-runs strict_verify on the persisted rewritten_draft to surface per-sentence drop reasons). Categorized the 24 drop-reasons on m2_diag_clinical: 11 no_content_word_overlap, 7 number_not_in_any_cited_span, 3 no_integer_overlap, 3 no_provenance_token. Found the defect in src/polaris_graph/generator/live_deepseek_generator.py::_rewrite_draft_with_spans: no-decimal sentences defaulted to span=(0, 200) (often the abstract title/header) and decimal sentences got ±30-char spans around the first decimal found — both frequently fail the content-word-overlap check that was added LATER. Fixed by introducing _find_best_span_for_sentence: a content-aware sliding-window finder (default 500 chars, stride 100, PG_PROVENANCE_SPAN_WINDOW / PG_PROVENANCE_SPAN_STRIDE env overrides) that hard-requires every sentence-decimal in the window AND maximizes content-word overlap — the exact criteria strict_verify uses.
+- RATIONALE: User directive: address M-2 before the 8-query sweep, so reports are worth reading. Making span-selection deterministic-and-content-aware keeps the honest-verification discipline intact (we still drop claims we can't support) while eliminating the mechanical mismatch where the rewriter's default span was orthogonal to the verifier's check.
+- DOCS/RESEARCH: Re-read src/polaris_graph/generator/provenance_generator.py::verify_sentence_provenance (the 3-step verification: tokens → numeric match → content-word overlap). Confirmed _content_words, _decimals_in, _PLACEBO_COMPARATOR_RE, _THRESHOLD_RE, _strip_dose_patterns are reusable — imported them into the new finder so sentence/window preprocessing is identical.
+- SYNC: Tasks #106 (diagnosis) and #107 (fix) and #108 (validate) closed. #109 (Codex pass 5) in progress.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/generator/live_deepseek_generator.py (_find_best_span_for_sentence + _rewrite_draft_with_spans rewiring)
+  - MODIFIED: scripts/run_honest_sweep_r3.py (imports strict_verify, emits verification_details.json per run)
+  - CREATED: tests/polaris_graph/test_content_aware_span_finder.py (7 tests covering no-decimal, multi-decimal, short-quote, empty-quote, unmatched-decimal fallback, env override, overlap tiebreak)
+  - OUTPUTS: outputs/m2_diag_clinical/ (baseline drop-reason data), outputs/m2_fixed_clinical/ + outputs/m2_fixed_tech_v2/ (post-fix validation)
+- EVIDENCE/FINDINGS:
+  - Clinical before: 20 drops / 5 kept (80% drop rate), 174 words, 2/4 sections, release=False. After: 4 drops / 22 kept (15% drop rate), 605 words, 4/4 sections, release=True (status=partial_thin_corpus, retrieval variance).
+  - Tech before: 8 drops / 17 kept (32% drop rate), 529 words, 4/4 sections. After: 1 drop / 26 kept (3.7% drop rate), 689 words, 4/4 sections. Status=abort_evaluator_critical because of two new downstream evaluator failures (NOT generator-side):
+    - PT12: max_marker=2025 (a year "[2025]" in the report got parsed as a citation marker — probably a bibliography-counter bug or a numeric-bracket false positive in the evaluator)
+    - PT13: 6 unhedged superlatives ("best" in the title because question contained "best practices", "superior" in prose)
+  - Tests: 422 pass (+7 span-finder tests).
+- STATUS: M-2 closed on the generator side (drop rate cut 80%→15% and 32%→3.7%). Two new downstream issues surfaced (PT12 year-as-citation, PT13 hedging in verbose prose) — NOT caused by M-2; pre-existing and previously masked by the generator being too sparse to expose them. Both will be covered in Codex pass 5 brief.
+- NEXT_STEP: Commit M-2 fix; write Codex pass 5 brief covering M-1 timeout, M-2 span-finder, and the two newly-surfaced evaluator issues (PT12, PT13); dispatch Codex for independent review.
