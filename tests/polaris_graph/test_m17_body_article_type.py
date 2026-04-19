@@ -410,6 +410,60 @@ def test_expert_consensus_panel_convened_flags() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+# M-17d (Codex pass 5): dated/external guideline citation must NOT flag
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_dated_external_guideline_citation_not_flagged() -> None:
+    """Codex pass 5 blocker: external cited guideline with year and verb
+    should not be classified as GUIDELINE. This is a primary paper citing
+    an external guideline as background, not a guideline itself."""
+    content = (
+        "Abstract. Methods: This randomized trial evaluated tirzepatide. "
+        "The 2025 clinical practice guideline recommends GLP-1 receptor "
+        "agonists as first-line therapy for type 2 diabetes."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_the_guideline_recommends_not_flagged() -> None:
+    """Generic 'The guideline recommends' without 'this' is an external
+    citation, not a self-declaration."""
+    content = (
+        "Abstract. Methods: We compared tirzepatide to semaglutide. "
+        "The guideline recommends metformin as first-line therapy."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+# M-17d positive recall: declarative forms with new verbs should still fire.
+
+
+def test_this_guideline_offers_recommendations_flags() -> None:
+    content = (
+        "This guideline offers recommendations for tirzepatide "
+        "management in type 2 diabetes."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+def test_this_guideline_summarizes_evidence_flags() -> None:
+    content = (
+        "This clinical practice guideline summarizes evidence on "
+        "tirzepatide dosing and safety."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+def test_this_guideline_describes_flags() -> None:
+    content = (
+        "This guideline describes the recommended approach to "
+        "tirzepatide titration."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+# ─────────────────────────────────────────────────────────────────
 # Bounded-scan regression
 # ─────────────────────────────────────────────────────────────────
 

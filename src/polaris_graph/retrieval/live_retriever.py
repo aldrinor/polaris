@@ -277,13 +277,19 @@ _BODY_CASE_REPORT_CONTEXT_PATTERNS: tuple[str, ...] = (
 # practice guideline" (fully qualified) OR be followed by a
 # self-descriptive verb ("provides", "recommends", "was developed",
 # "we developed").
+# M-17d (Codex pass 5): the unanchored "(clinical practice )?
+# guideline <verb>" still fired on dated external citations like
+# "The 2025 clinical practice guideline recommends...". Now requires
+# explicit "this" self-reference in front of the guideline noun.
 _BODY_GUIDELINE_CONTEXT_PATTERNS: tuple[str, ...] = (
     # Exact "this clinical practice guideline" phrasing
     r'this\s+clinical\s+practice\s+guideline',
-    # "Guideline ... provides/recommends/was developed" (self-descriptive verb)
-    r'(clinical\s+practice\s+)?guideline\s+'
+    # "This (clinical practice) guideline ... <verb>" — must be "this"
+    # to reject dated/external citations (M-17d).
+    r'this\s+(clinical\s+practice\s+)?guideline\s+'
     r'(provides|recommends|was\s+developed|is\s+intended|'
-    r'presents|outlines|aims?|establishes)',
+    r'presents|outlines|aims?|establishes|offers|summarizes|'
+    r'describes)',
     # "this consensus statement ... verb" (declarative, not cited)
     r'this\s+consensus\s+statement\s+'
     r'(provides|recommends|was\s+developed|outlines|presents|'
