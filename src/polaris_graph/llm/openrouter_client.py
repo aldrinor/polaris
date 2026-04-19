@@ -53,32 +53,40 @@ OPENROUTER_BUDGET_USD = float(os.getenv("OPENROUTER_BUDGET_USD", "50.0"))
 # ALL OpenRouterClient instances instantiated within a single run.
 PG_MAX_COST_PER_RUN = float(os.getenv("PG_MAX_COST_PER_RUN", "0.10"))
 
-# Module-level shared counter. Each OpenRouterClient contributes to it
-# after every successful call. Use reset_run_cost() at the top of a run
-# to start clean; query current_run_cost() before a call to decide.
-_RUN_COST_LOCK = __import__("threading").Lock()
-_RUN_COST_USD: float = 0.0
+# BUG-B-201 fix (pass 2 remediation): per-task ambient state via
+# contextvars so concurrent async run_one_query() calls don't stomp
+# each other's run_id + cost accumulator.
+#
+# Pre-fix (commit f632ee5), `_CURRENT_RUN_ID` and `_RUN_COST_USD` were
+# module-level globals. Pass 2 showed that under `asyncio.gather`,
+# a later run_one_query overwrote the earlier run's ambient id before
+# downstream OpenRouterClient() construction — tagging the first run's
+# LLM calls with the second run's id.
+#
+# Post-fix: ContextVar scopes per asyncio Task. Each task sees its own
+# run_id + cost without threading explicit kwargs through the call graph.
+# Synchronous / serial callers still work because ContextVar defaults
+# to the module-default if no set_* has run in the current task.
+import contextvars
 
-# BUG-N-301 fix (deep-dive R11): ambient run-id. Pipeline A call sites
-# instantiate many OpenRouterClients without passing session_id. Rather
-# than threading session_id through every signature (multi_section
-# generator, live_deepseek, judge, external evaluator, ...), set a
-# module-level current run_id at the top of run_one_query and pick it
-# up in OpenRouterClient.__init__ as the fallback for session_id.
-_CURRENT_RUN_ID: str | None = None
+_RUN_COST_LOCK = __import__("threading").Lock()
+_RUN_COST_CTX: contextvars.ContextVar[float] = contextvars.ContextVar(
+    "_RUN_COST_USD", default=0.0,
+)
+_CURRENT_RUN_ID_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_CURRENT_RUN_ID", default=None,
+)
 
 
 def set_current_run_id(run_id: str | None) -> None:
-    """Set the ambient run-id used by OpenRouterClient when no explicit
-    session_id is passed. Call at the top of an orchestrator run and
-    reset to None at end.
+    """Set the ambient run-id for the current async task. Each
+    asyncio.Task has its own context, so concurrent runs don't stomp.
     """
-    global _CURRENT_RUN_ID
-    _CURRENT_RUN_ID = run_id
+    _CURRENT_RUN_ID_CTX.set(run_id)
 
 
 def current_run_id() -> str | None:
-    return _CURRENT_RUN_ID
+    return _CURRENT_RUN_ID_CTX.get()
 
 
 class BudgetExceededError(RuntimeError):
@@ -86,22 +94,23 @@ class BudgetExceededError(RuntimeError):
 
 
 def reset_run_cost() -> None:
-    """Reset the shared run-cost counter to 0. Call at the start of a run."""
-    global _RUN_COST_USD
-    with _RUN_COST_LOCK:
-        _RUN_COST_USD = 0.0
+    """Reset the current task's run-cost accumulator to 0. Call at the
+    start of a run. Uses ContextVar so concurrent async tasks each get
+    their own zero-start."""
+    _RUN_COST_CTX.set(0.0)
 
 
 def current_run_cost() -> float:
-    """Return the cumulative cost of the current run (USD)."""
-    with _RUN_COST_LOCK:
-        return _RUN_COST_USD
+    """Return the cumulative cost of the current run (USD), scoped to
+    the current asyncio task via ContextVar."""
+    return _RUN_COST_CTX.get()
 
 
 def _add_run_cost(delta: float) -> None:
-    global _RUN_COST_USD
-    with _RUN_COST_LOCK:
-        _RUN_COST_USD += float(delta)
+    # BUG-B-201: ContextVar-scoped cost accumulator. Each async task has
+    # its own run-cost; concurrent gather() of run_one_query() no longer
+    # stomps each other.
+    _RUN_COST_CTX.set(_RUN_COST_CTX.get() + float(delta))
 
 
 # Codex round 1 B-4: conservative per-model prices used when OpenRouter
@@ -768,7 +777,7 @@ class OpenRouterClient:
         # session_id into cost ledger entries without requiring every
         # call site (multi_section_generator, live_deepseek, judge,
         # external evaluator) to pass it explicitly.
-        effective_session_id = session_id or _CURRENT_RUN_ID or ""
+        effective_session_id = session_id or _CURRENT_RUN_ID_CTX.get() or ""
         self.usage = UsageTracker(
             budget_usd=budget_usd or OPENROUTER_BUDGET_USD,
             session_id=effective_session_id,

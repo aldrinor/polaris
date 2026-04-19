@@ -209,21 +209,27 @@ def select_evidence_for_generation(
     # Rebalance: while allocated != max_rows, adjust.
     allocated = sum(quotas.values())
     # If over-allocated: deduct from lowest-priority tiers first.
+    # BUG-N-302 fix (pass 2 remediation): if max_rows is smaller than
+    # the number of present high-value floors, the old code refused
+    # to deduct below floors and overshot max_rows. Now we prefer
+    # floors but WILL violate them if necessary to hit max_rows.
     while allocated > max_rows:
         lowest = max(
             (t for t, q in quotas.items() if q > 0),
             key=lambda t: (_TIER_PRIORITY.get(t, 9), t),
         )
-        # Don't deduct below floor for high-value present tiers.
+        # Prefer deducting from non-floor tiers first.
         if lowest in present_hv and quotas[lowest] <= 1:
-            # try next-lowest
+            # try next-lowest among non-floored
             candidates = [
                 t for t, q in quotas.items() if q > 0
                 and not (t in present_hv and q <= 1)
             ]
-            if not candidates:
-                break
-            lowest = max(candidates, key=lambda t: (_TIER_PRIORITY.get(t, 9), t))
+            if candidates:
+                lowest = max(candidates, key=lambda t: (_TIER_PRIORITY.get(t, 9), t))
+            # else: fall through and deduct the floor anyway —
+            # honoring max_rows is a hard contract; the floor is a soft
+            # preference. Only way this happens is max_rows < floor count.
         quotas[lowest] -= 1
         allocated -= 1
     # If under-allocated: add to highest-priority tiers with remaining capacity.

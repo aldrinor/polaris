@@ -755,23 +755,52 @@ def verify_limitations_sentence_against_telemetry(
             is_verified=True, failure_reasons=[],
             soft_warnings=["limitations_pass_through_no_telemetry"],
         )
+    # BUG-M-209 fix (pass 2 remediation): the telemetry block is a
+    # whitelist of known metric KEYS. A numeric literal in a Limitations
+    # sentence must appear close to a known metric keyword, not just
+    # anywhere in telemetry. "T-cell count 500" should NOT pass when
+    # telemetry says "http_status: 500".
+    #
+    # Known telemetry metric anchors, case-insensitive:
+    _TELEMETRY_METRIC_KEYS = (
+        "tier_distribution",
+        "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+        "unknown",  # UNKNOWN tier
+        "contradictions_detected", "contradictions",
+        "rel_diff", "relative_difference",
+        "severity",
+        "date_range",
+        "completeness_gaps", "uncovered", "uncovered_topic",
+    )
+    telemetry_lower = telemetry_block.lower()
+    telemetry_lines = telemetry_lower.split("\n")
+
+    def _line_mentions_metric(line: str) -> bool:
+        for key in _TELEMETRY_METRIC_KEYS:
+            if key in line:
+                return True
+        return False
+
     for num in substantive:
-        # Strip trailing % for matching (telemetry may or may not carry it).
-        # Use word-boundary-like check so "5" doesn't spuriously match
-        # inside "15%" or "2015" in the telemetry block.
         bare = num.rstrip("%")
-        # Escape the bare number for regex.
         bare_escaped = _re.escape(bare)
-        # Require the number to NOT be surrounded by other digits in
-        # telemetry (i.e., it must be its own token).
-        if _re.search(rf"(?<![\d.]){bare_escaped}(?![\d])", telemetry_block):
-            continue
-        # Also match the full token with '%' if present.
-        if num != bare and _re.search(
-            rf"(?<![\d.]){_re.escape(num)}(?![\d])", telemetry_block,
-        ):
-            continue
-        failures.append(f"limitations_number_not_in_telemetry:{num}")
+        num_escaped = _re.escape(num)
+        # Check every line that contains the number. The number counts
+        # as "backed by telemetry" only if THAT line mentions a known
+        # telemetry metric key.
+        matched = False
+        for line in telemetry_lines:
+            has_bare = _re.search(
+                rf"(?<![\d.]){bare_escaped}(?![\d])", line,
+            )
+            has_pct = (num != bare) and _re.search(
+                rf"(?<![\d.]){num_escaped}(?![\d])", line,
+            )
+            if (has_bare or has_pct) and _line_mentions_metric(line):
+                matched = True
+                break
+        if not matched:
+            failures.append(f"limitations_number_not_in_telemetry:{num}")
 
     if failures:
         return SentenceVerification(
