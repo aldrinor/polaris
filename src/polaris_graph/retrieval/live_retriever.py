@@ -159,25 +159,129 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+_DOI_FROM_URL_RE = re.compile(
+    r"(10\.\d{4,9}/[^\s?#]+?)(?:[?#]|/full|/abstract|/pdf|/meta|\.html|$)",
+    re.IGNORECASE,
+)
+
+
+def _extract_title_from_content(content: str) -> str:
+    """Extract the full paper title from fetched page content.
+
+    M-13 fallback (Codex pass 13): OpenAlex DOI lookup doesn't work
+    for MDPI URLs (they don't embed DOI in URL path). And OpenAlex
+    title-search with a truncated Serper snippet often misses the
+    right paper. As a third recovery path, parse the fetched HTML
+    or markdown for the real title.
+
+    - Jina Reader and Crawl4AI often emit markdown with `Title: ...`
+      or `# Title` on the first line.
+    - Direct HTTP returns HTML; look for `<title>...</title>` tag.
+    - trafilatura output is plain text; the first significant line
+      is usually the title.
+
+    Returns empty string if no plausible title found.
+    """
+    if not content:
+        return ""
+    # Jina/Crawl4AI "Title: X" pattern
+    m = re.search(r"^\s*Title:\s*(.+?)\s*$", content[:2000], re.MULTILINE)
+    if m:
+        t = m.group(1).strip()
+        if 10 <= len(t) <= 500:
+            return t
+    # Markdown H1
+    m = re.search(r"^\s*#\s+(.+?)\s*$", content[:2000], re.MULTILINE)
+    if m:
+        t = m.group(1).strip()
+        if 10 <= len(t) <= 500 and "content" not in t.lower()[:30]:
+            return t
+    # HTML <title> tag
+    m = re.search(r"<title[^>]*>(.+?)</title>", content[:4000],
+                  re.IGNORECASE | re.DOTALL)
+    if m:
+        t = m.group(1).strip()
+        # Strip journal suffixes like " — Frontiers", " | MDPI"
+        t = re.sub(r"\s*[|\-—–]\s*(mdpi|frontiers|nejm|jama|lancet|"
+                   r"bmc|springer|nature|science|cell|plos).*$", "",
+                   t, flags=re.IGNORECASE)
+        if 10 <= len(t) <= 500:
+            return t
+    return ""
+
+
+def _extract_doi_from_url(url: str) -> str:
+    """Extract a DOI from a URL if present. Handles Frontiers
+    (`/10.3389/fphar.2022.1016639/full`), JAMA, NEJM, OUP, Sage,
+    ACS, RSC, Wiley, and direct `doi.org/...` URLs. MDPI URLs don't
+    embed DOIs; return empty there.
+    """
+    if not url:
+        return ""
+    # Direct DOI URL
+    u = url.strip()
+    if "doi.org/" in u.lower():
+        idx = u.lower().find("doi.org/") + len("doi.org/")
+        doi = u[idx:].split("?")[0].split("#")[0].rstrip("/")
+        return doi
+    # Embedded DOI in publisher URLs
+    m = _DOI_FROM_URL_RE.search(u)
+    if m:
+        return m.group(1).rstrip("/").rstrip(".")
+    return ""
+
+
 def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
-    """Query OpenAlex for pub_type / source_type / is_peer_reviewed."""
+    """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
+
+    M-13 (BUG-M-13, Codex pass 13): prefer DOI-based lookup over
+    title search. When the URL embeds a DOI (Frontiers, JAMA, NEJM,
+    OUP, etc.), OpenAlex's /works/doi:<doi> endpoint is exact and
+    always returns the full display_name. Title-based search often
+    fails when Serper truncated the title or returned a variant
+    that OpenAlex doesn't index. Falls back to title search when no
+    DOI can be extracted (e.g., MDPI URLs, publisher blog posts).
+    """
     try:
+        doi = _extract_doi_from_url(url)
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
-            # Try title search first
-            r = c.get(
-                OPENALEX_ENDPOINT,
-                params={
-                    "search": (title or url)[:200],
-                    "per-page": 1,
-                },
-            )
-        if r.status_code != 200:
-            return {}
-        data = r.json()
-        results = data.get("results", [])
-        if not results:
-            return {}
-        work = results[0]
+            if doi:
+                # Exact DOI lookup — most reliable. OpenAlex accepts
+                # both the bare DOI and the URL form; use bare DOI.
+                r = c.get(f"{OPENALEX_ENDPOINT}/doi:{doi}")
+                if r.status_code != 200:
+                    # Fall back to title search if DOI not indexed
+                    r = c.get(
+                        OPENALEX_ENDPOINT,
+                        params={
+                            "search": (title or url)[:200],
+                            "per-page": 1,
+                        },
+                    )
+                    if r.status_code != 200:
+                        return {}
+                    data = r.json()
+                    results = data.get("results", [])
+                    if not results:
+                        return {}
+                    work = results[0]
+                else:
+                    work = r.json()  # single-work response from /works/doi
+            else:
+                r = c.get(
+                    OPENALEX_ENDPOINT,
+                    params={
+                        "search": (title or url)[:200],
+                        "per-page": 1,
+                    },
+                )
+                if r.status_code != 200:
+                    return {}
+                data = r.json()
+                results = data.get("results", [])
+                if not results:
+                    return {}
+                work = results[0]
         primary = work.get("primary_location") or {}
         source = primary.get("source") or {}
         return {
@@ -649,12 +753,26 @@ def run_live_retrieval(
 
         # Classify via tier_classifier
         domain_ = _domain_of(cand.url)
-        # BUG-M-12 (Codex pass 12): prefer OpenAlex full title over the
-        # truncated Serper snippet title. OpenAlex display_name contains
-        # the complete "systematic review and meta-analysis" /
-        # "perspective for primary care providers" suffixes that the
-        # classifier needs to detect SR/MA and narrative flavor.
-        classifier_title = oa.get("openalex_full_title") or cand.title
+        # BUG-M-12 / M-13 (Codex pass 12/13): title resolution order
+        # (longest → most reliable):
+        #   1. OpenAlex display_name (full title from DOI lookup when
+        #      URL embeds a DOI; otherwise from title-search fallback)
+        #   2. Content-extracted title from fetched page (Jina/Crawl4AI
+        #      markdown or HTML <title>) — catches MDPI/JAMA/PMC URLs
+        #      where DOI isn't in the URL path
+        #   3. Serper snippet title (often truncated)
+        # Existing detectors (_detect_systematic_review_from_title,
+        # _detect_narrative_flavor_from_title) then see the full
+        # suffix and demote correctly.
+        content_title = _extract_title_from_content(content)
+        openalex_title = oa.get("openalex_full_title", "") or ""
+        # Pick the longest candidate — longer titles carry more signal
+        # (SR/MA / perspective / guidance suffixes).
+        title_candidates = [t for t in (openalex_title, content_title, cand.title) if t]
+        if title_candidates:
+            classifier_title = max(title_candidates, key=len)
+        else:
+            classifier_title = cand.title or ""
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,

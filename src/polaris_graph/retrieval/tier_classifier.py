@@ -426,6 +426,11 @@ NEWS_BLOG_DOMAINS = frozenset({
     "medpagetoday.com", "healthnews.com",
     "endocrinologyadvisor.com", "rheumatologyadvisor.com",
     "oncologynursingnews.com", "cardiologyadvisor.com",
+    # Pass-13 addition (Codex pass 13): pharmacytimes.com was getting
+    # labelled T2 because OpenAlex lookup returned SR/MA metadata for
+    # a similarly-titled review the site was reporting on. It's a
+    # trade news site, not primary or secondary research.
+    "pharmacytimes.com",
     # Industry / pharma trade press
     "fiercepharma.com", "biopharmadive.com", "endpts.com",
     "pharmatimes.com", "pharmamanufacturing.com",

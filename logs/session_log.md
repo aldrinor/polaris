@@ -3590,3 +3590,20 @@
   - Bare "Tirzepatide in type 2 diabetes" / "Semaglutide in Obesity" still correctly T1
 - STATUS: Cycle-5 remediation complete. Ready to re-sweep and dispatch Codex pass 13.
 - NEXT_STEP: commit, re-sweep, Codex pass 13.
+
+[2026-04-19 04:05:00]
+- ACTION: Codex pass 13 BLOCKED: M-12 narrative markers working (PMC cases demoted), but OpenAlex full-title lookup didn't reach classifier for MDPI/Frontiers (live_corpus_dump still shows truncated titles; classifier saw truncated title → T1 hallucination). Also pharmacytimes.com missing from NEWS_BLOG_DOMAINS lifted it to T2 via OpenAlex SR/MA metadata. Implemented M-13: (1) DOI extraction from URL via regex — Frontiers/NEJM/doi.org URLs now go through OpenAlex /works/doi:<doi> (exact lookup, always returns full display_name); (2) content-based title extraction — parses Jina markdown "Title: X", HTML <title>, or markdown H1 from fetched content; (3) title resolution picks longest of openalex_full_title, content_title, serper title; (4) added pharmacytimes.com to NEWS_BLOG_DOMAINS (distinct from existing pharmatimes.com).
+- RATIONALE: DOI-based OpenAlex lookup is the authentic fix for Frontiers (DOI embedded). Content-based title extraction is the MDPI fallback (MDPI URLs don't embed DOI). Together they give 3-tier title resolution with longest-wins selection, ensuring classifier always sees the longest available title.
+- SYNC: Task #132 (M-13) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/live_retriever.py (_extract_doi_from_url, _extract_title_from_content, DOI lookup in _openalex_enrich, longest-title selection)
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (pharmacytimes.com added to NEWS_BLOG_DOMAINS)
+  - CREATED: tests/polaris_graph/test_m13_pass13_doi_content_title.py (12 tests)
+- EVIDENCE/FINDINGS:
+  - 521 tests pass
+  - Frontiers DOI extracted: 10.3389/fphar.2022.1016639
+  - NEJM DOI extracted: 10.1056/NEJMoa2107519
+  - MDPI yields no DOI (correctly; will fallback to content)
+  - pharmacytimes.com now T6
+- STATUS: Cycle-6 remediation complete. Ready to re-sweep and dispatch Codex pass 14.
+- NEXT_STEP: commit, re-sweep, Codex pass 14.
