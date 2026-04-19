@@ -344,8 +344,16 @@ def run_rule_checks(
     # evidence pool has at least one entry referenced. We can't do full
     # provenance verification without the token data, but we can check
     # that markers [1]..[N] don't exceed the bibliography size.
+    # M-5 (Codex pass 5): scan only the pre-bibliography portion.
+    # Bibliography entries legitimately include bracketed years in
+    # source titles (e.g., "Best Guide on RAG Pipeline [2025]") that
+    # must not be misread as citation markers into the evidence pool.
+    biblio_idx = report_text.lower().find("\n## bibliography")
+    prose_for_markers = (
+        report_text[:biblio_idx] if biblio_idx > 0 else report_text
+    )
     max_marker = 0
-    for m in re.finditer(r"\[(\d+)\]", report_text):
+    for m in re.finditer(r"\[(\d+)\]", prose_for_markers):
         try:
             n = int(m.group(1))
             if n > max_marker:

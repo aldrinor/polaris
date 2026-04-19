@@ -148,6 +148,78 @@ def test_evaluator_output_is_json_serializable() -> None:
     assert "rule_checks" in loaded
 
 
+def test_pt12_ignores_bibliography_title_year_brackets() -> None:
+    """BUG-M-5 (Codex pass 5 gating medium): PT12 must not treat a
+    bracketed year in a bibliography entry title (e.g., "Best Guide on
+    RAG Pipeline [2025]") as an out-of-range citation marker. Before
+    the fix, the regex scanned the whole report and flagged `[2025]`
+    as marker 2025 > evidence_pool size, causing a false-positive
+    release abort."""
+    report = (
+        "# Research report: best practices for RAG\n"
+        "\n"
+        "Retrieval-augmented generation combines search with LLMs [1].\n"
+        "Hybrid approaches are common [2].\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18 via Serper.\n"
+        "Generator model: deepseek/deepseek-v3.2-exp.\n"
+        "Evaluator model: qwen/qwen3-8b.\n"
+        "\n"
+        "## Bibliography\n"
+        "[1] A Survey on RAG Architectures — https://arxiv.org/abs/x (tier T1)\n"
+        "[2] Best Guide on RAG Pipeline, Use Cases & Diagrams [2025] "
+        "— https://dextralabs.com/blog/rag (tier T4)\n"
+    )
+    ev_pool = {"ev_a": {"direct_quote": "a"}, "ev_b": {"direct_quote": "b"}}
+    # evidence_pool size = 2, legitimate citation markers go up to [2]
+    # The [2025] in the bibliography title must be excluded from the scan
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": "best practices for RAG",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool=ev_pool,
+        enable_llm_judge=False,
+    )
+    pt12 = next(r for r in out.rule_checks if r.item_id == "PT12")
+    assert pt12.passed, (
+        f"PT12 should pass when only bibliography-title year brackets "
+        f"exceed pool size. Got details: {pt12.details}"
+    )
+
+
+def test_pt12_still_flags_real_out_of_range_citation_in_prose() -> None:
+    """PT12's core contract still works when a citation marker in
+    actual prose exceeds the evidence pool. Regression guard for the
+    M-5 fix: we must not broaden PT12 into a no-op."""
+    report = (
+        "# Research report: drug X\n"
+        "\n"
+        "The drug works well [1][99].\n"  # [99] is out of range
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18.\n"
+        "\n"
+        "## Bibliography\n"
+        "[1] Trial A — https://nejm.org/a (tier T1)\n"
+    )
+    ev_pool = {"ev_a": {"direct_quote": "a"}}  # only 1 entry
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": "drug X",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool=ev_pool,
+        enable_llm_judge=False,
+    )
+    pt12 = next(r for r in out.rule_checks if r.item_id == "PT12")
+    assert not pt12.passed
+    assert "99" in pt12.details
+
+
 def test_same_family_pair_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
     # Force both sides to be the same family
     monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-chat")
