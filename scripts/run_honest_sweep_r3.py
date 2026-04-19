@@ -278,10 +278,45 @@ SWEEP_QUERIES: list[dict] = [
             "What is the efficacy and safety of tirzepatide for glycemic "
             "control and weight loss in adults with type 2 diabetes?"
         ),
+        # Full-scale amplified query set. Each fans out to Serper + S2 +
+        # domain backends; dedup pre-filter collapses duplicates. ~30
+        # queries targets ~1000 unique URL candidates pre-filter.
         "amplified": [
-            "tirzepatide SURPASS trial HbA1c reduction",
-            "tirzepatide weight loss randomized controlled trial",
-            "tirzepatide safety adverse events gastrointestinal",
+            # SURPASS program trials
+            "tirzepatide SURPASS-1 monotherapy T2DM HbA1c",
+            "tirzepatide SURPASS-2 semaglutide comparison",
+            "tirzepatide SURPASS-3 insulin degludec",
+            "tirzepatide SURPASS-4 insulin glargine",
+            "tirzepatide SURPASS-5 insulin glargine",
+            "tirzepatide SURPASS-6 basal insulin",
+            "tirzepatide SURPASS-J metformin Japan",
+            "tirzepatide SURPASS-AP-Combo Asia-Pacific",
+            # Efficacy endpoints
+            "tirzepatide HbA1c reduction randomized controlled trial",
+            "tirzepatide weight loss phase 3 trial",
+            "tirzepatide fasting serum glucose reduction",
+            "tirzepatide body weight percentage reduction",
+            "tirzepatide 15 mg efficacy type 2 diabetes",
+            "tirzepatide GIP GLP-1 receptor agonist mechanism",
+            # Safety signals
+            "tirzepatide gastrointestinal adverse events nausea",
+            "tirzepatide treatment discontinuation adverse events",
+            "tirzepatide hypoglycemia safety profile",
+            "tirzepatide pancreatitis risk long-term",
+            "tirzepatide thyroid C-cell safety signal",
+            "tirzepatide cardiovascular safety SURPASS-CVOT",
+            # Comparative / population
+            "tirzepatide vs semaglutide meta-analysis obesity",
+            "tirzepatide network meta-analysis GLP-1 agonists",
+            "tirzepatide older adults elderly type 2 diabetes",
+            "tirzepatide renal impairment dosing",
+            "tirzepatide hepatic impairment pharmacokinetics",
+            # Real-world + FDA
+            "tirzepatide FDA approval Mounjaro Zepbound label",
+            "tirzepatide real-world evidence effectiveness",
+            "tirzepatide continuation discontinuation long-term outcomes",
+            "tirzepatide prescribing information pharmacokinetics",
+            "tirzepatide pediatric adolescent investigation",
         ],
     },
     {
