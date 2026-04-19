@@ -3621,3 +3621,9 @@
   - R10 now has three paths: SR/MA title→T2, narrative→T4, primary-signal→T1, no signal→T4 (default)
   - Title pipeline: raw content → extract title → strip HTML for content; title flows through as 3rd return
 - STATUS: Cycle-7 remediation complete. Ready to re-sweep and dispatch Codex pass 15.
+
+[2026-04-19 05:15:00]
+- ACTION: Cycle 7 showed ALL 8 queries aborted with T1=0% — M-14's R10 primary-signal requirement was over-strict on bare-title NEJM/PMC primaries. Reverted R10 tightening; kept M-14 part 1 (raw-content title extraction) which is sound. Back to "M-14 part 1 only" state: content_title flows from raw content through 3-tuple return; R10 defaults to T1 presumed-primary for journal hosts. 521 tests still pass.
+- RATIONALE: M-14 R10 over-demotion zeroed T1 everywhere, producing 0 releases. Codex had said 6 R10 hallucinations but requiring positive primary-markers caught legitimate bare-title primaries in the crossfire (NEJM/Lancet/PMC papers without "randomized"/"phase N" in title). The M-11 R9 allowlist + M-12 full-title + M-13 DOI/content extraction paths already catch most cases; R10 fallback should stay permissive.
+- SYNC: M-14 partial revert.
+- STATUS: Ready to re-sweep without the R10 over-demotion. Expect behavior similar to cycle 6 (some releases + aborts with some T1 hallucinations from R10 fallback on ambiguous titles).
