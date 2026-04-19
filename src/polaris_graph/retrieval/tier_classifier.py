@@ -1187,12 +1187,36 @@ def classify_source_tier(
     # advisory in this branch and does not change tier.
     body_signal = (signals.body_article_type or "").upper()
     if body_signal in ("SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE"):
-        if _title_is_diagnostic_for_article_type(signals.title):
-            # Title already carries article-type evidence. Log body as
-            # advisory and FALL THROUGH to R9/R10 (do not return).
+        # M-17f: suppress override when title is article-type diagnostic
+        title_has_article_type = _title_is_diagnostic_for_article_type(signals.title)
+        # M-17g (Codex pass 8 CONDITIONAL): also suppress when title has
+        # strong primary-study evidence AND OpenAlex confirms peer-
+        # reviewed journal article. This prevents body-signal false
+        # positives from demoting RCT titles such as "Randomized
+        # placebo-controlled trial" or named-trial titles like
+        # "SURPASS-9 trial".
+        pub_type_for_gate = (signals.openalex_publication_type or "").lower()
+        src_type_for_gate = (signals.openalex_source_type or "").lower()
+        is_peer_reviewed_for_gate = (
+            signals.openalex_is_peer_reviewed is True
+            or src_type_for_gate == "journal"
+        )
+        title_is_primary_study = (
+            _detect_primary_study_signal(signals.title)
+            and is_peer_reviewed_for_gate
+            and pub_type_for_gate in ("article", "review")
+        )
+        if title_has_article_type or title_is_primary_study:
+            # Title already carries diagnostic evidence (article-type
+            # keyword OR strong primary-study signal on a peer-reviewed
+            # journal article). Log body as advisory and FALL THROUGH
+            # to R9/R10 (do not return).
+            gate_reason = (
+                "article-type" if title_has_article_type else "primary-study"
+            )
             result.reasons.append(
                 f"R8b_body_signal_advisory_only: body={body_signal} "
-                f"(title is diagnostic; trusting R9/R10)"
+                f"(title is diagnostic [{gate_reason}]; trusting R9/R10)"
             )
         else:
             # Title is NOT diagnostic — body signal is the primary

@@ -667,12 +667,12 @@ def test_regression_sr_ma_title_still_t2_without_body() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-def test_m17f_diagnostic_title_primary_not_over_demoted_by_false_body() -> None:
-    """Title clearly carries article-type evidence (primary RCT naming).
-    Even if body detector produces a false positive GUIDELINE signal
-    (from, e.g., citing external clinical practice guideline), the
-    classifier must NOT demote the primary paper to T4. It should
-    fall through to R9 and grant T1."""
+def test_m17g_primary_trial_title_with_false_guideline_body_protected() -> None:
+    """M-17g (Codex pass 8 CONDITIONAL fix): primary trial titles with
+    strong primary-study evidence (randomized, placebo-controlled,
+    named trial) AND OpenAlex peer-reviewed journal status should
+    bypass body override. False GUIDELINE body signal must not
+    demote a named RCT to T4."""
     r = _classify(
         url="https://www.nejm.org/doi/full/10.1056/NEJMoa2025999",
         title="Tirzepatide vs semaglutide: the SURPASS-9 randomized trial",
@@ -681,18 +681,63 @@ def test_m17f_diagnostic_title_primary_not_over_demoted_by_false_body() -> None:
         source_type="journal",
         is_peer_reviewed=True,
     )
-    # SURPASS / randomized trial keywords ARE diagnostic for primary
-    # (via _detect_primary_study_signal), but the title does NOT contain
-    # "clinical practice guideline" etc., so _title_is_diagnostic_for_
-    # article_type returns False. Body override still fires in this case.
-    # NOTE: this test documents that "diagnostic" here means article-
-    # type diagnostic (SR/MA, case report, guideline keywords), not
-    # primary-trial-diagnostic. Primary-trial titles are handled by
-    # the narrower test below.
-    assert r.tier.value == "T4"  # body override still fires because
-    # title does not contain an ARTICLE-TYPE keyword; it's a plain
-    # primary RCT title. Only title containing SR/MA/guideline/case-
-    # report keywords bypasses the override.
+    # With M-17g, primary-study title + peer-reviewed journal → gate
+    # fires → body override suppressed → R9 grants T1.
+    assert r.tier.value == "T1"
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+    assert any("primary-study" in r_reason for r_reason in r.reasons)
+
+
+def test_m17g_randomized_placebo_controlled_title_protected() -> None:
+    """M-17g: 'Randomized placebo-controlled trial' title + false
+    body GUIDELINE must not demote to T4."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC777/",
+        title="Randomized placebo-controlled trial of tirzepatide",
+        body_type="GUIDELINE",
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    assert r.tier.value == "T1"
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+
+
+def test_m17g_surpass_named_trial_with_false_sr_ma_body_protected() -> None:
+    """M-17g: named SURPASS trial with false SR_MA body signal
+    (from citing a meta-analysis) must not demote to T2."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC888/",
+        title="SURPASS-9 trial: tirzepatide in adults with obesity",
+        body_type="SR_MA",  # false positive
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    assert r.tier.value == "T1"
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+
+
+def test_m17g_primary_title_without_peer_reviewed_journal_still_overrides() -> None:
+    """M-17g: the primary-study gate ONLY fires when OpenAlex confirms
+    peer-reviewed journal article. If source_type is not 'journal'
+    (e.g., unpublished repository content at a non-journal host),
+    body override still applies because the journal context is not
+    established."""
+    r = _classify(
+        url="https://example.com/research/randomized-trial",
+        title="Randomized placebo-controlled trial of tirzepatide",
+        body_type="GUIDELINE",
+        pub_type="article",
+        source_type="repository",  # not journal
+        is_peer_reviewed=False,
+    )
+    # No journal context → primary-study gate does not fire → body
+    # override applies. Result is T4 (body guideline override).
+    # (This also exercises the safety net: the gate is conservative
+    # and only protects titles that have confirmed journal context.)
+    assert r.tier.value == "T4"
+    assert "R8b_body_guideline" in r.matched_rules
 
 
 def test_m17f_sr_ma_title_with_false_guideline_body_stays_t2() -> None:
