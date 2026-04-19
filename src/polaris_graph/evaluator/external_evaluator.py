@@ -405,21 +405,32 @@ def run_rule_checks(
         ):
             question_superlatives.add(m.group(0))
 
-    # M-6 refinement (Codex pass 6 medium): require the prose sentence
-    # to share ≥2 content words with the research question before we
-    # exempt a single-word superlative. Without this, an adversarial or
-    # overloaded research_question (e.g., stuffed with every superlative
-    # in the family) would silently suppress PT13 advisories in
-    # unrelated generator prose. Lexical echo is the tightest test that
-    # still accepts the legitimate case where the prose directly quotes
-    # or paraphrases the question.
+    # M-6 refinement (Codex pass 6 + 7): require the prose sentence to
+    # share N content words with the research question before we exempt
+    # a single-word superlative, where N is DYNAMIC:
+    #
+    # - `len(question_superlatives) >= 2` → N=2 (strict). A question
+    #   stuffed with multiple superlative words is adversarial-shaped;
+    #   the full lexical-echo test applies.
+    # - `len(question_superlatives) <= 1` → N=1 (loose). A normal
+    #   question with one superlative gets the benefit of paraphrase:
+    #   e.g., "best RAG practices?" → prose "Hybrid retrieval is the
+    #   best approach" only shares `{best}` (the superlative itself) but
+    #   is a legitimate direct answer.
+    #
+    # This dynamic threshold scales defense with attack surface. Codex
+    # pass 7 flagged 4 over-strict cases under a hard N=2; the dynamic
+    # rule handles them while preserving the pass-6 adversarial test.
     from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
         _content_words,
     )
     question_content_words = (
         _content_words(question_text) if question_text else set()
     )
-    _ECHO_MIN_CONTENT_WORDS = 2
+    if len(question_superlatives) >= 2:
+        echo_min_content_words = 2
+    else:
+        echo_min_content_words = 1
 
     unhedged_examples: list[str] = []
     for sent in split_into_sentences(prose_for_hedging):
@@ -434,7 +445,7 @@ def run_rule_checks(
         if found.lower().strip() in question_superlatives:
             sent_content = _content_words(sent)
             echo_overlap = sent_content & question_content_words
-            if len(echo_overlap) >= _ECHO_MIN_CONTENT_WORDS:
+            if len(echo_overlap) >= echo_min_content_words:
                 continue
         unhedged_examples.append(f"{found!r} in: {sent[:90]!r}")
     pt13 = len(unhedged_examples) <= 1

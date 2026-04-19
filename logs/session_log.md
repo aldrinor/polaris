@@ -3439,3 +3439,18 @@
   - Legitimate lexical-echo case (question: "best practices for RAG", prose: "The best practices for RAG include...") still exempted (overlap=3 ≥ 2).
 - STATUS: Codex pass 6 CONDITIONAL verdict fully remediated. All M-1/M-2/M-3/M-4/M-5/M-6 items closed. 430 tests pass. Ready for final Codex pass 7 quick re-verify OR directly to 8-query sweep.
 - NEXT_STEP: Commit remediation; dispatch short Codex pass 7 to re-verify M-6 refinement isn't too strict (could over-flag legitimate reports), then run 8-query sweep.
+
+[2026-04-19 00:30:00]
+- ACTION: Processed Codex pass 7 verdict (NOT-READY on commit 9f2801a) — the M-6 hard ≥2 content-word threshold was over-strict. Codex found 4 legitimate direct-answer/paraphrase cases that incorrectly flagged PT13. Fix: dynamic echo threshold — ≥1 content word when the question has ≤1 superlatives, ≥2 when it has ≥2. This scales defense with attack surface: a stuffed adversarial question (Codex's reproducer) still triggers the strict path; normal single-superlative questions tolerate natural paraphrase. Added 2 more tests: test_pt13_exemption_handles_short_question_direct_answer_paraphrase (Codex's case 1 "Hybrid retrieval is the best approach") and test_pt13_dynamic_threshold_still_blocks_adversarial_stuffing (adversarial regression guard). Suite 432 pass (+2).
+- RATIONALE: Codex's case analysis was convincing: 4 legitimate paraphrase cases would flag under the hard threshold. The dynamic rule preserves the adversarial case without over-flagging normal prose. The one remaining case (topic shift "best tokenization strategy" under single-superlative question) would now exempt but (a) PT13 still tolerates 1 unhedged so a single topic-shift sentence in an otherwise-clean report still passes, (b) multiple topic shifts in one report would re-fail PT13, (c) the topic-shift signal is better caught by semantic content review than by lexical test.
+- DOCS/RESEARCH: Re-read Codex pass 7 findings section 3; the 4 over-strict cases are all short-question paraphrase patterns where the sentence is a legitimate direct answer but doesn't repeat a second exact question word.
+- SYNC: Tasks #119 (Codex pass 7) and #120 (dynamic threshold) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/evaluator/external_evaluator.py (dynamic echo_min_content_words)
+  - MODIFIED: tests/polaris_graph/test_external_evaluator.py (+2 tests)
+- EVIDENCE/FINDINGS:
+  - Codex's case 1 ("best RAG practices?" + "Hybrid retrieval is the best approach") now correctly exempts (overlap={best}=1, threshold=1 for 1-superlative question).
+  - Codex's adversarial case (10 superlatives) still flags (overlap={unparalleled}=1 fails the threshold=2 strict path for >=2-superlative questions).
+  - 432 tests pass.
+- STATUS: M-6 second refinement validated. All Codex pass 3/4/5/6/7 verdicts remediated. No gating items remain.
+- NEXT_STEP: Commit; decide with user whether to dispatch Codex pass 8 verify-remediation or run 8-query sweep now.

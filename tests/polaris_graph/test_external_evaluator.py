@@ -270,6 +270,79 @@ def test_pt13_exemption_requires_lexical_echo_of_research_question() -> None:
     )
 
 
+def test_pt13_exemption_handles_short_question_direct_answer_paraphrase() -> None:
+    """BUG-M-6 second refinement (Codex pass 7): dynamic echo
+    threshold must tolerate natural paraphrase when the question
+    contains only ONE superlative. Codex case 1: short question
+    "best RAG practices?" → direct answer "Hybrid retrieval with
+    dense embeddings is the best approach". Content-word overlap
+    with the question is only {best} (1) but the sentence is a
+    legitimate direct answer, not an independent superlative claim.
+    Under the hard ≥2 threshold this incorrectly flagged; under the
+    dynamic threshold (≥1 when question has ≤1 superlative), it
+    correctly exempts."""
+    report = (
+        "# Research report: best RAG practices?\n"
+        "\n"
+        "Hybrid retrieval with dense embeddings and learned sparse "
+        "vectors is the best approach for most production deployments.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-19.\n"
+    )
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": "best RAG practices?",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert pt13.passed, (
+        f"Dynamic threshold should exempt single-superlative question "
+        f"paraphrase. Got: {pt13.details}"
+    )
+
+
+def test_pt13_dynamic_threshold_still_blocks_adversarial_stuffing() -> None:
+    """Dynamic threshold does NOT loosen the adversarial case: when
+    the question has ≥2 superlatives, the ≥2 content-word requirement
+    applies (strict)."""
+    # Same adversarial question as the pass-6 test
+    adversarial_question = (
+        "What is the best leading superior top unparalleled unmatched "
+        "unprecedented largest highest greatest approach for drug X?"
+    )
+    report = (
+        "# Research report: drug X\n"
+        "\n"
+        "This method is unparalleled.\n"
+        "Results were unmatched.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-19.\n"
+    )
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": adversarial_question,
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert not pt13.passed, (
+        "Dynamic threshold must still block adversarial stuffing. "
+        f"Got: {pt13.details}"
+    )
+    assert pt13.details.startswith("2 unhedged"), (
+        f"expected 2 unhedged; got: {pt13.details}"
+    )
+
+
 def test_pt13_exemption_applies_when_prose_echoes_question() -> None:
     """Legitimate case: prose sentence shares >=2 content words with
     the research question (lexical echo), so the question-inherited
