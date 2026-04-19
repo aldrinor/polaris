@@ -3479,3 +3479,19 @@
   - logs/session_log.md (this entry)
 - STATUS: Loop now unbounded until Codex approves or genuine blocker; sweep continues at 3/8.
 - NEXT_STEP: Continue waiting for sweep to complete; execute loop as specified.
+
+[2026-04-19 00:25:00]
+- ACTION: 8-query sweep completed after ~30 min (bg task bs3hpf8r0 exit 0). Results matrix: 4/8 success+release=True (policy_fda_ai_devices, tech_rag_architectures_2024, dd_novo_nordisk_obesity_position, dd_lilly_tirzepatide_manufacturing), 3/8 partial_qwen_advisory with release=False (two clinical + policy_medicare_drug_price, all blocked on qwen_citation_tightness_needs_revision), 1/8 abort_corpus_inadequate (tech_long_context_transformer — retrieval didn't meet adequacy threshold). Total cost $0.0109 vs $0.80 worst-case cap. Drop rates 0-24% across released reports (word counts 568-840). Then: built sweep artifact index, wrote Codex pass 9 content-audit brief (docs/pipeline_audit_context/16_pass_9_sweep_content_audit.md), dispatched Codex pass 9 as bg task b2azc2myj using proven stdin-piping pattern. Brief mandates 3+ citation cross-checks per released report AND that a single hallucination is a BLOCKER (honest-by-construction).
+- RATIONALE: Auto-loop per user directive. Sweep output is now the subject of Codex content audit — distinct from passes 1-8 which audited code. Content audit must verify citations ground truth, contradictions honestly disclosed, tier distribution accurately reported, qwen advisories legitimate.
+- SYNC: Tasks #110 (sweep) and #122 (auto-run) completed. #123 (content audit) in progress; monitor bdoi6d0t1 armed. #124 (fix-resweep loop) + #125 (declare ready) still blocked on #123.
+- AFFECTED_FILES:
+  - CREATED: outputs/sweep_r3_final/ (8 query subdirectories with manifest/report/verification_details/evaluator_rule_checks/qwen_judge/run_log/bibliography/contradictions/corpus_adequacy/live_corpus_dump/cost_ledger per query, plus sweep_summary.{json,md})
+  - CREATED: outputs/codex_findings/full_audit_pass_9/sweep_index.md
+  - CREATED: docs/pipeline_audit_context/16_pass_9_sweep_content_audit.md
+- EVIDENCE/FINDINGS:
+  - Released reports (4): avg 668 words, 17 total sentences dropped across 100+ total kept, cost $0.00195 avg
+  - Blocked reports (3): qwen flags citation_tightness_needs_revision — these are the qwen-judge's own soft judgments, not factual errors per se; Codex will weigh in
+  - Aborted query (1): corpus_adequacy refused synthesis before any generator spend — honest refusal
+  - Invariants: 2-family segregation held (DeepSeek V3.2 gen + Qwen3-8B eval), budget cap respected ($0.0042 max per query), test suite stayed green throughout
+- STATUS: Sweep done with honest partial-release behavior. Awaiting Codex pass 9 content verdict.
+- NEXT_STEP: Monitor pass 9 findings. If APPROVED → declare full-scale ready. If BLOCKED-ON-ISSUE → fix root cause, re-sweep, re-audit. If CONDITIONAL → targeted improvements per Codex.
