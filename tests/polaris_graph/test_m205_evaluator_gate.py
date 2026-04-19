@@ -178,6 +178,46 @@ def test_m205_qwen_none_treated_as_parse_failure() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+# M-3 (Codex pass 5 follow-up): PT13 advisory surfacing
+# ─────────────────────────────────────────────────────────────────
+
+def test_m3_pt13_failure_surfaces_in_reasons_without_gating() -> None:
+    """PT13 (unhedged superlatives) is advisory — it must not change
+    gate_class or release_allowed, but its failure must appear in
+    `reasons` under the "advisory_" prefix so operators see it at the
+    manifest level."""
+    ev_out = _FakeEvaluatorOutput(
+        rule_checks=[_FakeRuleCheck("PT13", False, "3 unhedged superlatives")],
+    )
+    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
+        axis: _verdict("good") for axis in
+        ("citation_tightness", "hedging_appropriateness", "tone_consistency",
+         "flow", "completeness")
+    })
+    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
+    assert gate.gate_class == "pass"
+    assert gate.release_allowed is True
+    assert "advisory_pt13_unhedged_superlatives" in gate.reasons
+    # PT13 is NOT a blocker — rule_blockers must be empty.
+    assert "PT13" not in gate.rule_blockers
+
+
+def test_m3_pt13_passing_does_not_emit_advisory_reason() -> None:
+    """When PT13 passes, no advisory reason is emitted."""
+    ev_out = _FakeEvaluatorOutput(
+        rule_checks=[_FakeRuleCheck("PT13", True, "")],
+    )
+    qwen = _FakeJudgeResult(parse_ok=True, verdicts={
+        axis: _verdict("good") for axis in
+        ("citation_tightness", "hedging_appropriateness", "tone_consistency",
+         "flow", "completeness")
+    })
+    gate = compute_evaluator_gate(ev_out, qwen_result=qwen)
+    assert gate.gate_class == "pass"
+    assert "advisory_pt13_unhedged_superlatives" not in gate.reasons
+
+
+# ─────────────────────────────────────────────────────────────────
 # Taxonomy + orchestrator wiring
 # ─────────────────────────────────────────────────────────────────
 

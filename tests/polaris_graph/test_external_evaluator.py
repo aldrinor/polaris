@@ -190,6 +190,67 @@ def test_pt12_ignores_bibliography_title_year_brackets() -> None:
     )
 
 
+def test_pt13_exempts_title_and_question_inherited_superlatives() -> None:
+    """BUG-M-6 (Codex pass 5 follow-up): PT13 must not count
+    question-inherited superlatives toward its unhedged count. The
+    research question literally contains 'best', the title echoes it,
+    and the generator may echo it again in prose. None of those is a
+    generator assertion."""
+    report = (
+        "# Research report: What are the current best practices for RAG?\n"
+        "\n"
+        "Hybrid retrieval is the best approach for most pipelines.\n"
+        "Dense retrieval works well in many cases.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18.\n"
+    )
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question":
+                  "What are the current best practices for RAG?",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert pt13.passed, (
+        f"PT13 should pass when 'best' is inherited from the research "
+        f"question. Got details: {pt13.details}"
+    )
+
+
+def test_pt13_still_flags_real_generator_superlatives() -> None:
+    """Regression guard for M-6 — PT13 must still flag generator
+    superlatives that do NOT appear in the research question."""
+    report = (
+        "# Research report: drug efficacy review\n"
+        "\n"
+        "This drug is unparalleled in its efficacy.\n"
+        "It offers superior outcomes.\n"
+        "It is the greatest treatment for this condition.\n"
+        "\n"
+        "## Methods\n"
+        "Retrieved on 2026-04-18.\n"
+    )
+    out = run_external_evaluation(
+        report_text=report,
+        protocol={"research_question": "drug efficacy review",
+                  "expected_tier_distribution": []},
+        tier_distribution_report={},
+        contradictions=[],
+        evidence_pool={"ev_a": {"direct_quote": "a"}},
+        enable_llm_judge=False,
+    )
+    pt13 = next(r for r in out.rule_checks if r.item_id == "PT13")
+    assert not pt13.passed
+    # 3 unhedged superlatives: 'unparalleled', 'superior', 'greatest'
+    for term in ("unparalleled", "superior", "greatest"):
+        assert term in pt13.details
+
+
 def test_pt12_still_flags_real_out_of_range_citation_in_prose() -> None:
     """PT12's core contract still works when a citation marker in
     actual prose exceeds the evidence pool. Regression guard for the

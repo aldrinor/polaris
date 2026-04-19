@@ -41,6 +41,15 @@ COMPLIANCE_BLOCKING_RULES: dict[str, str] = {
     "PT03": "rule_model_disclosure_missing",
 }
 
+# M-3 (Codex pass 5 follow-up): advisory rules that do NOT gate
+# release but whose failures should surface in `reasons` so operators
+# can see them in the manifest without opening evaluator_rule_checks.json.
+# Prefix is "advisory_" so downstream grep patterns that look for
+# "rule_*" or "qwen_*" don't accidentally treat these as blocking.
+ADVISORY_RULES: dict[str, str] = {
+    "PT13": "advisory_pt13_unhedged_superlatives",
+}
+
 # Qwen axes that are in the high-risk set (evidence-integrity adjacent).
 HIGH_RISK_QWEN_AXES = frozenset({
     "citation_tightness",
@@ -122,6 +131,12 @@ def compute_evaluator_gate(
         elif item_id in COMPLIANCE_BLOCKING_RULES:
             rule_blockers.append(item_id)
             code = COMPLIANCE_BLOCKING_RULES[item_id]
+            if code not in reasons:
+                reasons.append(code)
+        elif item_id in ADVISORY_RULES:
+            # Advisory: surface in reasons for operator visibility,
+            # but do NOT add to rule_blockers (gate_class stays pass).
+            code = ADVISORY_RULES[item_id]
             if code not in reasons:
                 reasons.append(code)
 

@@ -373,6 +373,12 @@ def run_rule_checks(
     # source verb ("reported", "described as", "one review found").
     # This is a SOFT check — passes if <=1 unhedged claim remains
     # (the evaluator treats this as a quality hint, not a blocker).
+    # M-6 (Codex pass 5 follow-up): exempt (i) the first "# " title
+    # line (it's inherited from the research question, not a generator
+    # assertion) and (ii) superlative words that appear in the
+    # research_question itself. Example: question "best practices for
+    # RAG" — the title echoes "best" and the generator may echo it
+    # back in prose; neither is a generator superlative claim.
     from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
         _detect_unhedged_superlative,
         split_into_sentences,
@@ -381,11 +387,35 @@ def run_rule_checks(
     prose_for_hedging = (
         report_text[:methods_idx_pt13] if methods_idx_pt13 > 0 else report_text
     )
+    # Strip the first H1 title line from the scan window (belongs to
+    # the question, not the generator's prose).
+    lines_pt13 = prose_for_hedging.splitlines()
+    if lines_pt13 and lines_pt13[0].lstrip().startswith("# "):
+        prose_for_hedging = "\n".join(lines_pt13[1:])
+
+    # Build a set of superlative-family words present in the research
+    # question so we don't flag the generator for echoing them.
+    question_text = (protocol.get("research_question") or "").lower()
+    question_superlatives: set[str] = set()
+    if question_text:
+        for m in re.finditer(
+            r"\b(largest|highest|greatest|best|leading|superior|top|"
+            r"unparalleled|unmatched|unprecedented)\b",
+            question_text,
+        ):
+            question_superlatives.add(m.group(0))
+
     unhedged_examples: list[str] = []
     for sent in split_into_sentences(prose_for_hedging):
         found = _detect_unhedged_superlative(sent)
-        if found:
-            unhedged_examples.append(f"{found!r} in: {sent[:90]!r}")
+        if not found:
+            continue
+        # Exempt if the matched phrase consists solely of a single
+        # question-inherited word (multiword phrases like
+        # "better than placebo" don't collapse to a single question word).
+        if found.lower().strip() in question_superlatives:
+            continue
+        unhedged_examples.append(f"{found!r} in: {sent[:90]!r}")
     pt13 = len(unhedged_examples) <= 1
     results.append(RuleCheckResult(
         "PT13", "Superlative / comparative claims are hedged to sources", pt13,

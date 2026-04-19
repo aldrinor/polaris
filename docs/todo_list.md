@@ -37,25 +37,31 @@ Post-fix tech smoke: `status=success, release_allowed=true,
 
 Remaining non-gating follow-ups (pass 4 + 5):
 
-- [ ] **M-6 PT13 question-inherited superlative exemption**
-  (non-gating) — PT13 flags "best" in the report title when the
-  research question was "best practices for X". Future polish:
-  skip the title line in the PT13 scan, or exempt terms that appear
-  in `protocol.research_question`.
-- [ ] **M-2 legacy content starvation mitigation options**
-  (non-gating) — the content-aware span finder already raised
-  clinical from 146 → 605 words. If thinness recurs on other queries,
-  consider: prompt tightening to produce more evidence-tight prose,
-  tunable `PG_PROVENANCE_MIN_CONTENT_OVERLAP` per-template, or a
-  lenient mode for Methods / Contradictions sections.
-- [ ] **M-3 PT13 advisory surfacing** — when PT13 fails but release
-  is allowed, surface the PT13 failure in
-  `manifest.evaluator_gate.reasons` so operators see the advisory
-  without having to open `evaluator_rule_checks.json`.
-- [ ] **M-4 tier material_deviation communications** — add a
-  runbook note that 8-query sweep outputs should be read as
-  pipeline reliability signal, not as a quality benchmark of
-  report content, when `corpus.material_deviation=true`.
+- [x] **M-6 PT13 question-inherited superlative exemption** — fixed.
+  PT13 now skips the first `# ` title line and exempts
+  single-word superlatives that appear in
+  `protocol["research_question"]`. Multi-word phrases
+  ("better than placebo") still flag when unhedged. Two tests in
+  `test_external_evaluator.py::test_pt13_exempts_title_and_question_inherited_superlatives`
+  and `::test_pt13_still_flags_real_generator_superlatives`.
+- [x] **M-3 PT13 advisory surfacing** — fixed. Added `ADVISORY_RULES`
+  map in `evaluator_gate.py`; PT13 failures now emit
+  `advisory_pt13_unhedged_superlatives` into
+  `manifest.evaluator_gate.reasons` without changing `gate_class` or
+  `release_allowed`. Tests in `test_m205_evaluator_gate.py`.
+- [x] **M-4 tier material_deviation communications** — fixed.
+  `docs/runbook.md` §8 now has a "corpus.material_deviation=true on a
+  released manifest" section explaining that such runs are pipeline
+  reliability signals, not content-quality benchmarks, and listing
+  concrete re-run levers (PG_LIVE_MAX_SERPER_PER_Q, academic-first
+  backends, narrower question).
+- [x] **M-2 legacy content starvation mitigation options** —
+  DEFERRED. The content-aware span finder (commit `b2b6f5a`) already
+  addressed the dominant root cause: clinical smoke drop rate
+  80% → 15%, words 174 → 605; tech 32% → 3.7%, words 529 → 689.
+  Further levers (prompt tightening, per-template overlap, lenient
+  Methods mode) remain available if specific 8-query sweep queries
+  show thin output — not required pre-sweep.
 
 ### Pass 4 ✅ CONDITIONAL → M-1 fixed — 3 accepted mediums
 

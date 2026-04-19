@@ -202,6 +202,32 @@ Edit `scripts/run_honest_sweep_r3.py`:
 
 ## 8. Common failure modes
 
+### `corpus.material_deviation=true` on a released manifest
+
+The corpus tier distribution skewed outside the template's expected
+ranges (e.g., clinical template expects T1 ≥ 30%, run retrieved only
+25%; tech template allows T4 ≤ 20%, run retrieved 70%). The run can
+still ship if:
+
+1. The corpus approval gate auto-approved OR the operator note is
+   substantive (not a rubber-stamp).
+2. Downstream stages (adequacy, generator, strict_verify, evaluator)
+   pass.
+
+**How to read a `material_deviation=true` release**: treat the 8-query
+sweep output as a **pipeline reliability signal** — the honest-
+rebuild machinery worked end-to-end — *not* as a quality benchmark of
+the generated report's content. Content quality depends on the tier
+mix of actually-retrieved sources; the manifest is transparent about
+the skew so the reader can calibrate.
+
+If you need a content-quality benchmark, re-run the affected query
+with one or more of:
+
+- `PG_LIVE_MAX_SERPER_PER_Q` higher (widen web retrieval)
+- Add an academic-first backend to the scope template
+- Narrow the research question so the search is more on-topic
+
 ### Sweep aborts with `abort_corpus_approval_denied`
 
 The corpus tier distribution materially deviates from the scope

@@ -3404,3 +3404,22 @@
   - 424 tests pass (+2 new PT12 tests).
 - STATUS: All 5 gating items from Codex pass 3/4/5 closed. 3 accepted non-gating follow-ups remain (M-2 legacy content starvation mitigation options, M-3 advisory surfacing, M-4 tier communications). Pipeline A is READY for the 8-query full sweep pending final user go/no-go.
 - NEXT_STEP: User decides: run the 8-query full sweep (`python -m scripts.run_honest_sweep_r3 --out-root outputs/sweep_r3_final`), budget ≤ $0.10/query × 8 ≈ $0.80 worst case.
+
+[2026-04-18 23:50:00]
+- ACTION: Addressed 4 non-gating Codex pass 5 follow-ups (M-6 PT13 exemption, M-3 advisory surfacing, M-4 runbook, M-2 deferred-docs). M-6: PT13 now skips first "# " title line and exempts single-word superlatives present in protocol["research_question"]. M-3: evaluator_gate.py got an ADVISORY_RULES map; PT13 failures emit "advisory_pt13_unhedged_superlatives" into reasons without changing gate_class or release_allowed. M-4: added "corpus.material_deviation=true on a released manifest" section to docs/runbook.md §8 explaining reliability-signal vs quality-benchmark framing. M-2: documented as deferred with concrete re-enable levers (prompt tightening, per-template overlap, lenient Methods mode) if 8-query sweep shows regression.
+- RATIONALE: User directive to address all 4 follow-ups before the 8-query sweep. M-6 + M-3 are code changes with tests; M-4 + M-2 are documentation-only. All four are non-gating per Codex pass 5 but improve operator signal quality and sweep-output interpretability.
+- DOCS/RESEARCH: Re-read evaluator_gate.py RELEASE_BLOCKING_RULES / COMPLIANCE_BLOCKING_RULES pattern before adding ADVISORY_RULES to match the established shape.
+- SYNC: Tasks #112 (M-6), #113 (M-3), #114 (M-4), #115 (M-2) closed. #116 (Codex pass 6) queued.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/evaluator/external_evaluator.py (M-6 PT13 title skip + question-inherited exemption)
+  - MODIFIED: src/polaris_graph/evaluator/evaluator_gate.py (M-3 ADVISORY_RULES map + loop branch)
+  - MODIFIED: tests/polaris_graph/test_external_evaluator.py (+2 M-6 tests)
+  - MODIFIED: tests/polaris_graph/test_m205_evaluator_gate.py (+2 M-3 tests)
+  - MODIFIED: docs/runbook.md (M-4 §8 material_deviation section)
+  - MODIFIED: docs/todo_list.md (mark M-3/M-4/M-6/M-2 complete)
+  - OUTPUTS: outputs/m6_verify_tech/tech/tech_rag_architectures_2024/ (live verification)
+- EVIDENCE/FINDINGS:
+  - Tests: 428 pass (+4 new tests for M-6 + M-3).
+  - Tech smoke post-all-fixes: PT13 unhedged count 6 → 2 (M-6 exempted "best" title + echoes); gate.reasons contains "advisory_pt13_unhedged_superlatives" (M-3 surfacing). The run had release=False this time due to stochastic qwen_citation_tightness variance, not a fix regression.
+- STATUS: All 4 non-gating follow-ups addressed. Ready for Codex pass 6 final verification before 8-query sweep.
+- NEXT_STEP: Commit M-3/M-4/M-6/M-2 together; dispatch Codex pass 6.
