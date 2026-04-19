@@ -3388,3 +3388,19 @@
   - Tests: 422 pass (+7 span-finder tests).
 - STATUS: M-2 closed on the generator side (drop rate cut 80%→15% and 32%→3.7%). Two new downstream issues surfaced (PT12 year-as-citation, PT13 hedging in verbose prose) — NOT caused by M-2; pre-existing and previously masked by the generator being too sparse to expose them. Both will be covered in Codex pass 5 brief.
 - NEXT_STEP: Commit M-2 fix; write Codex pass 5 brief covering M-1 timeout, M-2 span-finder, and the two newly-surfaced evaluator issues (PT12, PT13); dispatch Codex for independent review.
+
+[2026-04-18 23:20:00]
+- ACTION: Processed Codex pass 5 verdict (CONDITIONAL on commit b2b6f5a). Single gating medium M-5 fixed in commit 5cf6959: restricted PT12 citation-marker scan to pre-bibliography prose (split at "\n## bibliography") so bracketed years in bibliography entry titles (e.g., "Best Guide on RAG Pipeline [2025]") no longer trigger false out-of-range citation failures. Added 2 regression tests: test_pt12_ignores_bibliography_title_year_brackets (the exact case from tech smoke) and test_pt12_still_flags_real_out_of_range_citation_in_prose (guard against being too permissive).
+- RATIONALE: Codex independently diagnosed the PT12 false positive, confirming my preliminary read. The fix is minimal (one split + scan-window restriction) and symmetric with PT13 which already uses the same pattern for the \n## methods split. Codex also confirmed M-1 and M-2 are substantive (no deadline race, span finder doesn't trivialize strict_verify) and that PT13 remains advisory-only (won't gate sweep release).
+- DOCS/RESEARCH: Re-read evaluator_gate.py line 110 to confirm PT08/PT11/PT12 are blocking rules; PT13 is not in that list — hence release_allowed=True despite PT13 failures.
+- SYNC: Tasks #109 (Codex pass 5) and #111 (M-5 PT12 fix) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/evaluator/external_evaluator.py (PT12 scan restricted to pre-bibliography)
+  - MODIFIED: tests/polaris_graph/test_external_evaluator.py (+2 PT12 tests)
+  - OUTPUTS: outputs/m5_fixed_tech/tech/tech_rag_architectures_2024/ (tech smoke re-run post-fix)
+- EVIDENCE/FINDINGS:
+  - Tech before M-5: status=abort_evaluator_critical, release=False, 12/13 rule checks, PT12 failed on [2025] false positive.
+  - Tech after M-5: status=success, release=True, 12/13 rule checks, only PT13 advisory fails (as expected).
+  - 424 tests pass (+2 new PT12 tests).
+- STATUS: All 5 gating items from Codex pass 3/4/5 closed. 3 accepted non-gating follow-ups remain (M-2 legacy content starvation mitigation options, M-3 advisory surfacing, M-4 tier communications). Pipeline A is READY for the 8-query full sweep pending final user go/no-go.
+- NEXT_STEP: User decides: run the 8-query full sweep (`python -m scripts.run_honest_sweep_r3 --out-root outputs/sweep_r3_final`), budget ≤ $0.10/query × 8 ≈ $0.80 worst case.

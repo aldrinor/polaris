@@ -10,6 +10,53 @@ note at end of this file).
 
 ## Active
 
+### Pass 5 ✅ CONDITIONAL → M-5 fixed — ready for 8-query sweep
+
+Codex pass 5 (commit `b2b6f5a`) declared **CONDITIONAL** with one
+gating medium (M-5 PT12 false positive). Fixed in commit `5cf6959`:
+
+- [x] **M-5 PT12 bibliography year bracket false positive** —
+  PT12 citation-marker scan restricted to pre-bibliography prose
+  (split at `\n## bibliography`). Bibliography entry titles like
+  "Best Guide on RAG Pipeline [2025]" no longer flag as out-of-range
+  citation markers. Two regression tests:
+  - `test_pt12_ignores_bibliography_title_year_brackets` (the exact
+    tech-smoke regression case)
+  - `test_pt12_still_flags_real_out_of_range_citation_in_prose`
+    (guard against fix being too permissive)
+
+Codex pass 5 confirmed non-gating:
+- M-1 substantive (no deadline-boundary race)
+- M-2 substantive (content-aware span doesn't trivialize strict_verify)
+- PT13 advisory-only (release_gate doesn't block on it)
+
+Post-fix tech smoke: `status=success, release_allowed=true,
+12/13 rule checks pass, 19/20 fetched, 682 words, 3.8% drop rate`.
+
+**Status: READY for 8-query full sweep pending user go.**
+
+Remaining non-gating follow-ups (pass 4 + 5):
+
+- [ ] **M-6 PT13 question-inherited superlative exemption**
+  (non-gating) — PT13 flags "best" in the report title when the
+  research question was "best practices for X". Future polish:
+  skip the title line in the PT13 scan, or exempt terms that appear
+  in `protocol.research_question`.
+- [ ] **M-2 legacy content starvation mitigation options**
+  (non-gating) — the content-aware span finder already raised
+  clinical from 146 → 605 words. If thinness recurs on other queries,
+  consider: prompt tightening to produce more evidence-tight prose,
+  tunable `PG_PROVENANCE_MIN_CONTENT_OVERLAP` per-template, or a
+  lenient mode for Methods / Contradictions sections.
+- [ ] **M-3 PT13 advisory surfacing** — when PT13 fails but release
+  is allowed, surface the PT13 failure in
+  `manifest.evaluator_gate.reasons` so operators see the advisory
+  without having to open `evaluator_rule_checks.json`.
+- [ ] **M-4 tier material_deviation communications** — add a
+  runbook note that 8-query sweep outputs should be read as
+  pipeline reliability signal, not as a quality benchmark of
+  report content, when `corpus.material_deviation=true`.
+
 ### Pass 4 ✅ CONDITIONAL → M-1 fixed — 3 accepted mediums
 
 Codex pass 4 (commit `81b18de`) declared **CONDITIONAL** after live
