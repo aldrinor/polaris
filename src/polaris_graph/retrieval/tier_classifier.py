@@ -1264,23 +1264,14 @@ def classify_source_tier(
             )
             return result
 
-        # M-15 guard 2: NIH literature aggregators (PMC, PubMed) route
-        # many content types (primary, review, perspective, guideline,
-        # letter). Without OpenAlex metadata AND without a clear title
-        # signal, they should NOT be assumed primary. Demote to T4.
-        if is_nih_lit:
-            result.tier = TierLevel.T4
-            result.confidence = 0.55
-            result.matched_rules.append("R10_nih_aggregator_no_metadata_demoted")
-            result.reasons.append(
-                f"Domain {domain!r} is an NIH literature aggregator "
-                f"(PMC/PubMed) that hosts primary research AS WELL AS "
-                f"reviews, perspectives, guidelines, letters, and "
-                f"commentary. Without OpenAlex article+journal metadata "
-                f"or a clear primary-study title signal, defaulting to "
-                f"T4 narrative rather than false T1 primary."
-            )
-            return result
+        # M-15 guard 2 REVERTED: the blanket "NIH aggregator → T4 when
+        # no OpenAlex metadata" demoted too many legitimate PMC/PubMed
+        # primaries (cycle 9: 0 releases / 8 aborts, T1=0% everywhere).
+        # OpenAlex lookups fail often enough that the fallback path
+        # hits NIH content regularly. Keeping truncated-title guard
+        # (guard 1) and society-tool guard (guard 3) which are more
+        # surgical. Codex pass 16 can assess whether remaining NIH
+        # hallucinations need a narrower fix.
 
         # M-15 guard 3: professional-society tool / dosing / practice-
         # support PDFs on acc.org, ahajournals.org, etc. These pages

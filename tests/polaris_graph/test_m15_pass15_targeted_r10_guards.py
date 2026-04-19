@@ -71,33 +71,32 @@ def test_non_truncated_title_not_demoted_by_guard1() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Guard 2: NIH literature aggregators without OpenAlex metadata
+# Guard 2 REVERTED (cycle-9 over-demote): NIH aggregator tests removed.
+# Replaced with regression guarantee that PMC/PubMed primaries stay T1
+# when OpenAlex metadata is present, and fall back to R10 default T1
+# when metadata is absent. Codex pass 16 will weigh in on whether the
+# residual NIH hallucinations need a narrower (per-title-pattern) fix.
 # ─────────────────────────────────────────────────────────────────
 
 
-def test_pmc_without_openalex_demotes_to_t4() -> None:
-    """Codex pass 15: PMC hosts primary research AND reviews,
-    perspectives, guidelines, letters. Without OpenAlex metadata,
-    we can't tell which, so default to T4."""
+def test_pmc_without_openalex_still_r10_fallback_t1() -> None:
+    """Guard 2 revert regression: PMC paper without OpenAlex metadata
+    falls back to R10 presumed-primary T1. This preserves cycle-8
+    release behavior (trading some false T1s for non-zero release
+    rate)."""
     r = _classify(
         url="https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
         title="Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
     )
-    assert r.tier.value == "T4", f"Expected T4, got {r.tier.value}"
-
-
-def test_pubmed_without_openalex_demotes_to_t4() -> None:
-    """Codex pass 15: pubmed.ncbi.nlm.nih.gov same issue as PMC."""
-    r = _classify(
-        url="https://pubmed.ncbi.nlm.nih.gov/38297186/",
-        title="Tirzepatide and cardiovascular outcomes",
+    assert r.tier.value == "T1", (
+        f"PMC R10 fallback should default to T1 when title is untruncated "
+        f"and no narrative/guideline markers fire. Got: {r.tier.value}"
     )
-    assert r.tier.value == "T4", f"Expected T4, got {r.tier.value}"
 
 
 def test_pmc_with_openalex_primary_still_t1() -> None:
-    """Regression: PMC paper with OpenAlex article+journal metadata
-    should still be T1 (R9 path fires, not R10)."""
+    """PMC paper with OpenAlex article+journal metadata routes via R9,
+    not R10."""
     r = _classify(
         url="https://pmc.ncbi.nlm.nih.gov/articles/PMC99887766/",
         title="Tirzepatide in SURPASS-4: Phase 3 randomized trial",
