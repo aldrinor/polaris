@@ -666,6 +666,12 @@ _GUIDELINE_EXPLAINER_TITLE_MARKERS = (
     "market insight", "market insights",
     "pricing trends", "pricing trend",
     "case study",  # can be primary but often is narrative; over-demote OK
+    # Pass-15 additions (Codex pass 15): biomedical guidance / consensus
+    "guidance", "practical guidance", "clinical guidance",
+    "consensus", "consensus statement", "expert consensus",
+    "practice guide", "practice bulletin", "practice recommendation",
+    "clinical overview", "clinical summary",
+    "position statement", "position paper",
 )
 
 
@@ -1234,21 +1240,82 @@ def classify_source_tier(
                 f"signals narrative review / commentary / perspective. T4."
             )
             return result
-        # BUG-M-14 revert (cycle 7 result: all 8 queries aborted with
-        # T1=0% everywhere — too many legitimate bare-title primaries
-        # were demoted). Kept the raw-content title extraction fix in
-        # live_retriever.py; reverted the R10 "require primary signal"
-        # gating. The M-11 R9 allowlist + M-12 full-title OpenAlex
-        # detection already catches most SR/MA via the narrative flavor
-        # / SR detector paths in R10's earlier branches.
-        # Journal domain without OpenAlex or clear title signal
-        # (fallback): default T1 presumed-primary.
+        # BUG-M-14 revert + BUG-M-15 (Codex pass 15 CONDITIONAL):
+        # Blanket primary-signal requirement was too strict (cycle 7 =
+        # 0 releases). Instead, apply narrow targeted guards for the
+        # specific false-T1 patterns Codex pass 15 named.
+
+        # M-15 guard 1: truncated title (ends with "..." or is very
+        # short). Serper snippets are often cut mid-title. Without a
+        # full title, R10 can't distinguish primary from SR/MA /
+        # perspective / guideline — demote to T4.
+        _title_stripped = (signals.title or "").strip()
+        if _title_stripped.endswith("...") or _title_stripped.endswith("…"):
+            result.tier = TierLevel.T4
+            result.confidence = 0.55
+            result.matched_rules.append("R10_journal_domain_truncated_title_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal but the "
+                f"title appears truncated (ends with ellipsis). Can't "
+                f"reliably detect SR/MA/perspective/guideline from a "
+                f"partial title, so defaulting to T4. Fetch the full "
+                f"title via OpenAlex display_name or page content to "
+                f"reclassify."
+            )
+            return result
+
+        # M-15 guard 2: NIH literature aggregators (PMC, PubMed) route
+        # many content types (primary, review, perspective, guideline,
+        # letter). Without OpenAlex metadata AND without a clear title
+        # signal, they should NOT be assumed primary. Demote to T4.
+        if is_nih_lit:
+            result.tier = TierLevel.T4
+            result.confidence = 0.55
+            result.matched_rules.append("R10_nih_aggregator_no_metadata_demoted")
+            result.reasons.append(
+                f"Domain {domain!r} is an NIH literature aggregator "
+                f"(PMC/PubMed) that hosts primary research AS WELL AS "
+                f"reviews, perspectives, guidelines, letters, and "
+                f"commentary. Without OpenAlex article+journal metadata "
+                f"or a clear primary-study title signal, defaulting to "
+                f"T4 narrative rather than false T1 primary."
+            )
+            return result
+
+        # M-15 guard 3: professional-society tool / dosing / practice-
+        # support PDFs on acc.org, ahajournals.org, etc. These pages
+        # ship clinical decision-support tools, not research reports.
+        _url_lower = (signals.url or "").lower()
+        _society_tool_markers = (
+            "/tools/", "/tool/",
+            "/practice-support/", "/practice-resources/",
+            "/information-graphics/", "/infographic",
+            "/dosing/", "-dosing-",
+            "/clinical-tools/",
+        )
+        if domain.endswith("acc.org") and any(
+            m in _url_lower for m in _society_tool_markers
+        ):
+            result.tier = TierLevel.T3
+            result.confidence = 0.85
+            result.matched_rules.append("R10_society_tool_demoted")
+            result.reasons.append(
+                f"URL path on {domain!r} matches professional-society "
+                f"tool / practice-support / dosing / infographic pattern. "
+                f"Clinical decision-support reference, not primary "
+                f"research. T3 (professional-society guidance)."
+            )
+            return result
+
+        # Journal domain without OpenAlex, not NIH aggregator, not
+        # society-tool URL pattern, title not truncated, and no
+        # SR/MA/narrative/guideline signals fired in earlier branches:
+        # default T1 presumed-primary.
         result.tier = TierLevel.T1
         result.confidence = 0.6
         result.matched_rules.append("R10_journal_domain_presumed_primary")
         result.reasons.append(
             f"Domain {domain!r} is a peer-reviewed journal "
-            f"{'(NIH literature aggregator) ' if is_nih_lit else ''}"
             f"and title does not signal review or abstract. "
             f"Presumed T1 primary (low confidence — consider manual review)."
         )

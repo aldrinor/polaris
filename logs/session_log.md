@@ -3627,3 +3627,20 @@
 - RATIONALE: M-14 R10 over-demotion zeroed T1 everywhere, producing 0 releases. Codex had said 6 R10 hallucinations but requiring positive primary-markers caught legitimate bare-title primaries in the crossfire (NEJM/Lancet/PMC papers without "randomized"/"phase N" in title). The M-11 R9 allowlist + M-12 full-title + M-13 DOI/content extraction paths already catch most cases; R10 fallback should stay permissive.
 - SYNC: M-14 partial revert.
 - STATUS: Ready to re-sweep without the R10 over-demotion. Expect behavior similar to cycle 6 (some releases + aborts with some T1 hallucinations from R10 fallback on ambiguous titles).
+
+[2026-04-19 05:30:00]
+- ACTION: Codex pass 15 verdict CONDITIONAL (first non-BLOCKED!). Cycle 8 produced 1 release (tirzepatide partial_thin_corpus) + 7 aborts. 5 remaining T1 hallucinations, all R10 fallback cases. Codex explicitly recommended against restoring M-14 blanket R10 requirement, instead proposing targeted M-15 guards. Implemented M-15: (1) truncated title (ends with ... or …) → T4 (MDPI case), (2) NIH aggregators without OpenAlex → T4 (PMC/PubMed default-primary fallback), (3) acc.org URL path with tools/practice-support/dosing markers → T3 (ACC DOAC dosing PDF), (4) expanded _GUIDELINE_EXPLAINER_TITLE_MARKERS with: guidance, practical guidance, clinical guidance, consensus, consensus statement, expert consensus, practice guide, practice bulletin, position statement, position paper, clinical overview/summary (catches PMC guidance/consensus papers). 539 tests pass (+18 M-15). Critically: regression tests for bare NEJM/Lancet/JAMA titles (M-14 over-demotion failure mode) all still T1.
+- RATIONALE: Codex pass 15 was explicit: "Do not reinstate the cycle-7 blanket rule". M-15 applies narrow guards only where Codex identified specific false-T1 patterns. The earlier R9 allowlist + M-12 full-title + M-13 DOI + M-14 raw-content title pipeline handles the bulk of cases; M-15 closes the remaining 5 patterns in R10 fallback.
+- SYNC: Task #134 (M-15) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (expanded guideline markers + 3 new R10 guards)
+  - CREATED: tests/polaris_graph/test_m15_pass15_targeted_r10_guards.py (18 tests)
+- EVIDENCE/FINDINGS:
+  - 539 tests pass
+  - MDPI truncated "..." → T4 (Codex case)
+  - PMC10115620 → T4 (NIH aggregator guard)
+  - PubMed 38297186 → T4 (NIH aggregator guard)
+  - acc.org DOAC dosing → T3 (society tool guard)
+  - Consensus/guidance titles → T4
+  - Regression: NEJM/Lancet/JAMA bare-title primaries still T1
+- STATUS: Cycle-9 remediation complete. Ready to re-sweep and dispatch Codex pass 16 for final verdict.
