@@ -722,6 +722,55 @@ def _detect_guideline_or_explainer_title(title: str) -> bool:
     return any(k in t for k in _GUIDELINE_EXPLAINER_TITLE_MARKERS)
 
 
+# M-17f (Codex pass 7 structural pivot): gate R8b body override.
+# The body-inspection detector cannot reliably disambiguate primary
+# papers citing external guidelines from new guidelines citing prior
+# ones. Passes 3-7 chased the regex tail without converging. Solution:
+# body-signal override only fires when the title is NOT already
+# diagnostic. When the title already carries article-type evidence,
+# we trust the title (R9/R10 path) and log the body signal as
+# advisory.
+_DIAGNOSTIC_TITLE_ARTICLE_TYPE_KEYWORDS = (
+    # SR/MA keywords
+    "systematic review", "meta-analysis", "meta analysis",
+    "network meta-analysis", "cochrane review", "umbrella review",
+    "scoping review", "rapid review",
+    # Case report / case series
+    "case report", "case-report",
+    "case series", "case-series",
+    "a case of ", "report of a case",
+    # Guideline / consensus / statement
+    "clinical practice guideline", "practice guideline",
+    "consensus statement", "consensus recommendation",
+    "position statement", "expert consensus",
+    # Perspective / commentary / editorial
+    "perspective:", "commentary:", "editorial:",
+    "opinion:", "viewpoint:",
+    "letter to the editor",
+    # Conference abstract markers in title
+    " abstract ", "[abstract]", "(abstract)",
+    # Narrative review
+    "narrative review", "scoping review", "umbrella review",
+    "literature review",
+)
+
+
+def _title_is_diagnostic_for_article_type(title: str) -> bool:
+    """Return True if the title already contains explicit article-type
+    evidence (systematic review, case report, guideline, etc.).
+
+    Used by R8b to decide whether the body-inspection signal should
+    override the title-based classification. When the title is
+    diagnostic, we trust R9/R10 and relegate the body signal to
+    advisory; when the title is non-diagnostic (truncated, generic,
+    bare product name), the body signal remains the primary override.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _DIAGNOSTIC_TITLE_ARTICLE_TYPE_KEYWORDS)
+
+
 # Pass-12 addition (BUG-M-12, Codex pass 12): positive primary-study
 # signals. R9_openalex_primary_study previously granted T1 on any
 # allowlisted journal host when OpenAlex said article+journal. Codex
@@ -1128,42 +1177,61 @@ def classify_source_tier(
     # content, that secondary signal trumps the title-only heuristics.
     # Applied BEFORE R9/R10 so OpenAlex metadata can't upgrade a
     # body-detected case-report/perspective to T1.
+    #
+    # M-17f (Codex pass 7 structural pivot): gate the override by the
+    # title-diagnostic check. If the title already carries explicit
+    # article-type keywords ("systematic review", "case report",
+    # "clinical practice guideline", etc.), R9/R10 already has enough
+    # evidence to classify correctly, and body-signal false positives
+    # must NOT demote primary papers. Body signal is logged as
+    # advisory in this branch and does not change tier.
     body_signal = (signals.body_article_type or "").upper()
     if body_signal in ("SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE"):
-        if body_signal == "SR_MA":
-            result.tier = TierLevel.T2
-            result.confidence = 0.85
-            result.matched_rules.append("R8b_body_sr_ma")
+        if _title_is_diagnostic_for_article_type(signals.title):
+            # Title already carries article-type evidence. Log body as
+            # advisory and FALL THROUGH to R9/R10 (do not return).
             result.reasons.append(
-                "Body-inspection detected systematic review / meta-"
-                "analysis signal (meta tag, JSON-LD, PRISMA reference, "
-                "or abstract lead). T2 regardless of title."
+                f"R8b_body_signal_advisory_only: body={body_signal} "
+                f"(title is diagnostic; trusting R9/R10)"
             )
-        elif body_signal == "CASE_REPORT":
-            result.tier = TierLevel.T4
-            result.confidence = 0.8
-            result.matched_rules.append("R8b_body_case_report")
-            result.reasons.append(
-                "Body-inspection detected case-report signal. T4 "
-                "regardless of title."
-            )
-        elif body_signal == "GUIDELINE":
-            result.tier = TierLevel.T4
-            result.confidence = 0.8
-            result.matched_rules.append("R8b_body_guideline")
-            result.reasons.append(
-                "Body-inspection detected guideline / consensus / "
-                "practice-guide signal. T4 regardless of title."
-            )
-        else:  # PERSPECTIVE
-            result.tier = TierLevel.T4
-            result.confidence = 0.75
-            result.matched_rules.append("R8b_body_perspective")
-            result.reasons.append(
-                "Body-inspection detected perspective / commentary / "
-                "editorial signal. T4 regardless of title."
-            )
-        return result
+        else:
+            # Title is NOT diagnostic — body signal is the primary
+            # article-type evidence and wins over R9/R10.
+            if body_signal == "SR_MA":
+                result.tier = TierLevel.T2
+                result.confidence = 0.85
+                result.matched_rules.append("R8b_body_sr_ma")
+                result.reasons.append(
+                    "Body-inspection detected systematic review / meta-"
+                    "analysis signal (meta tag, JSON-LD, PRISMA "
+                    "reference, or abstract lead). T2 regardless of "
+                    "title."
+                )
+            elif body_signal == "CASE_REPORT":
+                result.tier = TierLevel.T4
+                result.confidence = 0.8
+                result.matched_rules.append("R8b_body_case_report")
+                result.reasons.append(
+                    "Body-inspection detected case-report signal. T4 "
+                    "regardless of title."
+                )
+            elif body_signal == "GUIDELINE":
+                result.tier = TierLevel.T4
+                result.confidence = 0.8
+                result.matched_rules.append("R8b_body_guideline")
+                result.reasons.append(
+                    "Body-inspection detected guideline / consensus / "
+                    "practice-guide signal. T4 regardless of title."
+                )
+            else:  # PERSPECTIVE
+                result.tier = TierLevel.T4
+                result.confidence = 0.75
+                result.matched_rules.append("R8b_body_perspective")
+                result.reasons.append(
+                    "Body-inspection detected perspective / commentary "
+                    "/ editorial signal. T4 regardless of title."
+                )
+            return result
 
     # ── Rule 9: OpenAlex-indexed peer-reviewed journal article
     # Needs: publication_type in {article, review} AND source_type=journal

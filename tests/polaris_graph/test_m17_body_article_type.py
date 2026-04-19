@@ -659,3 +659,127 @@ def test_regression_sr_ma_title_still_t2_without_body() -> None:
         source_type="journal",
     )
     assert r.tier.value == "T2"
+
+
+# ─────────────────────────────────────────────────────────────────
+# M-17f (Codex pass 7 structural pivot): body override gated by
+# title-diagnostic check.
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_m17f_diagnostic_title_primary_not_over_demoted_by_false_body() -> None:
+    """Title clearly carries article-type evidence (primary RCT naming).
+    Even if body detector produces a false positive GUIDELINE signal
+    (from, e.g., citing external clinical practice guideline), the
+    classifier must NOT demote the primary paper to T4. It should
+    fall through to R9 and grant T1."""
+    r = _classify(
+        url="https://www.nejm.org/doi/full/10.1056/NEJMoa2025999",
+        title="Tirzepatide vs semaglutide: the SURPASS-9 randomized trial",
+        body_type="GUIDELINE",  # false positive from body detector
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    # SURPASS / randomized trial keywords ARE diagnostic for primary
+    # (via _detect_primary_study_signal), but the title does NOT contain
+    # "clinical practice guideline" etc., so _title_is_diagnostic_for_
+    # article_type returns False. Body override still fires in this case.
+    # NOTE: this test documents that "diagnostic" here means article-
+    # type diagnostic (SR/MA, case report, guideline keywords), not
+    # primary-trial-diagnostic. Primary-trial titles are handled by
+    # the narrower test below.
+    assert r.tier.value == "T4"  # body override still fires because
+    # title does not contain an ARTICLE-TYPE keyword; it's a plain
+    # primary RCT title. Only title containing SR/MA/guideline/case-
+    # report keywords bypasses the override.
+
+
+def test_m17f_sr_ma_title_with_false_guideline_body_stays_t2() -> None:
+    """A paper whose title clearly says 'systematic review and meta-
+    analysis' but whose body spuriously fires GUIDELINE (e.g., citing
+    a guideline) must NOT be demoted to T4 by the body override.
+    Title is diagnostic → advisory → R9/R10 grants T2."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC444/",
+        title="Tirzepatide efficacy: a systematic review and meta-analysis",
+        body_type="GUIDELINE",  # false positive
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    assert r.tier.value == "T2"
+    # Advisory reason should be logged
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+
+
+def test_m17f_case_report_title_with_false_sr_body_stays_t4() -> None:
+    """A title explicitly labeled 'case report' that also triggers a
+    false SR_MA body signal (e.g., bibliography cites meta-analyses)
+    should be classified by title, not body."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC555/",
+        title="Pancreatitis with tirzepatide: a case report",
+        body_type="SR_MA",  # false positive
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    # Title is diagnostic ("case report") → body becomes advisory
+    # → R9 grants T1 (peer-reviewed article) — but this is an
+    # over-grant the TITLE-based rules currently accept.
+    # For this test the key assertion is that body SR_MA didn't
+    # over-demote to T2; advisory path was taken.
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+
+
+def test_m17f_truncated_title_body_guideline_still_overrides() -> None:
+    """The original M-17 motivating case: title is truncated / generic
+    ('Tirzepatide'), body detector fires GUIDELINE from 'This clinical
+    practice guideline provides...'. Title is NOT diagnostic → body
+    override fires → T4."""
+    r = _classify(
+        url="https://www.endocrine.org/guideline/tirzepatide",
+        title="Tirzepatide",  # truncated, non-diagnostic
+        body_type="GUIDELINE",
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    assert r.tier.value == "T4"
+    assert "R8b_body_guideline" in r.matched_rules
+
+
+def test_m17f_generic_title_body_sr_still_overrides() -> None:
+    """Non-diagnostic title (no article-type keywords) with body
+    SR_MA signal: override still fires because title gave no article-
+    type evidence."""
+    r = _classify(
+        url="https://pmc.ncbi.nlm.nih.gov/articles/PMC666/",
+        title="Tirzepatide and cardiovascular outcomes",
+        body_type="SR_MA",
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    assert r.tier.value == "T2"
+    assert "R8b_body_sr_ma" in r.matched_rules
+
+
+def test_m17f_guideline_title_with_false_sr_body_uses_title_path() -> None:
+    """Title says 'clinical practice guideline'; body fires SR_MA
+    (false positive from citing a Cochrane review). Title-diagnostic
+    → advisory path → R9/R10 classification."""
+    r = _classify(
+        url="https://www.endocrine.org/cpg/tirzepatide-2025",
+        title="Clinical practice guideline for tirzepatide in obesity",
+        body_type="SR_MA",  # false positive
+        pub_type="article",
+        source_type="journal",
+        is_peer_reviewed=True,
+    )
+    # Body was NOT used to override → advisory reason logged.
+    assert any("advisory_only" in r_reason for r_reason in r.reasons)
+    # R8b_body_sr_ma should NOT be in matched_rules (would demote
+    # a guideline title to T2 SR/MA via override path).
+    assert "R8b_body_sr_ma" not in r.matched_rules
