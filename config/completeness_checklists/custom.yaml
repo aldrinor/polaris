@@ -1,0 +1,66 @@
+# Custom completeness checklist — BUG-B-102 R2b (pipeline-B UI path).
+# Generic topic coverage for free-form research questions.
+
+domain: custom
+
+topics:
+  - id: background
+    label: Background / overview
+    keywords:
+      - "background"
+      - "overview"
+      - "introduction"
+      - "history"
+      - "definition"
+    expand_queries:
+      - "{topic} overview"
+
+  - id: primary_evidence
+    label: Primary evidence / data
+    keywords:
+      - "study"
+      - "data"
+      - "results"
+      - "findings"
+      - "trial"
+      - "experiment"
+      - "measurement"
+    expand_queries:
+      - "{topic} evidence data"
+
+  - id: critical_analysis
+    label: Critical analysis / limitations
+    keywords:
+      - "limitation"
+      - "critique"
+      - "criticism"
+      - "weakness"
+      - "caveat"
+      - "counterargument"
+    expand_queries:
+      - "{topic} limitations critique"
+
+  - id: alternatives_comparisons
+    label: Alternatives / comparisons
+    keywords:
+      - "alternative"
+      - "comparison"
+      - "versus"
+      - "compare"
+      - "benchmark"
+      - "competitor"
+    expand_queries:
+      - "{topic} alternatives comparison"
+
+  - id: recent_developments
+    label: Recent developments
+    keywords:
+      - "recent"
+      - "latest"
+      - "new"
+      - "update"
+      - "2024"
+      - "2025"
+      - "2026"
+    expand_queries:
+      - "{topic} 2025 2026 latest"

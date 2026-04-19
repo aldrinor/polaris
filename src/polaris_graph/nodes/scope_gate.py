@@ -64,8 +64,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCOPE_TEMPLATES_DIR = _REPO_ROOT / "config" / "scope_templates"
 
 # Supported domain hints. Determines which scope template is loaded.
+# BUG-B-102 R2b: `custom` added for pipeline-B UI path (graph_v4) so
+# free-form UI queries don't all route through clinical/tech/etc.
 SUPPORTED_DOMAINS = frozenset({
-    "clinical", "policy", "tech", "due_diligence",
+    "clinical", "policy", "tech", "due_diligence", "custom",
 })
 
 DEFAULT_DOMAIN = "clinical"

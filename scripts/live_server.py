@@ -546,14 +546,28 @@ class PipelineRunner:
             self._status.status = "running"
 
             # Import pipeline (deferred to avoid import-time side effects)
-            # M6: Route to v3/v2/v1 based on PG_GRAPH_VERSION env var
-            graph_version = os.getenv("PG_GRAPH_VERSION", "v1")
-            if graph_version == "v3":
+            # BUG-B-102 R2e+R2g: v4 (pipeline-A-backed) is now the
+            # production default. v1/v2/v3 remain selectable via the
+            # explicit env flag for compatibility during migration.
+            # v4 enforces the 5-round pipeline-A hardening (strict_verify,
+            # corpus_approval, delimiter sanitization, unified manifest.status,
+            # evaluator gate, tier-balanced evidence selection).
+            graph_version = os.getenv("PG_GRAPH_VERSION", "v4")
+            if graph_version == "v4":
+                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
+            elif graph_version == "v3":
                 from src.polaris_graph.graph_v3 import build_and_run_v3 as build_and_run
-            elif os.getenv("PG_V2_ENABLED", "0") == "1":
+            elif os.getenv("PG_V2_ENABLED", "0") == "1" or graph_version == "v2":
                 from src.polaris_graph.graph_v2 import build_and_run
-            else:
+            elif graph_version == "v1":
                 from src.polaris_graph.graph import build_and_run
+            else:
+                # Unknown version → safe default (v4, the hardened path).
+                logger.warning(
+                    "Unknown PG_GRAPH_VERSION=%r; falling back to v4",
+                    graph_version,
+                )
+                from src.polaris_graph.graph_v4 import build_and_run_v4 as build_and_run
 
             # Point the trace tailer to the new trace file
             new_trace_path = Path(PG_LIVE_TRACE_DIR) / f"pg_trace_{vector_id}.jsonl"
