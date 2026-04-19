@@ -281,15 +281,24 @@ _BODY_CASE_REPORT_CONTEXT_PATTERNS: tuple[str, ...] = (
 # guideline <verb>" still fired on dated external citations like
 # "The 2025 clinical practice guideline recommends...". Now requires
 # explicit "this" self-reference in front of the guideline noun.
+# M-17e (Codex pass 6): "this guideline" alone is insufficient when
+# the lead has already cited an external guideline (anaphoric
+# reference). The detector now additionally rejects matches preceded
+# by anaphoric-citation markers. Ambiguous verbs "summarizes" and
+# "describes" have been removed because they apply equally to cited
+# external guidelines. The bare "this clinical practice guideline"
+# phrase must appear at sentence start (not as object of "followed").
+# "updates?" added to close a recall miss.
 _BODY_GUIDELINE_CONTEXT_PATTERNS: tuple[str, ...] = (
-    # Exact "this clinical practice guideline" phrasing
-    r'this\s+clinical\s+practice\s+guideline',
+    # "This clinical practice guideline" at sentence start — must be
+    # subject, not object of "followed this guideline during trial"
+    r'(?:^|[.!?]\s+|\n\s*)this\s+clinical\s+practice\s+guideline\b',
     # "This (clinical practice) guideline ... <verb>" — must be "this"
-    # to reject dated/external citations (M-17d).
+    # to reject dated/external citations (M-17d). Verb list tightened
+    # to unambiguous self-authorship verbs (M-17e).
     r'this\s+(clinical\s+practice\s+)?guideline\s+'
     r'(provides|recommends|was\s+developed|is\s+intended|'
-    r'presents|outlines|aims?|establishes|offers|summarizes|'
-    r'describes)',
+    r'presents|outlines|aims?|establishes|offers|updates?)',
     # "this consensus statement ... verb" (declarative, not cited)
     r'this\s+consensus\s+statement\s+'
     r'(provides|recommends|was\s+developed|outlines|presents|'
@@ -408,8 +417,29 @@ def _detect_article_type_from_body(raw_content: str) -> str:
         opener,
     ):
         return "CASE_REPORT"
+    # M-17e (Codex pass 6): anaphoric-citation guard. If the lead
+    # contains a citation-style reference to an external guideline
+    # ("followed the 2025 ADA guideline", "according to the NICE
+    # guideline"), a subsequent "This guideline <verb>" is likely
+    # anaphoric to that external citation rather than self-declarative.
+    # We therefore require the guideline match to precede, not follow,
+    # any such external-guideline citation in the lead.
+    _ANAPHORIC_GUIDELINE_CITATION = re.compile(
+        r'(?:followed|following|according\s+to|citing|cited|per|'
+        r'as\s+recommended\s+by|as\s+per|based\s+on|in\s+line\s+with)'
+        r'\s+(?:the\s+)?(?:\d{4}\s+)?(?:[a-z]+\s+)?(?:clinical\s+practice\s+)?'
+        r'guidelines?\b',
+        re.IGNORECASE,
+    )
     for pattern in _BODY_GUIDELINE_CONTEXT_PATTERNS:
-        if re.search(pattern, lead_lower, re.IGNORECASE):
+        m = re.search(pattern, lead_lower, re.IGNORECASE)
+        if m:
+            # Reject if an external-guideline citation appears in the
+            # preceding 300 chars (anaphoric reference) — e.g. "followed
+            # the 2025 ADA guideline ... This guideline summarizes".
+            preceding = lead_lower[max(0, m.start() - 300): m.start()]
+            if _ANAPHORIC_GUIDELINE_CITATION.search(preceding):
+                continue
             return "GUIDELINE"
     for pattern in _BODY_PERSPECTIVE_CONTEXT_PATTERNS:
         if re.search(pattern, lead_lower, re.IGNORECASE):

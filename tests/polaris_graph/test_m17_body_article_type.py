@@ -447,20 +447,82 @@ def test_this_guideline_offers_recommendations_flags() -> None:
     assert _detect_article_type_from_body(content) == "GUIDELINE"
 
 
-def test_this_guideline_summarizes_evidence_flags() -> None:
+# M-17e (Codex pass 6): "summarizes" and "describes" were dropped from
+# the guideline verb list because they apply equally to cited external
+# guidelines. They are now anaphoric-risk verbs — no longer flag alone.
+
+
+def test_this_guideline_summarizes_no_longer_flags_alone() -> None:
+    """After M-17e, 'summarizes' is NOT in the guideline verb list
+    because it is ambiguous with anaphoric reference to an external
+    guideline. A self-declarative guideline should use provides/
+    recommends/was developed/aims/establishes/offers/updates."""
     content = (
         "This clinical practice guideline summarizes evidence on "
         "tirzepatide dosing and safety."
     )
+    # "This clinical practice guideline" at sentence start still fires
+    # the exact bare pattern (no verb required).
     assert _detect_article_type_from_body(content) == "GUIDELINE"
 
 
-def test_this_guideline_describes_flags() -> None:
+def test_this_guideline_describes_alone_does_not_flag() -> None:
+    """'describes' dropped from verb list (M-17e). Bare 'this guideline
+    describes' no longer fires."""
     content = (
-        "This guideline describes the recommended approach to "
-        "tirzepatide titration."
+        "Background: We present our RCT. This guideline describes the "
+        "recommended approach to tirzepatide titration."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+# M-17e positive: "updates?" verb added to close a pass-6 recall miss.
+
+
+def test_this_guideline_updates_flags() -> None:
+    content = (
+        "This guideline updates the 2020 recommendations on "
+        "tirzepatide prescribing."
     )
     assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+# M-17e Codex pass 6 blocker regressions — anaphoric external refs.
+
+
+def test_anaphoric_external_guideline_citation_not_flagged() -> None:
+    """Codex pass 6 blocker: primary trial following an external
+    guideline then referring to it as 'this guideline summarizes'
+    must NOT be flagged as GUIDELINE."""
+    content = (
+        "We followed the 2025 ADA guideline for trial design. "
+        "This guideline summarizes standards of care. Our "
+        "randomized trial enrolled 1500 adults with obesity."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_followed_this_cpg_as_object_not_flagged() -> None:
+    """Codex pass 6 blocker: 'followed this clinical practice
+    guideline' in object position is a methodological reference,
+    not a self-declaration."""
+    content = (
+        "Methods: Endpoint definitions followed this clinical "
+        "practice guideline during trial design. Tirzepatide "
+        "was compared to semaglutide."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_nice_guideline_citation_then_this_guideline_not_flagged() -> None:
+    """Primary paper citing external NICE guideline, then
+    'this guideline offers' anaphoric reference."""
+    content = (
+        "According to the NICE guideline for type 2 diabetes, "
+        "metformin is first line. This guideline offers "
+        "recommendations. Our trial enrolled 2000 adults."
+    )
+    assert _detect_article_type_from_body(content) == ""
 
 
 # ─────────────────────────────────────────────────────────────────
