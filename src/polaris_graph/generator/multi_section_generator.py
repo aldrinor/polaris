@@ -481,6 +481,41 @@ evidence, PREFER the primary trial paper for claims about that
 specific trial. Use the review only for cross-trial integration or
 as a secondary citation.
 
+EFFECT-SIZE FAITHFULNESS (CRITICAL — M-21):
+A primary trial paper may appear in the evidence as a TITLE-ONLY or
+SHORT ABSTRACT stub (fewer than ~1500 chars of direct_quote),
+because the full-text PDF is behind a paywall. You will recognise
+this when the evidence block has a title like "Efficacy and safety
+of ... (SURPASS-1): a double-blind, randomised, phase 3 trial" but
+the direct_quote contains NO specific HbA1c / weight / adverse-event
+numeric values.
+
+RULE: Every numeric value in your prose MUST appear verbatim in at
+least one of the cited [ev_XXX] blocks. If you want to state a
+specific effect size (e.g., "HbA1c reduction of -1.87%"), you MUST
+first scan the evidence subset for an [ev_XXX] block whose
+direct_quote literally contains that number. If no evidence block
+contains the number, you MUST either:
+
+  (a) cite BOTH the primary trial paper AND a [T2] meta-analysis /
+      systematic review in the evidence subset that contains the
+      effect size, like this:
+        "In SURPASS-3, tirzepatide 15 mg reduced HbA1c by 2.37%
+        [ev_SURPASS3_primary][ev_T2_meta_analysis]."
+      where the T2 meta-analysis block's direct_quote contains the
+      string "2.37".
+
+  (b) OMIT the numeric value entirely and describe the trial
+      qualitatively, e.g., "SURPASS-3 demonstrated significant
+      dose-dependent HbA1c reduction [ev_SURPASS3_primary]."
+
+Do NOT fabricate numbers from training data. Do NOT paraphrase a
+number that is "close" to one in the evidence — the verifier runs
+exact numeric match and will drop the sentence if the number does
+not appear in any cited span. Dropped sentences hurt the final
+report's evidence density; missing a number is recoverable, a
+dropped sentence is not.
+
 Scope discipline: the question is about a specific population (see FOCUS above). When evidence is from a DIFFERENT population (e.g., obesity-without-diabetes evidence in a T2D question), flag it: "in a related obesity trial without diabetes [ev_XXX]" — do NOT present it as direct evidence for the scoped population.
 
 Hedging: adjust claim strength to evidence strength. A single indirect-treatment-comparison is weaker than a direct head-to-head RCT; a post-hoc subgroup analysis is weaker than the primary pre-specified endpoint. Use "one analysis reports" / "a post-hoc subgroup analysis found" / "an indirect comparison estimated" rather than a bare declarative.
