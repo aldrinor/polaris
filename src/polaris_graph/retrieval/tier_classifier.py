@@ -293,6 +293,80 @@ MARKET_RESEARCH_DOMAINS = frozenset({
     "investopedia.com", "nerdwallet.com",
 })
 
+# Pass-10 addition (BUG-M-10): clinical reference products (UpToDate,
+# etc.) that package existing evidence into clinical decision-support
+# summaries. Useful practitioner references but NOT primary research.
+# OpenAlex sometimes returns these as 'article' in 'journal' source_type.
+CLINICAL_REFERENCE_PRODUCTS = frozenset({
+    "uptodate.com", "dynamed.com", "clinicalkey.com",
+    "firstchoice.kp.org", "bestpractice.bmj.com",
+    "medscape.com/reference",  # handled via path check below too
+    "emedicine.medscape.com",
+    "merckmanuals.com", "ebmedicine.net",
+    "mdcalc.com",  # medical calculator, not primary evidence
+})
+
+# Pass-10 addition (BUG-M-10): policy / think-tank / advocacy
+# organizations. KFF, Commonwealth Fund, Brookings, etc. produce
+# policy analyses and explainers — typically T4 narrative / T6
+# commentary depending on rigor, but NEVER T1 primary research.
+# Some rise in rigor (Rand, NBER working papers) route to T4 here.
+POLICY_THINK_TANK_DOMAINS = frozenset({
+    # US health policy
+    "kff.org", "commonwealthfund.org", "accessiblemeds.org",
+    "healthaffairs.org",  # blog side; the journal itself is PEER_REVIEWED
+    "chrt.org", "aha.org", "urban.org",
+    # General policy / advocacy
+    "brookings.edu", "rand.org", "heritage.org",
+    "cato.org", "aei.org", "progressivepolicy.org",
+    "americanprogress.org", "thirdway.org",
+    "nber.org",  # working papers, not peer-reviewed
+    "epi.org", "cbpp.org",
+    # Healthcare advocacy / industry associations
+    "phrma.org", "bio.org", "ama-assn.org",  # association newsrooms
+    "amcp.org", "pcmanet.org",
+    "familiesusa.org", "nationalpartnership.org",
+})
+
+# Pass-10 addition (BUG-M-10): US government agency domains that are
+# NOT regulatory bodies but still .gov. These are T3 policy/admin
+# content, not T1 primary research.
+GOV_AGENCY_DOMAINS = frozenset({
+    "cms.gov",        # Centers for Medicare & Medicaid Services
+    "hhs.gov",        # Health & Human Services
+    "cdc.gov",        # already in REGULATORY_DOMAINS but safe to list
+    "va.gov",         # Veterans Affairs
+    "ihs.gov",        # Indian Health Service — fact sheets not primary
+    "ssa.gov",        # Social Security
+    "treasury.gov", "whitehouse.gov",
+    "medicare.gov", "medicaid.gov",
+    "samhsa.gov",     # Substance Abuse & Mental Health
+    "hrsa.gov",       # Health Resources & Services Admin
+})
+
+# Pass-10 addition (BUG-M-10): business / general news that OpenAlex
+# sometimes flags as 'article' in 'journal'. These are T6 news, not
+# primary research.
+BUSINESS_NEWS_DOMAINS = frozenset({
+    "fastcompany.com", "forbes.com", "inc.com",
+    "businessinsider.com", "fortune.com", "qz.com",
+    "axios.com", "thehill.com", "politico.com",
+    "wired.com",  # also in NEWS_BLOG but reinforce
+    # Industry-specific business news
+    "beckerspayer.com", "beckershospitalreview.com",
+    "modernhealthcare.com", "healthcaredive.com",
+})
+
+# Pass-10 addition (BUG-M-10): SEO/"best-X" web guides and content
+# farms that rank for consumer-style queries. T6 regardless of metadata.
+WEB_GUIDE_DOMAINS = frozenset({
+    "chitika.com",
+    "pcmag.com", "techradar.com", "zdnet.com", "cnet.com",
+    "tomshardware.com", "digitaltrends.com",
+    "lifewire.com", "howtogeek.com",
+    "g2.com", "capterra.com", "trustradius.com",  # vendor review portals
+})
+
 # R-5 Fix A: Vendor blogs / product marketing from SaaS or AI companies.
 # These often rank highly in search, contain specific benchmark numbers
 # (e.g., "embedding costs $0.00002 per 1K tokens"), and were escaping to
@@ -536,6 +610,43 @@ def _detect_narrative_flavor_from_title(title: str) -> bool:
     return any(k in t for k in _NARRATIVE_FLAVOR_KEYWORDS)
 
 
+# Pass-10 addition (BUG-M-10): title markers that indicate guideline,
+# explainer, or policy-brief content even when OpenAlex says the host
+# is a journal (e.g., PMC hosting a policy paper titled "Predetermined
+# Change Control Plans: Guiding Principles" or a guideline titled
+# "2025 Guidelines for direct oral anticoagulants"). These are T4
+# narrative / analytical content, not T1 primary studies.
+_GUIDELINE_EXPLAINER_TITLE_MARKERS = (
+    "guideline", "guidelines",
+    "guiding principle", "guiding principles",
+    "key facts", "fact sheet", "fact-sheet",
+    "issue brief", "policy brief",
+    "explainer",
+    "chartbook", "dashboard",
+    "primer on",
+    "introduction to",
+    # "Q&A:" / "Frequently asked" style
+    "q&a:", "frequently asked",
+    # Government/regulator briefing language
+    "agency overview", "program overview",
+    # Policy explainer prefix
+    "what is ", "what are ",
+    "how does ", "how do ",
+)
+
+
+def _detect_guideline_or_explainer_title(title: str) -> bool:
+    """Return True if the title signals guideline / explainer / policy-
+    brief content. Used by R9 to demote T1 for titles that OpenAlex
+    classified as 'article' in 'journal' but whose content is
+    clinical-practice guidance or policy analysis, not primary research.
+    """
+    if not title:
+        return False
+    t = title.lower()
+    return any(k in t for k in _GUIDELINE_EXPLAINER_TITLE_MARKERS)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The classifier
 # ─────────────────────────────────────────────────────────────────────────────
@@ -649,6 +760,77 @@ def classify_source_tier(
         result.reasons.append(
             f"Domain {domain!r} is a market-research / consulting firm. "
             f"Paid industry analysis, not peer-reviewed research. T5."
+        )
+        return result
+
+    # ── Rule 2b-clinref (T4, BUG-M-10): Clinical reference products.
+    # UpToDate, DynaMed, ClinicalKey, BMJ Best Practice, etc. are
+    # clinical decision-support summaries. Useful for practitioners
+    # but not primary research. Tier at T4 (narrative / commentary).
+    if _domain_matches(domain, CLINICAL_REFERENCE_PRODUCTS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.9
+        result.matched_rules.append("R2b_clinical_reference_product")
+        result.reasons.append(
+            f"Domain {domain!r} is a clinical reference product (UpToDate "
+            f"/ DynaMed / etc.). Practitioner-oriented decision-support "
+            f"summaries of existing evidence, not primary research. T4."
+        )
+        return result
+
+    # ── Rule 2b-policy (T4, BUG-M-10): Policy think-tanks / advocacy.
+    # KFF, Commonwealth Fund, Brookings, Rand, PhRMA, etc. produce
+    # policy analyses, explainers, and advocacy content. Useful
+    # references but not peer-reviewed primary research. Tier at T4
+    # as narrative analysis by default.
+    if _domain_matches(domain, POLICY_THINK_TANK_DOMAINS):
+        result.tier = TierLevel.T4
+        result.confidence = 0.85
+        result.matched_rules.append("R2b_policy_think_tank")
+        result.reasons.append(
+            f"Domain {domain!r} is a policy think-tank / advocacy / "
+            f"trade-association site. Policy analysis or explainer "
+            f"content, not peer-reviewed primary research. T4."
+        )
+        return result
+
+    # ── Rule 2b-gov-agency (T3, BUG-M-10): non-regulatory government
+    # agency content. CMS.gov, HHS.gov etc. produce administrative,
+    # policy, and fact-sheet content. T3 government/regulatory is
+    # correct here — but crucially NOT T1 primary research via
+    # OpenAlex metadata misclassification.
+    if _domain_matches(domain, GOV_AGENCY_DOMAINS):
+        result.tier = TierLevel.T3
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_gov_agency")
+        result.reasons.append(
+            f"Domain {domain!r} is a US government agency (non-regulatory). "
+            f"Administrative / policy / fact-sheet content, not primary "
+            f"research. T3."
+        )
+        return result
+
+    # ── Rule 2b-bizness (T6, BUG-M-10): Business / general news.
+    # Fast Company, Forbes, etc. When OpenAlex mis-labels them as
+    # 'article'/'journal', they should still be T6 news.
+    if _domain_matches(domain, BUSINESS_NEWS_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_business_news")
+        result.reasons.append(
+            f"Domain {domain!r} is a business / general news publisher. "
+            f"Not peer-reviewed research. T6."
+        )
+        return result
+
+    # ── Rule 2b-webguide (T6, BUG-M-10): SEO / web-guide content.
+    # Chitika, PCMag, etc. Consumer-style "best X of year" articles.
+    if _domain_matches(domain, WEB_GUIDE_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_web_guide")
+        result.reasons.append(
+            f"Domain {domain!r} is an SEO / consumer web-guide site. T6."
         )
         return result
 
@@ -864,6 +1046,24 @@ def classify_source_tier(
                 f"review; manual review recommended if this paper is "
                 f"actually a network-meta-analysis or scoping review with "
                 f"a non-standard title."
+            )
+        elif _detect_guideline_or_explainer_title(signals.title):
+            # BUG-M-10 (Codex pass 10): OpenAlex sometimes returns
+            # clinical-practice guidelines or policy-explainer content
+            # (e.g., PMC-hosted "2025 Guidelines for direct oral
+            # anticoagulants" or "Predetermined Change Control Plans:
+            # Guiding Principles") as pub_type=article. That metadata
+            # is syntactically an article but the content is practice
+            # guidance or policy analysis, not primary research. Route
+            # to T4 narrative / analytical content.
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R9_openalex_guideline_explainer")
+            result.reasons.append(
+                f"OpenAlex: peer-reviewed {pub_type!r} in journal, but "
+                f"title signals guideline / guiding principles / "
+                f"explainer / policy brief. Practice guidance or policy "
+                f"analysis, not primary research. T4."
             )
         else:
             result.tier = TierLevel.T1

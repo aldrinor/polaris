@@ -3527,3 +3527,18 @@
   - CREATED: docs/pipeline_audit_context/17_pass_10_sweep_content_reaudit.md
 - STATUS: Cycle-2 sweep done with honest tier signal; Codex pass 10 content re-audit in flight.
 - NEXT_STEP: Wait for pass 10 verdict. If APPROVED → declare full-scale ready. If BLOCKED → fix and cycle 3.
+
+[2026-04-19 01:55:00]
+- ACTION: Codex pass 10 verdict BLOCKED-ON-ISSUE (13 additional T1 misclassifications in broader categories: clinical reference products, policy think-tanks, gov agencies, business news, web guides, PMC-hosted guideline/explainer content). M-7/M-8 verified working on their target domains (Facebook/Reddit/AOL/DelveInsight etc. correctly demoted; no malformed fragments). Implemented M-10: 5 new domain blocklists (CLINICAL_REFERENCE_PRODUCTS→T4, POLICY_THINK_TANK_DOMAINS→T4, GOV_AGENCY_DOMAINS→T3, BUSINESS_NEWS_DOMAINS→T6, WEB_GUIDE_DOMAINS→T6) + 5 new rule branches in classifier cascade + title-based demotion in R9 for guideline/guiding-principles/explainer/key-facts/policy-brief markers (new R9_openalex_guideline_explainer rule routing to T4). 24 new tests cover each domain category + title markers + regressions (legitimate PMC primary research, systematic reviews, and M-7 target domains all still correctly tiered).
+- RATIONALE: Pass 10 found that R9 OpenAlex rule was too permissive — it trusted article+journal metadata regardless of domain quality or title content. M-10 addresses both the broader domain classes AND adds title-level demotion so "2025 Guidelines for DOACs" on PMC doesn't become T1 just because PMC hosts real journals. This is the deeper remediation the pass 10 findings called for.
+- SYNC: Tasks #129 (M-10) closed. Continuing auto-loop per user directive.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (5 new domain sets, 5 new rule branches, _detect_guideline_or_explainer_title + R9 integration)
+  - CREATED: tests/polaris_graph/test_m10_pass10_broader_tier_overrides.py (24 tests)
+- EVIDENCE/FINDINGS:
+  - 479 tests pass (was 455, +24 for M-10)
+  - UpToDate now T4 (was T1), CMS.gov now T3 (was T1), KFF now T4, Fast Company T6, Chitika T6, Brookings T4
+  - Title-based demotion: "2025 Guidelines for direct oral anticoagulants" on PMC now T4 (was T1)
+  - Regression: NEJM/PMC primary RCTs + systematic reviews unchanged
+- STATUS: Cycle-3 remediation complete. Ready to re-run sweep and dispatch Codex pass 11.
+- NEXT_STEP: commit; re-run 8-query sweep; Codex pass 11 content re-audit.
