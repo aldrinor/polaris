@@ -3495,3 +3495,24 @@
   - Invariants: 2-family segregation held (DeepSeek V3.2 gen + Qwen3-8B eval), budget cap respected ($0.0042 max per query), test suite stayed green throughout
 - STATUS: Sweep done with honest partial-release behavior. Awaiting Codex pass 9 content verdict.
 - NEXT_STEP: Monitor pass 9 findings. If APPROVED → declare full-scale ready. If BLOCKED-ON-ISSUE → fix root cause, re-sweep, re-audit. If CONDITIONAL → targeted improvements per Codex.
+
+[2026-04-19 00:45:00]
+- ACTION: Codex pass 9 verdict BLOCKED-ON-ISSUE. Root cause: tier misclassification — OpenAlex metadata overrode domain quality, letting Facebook/Reddit/AOL/law-firm-blogs/consulting/market-research/trade-news be classified as T1 primary research. Released reports then claimed "only 30% T1" while that T1 pool contained Facebook etc. — materially misleading operator-facing metric. Fixed in two commits: M-7 (hard domain overrides: SOCIAL_PLATFORM_DOMAINS → T6, MARKET_RESEARCH_DOMAINS → T5, extended LEGAL_COMMENTARY_DOMAINS with knobbe.com + 10 other IP/pharma firms, added cen.acs.org to NEWS_BLOG_DOMAINS, wired new checks into classifier cascade before R9 OpenAlex rule). M-8 (degenerate-sentence guard: resolve_provenance_to_citations now drops sentences with <3 content words or <15 chars of prose — catches the "Morgan analysts.[12]", ".[4]", ".[14]" fragments Codex found). Citation-number assignment moved to after the degeneracy check so dropped sentences don't leave dangling bibliography entries. M-9 (section-label template alignment) deferred — will assess after re-sweep.
+- RATIONALE: M-7 is the PRIMARY content blocker — user-facing reports can't honestly claim "30% T1" when T1 includes Facebook. M-8 fixes a secondary shipping defect (malformed fragments). Both ship with 23+ regression tests covering the specific Codex-identified domains + guard cases. Following the autonomous loop per user directive: fix root cause, test, commit, re-sweep, re-audit.
+- DOCS/RESEARCH: Revisited tier_classifier.py rule ordering: blocklists fire before R9 OpenAlex rule (which was correct design; the issue was that the new low-provenance domain classes weren't on any blocklist).
+- SYNC: Tasks #126 (M-7) and #127 (M-8) closed. #128 (M-9) deferred. #124 (fix-resweep loop) still in progress.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (SOCIAL_PLATFORM_DOMAINS, MARKET_RESEARCH_DOMAINS, expanded LEGAL_COMMENTARY + NEWS_BLOG, 2 new rule branches in classify_source_tier)
+  - MODIFIED: src/polaris_graph/generator/provenance_generator.py (degenerate-sentence guard + citation-assignment reorder)
+  - CREATED: tests/polaris_graph/test_m7_pass9_tier_domain_overrides.py (18 tests)
+  - CREATED: tests/polaris_graph/test_m8_pass9_degenerate_sentence_guard.py (5 tests)
+- EVIDENCE/FINDINGS:
+  - 455 tests pass (was 432, +23 for M-7+M-8)
+  - Facebook/Reddit/AOL now T6 even with OpenAlex is_peer_reviewed=True + source_type=journal
+  - DelveInsight/Statista/MatrixBCG/PortersFiveForce/PharmaVoice now T5
+  - Knobbe.com now T6
+  - C&EN (cen.acs.org) now T6
+  - Regression: legitimate PMC/NEJM articles still T1
+  - Regression: bibliography pruning works — dropped sentences don't leave dangling entries
+- STATUS: Pass-9 blockers fixed. Ready to re-run 8-query sweep for Codex pass 10 content re-audit.
+- NEXT_STEP: commit M-7+M-8 fixes, rerun sweep (rm -rf outputs/sweep_r3_final && python -m scripts.run_honest_sweep_r3 --out-root outputs/sweep_r3_final), then Codex pass 10.

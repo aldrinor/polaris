@@ -916,16 +916,30 @@ def resolve_provenance_to_citations(
     findings_lines: list[str] = []
     limitations_lines: list[str] = []
     for sv in kept_sentences:
-        # Collect all citation nums from tokens in order they appear
+        # Strip provenance tokens first so degenerate fragments can be
+        # detected before we assign citation numbers (otherwise the
+        # bibliography keeps an entry whose only citing sentence we
+        # later drop).
+        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+        # Clean trailing spaces before punctuation
+        stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
+        # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
+        # that survive strict_verify as bare punctuation + citation
+        # (observed in the Novo sweep as ".[4]", "Morgan analysts.[12]",
+        # ".[14]" between legitimate sentences). A real sentence has
+        # ≥3 content words AND ≥15 chars of prose after provenance
+        # stripping. Lower bounds deliberately conservative — the
+        # shortest legitimate research sentences in smoke runs
+        # ("No contradictions detected.") comfortably clear it.
+        _content_w = re.findall(r"[A-Za-z]+", stripped)
+        if len(_content_w) < 3 or len(stripped) < 15:
+            continue
+        # Assign citation numbers only for surviving sentences
         used_nums: list[int] = []
         for tok in sv.tokens:
             n = _num_for(tok.evidence_id)
             if n not in used_nums:
                 used_nums.append(n)
-        # Strip provenance tokens
-        stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
-        # Clean trailing spaces before punctuation
-        stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # Append citation markers
         markers = "".join(f"[{n}]" for n in used_nums)
         sentence_out = stripped + markers

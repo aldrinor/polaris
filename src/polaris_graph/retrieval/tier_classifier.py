@@ -236,6 +236,61 @@ LEGAL_COMMENTARY_DOMAINS = frozenset({
     "mcdermottplus.com", "mcdermottwill.com",
     "hoganlovells.com", "faegredrinker.com",
     "ropesandgray.com",
+    # Pass-9 additions (Codex found these classified as T1 in released
+    # reports): IP / pharma law-firm blogs that OpenAlex sometimes
+    # flags as 'article' in 'journal' source_type because they publish
+    # alerts and client advisories.
+    "knobbe.com", "finnegan.com", "foley.com",
+    "jonesday.com", "goodwinlaw.com", "gibsondunn.com",
+    "kirkland.com", "lathamwatkins.com", "skadden.com",
+    "wsgr.com", "bakermckenzie.com", "whitecase.com",
+    "fenwick.com", "cooley.com",
+})
+
+# Pass-9 addition (BUG-M-7): social media + general-interest portals.
+# Per Codex pass 9 findings, facebook.com, aol.com, reddit.com threads
+# were being classified as T1 peer-reviewed via OpenAlex because those
+# domains sometimes appear as 'journal' source_type in metadata. They
+# are user-generated content, not primary research, full stop.
+SOCIAL_PLATFORM_DOMAINS = frozenset({
+    # User-generated content
+    "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "reddit.com", "old.reddit.com", "np.reddit.com",
+    "tiktok.com", "youtube.com", "pinterest.com",
+    "quora.com", "stackexchange.com", "stackoverflow.com",
+    "tumblr.com", "telegram.org",
+    # General-interest portals (news-aggregated, blog-style)
+    "aol.com", "yahoo.com", "msn.com",
+    "buzzfeed.com", "huffpost.com", "vox.com",
+    "slate.com", "salon.com", "vice.com",
+    # Q&A / forum
+    "answers.com", "quora.com", "hubpages.com",
+})
+
+# Pass-9 addition (BUG-M-7): market-research / consulting reports.
+# Per Codex pass 9 findings, DelveInsight, Statista, MatrixBCG,
+# PortersFiveForce, PharmaVoice trade blogs were being classified as
+# T1 via OpenAlex. These are paid industry analyses or consulting
+# collateral — not peer-reviewed primary research. Mostly legitimate
+# T5 / T6 content but MUST NOT be T1.
+MARKET_RESEARCH_DOMAINS = frozenset({
+    # Pharma/biotech market research
+    "delveinsight.com", "globaldata.com", "evaluate.com",
+    "evaluatepharma.com", "iqvia.com", "cortellis.com",
+    "pharmaintelligence.informa.com", "citeline.com",
+    # General market research / consulting
+    "statista.com", "matrixbcg.com", "mckinsey.com",
+    "bcg.com", "bain.com", "deloitte.com",
+    "pwc.com", "accenture.com", "ey.com", "kpmg.com",
+    "gartner.com", "forrester.com", "idc.com",
+    # Strategy frameworks / business-school blogs
+    "portersfiveforce.com", "portersfiveforces.com",
+    "mindtools.com", "smartsheet.com",
+    # Trade / industry publication blogs (paid or subscription)
+    "pharmavoice.com", "pharmexec.com", "pharmaceutical-commerce.com",
+    "pharmaceutical-technology.com", "pharmaceutical-business-review.com",
+    # Finance / investor commentary with "analysis" framing
+    "investopedia.com", "nerdwallet.com",
 })
 
 # R-5 Fix A: Vendor blogs / product marketing from SaaS or AI companies.
@@ -287,6 +342,10 @@ NEWS_BLOG_DOMAINS = frozenset({
     # Industry / pharma trade press
     "fiercepharma.com", "biopharmadive.com", "endpts.com",
     "pharmatimes.com", "pharmamanufacturing.com",
+    # Pass-9 addition: chemistry / trade news that OpenAlex sometimes
+    # mis-labels as 'review'. C&EN is ACS trade press — reports ON
+    # primary research but is not itself peer-reviewed research.
+    "cen.acs.org", "chemistryworld.com",
     # Press-release wire services (live-run FP-2: prnewswire got tiered
     # T4 by OpenAlex because it marked it pub_type=review; wires are
     # actually commentary on primary sources and should be T6).
@@ -556,6 +615,40 @@ def classify_source_tier(
         result.reasons.append(
             f"Domain {domain!r} is a law-firm or legal-commentary site. "
             f"Not peer-reviewed research. T6."
+        )
+        return result
+
+    # ── Rule 2b-social (T6, BUG-M-7): Social platforms + general-interest
+    # portals. Per Codex pass 9 findings, Facebook / Reddit / AOL pages
+    # were being classified as T1 via OpenAlex because those domains
+    # sometimes appear as journal source_type in upstream metadata.
+    # User-generated content and aggregator portals are never T1.
+    if _domain_matches(domain, SOCIAL_PLATFORM_DOMAINS):
+        result.tier = TierLevel.T6
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_social_platform")
+        result.reasons.append(
+            f"Domain {domain!r} is a social platform or general-interest "
+            f"portal. User-generated or aggregator content; never T1 "
+            f"primary research regardless of OpenAlex metadata."
+        )
+        return result
+
+    # ── Rule 2b-market (T5/T6, BUG-M-7): Market research / consulting.
+    # Per Codex pass 9, DelveInsight / Statista / MatrixBCG /
+    # PortersFiveForce / PharmaVoice were being classified T1 via
+    # OpenAlex. These are paid industry analyses — typically T5 when
+    # they're primary market research, T6 when they're strategy-blog
+    # summaries. Tier at T5 by default (industry-funded) because most
+    # specific reports cited in POLARIS runs are paid research, not
+    # vendor marketing collateral.
+    if _domain_matches(domain, MARKET_RESEARCH_DOMAINS):
+        result.tier = TierLevel.T5
+        result.confidence = 0.9
+        result.matched_rules.append("R2b_market_research")
+        result.reasons.append(
+            f"Domain {domain!r} is a market-research / consulting firm. "
+            f"Paid industry analysis, not peer-reviewed research. T5."
         )
         return result
 
