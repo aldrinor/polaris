@@ -1234,15 +1234,38 @@ def classify_source_tier(
                 f"signals narrative review / commentary / perspective. T4."
             )
             return result
-        # Journal domain without OpenAlex or clear title signal
-        result.tier = TierLevel.T1
-        result.confidence = 0.6
-        result.matched_rules.append("R10_journal_domain_presumed_primary")
+        # BUG-M-14 (Codex pass 14): R10 was defaulting to T1 "presumed
+        # primary" for any journal domain whose title lacks explicit
+        # SR/MA/narrative markers. This caused 6 hallucinations in
+        # cycle 6 — PMC/ACC PDFs that are guidelines or secondary
+        # content but had titles terse enough to evade detection.
+        # Tighten: require a positive primary-study signal before
+        # granting T1 via R10. Otherwise default to T4 ambiguous
+        # narrative/content — safer than false T1.
+        if _detect_primary_study_signal(signals.title):
+            result.tier = TierLevel.T1
+            result.confidence = 0.6
+            result.matched_rules.append("R10_journal_domain_primary_signal")
+            result.reasons.append(
+                f"Domain {domain!r} is a peer-reviewed journal "
+                f"{'(NIH literature aggregator) ' if is_nih_lit else ''}"
+                f"and title contains positive primary-study signal "
+                f"(RCT/phase N/cohort/case-control/etc.). T1."
+            )
+            return result
+        # Journal domain but title is ambiguous — default to T4 rather
+        # than false T1.
+        result.tier = TierLevel.T4
+        result.confidence = 0.55
+        result.matched_rules.append("R10_journal_domain_ambiguous_demoted_to_t4")
         result.reasons.append(
             f"Domain {domain!r} is a peer-reviewed journal "
             f"{'(NIH literature aggregator) ' if is_nih_lit else ''}"
-            f"and title does not signal review or abstract. "
-            f"Presumed T1 primary (low confidence — consider manual review)."
+            f"but title does not contain positive primary-study signals "
+            f"(RCT, phase N, cohort, case-control, effect of, etc.). "
+            f"Defaulting to T4 narrative rather than presumed T1 — "
+            f"M-14 (Codex pass 14) guard against ambiguous-title "
+            f"overclassification."
         )
         return result
 

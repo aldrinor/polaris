@@ -326,7 +326,7 @@ def _strip_html(html: str) -> str:
     return no_tags.strip()
 
 
-def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool]:
+def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
     spawning, or sandboxes without Playwright)."""
@@ -347,21 +347,24 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool]:
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
-            return "", False
+            return "", False, ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
         if not raw and r.content:
             raw = r.content.decode("utf-8", errors="ignore")
+        # BUG-M-13/M-14: extract title from raw HTML BEFORE stripping
+        # (the <title> tag is gone after _strip_html).
+        extracted_title = _extract_title_from_content(raw)
         content = _strip_html(raw)[:max_chars]
-        return content, bool(content)
+        return content, bool(content), extracted_title
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
-        return "", False
+        return "", False, ""
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
+def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
@@ -452,7 +455,12 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
             "[live_retriever] fetch_miss %s (method=%s reason=%s)",
             url[:80], method, reason or "no_content",
         )
-        return "", False
+        return "", False, ""
+    # BUG-M-14 (Codex pass 14): extract the full page title from the
+    # raw result.content BEFORE _strip_html removes <title> tags. Jina
+    # markdown has "Title: X" on first line; Crawl4AI cleaned text has
+    # the same. HTML fetches have <title>.
+    extracted_title = _extract_title_from_content(result.content)
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
@@ -461,7 +469,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
         "[live_retriever] fetch_ok %s (method=%s chars=%d)",
         url[:80], method, len(content),
     )
-    return content, bool(content)
+    return content, bool(content), extracted_title
 
 
 def _domain_of(url: str) -> str:
@@ -737,7 +745,9 @@ def run_live_retrieval(
             time.sleep(0.2)
 
         # Fetch content (for tier classification + evidence)
-        content, ok = _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+        content, ok, content_title_from_fetch = _fetch_content(
+            cand.url, DEFAULT_CONTENT_MAX_CHARS,
+        )
         api_calls["fetch"] += 1
         if not ok:
             failed_fetch += 1
@@ -764,7 +774,12 @@ def run_live_retrieval(
         # Existing detectors (_detect_systematic_review_from_title,
         # _detect_narrative_flavor_from_title) then see the full
         # suffix and demote correctly.
-        content_title = _extract_title_from_content(content)
+        # BUG-M-14 (Codex pass 14): use the title extracted at fetch
+        # time (from raw content BEFORE _strip_html stripped tags)
+        # rather than trying to re-extract from the already-stripped
+        # text. Fall back to the content-based extraction on stripped
+        # text in case fetch didn't populate it.
+        content_title = content_title_from_fetch or _extract_title_from_content(content)
         openalex_title = oa.get("openalex_full_title", "") or ""
         # Pick the longest candidate — longer titles carry more signal
         # (SR/MA / perspective / guidance suffixes).

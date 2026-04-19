@@ -3607,3 +3607,17 @@
   - pharmacytimes.com now T6
 - STATUS: Cycle-6 remediation complete. Ready to re-sweep and dispatch Codex pass 14.
 - NEXT_STEP: commit, re-sweep, Codex pass 14.
+
+[2026-04-19 04:50:00]
+- ACTION: Codex pass 14 BLOCKED — 6 more T1 hallucinations, this time via R10_journal_domain_presumed_primary (OpenAlex metadata missing, journal-domain host, ambiguous title → default T1). M-13 content_title extraction didn't fire because _strip_html removed tags before extraction. M-14: (1) _fetch_content and _fetch_content_httpx_naive now return (content, ok, extracted_title) 3-tuple; title extracted from raw content BEFORE stripping; (2) R10 tightened: requires positive primary-study signal before T1, otherwise defaults to T4 "ambiguous-title demoted" (uses existing _detect_primary_study_signal helper from M-12 that was previously unused). Updated test_fetch_access_bypass_wiring tests for new 3-tuple signature + mock returns. 521 tests pass.
+- RATIONALE: R10 was the lingering culprit. M-11 tightened R9 (OpenAlex primary path); M-14 applies the same "require positive evidence" pattern to R10 (journal-domain presumed-primary). Together they make T1 require EITHER (a) trusted allowlisted journal + OpenAlex article metadata + no demoting markers, OR (b) journal domain + explicit primary-study title marker. Ambiguous cases now default to T4 instead of false T1.
+- SYNC: Task #133 (M-14) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/live_retriever.py (3-tuple return from both _fetch_content paths, title extracted pre-strip, classifier_title uses fetch-extracted title)
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (R10 requires _detect_primary_study_signal for T1, otherwise T4)
+  - MODIFIED: tests/polaris_graph/test_fetch_access_bypass_wiring.py (3-tuple unpacking + mock returns)
+- EVIDENCE/FINDINGS:
+  - 521 tests pass
+  - R10 now has three paths: SR/MA title→T2, narrative→T4, primary-signal→T1, no signal→T4 (default)
+  - Title pipeline: raw content → extract title → strip HTML for content; title flows through as 3rd return
+- STATUS: Cycle-7 remediation complete. Ready to re-sweep and dispatch Codex pass 15.
