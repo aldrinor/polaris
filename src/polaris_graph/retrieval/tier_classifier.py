@@ -687,6 +687,14 @@ _NARRATIVE_FLAVOR_STRONG_MARKERS = (
     "in the rewind program", "in the leader program",
     "in the sustain program", "in the pioneer program",
     "in the select program",
+    # M-18c (Codex pass 10 advisory): narrative framings about
+    # randomized trials are reviews ABOUT RCTs, not RCTs themselves.
+    # These must fire even when the title also contains "randomized".
+    "beyond randomized", "beyond rcts",
+    "update on randomized", "update on rcts",
+    "the role of randomized", "role of randomized",
+    "interpreting randomized", "interpreting rcts",
+    "overview of randomized", "overview of rcts",
 )
 
 # M-18a: WEAK narrative markers — defer to primary-study signals when

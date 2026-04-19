@@ -153,3 +153,50 @@ def test_m18b_non_social_non_stub_url_unaffected() -> None:
     # Should classify T1 via R9 primary study (title has randomized
     # + placebo-controlled primary-study markers)
     assert r.tier.value == "T1"
+
+
+# ─────────────────────────────────────────────────────────────────
+# M-18c (Codex pass 10 advisory): narrative framings about RCTs
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_m18c_beyond_randomized_trials_still_narrative() -> None:
+    """'Beyond randomized trials: real-world evidence' is a review
+    ABOUT RCTs, not an RCT itself. Must classify narrative (T4)."""
+    r = classify_source_tier(ClassificationSignals(
+        url="https://doi.org/10.1056/NEJMra999999",
+        title="Beyond randomized trials: real-world evidence for tirzepatide",
+        publisher="",
+        fetched_content_length=15000,
+        openalex_publication_type="article",
+        openalex_source_type="journal",
+        openalex_is_peer_reviewed=True,
+    ))
+    assert r.tier.value == "T4"
+    assert "R9_openalex_narrative_review" in r.matched_rules
+
+
+def test_m18c_update_on_randomized_trials_still_narrative() -> None:
+    r = classify_source_tier(ClassificationSignals(
+        url="https://doi.org/10.1056/NEJMra888888",
+        title="Update on randomized trials of tirzepatide in T2D",
+        publisher="",
+        fetched_content_length=15000,
+        openalex_publication_type="article",
+        openalex_source_type="journal",
+        openalex_is_peer_reviewed=True,
+    ))
+    assert r.tier.value == "T4"
+
+
+def test_m18c_role_of_randomized_trials_still_narrative() -> None:
+    r = classify_source_tier(ClassificationSignals(
+        url="https://doi.org/10.1001/jama.2024.99999",
+        title="The role of randomized trials in diabetes evidence",
+        publisher="",
+        fetched_content_length=15000,
+        openalex_publication_type="article",
+        openalex_source_type="journal",
+        openalex_is_peer_reviewed=True,
+    ))
+    assert r.tier.value == "T4"
