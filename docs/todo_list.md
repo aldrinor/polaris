@@ -26,6 +26,13 @@ Priority order per Codex scoping pass:
 - [x] R10 strict_verify — BUG-M-204 limitations telemetry verifier (10 tests)
 - [x] R12 frozen_c_disposition — BUG-M-208 **decision: RETIRE** (staged in `src/orchestration/FROZEN_SINCE_2026-03-16.md`; archive move deferred to dedicated cleanup session because ~60 scripts import from `src/orchestration/`)
 
+### Pass 3 ✅ READY — follow-up mediums tracked as non-blockers
+
+Codex pass 3 (commit `427b6ff`) declared **READY**. Zero blockers. Two accepted-risk mediums tracked as follow-ups:
+
+- [ ] **M-210 v4 UI JSON auxiliary shape** — `_adapt_pipeline_a_to_ui_json` doesn't populate `evidence`, `sections`, `claims`, `iteration_count`, `trace_summary`, `smart_art_diagrams`, `evaluator_output` — citation-chain / source-preview / mindmap UI tabs degrade to empty for v4 runs. Main report + bibliography work. Fix: adapter loads `live_corpus_dump.json` + selected_evidence into auxiliary fields. ~2-3 hours.
+- [ ] **M-211 SSE trace granularity** — v4 only emits `pipeline_start`/`report_assembled`/`pipeline_end`. v3 had per-phase events. Users see dead period mid-run. Fix: thread tracer through `run_one_query` (or use ambient `_current_tracer` ContextVar from tracing.py) and emit per-phase events (scope/retrieval/adequacy/approval/generation/evaluation).
+
 ### R2 (pipeline_b_parity) sub-tasks — multi-session implementation
 
 Strategy C per Codex: add `graph_v4` shim wrapping pipeline A. See
