@@ -191,9 +191,12 @@ def test_this_clinical_practice_guideline() -> None:
 
 
 def test_consensus_statement_from() -> None:
+    """M-17c: requires 'consensus statement from X' followed by a
+    self-descriptive verb. Without the verb, this is a citation
+    reference and should NOT flag."""
     content = (
-        "Consensus statement from the Endocrine Society on tirzepatide "
-        "prescribing..."
+        "This consensus statement from the Endocrine Society provides "
+        "evidence-based recommendations on tirzepatide prescribing..."
     )
     assert _detect_article_type_from_body(content) == "GUIDELINE"
 
@@ -301,6 +304,109 @@ def test_prisma_without_context_not_flagged() -> None:
         "but this is a single trial."
     )
     assert _detect_article_type_from_body(content) == ""
+
+
+# ─────────────────────────────────────────────────────────────────
+# M-17c (Codex pass 4) citation-shape negatives
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_cochrane_review_citation_not_flagged() -> None:
+    """Codex pass 4 reproducer #1: 'A Cochrane review found...' in a
+    primary trial background must NOT flag. M-17c requires
+    'this Cochrane review' + declarative verb."""
+    content = (
+        "Background: A Cochrane review found moderate evidence for GLP-1 "
+        "efficacy. We conducted a randomized trial of tirzepatide..."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_this_meta_analysis_by_citation_not_flagged() -> None:
+    """Codex pass 4 reproducer #2: 'This meta-analysis by Smith et al.
+    shaped the endpoint hierarchy' in primary trial must NOT flag.
+    M-17c requires self-descriptive predicate after 'this MA'."""
+    content = (
+        "Background: This meta-analysis by Smith et al. shaped the "
+        "endpoint hierarchy for our randomized trial. We enrolled "
+        "adults with type 2 diabetes..."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_this_guideline_reference_not_flagged() -> None:
+    """Codex pass 4 reproducer #3: bare 'this guideline' reference
+    without full 'clinical practice' qualifier and no declarative
+    verb must NOT flag."""
+    content = (
+        "Methods: We chose the primary endpoint per this guideline. "
+        "The trial was randomized..."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+def test_consensus_statement_citation_not_flagged() -> None:
+    """Codex pass 4 reproducer #4: 'according to a consensus
+    statement from X' in a primary trial must NOT flag."""
+    content = (
+        "We selected the safety endpoints according to a consensus "
+        "statement from the Endocrine Society. This randomized trial..."
+    )
+    assert _detect_article_type_from_body(content) == ""
+
+
+# M-17c positive cases (declarative verb / "this" + qualifier)
+
+
+def test_this_sr_ma_with_descriptive_verb_still_flags() -> None:
+    """'This systematic review examines...' SHOULD flag — self-
+    descriptive verb confirms this IS the fetched article."""
+    content = (
+        "This systematic review examines the evidence for tirzepatide "
+        "in adults with T2DM."
+    )
+    assert _detect_article_type_from_body(content) == "SR_MA"
+
+
+def test_this_meta_analysis_aims_to_still_flags() -> None:
+    content = "This meta-analysis aims to pool SURPASS efficacy data."
+    assert _detect_article_type_from_body(content) == "SR_MA"
+
+
+def test_this_cochrane_review_was_conducted_still_flags() -> None:
+    content = "This Cochrane review was conducted following PRISMA 2020."
+    assert _detect_article_type_from_body(content) == "SR_MA"
+
+
+def test_this_clinical_practice_guideline_still_flags() -> None:
+    content = (
+        "This clinical practice guideline provides evidence-based "
+        "recommendations."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+def test_guideline_with_descriptive_verb_still_flags() -> None:
+    content = (
+        "This guideline provides recommendations for tirzepatide "
+        "prescribing."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+def test_consensus_statement_with_descriptive_verb_still_flags() -> None:
+    content = (
+        "This consensus statement provides guidance on tirzepatide use."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
+
+
+def test_expert_consensus_panel_convened_flags() -> None:
+    content = (
+        "An expert consensus panel was convened to develop "
+        "recommendations for tirzepatide prescribing."
+    )
+    assert _detect_article_type_from_body(content) == "GUIDELINE"
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -227,14 +227,29 @@ _BODY_SR_MA_CONTEXT_PATTERNS: tuple[str, ...] = (
     r'objective[s]?:\s*to\s+(conduct|perform|undertake)\s+(a\s+)?(systematic review|meta[- ]analysis)',
     # "we conducted a systematic review"
     r'we\s+(conducted|performed|undertook)\s+(a\s+)?(systematic review|meta[- ]analysis)',
-    # "this systematic review and meta-analysis"
-    r'this\s+(systematic review(?:\s+and\s+meta[- ]analysis)?|meta[- ]analysis)',
-    # "PRISMA" with contextual search/selection/extraction/flow diagram
-    # (allow up to 40 chars between; accept "PRISMA 2020 flow diagram")
+    # M-17c (Codex pass 4): "this SR/MA" must be followed by a
+    # self-descriptive predicate within a short window. Rejects
+    # citation-byline shapes like "this meta-analysis by Smith et al.
+    # shaped the endpoint hierarchy" where SR/MA is the cited work,
+    # not the fetched paper.
+    r'this\s+(systematic review(?:\s+and\s+meta[- ]analysis)?|meta[- ]analysis)'
+    r'\s+(aims?|evaluates?|examines?|investigates?|assesses?|reviews?|'
+    r'reports?|presents?|summarizes?|synthesizes?|demonstrates?|'
+    r'pools?|analyses|analyzes|combines?|explores?|'
+    r'was\s+(conducted|performed|undertaken|registered|designed))\b',
+    # M-17c: "PRISMA" with contextual search/selection/extraction/flow diagram
     r'PRISMA.{0,40}(search|selection|extraction|flow diagram)',
     r'(search|selection|extraction|flow diagram).{0,40}PRISMA',
-    # Cochrane systematic review declared
-    r'cochrane (systematic )?review',
+    # M-17c (Codex pass 4): Cochrane tightened. Previously
+    # "cochrane (systematic )?review" fired on "A Cochrane review
+    # found..." citation in a primary trial. Now requires declarative
+    # "this Cochrane review" + self-descriptive verb, OR registration
+    # metadata (Cochrane Library CD-number).
+    r'this\s+cochrane\s+(systematic\s+)?review\s+'
+    r'(aims?|evaluates?|examines?|investigates?|assesses?|reports?|'
+    r'presents?|summarizes?|was\s+(conducted|performed|registered))\b',
+    # Cochrane Library registration ID (unique to Cochrane SRs)
+    r'cochrane\s+(database|library).*CD\d{6}',
     # Conclusive meta-analytic methods signature: "pooled estimate" + "random-effects"
     r'(pooled (estimate|effect|odds ratio|risk ratio|hazard ratio)).{0,200}(random[- ]effects|fixed[- ]effects)',
     r'(random[- ]effects|fixed[- ]effects).{0,200}(pooled (estimate|effect|odds ratio|risk ratio|hazard ratio))',
@@ -254,12 +269,35 @@ _BODY_CASE_REPORT_CONTEXT_PATTERNS: tuple[str, ...] = (
 )
 
 # Guideline body patterns — declarative intent.
+# M-17c (Codex pass 4): tightened. Previously "this (clinical
+# practice) guideline" and "consensus statement from" fired on
+# citation-byline references like "according to a consensus
+# statement from the Endocrine Society" in a primary trial.
+# Now requires the fetched article to EITHER say "this clinical
+# practice guideline" (fully qualified) OR be followed by a
+# self-descriptive verb ("provides", "recommends", "was developed",
+# "we developed").
 _BODY_GUIDELINE_CONTEXT_PATTERNS: tuple[str, ...] = (
-    r'this\s+(clinical\s+practice\s+)?guideline',
-    r'(clinical\s+practice\s+)?guideline\s+(provides|recommends|was developed)',
-    r'this\s+consensus\s+statement',
-    r'consensus\s+statement\s+from\s+(the\s+)?',
-    r'expert\s+consensus\s+(panel|group)\s+',
+    # Exact "this clinical practice guideline" phrasing
+    r'this\s+clinical\s+practice\s+guideline',
+    # "Guideline ... provides/recommends/was developed" (self-descriptive verb)
+    r'(clinical\s+practice\s+)?guideline\s+'
+    r'(provides|recommends|was\s+developed|is\s+intended|'
+    r'presents|outlines|aims?|establishes)',
+    # "this consensus statement ... verb" (declarative, not cited)
+    r'this\s+consensus\s+statement\s+'
+    r'(provides|recommends|was\s+developed|outlines|presents|'
+    r'aims?|establishes|summarizes)',
+    # "Consensus statement from X: <descriptive phrase>" — structural
+    # form of a consensus paper, NOT "according to a consensus
+    # statement from". Require the consensus statement to be the
+    # subject of a descriptive predicate.
+    r'consensus\s+statement\s+from\s+(the\s+)?[A-Z][A-Za-z ]+\s+'
+    r'(provides|recommends|was\s+developed|outlines|presents|aims?)',
+    # "Expert consensus panel/group was convened/developed..."
+    r'expert\s+consensus\s+(panel|group)\s+'
+    r'(was\s+convened|developed|provides|recommends|presents)',
+    # Declarative: "we developed this clinical/practical guidance"
     r'we\s+(developed|provide)\s+(this\s+)?(clinical|practical)\s+guidance',
 )
 
