@@ -51,12 +51,17 @@ def test_peer_reviewed_narrative_review_title_is_t4() -> None:
 
 
 def test_peer_reviewed_primary_study_is_t1() -> None:
+    """M-11 (Codex pass 11): use a known peer-reviewed journal host.
+    Under the allowlist guard, example.com would correctly demote to
+    T4 because it's not a known journal — that was the pass-11 fix.
+    For the 'primary-study title → T1' contract, the test must use
+    a real journal host."""
     w = _mk(
         "article", "journal",
         title="Effect of Semaglutide on Weight Loss in Adults: A Randomized Controlled Trial",
     )
     assert w.authority_tier_t7(
-        url="https://example.com/paper",
+        url="https://www.nejm.org/doi/full/10.1056/NEJMoa2025001",
     ) == "T1"
 
 

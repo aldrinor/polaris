@@ -3557,3 +3557,20 @@
   - 5 aborts have T1<10% — honest refusals given the real corpus
 - STATUS: Pass 11 in flight; will auto-proceed to next fix or declare ready per verdict.
 - NEXT_STEP: Wait for pass 11 verdict. If APPROVED → declare full-scale ready. Else → fix and cycle 4.
+
+[2026-04-19 02:55:00]
+- ACTION: Codex pass 11 verdict BLOCKED-ON-ISSUE. 7 more T1 hallucinations outside M-10's enumerated blocklists — trade-association whitepapers (SCPC, seniorcarepharmacies.org), industry insight (vizientinc.com), trade news (powderbulksolids.com), web explainers (emergentmind.com), checklist-titled paper, review-article-titled Frontiers paper, and a broad review-content PMC paper. The underlying defect: R9 OpenAlex rule trusted article+journal metadata for ANY domain. Blocklists can't enumerate every possible low-provenance domain.
+  Implemented M-11: tightened R9 to REQUIRE the domain be on PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS allowlist before granting T1. Otherwise → T4 narrative. Also added 4 new blocklist entries (vizientinc.com → MARKET_RESEARCH, seniorcarepharmacies.org → POLICY_THINK_TANK, powderbulksolids.com + emergentmind.com → WEB_GUIDE) and new title markers (whitepaper, checklist, early impacts, industry insights, pricing trends, case study). Also updated 1 existing test (test_peer_reviewed_primary_study_is_t1) to use nejm.org instead of example.com since unknown-domain T1 is now correctly demoted.
+- RATIONALE: Whack-a-mole by blocklist couldn't converge — Codex kept finding new domain families. The allowlist flip is the principled fix: treat any domain outside known journal hosts as default-narrative (T4). This legitimately over-demotes rare new-journal domains; they can be added to PEER_REVIEWED_JOURNAL_DOMAINS as encountered. Net trade: far fewer false T1s, occasional false T4s on unknown-but-legit hosts.
+- SYNC: Tasks #130 (M-11) closed.
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/tier_classifier.py (R9 allowlist guard + 7 new title markers + 4 new blocklist entries)
+  - MODIFIED: tests/polaris_graph/test_openalex_authority_tier_t7.py (use nejm.org for T1 test)
+  - CREATED: tests/polaris_graph/test_m11_pass11_r9_allowlist_guard.py (19 tests)
+- EVIDENCE/FINDINGS:
+  - 498 tests pass (+19 M-11 +1 existing test update)
+  - All 7 Codex-named pass-11 hallucinations now demoted
+  - Unknown-domain test confirms M-11 demotes when host not on allowlist
+  - Regression: PMC/NEJM/Lancet/JAMA/PubMed/Frontiers all still T1
+- STATUS: Cycle-4 remediation complete. Ready to re-sweep and dispatch Codex pass 12.
+- NEXT_STEP: commit; re-run 8-query sweep; Codex pass 12 content re-audit.

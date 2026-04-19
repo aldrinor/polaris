@@ -291,6 +291,10 @@ MARKET_RESEARCH_DOMAINS = frozenset({
     "pharmaceutical-technology.com", "pharmaceutical-business-review.com",
     # Finance / investor commentary with "analysis" framing
     "investopedia.com", "nerdwallet.com",
+    # Pass-11 additions (Codex pass 11)
+    "vizientinc.com",  # healthcare consulting insights
+    "healthcareappraisers.com", "avalere.com", "milliman.com",
+    "advisory.com",  # Advisory Board Company
 })
 
 # Pass-10 addition (BUG-M-10): clinical reference products (UpToDate,
@@ -326,6 +330,9 @@ POLICY_THINK_TANK_DOMAINS = frozenset({
     "phrma.org", "bio.org", "ama-assn.org",  # association newsrooms
     "amcp.org", "pcmanet.org",
     "familiesusa.org", "nationalpartnership.org",
+    # Pass-11 additions (Codex pass 11)
+    "seniorcarepharmacies.org",  # trade association whitepapers
+    "nabp.pharmacy", "ashp.org",
 })
 
 # Pass-10 addition (BUG-M-10): US government agency domains that are
@@ -365,6 +372,12 @@ WEB_GUIDE_DOMAINS = frozenset({
     "tomshardware.com", "digitaltrends.com",
     "lifewire.com", "howtogeek.com",
     "g2.com", "capterra.com", "trustradius.com",  # vendor review portals
+    # Pass-11 additions (Codex pass 11)
+    "emergentmind.com",  # web explainer / topic pages
+    "geekwire.com", "hackernoon.com", "towardsdatascience.com",
+    # Industry/trade news that OpenAlex mis-labels as journal
+    "powderbulksolids.com",  # trade news
+    "foodbusinessnews.com", "foodprocessing.com",
 })
 
 # R-5 Fix A: Vendor blogs / product marketing from SaaS or AI companies.
@@ -632,6 +645,15 @@ _GUIDELINE_EXPLAINER_TITLE_MARKERS = (
     # Policy explainer prefix
     "what is ", "what are ",
     "how does ", "how do ",
+    # Pass-11 additions (Codex pass 11): industry insight, whitepaper,
+    # checklist, early-impacts language
+    "whitepaper", "white paper", "white-paper",
+    "checklist",
+    "early impacts", "early impact",
+    "industry report", "industry insight", "industry insights",
+    "market insight", "market insights",
+    "pricing trends", "pricing trend",
+    "case study",  # can be primary but often is narrative; over-demote OK
 )
 
 
@@ -1066,6 +1088,32 @@ def classify_source_tier(
                 f"analysis, not primary research. T4."
             )
         else:
+            # BUG-M-11 (Codex pass 11): require the domain to be on a
+            # known peer-reviewed-journal allowlist (or NIH literature
+            # aggregator) before granting T1. OpenAlex alone is not
+            # enough: it sometimes returns article+journal metadata
+            # for trade-association whitepapers, industry insights,
+            # web explainers, and trade news (Codex named 7 such
+            # hallucinations in cycle 3). Domains outside the
+            # allowlist route to T4 narrative instead.
+            if not (_domain_matches(domain, PEER_REVIEWED_JOURNAL_DOMAINS)
+                    or _domain_matches(domain, NIH_LITERATURE_HOSTS)):
+                result.tier = TierLevel.T4
+                result.confidence = 0.65
+                result.matched_rules.append(
+                    "R9_openalex_unverified_host_demoted_to_t4"
+                )
+                result.reasons.append(
+                    f"OpenAlex said peer-reviewed {pub_type!r} in journal, "
+                    f"but domain {domain!r} is NOT on the known "
+                    f"peer-reviewed-journal allowlist "
+                    f"(PEER_REVIEWED_JOURNAL_DOMAINS or NIH_LITERATURE_HOSTS). "
+                    f"Routing to T4 to avoid overclassifying industry / "
+                    f"trade / web content as primary research. Add the "
+                    f"domain to the allowlist if it is genuinely a "
+                    f"peer-reviewed journal."
+                )
+                return result
             result.tier = TierLevel.T1
             result.confidence = 0.8
             result.matched_rules.append("R9_openalex_primary_study")
