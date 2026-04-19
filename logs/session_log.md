@@ -3644,3 +3644,15 @@
   - Consensus/guidance titles → T4
   - Regression: NEJM/Lancet/JAMA bare-title primaries still T1
 - STATUS: Cycle-9 remediation complete. Ready to re-sweep and dispatch Codex pass 16 for final verdict.
+
+[2026-04-19 06:15:00] — ★ FULL-SCALE APPROVAL ★
+- ACTION: Codex pass 16 verdict: **APPROVED-FOR-FULL-SCALE-RUN**. After 16 Codex audit passes (4 on code readiness, 12 on sweep content) and 10 remediation cycles (M-1..M-15), Codex accepts cycle-10 as the intended honest-by-construction behavior. Rationale: "pipeline now mostly fails closed; seven thin-corpus queries abort before synthesis, and the only synthesized report is held as partial_qwen_advisory rather than released. The remaining T1 hallucinations are narrow R10 fallback promotions on PMC clinical guidance/perspective pages, not broad domain pollution, and they do not create a released clean report."
+- 3 residual T1 hallucinations (all PMC guidance/perspective pages in R10 fallback; not in any released content). Codex documents these as non-blocking production caveats.
+- 7 aborts confirmed legitimate honest refusals (thin corpora under clinical/policy/tech/dd adequacy thresholds).
+- 1 partial_qwen_advisory (clinical_afib, release=False) confirmed legitimate conservative gating.
+- Honest-by-construction invariants confirmed held.
+- FINAL STATE: Pipeline A approved for 8-query full-scale use. Documented caveats: (1) partial/advisory reports must be treated as gated output downstream, (2) R10 PMC fallback may over-promote guidance/perspective to T1 when metadata lacks decisive markers (narrow, acknowledged), (3) AFib completeness template mismatch when a section is inaccessible (gate handles it).
+- SYNC: Tasks #124 (fix-resweep cycle) and #125 (declare ready) closing. #110 (8-query full sweep) confirmed as the approved run artifact at outputs/sweep_r3_final/ cycle 10.
+- AFFECTED_FILES: outputs/codex_findings/full_audit_pass_16/findings.md, this entry.
+- STATUS: ★ APPROVED. 16 Codex passes → 10 cycles → M-1 through M-15 + small reverts → APPROVED-FOR-FULL-SCALE-RUN.
+- NEXT_STEP: Commit the pass-16 findings; write the morning-read summary at the top of session_log; USER WAKE-UP message.
