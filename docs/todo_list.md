@@ -16,14 +16,24 @@ Loop (no cycle cap, auto-continue):
    - BLOCKED → full issues list → claude fixes, loop back to step 1
    - GREEN at GPT-5.4-DR / Gemini-3.1-Pro-DR top-tier quality → STOP
 
-**Current cycle**: M-17 body-text inspection (Codex pass 2 verdict
-IMPLEMENT-C-BODY-INSPECT). 3 of 4 Codex-identified tier hallucinations
-have truncated or non-diagnostic titles; body-text inspection reads
-article-type/abstract/early-content for SR/MA/case-report/perspective
-markers.
+**Current cycle**: M-17 body-text inspection remediation chain.
 
-Tasks: #138 (M-17) → #139 (Codex pass 3 code audit) → #140 (full-scale
-v4 at max capacity) → #141 (DR deep output audit). Blocked-by chain.
+Pass sequence (detector tightening + architectural pivot):
+- Pass 3 (commit 029d521) → BLOCKED (lone-keyword false positives)
+- M-17b (commit 68bf3a4) → pass 4 BLOCKED (4 citation-shape leaks)
+- M-17c (commit c064a0c) → pass 5 BLOCKED (1 dated external guideline)
+- M-17d (commit 56f54d5) → pass 6 BLOCKED (3 novel: anaphoric leaks)
+- M-17e (commit 1b66242) → pass 7 BLOCKED (3 novel proving divergence)
+- M-17f (commit a2309f5) ARCHITECTURAL PIVOT → pass 8 CONDITIONAL
+  (article-type gate sound; primary-study titles still exposed)
+- M-17g (commit 10bb23f) → pass 9 CONDITIONAL with
+  body_inspector_now_promotable=true and "No blocking fix required"
+- **GREEN LIGHT** → full-scale v4 at max capacity launched
+  (task b95h18wws, serper/s2=50, fetch_cap=500, ev_to_gen=400,
+  budget=$10 per query, slug=clinical_tirzepatide_t2dm 30 amplified).
+
+Tasks: #144-147 completed → #140 IN PROGRESS (v4 running) → #141
+(Codex DR deep output audit, post-v4).
 
 ---
 
