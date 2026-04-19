@@ -1,6 +1,6 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-18 (post-audit cleanup)
+**Last Updated**: 2026-04-18 (post Codex pass 4 remediation)
 
 Highest-priority items at the top. Older entries are in
 `archive/2026-04-18-pre-audit-cleanup/docs/todo_list_legacy.md` (see
@@ -9,6 +9,41 @@ note at end of this file).
 ---
 
 ## Active
+
+### Pass 4 ✅ CONDITIONAL → M-1 fixed — 3 accepted mediums
+
+Codex pass 4 (commit `81b18de`) declared **CONDITIONAL** after live
+smoke testing exposed a real-world regression pass 3 didn't catch.
+Single gating medium fixed in commit `ac593e1`:
+
+- [x] **M-1 worker-join deadline** — `live_retriever._fetch_content`
+  now uses `worker.join(timeout=PG_FETCH_DEADLINE_SECONDS)` (default
+  90s; override via env; set 0 to disable). On timeout: log a
+  warning, fall back to naive httpx, leave the daemon thread to
+  exit on its own so the sweep never hangs on a wedged Crawl4AI
+  browser cleanup. Regression test in
+  `tests/polaris_graph/test_fetch_access_bypass_wiring.py::test_fetch_content_times_out_falls_back`.
+
+Remaining mediums accepted as follow-ups (non-blocking):
+
+- [ ] **M-2 content starvation risk** — clinical smoke produced
+  146 words total (3/4 sections kept, 20/24 sentences dropped by
+  strict_verify). By-design honesty discipline, transparent in the
+  manifest. Possible mitigation: widen generator prompts so more
+  sentences have verifiable provenance, or relax content-overlap
+  threshold for limitations-section claims.
+- [ ] **M-3 PT13 advisory rule** — tech smoke failed PT13 (unhedged
+  "best") but `release_allowed=True` because qwen-judge returned
+  5/5 good. Expected: the eval_gate treats qwen as primary gate and
+  PT13 as advisory. Consider surfacing the rule-check failure more
+  prominently in `manifest.evaluator_gate.reasons` even when release
+  is still allowed.
+- [ ] **M-4 tier material_deviation** — both smoke runs had
+  material_deviation=True (clinical 40% T7, tech 70% T4). Expected
+  for web retrieval; corpus_approval_gate enforces and the manifest
+  reports honestly. Documentation follow-up: add a runbook note
+  explaining that 8-query sweep outputs should be read as pipeline
+  reliability signal, not as a quality benchmark of the report content.
 
 ### Deep-dive rounds in progress
 

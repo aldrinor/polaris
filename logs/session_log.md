@@ -3351,3 +3351,21 @@
   - Tests: 414 pass (was 409, +5 for fetch wrapper)
 - STATUS: Fetch wiring validated on two domains; 0 test regressions.
 - NEXT_STEP: Commit and dispatch Codex pass 4 to independently review the threaded-bypass pattern + smoke artifacts.
+
+[2026-04-18 22:05:00]
+- ACTION: Processed Codex pass 4 verdict (CONDITIONAL on commit 81b18de). Sole gating medium M-1 (`worker.join()` unbounded) fixed in commit ac593e1: wrapper now uses `worker.join(timeout=PG_FETCH_DEADLINE_SECONDS)` with a 90s default; on timeout, logs a warning and falls back to naive httpx while the daemon thread exits on its own. Regression test `test_fetch_content_times_out_falls_back` monkeypatches a hanging bypass (awaits an unset `asyncio.Event`) and asserts the deadline triggers + naive fallback runs.
+- RATIONALE: Pass 3 had READY but pass 4 (requested after live-smoke exposed the 90% fetch-failure regression) showed the underlying wiring still had a hang-potential defect. M-1 is the only gating item. The other three mediums are real but non-blocking for the 8-query sweep: M-2 content starvation is by-design honesty discipline; M-3 PT13 advisory gap is expected eval_gate semantics; M-4 tier material_deviation is a documentation/communications item, not a correctness defect.
+- DOCS/RESEARCH: Python 3.13 `threading.Thread.join(timeout=)` semantics on daemon threads; confirmed that leaving a daemon thread alive after timeout is safe (dies with interpreter exit).
+- SYNC: Updated docs/todo_list.md with a new Pass 4 section at the top (M-1 fixed, M-2/M-3/M-4 as open follow-ups).
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/live_retriever.py (worker.join timeout + PG_FETCH_DEADLINE_SECONDS env)
+  - MODIFIED: tests/polaris_graph/test_fetch_access_bypass_wiring.py (+1 test, now 6/6)
+  - CREATED: outputs/codex_findings/full_audit_pass_4/findings.md (56 lines, Codex's verdict + 4 mediums)
+  - CREATED: docs/pipeline_audit_context/11_pass_4_fetch_wiring_review.md (the brief)
+  - MODIFIED: docs/todo_list.md (Pass 4 section with accepted mediums)
+- EVIDENCE/FINDINGS:
+  - Codex caught a factual error in my pass 4 brief: I claimed "13/13 rule checks in both runs" but tech smoke was 12/13 (PT13 failed on "best"). Release_allowed=True still holds because qwen-judge was 5/5 good — eval_gate uses qwen as primary gate.
+  - Codex's pytest subprocess reported 2 failed / 23 errors / 389 passed on test_scope_gate.py. My local runs show 15/15 pass on that file and 415/415 on the full suite (both at commit 81b18de and HEAD). Confirmed Codex-env specific, not a real regression.
+  - Post-remediation suite: 415 pass including the new timeout test.
+- STATUS: Pass 4 M-1 closed; 3 follow-up mediums tracked in todo_list. Pipeline A is ready to run the 8-query sweep pending user go/no-go.
+- NEXT_STEP: User decides: (a) Codex pass 5 micro-review of the timeout fix before sweep; (b) run 8-query sweep now; (c) address one or more of M-2/M-3/M-4 first.
