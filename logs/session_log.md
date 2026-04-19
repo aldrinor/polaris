@@ -3333,3 +3333,21 @@
 - RATIONALE: User asked "did you update all necessary docs so Codex sees complete picture?" Honest answer was no — operational state files (session_log, bug_log, restart_instructions, Dockerfile, requirements.txt, .env.example, config/, env-var inventory) were all stale or missing. Phase E closes those gaps BEFORE deep-dive rounds so each round doesn't re-discover operational staleness.
 - STATUS: In progress.
 - NEXT_STEP: Commit Phase E; then deep-dive rounds per Codex prioritization.
+
+## [2026-04-18 -- Session 58: AccessBypass in-pipeline fetch wiring (BUG-FETCH-R8d)]
+
+[2026-04-18 21:45:00]
+- ACTION: Diagnosed 90% fetch-failure rate in the live smoke test of pipeline A (10% ok-rate on `clinical_tirzepatide_t2dm`). Traced through two intermediate broken states: (i) wrapped AccessBypass with `asyncio.new_event_loop()+run_until_complete`, the coroutine went un-awaited at line 299 on Windows because the fresh loop is a SelectorEventLoop while Playwright/Crawl4AI requires ProactorEventLoop; (ii) switched to `asyncio.run()`, which worked from the sync primary loop but failed in the R-6 expansion phase with `RuntimeError: asyncio.run() cannot be called from a running event loop` (Crawl4AI leaves background tasks that keep the loop marked "running"). Final fix: wrap AccessBypass in a dedicated daemon thread per URL so each fetch gets an isolated `asyncio.run()` regardless of calling context. Validated on two domains — clinical (15/20 = 75%) and tech (19/20 = 95%). Both runs reach `status=success, release_allowed=True`.
+- RATIONALE: The user explicitly asked for "one more diagnostic query first, as problem still exists, we have to fix all problems first, right?" — validating that my earlier claim the fetch was fixed was premature (2/20 is still broken). A threaded wrapper is the only pattern that works from both sync and async contexts given Crawl4AI's loop behavior.
+- DOCS/RESEARCH: Crawl4AI Windows notes on ProactorEventLoop; Python 3.13 `asyncio.run` semantics; threading `Thread(daemon=True).join()` for bounded synchronous await of async work.
+- SYNC: Tasks #100/#101/#102 marked completed with corrected dispositions (evidence_rows=None was my inspection-script key mismatch, not a real bug; sections_kept=1 was downstream effect of thin corpus from the earlier fetch failure, resolved once fetch improved).
+- AFFECTED_FILES:
+  - MODIFIED: src/polaris_graph/retrieval/live_retriever.py (threading import, _fetch_content wrapper, per-URL INFO logging)
+  - CREATED: tests/polaris_graph/test_fetch_access_bypass_wiring.py (5 tests, all pass)
+  - OUTPUTS: outputs/smoke_retrieve_v4/clinical/clinical_tirzepatide_t2dm/ (status=success, 15/20 fetched), outputs/smoke_retrieve_v5/tech/tech_rag_architectures_2024/ (status=success, 19/20 fetched)
+- EVIDENCE/FINDINGS:
+  - clinical: retrieval.fetched=15, adequacy.decision=proceed (7/7), evidence_selection=14 rows, generator words=146, 3/4 sections kept, eval_gate=pass, cost=$0.0015, wall=253.6s
+  - tech: retrieval.fetched=19, adequacy.decision=proceed (7/7), generator words=529, 4/4 sections kept, 17 sentences verified, eval_gate=pass (5/5 good), cost=$0.0012, wall=204.7s
+  - Tests: 414 pass (was 409, +5 for fetch wrapper)
+- STATUS: Fetch wiring validated on two domains; 0 test regressions.
+- NEXT_STEP: Commit and dispatch Codex pass 4 to independently review the threaded-bypass pattern + smoke artifacts.

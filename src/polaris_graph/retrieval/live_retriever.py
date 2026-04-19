@@ -27,6 +27,7 @@ import logging
 import os
 import asyncio
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -282,33 +283,57 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
         )
         return _fetch_content_httpx_naive(url, max_chars)
 
-    loop = asyncio.new_event_loop()
-    try:
-        bypass = AccessBypass()
-        result = loop.run_until_complete(
-            bypass.fetch_with_bypass(url, prefer_legal=True)
-        )
-    except Exception as exc:
-        logger.debug(
-            "[live_retriever] AccessBypass fetch %r failed: %s", url, exc,
-        )
-        try:
-            loop.close()
-        except Exception:
-            pass
-        return _fetch_content_httpx_naive(url, max_chars)
-    finally:
-        try:
-            loop.close()
-        except Exception:
-            pass
+    # Run AccessBypass in a dedicated thread so each call gets its own
+    # fresh event loop. This works whether we're called from sync or
+    # async context (expansion path runs inside a live loop). Crawl4AI
+    # leaves background tasks that make subsequent asyncio.run() in the
+    # same thread fail with "cannot be called from a running event loop".
+    result_holder: dict[str, Any] = {}
 
+    def _bypass_worker() -> None:
+        try:
+            bypass = AccessBypass()
+            result_holder["value"] = asyncio.run(
+                bypass.fetch_with_bypass(url, prefer_legal=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            result_holder["error"] = exc
+
+    worker = threading.Thread(target=_bypass_worker, daemon=True)
+    worker.start()
+    worker.join()
+
+    if "error" in result_holder:
+        exc = result_holder["error"]
+        logger.warning(
+            "[live_retriever] AccessBypass raised for %s: %s: %s",
+            url[:80], type(exc).__name__, exc,
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+    if "value" not in result_holder:
+        logger.warning(
+            "[live_retriever] AccessBypass produced no result for %s",
+            url[:80],
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+    result = result_holder["value"]
+
+    method = getattr(result, "access_method", "unknown") or "unknown"
     if not result.success or not result.content:
+        reason = (result.metadata or {}).get("reason") if hasattr(result, "metadata") else None
+        logger.info(
+            "[live_retriever] fetch_miss %s (method=%s reason=%s)",
+            url[:80], method, reason or "no_content",
+        )
         return "", False
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
     content = _strip_html(result.content)[:max_chars]
+    logger.info(
+        "[live_retriever] fetch_ok %s (method=%s chars=%d)",
+        url[:80], method, len(content),
+    )
     return content, bool(content)
 
 
