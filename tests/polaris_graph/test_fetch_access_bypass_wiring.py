@@ -145,6 +145,42 @@ def test_fetch_content_returns_empty_on_skipped_s2_landing(monkeypatch):
     assert naive_called["n"] == 0, "S2 skip must not trigger naive fallback"
 
 
+def test_fetch_content_times_out_falls_back(monkeypatch):
+    """BUG-FETCH-R8d M-1 (Codex pass 4): a wedged AccessBypass
+    (e.g., Crawl4AI hanging in browser cleanup) must not block the
+    pipeline forever. Worker.join(timeout) should expire and fall
+    back to naive httpx with a warning."""
+    import asyncio as _asyncio
+
+    class _HangingBypass:
+        async def fetch_with_bypass(self, url, prefer_legal=True):
+            await _asyncio.Event().wait()  # never returns
+            return None  # unreachable
+
+    monkeypatch.setenv("PG_DISABLE_ACCESS_BYPASS", "0")
+    monkeypatch.setenv("PG_FETCH_DEADLINE_SECONDS", "0.3")
+    import src.tools.access_bypass as ab
+    monkeypatch.setattr(ab, "AccessBypass", _HangingBypass)
+
+    naive_called = {"n": 0}
+
+    def _fake_naive(url, max_chars):
+        naive_called["n"] += 1
+        return "naive after timeout", True
+
+    monkeypatch.setattr(
+        live_retriever, "_fetch_content_httpx_naive", _fake_naive,
+    )
+
+    content, ok = live_retriever._fetch_content(
+        "https://example.com/paper", max_chars=1000,
+    )
+
+    assert ok is True
+    assert content == "naive after timeout"
+    assert naive_called["n"] == 1
+
+
 def test_fetch_content_honors_disable_env(monkeypatch):
     """PG_DISABLE_ACCESS_BYPASS=1 must bypass AccessBypass entirely
     and go directly to the naive httpx path (useful when Playwright

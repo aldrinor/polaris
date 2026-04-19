@@ -301,7 +301,24 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
 
     worker = threading.Thread(target=_bypass_worker, daemon=True)
     worker.start()
-    worker.join()
+    # BUG-FETCH-R8d medium-1 (Codex pass 4): bound the join so a wedged
+    # Crawl4AI/Playwright browser startup/cleanup can't hang the sweep
+    # indefinitely. AccessBypass has internal timeouts but they don't
+    # cover every subprocess/import/browser-cleanup failure mode.
+    # Default 90s = Crawl4AI worst-case (~70s) + margin. Override via
+    # PG_FETCH_DEADLINE_SECONDS. Set to 0 to disable (not recommended).
+    try:
+        deadline = float(os.getenv("PG_FETCH_DEADLINE_SECONDS", "90"))
+    except ValueError:
+        deadline = 90.0
+    worker.join(timeout=deadline if deadline > 0 else None)
+    if worker.is_alive():
+        logger.warning(
+            "[live_retriever] AccessBypass timed out after %.0fs for %s "
+            "— falling back to naive httpx (thread will continue as daemon)",
+            deadline, url[:80],
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
 
     if "error" in result_holder:
         exc = result_holder["error"]
