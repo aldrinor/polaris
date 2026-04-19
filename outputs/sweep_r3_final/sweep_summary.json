@@ -1,7 +1,7 @@
 [
   {
-    "cost_ledger_entries": 8,
-    "cost_usd": 0.0011125800000000002,
+    "cost_ledger_entries": 7,
+    "cost_usd": 0.00111985,
     "domain": "clinical",
     "error": "",
     "manifest": {
@@ -19,7 +19,7 @@
         "total_uncovered": 0,
         "uncovered_topic_ids": []
       },
-      "contradictions_found": 2,
+      "contradictions_found": 1,
       "corpus": {
         "approved": true,
         "count": 20,
@@ -28,16 +28,18 @@
           "T1": 0.25,
           "T3": 0.05,
           "T4": 0.2,
-          "T7": 0.5
+          "T5": 0.05,
+          "T7": 0.45
         }
       },
-      "cost_usd": 0.0011125800000000002,
+      "cost_usd": 0.00111985,
       "domain": "clinical",
       "evaluator_gate": {
         "gate_class": "partial",
         "qwen_critical_axes": [
           "citation_tightness",
-          "hedging_appropriateness"
+          "hedging_appropriateness",
+          "completeness"
         ],
         "qwen_parse_ok": true,
         "reasons": [
@@ -71,24 +73,24 @@
         "selection_strategy": "tier_balanced_v1_all"
       },
       "generator": {
-        "limitations_words": 75,
+        "limitations_words": 69,
         "outline_sections": [
           "Efficacy",
           "Comparative",
-          "Long-term Outcomes",
-          "Safety"
+          "Safety",
+          "Long-term Outcomes"
         ],
         "sections_kept": 4,
         "sentences_dropped": 6,
-        "sentences_verified": 19,
-        "words": 580
+        "sentences_verified": 20,
+        "words": 507
       },
-      "protocol_sha256": "fe6d1f30396443a4cf0f6c07d92a0c573fb16e471f21a50a7853ddf15bb1b5af",
+      "protocol_sha256": "17356afe8951728d2f360f63abe8079781065ac494294a3bfe6f2ff0a5e112aa",
       "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
       "qwen_verdicts": {
-        "acceptable": 1,
+        "acceptable": 0,
         "good": 2,
-        "needs_revision": 2,
+        "needs_revision": 3,
         "unknown": 0
       },
       "release_allowed": false,
@@ -99,24 +101,24 @@
           "s2": 3,
           "serper": 3
         },
-        "failed": 4,
-        "fetched": 16,
+        "failed": 5,
+        "fetched": 15,
         "pre_filter": 300
       },
-      "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776581728",
+      "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776584771",
       "slug": "clinical_tirzepatide_t2dm",
       "status": "partial_qwen_advisory"
     },
     "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
     "run_dir": "outputs\\sweep_r3_final\\clinical\\clinical_tirzepatide_t2dm",
-    "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776581728",
+    "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776584771",
     "slug": "clinical_tirzepatide_t2dm",
     "status": "ok_qwen_advisory",
-    "wall_time_seconds": 230.9
+    "wall_time_seconds": 233.0
   },
   {
-    "cost_ledger_entries": 8,
-    "cost_usd": 0.001312708,
+    "cost_ledger_entries": 7,
+    "cost_usd": 0.00087006,
     "domain": "clinical",
     "error": "",
     "manifest": {
@@ -140,18 +142,127 @@
         "count": 20,
         "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.45,
+          "T1": 0.4,
           "T4": 0.25,
-          "T7": 0.3
+          "T7": 0.35
         }
       },
-      "cost_usd": 0.001312708,
+      "cost_usd": 0.00087006,
       "domain": "clinical",
+      "evaluator_gate": {
+        "gate_class": "pass",
+        "qwen_critical_axes": [],
+        "qwen_parse_ok": true,
+        "reasons": [],
+        "release_allowed": true,
+        "rule_blockers": []
+      },
+      "evaluator_rule_fail": 0,
+      "evaluator_rule_pass": 13,
+      "evidence_selection": {
+        "dropped_count": 0,
+        "evidence_selected": 16,
+        "evidence_total": 16,
+        "full_tier_counts": {
+          "T1": 8,
+          "T4": 5,
+          "T7": 3
+        },
+        "notes": [
+          "pool_size<=max_rows (16/20)"
+        ],
+        "selected_tier_counts": {
+          "T1": 8,
+          "T4": 5,
+          "T7": 3
+        },
+        "selection_strategy": "tier_balanced_v1_all"
+      },
+      "generator": {
+        "limitations_words": 49,
+        "outline_sections": [
+          "Regulatory",
+          "Comparative",
+          "Population Subgroups",
+          "Efficacy"
+        ],
+        "sections_kept": 4,
+        "sentences_dropped": 3,
+        "sentences_verified": 28,
+        "words": 753
+      },
+      "protocol_sha256": "707b0d5687ba609634e45b725c2a519c98723531ae0584614f3627c8eac36e12",
+      "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+      "qwen_verdicts": {
+        "acceptable": 0,
+        "good": 5,
+        "needs_revision": 0,
+        "unknown": 0
+      },
+      "release_allowed": true,
+      "retrieval": {
+        "api_calls": {
+          "fetch": 20,
+          "openalex": 20,
+          "s2": 3,
+          "serper": 3
+        },
+        "failed": 4,
+        "fetched": 16,
+        "pre_filter": 657
+      },
+      "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776585004",
+      "slug": "clinical_afib_anticoagulation",
+      "status": "success"
+    },
+    "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+    "run_dir": "outputs\\sweep_r3_final\\clinical\\clinical_afib_anticoagulation",
+    "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776585004",
+    "slug": "clinical_afib_anticoagulation",
+    "status": "ok",
+    "wall_time_seconds": 277.5
+  },
+  {
+    "cost_ledger_entries": 6,
+    "cost_usd": 0.00102892,
+    "domain": "policy",
+    "error": "",
+    "manifest": {
+      "adequacy": {
+        "critical_count": 0,
+        "decision": "proceed",
+        "findings_ok": 7,
+        "findings_total": 7
+      },
+      "budget_cap_usd": 0.1,
+      "completeness": {
+        "covered_fraction": 1.0,
+        "total_applicable": 6,
+        "total_covered": 6,
+        "total_uncovered": 0,
+        "uncovered_topic_ids": []
+      },
+      "contradictions_found": 0,
+      "corpus": {
+        "approved": true,
+        "count": 30,
+        "material_deviation": true,
+        "tier_fractions": {
+          "T1": 0.1667,
+          "T3": 0.3,
+          "T4": 0.1667,
+          "T5": 0.0333,
+          "T6": 0.1,
+          "T7": 0.2333
+        }
+      },
+      "cost_usd": 0.00102892,
+      "domain": "policy",
       "evaluator_gate": {
         "gate_class": "partial",
         "qwen_critical_axes": [
           "citation_tightness",
-          "hedging_appropriateness"
+          "completeness"
         ],
         "qwen_parse_ok": true,
         "reasons": [
@@ -164,42 +275,45 @@
       "evaluator_rule_fail": 0,
       "evaluator_rule_pass": 13,
       "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 16,
-        "evidence_total": 16,
+        "dropped_count": 9,
+        "evidence_selected": 20,
+        "evidence_total": 29,
         "full_tier_counts": {
-          "T1": 9,
+          "T1": 6,
+          "T3": 13,
           "T4": 5,
-          "T7": 2
+          "T5": 1,
+          "T6": 3,
+          "T7": 1
         },
-        "notes": [
-          "pool_size<=max_rows (16/20)"
-        ],
+        "notes": [],
         "selected_tier_counts": {
-          "T1": 9,
-          "T4": 5,
-          "T7": 2
+          "T1": 4,
+          "T3": 9,
+          "T4": 3,
+          "T5": 1,
+          "T6": 2,
+          "T7": 1
         },
-        "selection_strategy": "tier_balanced_v1_all"
+        "selection_strategy": "tier_balanced_v1"
       },
       "generator": {
-        "limitations_words": 65,
+        "limitations_words": 70,
         "outline_sections": [
           "Regulatory",
           "Comparative",
-          "Population Subgroups",
-          "Efficacy"
+          "Mechanism"
         ],
-        "sections_kept": 4,
-        "sentences_dropped": 6,
-        "sentences_verified": 25,
-        "words": 751
+        "sections_kept": 3,
+        "sentences_dropped": 0,
+        "sentences_verified": 22,
+        "words": 631
       },
-      "protocol_sha256": "05b0956960ee627d876b7b1715f235caa5c536d42923421e938d6e51a8351737",
-      "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
+      "protocol_sha256": "3abcda1a265373282ab0bd041aef20ca1023859adfdfc6045b0f0f6e5fd8cb55",
+      "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
       "qwen_verdicts": {
-        "acceptable": 0,
-        "good": 3,
+        "acceptable": 1,
+        "good": 2,
         "needs_revision": 2,
         "unknown": 0
       },
@@ -208,139 +322,28 @@
         "api_calls": {
           "fetch": 20,
           "openalex": 20,
-          "s2": 3,
-          "serper": 3
-        },
-        "failed": 4,
-        "fetched": 16,
-        "pre_filter": 657
-      },
-      "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776581959",
-      "slug": "clinical_afib_anticoagulation",
-      "status": "partial_qwen_advisory"
-    },
-    "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
-    "run_dir": "outputs\\sweep_r3_final\\clinical\\clinical_afib_anticoagulation",
-    "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776581959",
-    "slug": "clinical_afib_anticoagulation",
-    "status": "ok_qwen_advisory",
-    "wall_time_seconds": 335.4
-  },
-  {
-    "cost_ledger_entries": 7,
-    "cost_usd": 0.00127031,
-    "domain": "policy",
-    "error": "",
-    "manifest": {
-      "adequacy": {
-        "critical_count": 0,
-        "decision": "proceed",
-        "findings_ok": 7,
-        "findings_total": 7
-      },
-      "budget_cap_usd": 0.1,
-      "completeness": {
-        "covered_fraction": 1.0,
-        "total_applicable": 6,
-        "total_covered": 6,
-        "total_uncovered": 0,
-        "uncovered_topic_ids": []
-      },
-      "contradictions_found": 0,
-      "corpus": {
-        "approved": true,
-        "count": 27,
-        "material_deviation": true,
-        "tier_fractions": {
-          "T1": 0.1111,
-          "T3": 0.3333,
-          "T4": 0.1111,
-          "T5": 0.1111,
-          "T6": 0.037,
-          "T7": 0.2963
-        }
-      },
-      "cost_usd": 0.00127031,
-      "domain": "policy",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 0,
-      "evaluator_rule_pass": 13,
-      "evidence_selection": {
-        "dropped_count": 7,
-        "evidence_selected": 20,
-        "evidence_total": 27,
-        "full_tier_counts": {
-          "T1": 4,
-          "T3": 13,
-          "T4": 4,
-          "T5": 4,
-          "T6": 1,
-          "T7": 1
-        },
-        "notes": [],
-        "selected_tier_counts": {
-          "T1": 3,
-          "T3": 10,
-          "T4": 3,
-          "T5": 3,
-          "T6": 1
-        },
-        "selection_strategy": "tier_balanced_v1"
-      },
-      "generator": {
-        "limitations_words": 78,
-        "outline_sections": [
-          "Regulatory",
-          "Mechanism",
-          "Comparative"
-        ],
-        "sections_kept": 3,
-        "sentences_dropped": 0,
-        "sentences_verified": 21,
-        "words": 609
-      },
-      "protocol_sha256": "ead0752538284cd1d0c65bf9eaacaa81002f5189175072040510471efb4431b0",
-      "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
-      "qwen_verdicts": {
-        "acceptable": 0,
-        "good": 5,
-        "needs_revision": 0,
-        "unknown": 0
-      },
-      "release_allowed": true,
-      "retrieval": {
-        "api_calls": {
-          "fetch": 20,
-          "openalex": 20,
           "s2": 2,
           "serper": 2,
           "serper_policy": 1
         },
-        "failed": 7,
-        "fetched": 13,
+        "failed": 6,
+        "fetched": 14,
         "pre_filter": 32
       },
-      "run_id": "SWEEP_policy_policy_fda_ai_devices_1776582294",
+      "run_id": "SWEEP_policy_policy_fda_ai_devices_1776585281",
       "slug": "policy_fda_ai_devices",
-      "status": "success"
+      "status": "partial_qwen_advisory"
     },
     "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
     "run_dir": "outputs\\sweep_r3_final\\policy\\policy_fda_ai_devices",
-    "run_id": "SWEEP_policy_policy_fda_ai_devices_1776582294",
+    "run_id": "SWEEP_policy_policy_fda_ai_devices_1776585281",
     "slug": "policy_fda_ai_devices",
-    "status": "ok",
-    "wall_time_seconds": 265.7
+    "status": "ok_qwen_advisory",
+    "wall_time_seconds": 218.8
   },
   {
-    "cost_ledger_entries": 6,
-    "cost_usd": 0.00100063,
+    "cost_ledger_entries": 8,
+    "cost_usd": 0.001617965,
     "domain": "policy",
     "error": "",
     "manifest": {
@@ -361,68 +364,72 @@
       "contradictions_found": 0,
       "corpus": {
         "approved": true,
-        "count": 28,
+        "count": 29,
         "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.3214,
-          "T4": 0.1071,
-          "T7": 0.3571,
-          "UNKNOWN": 0.2143
+          "T1": 0.3448,
+          "T4": 0.1724,
+          "T7": 0.3448,
+          "UNKNOWN": 0.1379
         }
       },
-      "cost_usd": 0.00100063,
+      "cost_usd": 0.001617965,
       "domain": "policy",
       "evaluator_gate": {
         "gate_class": "partial",
         "qwen_critical_axes": [
-          "citation_tightness"
+          "citation_tightness",
+          "hedging_appropriateness"
         ],
         "qwen_parse_ok": true,
         "reasons": [
-          "qwen_citation_tightness_needs_revision"
+          "advisory_pt13_unhedged_superlatives",
+          "qwen_citation_tightness_needs_revision",
+          "qwen_multi_axis_needs_revision"
         ],
         "release_allowed": false,
         "rule_blockers": []
       },
-      "evaluator_rule_fail": 0,
-      "evaluator_rule_pass": 13,
+      "evaluator_rule_fail": 1,
+      "evaluator_rule_pass": 12,
       "evidence_selection": {
-        "dropped_count": 8,
+        "dropped_count": 6,
         "evidence_selected": 20,
-        "evidence_total": 28,
+        "evidence_total": 26,
         "full_tier_counts": {
           "T1": 13,
           "T4": 4,
           "T7": 5,
-          "UNKNOWN": 6
+          "UNKNOWN": 4
         },
         "notes": [],
         "selected_tier_counts": {
-          "T1": 9,
+          "T1": 10,
           "T4": 3,
           "T7": 4,
-          "UNKNOWN": 4
+          "UNKNOWN": 3
         },
         "selection_strategy": "tier_balanced_v1"
       },
       "generator": {
-        "limitations_words": 79,
+        "limitations_words": 61,
         "outline_sections": [
           "Regulatory",
           "Efficacy",
-          "Comparative"
+          "Long-term Outcomes",
+          "Safety"
         ],
-        "sections_kept": 3,
-        "sentences_dropped": 4,
-        "sentences_verified": 17,
-        "words": 530
+        "sections_kept": 4,
+        "sentences_dropped": 3,
+        "sentences_verified": 24,
+        "words": 721
       },
-      "protocol_sha256": "22f089074376e20f93a848f406e1e66c949f92e8f64e0ba23420cd703650ca03",
+      "protocol_sha256": "db0597c85d9cbc5ff2b9dbb8f195ab9fe66f00985b43cf0c3ffad182cf855e44",
       "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
       "qwen_verdicts": {
         "acceptable": 0,
-        "good": 4,
-        "needs_revision": 1,
+        "good": 3,
+        "needs_revision": 2,
         "unknown": 0
       },
       "release_allowed": false,
@@ -434,131 +441,20 @@
           "serper": 3,
           "serper_policy": 1
         },
-        "failed": 7,
-        "fetched": 13,
-        "pre_filter": 95
+        "failed": 6,
+        "fetched": 14,
+        "pre_filter": 97
       },
-      "run_id": "SWEEP_policy_policy_medicare_drug_price_1776582560",
+      "run_id": "SWEEP_policy_policy_medicare_drug_price_1776585500",
       "slug": "policy_medicare_drug_price",
       "status": "partial_qwen_advisory"
     },
     "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
     "run_dir": "outputs\\sweep_r3_final\\policy\\policy_medicare_drug_price",
-    "run_id": "SWEEP_policy_policy_medicare_drug_price_1776582560",
+    "run_id": "SWEEP_policy_policy_medicare_drug_price_1776585500",
     "slug": "policy_medicare_drug_price",
     "status": "ok_qwen_advisory",
-    "wall_time_seconds": 315.8
-  },
-  {
-    "cost_ledger_entries": 7,
-    "cost_usd": 0.000984,
-    "domain": "tech",
-    "error": "",
-    "manifest": {
-      "adequacy": {
-        "critical_count": 0,
-        "decision": "proceed",
-        "findings_ok": 7,
-        "findings_total": 7
-      },
-      "budget_cap_usd": 0.1,
-      "completeness": {
-        "covered_fraction": 1.0,
-        "total_applicable": 6,
-        "total_covered": 6,
-        "total_uncovered": 0,
-        "uncovered_topic_ids": []
-      },
-      "contradictions_found": 0,
-      "corpus": {
-        "approved": true,
-        "count": 20,
-        "material_deviation": true,
-        "tier_fractions": {
-          "T1": 0.1,
-          "T4": 0.7,
-          "T5": 0.05,
-          "T6": 0.15
-        }
-      },
-      "cost_usd": 0.000984,
-      "domain": "tech",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 0,
-      "evaluator_rule_pass": 13,
-      "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 19,
-        "evidence_total": 19,
-        "full_tier_counts": {
-          "T1": 2,
-          "T4": 13,
-          "T5": 1,
-          "T6": 3
-        },
-        "notes": [
-          "pool_size<=max_rows (19/20)"
-        ],
-        "selected_tier_counts": {
-          "T1": 2,
-          "T4": 13,
-          "T5": 1,
-          "T6": 3
-        },
-        "selection_strategy": "tier_balanced_v1_all"
-      },
-      "generator": {
-        "limitations_words": 59,
-        "outline_sections": [
-          "Efficacy",
-          "Mechanism",
-          "Comparative",
-          "Population Subgroups"
-        ],
-        "sections_kept": 4,
-        "sentences_dropped": 0,
-        "sentences_verified": 26,
-        "words": 654
-      },
-      "protocol_sha256": "c38e43e5edc036b556e117104a49bf7cc3bacc14e3795f82b16dc86d7a5ee6ed",
-      "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
-      "qwen_verdicts": {
-        "acceptable": 2,
-        "good": 3,
-        "needs_revision": 0,
-        "unknown": 0
-      },
-      "release_allowed": true,
-      "retrieval": {
-        "api_calls": {
-          "arxiv": 1,
-          "fetch": 20,
-          "github": 1,
-          "openalex": 20,
-          "s2": 1,
-          "serper": 1
-        },
-        "failed": 1,
-        "fetched": 19,
-        "pre_filter": 46
-      },
-      "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776582876",
-      "slug": "tech_rag_architectures_2024",
-      "status": "success"
-    },
-    "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
-    "run_dir": "outputs\\sweep_r3_final\\tech\\tech_rag_architectures_2024",
-    "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776582876",
-    "slug": "tech_rag_architectures_2024",
-    "status": "ok",
-    "wall_time_seconds": 156.4
+    "wall_time_seconds": 344.2
   },
   {
     "cost_usd": 0.0,
@@ -567,7 +463,7 @@
     "manifest": {
       "adequacy": {
         "decision": "abort",
-        "evidence_rows": 20,
+        "evidence_rows": 19,
         "findings": [
           {
             "name": "total_sources",
@@ -599,14 +495,14 @@
           },
           {
             "name": "evidence_rows",
-            "observed": 20,
+            "observed": 19,
             "ok": true,
             "severity": "ok",
             "threshold": 4
           },
           {
             "name": "low_quality_fraction",
-            "observed": 0.05,
+            "observed": 0.25,
             "ok": true,
             "severity": "ok",
             "threshold": 0.6
@@ -634,9 +530,9 @@
         },
         "tier_counts": {
           "T1": 1,
-          "T4": 16,
-          "T6": 1,
-          "UNKNOWN": 2
+          "T4": 14,
+          "T5": 1,
+          "T6": 4
         },
         "total_sources": 20
       },
@@ -651,9 +547,130 @@
         "count": 20,
         "tier_fractions": {
           "T1": 0.05,
-          "T4": 0.8,
-          "T6": 0.05,
-          "UNKNOWN": 0.1
+          "T4": 0.7,
+          "T5": 0.05,
+          "T6": 0.2
+        }
+      },
+      "cost_usd": 0.0,
+      "domain": "tech",
+      "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+      "retrieval": {
+        "api_calls": {
+          "arxiv": 1,
+          "fetch": 20,
+          "github": 1,
+          "openalex": 20,
+          "s2": 1,
+          "serper": 1
+        },
+        "failed": 1,
+        "fetched": 19,
+        "pre_filter": 46
+      },
+      "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776585844",
+      "slug": "tech_rag_architectures_2024",
+      "status": "abort_corpus_inadequate"
+    },
+    "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+    "run_dir": "outputs\\sweep_r3_final\\tech\\tech_rag_architectures_2024",
+    "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776585844",
+    "slug": "tech_rag_architectures_2024",
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 146.8
+  },
+  {
+    "cost_usd": 0.0,
+    "domain": "tech",
+    "error": "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
+    "manifest": {
+      "adequacy": {
+        "decision": "abort",
+        "evidence_rows": 20,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 6
+          },
+          {
+            "name": "t1_count",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 1
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 4
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.1,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.6
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.0,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.5
+          }
+        ],
+        "notes": [
+          "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.6,
+          "max_t7_fraction": 0.5,
+          "min_evidence_rows": 4,
+          "min_t1_count": 1,
+          "min_t1_plus_t2": 2,
+          "min_t1_plus_t2_plus_t3": 2,
+          "min_total_sources": 6
+        },
+        "tier_counts": {
+          "T4": 15,
+          "T6": 2,
+          "UNKNOWN": 3
+        },
+        "total_sources": 20
+      },
+      "budget_cap_usd": 0.1,
+      "completeness": {
+        "total_applicable": 6,
+        "total_covered": 6,
+        "total_uncovered": 0,
+        "uncovered_topic_ids": []
+      },
+      "corpus": {
+        "count": 20,
+        "tier_fractions": {
+          "T4": 0.75,
+          "T6": 0.1,
+          "UNKNOWN": 0.15
         }
       },
       "cost_usd": 0.0,
@@ -664,7 +681,7 @@
           "arxiv": 1,
           "fetch": 20,
           "github": 1,
-          "openalex": 19,
+          "openalex": 20,
           "s2": 1,
           "serper": 1
         },
@@ -672,242 +689,261 @@
         "fetched": 20,
         "pre_filter": 30
       },
-      "run_id": "SWEEP_tech_tech_long_context_transformer_1776583032",
+      "run_id": "SWEEP_tech_tech_long_context_transformer_1776585991",
       "slug": "tech_long_context_transformer",
       "status": "abort_corpus_inadequate"
     },
     "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
     "run_dir": "outputs\\sweep_r3_final\\tech\\tech_long_context_transformer",
-    "run_id": "SWEEP_tech_tech_long_context_transformer_1776583032",
+    "run_id": "SWEEP_tech_tech_long_context_transformer_1776585991",
     "slug": "tech_long_context_transformer",
     "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 171.9
+    "wall_time_seconds": 117.5
   },
   {
-    "cost_ledger_entries": 7,
-    "cost_usd": 0.00415632,
+    "cost_usd": 0.0,
     "domain": "due_diligence",
-    "error": "",
+    "error": "Corpus fails 2 critical threshold(s): ['t1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
-        "critical_count": 0,
-        "decision": "proceed",
-        "findings_ok": 7,
-        "findings_total": 7
+        "decision": "abort",
+        "evidence_rows": 18,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 8
+          },
+          {
+            "name": "t1_count",
+            "observed": 1,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 1
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 1,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 1,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 3
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 18,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 5
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.75,
+            "ok": false,
+            "severity": "warn",
+            "threshold": 0.7
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.05,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.4
+          }
+        ],
+        "notes": [
+          "Corpus fails 2 critical threshold(s): ['t1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.7,
+          "max_t7_fraction": 0.4,
+          "min_evidence_rows": 5,
+          "min_t1_count": 1,
+          "min_t1_plus_t2": 2,
+          "min_t1_plus_t2_plus_t3": 3,
+          "min_total_sources": 8
+        },
+        "tier_counts": {
+          "T1": 1,
+          "T5": 9,
+          "T6": 6,
+          "T7": 1,
+          "UNKNOWN": 3
+        },
+        "total_sources": 20
       },
       "budget_cap_usd": 0.1,
       "completeness": {
-        "covered_fraction": 1.0,
         "total_applicable": 7,
         "total_covered": 7,
         "total_uncovered": 0,
         "uncovered_topic_ids": []
       },
-      "contradictions_found": 0,
       "corpus": {
-        "approved": true,
         "count": 20,
-        "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.3,
-          "T4": 0.1,
-          "T5": 0.25,
-          "T6": 0.15,
+          "T1": 0.05,
+          "T5": 0.45,
+          "T6": 0.3,
           "T7": 0.05,
           "UNKNOWN": 0.15
         }
       },
-      "cost_usd": 0.00415632,
+      "cost_usd": 0.0,
       "domain": "due_diligence",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [
-          "advisory_pt13_unhedged_superlatives"
-        ],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 1,
-      "evaluator_rule_pass": 12,
-      "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 17,
-        "evidence_total": 17,
-        "full_tier_counts": {
-          "T1": 6,
-          "T4": 2,
-          "T5": 2,
-          "T6": 3,
-          "T7": 1,
-          "UNKNOWN": 3
-        },
-        "notes": [
-          "pool_size<=max_rows (17/20)"
-        ],
-        "selected_tier_counts": {
-          "T1": 6,
-          "T4": 2,
-          "T5": 2,
-          "T6": 3,
-          "T7": 1,
-          "UNKNOWN": 3
-        },
-        "selection_strategy": "tier_balanced_v1_all"
-      },
-      "generator": {
-        "limitations_words": 57,
-        "outline_sections": [
-          "Comparative",
-          "Regulatory",
-          "Population Subgroups",
-          "Long-term Outcomes"
-        ],
-        "sections_kept": 4,
-        "sentences_dropped": 4,
-        "sentences_verified": 30,
-        "words": 840
-      },
-      "protocol_sha256": "df27df4147a90036e37278fcdf3ae1afc962a66d1b06d2e326202d5a39cb8b16",
       "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
-      "qwen_verdicts": {
-        "acceptable": 0,
-        "good": 4,
-        "needs_revision": 1,
-        "unknown": 0
-      },
-      "release_allowed": true,
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 14,
+          "openalex": 12,
           "s2": 3,
           "serper": 3
         },
-        "failed": 3,
-        "fetched": 17,
+        "failed": 2,
+        "fetched": 18,
         "pre_filter": 24
       },
-      "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776583204",
+      "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776586109",
       "slug": "dd_novo_nordisk_obesity_position",
-      "status": "success"
+      "status": "abort_corpus_inadequate"
     },
     "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
     "run_dir": "outputs\\sweep_r3_final\\due_diligence\\dd_novo_nordisk_obesity_position",
-    "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776583204",
+    "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776586109",
     "slug": "dd_novo_nordisk_obesity_position",
-    "status": "ok",
-    "wall_time_seconds": 462.2
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 222.8
   },
   {
-    "cost_ledger_entries": 6,
-    "cost_usd": 0.00105998,
+    "cost_usd": 0.0,
     "domain": "due_diligence",
-    "error": "",
+    "error": "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
-        "critical_count": 0,
-        "decision": "proceed",
-        "findings_ok": 7,
-        "findings_total": 7
+        "decision": "abort",
+        "evidence_rows": 13,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 16,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 8
+          },
+          {
+            "name": "t1_count",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 1
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 1,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 3
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 13,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 5
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.6875,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.7
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.0,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.4
+          }
+        ],
+        "notes": [
+          "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.7,
+          "max_t7_fraction": 0.4,
+          "min_evidence_rows": 5,
+          "min_t1_count": 1,
+          "min_t1_plus_t2": 2,
+          "min_t1_plus_t2_plus_t3": 3,
+          "min_total_sources": 8
+        },
+        "tier_counts": {
+          "T3": 1,
+          "T4": 3,
+          "T5": 4,
+          "T6": 7,
+          "UNKNOWN": 1
+        },
+        "total_sources": 16
       },
       "budget_cap_usd": 0.1,
       "completeness": {
-        "covered_fraction": 1.0,
         "total_applicable": 7,
         "total_covered": 7,
         "total_uncovered": 0,
         "uncovered_topic_ids": []
       },
-      "contradictions_found": 0,
       "corpus": {
-        "approved": true,
         "count": 16,
-        "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.1875,
-          "T4": 0.25,
-          "T5": 0.125,
-          "T6": 0.4375
+          "T3": 0.0625,
+          "T4": 0.1875,
+          "T5": 0.25,
+          "T6": 0.4375,
+          "UNKNOWN": 0.0625
         }
       },
-      "cost_usd": 0.00105998,
+      "cost_usd": 0.0,
       "domain": "due_diligence",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [
-          "advisory_pt13_unhedged_superlatives"
-        ],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 1,
-      "evaluator_rule_pass": 12,
-      "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 12,
-        "evidence_total": 12,
-        "full_tier_counts": {
-          "T1": 2,
-          "T4": 4,
-          "T5": 1,
-          "T6": 5
-        },
-        "notes": [
-          "pool_size<=max_rows (12/20)"
-        ],
-        "selected_tier_counts": {
-          "T1": 2,
-          "T4": 4,
-          "T5": 1,
-          "T6": 5
-        },
-        "selection_strategy": "tier_balanced_v1_all"
-      },
-      "generator": {
-        "limitations_words": 58,
-        "outline_sections": [
-          "Regulatory",
-          "Efficacy",
-          "Safety"
-        ],
-        "sections_kept": 3,
-        "sentences_dropped": 4,
-        "sentences_verified": 19,
-        "words": 568
-      },
-      "protocol_sha256": "11f9b14259d2b8c0ca8b06c33996ca210e04db26c6ea3eeabad2495a2112165b",
       "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
-      "qwen_verdicts": {
-        "acceptable": 1,
-        "good": 3,
-        "needs_revision": 1,
-        "unknown": 0
-      },
-      "release_allowed": true,
       "retrieval": {
         "api_calls": {
           "fetch": 16,
-          "openalex": 15,
+          "openalex": 13,
           "s2": 2,
           "serper": 2
         },
-        "failed": 4,
-        "fetched": 12,
+        "failed": 3,
+        "fetched": 13,
         "pre_filter": 16
       },
-      "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776583666",
+      "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776586331",
       "slug": "dd_lilly_tirzepatide_manufacturing",
-      "status": "success"
+      "status": "abort_corpus_inadequate"
     },
     "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
     "run_dir": "outputs\\sweep_r3_final\\due_diligence\\dd_lilly_tirzepatide_manufacturing",
-    "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776583666",
+    "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776586331",
     "slug": "dd_lilly_tirzepatide_manufacturing",
-    "status": "ok",
-    "wall_time_seconds": 323.3
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 182.5
   }
 ]

@@ -3516,3 +3516,14 @@
   - Regression: bibliography pruning works — dropped sentences don't leave dangling entries
 - STATUS: Pass-9 blockers fixed. Ready to re-run 8-query sweep for Codex pass 10 content re-audit.
 - NEXT_STEP: commit M-7+M-8 fixes, rerun sweep (rm -rf outputs/sweep_r3_final && python -m scripts.run_honest_sweep_r3 --out-root outputs/sweep_r3_final), then Codex pass 10.
+
+[2026-04-19 01:25:00]
+- ACTION: 8-query sweep cycle 2 complete after M-7/M-8 remediation. Profile: 1 released (clinical_afib_anticoagulation T1=40%, 753 words), 3 partial_qwen_advisory (clinical_tirzepatide / policy_fda_ai_devices / policy_medicare_drug_price), 4 abort_corpus_inadequate (dd_novo, dd_lilly, tech_rag, tech_long_context). Total cost $0.0046. Previously misclassified T1 sources (Facebook/Reddit/AOL/Knobbe/DelveInsight/MatrixBCG etc.) now correctly T5/T6 per M-7; this caused 3 additional queries to fail corpus adequacy because honest tier mix revealed they didn't have enough real primary research. Built pass-10 index, wrote content re-audit brief (17_pass_10_sweep_content_reaudit.md), dispatched Codex pass 10 as bg task b3vgr06sa.
+- RATIONALE: Continuing the autonomous loop per user directive. The abort-rate increase is EXPECTED honest behavior — pipeline A now refuses to ship reports when corpus quality genuinely doesn't meet threshold, rather than artificially lifting T1 via OpenAlex metadata. Codex will independently verify this is correct refusal semantics vs mis-tuned adequacy thresholds.
+- SYNC: Monitor bl6xyaq8f armed for pass 10 findings.
+- AFFECTED_FILES:
+  - CREATED: outputs/sweep_r3_final/ (8 query dirs with all artifacts + sweep_summary.{json,md})
+  - CREATED: outputs/codex_findings/full_audit_pass_10/sweep_index.md
+  - CREATED: docs/pipeline_audit_context/17_pass_10_sweep_content_reaudit.md
+- STATUS: Cycle-2 sweep done with honest tier signal; Codex pass 10 content re-audit in flight.
+- NEXT_STEP: Wait for pass 10 verdict. If APPROVED → declare full-scale ready. If BLOCKED → fix and cycle 3.
