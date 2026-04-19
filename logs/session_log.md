@@ -3542,3 +3542,18 @@
   - Regression: NEJM/PMC primary RCTs + systematic reviews unchanged
 - STATUS: Cycle-3 remediation complete. Ready to re-run sweep and dispatch Codex pass 11.
 - NEXT_STEP: commit; re-run 8-query sweep; Codex pass 11 content re-audit.
+
+[2026-04-19 02:25:00]
+- ACTION: Cycle-3 sweep complete post-M-10. Profile: 3 released (clinical_afib partial_thin_corpus T1=15% release=True, clinical_tirzepatide partial_thin_corpus T1=20% release=True, policy_medicare success T1=20% release=True), 5 honest aborts (policy_fda_ai T1=3%, dd_novo T1=0%, dd_lilly T1=6%, tech_rag T1=0%, tech_long_context T1=5%). Tier distributions now clean: Knobbe/UpToDate/CMS/KFF/FastCompany/Chitika correctly demoted from T1. Total cost $0.0041. Built pass-11 audit brief; dispatched Codex pass 11 as bg task box8pwov8; monitor bp9hca2i3 armed.
+- RATIONALE: Loop continues per user directive until Codex approves. The release/abort profile is now dramatically more honest than cycle 1 (4 releases with misleading T1) → cycle 2 (1 release + 3 blocked + 4 aborts) → cycle 3 (3 clean releases + 5 honest aborts). The new partial_thin_corpus path lets queries ship with honest limitations when adequacy marginally passes.
+- SYNC: Continuing auto-loop. Task #124 (fix-resweep) still in progress; #125 (declare ready) waiting on pass 11 verdict.
+- AFFECTED_FILES:
+  - CREATED: outputs/sweep_r3_final/ (cycle-3 artifacts)
+  - CREATED: outputs/codex_findings/full_audit_pass_11/sweep_index.md
+  - CREATED: docs/pipeline_audit_context/18_pass_11_sweep_content_cycle3.md
+- EVIDENCE/FINDINGS:
+  - Pre-M-10 T1 leaks (Knobbe, UpToDate, CMS.gov, KFF, FastCompany, Chitika) all correctly downgraded in cycle 3 live_corpus_dump.json files
+  - 3 released reports average 583 words
+  - 5 aborts have T1<10% — honest refusals given the real corpus
+- STATUS: Pass 11 in flight; will auto-proceed to next fix or declare ready per verdict.
+- NEXT_STEP: Wait for pass 11 verdict. If APPROVED → declare full-scale ready. Else → fix and cycle 4.
