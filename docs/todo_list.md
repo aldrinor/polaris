@@ -1,6 +1,31 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-18 (post Codex pass 4 remediation)
+**Last Updated**: 2026-04-19 (full-scale DR auto-loop in flight)
+
+## ACTIVE: Full-Scale DR Auto-Loop (user directive 2026-04-19)
+
+**Procedure**: `state/full_scale_auto_loop_procedure.md`
+**Memory**: `C:\Users\msn\.claude\projects\C--POLARIS\memory\full_scale_dr_auto_loop.md`
+
+Loop (no cycle cap, auto-continue):
+1. Claude fixes → unit tests → smoke
+2. Codex code audit line-by-line
+   - BLOCKED → claude fixes, loop
+   - GREEN → full-scale at MAX CAPACITY (serper/s2=50, fetch_cap=500, ev=400, $10/query budget)
+3. Codex DEEP DR-level output audit (every URL, every citation, every sentence — no pattern matching, no cherry picking)
+   - BLOCKED → full issues list → claude fixes, loop back to step 1
+   - GREEN at GPT-5.4-DR / Gemini-3.1-Pro-DR top-tier quality → STOP
+
+**Current cycle**: M-17 body-text inspection (Codex pass 2 verdict
+IMPLEMENT-C-BODY-INSPECT). 3 of 4 Codex-identified tier hallucinations
+have truncated or non-diagnostic titles; body-text inspection reads
+article-type/abstract/early-content for SR/MA/case-report/perspective
+markers.
+
+Tasks: #138 (M-17) → #139 (Codex pass 3 code audit) → #140 (full-scale
+v4 at max capacity) → #141 (DR deep output audit). Blocked-by chain.
+
+---
 
 Highest-priority items at the top. Older entries are in
 `archive/2026-04-18-pre-audit-cleanup/docs/todo_list_legacy.md` (see

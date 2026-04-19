@@ -99,6 +99,13 @@ class ClassificationSignals:
     funding_disclosures: list[str] = field(default_factory=list)
     # Free text for future keyword rules (e.g., title keywords)
     title: str = ""
+    # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
+    # One of "SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE", or "".
+    # Populated by live_retriever._detect_article_type_from_body when
+    # fetched content contains article-type metadata or SR/MA/case-
+    # report markers in the first 8KB. Used by classifier to override
+    # title-only decisions when body evidence contradicts.
+    body_article_type: str = ""
 
 
 @dataclass
@@ -1112,6 +1119,50 @@ def classify_source_tier(
             f"Domain {domain!r} is a student-authored journal — does not "
             f"meet peer-review standards for T1/T2. T6."
         )
+        return result
+
+    # ── Rule 8b (BUG-M-17, Codex pass 2): body-inspection override.
+    # When live_retriever._detect_article_type_from_body found explicit
+    # article-type metadata (meta tag / JSON-LD / Frontiers section
+    # header / PRISMA marker / "we report a case" etc.) in the fetched
+    # content, that secondary signal trumps the title-only heuristics.
+    # Applied BEFORE R9/R10 so OpenAlex metadata can't upgrade a
+    # body-detected case-report/perspective to T1.
+    body_signal = (signals.body_article_type or "").upper()
+    if body_signal in ("SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE"):
+        if body_signal == "SR_MA":
+            result.tier = TierLevel.T2
+            result.confidence = 0.85
+            result.matched_rules.append("R8b_body_sr_ma")
+            result.reasons.append(
+                "Body-inspection detected systematic review / meta-"
+                "analysis signal (meta tag, JSON-LD, PRISMA reference, "
+                "or abstract lead). T2 regardless of title."
+            )
+        elif body_signal == "CASE_REPORT":
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R8b_body_case_report")
+            result.reasons.append(
+                "Body-inspection detected case-report signal. T4 "
+                "regardless of title."
+            )
+        elif body_signal == "GUIDELINE":
+            result.tier = TierLevel.T4
+            result.confidence = 0.8
+            result.matched_rules.append("R8b_body_guideline")
+            result.reasons.append(
+                "Body-inspection detected guideline / consensus / "
+                "practice-guide signal. T4 regardless of title."
+            )
+        else:  # PERSPECTIVE
+            result.tier = TierLevel.T4
+            result.confidence = 0.75
+            result.matched_rules.append("R8b_body_perspective")
+            result.reasons.append(
+                "Body-inspection detected perspective / commentary / "
+                "editorial signal. T4 regardless of title."
+            )
         return result
 
     # ── Rule 9: OpenAlex-indexed peer-reviewed journal article

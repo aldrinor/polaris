@@ -175,6 +175,128 @@ _DOI_FROM_URL_RE = re.compile(
 )
 
 
+# BUG-M-17 (Codex full-scale pass 2): bounded body-text inspection
+# for article-type signals. Reads high-signal regions of fetched
+# content (meta tags, first 4KB, abstract/methods lead) for SR/MA,
+# case-report, perspective, guidance markers. Used by the classifier
+# as a SECONDARY signal when the title is truncated or non-diagnostic.
+#
+# NOT a full-body scan — Codex pass 2 explicitly warned:
+# "do not scan the entire body naively for generic terms. Add a
+#  bounded secondary narrative/SR signal extractor that inspects
+#  high-signal fetched regions only."
+
+_BODY_ARTICLE_TYPE_MARKERS: tuple[tuple[str, str], ...] = (
+    # (regex_pattern, signal_tag)
+    # Meta tags (publisher-set article-type)
+    (r'<meta[^>]+citation_article_type[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
+    (r'<meta[^>]+article:section[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
+    (r'<meta[^>]+prism\.section[^>]+content=["\']([^"\']+)["\']', "meta_article_type"),
+    # JSON-LD
+    (r'"articleType"\s*:\s*"([^"]+)"', "jsonld_articleType"),
+    (r'"@type"\s*:\s*"(ScholarlyArticle|MedicalScholarlyArticle|Article)"', "jsonld_type"),
+    # Frontiers: "SYSTEMATIC REVIEW article" appears prominently
+    (r'\b(SYSTEMATIC REVIEW|META[- ]ANALYSIS|NETWORK META[- ]ANALYSIS|'
+     r'CASE REPORT|PERSPECTIVE|EDITORIAL|REVIEW|GUIDELINE|COMMENTARY|'
+     r'LETTER|BRIEF REPORT|OPINION) article', "jfm_article_type"),
+    # Nature family: section header "Article type: ..."
+    (r'Article type:?\s*([A-Z][A-Za-z /-]+)', "nature_article_type"),
+)
+
+_BODY_SR_MA_PATTERNS = (
+    r'\bsystematic review\b',
+    r'\bmeta[- ]analysis\b',
+    r'\bnetwork meta[- ]analysis\b',
+    r'\bcochrane review\b',
+    r'\bPRISMA\s*(?:2020|2009)?\b',  # PRISMA flow diagram reference
+    r'\bumbrella review\b',
+    r'\bscoping review\b',
+)
+
+_BODY_CASE_REPORT_PATTERNS = (
+    r'\bcase report\b',
+    r'\bcase series\b',
+    r'\bwe (report|describe|present) (?:a|the) case\b',
+    r'\b(a|this)\s+\d+[- ]year[- ]old\s+(man|woman|male|female|patient)\b',
+)
+
+_BODY_PERSPECTIVE_PATTERNS = (
+    r'\b(a )?perspective (for|on|from)\b',
+    r'\bperspectives\s+(for|on|from)\b',
+    r'\bfor primary care providers\b',
+    r'\bfor clinicians\b',
+    r'\bclinical perspective\b',
+)
+
+_BODY_GUIDELINE_PATTERNS = (
+    r'\bclinical practice guideline\b',
+    r'\bpractice guideline\b',
+    r'\bconsensus statement\b',
+    r'\bconsensus recommendation\b',
+    r'\bexpert consensus\b',
+    r'\bpractical guidance\b',
+)
+
+
+def _detect_article_type_from_body(raw_content: str) -> str:
+    """Bounded body-text inspection for article-type signal.
+
+    Returns one of: "SR_MA", "CASE_REPORT", "PERSPECTIVE", "GUIDELINE",
+    or "" (no signal). Inspects only the first 8KB of content to keep
+    cost bounded.
+
+    Precedence: explicit meta/JSON-LD/Frontiers-article-type tags
+    first (most reliable), then body text patterns in the first 4KB
+    (abstract/methods lead area).
+    """
+    if not raw_content:
+        return ""
+    # Bound the scan window
+    head = raw_content[:8000]
+    head_lower = head.lower()
+
+    # Priority 1: explicit article-type metadata
+    for pattern, tag in _BODY_ARTICLE_TYPE_MARKERS:
+        m = re.search(pattern, head, re.IGNORECASE)
+        if m:
+            captured = (m.group(1) if m.lastindex else m.group(0)).lower()
+            if any(k in captured for k in ("systematic review",
+                                            "meta-analysis",
+                                            "meta analysis",
+                                            "cochrane")):
+                return "SR_MA"
+            if "case report" in captured or "case series" in captured:
+                return "CASE_REPORT"
+            if "perspective" in captured:
+                return "PERSPECTIVE"
+            if "guideline" in captured or "consensus" in captured:
+                return "GUIDELINE"
+            if "review" in captured and "meta" not in captured:
+                # "review" without SR/MA → narrative review
+                return "PERSPECTIVE"
+            if "editorial" in captured or "commentary" in captured:
+                return "PERSPECTIVE"
+            if "letter" in captured or "opinion" in captured:
+                return "PERSPECTIVE"
+
+    # Priority 2: body text patterns (bounded to first 4KB lead)
+    lead = head_lower[:4000]
+    for pattern in _BODY_SR_MA_PATTERNS:
+        if re.search(pattern, lead, re.IGNORECASE):
+            return "SR_MA"
+    for pattern in _BODY_CASE_REPORT_PATTERNS:
+        if re.search(pattern, lead, re.IGNORECASE):
+            return "CASE_REPORT"
+    for pattern in _BODY_GUIDELINE_PATTERNS:
+        if re.search(pattern, lead, re.IGNORECASE):
+            return "GUIDELINE"
+    for pattern in _BODY_PERSPECTIVE_PATTERNS:
+        if re.search(pattern, lead, re.IGNORECASE):
+            return "PERSPECTIVE"
+
+    return ""
+
+
 def _extract_title_from_content(content: str) -> str:
     """Extract the full paper title from fetched page content.
 
@@ -336,7 +458,7 @@ def _strip_html(html: str) -> str:
     return no_tags.strip()
 
 
-def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str]:
+def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
     spawning, or sandboxes without Playwright)."""
@@ -357,7 +479,7 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
-            return "", False, ""
+            return "", False, "", ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
         if not raw and r.content:
@@ -365,16 +487,18 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         # BUG-M-13/M-14: extract title from raw HTML BEFORE stripping
         # (the <title> tag is gone after _strip_html).
         extracted_title = _extract_title_from_content(raw)
+        # BUG-M-17: detect article-type from bounded body region.
+        body_type = _detect_article_type_from_body(raw)
         content = _strip_html(raw)[:max_chars]
-        return content, bool(content), extracted_title
+        return content, bool(content), extracted_title, body_type
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
-        return "", False, ""
+        return "", False, "", ""
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str]:
+def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
@@ -465,12 +589,14 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str]:
             "[live_retriever] fetch_miss %s (method=%s reason=%s)",
             url[:80], method, reason or "no_content",
         )
-        return "", False, ""
+        return "", False, "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
     # markdown has "Title: X" on first line; Crawl4AI cleaned text has
     # the same. HTML fetches have <title>.
     extracted_title = _extract_title_from_content(result.content)
+    # BUG-M-17 (Codex pass 2): detect article-type from body.
+    body_type = _detect_article_type_from_body(result.content)
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
@@ -479,7 +605,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str]:
         "[live_retriever] fetch_ok %s (method=%s chars=%d)",
         url[:80], method, len(content),
     )
-    return content, bool(content), extracted_title
+    return content, bool(content), extracted_title, body_type
 
 
 def _domain_of(url: str) -> str:
@@ -755,7 +881,7 @@ def run_live_retrieval(
             time.sleep(0.2)
 
         # Fetch content (for tier classification + evidence)
-        content, ok, content_title_from_fetch = _fetch_content(
+        content, ok, content_title_from_fetch, body_article_type = _fetch_content(
             cand.url, DEFAULT_CONTENT_MAX_CHARS,
         )
         api_calls["fetch"] += 1
@@ -807,6 +933,8 @@ def run_live_retrieval(
             openalex_source_type=oa.get("openalex_source_type", "") or "",
             openalex_is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
             source_type_hint="",
+            # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
+            body_article_type=body_article_type,
         )
         tier_result = classify_source_tier(signals)
 
