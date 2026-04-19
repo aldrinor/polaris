@@ -490,14 +490,25 @@ async def run_one_query(
             return summary
 
         # Live retrieval
+        # Env-controllable retrieval width for full-scale runs:
+        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
+        #     queries fanned to Serper
+        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
+        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
+        #     & fetch per query (after pre-filter)
+        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
+        # → ~400 pre-filter candidates, 200 classified sources per query.
+        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
+        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
+        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
         t0 = time.time()
         retrieval = run_live_retrieval(
             research_question=q["question"],
             amplified_queries=q.get("amplified", []),
             protocol=protocol,
-            max_serper=8,
-            max_s2=8,
-            fetch_cap=20,
+            max_serper=_max_serper,
+            max_s2=_max_s2,
+            fetch_cap=_fetch_cap,
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
             domain=q["domain"],   # R-6 Gap-2 domain backends
