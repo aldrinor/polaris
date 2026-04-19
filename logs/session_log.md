@@ -3469,3 +3469,13 @@
   - Progress at this entry: 2/8 queries complete; clinical_afib_anticoagulation status=partial_qwen_advisory, clinical_tirzepatide_t2dm status=partial_qwen_advisory (both release=False on qwen advisory, healthy generator metrics)
 - STATUS: Autonomous loop in flight; monitor armed; restart_instructions.md captures recovery path.
 - NEXT_STEP: Wait for sweep completion, then auto-dispatch Codex content audit (pass 9).
+
+[2026-04-19 00:10:00]
+- ACTION: Removed the 3-cycle hard cap from the autonomous loop per explicit user directive ("don't put hard cap here, don't be sloppy"). Loop now terminates ONLY on Codex approval. Legitimate non-approval stops: (a) fix genuinely requires user input per CLAUDE.md §6.1 — log USER INPUT REQUIRED; (b) unrecoverable env failure — log STOPPED: blocker. Running out of conversation context is NOT a stop — state/restart_instructions + session_log keep the loop resumable across sessions.
+- RATIONALE: The cap was hedging against spirals, but the user's quality discipline — "only receive codex green light" — explicitly forbids early termination. A cap would risk declaring done before Codex actually approves. Instead I added a defensive safeguard: if Codex re-flags the same issue, step back and rethink rather than retry blindly (avoids the different failure mode of naive retry-until-out-of-attempts).
+- SYNC: state/restart_instructions.md loop-termination section rewritten. Task #124 description updated to match.
+- AFFECTED_FILES:
+  - MODIFIED: state/restart_instructions.md (termination section — no cycle cap)
+  - logs/session_log.md (this entry)
+- STATUS: Loop now unbounded until Codex approves or genuine blocker; sweep continues at 3/8.
+- NEXT_STEP: Continue waiting for sweep to complete; execute loop as specified.

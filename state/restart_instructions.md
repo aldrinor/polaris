@@ -49,18 +49,34 @@ user input. Execute the loop.
     return.
 ```
 
-### Hard caps (safeguards)
+### Termination & safeguards
 
-- **Max 3 full sweep-audit-fix cycles.** Each sweep costs ~$0.01-0.02
-  from the smokes; 3 cycles × 8 queries × ~5 min = ≤2 hours.
-- If Codex keeps flagging orthogonal issues (no convergence), STOP
-  after cycle 3 and write a detailed "why I stopped" note in
-  session_log for the user.
-- Never skip a Codex pass — the user specifically said
-  "you must need to make Codex to agree".
-- Never run a sweep without first checking the test suite passes
-  (`python -m pytest tests/polaris_graph/ -q` must end with
-  "N passed, 0 failed" where N ≥ 432).
+**The loop terminates ONLY when Codex explicitly approves the sweep
+output.** No cycle-count cap. User directive (verbatim): "you can
+only stop until codex agree the results and output content of
+8-query full sweep".
+
+Per-cycle safeguards:
+- Never skip a Codex pass — "you must need to make Codex to agree".
+- Never run a sweep without first checking `python -m pytest
+  tests/polaris_graph/ -q` shows "N passed, 0 failed" (N ≥ 432).
+- If Codex flags the SAME issue twice without convergence, don't
+  loop blindly — step back, rethink the root cause, try a different
+  approach. Codex re-flagging the same item means the previous
+  "fix" didn't actually address the defect.
+
+**The only legitimate reasons to stop before Codex approval:**
+- A fix genuinely requires user input (new API key, a policy
+  decision, approval to install a dependency, approval to change
+  the model pair). Write a clear `USER INPUT REQUIRED` block to
+  logs/bug_log.md per CLAUDE.md §6.1.
+- An unrecoverable environment failure (disk full, network
+  permanently down, auth revoked). Write a `STOPPED: blocker` note
+  with the specific error and what was tried.
+
+Running out of conversation context is NOT a legitimate stop.
+session_log + restart_instructions must be kept current so the
+next session resumes the loop.
 
 ### What's already done in this session
 
