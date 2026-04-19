@@ -1,130 +1,105 @@
-# Restart Instructions
+# Restart Instructions — ★ SESSION COMPLETE: CODEX APPROVED ★
 
-## Current state (2026-04-19 00:05 UTC) — AUTONOMOUS SWEEP+AUDIT LOOP IN FLIGHT
+## Morning-read summary (2026-04-19)
 
-**Branch**: `PL-honest-rebuild-phase-1`
-**HEAD**: `3e4dd03` (Codex pass 8 findings — READY verdict)
-**Test suite baseline**: 432 passing
+**The autonomous loop finished. Codex pass 16 verdict: APPROVED-FOR-FULL-SCALE-RUN.**
 
----
+You went to sleep after directing an autonomous sweep→audit→fix
+loop with no cycle cap. Claude executed 16 Codex audit passes and
+10 sweep cycles over the night. The pipeline is approved.
 
-## CRITICAL: what you (next session) must do if resuming
+### Final commit
 
-The user (`aldrin.or@c-polarbiotech.com`) is asleep. They explicitly
-directed this session to run an autonomous loop. Do NOT wait for
-user input. Execute the loop.
+`157aa0f PL: ★ Codex pass 16 verdict: APPROVED-FOR-FULL-SCALE-RUN ★`
 
-### The autonomous loop
+All artifacts are in git. Approved sweep output at
+`outputs/sweep_r3_final/` (cycle 10). Codex findings at
+`outputs/codex_findings/full_audit_pass_{3..16}/findings.md`.
 
-```
-[ongoing] 8-query full sweep (bg task bs3hpf8r0, monitor bb4cs4x3a)
-    ↓ (monitor emits "sweep_complete summary_written")
-[step 1] Bundle full sweep output for Codex audit:
-    - outputs/sweep_r3_final/sweep_summary.{json,md}
-    - For each of 8 queries:
-      - manifest.json
-      - report.md
-      - verification_details.json
-      - evaluator_rule_checks.json
-      - qwen_judge_output.json
-      - run_log.txt
-      - bibliography.json
-      - contradictions.json
-      - corpus_adequacy.json
-[step 2] Write docs/pipeline_audit_context/16_pass_9_content_audit.md
-    with bundle references + mandate (content quality, not code)
-[step 3] Dispatch Codex pass 9 as bg task using the SAME pattern that
-    worked: `cat /tmp/codex_pass9_prompt.txt | codex exec
-    --sandbox workspace-write - > stdout 2> stderr`
-[step 4] Monitor for findings.md
-[step 5] Read verdict:
-    - If APPROVED / READY / similar → go to [step 7]
-    - If issues flagged → go to [step 6]
-[step 6] Parse Codex findings, identify root causes, implement fixes,
-    run full test suite (must stay ≥432 pass), commit, re-run 8-query
-    sweep (rm -rf outputs/sweep_r3_final && python -m scripts.run_honest_sweep_r3
-    --out-root outputs/sweep_r3_final), go back to [step 1]
-[step 7] Write morning-read summary to logs/session_log.md, commit,
-    mark tasks 110/122/123/124/125 completed. Tell user when they
-    return.
-```
+### What was fixed (M-1 through M-15)
 
-### Termination & safeguards
+| M | Blocker | Fix commit |
+|---|---|---|
+| M-1 | Fetch worker.join had no deadline | `ac593e1` |
+| M-2 | Strict_verify dropped 80% sentences on clinical | `b2b6f5a` |
+| M-3 | PT13 advisory failure wasn't surfaced in manifest | `3921bc0` |
+| M-4 | Runbook incorrect on material_deviation semantics | `3921bc0`/`9f2801a` |
+| M-5 | PT12 regex treated `[YYYY]` bibliography years as citations | `5cf6959` |
+| M-6 | PT13 flagged question-inherited superlatives + adversarial evasion | `3921bc0`→`9f2801a`→`e38c43f` (dynamic threshold) |
+| M-7 | Social/market-research/law-firm domains classified T1 | `PL: BUG-M-7` commit |
+| M-8 | Malformed citation fragments in Novo report | same |
+| M-10 | Clinical-reference products, policy think tanks, trade news got T1 | `PL: M-10` commit |
+| M-11 | R9 OpenAlex rule too permissive — now requires known-journal allowlist | commit |
+| M-12 | Serper truncated SR/MA titles → fetched full OpenAlex display_name | commit |
+| M-13 | DOI-based OpenAlex lookup + content-title fallback | commit |
+| M-14 | Raw-HTML title extraction pre-strip (R10 tightening reverted — too strict) | `6096ff5`+`b2b926b` |
+| M-15 | Targeted R10 guards (truncated title, society tools, guideline/consensus markers; NIH-aggregator guard reverted after over-demotion) | `PL: M-15` + `b84baef` |
 
-**The loop terminates ONLY when Codex explicitly approves the sweep
-output.** No cycle-count cap. User directive (verbatim): "you can
-only stop until codex agree the results and output content of
-8-query full sweep".
+### Final pipeline state
 
-Per-cycle safeguards:
-- Never skip a Codex pass — "you must need to make Codex to agree".
-- Never run a sweep without first checking `python -m pytest
-  tests/polaris_graph/ -q` shows "N passed, 0 failed" (N ≥ 432).
-- If Codex flags the SAME issue twice without convergence, don't
-  loop blindly — step back, rethink the root cause, try a different
-  approach. Codex re-flagging the same item means the previous
-  "fix" didn't actually address the defect.
+- **538 tests pass**, 0 failed
+- **Honest-by-construction invariants hold**:
+  - Two-family evaluator segregation (DeepSeek gen + Qwen eval)
+  - Provenance tokens + strict_verify per-sentence
+  - Budget cap respected
+  - Prompt-injection sanitization
+  - Corpus approval gate enforced
+- **Cycle 10 profile** (the approved state):
+  - 0 clean releases
+  - 1 partial_qwen_advisory (release=False) — clinical_afib,
+    632 words, citations resolve, qwen flagged for review
+  - 7 abort_corpus_inadequate — honest refusals on thin corpora
+  - Total cost: $0.0010 (vs $0.80 worst-case cap)
 
-**The only legitimate reasons to stop before Codex approval:**
-- A fix genuinely requires user input (new API key, a policy
-  decision, approval to install a dependency, approval to change
-  the model pair). Write a clear `USER INPUT REQUIRED` block to
-  logs/bug_log.md per CLAUDE.md §6.1.
-- An unrecoverable environment failure (disk full, network
-  permanently down, auth revoked). Write a `STOPPED: blocker` note
-  with the specific error and what was tried.
+### Documented production caveats
 
-Running out of conversation context is NOT a legitimate stop.
-session_log + restart_instructions must be kept current so the
-next session resumes the loop.
+Per Codex pass 16:
 
-### What's already done in this session
+1. **Partial/advisory reports are gated output.** Downstream
+   consumers must treat `partial_qwen_advisory` runs as non-clean
+   releases.
+2. **R10 PMC fallback has known low-confidence T1 over-promotions**
+   (3 in cycle 10) on clinical-guidance/perspective pages when
+   title metadata lacks decisive markers. None of these appear in
+   released content. Narrow, acknowledged.
+3. **AFib completeness template** should eventually avoid claiming
+   full completeness when a section says evidence was inaccessible.
+   Gate already prevents clean release, so not blocking.
 
-- Pass 3 READY (B-102 closed)
-- Pass 4 CONDITIONAL → M-1 timeout (ac593e1) + M-2 span finder (b2b6f5a)
-- Pass 5 CONDITIONAL → M-5 PT12 fix (5cf6959) + M-3/M-4/M-6 (3921bc0)
-- Pass 6 CONDITIONAL → M-6 lexical echo + M-4 correction (9f2801a)
-- Pass 7 NOT-READY → M-6 dynamic threshold (e38c43f)
-- Pass 8 READY-FOR-8-QUERY-SWEEP (3e4dd03)
-- **Current**: 8-query sweep running; waiting for completion
+### Key findings from the night
 
-### Key files
+- **Release-rate vs honesty tradeoff**: Cycles 5-9 oscillated between
+  "many releases with T1 hallucinations" and "zero releases with
+  honest tiering". Cycle 10 is the equilibrium: refuses thin
+  corpora cleanly, lets the one marginal report ship only as
+  gated `partial_qwen_advisory`.
+- **Fetch pipeline**: 10% → ~75-95% fetch success rate via
+  AccessBypass (Crawl4AI/Jina/Firecrawl cascade). Threaded worker
+  with 90s deadline prevents browser-cleanup hangs.
+- **Title-signal chain**: Serper snippet → OpenAlex DOI lookup →
+  OpenAlex title-search → raw HTML `<title>` / Jina `Title:` /
+  markdown H1 → longest-wins. Catches SR/MA suffixes that would
+  otherwise be truncated.
+- **Tier classification**: 5 new domain blocklists + 1 allowlist
+  guard (R9) + 4 narrow R10 guards. Over-aggressive guards were
+  reverted when they zeroed release rate.
 
-- `docs/pipeline_audit_context/0{7,8,9,10,11,12,13,14,15}_*.md` — the
-  briefs dispatched to Codex (pass 3 through pass 8)
-- `outputs/codex_findings/full_audit_pass_{3..8}/findings.md` — Codex
-  verdicts (all tracked in git)
-- `outputs/sweep_r3_final/` — in-flight 8-query sweep output (gitignored
-  but referenced)
-- `logs/session_log.md` — append-only audit trail
-- `docs/todo_list.md` — Active section has Pass 5/Pass 4 sections at top
-- `tests/polaris_graph/` — 432 tests; must stay green at every fix
+### What to do on wake
 
-### Auth
+1. Read `outputs/codex_findings/full_audit_pass_16/findings.md`
+   (the full verdict)
+2. Review `outputs/sweep_r3_final/clinical/clinical_afib_anticoagulation/report.md`
+   (the one partial release — 632 words, qwen-flagged for completeness)
+3. Scan `outputs/sweep_r3_final/*/*/run_log.txt` for the 7 aborts
+   (each has a clear "Refusing to ship a misleading short report"
+   message with the failed thresholds)
+4. Optionally address the 3 documented caveats if you want to
+   push release rate up (but the current honest-by-construction
+   behavior is the intended design)
 
-Codex CLI uses OAuth (chatgpt). No API key burn. `which codex` returns
-`/c/Users/msn/AppData/Roaming/npm/codex`. Version 0.121.0.
+### Tasks closed tonight
 
-### Dispatch pattern that WORKS (don't use argv)
-
-```bash
-cat /tmp/codex_passN_prompt.txt | codex exec --sandbox workspace-write - \
-  > outputs/codex_findings/full_audit_pass_N/codex_stdout.log \
-  2> outputs/codex_findings/full_audit_pass_N/codex_stderr.log
-```
-
-Argv-style `codex exec "$(cat prompt.txt)"` silently wedges on Windows.
-
----
-
-## If you find things are broken on arrival
-
-- Check `git log --oneline -20` to see what's been committed
-- Check `tasklist //FI "IMAGENAME eq codex.exe"` for stuck codex processes;
-  `taskkill //F //IM codex.exe` if wedged >20 min with <200 stderr lines
-- Check `ls outputs/sweep_r3_final/` — presence of sweep_summary.json
-  means sweep finished
-- Run `python -m pytest tests/polaris_graph/ -q | tail -3` to verify
-  test suite is still green
-
-Everything is recoverable. The loop is the source of truth.
+105 task items tracked; all resolved or explicitly deferred. The
+loop tasks (#123-134) walked through each Codex pass and its
+remediation. #125 (declare full-scale-run readiness) completing
+with this commit.
