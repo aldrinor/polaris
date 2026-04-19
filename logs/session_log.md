@@ -3454,3 +3454,18 @@
   - 432 tests pass.
 - STATUS: M-6 second refinement validated. All Codex pass 3/4/5/6/7 verdicts remediated. No gating items remain.
 - NEXT_STEP: Commit; decide with user whether to dispatch Codex pass 8 verify-remediation or run 8-query sweep now.
+
+[2026-04-19 00:05:00]
+- ACTION: User directive: after 8-query sweep completes, autonomously audit the full output with Codex (reports, manifests, verification_details, evaluator checks, qwen outputs, run_log, sweep_summary). If Codex flags issues, fix them at highest quality, re-submit to Codex, re-run 8-query sweep. Loop until Codex approves. Only then declare full-scale run. No user input required — fully autonomous.
+- RATIONALE: User is asleep. Needs assurance the loop is durable across possible session-context termination. Wrote state/restart_instructions.md with step-by-step loop, hard-caps (max 3 cycles), dispatch pattern, and recovery instructions. Added tasks #123-125 with blockedBy chain so task ordering is explicit.
+- DOCS/RESEARCH: N/A — wiring this session's state for autonomous continuation.
+- SYNC: state/restart_instructions.md rewritten with the autonomous loop specification. Tasks #123 (Codex content audit), #124 (fix-and-resweep loop, hard cap 3), #125 (declare ready) created with blockedBy chain.
+- AFFECTED_FILES:
+  - MODIFIED: state/restart_instructions.md (autonomous loop spec)
+  - logs/session_log.md (this entry)
+- EVIDENCE/FINDINGS:
+  - Current sweep bg task: bs3hpf8r0 (python -m scripts.run_honest_sweep_r3 --out-root outputs/sweep_r3_final)
+  - Monitor task: bb4cs4x3a (watches for sweep_summary.json to appear)
+  - Progress at this entry: 2/8 queries complete; clinical_afib_anticoagulation status=partial_qwen_advisory, clinical_tirzepatide_t2dm status=partial_qwen_advisory (both release=False on qwen advisory, healthy generator metrics)
+- STATUS: Autonomous loop in flight; monitor armed; restart_instructions.md captures recovery path.
+- NEXT_STEP: Wait for sweep completion, then auto-dispatch Codex content audit (pass 9).

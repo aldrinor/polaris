@@ -1,135 +1,114 @@
 # Restart Instructions
 
-## Current state (2026-04-18) — Phase E operational reconciliation complete; deep-dive rounds queued
+## Current state (2026-04-19 00:05 UTC) — AUTONOMOUS SWEEP+AUDIT LOOP IN FLIGHT
 
 **Branch**: `PL-honest-rebuild-phase-1`
-**HEAD**: (latest commit after Phase E — see `git log --oneline -1`)
-**Test suite baseline**: 305 passing, 0 xfail, 0 failed
+**HEAD**: `3e4dd03` (Codex pass 8 findings — READY verdict)
+**Test suite baseline**: 432 passing
 
 ---
 
-## What just happened (recap for a fresh session)
+## CRITICAL: what you (next session) must do if resuming
 
-### Phases completed this session (2026-04-18)
+The user (`aldrin.or@c-polarbiotech.com`) is asleep. They explicitly
+directed this session to run an autonomous loop. Do NOT wait for
+user input. Execute the loop.
 
-1. **Codex↔Claude audit rounds 1-5** — closed with READY verdict on
-   narrow B-1..B-5 invariant scope. 5 blockers fixed, 85 regression
-   tests added, 220 → 305 tests. Commits `724edf5`, `9493326`,
-   `3a90b4f`, `c2570b2`, `248382e`, `db59e22`.
-
-2. **Phase A/B/C repo cleanup** — archived 162 orphan files (61
-   scripts + 71 src modules + 37 stale docs + root junk + scratch
-   dirs) to `archive/2026-04-18-pre-audit-cleanup/`. Rewrote
-   `README.md`, `architecture.md` (was 135KB fiction), rebuilt
-   `docs/file_directory.md`, refreshed `docs/todo_list.md`, wrote
-   new `docs/runbook.md`, updated `CLAUDE.md §5` + `§9`. Flagged
-   `src/orchestration/` as FROZEN. Commit `0cf2a65`.
-
-3. **Phase D full-pipeline audit pass 1** — built
-   `docs/pipeline_audit_context/` bundle, ran Codex scoping pass.
-   **Verdict: PRIORITIZED — 3 blockers, 8 mediums, 1 minor.**
-   See `outputs/codex_findings/full_audit_pass_1/findings.md`.
-
-4. **Phase E operational state reconciliation** (in progress or
-   just committed):
-   - Refreshed `ground_rules.md` (was describing dead P0-P12 arch)
-   - Appended `logs/session_log.md` per CLAUDE.md §2.2
-   - Appended `logs/bug_log.md` — closed B-1..B-5, opened B-100/101/102,
-     M-201..208, N-301
-   - Wrote this `state/restart_instructions.md`
-   - Updated Docker entrypoint to remove/warn about broken pipeline C
-   - Audited `requirements.txt`, verified `.env.example`, bundled
-     `config/` into audit context, produced env-var inventory
-
----
-
-## Next action
-
-**Launch deep-dive round 1 (orchestration)** addressing BUG-B-101
-(success manifest lacks `status` key) per Codex's priority queue:
+### The autonomous loop
 
 ```
-1. orchestration (B-101)       ← NEXT
-2. pipeline_b_parity (B-102)
-3. intake_scope (B-100)
-4. generation (M-203)
-5. evaluator (M-205)
-6. retrieval_tiering (M-201)
-7. contradictions (M-202)
-8. observability (M-206)
-9. testing (M-207)
-10. strict_verify (M-204 — light touch)
-11. budget_cost (N-301 — light touch)
-12. frozen_c_disposition (M-208 — user-facing)
+[ongoing] 8-query full sweep (bg task bs3hpf8r0, monitor bb4cs4x3a)
+    ↓ (monitor emits "sweep_complete summary_written")
+[step 1] Bundle full sweep output for Codex audit:
+    - outputs/sweep_r3_final/sweep_summary.{json,md}
+    - For each of 8 queries:
+      - manifest.json
+      - report.md
+      - verification_details.json
+      - evaluator_rule_checks.json
+      - qwen_judge_output.json
+      - run_log.txt
+      - bibliography.json
+      - contradictions.json
+      - corpus_adequacy.json
+[step 2] Write docs/pipeline_audit_context/16_pass_9_content_audit.md
+    with bundle references + mandate (content quality, not code)
+[step 3] Dispatch Codex pass 9 as bg task using the SAME pattern that
+    worked: `cat /tmp/codex_pass9_prompt.txt | codex exec
+    --sandbox workspace-write - > stdout 2> stderr`
+[step 4] Monitor for findings.md
+[step 5] Read verdict:
+    - If APPROVED / READY / similar → go to [step 7]
+    - If issues flagged → go to [step 6]
+[step 6] Parse Codex findings, identify root causes, implement fixes,
+    run full test suite (must stay ≥432 pass), commit, re-run 8-query
+    sweep (rm -rf outputs/sweep_r3_final && python -m scripts.run_honest_sweep_r3
+    --out-root outputs/sweep_r3_final), go back to [step 1]
+[step 7] Write morning-read summary to logs/session_log.md, commit,
+    mark tasks 110/122/123/124/125 completed. Tell user when they
+    return.
 ```
 
-Each deep-dive round = scoped Codex brief + Claude fix + regression
-test. Estimated ~30-45 min per round at round-1..5 cadence.
-Full sweep: ~8-12 hours total.
+### Hard caps (safeguards)
+
+- **Max 3 full sweep-audit-fix cycles.** Each sweep costs ~$0.01-0.02
+  from the smokes; 3 cycles × 8 queries × ~5 min = ≤2 hours.
+- If Codex keeps flagging orthogonal issues (no convergence), STOP
+  after cycle 3 and write a detailed "why I stopped" note in
+  session_log for the user.
+- Never skip a Codex pass — the user specifically said
+  "you must need to make Codex to agree".
+- Never run a sweep without first checking the test suite passes
+  (`python -m pytest tests/polaris_graph/ -q` must end with
+  "N passed, 0 failed" where N ≥ 432).
+
+### What's already done in this session
+
+- Pass 3 READY (B-102 closed)
+- Pass 4 CONDITIONAL → M-1 timeout (ac593e1) + M-2 span finder (b2b6f5a)
+- Pass 5 CONDITIONAL → M-5 PT12 fix (5cf6959) + M-3/M-4/M-6 (3921bc0)
+- Pass 6 CONDITIONAL → M-6 lexical echo + M-4 correction (9f2801a)
+- Pass 7 NOT-READY → M-6 dynamic threshold (e38c43f)
+- Pass 8 READY-FOR-8-QUERY-SWEEP (3e4dd03)
+- **Current**: 8-query sweep running; waiting for completion
+
+### Key files
+
+- `docs/pipeline_audit_context/0{7,8,9,10,11,12,13,14,15}_*.md` — the
+  briefs dispatched to Codex (pass 3 through pass 8)
+- `outputs/codex_findings/full_audit_pass_{3..8}/findings.md` — Codex
+  verdicts (all tracked in git)
+- `outputs/sweep_r3_final/` — in-flight 8-query sweep output (gitignored
+  but referenced)
+- `logs/session_log.md` — append-only audit trail
+- `docs/todo_list.md` — Active section has Pass 5/Pass 4 sections at top
+- `tests/polaris_graph/` — 432 tests; must stay green at every fix
+
+### Auth
+
+Codex CLI uses OAuth (chatgpt). No API key burn. `which codex` returns
+`/c/Users/msn/AppData/Roaming/npm/codex`. Version 0.121.0.
+
+### Dispatch pattern that WORKS (don't use argv)
+
+```bash
+cat /tmp/codex_passN_prompt.txt | codex exec --sandbox workspace-write - \
+  > outputs/codex_findings/full_audit_pass_N/codex_stdout.log \
+  2> outputs/codex_findings/full_audit_pass_N/codex_stderr.log
+```
+
+Argv-style `codex exec "$(cat prompt.txt)"` silently wedges on Windows.
 
 ---
 
-## How to resume
+## If you find things are broken on arrival
 
-1. `cd C:/POLARIS`
-2. `git status` — should be clean (Phase E just committed)
-3. `python -m pytest tests/polaris_graph/` — should be 305 passed
-4. Read:
-   - `outputs/codex_findings/full_audit_pass_1/findings.md` — the risk register
-   - `outputs/codex_findings/full_audit_pass_1/claude_response.md` — classification
-   - `docs/todo_list.md` — backlog view
-5. Prepare round 1 brief at `.codex/deep_dive_round_1_orchestration/BRIEF.md`
-   targeting the manifest-contract unification (B-101).
-6. Launch Codex deep-dive via the same pattern used in rounds 1-5:
-   ```bash
-   cat .codex/deep_dive_round_1_orchestration/BRIEF.md | \
-     codex exec --sandbox workspace-write --skip-git-repo-check \
-     --output-last-message outputs/codex_findings/deep_dive_round_1/last_message.txt \
-     > outputs/codex_findings/deep_dive_round_1/stdout.log \
-     2> outputs/codex_findings/deep_dive_round_1/stderr.log
-   ```
+- Check `git log --oneline -20` to see what's been committed
+- Check `tasklist //FI "IMAGENAME eq codex.exe"` for stuck codex processes;
+  `taskkill //F //IM codex.exe` if wedged >20 min with <200 stderr lines
+- Check `ls outputs/sweep_r3_final/` — presence of sweep_summary.json
+  means sweep finished
+- Run `python -m pytest tests/polaris_graph/ -q | tail -3` to verify
+  test suite is still green
 
----
-
-## What to NOT do
-
-- Do NOT delete anything from `archive/2026-04-18-pre-audit-cleanup/`
-  until Phase E + all deep-dives are complete. The archive is the
-  safety net for any missed-dep discovery.
-- Do NOT re-open B-1..B-5 unless a new evasion vector appears. Those
-  are closed with Codex READY verdict.
-- Do NOT touch `src/orchestration/` until the retire/repair/leave
-  decision is made (see BUG-M-208).
-- Do NOT touch `scripts/live_server.py` blindly — deep-dive 2
-  (pipeline_b_parity) will define what to back-port.
-
----
-
-## Known-good environment
-
-- Python 3.11+ (tested on 3.13.5)
-- `requirements.txt` installed (audit in Phase E pending)
-- `.env` with `OPENROUTER_API_KEY` + `SERPER_API_KEY`
-- Working directory `C:/POLARIS`
-
-## Known blockers (for production)
-
-- BUG-B-100: scope gate unreachable abort status
-- BUG-B-101: manifest status contract drift
-- BUG-B-102: UI pipeline entirely un-hardened
-- BUG-M-208: Docker `research` subcommand broken (pipeline C)
-
-Until B-101 is fixed at minimum, downstream consumers cannot trust
-`manifest.status` as documented. Until B-102 is fixed, UI production
-is un-hardened despite the 5-round audit.
-
-## Related files
-
-- `logs/session_log.md` — full action history (last updated 2026-04-18)
-- `logs/bug_log.md` — defect registry (B-1..B-5 closed, B-100/101/102 + M-201..208 + N-301 open)
-- `docs/todo_list.md` — forward-looking backlog
-- `docs/runbook.md` — how to run each pipeline
-- `docs/live_code_audit.{md,json}` — static import-closure evidence
-- `.codex/loop_state.json` — 5-round audit state
-- `outputs/codex_findings/` — full audit history
-- `archive/2026-04-18-pre-audit-cleanup/` — reversible snapshot
+Everything is recoverable. The loop is the source of truth.
