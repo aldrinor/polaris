@@ -268,3 +268,89 @@ def test_manifest_contract_success_path_includes_unified_status() -> None:
         "success-path manifest must set status to the computed "
         "unified_status variable, not a literal"
     )
+
+
+# ─────────────────────────────────────────────────────────────────
+# BUG-SCHEMA-R8d: every manifest carries the shared envelope fields.
+# The original R1 test only pinned the `status` key. Live smoke
+# (2026-04-18) showed abort manifests missing retrieval/budget_cap_usd.
+# ─────────────────────────────────────────────────────────────────
+
+ENVELOPE_REQUIRED_KEYS = {"run_id", "slug", "domain", "question",
+                          "cost_usd", "budget_cap_usd", "status"}
+
+
+def test_manifest_envelope_helper_produces_full_shape() -> None:
+    """_base_manifest_envelope returns every required envelope key."""
+    from scripts.run_honest_sweep_r3 import _base_manifest_envelope
+    q = {"slug": "t", "domain": "d", "question": "q?"}
+    env = _base_manifest_envelope(run_id="RUN_X", q=q, run_cost=0.12)
+    # status is added by caller, not the helper
+    env["status"] = "success"
+    missing = ENVELOPE_REQUIRED_KEYS - set(env.keys())
+    assert not missing, f"envelope missing keys: {missing}"
+    assert env["run_id"] == "RUN_X"
+    assert env["cost_usd"] == 0.12
+    assert env["budget_cap_usd"] > 0  # default PG_MAX_COST_PER_RUN
+
+
+def test_manifest_envelope_includes_retrieval_when_provided() -> None:
+    """When retrieval object is passed, envelope has retrieval block
+    with fetched/failed/api_calls fields."""
+    from scripts.run_honest_sweep_r3 import _base_manifest_envelope
+
+    class _FakeRetrieval:
+        total_candidates_pre_filter = 300
+        candidates_fetched = 17
+        candidates_failed_fetch = 3
+        api_calls = {"serper": 3, "s2": 3, "fetch": 20}
+
+    q = {"slug": "t", "domain": "d", "question": "q?"}
+    env = _base_manifest_envelope(
+        run_id="X", q=q, retrieval=_FakeRetrieval(), run_cost=0.01,
+    )
+    assert "retrieval" in env
+    r = env["retrieval"]
+    assert r["fetched"] == 17
+    assert r["failed"] == 3
+    assert r["api_calls"]["serper"] == 3
+
+
+def test_manifest_envelope_retrieval_omitted_when_none() -> None:
+    """If retrieval=None (e.g., scope_rejected abort fires BEFORE
+    retrieval), the retrieval key is simply absent — not None."""
+    from scripts.run_honest_sweep_r3 import _base_manifest_envelope
+    env = _base_manifest_envelope(
+        run_id="X", q={"slug": "t", "domain": "d", "question": "q?"},
+        retrieval=None, run_cost=0.0,
+    )
+    assert "retrieval" not in env
+
+
+def test_manifest_every_abort_site_uses_envelope_helper() -> None:
+    """Source check: every abort branch calls _base_manifest_envelope
+    to build its manifest. Prevents future drift where a new abort
+    branch forgets envelope fields.
+
+    Checks that `_base_manifest_envelope` is called BEFORE every
+    manifest.json write in run_one_query (except the success path,
+    which has its own status-computation block).
+    """
+    import inspect
+    import scripts.run_honest_sweep_r3 as sweep
+    source = inspect.getsource(sweep.run_one_query)
+    # Count abort-path manifest writes (each has a distinct status=...)
+    abort_statuses = [
+        "abort_scope_rejected",
+        "abort_no_sources",
+        "abort_corpus_inadequate",
+        "abort_corpus_approval_denied",
+        "abort_no_verified_sections",
+    ]
+    helper_calls = source.count("_base_manifest_envelope(")
+    # Envelope helper used >= once per abort branch (5 total)
+    assert helper_calls >= 5, (
+        f"Expected _base_manifest_envelope called in each of 5 abort "
+        f"branches; found {helper_calls} calls. New abort branches must "
+        f"use the envelope helper."
+    )

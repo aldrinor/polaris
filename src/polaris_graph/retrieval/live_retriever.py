@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import asyncio
 import re
 import time
 from dataclasses import dataclass, field
@@ -214,8 +215,10 @@ def _strip_html(html: str) -> str:
     return no_tags.strip()
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
-    """Fetch URL content. Returns (content, success)."""
+def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool]:
+    """Legacy naive httpx fetcher. Kept as emergency fallback when
+    AccessBypass is unavailable (tests that don't want Crawl4AI browser
+    spawning, or sandboxes without Playwright)."""
     try:
         with httpx.Client(
             timeout=DEFAULT_HTTP_TIMEOUT,
@@ -225,6 +228,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
                     "Mozilla/5.0 (POLARIS-honest-rebuild/1.0) "
                     "research-assistant"
                 ),
+                # BUG-BROTLI-R8d: httpx/aiohttp advertise `br` by default
+                # but can't always decode it. Forbid it so servers don't
+                # return Brotli-encoded bodies we can't read.
+                "Accept-Encoding": "gzip, deflate",
             },
         ) as c:
             r = c.get(url)
@@ -237,8 +244,72 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
         content = _strip_html(raw)[:max_chars]
         return content, bool(content)
     except Exception as exc:
-        logger.debug("[live_retriever] fetch %r failed: %s", url, exc)
+        logger.debug(
+            "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
+        )
         return "", False
+
+
+def _fetch_content(url: str, max_chars: int) -> tuple[str, bool]:
+    """Fetch URL content using the AccessBypass cascade (Crawl4AI +
+    Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
+    Archive.org + institutional proxy + Sci-Hub).
+
+    BUG-FETCH-R8d (2026-04-18): the live smoke test of
+    clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
+    previous naive httpx.Client. `src/tools/access_bypass.py` already
+    had the full cascade (including BUG-BROTLI fix, concurrent Crawl4AI
+    /Jina/Firecrawl, paywall detection) but pipeline A wasn't wired
+    to it. This is the wiring.
+
+    The AccessBypass call is async; live_retriever's fetch loop is
+    sync by historical choice. We run the async call in a fresh event
+    loop per URL. Full async refactor of run_live_retrieval (with
+    asyncio.gather for concurrency) is tracked as R-RETRIEVE-ASYNC in
+    docs/todo_list.md.
+
+    Env opt-out: set PG_DISABLE_ACCESS_BYPASS=1 to fall back to the
+    naive httpx path (useful when Playwright/Crawl4AI is unavailable).
+    """
+    if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
+        return _fetch_content_httpx_naive(url, max_chars)
+    try:
+        from src.tools.access_bypass import AccessBypass
+    except Exception as exc:
+        logger.warning(
+            "[live_retriever] AccessBypass unavailable (%s); "
+            "falling back to naive httpx", exc,
+        )
+        return _fetch_content_httpx_naive(url, max_chars)
+
+    loop = asyncio.new_event_loop()
+    try:
+        bypass = AccessBypass()
+        result = loop.run_until_complete(
+            bypass.fetch_with_bypass(url, prefer_legal=True)
+        )
+    except Exception as exc:
+        logger.debug(
+            "[live_retriever] AccessBypass fetch %r failed: %s", url, exc,
+        )
+        try:
+            loop.close()
+        except Exception:
+            pass
+        return _fetch_content_httpx_naive(url, max_chars)
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+    if not result.success or not result.content:
+        return "", False
+    # result.content is already extracted (Jina = markdown, Crawl4AI =
+    # cleaned text). _strip_html is a safety net for direct-HTTP path
+    # which returns raw HTML.
+    content = _strip_html(result.content)[:max_chars]
+    return content, bool(content)
 
 
 def _domain_of(url: str) -> str:

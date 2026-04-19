@@ -149,6 +149,39 @@ def expected_str_for_abort(protocol: dict) -> str:
     return ", ".join(parts) or "per scope template"
 
 
+def _base_manifest_envelope(
+    *,
+    run_id: str,
+    q: dict,
+    retrieval=None,
+    run_cost: float = 0.0,
+) -> dict:
+    """BUG-SCHEMA-R8d fix: every manifest (success AND abort) carries
+    the same envelope so downstream consumers get consistent keys
+    regardless of exit path.
+
+    Caller adds status-specific fields on top (adequacy, generator,
+    evaluator_gate, scope, error, etc.). Using this helper prevents
+    the envelope from drifting between exit paths.
+    """
+    env: dict = {
+        "run_id": run_id,
+        "slug": q.get("slug", ""),
+        "domain": q.get("domain", ""),
+        "question": q.get("question", ""),
+        "cost_usd": run_cost,
+        "budget_cap_usd": PG_MAX_COST_PER_RUN,
+    }
+    if retrieval is not None:
+        env["retrieval"] = {
+            "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+            "fetched": getattr(retrieval, "candidates_fetched", 0),
+            "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+            "api_calls": getattr(retrieval, "api_calls", {}),
+        }
+    return env
+
+
 def write_per_run_cost_ledger(run_dir: Path, run_id: str) -> int:
     """BUG-M-206 fix (deep-dive R8): filter the global cost ledger for
     entries tagged with this run_id and write a per-run copy to
@@ -429,11 +462,11 @@ async def run_one_query(
                 encoding="utf-8",
             )
             run_cost = current_run_cost()
-            abort_manifest = {
-                "run_id": run_id,
-                "slug": q["slug"],
-                "domain": q["domain"],
-                "question": q["question"],
+            # BUG-SCHEMA-R8d: shared envelope for schema consistency.
+            abort_manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=None, run_cost=run_cost,
+            )
+            abort_manifest.update({
                 "status": "abort_scope_rejected",
                 "protocol_sha256": scope.protocol_sha256,
                 "scope": {
@@ -442,9 +475,7 @@ async def run_one_query(
                     "rejection_code": scope.protocol.scope_rejection_code,
                     "reasons": scope.protocol.scope_reasons,
                 },
-                "cost_usd": run_cost,
-                "budget_cap_usd": PG_MAX_COST_PER_RUN,
-            }
+            })
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -482,22 +513,13 @@ async def run_one_query(
             summary["status"] = "fail_no_sources"
             summary["error"] = "zero sources retrieved"
             run_cost = current_run_cost()
-            abort_manifest = {
-                "run_id": run_id,
-                "slug": q["slug"],
-                "domain": q["domain"],
-                "question": q["question"],
+            abort_manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            abort_manifest.update({
                 "status": "abort_no_sources",
                 "error": "zero sources retrieved",
-                "retrieval": {
-                    "pre_filter": retrieval.total_candidates_pre_filter,
-                    "fetched": retrieval.candidates_fetched,
-                    "failed": retrieval.candidates_failed_fetch,
-                    "api_calls": retrieval.api_calls,
-                },
-                "cost_usd": run_cost,
-                "budget_cap_usd": PG_MAX_COST_PER_RUN,
-            }
+            })
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -693,9 +715,12 @@ async def run_one_query(
                 encoding="utf-8",
             )
             run_cost = current_run_cost()
-            manifest = {
-                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
-                "question": q["question"],
+            # BUG-SCHEMA-R8d: use shared envelope so every exit path
+            # has the same field shape.
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
                 "status": "abort_corpus_inadequate",
                 "adequacy": asdict(adequacy),
                 "corpus": {
@@ -708,8 +733,7 @@ async def run_one_query(
                     "total_uncovered": completeness.total_uncovered,
                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
                 },
-                "cost_usd": run_cost,
-            }
+            })
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -775,9 +799,10 @@ async def run_one_query(
                 encoding="utf-8",
             )
             run_cost = current_run_cost()
-            manifest = {
-                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
-                "question": q["question"],
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
                 "status": "abort_corpus_approval_denied",
                 "approval_error": approval_error,
                 "adequacy": asdict(adequacy),
@@ -787,8 +812,7 @@ async def run_one_query(
                     "material_deviation": dist.has_material_deviation,
                     "approved": False,
                 },
-                "cost_usd": run_cost,
-            }
+            })
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -906,9 +930,10 @@ async def run_one_query(
                 encoding="utf-8",
             )
             run_cost = current_run_cost()
-            manifest = {
-                "run_id": run_id, "slug": q["slug"], "domain": q["domain"],
-                "question": q["question"],
+            manifest = _base_manifest_envelope(
+                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+            )
+            manifest.update({
                 "status": "abort_no_verified_sections",
                 "adequacy": asdict(adequacy),
                 "corpus": {
@@ -922,8 +947,7 @@ async def run_one_query(
                     "sections_dropped": len(multi.sections),
                     "sentences_verified": 0,
                 },
-                "cost_usd": run_cost,
-            }
+            })
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -1242,16 +1266,50 @@ async def run_one_query(
 
 
 async def main_async() -> int:
-    out_root = ROOT / "outputs" / "honest_sweep_r3"
+    """CLI entry. Supports --only <slug> to run a single query and
+    --out-root <path> to override the output directory. Documented in
+    docs/runbook.md."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="POLARIS pipeline A — 8-query honest-rebuild sweep.",
+    )
+    parser.add_argument(
+        "--only", type=str, default=None,
+        help="Run only the query with this slug. Default: all 8.",
+    )
+    parser.add_argument(
+        "--out-root", type=str, default=None,
+        help="Output directory root. Default: outputs/honest_sweep_r3",
+    )
+    args = parser.parse_args()
+
+    if args.out_root:
+        out_root = Path(args.out_root)
+    else:
+        out_root = ROOT / "outputs" / "honest_sweep_r3"
     out_root.mkdir(parents=True, exist_ok=True)
 
+    queries_to_run = SWEEP_QUERIES
+    if args.only:
+        queries_to_run = [q for q in SWEEP_QUERIES if q["slug"] == args.only]
+        if not queries_to_run:
+            available = [q["slug"] for q in SWEEP_QUERIES]
+            print(f"ERROR: --only {args.only!r} not found. Available slugs:")
+            for s in available:
+                print(f"  {s}")
+            return 2
+
     print("=" * 72)
-    print("R-3 CROSS-DOMAIN SWEEP — 8 queries across 4 domains")
+    if args.only:
+        print(f"R-3 SINGLE-QUERY RUN — slug={args.only}")
+    else:
+        print("R-3 CROSS-DOMAIN SWEEP — 8 queries across 4 domains")
+    print(f"Output root: {out_root}")
     print("=" * 72)
     print()
 
     all_summaries: list[dict] = []
-    for q in SWEEP_QUERIES:
+    for q in queries_to_run:
         print(f"\n>>> {q['domain']} / {q['slug']}")
         t0 = time.time()
         summary = await run_one_query(q, out_root)
