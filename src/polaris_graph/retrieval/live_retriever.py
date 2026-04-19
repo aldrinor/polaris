@@ -140,12 +140,22 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for p in papers:
         oa_pdf = (p.get("openAccessPdf") or {}).get("url", "")
-        url = oa_pdf or p.get("url", "") or ""
-        if not url:
-            continue
-        abstract = p.get("abstract") or ""
         ext_ids = p.get("externalIds") or {}
         doi = ext_ids.get("DOI", "")
+        # Full-scale fix (cycle 11): prefer open-access PDF, fall back
+        # to DOI-resolved URL. Never return a bare semanticscholar.org
+        # landing page — those are T7 abstract-only stubs that
+        # AccessBypass deliberately skips and that inflate the T7
+        # fraction in corpus adequacy. If neither oa_pdf nor DOI is
+        # available, skip the paper entirely.
+        if oa_pdf:
+            url = oa_pdf
+        elif doi:
+            url = f"https://doi.org/{doi}"
+        else:
+            # Bare S2 landing page would be returned here; skip.
+            continue
+        abstract = p.get("abstract") or ""
         out.append({
             "url": url,
             "title": p.get("title", "") or "",
