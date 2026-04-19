@@ -566,8 +566,11 @@ def _detect_conference_abstract(title: str, url: str = "") -> bool:
     - explicit keywords (conference abstract, poster, oral presentation)
     - "1745-P:" / "82-OR:" / "P-123:" abstract-number prefixes commonly
       used by ADA, ENDO, ESC, etc.
+    - Pass-16 (Codex full-scale pass 1): Endocrine Society / ENDO
+      day-prefixed presentation IDs like "THU296" / "MON-123" / "FRI42"
+      / "SAT-56" / "SUN-78" that prefix supplement abstracts.
     - URLs containing "/Supplement_" or "/abstract/" or journal-issue
-      supplement paths
+      supplement paths, or "/jes/article-pdf/.../Supplement_"
     """
     if title:
         t = title.lower()
@@ -582,9 +585,24 @@ def _detect_conference_abstract(title: str, url: str = "") -> bool:
         # Numbered "P-" prefix
         if re.match(r"^\s*P-\d+", title):
             return True
+        # Pass-16 (Codex full-scale pass 1): Endocrine Society day-letter
+        # presentation IDs. Pattern: MON/TUE/WED/THU/FRI/SAT/SUN + 2-4
+        # digits, optionally with hyphen. Must be at title start.
+        if re.match(
+            r"^\s*(MON|TUE|WED|THU|FRI|SAT|SUN)-?\d{2,4}\b",
+            title, re.IGNORECASE,
+        ):
+            return True
+        # Pass-16: abstract-ID-like prefixes commonly seen on JES/JCEM
+        # supplements, e.g., "OR01-2", "OR30-04", "SUN-245"
+        if re.match(r"^\s*OR\d+-\d+\b", title, re.IGNORECASE):
+            return True
     if url:
         u = url.lower()
         if "/supplement_" in u or "/supplement/" in u:
+            return True
+        # Pass-16: "/jes/article-pdf/.../Supplement_1/..." pattern
+        if "/article-pdf/" in u and "supplement" in u:
             return True
     return False
 
@@ -622,6 +640,16 @@ _NARRATIVE_FLAVOR_KEYWORDS = (
     "for clinicians", "for physicians",
     "prescribing ",  # "prescribing information", "prescribing recommendations"
     "what the clinician", "what clinicians",
+    # Pass-16 additions (Codex full-scale pass 1): case reports and
+    # post-hoc/secondary analyses that Codex found labeled T1 via R10
+    # fallback. "case report" on a PMC page with no conference-abstract
+    # marker would otherwise get T1 presumed-primary.
+    "case report", "case reports", "case study",
+    "a case of", "a case report",
+    "post hoc", "post-hoc", "post hoc analysis", "post-hoc analysis",
+    "secondary analysis",
+    "pooled analysis",  # narrative review / meta-analytic summary
+    "subgroup analysis",  # secondary analysis flavor
 )
 
 
