@@ -1,0 +1,11 @@
+Completed the audit and wrote the findings to:
+
+[findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_5/findings.md)
+
+Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
+
+Key outcomes:
+- No live-confirmed kept-sentence fabrication found.
+- M-25a appears effective for the pass-4 trial-name mismatch class.
+- V11 still fails top-tier DR due to evaluator PT08, weak contradiction handling, only 3 sections/710 words, overuse of secondary/T4 sources, obesity-without-diabetes scope bleed, and one embellished NNT claim at citation `[10]`.
+- Citation audit summary by unique cited entry: 8 faithful, 0 fabricated, 1 embellished, 3 unverifiable.
