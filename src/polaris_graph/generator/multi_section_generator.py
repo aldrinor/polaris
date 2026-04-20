@@ -305,10 +305,17 @@ def _build_deterministic_fallback_outline(
         ),
     }
 
-    # Round-robin: section i gets ev_ids[i::3].
+    # Round-robin: section i gets ev_ids[i::3], capped at 30 per section.
+    # M-24 fix: Without the cap, a 289-row corpus produces 96 ev_ids per
+    # section; inlining 96 evidence blocks in the section prompt created
+    # >100K-token request bodies that OpenRouter rejects as 400 Bad Request
+    # (V10 FATAL 2026-04-19). Cap at 30 keeps per-section prompts within
+    # DeepSeek V3.2-Exp's effective request limit while still giving the
+    # section writer a rich citation pool.
+    _MAX_EV_PER_FALLBACK_SECTION = 30
     plans: list[SectionPlan] = []
     for i, title in enumerate(allowed_titles):
-        section_ev = ev_ids[i::3]
+        section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
         if len(section_ev) < 2:
             # If slicing leaves a section too thin, bail out.
             return []
@@ -820,8 +827,8 @@ async def generate_multi_section_report(
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
-    outline_max_tokens: int = 800,
-    section_max_tokens: int = 1200,
+    outline_max_tokens: int = 2500,    # M-24 fix: was 800, JSON truncated with 12-20 ev_ids per section (V10 FATAL)
+    section_max_tokens: int = 2400,    # M-24 fix: was 1200, bumped for 10-18 sentence target
     min_kept_fraction: float = 0.5,
     max_parallel_sections: int = 3,
     # R-1: pipeline telemetry for the Limitations synthesis call.
