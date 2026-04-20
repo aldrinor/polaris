@@ -14,12 +14,9 @@ exactly what the generator saw.
 """
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
-
-logger = logging.getLogger("polaris_graph.evidence_selector")
 
 
 # Tier priority for within-pool ranking. Lower tier number = higher priority.
@@ -103,7 +100,6 @@ def select_evidence_for_generation(
     classified_sources: list[Any],
     evidence_rows: list[dict[str, Any]],
     max_rows: int,
-    exclude_tiers: set[str] | None = None,
 ) -> EvidenceSelection:
     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
 
@@ -150,48 +146,6 @@ def select_evidence_for_generation(
         )
         if url and tier:
             url_to_tier[str(url)] = str(tier)
-
-    # M-26a (DR audit pass 6): drop evidence from tiers the caller has
-    # explicitly excluded. Default excludes T6 (social platforms, press
-    # releases, blog posts) from clinical reports so the generator
-    # cannot cite Facebook/PR Newswire for medical claims when a
-    # higher-tier source exists in the same retrieval batch. Pass
-    # exclude_tiers=set() to disable (e.g. for ephemeral-news queries).
-    excluded: set[str] = {"T6"} if exclude_tiers is None else exclude_tiers
-    if excluded:
-        pre_filter_count = len(evidence_rows)
-        kept_rows: list[dict[str, Any]] = []
-        dropped_by_tier: dict[str, int] = {}
-        for row in evidence_rows:
-            t = _row_tier(row, url_to_tier)
-            if t in excluded:
-                dropped_by_tier[t] = dropped_by_tier.get(t, 0) + 1
-                continue
-            kept_rows.append(row)
-        if dropped_by_tier:
-            # Overwrite caller's evidence_rows reference so downstream
-            # code only sees kept rows. All telemetry below is computed
-            # from the filtered universe.
-            evidence_rows = kept_rows
-            logger.info(
-                "[selector] M-26a excluded tiers %s: dropped %d/%d rows (%s)",
-                sorted(excluded), pre_filter_count - len(kept_rows),
-                pre_filter_count, dropped_by_tier,
-            )
-        if not evidence_rows:
-            # Degenerate: entire pool was excluded. Fail loudly rather
-            # than silently returning nothing, since this is a data
-            # integrity signal.
-            return EvidenceSelection(
-                selected_rows=[], full_counts={}, selected_counts={},
-                dropped_count=pre_filter_count,
-                selection_strategy="tier_balanced_v1_all_excluded",
-                notes=[
-                    f"M-26a: all {pre_filter_count} rows were in "
-                    f"excluded tiers {sorted(excluded)} — check "
-                    f"retrieval or adjust exclude_tiers"
-                ],
-            )
 
     # Compute relevance tokens from research question + protocol anchors.
     question_tokens = _content_tokens(research_question or "")
