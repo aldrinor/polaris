@@ -16,24 +16,32 @@ Loop (no cycle cap, auto-continue):
    - BLOCKED → full issues list → claude fixes, loop back to step 1
    - GREEN at GPT-5.4-DR / Gemini-3.1-Pro-DR top-tier quality → STOP
 
-**Current cycle**: M-17 body-text inspection remediation chain.
+**Current cycle**: Iteration 6 — V10 sweep IN FLIGHT, M-23 + M-24 fixes applied.
 
-Pass sequence (detector tightening + architectural pivot):
-- Pass 3 (commit 029d521) → BLOCKED (lone-keyword false positives)
-- M-17b (commit 68bf3a4) → pass 4 BLOCKED (4 citation-shape leaks)
-- M-17c (commit c064a0c) → pass 5 BLOCKED (1 dated external guideline)
-- M-17d (commit 56f54d5) → pass 6 BLOCKED (3 novel: anaphoric leaks)
-- M-17e (commit 1b66242) → pass 7 BLOCKED (3 novel proving divergence)
-- M-17f (commit a2309f5) ARCHITECTURAL PIVOT → pass 8 CONDITIONAL
-  (article-type gate sound; primary-study titles still exposed)
-- M-17g (commit 10bb23f) → pass 9 CONDITIONAL with
-  body_inspector_now_promotable=true and "No blocking fix required"
-- **GREEN LIGHT** → full-scale v4 at max capacity launched
-  (task b95h18wws, serper/s2=50, fetch_cap=500, ev_to_gen=400,
-  budget=$10 per query, slug=clinical_tirzepatide_t2dm 30 amplified).
+Pass sequence:
+- V4-V5-V6 DR passes 1-3 → all MATERIAL-GAPS
+- V7-V9 MATERIAL-GAPS: low citation count, paywall stubs on NEJM/Lancet
+- **M-23 a-f** (commits 6c999e8 + ff68b86): access_bypass fixes
+  - Unpaywall step 0 (a), strip-before-paywall (b), quality-scored
+    winner (c), HTTP-error stub detection (d), Unpaywall PDF-only
+    swap (e), paywall regex tightening (f — catches greedy-regex
+    false positives on 50K NEJM body text).
+  - Live test on NEJM SURPASS-2: fetches 50,622 chars real article.
+- **M-24 a-b** (commit 6c999e8): outline/section prompts
+  - Remove "no overlap" rule; per-section target 8-20 ev_ids.
+  - Sentence target 10-18 (was 6-10); citation diversity ≥5 sources.
+- **V10 LAUNCHED** at commit `6c015ea` via
+  `scripts/run_full_scale_v10.py` (explicit env: MAX_EV=600,
+  fetch_cap=500, serper/s2=50, budget=$10, Firecrawl=off,
+  Unpaywall=on). Output: `outputs/full_scale_v10/`.
+- Monitor `byo1fvjat` watching logs/v10_sweep.log. Early events
+  confirm M-23a (Unpaywall keep-original on figshare no-PDF) and
+  M-23c (quality-winner logging with scores) firing correctly.
 
-Tasks: #144-147 completed → #140 IN PROGRESS (v4 running) → #141
-(Codex DR deep output audit, post-v4).
+Tasks: #153-155 completed → #156 IN PROGRESS (V10 + DR pass 4).
+Audit brief: `.codex/dr_output_audit_pass_4_v10_brief.md` mandates
+live-DOI fetch for 25+ citations (addresses user question about
+whether prior audits were metadata-based).
 
 ---
 
