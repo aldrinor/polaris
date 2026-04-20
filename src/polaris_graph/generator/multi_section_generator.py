@@ -484,6 +484,7 @@ CRITICAL RULES:
 7. Do not write a section heading, section title, or preamble. Just the paragraph body.
 8. Target 10-18 sentences of source-anchored prose. Top-tier Deep Research reports (GPT-5.4 DR / Gemini 3.1 Pro DR) routinely reach this density for clinical sections — match that depth. Do NOT pad, but do NOT stop at 6-8 sentences when the evidence supports more specific quantitative claims.
 9. Citation diversity: cite at least 5 DISTINCT sources across this section (distinct ev_XXX IDs from different papers/URLs, not the same study cited five times). Every named trial, every numeric estimate, every guideline recommendation should be its own cited sentence.
+10. **Multi-source citation (M-27, for DR-grade citation density)**: When MULTIPLE evidence rows independently support the same claim, cite ALL of them, not just one. Example: "Tirzepatide reduced HbA1c 2.0-2.4% vs placebo across phase 3 trials [ev_012][ev_034][ev_055][ev_088]." rather than citing one ev_id. This raises citation density from ~1 per sentence to 2-4 per sentence where evidence supports it — top-tier DR (GPT-5.4 DR / Gemini 3.1 Pro DR) routinely reaches 50-200 citations for a clinical question by synthesizing multiple converging sources into each sentence, not by writing more sentences.
 
 EVIDENCE TIER DISCIPLINE (for top-tier Deep Research quality):
 Each evidence block carries a tier tag [T1]-[T7]. For every sentence you
