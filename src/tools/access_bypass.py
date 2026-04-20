@@ -343,16 +343,36 @@ class AccessBypass:
         self.proxy = institutional_proxy
         self.user_agent = user_agent
 
-        # Paywall detection patterns
-        self.paywall_patterns = [
-            r"subscribe.*to.*read",
-            r"sign.*in.*to.*access",
-            r"purchase.*article",
-            r"paywall",
-            r"members.*only",
-            r"premium.*content",
-            r"unlock.*full.*article",
+        # Paywall detection patterns.
+        # M-23f: Tightened to fix false positives on long article bodies.
+        # The old patterns used greedy `.*` across arbitrary spans, which
+        # meant a 50K-char NEJM article saying "the authors had full
+        # access to the data" (far from any "sign in") would match
+        # `sign.*in.*to.*access` because regex `.*` spans ~49K chars.
+        # New patterns use `\s+` / `\s*[.:]?\s*` for tight token adjacency
+        # and word boundaries. Length-gating in `_detect_paywall`
+        # further protects long article bodies from the loosest patterns.
+        self.paywall_patterns_strict = [
+            # These fire on ANY content length — extremely specific
+            r"\bpaywall\b",
+            r"\bpremium\s+content\b",
+            r"\bunlock\s+(the\s+)?full\s+article\b",
+            r"\bthis\s+article\s+is\s+available\s+to\s+subscribers\b",
+            r"\blog\s+in\s+to\s+read\s+this\s+article\b",
+            r"\bsubscribe\s+to\s+read\s+the\s+full\s+article\b",
         ]
+        self.paywall_patterns_short_only = [
+            # These fire ONLY when content is short (<2K chars) — the
+            # bare phrase "members only" or "sign in to access" in a
+            # 50K article body is almost always incidental.
+            r"\bsubscribe\s+to\s+read\b",
+            r"\bsign\s+in\s+to\s+access\b",
+            r"\bpurchase\s+(this\s+)?article\b",
+            r"\bmembers\s+only\b",
+        ]
+        # Back-compat: tests or callers referencing .paywall_patterns get
+        # the strict-always list (the safer set).
+        self.paywall_patterns = self.paywall_patterns_strict
 
     async def fetch_with_bypass(
         self,
@@ -1611,15 +1631,55 @@ class AccessBypass:
                     data = await response.json()
                     if not data.get("is_oa"):
                         return None
-                    best = data.get("best_oa_location") or {}
-                    oa_url = best.get("url_for_pdf") or best.get("url")
-                    if oa_url:
-                        logger.info(
-                            "[ACCESS] M-23a: Unpaywall found OA for %s: %s (%s)",
-                            doi, oa_url[:80],
-                            best.get("host_type", "unknown"),
+                    # M-23e: Prefer a direct PDF URL across ALL oa_locations.
+                    # Live testing exposed: Unpaywall's best_oa_location may
+                    # be a repository landing page (figshare, discovery.ucl)
+                    # whose bare URL 403s on headless fetch. A PDF URL from
+                    # any location gets clean extraction via _extract_pdf_text.
+                    # Only fall back to best.url when NO location has a PDF.
+                    oa_locations = data.get("oa_locations") or []
+                    pdf_urls = [
+                        loc.get("url_for_pdf")
+                        for loc in oa_locations
+                        if loc.get("url_for_pdf")
+                    ]
+                    if pdf_urls:
+                        oa_url = pdf_urls[0]
+                        host_type = next(
+                            (loc.get("host_type", "unknown")
+                             for loc in oa_locations
+                             if loc.get("url_for_pdf") == oa_url),
+                            "unknown",
                         )
-                    return oa_url
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall PDF OA for %s: %s (%s)",
+                            doi, oa_url[:80], host_type,
+                        )
+                        return oa_url
+                    # No PDF — fall back to best.url, but ONLY if it's not
+                    # a known-403 repository pattern. Repository landing
+                    # pages that aren't PDFs tend to fail; better to let
+                    # the main cascade attempt the original publisher URL.
+                    best = data.get("best_oa_location") or {}
+                    landing = best.get("url")
+                    host_type = best.get("host_type", "unknown")
+                    if landing and host_type != "repository":
+                        # Publisher OA landing is usually fetchable
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall %s OA landing for %s: %s",
+                            host_type, doi, landing[:80],
+                        )
+                        return landing
+                    # Repository landing without PDF — don't swap, let the
+                    # cascade try the original URL (which may have Crawl4AI
+                    # render the publisher full-text page).
+                    if landing:
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall found repo landing "
+                            "without PDF for %s — keeping original URL",
+                            doi,
+                        )
+                    return None
         except asyncio.TimeoutError:
             logger.info("[ACCESS] M-23a: Unpaywall timeout for DOI %s", doi)
             return None
@@ -1999,12 +2059,34 @@ class AccessBypass:
                               metadata={"error": str(e)})
 
     def _detect_paywall(self, content: str) -> bool:
-        """Detect if content is behind paywall."""
-        content_lower = content.lower()
+        """Detect if content is behind paywall OR an HTTP-error stub.
 
-        for pattern in self.paywall_patterns:
+        M-23d: Extended to detect HTTP error stubs (403/404/5xx proxied
+        through Jina Reader or similar). Jina returns success=True with
+        a 200-500 char "403 Forbidden" / "Access Denied" page when the
+        upstream server rejected its request. Without this detection,
+        those stubs wait through all paywall patterns (which don't
+        match "403 Forbidden" text) and get picked as fetch winners.
+
+        M-23f: Paywall patterns are split into strict (fire on any
+        length) and short-only (fire only on <2K char content). This
+        prevents greedy-regex false positives like `sign.*in.*to.*
+        access` matching "signed...had full access" in a 50K-char
+        NEJM article body.
+        """
+        content_lower = content.lower()
+        is_short = len(content) < 2000
+
+        # Strict patterns: always apply
+        for pattern in self.paywall_patterns_strict:
             if re.search(pattern, content_lower):
                 return True
+
+        # Loose patterns: only apply to short content
+        if is_short:
+            for pattern in self.paywall_patterns_short_only:
+                if re.search(pattern, content_lower):
+                    return True
 
         # SF-42: Short content with paywall indicators is likely paywalled
         # (removed dead `pass` code — either implement or remove)
@@ -2015,6 +2097,30 @@ class AccessBypass:
         ):
             logger.info("[ACCESS] Short content (%d chars) with auth prompt — likely paywalled", len(content))
             return True
+
+        # M-23d: HTTP error stubs. Short pages (<2K chars) containing
+        # error status text are almost always failed fetches, not real
+        # content. "403 Forbidden" / "404 Not Found" / "Error 5xx" /
+        # "Access Denied" / "Target URL returned error" (Jina's phrasing).
+        if len(content) < 2000:
+            http_error_signals = [
+                r"\b403\s+forbidden\b",
+                r"\b404\s+not\s+found\b",
+                r"\b5\d{2}\s+(internal\s+server\s+error|bad\s+gateway|service\s+unavailable|gateway\s+timeout)\b",
+                r"access\s+denied",
+                r"returned\s+error\s+\d{3}",
+                r"target\s+url\s+returned\s+error",
+                r"\bcloudflare\b.*\bblocked\b",
+                r"\brate\s+limit(ed)?\b",
+            ]
+            for pattern in http_error_signals:
+                if re.search(pattern, content_lower):
+                    logger.info(
+                        "[ACCESS] M-23d: Short content (%d chars) with "
+                        "HTTP-error signal (%s) — treating as failed fetch",
+                        len(content), pattern,
+                    )
+                    return True
 
         return False
 
