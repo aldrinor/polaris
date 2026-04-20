@@ -1,0 +1,3271 @@
+Reading prompt from stdin...
+OpenAI Codex v0.121.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.4
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: none
+reasoning summaries: none
+session id: 019da9b2-bcd7-7630-a5b7-d12711618196
+--------
+user
+You are running Codex DR_output_audit_pass_4 as the FINAL JUDGE in
+the Claude↔Codex auto-loop. Continuing from pass 3 (MATERIAL-GAPS).
+This audit determines whether POLARIS pipeline A V10 output meets
+top-tier Deep Research quality (OpenAI GPT-5.4 DR / Gemini 3.1 Pro
+DR level) or requires more iteration.
+
+── CRITICAL AUDIT DISCIPLINE (USER MANDATE — EXPANDED FOR PASS 4) ─
+Direct quote: "he must not use pattern finding, and cherry picking,
+he must need to read every line to really determine whether the
+quality is up to standard."
+
+New user question raised at 2026-04-19: "Did Codex really audit
+the output content line-by-line, or just use metadata?"
+
+THIS PASS MUST PROVE IT IS NOT METADATA-BASED.
+
+Specifically, for EACH of the 20+ sampled citations below, you
+MUST do ALL of the following:
+
+1. Open report.md, read the sentence containing the citation.
+2. Open bibliography.json, find the cited entry's URL and DOI.
+3. FETCH the source live via either:
+     - WebFetch tool, passing the URL
+     - For DOI-bearing sources: fetch doi.org/{DOI} and follow
+       the final resolved URL
+4. Read at least 500 chars of the source BODY TEXT (not HTML head).
+5. Compare the report sentence's quantitative claim to the source
+   text VERBATIM. Example: if the sentence says "tirzepatide 15mg
+   reduced HbA1c by 2.24% at 40 weeks [ev_023]", find the exact
+   value in the fetched source. It must match or be a reasonable
+   rounding of what the source says.
+6. Categorize each citation as:
+     - FAITHFUL   — claim supported by source text
+     - FABRICATED — source text doesn't contain the claim
+     - EMBELLISHED — source has the topic but a weaker or
+       different claim than the sentence
+     - UNVERIFIABLE — source behind paywall and no Unpaywall OA
+       available. Note this as a coverage gap.
+
+Your audit report MUST include a table with ALL 20+ citations
+showing: sentence quote, source URL actually fetched, excerpt
+from source supporting/contradicting claim, verdict.
+
+If you cannot fetch the source for N citations, EXPLICITLY SAY SO.
+Do NOT substitute metadata-based assessment ("bibliography says
+T1 so I trust it"). That is exactly what the user is warning
+against.
+
+── CONTEXT: DR PASS 3 → M-20/M-22 → M-23 + M-24 → V10 ──────────
+
+DR pass 3 (V6, commit 35a0bc2) verdict: MATERIAL-GAPS.
+Primary gaps flagged:
+- Citations count too low (~24 total for a DR report vs 50-200
+  in GPT-5.4/Gemini DR-grade clinical reports)
+- NEJM / Lancet SURPASS primary papers often returned paywall
+  stubs (400-500 chars of "Subscribe to read" instead of article
+  body)
+- Contradiction handling sometimes mechanical
+
+Between V6 and V10 the following were applied:
+
+M-23 (commits 6c999e8 + ff68b86): access_bypass.py
+- M-23a: Unpaywall step 0. For DOI-bearing URLs (NEJM, Lancet,
+  JAMA, Elsevier, etc.), query api.unpaywall.org for legal OA
+  PDFs. Preferred over publisher paywalled URLs.
+- M-23b: Strip nav boilerplate BEFORE paywall detection (previously
+  false-positived on 50K article bodies containing "Sign In" in
+  footer).
+- M-23c: Quality-scored winner selection. Concurrent Crawl4AI +
+  Jina + Trafilatura — highest content-quality score wins, not
+  first-success. Scorer combines length + structural markers
+  (Abstract/Methods/Results/Conclusion) + numeric density.
+- M-23d: HTTP-error stub detection (403/404/5xx). Jina proxies
+  upstream errors as success=True with 200-500 char body — now
+  detected as failed fetch.
+- M-23e: Unpaywall PDF-preference. Only swap to OA URL when a
+  PDF URL is available across all oa_locations — repository
+  landing pages (figshare, etc.) that 403 on headless fetch are
+  skipped.
+- M-23f: Tighten paywall regex patterns. Old `sign.*in.*to.*access`
+  was greedy and false-positived on 50K NEJM articles. Split into
+  strict (always) and short-only (<2K chars) pattern lists.
+
+M-24 (commit 6c999e8): multi_section_generator.py
+- M-24a: OUTLINE_SYSTEM_PROMPT — removed "no overlap" rule. One
+  SURPASS paper can now legitimately cite into BOTH Efficacy and
+  Safety sections. Parser records overlap as info telemetry, not
+  failure. Per-section target raised from ≥2 to ≥8 ev_ids (aim
+  12-20).
+- M-24b: SECTION_SYSTEM_PROMPT_TEMPLATE — sentence target raised
+  from 6-10 → 10-18. Added citation diversity rule: ≥5 distinct
+  sources per section.
+
+V10 launch: scripts/run_full_scale_v10.py at commit ff68b86
+  - PG_SWEEP_MAX_SERPER=50, MAX_S2=50, FETCH_CAP=500
+  - PG_LIVE_MAX_EV_TO_GEN=600 (generator pool cap; was 400)
+  - PG_MAX_COST_PER_RUN=10.00
+  - PG_UNPAYWALL_ENABLED=1, PG_FIRECRAWL_ENABLED=0
+  - Single query: clinical_tirzepatide_t2dm
+  - Output: outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/
+
+── YOUR TASK ────────────────────────────────────────────────────
+
+V10 output files:
+  outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/
+    - report.md
+    - bibliography.json (citations with URL + DOI per entry)
+    - manifest.json (gate_class, release_allowed, tier_fractions)
+    - run_log.txt (sweep execution log — check M-23a Unpaywall
+      hit rate, M-23c winner selection, circuit-breaker events)
+    - classified_urls.json (all URLs with tier/rule)
+    - corpus_adequacy.json, completeness.json
+    - verification_details.json (strict_verify per-sentence results)
+    - qwen_judge_output.json (evaluator verdict + rubric scores)
+    - contradictions.json
+
+Audit order (NEW: STEP 3 IS EXPANDED WITH LIVE-FETCH VERIFICATION):
+
+1. Read manifest.json, qwen_judge_output.json, evaluator rule
+   checks. Record status, release_allowed, qwen axes flagged.
+
+2. Read bibliography.json in full. Count:
+   - Total unique citations
+   - By tier: T1, T2, T3, T4, T5, T6, T7
+   - By publisher: NEJM / Lancet / JAMA / Diabetes Care /
+     PMC / FDA / other
+   Are named SURPASS/SURMOUNT papers cited as primary T1 entries?
+
+3. **LIVE-DOI CITATION AUDIT** (the user's mandate):
+   Pick AT LEAST 25 citations spanning the full report — first 5
+   sentences, mid-document, last 5 sentences, plus any
+   quantitative claim (numbers / percentages / confidence
+   intervals). For EACH:
+
+   a. Extract sentence + [ev:N] token
+   b. Look up ev:N in bibliography.json → URL + DOI
+   c. Fetch the source via WebFetch. If the URL is paywalled:
+      query api.unpaywall.org/v2/{doi}?email=anon@example.com
+      for an OA copy, and fetch that instead. If still no OA
+      available, mark UNVERIFIABLE (and note as a pipeline gap
+      worth flagging — M-23 should have resolved more of these).
+   d. Read the source's body text (abstract + first 2K of full
+      text). Compare the sentence's claim to the source.
+   e. Verdict: FAITHFUL / FABRICATED / EMBELLISHED / UNVERIFIABLE.
+
+   Write all 25 verdicts into a table in the findings.
+
+4. Read report.md cover to cover, line by line. Check:
+   (a) Argumentation: evidence INTEGRATED or listed?
+   (b) Quantification: plain-English + numerics? ("2.24% HbA1c
+       reduction at 40 weeks" vs "significant improvement")
+   (c) Scope fidelity: T1D / obesity-only content properly
+       flagged as population mismatch where used?
+   (d) Contradictions: surfaced and adjudicated, or hidden?
+   (e) Structural hallucinations: all headings within scope
+       template?
+
+5. Make the verdict call. User demands top-tier DR or continue.
+
+Write your findings to:
+  outputs/codex_findings/dr_output_pass_4/findings.md
+
+Required frontmatter:
+---
+verdict: TOP-TIER-DR-ACHIEVED | MATERIAL-GAPS-FIX-AND-RESWEEP | DIRECTIONAL-ONLY
+pass: dr_output_pass_4_tirzepatide_v10
+commit: ff68b86
+delta_vs_pass3: <summary of M-23 + M-24 impact>
+citations_verified: <int fetched live>/<int total cited>
+citations_faithful: <int>
+citations_fabricated: <int>
+citations_embellished: <int>
+citations_unverifiable: <int>
+t1_t2_percentage_of_bibliography: <percent>
+t7_percentage_of_bibliography: <percent>
+live_fetch_method_used: <WebFetch | Unpaywall+Fetch | mixed>
+faithfulness_verdict: <>
+coverage_gaps_remaining: [<>]
+structural_hallucinations: [<>]
+quantification_quality: <>
+contradiction_handling: <>
+vs_gpt54_dr_verdict: <>
+vs_gemini31_pro_dr_verdict: <>
+rationale: |
+  <>
+---
+
+Then body:
+**Verdict**
+**Quantitative V10 vs V6 Summary**
+**Citation Live-Fetch Audit Table (≥25 citations with source excerpts)**
+**Criterion-by-criterion** (a-h)
+**M-23 + M-24 Impact Assessment**
+  - Did Unpaywall hit rate rise? (check run_log.txt for M-23a logs)
+  - Did Crawl4AI content length improve? (check M-23c winner
+    selection logs)
+  - Did citation count rise in line with M-24 prompt changes?
+  - Did T1/T2 fraction hold?
+**Remaining DR Gaps**
+**Required Fix** (if not TOP-TIER-DR-ACHIEVED)
+
+Verdict definitions:
+  TOP-TIER-DR-ACHIEVED: V10 meets or exceeds GPT-5.4 DR / Gemini
+    3.1 Pro DR on all 8 criteria. Live-fetch audit confirms >95%
+    of sampled citations are FAITHFUL. STOP the auto-loop.
+  MATERIAL-GAPS-FIX-AND-RESWEEP: specific substantive defects
+    remain. Name them precisely.
+  DIRECTIONAL-ONLY: directionally correct but not DR-grade.
+
+Be UNCOMPROMISING but HONEST about what you actually did. If you
+skipped live fetches for citation N because of tool timeouts or
+paywalls, mark those UNVERIFIABLE — don't bluff them as FAITHFUL.
+
+codex
+I’ll audit this as a content-level pass, not a metadata pass. I’m starting with the local V10 artifacts, then I’ll live-fetch the sampled sources and write the findings file with explicit per-citation evidence.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/report.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/run_log.txt' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/manifest.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/bibliography.json' in C:\POLARIS
+ succeeded in 1043ms:
+========================================================================
+SWEEP domain=clinical slug=clinical_tirzepatide_t2dm
+Question: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+Budget cap: $10.0000
+========================================================================
+[scope]       sha256=0c9e78f84515ae12... decision=proceed needs_review=False
+[retrieval]   pre_filter=309, fetched=285, failed=24, elapsed=5637.4s  api_calls={'serper': 8, 's2': 8, 'openalex': 301, 'fetch': 309}
+[corpus]      total=309  T1=20%, T2=14%, T3=1%, T4=38%, T5=2%, T6=2%, T7=22%, UNKNOWN=1%  material_deviation=True
+[adequacy]    decision=proceed  applicable_checks=7  critical=0  warn=0
+[completeness] 7/7 topics covered  uncovered=[]
+[contradict]  numeric_claims=133  contradictions=14
+[select]      strategy=tier_balanced_v1_all selected=277 of 277 dropped=0
+              full_tiers={'T4': 107, 'T1': 52, 'T2': 39, 'T5': 6, 'T7': 60, 'T6': 7, 'T3': 2, 'UNKNOWN': 4} selected_tiers={'T4': 107, 'T1': 52, 'T2': 39, 'T5': 6, 'T7': 60, 'T6': 7, 'T3': 2, 'UNKNOWN': 4}
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=277...
+              elapsed=126.9s outline=3 sections, words=834, verified=24, dropped=16, limitations_words=75
+[evaluator]   rule_checks=11/13 pass
+                FAIL PT08: Missing disclosures for: ['tirzepatide/body weight (10 mg)', 'tirzepatide/body weight (15 mg)', 'tir
+                FAIL PT11: 4 numeric claims without adjacent citation marker (out of 34 decimals in prose).
+[judge]       {'good': 4, 'acceptable': 0, 'needs_revision': 1, 'unknown': 0}
+              [           GOOD] hedging_appropriateness: Prose appropriately flags evidence-based uncertainty without overconfidence.
+              [           GOOD] flow: Logical progression from efficacy -> safety -> comparative -> limitations.
+              [ NEEDS_REVISION] citation_tightness: Missing citations in limitations section and contradiction disclosures section.
+              [           GOOD] tone_consistency: Tone remains evidence-grounded throughout without promotional language.
+              [           GOOD] completeness: Major evidence rows (primary trials, safety, weight loss) are addressed.
+[eval_gate]   class=abort release_allowed=False reasons=['rule_pt08_contradiction_missing', 'rule_pt11_uncited_numeric_claims', 'qwen_citation_tightness_needs_revision']
+[cost]        $0.0067 (cap $10.0000)
+[status]      abort_evaluator_critical (manifest.status=abort_evaluator_critical)
+
+
+ succeeded in 1105ms:
+{
+  "input_tokens": 3351,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 751,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing citations in limitations section and contradiction disclosures section.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose appropriately flags evidence-based uncertainty without overconfidence.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded throughout without promotional language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy -> safety -> comparative -> limitations.\"}, \n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Major evidence rows (primary trials, safety, weight loss) are addressed.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "Missing citations in limitations section and contradiction disclosures section.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Major evidence rows (primary trials, safety, weight loss) are addressed.",
+      "verdict": "good"
+    },
+    "flow": {
+      "note": "Logical progression from efficacy -> safety -> comparative -> limitations.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Prose appropriately flags evidence-based uncertainty without overconfidence.",
+      "verdict": "good"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded throughout without promotional language.",
+      "verdict": "good"
+    }
+  }
+}
+
+
+ succeeded in 1133ms:
+# Research report: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+
+### Efficacy
+
+Across the SURPASS program, a high proportion of participants achieved A1c targets, with 81% to 97% achieving an A1c <7.0%, 66% to 95% achieving ≤6.5%, and 23% to 62% achieving normoglycemia (A1c <5.7%) across the different doses and trials.[1] In that trial, the proportions of patients achieving an A1c <7.0% were 75.4%, 86.0%, and 84.4% with the three tirzepatide doses, respectively, versus 23.7% with insulin glargine.[2] Tirzepatide also produced significant, dose-dependent weight loss across the type 2 diabetes trials.[1] A systematic review notes that across phase 3 trials, tirzepatide achieved greater reductions in hemoglobin A1c (up to 2.4%) and body weight (up to 22%) compared to GLP-1 receptor agonists.[3] Beyond glycemic and weight control, tirzepatide improved cardiometabolic parameters across the SURPASS trials, including reductions in fasting serum glucose, systolic and diastolic blood pressure, triglycerides, LDL cholesterol, VLDL cholesterol, and increases in HDL cholesterol.[1] An individual participant data meta-analysis of phase 3 trials reported that tirzepatide 15 mg/week significantly reduced the risk of major adverse cardiovascular events compared to comparators, with a hazard ratio of 0.67 (95% CI, 0.51-0.87).[4]
+
+### Safety
+
+The most frequent adverse events associated with tirzepatide are gastrointestinal in nature, with nausea, diarrhea, and vomiting being the most common and typically mild to moderate in severity.[5] In the SURPASS Phase 3 clinical trials for type 2 diabetes, the incidence of gastrointestinal adverse events was dose-dependent, with nausea reported in 20–33% of participants, diarrhea in 18–22%, and vomiting in 8–13%.[5] A systematic review and meta-analysis of randomized clinical trials in patients with diabetes and/or obesity similarly reports that gastrointestinal effects are the most common adverse events.[6] In a retrospective study of adults with type 1 diabetes and obesity, the overall incidence of side effects was 26%, with nausea being the most common at 15%, and only 4% of patients discontinued tirzepatide due to side effects.[7] In the SURMOUNT-1 trial for obesity, the vast majority of participants (90%) who were initially late responders (achieving <5% weight loss at week 12) went on to achieve clinically meaningful weight reduction by week 72, suggesting a generally tolerable profile that allows for continued treatment.[8] Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist, no serious adverse events or discontinuations due to adverse events occurred, and treatment-emergent adverse events were mostly mild to moderate gastrointestinal events.[9] Furthermore, in the retrospective study of patients with type 1 diabetes, no episodes of severe hypoglycemia or diabetic ketoacidosis were recorded during tirzepatide treatment.[7]
+
+### Comparative
+
+Compared with insulin glargine in the SURPASS-4 trial, tirzepatide at 104 weeks led to significantly greater reductions in HbA1c (5 mg: -2.3%, 10 mg: -2.5%, 15 mg: -2.6% vs. -1.0% with insulin glargine) and body weight (5 mg: -7.6 kg, 10 mg: -10.0 kg, 15 mg: -11.4 kg vs. +2.1 kg with insulin glargine).[10] A meta-analysis of six RCTs found tirzepatide reduced body weight more than the GLP-1 receptor agonists semaglutide 1 mg and dulaglutide 1.5 mg, and resulted in a higher proportion of patients achieving weight loss thresholds of ≥5%, ≥10%, and ≥15%.[11] In the head-to-head SURPASS-2 trial, all three tirzepatide doses (5, 10, and 15 mg) demonstrated superior HbA1c and weight reductions compared to once-weekly semaglutide 1 mg at 40 weeks.[12] A model-based simulation of switching from stable GLP-1 RA therapy predicted that transitioning to tirzepatide could yield further HbA1c reductions of 1.95% to 2.46% and body weight reductions of 6.50 to 12.1 kg by week 66.[13] For weight maintenance after initial loss, the SURMOUNT-4 trial in adults with obesity (without diabetes) showed that continuing tirzepatide led to an additional 5.5% weight reduction from weeks 36 to 88, whereas switching to placebo resulted in a 14.0% weight regain over the same period.[14] By week 88, 69.5% of participants continuing tirzepatide achieved ≥20% weight loss from baseline, compared to 12.6% in the placebo group.[14] In a related obesity trial without diabetes, SURMOUNT-1, tirzepatide 15 mg produced a mean weight reduction of 20.9% at 72 weeks versus 3.1% with placebo.[15] Regarding safety, the meta-analysis reported that tirzepatide did not increase the risk of hypoglycemia compared to semaglutide 1 mg.[11] Gastrointestinal adverse events, such as nausea, diarrhea, and vomiting, were more common with tirzepatide than placebo but were predominantly mild to moderate in severity.[14] In SURMOUNT-4, treatment discontinuation due to an adverse event during the double-blind period occurred in 1.8% of the tirzepatide group and 0.9% of the placebo group.[14] A post-hoc analysis of SURMOUNT trials found that adverse events potentially related to macronutrient malnutrition, such as abnormal weight loss or underweight, were uncommon, occurring in 0.12% of tirzepatide-treated participants.[16]
+
+### Limitations
+
+Limitations: The evidence base is heavily weighted toward lower-tier sources, with only 20% of sources classified as T1 primary studies. High-severity contradictions were detected on the effect of tirzepatide on body weight and weight loss, with sources disagreeing on the magnitude of the effect by several hundred to several thousand percent. The corpus spans from 2010 to the present, but the low proportion of high-tier evidence limits the strength of conclusions that can be drawn.
+
+## Methods
+Pre-registered protocol.json (SHA-256 0c9e78f84515ae12...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: scope_query_validator: 8 kept / 23 dropped).
+Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 3 parallel sections + strict_verify + regen-on-failure).
+Evaluator model: qwen/qwen3-8b (different family).
+Sources classified using T1-T7 tier taxonomy.
+Inclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.
+Prompt-injection sanitization enabled. Retrieved 2026-04-19.
+Expected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=20%, T2=14%, T3=1%, T4=38%, T5=2%, T6=2%, T7=22%, UNKNOWN=1%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 7/7 topics covered.
+
+## Contradiction disclosures
+The contradiction detector flagged 14 numeric disagreements across the evidence pool. Manual review of these flags during this run revealed that most are extraction artifacts produced by grouping different endpoints (e.g. HbA1c % reduction vs body-weight % reduction), different doses, different populations (T2D vs obesity-without-diabetes), or different comparators under the same subject/predicate label. The detector does not currently adjudicate by endpoint, population, dose, timepoint, or source tier; raw detector output is available in `contradictions.json` for reviewer inspection. Claims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so a mechanical contradiction list is not required for reader safety.
+
+
+## Bibliography
+[1] Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes — https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (tier T4)
+[2] Tirzepatide versus insulin glargine as second-line or third-line therapy in type 2 diabetes in the Asia-Pacific region: the SURPASS-AP-Combo trial — https://www.nature.com/articles/s41591-023-02344-1.pdf (tier T1)
+[3] How do Dual GLP-1/GIP Receptor Agonists Differ from GLP-1 Agonists for Diabetes Management: A Systematic Review — https://doi.org/10.26685/urncst.1029 (tier T2)
+[4] Abstract 4361308: Tirzepatide Reduces the Risk of Major Adverse Cardiovascular Events: An Individual Participant Data Meta-analysis of Phase 3 Randomized Clinical Trials — https://doi.org/10.1161/circ.152.suppl_3.4361308 (tier T2)
+[5] Obesity medications: A narrative review of current and emerging agents — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 (tier T4)
+[6] The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ... — https://pubmed.ncbi.nlm.nih.gov/40430487/ (tier T1)
+[7] 1660-P: Efficacy and Safety of Tirzepatide for the Treatment of ... — https://diabetesjournals.org/diabetes/article/73/Supplement_1/1660-P/154615/1660-P-Efficacy-and-Safety-of-Tirzepatide-for-the (tier T7)
+[8] Weight reduction over time in tirzepatide‐treated participants ... - PMC — https://pmc.ncbi.nlm.nih.gov/articles/PMC12326891/ (tier T1)
+[9] Bispecific GLP-1/GLP-2 agonism in advanced type 2 diabetes: preclinical characterization and a randomized, double-blind, placebo-controlled phase I trial — https://doi.org/10.1038/s41467-026-71080-0 (tier T1)
+[10] Long-term efficacy and safety of tirzepatide in participants with type ... — https://pubmed.ncbi.nlm.nih.gov/40926359/ (tier T1)
+[11] Efficacy and safety of tirzepatide in patients with type 2 diabetes — https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full (tier T2)
+[12] Cost per Patient Achieving Treatment Targets and Number Needed to Treat with Tirzepatide Versus Semaglutide 1 mg in Patients with Type 2 Diabetes in the United States — https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf (tier T1)
+[13] Model-based simulation of glycaemic effect and body weight loss when switching from semaglutide or dulaglutide to once weekly tirzepatide — https://doi.org/10.1080/03007995.2024.2322072 (tier T1)
+[14] Continued Treatment With Tirzepatide for Maintenance of Weight Reduction in Adults With Obesity: The SURMOUNT-4 Randomized Clinical Trial. — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10714284 (tier T1)
+[15] Tirzepatide after intensive lifestyle intervention in adults with ... — https://www.nature.com/articles/s41591-023-02597-w (tier T1)
+[16] Nutritional status with tirzepatide in obesity: A post hoc analysis of the SURMOUNT-1-4 randomized clinical trials — https://doi.org/10.1016/j.obpill.2026.100248 (tier T4)
+
+
+ succeeded in 1193ms:
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 7,
+    "findings_total": 7
+  },
+  "budget_cap_usd": 10.0,
+  "completeness": {
+    "covered_fraction": 1.0,
+    "total_applicable": 7,
+    "total_covered": 7,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
+  "contradictions_found": 14,
+  "corpus": {
+    "approved": true,
+    "count": 309,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.2039,
+      "T2": 0.1392,
+      "T3": 0.0065,
+      "T4": 0.3786,
+      "T5": 0.0194,
+      "T6": 0.0227,
+      "T7": 0.2168,
+      "UNKNOWN": 0.0129
+    }
+  },
+  "cost_usd": 0.00672937,
+  "domain": "clinical",
+  "evaluator_gate": {
+    "gate_class": "abort",
+    "qwen_critical_axes": [
+      "citation_tightness"
+    ],
+    "qwen_parse_ok": true,
+    "reasons": [
+      "rule_pt08_contradiction_missing",
+      "rule_pt11_uncited_numeric_claims",
+      "qwen_citation_tightness_needs_revision"
+    ],
+    "release_allowed": false,
+    "rule_blockers": [
+      "PT08",
+      "PT11"
+    ]
+  },
+  "evaluator_rule_fail": 2,
+  "evaluator_rule_pass": 11,
+  "evidence_selection": {
+    "dropped_count": 0,
+    "evidence_selected": 277,
+    "evidence_total": 277,
+    "full_tier_counts": {
+      "T1": 52,
+      "T2": 39,
+      "T3": 2,
+      "T4": 107,
+      "T5": 6,
+      "T6": 7,
+      "T7": 60,
+      "UNKNOWN": 4
+    },
+    "notes": [
+      "pool_size<=max_rows (277/600)"
+    ],
+    "selected_tier_counts": {
+      "T1": 52,
+      "T2": 39,
+      "T3": 2,
+      "T4": 107,
+      "T5": 6,
+      "T6": 7,
+      "T7": 60,
+      "UNKNOWN": 4
+    },
+    "selection_strategy": "tier_balanced_v1_all"
+  },
+  "generator": {
+    "limitations_words": 75,
+    "outline_sections": [
+      "Efficacy",
+      "Safety",
+      "Comparative"
+    ],
+    "sections_kept": 3,
+    "sentences_dropped": 16,
+    "sentences_verified": 24,
+    "words": 834
+  },
+  "protocol_sha256": "0c9e78f84515ae12af9b25ef8b42b58faed604b6b462ee40275d7a0abbe13526",
+  "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "qwen_verdicts": {
+    "acceptable": 0,
+    "good": 4,
+    "needs_revision": 1,
+    "unknown": 0
+  },
+  "release_allowed": false,
+  "retrieval": {
+    "api_calls": {
+      "fetch": 309,
+      "openalex": 301,
+      "s2": 8,
+      "serper": 8
+    },
+    "failed": 24,
+    "fetched": 285,
+    "pre_filter": 309
+  },
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776661742",
+  "slug": "clinical_tirzepatide_t2dm",
+  "status": "abort_evaluator_critical"
+}
+
+
+ succeeded in 1274ms:
+[
+  {
+    "evidence_id": "ev_000",
+    "num": 1,
+    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "tier": "T4",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+  },
+  {
+    "evidence_id": "ev_085",
+    "num": 2,
+    "statement": "Tirzepatide versus insulin glargine as second-line or third-line therapy in type 2 diabetes in the Asia-Pacific region: the SURPASS-AP-Combo trial",
+    "tier": "T1",
+    "url": "https://www.nature.com/articles/s41591-023-02344-1.pdf"
+  },
+  {
+    "evidence_id": "ev_009",
+    "num": 3,
+    "statement": "How do Dual GLP-1/GIP Receptor Agonists Differ from GLP-1 Agonists for Diabetes Management: A Systematic Review",
+    "tier": "T2",
+    "url": "https://doi.org/10.26685/urncst.1029"
+  },
+  {
+    "evidence_id": "ev_058",
+    "num": 4,
+    "statement": "Abstract 4361308: Tirzepatide Reduces the Risk of Major Adverse Cardiovascular Events: An Individual Participant Data Meta-analysis of Phase 3 Randomized Clinical Trials",
+    "tier": "T2",
+    "url": "https://doi.org/10.1161/circ.152.suppl_3.4361308"
+  },
+  {
+    "evidence_id": "ev_048",
+    "num": 5,
+    "statement": "Obesity medications: A narrative review of current and emerging agents",
+    "tier": "T4",
+    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184"
+  },
+  {
+    "evidence_id": "ev_001",
+    "num": 6,
+    "statement": "The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40430487/"
+  },
+  {
+    "evidence_id": "ev_004",
+    "num": 7,
+    "statement": "1660-P: Efficacy and Safety of Tirzepatide for the Treatment of ...",
+    "tier": "T7",
+    "url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/1660-P/154615/1660-P-Efficacy-and-Safety-of-Tirzepatide-for-the"
+  },
+  {
+    "evidence_id": "ev_093",
+    "num": 8,
+    "statement": "Weight reduction over time in tirzepatide\u2010treated participants ... - PMC",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12326891/"
+  },
+  {
+    "evidence_id": "ev_036",
+    "num": 9,
+    "statement": "Bispecific GLP-1/GLP-2 agonism in advanced type 2 diabetes: preclinical characterization and a randomized, double-blind, placebo-controlled phase I trial",
+    "tier": "T1",
+    "url": "https://doi.org/10.1038/s41467-026-71080-0"
+  },
+  {
+    "evidence_id": "ev_005",
+    "num": 10,
+    "statement": "Long-term efficacy and safety of tirzepatide in participants with type ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40926359/"
+  },
+  {
+    "evidence_id": "ev_002",
+    "num": 11,
+    "statement": "Efficacy and safety of tirzepatide in patients with type 2 diabetes",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full"
+  },
+  {
+    "evidence_id": "ev_028",
+    "num": 12,
+    "statement": "Cost per Patient Achieving Treatment Targets and Number Needed to Treat with Tirzepatide Versus Semaglutide 1 mg in Patients with Type 2 Diabetes in the United States",
+    "tier": "T1",
+    "url": "https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf"
+  },
+  {
+    "evidence_id": "ev_034",
+    "num": 13,
+    "statement": "Model-based simulation of glycaemic effect and body weight loss when switching from semaglutide or dulaglutide to once weekly tirzepatide",
+    "tier": "T1",
+    "url": "https://doi.org/10.1080/03007995.2024.2322072"
+  },
+  {
+    "evidence_id": "ev_084",
+    "num": 14,
+    "statement": "Continued Treatment With Tirzepatide for Maintenance of Weight Reduction in Adults With Obesity: The SURMOUNT-4 Randomized Clinical Trial.",
+    "tier": "T1",
+    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10714284"
+  },
+  {
+    "evidence_id": "ev_015",
+    "num": 15,
+    "statement": "Tirzepatide after intensive lifestyle intervention in adults with ...",
+    "tier": "T1",
+    "url": "https://www.nature.com/articles/s41591-023-02597-w"
+  },
+  {
+    "evidence_id": "ev_064",
+    "num": 16,
+    "statement": "Nutritional status with tirzepatide in obesity: A post hoc analysis of the SURMOUNT-1-4 randomized clinical trials",
+    "tier": "T4",
+    "url": "https://doi.org/10.1016/j.obpill.2026.100248"
+  }
+]
+
+
+codex
+The manifest already fails its own release gate (`release_allowed=false`) on PT08/PT11 and qwen citation tightness. I’m continuing anyway because the requested final-judge decision depends on direct source-body verification, not just the gate metadata.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/verification_details.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/contradictions.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/classified_urls.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/corpus_adequacy.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/completeness.json' in C:\POLARIS
+ succeeded in 1413ms:
+[
+  {
+    "absolute_difference": 88.5,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "tients Achieving Body Weight Targets of 5%, 10%, 15% 2.2. Change in Body Weight 2.",
+        "dose": "10 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_141",
+        "predicate": "body weight",
+        "source_tier": "T1",
+        "source_url": "https://www.mdpi.com/1424-8247/18/5/668",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ncluding percentage weight reduction (- 12.86% for tirzepatide 10 mg and - 13.95% for ",
+        "dose": "10 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_130",
+        "predicate": "body weight",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1007/s12325-026-03523-5",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 12.86
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "best option for the reduction of HbA1c (93.5%), followed by 10 mg of tirzepatide (80.",
+        "dose": "10 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_247",
+        "predicate": "body weight",
+        "source_tier": "T2",
+        "source_url": "https://www.frontiersin.org/articles/10.3389/fphar.2022.998816/pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 93.5
+      }
+    ],
+    "predicate": "body weight (10 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 17.7,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 41.9,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": " BL in HbA1c, achieving a mean HbA1c of 6.5% vs 7.6%, with substantially less insuli",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_160",
+        "predicate": "body weight",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db23-750-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 6.5
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ortion of participants achieving HbA1c <7.0%. Safety endpoints included the incidenc",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 104",
+        "evidence_id": "ev_005",
+        "predicate": "body weight",
+        "source_tier": "T1",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/40926359/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "was superior to PBO in achieving HbA1c <7.0% and <5.7%, and meaningful BW loss (Tabl",
+        "dose": "15 mg",
+        "endpoint_phrase": "mean change",
+        "evidence_id": "ev_179",
+        "predicate": "body weight",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db21-100-or",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "h 87.5% (s.e. 2.2) with tirzepatide and 16.5% (s.e. 3.0) with placebo achieving this ",
+        "dose": "15 mg",
+        "endpoint_phrase": "at 72 weeks",
+        "evidence_id": "ev_015",
+        "predicate": "body weight",
+        "source_tier": "T1",
+        "source_url": "https://www.nature.com/articles/s41591-023-02597-w",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 16.5
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ll, 65.0% had coronary disease, of whom 47.3% reported prior myocardial infarction an",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_286",
+        "predicate": "body weight",
+        "source_tier": "T4",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/37758044/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 47.3
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "able). Among patients taking TZP 15 mg, 48.4% achieved HbA1c <5.7% and 42.5% achieved",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_187",
+        "predicate": "body weight",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db21-78-lb",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 48.4
+      }
+    ],
+    "predicate": "body weight (15 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 6.4462,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 96.75,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "HbA1C mean change from precedent (5 mg) -1.75%, (10 mg) - 1.71%, (15 mg) -1.69%, (plac",
+        "dose": "5 mg",
+        "endpoint_phrase": "mean change",
+        "evidence_id": "ev_235",
+        "predicate": "body weight",
+        "source_tier": "T4",
+        "source_url": "https://assets.cureus.com/uploads/review_article/pdf/135925/20230531-5406-1k01sbj.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": -1.75
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "us variables. Mean differences (MD) and 95% CI were utilized as effect sizes for co",
+        "dose": "5 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_186",
+        "predicate": "body weight",
+        "source_tier": "T2",
+        "source_url": "https://www.frontiersin.org/articles/10.3389/fcvm.2022.990182/pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      }
+    ],
+    "predicate": "body weight (5 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 55.2857,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 97.2,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "de promoted HbA1c reductions of between 1.8% and 2.4%, and body weight losses of up ",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_256",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.52338/jodr.2025.4833",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 1.8
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "meaningful HbA1c reduction (\u2212 1.97 to \u2212 2.10%) regardless of the assigned randomized ",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_302",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.springermedicine.com/tirzepatide/type-2-diabetes/tirzepatide-for-older-adults-with-type-2-diabetes-and-without-ob/50694796",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.1
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ter reductions in hemoglobin A1c (up to 2.4%) and body weight (up to 22%) compared t",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_009",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.26685/urncst.1029",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.4
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "od, study participants (N=579) achieved 6.9% mean weight loss and were randomly assi",
+        "dose": "",
+        "endpoint_phrase": "at 36 weeks",
+        "evidence_id": "ev_017",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.empr.com/home/news/significant-weight-loss-observed-with-tirzepatide-in-two-phase-3-studies/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 6.9
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "quired to achieve an HbA1c level of &lt;7.0% 1 year after GLP-1 RA initiation is low",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_258",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1007/s13340-025-00818-w",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " of 6 months [4-11], TBWL% decreased by 8% [5-14], Hba1c by 1% [0.2-1.8], TDD by 3",
+        "dose": "",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_004",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/1660-P/154615/1660-P-Efficacy-and-Safety-of-Tirzepatide-for-the",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 8.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " of 6 months [4-11], TBWL% decreased by 8% [5-14], Hba1c by 1% [0.2-1.8], TDD by 3",
+        "dose": "",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_259",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db24-1660-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 8.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "adutide; COTA) in reducing body weight (14.4% for DA-1726 and 6.4% for COTA vs. DIO c",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_072",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db23-1668-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 14.4
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "e: Lilly's tirzepatide shows additional 21.1% weight loss after 12 weeks of intensive",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_094",
+        "predicate": "weight loss",
+        "source_tier": "T5",
+        "source_url": "https://investor.lilly.com/news-releases/news-release-details/lillys-tirzepatide-shows-additional-211-weight-loss-after-12",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 21.1
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "te and thus might attenuate th\n\n[...]\n\n 57%, and 69% decrease in AHI, respectively ",
+        "dose": "",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_076",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1007/s13679-024-00592-x",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 57.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ted in sustained weight loss and nearly 99% remained diabetes-free at 176 weeks | E",
+        "dose": "",
+        "endpoint_phrase": "at 176 weeks",
+        "evidence_id": "ev_003",
+        "predicate": "weight loss",
+        "source_tier": "T5",
+        "source_url": "https://investor.lilly.com/news-releases/news-release-details/treatment-tirzepatide-adults-pre-diabetes-and-obesity-or",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 99.0
+      }
+    ],
+    "predicate": "weight loss",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 54.0,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 12.54,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "were predicted to range between 1.95 to 2.46% and body weight reductions between 6.50",
+        "dose": "0.5 mg",
+        "endpoint_phrase": "at week 26",
+        "evidence_id": "ev_034",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1080/03007995.2024.2322072",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.46
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "59) for 10%, and 3.04 (2.73 - 3.38) for 15% weight loss. Patients on tirzepatide ex",
+        "dose": "0.5 mg",
+        "endpoint_phrase": "at 3 months",
+        "evidence_id": "ev_111",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.medrxiv.org/content/medrxiv/early/2023/11/22/2023.11.21.23298775.full.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 15.0
+      }
+    ],
+    "predicate": "weight loss (0.5 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 5.0976,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 81.8,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "utide 1 mg group. Diarrhea: Reported in 13.2% \u201316.4% of tirzepatide users compared to",
+        "dose": "1 mg",
+        "endpoint_phrase": "at 6 months",
+        "evidence_id": "ev_232",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.31435/ijitss.4(48).2025.4276",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 13.2
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " reduce the dose of insulin glargine by 20% to reduce potential risk of hypoglycemi",
+        "dose": "1 mg",
+        "endpoint_phrase": "at week 4",
+        "evidence_id": "ev_188",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://jamanetwork.com/journals/jama/articlepdf/2788781/jama_dahl_2022_oi_220003_1644261864.35143.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "l adverse events were reported in 27.8 \u201372.8% of tirzepatide -treated participants co",
+        "dose": "1 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_113",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.12775/qs.2026.52.69364",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 72.8
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "de (standardized mean difference: 0.75, 95% CI: 0.52 to 0.92). At six months, tirze",
+        "dose": "1 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_104",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.7759/cureus.86080",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      }
+    ],
+    "predicate": "weight loss (1 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 6.197,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 24.16,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "mands. Tirzepatide 10 mg reduced A1c by 2.24%, which was 0.39% greater than A1c reduc",
+        "dose": "10 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_202",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10388019",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.24
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "om baseline and bodyweight reduction of 5% or higher. The treatment-regimen estima",
+        "dose": "10 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_012",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/37385275/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of B 6.5% (10 mg and 15 mg doses) and \\ 5.7% (all doses) and weight loss endpoints o",
+        "dose": "10 mg",
+        "endpoint_phrase": "per protocol",
+        "evidence_id": "ev_028",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "t change in body weight at week 52 was \u221213.6% and \u221217.5% with tirzepatide 10 mg and 1",
+        "dose": "10 mg",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_127",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11337071",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 13.6
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "patients achieve average losses of 9.6\u2013 17.4% of initial body weight at week 68, as w",
+        "dose": "10 mg",
+        "endpoint_phrase": "at week 68",
+        "evidence_id": "ev_145",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes22012",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 17.4
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ercent change in weight at week 72 was \u221220.2% (95% confidence interval [CI], \u221221.4 to",
+        "dose": "10 mg",
+        "endpoint_phrase": "at week 72",
+        "evidence_id": "ev_185",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1056/NEJMoa2416394",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.2
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " involving 3,569 eligible participants (26.4%) reported tirzepatide 10 mg or 15 mg, s",
+        "dose": "10 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_267",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.2147/DMSO.S537229",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 26.4
+      }
+    ],
+    "predicate": "weight loss (10 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 10.7857,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 157.0,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "or the treatment of type 2 diabetes, 23%-62% of TZP-treated participants achieved a ",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 40",
+        "evidence_id": "ev_153",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db22-718-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": -62.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "0 and 15 mg reduced body weight (-15 to -20.9%), SBP (-7 to -8.2 mmHg) and DBP (-4.6 t",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_167",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1161/circ.148.suppl_1.15280",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": -20.9
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "han with placebo (mean difference [MD]: -19.44%; 95% confidence interval [CI]: -22.48 t",
+        "dose": "15 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_116",
+        "predicate": "weight loss",
+        "source_tier": "T5",
+        "source_url": "https://www.touchendocrinology.com/wp-content/uploads/sites/5/2024/06/11.-touchENDOCRINOLOGY_20.2_Dutta_72-80-1.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": -19.44
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " achieved an average HbA1c reduction of 2.01 %, which was notably higher than the 1.86",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_257",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1515/tjb-2024-0393",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.01
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "15 mg) achieved HbA1c reductions of 1.9\u20132.6% across the T2D spectrum [Citation18,Cit",
+        "dose": "15 mg",
+        "endpoint_phrase": "at 52 weeks",
+        "evidence_id": "ev_052",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1080/14656566.2024.2436595",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.6
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "eight at Week 40/42 vs those achieving <5% early weight loss (Table). Among partic",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 40",
+        "evidence_id": "ev_031",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db23-777-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "OR Value Hub, Brussels, Belgium 72W for 5% weight loss were \u00a31852, \u00a31971, and \u00a3218",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 72",
+        "evidence_id": "ev_192",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1007/s12325-025-03194-8",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "15 mg) and achieving HbA1c targets of \\ 5.7%, C 5.7B 6.5% and [ 6.5% or achieving C ",
+        "dose": "15 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_033",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://link.springer.com/content/pdf/10.1007/s13300-023-01457-7.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of participants achieving an A1C value <7.0%, \u22646.5%, or <5.7% with tirzepatide acros",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 26",
+        "evidence_id": "ev_000",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": ", we compared time to achieve HbA1c ( \\ 7.0% and Supplementary Information The onlin",
+        "dose": "15 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_177",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://link.springer.com/content/pdf/10.1007/s13300-023-01398-1.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of patients with T2DM achieving HbA1c < 7.0% or \u2264 6.5%). Secondary efficacy outcomes",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 40",
+        "evidence_id": "ev_245",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1007/s13300-025-01728-5",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "comparator_adjacent",
+        "context_snippet": "atide vs placebo resulted in a 33.9% vs 8.2% reduction in fat mass (estimated treatm",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 72",
+        "evidence_id": "ev_095",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.thecardiologyadvisor.com/news/tirzepatide-significantly-reduces-fat-mass-preserves-lean-mass/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 8.2
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " T2D lost less weight at 12 months: -14\u00b19% vs. -19\u00b19%, p=0.01. The percentages of ",
+        "dose": "15 mg",
+        "endpoint_phrase": "at 12 months",
+        "evidence_id": "ev_070",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db24-1707-p",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 9.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " diabetes was reported toreachanalarming16.3%,incontrasttoonly9.3%worldwide. 3 Despit",
+        "dose": "15 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_264",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "http://www.thieme-connect.de/products/ejournals/pdf/10.1055/s-0043-1775966.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 16.3
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ght with tirzepatide was a reduction of 20.2% compared with a decrease of 13.7% for s",
+        "dose": "15 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_019",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.drugtopics.com/view/tirzepatide-shows-superior-weight-loss-over-semaglutide-in-phase-3-trial",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.2
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "to mean reductions in body weight up to 20.9% after 72 weeks of treatment.17,18 The a",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 88",
+        "evidence_id": "ev_018",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://jamanetwork.com/journals/jama/fullarticle/2812936",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.9
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " experienced a mean weight reduction of 20.9%. From randomization (at week 36), those",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 36",
+        "evidence_id": "ev_084",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10714284",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.9
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "lights \u2022 GLP-1RAs reduced lean mass by ~25% relative to total weight loss compared ",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_105",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1016/j.metabol.2024.156113",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 25.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "compared with the \\ 25 kg/m 2 subgroup (45.3%), with reductions observed across all B",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_238",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://link.springer.com/content/pdf/10.1007/s13300-024-01534-5.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 45.3
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "tly reduced the risk of MACE (HR, 0.67 [95% CI, 0.51-0.87]), with an IPW-weighted i",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_058",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1161/circ.152.suppl_3.4361308",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "atide 15 mg reduced HbA1c the most (MD [95% CI], -2.24% [-2.52, -1.96]%), followed ",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_211",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1186/s12902-024-01805-z",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "al pooled mean difference of \u221211.62 kg (95% confidence interval: \u221214.24 to \u22129.01, p",
+        "dose": "15 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_216",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1111/cob.70036",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      }
+    ],
+    "predicate": "weight loss (15 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 2.5323,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 3.5,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "e) | Type 2 diabetes mellitus, HbA1c of 6.5% (48 mmol/mol) or greater, self-reported",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 0",
+        "evidence_id": "ev_027",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.1002/oby.70169",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 6.5
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "de on the attainment of standard (HbA1c 10% weight loss) and intensive (HbA1c 15% w",
+        "dose": "15 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_042",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1007/s00125-025-06637-7",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 10.0
+      }
+    ],
+    "predicate": "weight loss (15 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 0.5385,
+    "severity": "high",
+    "subject": "semaglutide"
+  },
+  {
+    "absolute_difference": 38.09,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": " reduced mean percentage body weight by -12.79% (95% CI: -15.12 to -10.46), BMI by -4.8",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_115",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.7759/cureus.95938",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": -12.79
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " reductions in glycated hemoglobin (1.8\u20132.4%), significant and sustained weight loss",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_270",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.71431/ijrpas.2026.5309",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.4
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "tirzepatide achieved HbA1c levels below 7.0%, compared with 79% of those treated wit",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_293",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.18203/2319-2003.ijbcp20254166",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ls) demonstra ted a mean weight loss of 14.9%, while tirzepatide (SURMOUNT trials) ac",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_062",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.12775/jehs.2026.90.69970",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 14.9
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "esity receiving tirzepatide lost a mean 25.3% of body weight at 88 weeks in the SURMO",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "at 88 weeks",
+        "evidence_id": "ev_097",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.healio.com/news/endocrinology/20231006/adults-with-obesity-using-tirzepatide-maintain-remarkable-weight-loss-at-88-weeks",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 25.3
+      }
+    ],
+    "predicate": "weight loss (2.4 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 2.9781,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 34.4,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "besity treatment in 2021, results in 15 -17% mean weight loss (WL) with evidence of ",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_069",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.nature.com/articles/s41366-024-01473-y.pdf",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": -17.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "t without diabetes Mean weight loss ~10\u201315%; significant improvement in cardiometab",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_092",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.3390/nu18040632",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 15.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ly reduces body weight by approximately 15%, with simultaneous improvement in cardi",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_189",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1111/dom.15077",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 15.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "patients achieve average losses of 9.6\u2013 17.4% of initial body weight at week 68, as w",
+        "dose": "2.4 mg",
+        "endpoint_phrase": "at week 68",
+        "evidence_id": "ev_065",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.jomes.org/journal/download_pdf.php?doi=10.7570/jomes21033",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 17.4
+      }
+    ],
+    "predicate": "weight loss (2.4 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 2.0235,
+    "severity": "high",
+    "subject": "semaglutide"
+  },
+  {
+    "absolute_difference": 18.8,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": " hemoglobin A1c (HbA1c) at week 52 was \u22122.1% with tirzepatide vs \u22121.1% with insulin ",
+        "dose": "2.5 mg",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_106",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10548360",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.1
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "t diabetes; patients with diabetes lost 10.4% (95% CI: 8.7%-12.2%) of body weight, co",
+        "dose": "2.5 mg",
+        "endpoint_phrase": "at 20 weeks",
+        "evidence_id": "ev_230",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1016/j.jacc.2025.06.058",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 10.4
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "nificant weight, with some losing up to 20.9% of their body weight. This weight loss ",
+        "dose": "2.5 mg",
+        "endpoint_phrase": "at week 72",
+        "evidence_id": "ev_305",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.withpower.com/trial/phase-2-aging-10-2025-e6ec2",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.9
+      }
+    ],
+    "predicate": "weight loss (2.5 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 8.9524,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 15.0,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "th mean weight losses in the range of 5\u201310%. The new generation of agents, includin",
+        "dose": "3.0 mg",
+        "endpoint_phrase": "at week 68",
+        "evidence_id": "ev_048",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 10.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "es and Diabet\n\n[...]\n\ns weight loss of \u226425% were assessed. At a median follow-up of",
+        "dose": "3.0 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_125",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://doi.org/10.1016/j.orcp.2025.02.004",
+        "subject": "semaglutide",
+        "unit": "%",
+        "value": 25.0
+      }
+    ],
+    "predicate": "weight loss (3.0 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 1.5,
+    "severity": "high",
+    "subject": "semaglutide"
+  },
+  {
+    "absolute_difference": 93.4,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": ": The mean change in HbA1c ranged from \u22121.6% to \u22122.06% over placebo, from \u22120.29% to ",
+        "dose": "5 mg",
+        "endpoint_phrase": "mean change",
+        "evidence_id": "ev_178",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.mdpi.com/2673-396X/5/1/5/pdf?version=1706775118",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 1.6
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "n \u22645 mg. HbA1c decreased on average 1.7\u00b11.7 % and 8 were weaned from insulin therapy.",
+        "dose": "5 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_201",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db24-12-pub",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 1.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "A1c levels (with a maximum reduction of 2.24%) and promotes weight loss (up to 11.2 k",
+        "dose": "5 mg",
+        "endpoint_phrase": "at week 52",
+        "evidence_id": "ev_297",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.3389/fphar.2024.1453825",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.24
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "he highest dose achieved a reduction of 2.7%, and between 87% and 92% of tirzepatide",
+        "dose": "5 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_006",
+        "predicate": "weight loss",
+        "source_tier": "T6",
+        "source_url": "https://www.pharmacytimes.com/view/tirzepatide-shows-significant-improvements-in-glycemic-control-weight-loss-among-patients-with-type-2-diabetes",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ponse to tirzepatide: late responders (<5% weight reduction at Week 12) or early r",
+        "dose": "5 mg",
+        "endpoint_phrase": "at week 12",
+        "evidence_id": "ev_093",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12326891/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 5.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "nment of a glycated hemoglobin level of 6.5% or less and weight loss of at least 5%,",
+        "dose": "5 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_134",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 6.5
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "proportion of patients with HbA1c <7%, \u22646.5% and <5.7% (except TZP 5 mg) and BW loss",
+        "dose": "5 mg",
+        "endpoint_phrase": "mean change",
+        "evidence_id": "ev_183",
+        "predicate": "weight loss",
+        "source_tier": "T7",
+        "source_url": "https://doi.org/10.2337/db21-84-lb",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 6.5
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "oportions of patients achieving HbA1c < 7.0% and weight loss at week 40. A total of ",
+        "dose": "5 mg",
+        "endpoint_phrase": "at week 40",
+        "evidence_id": "ev_085",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://www.nature.com/articles/s41591-023-02344-1.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "rom baseline and achieving levels below 7%, 6.5%, and 5.7%. Weight loss was report",
+        "dose": "5 mg",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_214",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.4103/jod.jod_213_24",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": " for 40 weeks. Mean age was 54.1 years, 48% were women, mean weight was 85.9 kg and",
+        "dose": "5 mg",
+        "endpoint_phrase": "at week 40",
+        "evidence_id": "ev_294",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://www.drugsincontext.com/wp-content/uploads/2023/08/dic.2023-6-1.pdf",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 48.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "reduction in HbA1c levels (MD: -2.5078; 95% CI: [-3.3945, -1.6210]), fasting blood ",
+        "dose": "5 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_008",
+        "predicate": "weight loss",
+        "source_tier": "T6",
+        "source_url": "https://www.researchgate.net/publication/387530309_Tirzepatide_Safety_and_Efficacy_in_Managing_Type_2_Diabetes_and_Obesity_A_Systemic_Review_and_Meta-Analysis",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "eight of patients [5 mg: MD = -7.52 kg, 95% CI (-10.86, -4.18), P Weight loss of ti",
+        "dose": "5 mg",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_161",
+        "predicate": "weight loss",
+        "source_tier": "T2",
+        "source_url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0285197&type=printable",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 95.0
+      }
+    ],
+    "predicate": "weight loss (5 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 58.375,
+    "severity": "high",
+    "subject": "tirzepatide"
+  }
+]
+
+
+ succeeded in 1424ms:
+{
+  "drop_reason_counts": {
+    "no_content_word_overlap_any_cited_span": 5,
+    "no_integer_overlap_any_cited_span": 2,
+    "no_provenance_token": 1,
+    "number_not_in_any_cited_span": 13
+  },
+  "sections": [
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-1.87', '-1.89', '-2.07', '0.04']"
+          ],
+          "sentence": "In the SURPASS-1 trial of participants with type 2 diabetes on diet and exercise alone, tirzepatide 5 mg, 10 mg, and 15 mg reduced A1c from baseline by -1.87%, -1.89%, and -2.07%, respectively, at week 40, compared to a 0.04% increase with placebo [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-1.86', '-2.09', '-2.37', '-2.46']"
+          ],
+          "sentence": "In the SURPASS-2 trial, when added to metformin, tirzepatide demonstrated superior A1c reductions versus semaglutide 1 mg, with reductions of -2.09%, -2.37%, and -2.46% for the 5 mg, 10 mg, and 15 mg doses, respectively, compared to -1.86% with semaglutide [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-1.34', '-1.93', '-2.20', '-2.37']",
+            "no_content_word_overlap_any_cited_span:ev_000:sentence_words=['add-on', 'compared', 'degludec', 'inhibitor', 'insulin']"
+          ],
+          "sentence": "In SURPASS-3, as an add-on to metformin with or without an SGLT2 inhibitor, tirzepatide 5 mg, 10 mg, and 15 mg reduced A1c by -1.93%, -2.20%, and -2.37% at week 52, compared to -1.34% with insulin degludec [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-1.44', '-2.24', '-2.43', '-2.58']",
+            "no_content_word_overlap_any_cited_span:ev_000:sentence_words=['cardiovascular', 'compared', 'glargine', 'increased', 'insulin']"
+          ],
+          "sentence": "In the SURPASS-4 trial involving participants with increased cardiovascular risk, tirzepatide 5 mg, 10 mg, and 15 mg reduced A1c by -2.24%, -2.43%, and -2.58% at week 52, compared to -1.44% with insulin glargine [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-2.23', '-2.59']",
+            "no_content_word_overlap_any_cited_span:ev_000:sentence_words=['added', 'glargine', 'insulin', 'metformin', 'reduced']"
+          ],
+          "sentence": "In SURPASS-5, added to insulin glargine with or without metformin, tirzepatide 5 mg, 10 mg, and 15 mg reduced A1c by -2.23%, -2.59%, and -2.59% at week 40, versus -0.93% with placebo [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_085:missing=['-0.95', '-2.24', '-2.44', '-2.49']",
+            "no_content_word_overlap_any_cited_span:ev_085:sentence_words=['asia-pacific', 'compared', 'demonstrated', 'glargine', 'insulin']"
+          ],
+          "sentence": "In the SURPASS-AP-Combo trial in an Asia-Pacific population, tirzepatide 5 mg, 10 mg, and 15 mg demonstrated superior A1c reductions of -2.24%, -2.44%, and -2.49% at week 40, respectively, compared to -0.95% with insulin glargine [#ev:ev_085:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_085",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-11.0', '-7.9', '-9.3']"
+          ],
+          "sentence": "In SURPASS-1, body weight reductions were -7.0 kg (-7.9%), -7.8 kg (-9.3%), and -9.5 kg (-11.0%) for the 5 mg, 10 mg, and 15 mg doses, respectively, versus -0.7 kg with placebo [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-11.0', '-13.1', '-8.5']"
+          ],
+          "sentence": "In SURPASS-2, weight reductions were superior to semaglutide 1 mg, with losses of -7.8 kg (-8.5%), -10.3 kg (-11.0%), and -12.4 kg (-13.1%) for tirzepatide 5 mg, 10 mg, and 15 mg, compared to -6.2 kg with semaglutide [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_000:missing=['-11.4', '-13.9', '-8.1']"
+          ],
+          "sentence": "In SURPASS-3, weight reductions were -7.5 kg (-8.1%), -10.7 kg (-11.4%), and -12.9 kg (-13.9%) for the three doses, compared to a 2.3 kg gain with insulin degludec [#ev:ev_000:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_000",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_085:missing=['-6.5', '-9.3', '-9.4']",
+            "no_content_word_overlap_any_cited_span:ev_085:sentence_words=['gain', 'glargine', 'insulin', 'reductions', 'respectively']"
+          ],
+          "sentence": "In SURPASS-AP-Combo, weight reductions were -5.0 kg (-6.5%), -7.0 kg (-9.3%), and -7.2 kg (-9.4%) for tirzepatide 5 mg, 10 mg, and 15 mg, respectively, versus a 1.5 kg gain with insulin glargine [#ev:ev_085:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_085",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "Across the SURPASS program, a high proportion of participants achieved A1c targets, with 81% to 97% achieving an A1c <7.0%, 66% to 95% achieving \u22646.5%, and 23% to 62% achieving normoglycemia (A1c <5.7%) across the different doses and trials [#ev:ev_000:9300-9800].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 9800,
+              "evidence_id": "ev_000",
+              "start": 9300
+            }
+          ]
+        },
+        {
+          "sentence": "In that trial, the proportions of patients achieving an A1c <7.0% were 75.4%, 86.0%, and 84.4% with the three tirzepatide doses, respectively, versus 23.7% with insulin glargine [#ev:ev_085:2100-2600].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2600,
+              "evidence_id": "ev_085",
+              "start": 2100
+            }
+          ]
+        },
+        {
+          "sentence": "Tirzepatide also produced significant, dose-dependent weight loss across the type 2 diabetes trials [#ev:ev_000:200-700].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 700,
+              "evidence_id": "ev_000",
+              "start": 200
+            }
+          ]
+        },
+        {
+          "sentence": "A systematic review notes that across phase 3 trials, tirzepatide achieved greater reductions in hemoglobin A1c (up to 2.4%) and body weight (up to 22%) compared to GLP-1 receptor agonists [#ev:ev_009:1400-1900].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1900,
+              "evidence_id": "ev_009",
+              "start": 1400
+            }
+          ]
+        },
+        {
+          "sentence": "Beyond glycemic and weight control, tirzepatide improved cardiometabolic parameters across the SURPASS trials, including reductions in fasting serum glucose, systolic and diastolic blood pressure, triglycerides, LDL cholesterol, VLDL cholesterol, and increases in HDL cholesterol [#ev:ev_000:10500-11000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 11000,
+              "evidence_id": "ev_000",
+              "start": 10500
+            }
+          ]
+        },
+        {
+          "sentence": "An individual participant data meta-analysis of phase 3 trials reported that tirzepatide 15 mg/week significantly reduced the risk of major adverse cardiovascular events compared to comparators, with a hazard ratio of 0.67 (95% CI, 0.51-0.87) [#ev:ev_058:10100-10600].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 10600,
+              "evidence_id": "ev_058",
+              "start": 10100
+            }
+          ]
+        }
+      ],
+      "title": "Efficacy",
+      "total_dropped": 10,
+      "total_in": 16,
+      "total_kept": 6
+    },
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "no_provenance_token"
+          ],
+          "sentence": "These events predominantly occur during the dose-escalation period [ev_048, ev_059].",
+          "tokens": []
+        },
+        {
+          "failure_reasons": [
+            "no_integer_overlap_any_cited_span:ev_017"
+          ],
+          "sentence": "In the related obesity trial SURMOUNT-3, which evaluated tirzepatide after a lifestyle intervention, the most common adverse events were also gastrointestinal disorders [#ev:ev_017:2800-3300].",
+          "tokens": [
+            {
+              "end": 3300,
+              "evidence_id": "ev_017",
+              "start": 2800
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "no_integer_overlap_any_cited_span:ev_027"
+          ],
+          "sentence": "A network meta-analysis of GLP-1 receptor agonists in adults without diabetes found that both tirzepatide and semaglutide were associated with a higher risk of any adverse event compared with placebo [#ev:ev_027:1000-1500].",
+          "tokens": [
+            {
+              "end": 1500,
+              "evidence_id": "ev_027",
+              "start": 1000
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "The most frequent adverse events associated with tirzepatide are gastrointestinal in nature, with nausea, diarrhea, and vomiting being the most common and typically mild to moderate in severity [#ev:ev_048:7900-8400].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 8400,
+              "evidence_id": "ev_048",
+              "start": 7900
+            }
+          ]
+        },
+        {
+          "sentence": "In the SURPASS Phase 3 clinical trials for type 2 diabetes, the incidence of gastrointestinal adverse events was dose-dependent, with nausea reported in 20\u201333% of participants, diarrhea in 18\u201322%, and vomiting in 8\u201313% [#ev:ev_048:7000-7500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 7500,
+              "evidence_id": "ev_048",
+              "start": 7000
+            }
+          ]
+        },
+        {
+          "sentence": "A systematic review and meta-analysis of randomized clinical trials in patients with diabetes and/or obesity similarly reports that gastrointestinal effects are the most common adverse events [#ev:ev_001:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_001",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "In a retrospective study of adults with type 1 diabetes and obesity, the overall incidence of side effects was 26%, with nausea being the most common at 15%, and only 4% of patients discontinued tirzepatide due to side effects [#ev:ev_004:1800-2300].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2300,
+              "evidence_id": "ev_004",
+              "start": 1800
+            }
+          ]
+        },
+        {
+          "sentence": "In the SURMOUNT-1 trial for obesity, the vast majority of participants (90%) who were initially late responders (achieving <5% weight loss at week 12) went on to achieve clinically meaningful weight reduction by week 72, suggesting a generally tolerable profile that allows for continued treatment [#ev:ev_093:1300-1800].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1800,
+              "evidence_id": "ev_093",
+              "start": 1300
+            }
+          ]
+        },
+        {
+          "sentence": "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist, no serious adverse events or discontinuations due to adverse events occurred, and treatment-emergent adverse events were mostly mild to moderate gastrointestinal events [#ev:ev_036:2100-2600].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2600,
+              "evidence_id": "ev_036",
+              "start": 2100
+            }
+          ]
+        },
+        {
+          "sentence": "Furthermore, in the retrospective study of patients with type 1 diabetes, no episodes of severe hypoglycemia or diabetic ketoacidosis were recorded during tirzepatide treatment [#ev:ev_004:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_004",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "title": "Safety",
+      "total_dropped": 3,
+      "total_in": 10,
+      "total_kept": 7
+    },
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_012:missing=['13.4', '15.7', '3.3']"
+          ],
+          "sentence": "In the SURMOUNT-2 trial, which enrolled participants with obesity and type 2 diabetes, tirzepatide 10 mg and 15 mg produced mean weight reductions of 13.4% and 15.7%, respectively, compared to a 3.3% reduction with placebo at 72 weeks [#ev:ev_012:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_012",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_060:missing=['-10.80', '-9.99']"
+          ],
+          "sentence": "A systematic review and meta-analysis focusing on weight loss reported that tirzepatide induced a mean weight reduction of 10.39 kg versus placebo (95% CI: -10.80 to -9.99) [#ev:ev_060:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_060",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_060:missing=['11.35', '8.61', '9.43']"
+          ],
+          "sentence": "The same analysis found the odds of achieving \u22655%, \u226510%, and \u226515% weight loss were significantly higher with tirzepatide versus placebo, with odds ratios of 9.43, 8.61, and 11.35, respectively [#ev:ev_060:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_060",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "Compared with insulin glargine in the SURPASS-4 trial, tirzepatide at 104 weeks led to significantly greater reductions in HbA1c (5 mg: -2.3%, 10 mg: -2.5%, 15 mg: -2.6% vs. -1.0% with insulin glargine) and body weight (5 mg: -7.6 kg, 10 mg: -10.0 kg, 15 mg: -11.4 kg vs. +2.1 kg with insulin glargine) [#ev:ev_005:4300-4800].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 4800,
+              "evidence_id": "ev_005",
+              "start": 4300
+            }
+          ]
+        },
+        {
+          "sentence": "A meta-analysis of six RCTs found tirzepatide reduced body weight more than the GLP-1 receptor agonists semaglutide 1 mg and dulaglutide 1.5 mg, and resulted in a higher proportion of patients achieving weight loss thresholds of \u22655%, \u226510%, and \u226515% [#ev:ev_002:5400-5900].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 5900,
+              "evidence_id": "ev_002",
+              "start": 5400
+            }
+          ]
+        },
+        {
+          "sentence": "In the head-to-head SURPASS-2 trial, all three tirzepatide doses (5, 10, and 15 mg) demonstrated superior HbA1c and weight reductions compared to once-weekly semaglutide 1 mg at 40 weeks [#ev:ev_028:4800-5300].",
+          "soft_warnings": [
+            "unhedged_superlative:'superior'"
+          ],
+          "tokens": [
+            {
+              "end": 5300,
+              "evidence_id": "ev_028",
+              "start": 4800
+            }
+          ]
+        },
+        {
+          "sentence": "A model-based simulation of switching from stable GLP-1 RA therapy predicted that transitioning to tirzepatide could yield further HbA1c reductions of 1.95% to 2.46% and body weight reductions of 6.50 to 12.1 kg by week 66 [#ev:ev_034:900-1400].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1400,
+              "evidence_id": "ev_034",
+              "start": 900
+            }
+          ]
+        },
+        {
+          "sentence": "For weight maintenance after initial loss, the SURMOUNT-4 trial in adults with obesity (without diabetes) showed that continuing tirzepatide led to an additional 5.5% weight reduction from weeks 36 to 88, whereas switching to placebo resulted in a 14.0% weight regain over the same period [#ev:ev_084:1500-2000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2000,
+              "evidence_id": "ev_084",
+              "start": 1500
+            }
+          ]
+        },
+        {
+          "sentence": "By week 88, 69.5% of participants continuing tirzepatide achieved \u226520% weight loss from baseline, compared to 12.6% in the placebo group [#ev:ev_084:3500-4000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 4000,
+              "evidence_id": "ev_084",
+              "start": 3500
+            }
+          ]
+        },
+        {
+          "sentence": "In a related obesity trial without diabetes, SURMOUNT-1, tirzepatide 15 mg produced a mean weight reduction of 20.9% at 72 weeks versus 3.1% with placebo [#ev:ev_015:3700-4200].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 4200,
+              "evidence_id": "ev_015",
+              "start": 3700
+            }
+          ]
+        },
+        {
+          "sentence": "Regarding safety, the meta-analysis reported that tirzepatide did not increase the risk of hypoglycemia compared to semaglutide 1 mg [#ev:ev_002:5600-6100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 6100,
+              "evidence_id": "ev_002",
+              "start": 5600
+            }
+          ]
+        },
+        {
+          "sentence": "Gastrointestinal adverse events, such as nausea, diarrhea, and vomiting, were more common with tirzepatide than placebo but were predominantly mild to moderate in severity [#ev:ev_084:4600-5100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 5100,
+              "evidence_id": "ev_084",
+              "start": 4600
+            }
+          ]
+        },
+        {
+          "sentence": "In SURMOUNT-4, treatment discontinuation due to an adverse event during the double-blind period occurred in 1.8% of the tirzepatide group and 0.9% of the placebo group [#ev:ev_084:7600-8100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 8100,
+              "evidence_id": "ev_084",
+              "start": 7600
+            }
+          ]
+        },
+        {
+          "sentence": "A post-hoc analysis of SURMOUNT trials found that adverse events potentially related to macronutrient malnutrition, such as abnormal weight loss or underweight, were uncommon, occurring in 0.12% of tirzepatide-treated participants [#ev:ev_064:6000-6500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 6500,
+              "evidence_id": "ev_064",
+              "start": 6000
+            }
+          ]
+        }
+      ],
+      "title": "Comparative",
+      "total_dropped": 3,
+      "total_in": 14,
+      "total_kept": 11
+    }
+  ],
+  "totals": {
+    "sentences_dropped": 16,
+    "sentences_verified": 24
+  }
+}
+
+
+ succeeded in 1689ms:
+{
+  "decision": "proceed",
+  "evidence_rows": 277,
+  "findings": [
+    {
+      "name": "total_sources",
+      "observed": 309,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 10
+    },
+    {
+      "name": "t1_count",
+      "observed": 63,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 3
+    },
+    {
+      "name": "t1_plus_t2",
+      "observed": 106,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 5
+    },
+    {
+      "name": "t1_plus_t2_plus_t3",
+      "observed": 108,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 6
+    },
+    {
+      "name": "evidence_rows",
+      "observed": 277,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 6
+    },
+    {
+      "name": "low_quality_fraction",
+      "observed": 0.042071197411003236,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.5
+    },
+    {
+      "name": "t7_fraction",
+      "observed": 0.2168284789644013,
+      "ok": true,
+      "severity": "ok",
+      "threshold": 0.4
+    }
+  ],
+  "notes": [],
+  "thresholds": {
+    "abort_if_below_fraction": 0.5,
+    "max_t5_plus_t6_fraction": 0.5,
+    "max_t7_fraction": 0.4,
+    "min_evidence_rows": 6,
+    "min_t1_count": 3,
+    "min_t1_plus_t2": 5,
+    "min_t1_plus_t2_plus_t3": 6,
+    "min_total_sources": 10
+  },
+  "tier_counts": {
+    "T1": 63,
+    "T2": 43,
+    "T3": 2,
+    "T4": 117,
+    "T5": 6,
+    "T6": 7,
+    "T7": 67,
+    "UNKNOWN": 4
+  },
+  "total_sources": 309
+}
+
+
+ succeeded in 1721ms:
+{
+  "covered_fraction": 1.0,
+  "domain": "clinical",
+  "expand_queries": [],
+  "notes": [],
+  "per_topic": [
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 208,
+      "id": "efficacy_primary",
+      "label": "Primary-endpoint efficacy",
+      "matched_keywords": [
+        "a1c",
+        "mace",
+        "glycemic",
+        "weight loss",
+        "hba1c",
+        "weight reduction",
+        "reduction",
+        "mean weight",
+        "mortality"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 116,
+      "id": "safety_adverse_events",
+      "label": "Adverse events / safety",
+      "matched_keywords": [
+        "side effect",
+        "adverse event",
+        "discontinuation",
+        "nausea",
+        "vomiting",
+        "serious adverse",
+        "diarrhea"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 20,
+      "id": "contraindications",
+      "label": "Contraindications / warnings",
+      "matched_keywords": [
+        "warning",
+        "avoid",
+        "contraindicated",
+        "not recommended",
+        "contraindication",
+        "black box"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 30,
+      "id": "class_specific_risks_glp1",
+      "label": "GLP-1 class-typical risks (pancreatitis, gallbladder, thyroid)",
+      "matched_keywords": [
+        "pancreatitis",
+        "medullary thyroid",
+        "gallbladder",
+        "thyroid"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 193,
+      "id": "regulatory_status",
+      "label": "Regulatory approval status",
+      "matched_keywords": [
+        "approved",
+        "ema",
+        "fda",
+        "indication",
+        "indicated for"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 22,
+      "id": "drug_interactions",
+      "label": "Drug interactions",
+      "matched_keywords": [
+        "concomitant",
+        "interact",
+        "drug interaction"
+      ]
+    },
+    {
+      "applies": true,
+      "covered": true,
+      "hits": 48,
+      "id": "population_subgroups",
+      "label": "Population subgroups (elderly, renal, hepatic)",
+      "matched_keywords": [
+        "kidney",
+        "liver",
+        "pregnancy",
+        "adolescent",
+        "pediatric",
+        "renal impairment"
+      ]
+    }
+  ],
+  "total_applicable": 7,
+  "total_covered": 7,
+  "total_uncovered": 0,
+  "uncovered_topic_ids": []
+}
+
+
+2026-04-20T07:02:59.627189Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\outputs\full_scale_v10\clinical\clinical_tirzepatide_t2dm\classified_urls.json' because it does not exist.[0m
+
+ exited 1 in 1778ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\POLARIS\outputs\full_scale_v10\clinical\clinical_tirzepatide_t2dm\classified_urls.json' because it does not exist.[0m
+
+web search: 
+web search: https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/
+web search: 
+web search: https://pubmed.ncbi.nlm.nih.gov/40430487/
+web search: 
+web search: https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full
+web search: 
+web search: 
+web search: 
+web search: "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes" "81%" "97%"
+web search: 
+web search: "Long-term efficacy and safety of tirzepatide" "-2.3%" "-7.6 kg"
+web search: 
+web search: "Model-based simulation of glycaemic effect" "1.95 to 2.46"
+web search: 
+web search: "81% to 97%" "66% to 95%" "23% to 62%" tirzepatide
+web search: 
+web search: "How do Dual GLP-1/GIP Receptor Agonists Differ" tirzepatide "2.4" "22"
+web search: 
+web search: 
+web search: 
+web search: api.unpaywall.org/v2/10.26685/urncst.1029 email anon example
+web search: 
+web search: "Nutritional status with tirzepatide in obesity" "0.12%"
+web search: 
+web search: "The Efficacy and Safety of Tirzepatide in Patients with Diabetes and" "gastrointestinal" "most common adverse events"
+web search: 
+web search: "1660-P" "overall incidence of side effects was 26%" tirzepatide
+web search: 
+web search: "overall incidence of side effects" "nausea" "15%" tirzepatide "type 1 diabetes"
+web search: 
+web search: '20.9%' in https://www.nature.com/articles/s41591-023-02597-w
+codex
+I’ve now checked the report body sentence by sentence against live-fetched source text where the web tool could reach body text. A key constraint: the generated report has only 24 citation-bearing claim sentences and 16 unique bibliography entries, so I can audit all cited sentences but cannot honestly produce 25 distinct citation checks from this report without duplicating or inventing one.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$b = Get-Content -Raw outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm/bibliography.json | ConvertFrom-Json; $b | Group-Object tier | Sort-Object Name | Select-Object Name,Count | Format-Table -AutoSize' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem outputs/full_scale_v10/clinical/clinical_tirzepatide_t2dm | Select-Object Name,Length | Format-Table -AutoSize' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'New-Item -ItemType Directory -Force outputs/codex_findings/dr_output_pass_4 | Out-Null; Resolve-Path outputs/codex_findings/dr_output_pass_4' in C:\POLARIS
+ succeeded in 930ms:
+
+[32;1mName                      [0m[32;1m Length[0m
+[32;1m----                      [0m [32;1m------[0m
+bibliography.json            4389
+completeness.json            2594
+contradictions.json         47878
+corpus_adequacy.json         1533
+corpus_approval.json        22164
+cost_ledger.jsonl            2316
+evaluator_rule_checks.json   3231
+live_corpus_dump.json      170079
+manifest.json                2702
+protocol.json                3591
+qwen_judge_output.json       1620
+report.md                   10529
+run_log.txt                  2580
+verification_details.json   21903
+
+
+ succeeded in 938ms:
+
+[32;1mName[0m[32;1m Count[0m
+[32;1m----[0m [32;1m-----[0m
+T1       9
+T2       3
+T4       3
+T7       1
+
+
+ succeeded in 968ms:
+
+[32;1mPath[0m
+[32;1m----[0m
+C:\POLARIS\outputs\codex_findings\dr_output_pass_4
+
+
+web search: 
+web search: "Obesity medications: A narrative review of current and emerging agents" "nausea" "diarrhea" "vomiting" tirzepatide
+web search: 
+web search: 'superior HbA1c'
+codex
+I’m writing the findings now. The report will explicitly distinguish live-fetched support from cases where the cited publisher/DOI body was blocked or where a claim was true elsewhere but not supported by the cited source.
+apply patch
+patch: completed
+C:\POLARIS\outputs\codex_findings\dr_output_pass_4\findings.md
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..af3f647639512bcd13b17a7e8c5489900fdeacc0
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,108 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v10
++commit: ff68b86
++delta_vs_pass3: "M-23/M-24 improved corpus scale and report citation count versus V6, but V10 still failed its own release gate and live citation audit found citation-source mismatches, unverifiable DOI/publisher bodies, and population/scope drift."
++citations_verified: "24 live-audited cited claim sentences / 24 citation-bearing claim sentences in report.md; report contains only 16 unique bibliography entries, so >=25 distinct citation checks were not possible without duplication."
++citations_faithful: 18
++citations_fabricated: 1
++citations_embellished: 1
++citations_unverifiable: 4
++t1_t2_percentage_of_bibliography: "75.0%"
++t7_percentage_of_bibliography: "6.25%"
++live_fetch_method_used: "mixed: direct WebFetch-equivalent browser open/search source body; DOI/source fallback via live search when direct publisher pages blocked; no metadata-only verdicts counted as faithful"
++faithfulness_verdict: "Mostly directionally faithful, but below top-tier because 6/24 audited citation-bearing claims were fabricated, embellished, or unverifiable."
++coverage_gaps_remaining: ["Only 16 unique cited sources in bibliography for an 834-word clinical DR report", "No NEJM/Lancet/JAMA primary SURPASS-1/2/3/4/5 papers in final bibliography except secondary/post-hoc summaries", "Obesity-only and type 1 diabetes evidence used in a type 2 diabetes question", "Unpaywall and winner-selection telemetry not exposed in run_log.txt"]
++structural_hallucinations: ["Report has correct section headings, but a Safety sentence imports a non-tirzepatide GLP-1/GLP-2 phase I drug as if informative for tirzepatide safety", "A SURMOUNT-1 obesity claim is cited to SURMOUNT-3"]
++quantification_quality: "Good numeric density, but some numeric claims are uncited in limitations/methods and at least one cited quantitative sentence is attached to the wrong source."
++contradiction_handling: "Not DR-grade: manifest fails PT08; contradiction disclosure dismisses detector output without endpoint/dose/population adjudication and without citations."
++vs_gpt54_dr_verdict: "Below GPT-5.4 Deep Research quality."
++vs_gemini31_pro_dr_verdict: "Below Gemini 3.1 Pro Deep Research quality."
++rationale: |
++  V10 is an improvement over V6 in corpus size and citation density, but it is not top-tier DR. The local evaluator gate is abort/release_allowed=false. More importantly, line-by-line live source checking found one fabricated citation-source pairing, one embellished relevance claim, and four citation claims where the cited source body could not be fetched or verified directly. The final bibliography has only 16 unique cited entries and omits several primary SURPASS papers expected in a clinical tirzepatide/T2D report.
++---
++
++**Verdict**
++MATERIAL-GAPS-FIX-AND-RESWEEP. I read `report.md` line by line, checked `bibliography.json`, and live-fetched or attempted to live-fetch every cited claim sentence in the report. V10 is not release quality.
++
++The strongest immediate reason is simple: `manifest.json` says `status=abort_evaluator_critical`, `release_allowed=false`, with blockers `PT08` and `PT11`; `qwen_judge_output.json` flags `citation_tightness=needs_revision`. The content audit independently confirms that this is not just a metadata failure.
++
++**Quantitative V10 vs V6 Summary**
++V10 retrieved 309 sources, fetched 285, selected 277 evidence rows, generated 834 words, verified 24 sentences, and dropped 16 sentences. Final bibliography has 16 unique cited entries: T1=9, T2=3, T4=3, T7=1. T1+T2 among final citations is 75.0%; T7 is 6.25%.
++
++Publisher/source mix in final bibliography: Nature/Springer Nature=3, NCBI/PMC/PubMed=6, Frontiers=1, Springer=1, Taylor & Francis=1, Diabetesjournals=1, AHA DOI abstract=1, URNCST DOI=1, Elsevier DOI=1. NEJM=0, Lancet=0, JAMA primary URL=0, FDA=0. Named SURPASS/SURMOUNT papers are present, but key primary SURPASS-1/2/3/4/5 papers are often absent or replaced by secondary summaries/post-hoc sources.
++
++**Citation Live-Fetch Audit Table**
++The report contains 24 citation-bearing claim sentences, not 25. I audited all 24. I did not invent an extra citation check.
++
++| # | Report sentence quote | Cited source actually fetched/attempted | Source-body excerpt/check | Verdict |
++|---:|---|---|---|---|
++| 1 | "Across the SURPASS program...81% to 97%...66% to 95%...23% to 62%..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open hit reCAPTCHA | Source table/body reports the same A1c target ranges across SURPASS: <7.0%, <=6.5%, and <5.7%. | FAITHFUL |
++| 2 | "In that trial...75.4%, 86.0%, and 84.4%...versus 23.7%..." [2] | https://www.nature.com/articles/s41591-023-02344-1 | Nature abstract reports 75.4%, 86.0%, 84.4% vs 23.7% for HbA1c <7.0%. | FAITHFUL |
++| 3 | "Tirzepatide also produced significant, dose-dependent weight loss..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source reports dose-dependent A1c/body-weight reductions and weight loss ranging roughly -6.6% to -13.9%. | FAITHFUL |
++| 4 | "A systematic review notes...HbA1c (up to 2.4%) and body weight (up to 22%)..." [3] | https://doi.org/10.26685/urncst.1029 attempted; no source body obtained | Could not fetch DOI body or OA body with the available web tool. | UNVERIFIABLE |
++| 5 | "Beyond glycemic and weight control...fasting serum glucose...blood pressure...triglycerides..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source body describes SURPASS improvements in glycemic, weight, lipid, and cardiometabolic parameters. | FAITHFUL |
++| 6 | "IPD meta-analysis...MACE...hazard ratio 0.67 (95% CI, 0.51-0.87)." [4] | https://doi.org/10.1161/circ.152.suppl_3.4361308 attempted; secondary live page found | A secondary MIMS article repeats HR 0.67 and CI 0.51-0.87, but the cited AHA abstract body was not fetched. | UNVERIFIABLE |
++| 7 | "The most frequent adverse events...nausea, diarrhea, and vomiting..." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Direct cited PMC body was blocked/not returned; related sources support the general claim, but not the cited source body. | UNVERIFIABLE |
++| 8 | "SURPASS Phase 3...nausea 20-33%, diarrhea 18-22%, vomiting 8-13%." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Could not verify these exact ranges in the cited source body. | UNVERIFIABLE |
++| 9 | "Systematic review/meta-analysis...GI effects are the most common adverse events." [6] | https://www.mdpi.com/1424-8247/18/5/668 | Source reports GI adverse events including nausea/vomiting/diarrhea more prevalent with tirzepatide. | FAITHFUL |
++| 10 | "Type 1 diabetes and obesity...side effects 26%, nausea 15%, discontinued 4%." [7] | https://www.citedrive.com/en/discovery/1660-p-efficacy-and-safety-of-tirzepatide-for-the-treatment-of-obesity-in-adults-with-type-1-diabetesthe-mayo-clinic-experience/ | Abstract text gives side effects 26%, nausea 15%, discontinuation 4%, no severe hypoglycemia/DKA. | FAITHFUL |
++| 11 | "SURMOUNT-1...90% late responders...>=5% by week 72..." [8] | https://pubmed.ncbi.nlm.nih.gov/40677091/ and https://www.ovid.com/journals/domet/fulltext/10.1111/dom.16554~weight-reduction-over-time-in-tirzepatidetreated | Source reports 250/278 late responders, 90%, achieved >=5% body-weight reduction at week 72. | FAITHFUL |
++| 12 | "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist..." [9] | https://www.nature.com/articles/s41467-026-71080-0 | Source says PG-102 had no serious AEs/discontinuations and GI events mild/moderate. It is not tirzepatide. | EMBELLISHED |
++| 13 | "Type 1 diabetes...no severe hypoglycemia or DKA..." [7] | Same fetched Citedrive/Diabetes abstract as #10 | Abstract states no severe hypoglycemia or DKA were recorded. | FAITHFUL |
++| 14 | "SURPASS-4...104 weeks...HbA1c -2.3/-2.5/-2.6 vs -1.0; weight -7.6/-10.0/-11.4 vs +2.1 kg." [10] | https://www.researchgate.net/publication/395390302_Long-term_efficacy... and PubMed attempted | Source abstract reports exactly those 104-week HbA1c and body-weight values. | FAITHFUL |
++| 15 | "Meta-analysis of six RCTs...reduced body weight more than semaglutide 1 mg and dulaglutide 1.5 mg..." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source reports six RCTs and superior weight loss without increased hypoglycemia. | FAITHFUL |
++| 16 | "Head-to-head SURPASS-2...superior HbA1c and weight reductions vs semaglutide 1 mg..." [12] | https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf | Source PDF discusses SURPASS-2 target achievement/costs using tirzepatide vs semaglutide 1 mg trial data. | FAITHFUL |
++| 17 | "Model-based simulation...HbA1c 1.95% to 2.46%; weight 6.50 to 12.1 kg by week 66." [13] | https://www.tandfonline.com/doi/full/10.1080/03007995.2024.2322072 | Source abstract gives the same predicted HbA1c and body-weight ranges by week 66. | FAITHFUL |
++| 18 | "SURMOUNT-4...additional 5.5% reduction...placebo 14.0% regain..." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | Source reports -5.5% with continued tirzepatide vs +14.0% with placebo from week 36 to 88. | FAITHFUL |
++| 19 | "By week 88, 69.5%...>=20%...vs 12.6%..." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source table reports >=20% body-weight reduction: 69.5% vs 12.6%. | FAITHFUL |
++| 20 | "SURMOUNT-1...tirzepatide 15 mg...20.9% at 72 weeks versus 3.1% placebo." [15] | https://www.nature.com/articles/s41591-023-02597-w | Cited source is SURMOUNT-3, not SURMOUNT-1; it reports MTD -18.4% vs +2.5% from randomization. | FABRICATED |
++| 21 | "Meta-analysis...did not increase hypoglycemia compared to semaglutide 1 mg." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source conclusion reports no increased hypoglycemia; comparator-specific claim is consistent with source discussion. | FAITHFUL |
++| 22 | "GI adverse events...more common with tirzepatide than placebo...mild to moderate." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | SURMOUNT-4 source says common AEs were mostly mild/moderate GI events, more common with tirzepatide. | FAITHFUL |
++| 23 | "SURMOUNT-4 discontinuation due to AE...1.8% tirzepatide and 0.9% placebo." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source safety table reports double-blind discontinuation due to AE at 1.8% vs 0.9%. | FAITHFUL |
++| 24 | "Macronutrient malnutrition...uncommon, occurring in 0.12%..." [16] | https://pmc.ncbi.nlm.nih.gov/articles/PMC12865613/ and https://www.sciencedirect.com/science/article/pii/S2667368126000045 | Source reports 4/3141, 0.12%, tirzepatide-treated participants with TEAEs potentially related to macronutrient malnutrition. | FAITHFUL |
++
++**Criterion-by-criterion**
++a. Argumentation: Partly integrated, but still summary-like. The report lists trial results without building a hierarchy of evidence or explaining why secondary/post-hoc sources substitute for primary trials.
++
++b. Quantification: Better than V6; many numbers are precise. However, PT11 found uncited numeric claims, and the live audit found one wrong-source numeric citation.
++
++c. Scope fidelity: Not adequate. Type 1 diabetes evidence and obesity-without-diabetes evidence are used in a T2D answer. Some are flagged, but the safety section lets T1D evidence and a non-tirzepatide phase I drug influence the safety narrative.
++
++d. Contradictions: Not adequate. `contradictions.json` has 14 high-severity numeric disagreements, and `manifest.json` fails PT08. The disclosure says most are extraction artifacts but does not adjudicate them by endpoint, dose, population, comparator, or tier.
++
++e. Structural hallucinations: Headings match the clinical template, but content inside headings has structural drift: a non-tirzepatide GLP-1/GLP-2 agonist appears in tirzepatide safety, and SURMOUNT-1 is cited to a SURMOUNT-3 paper.
++
++f. Citation tightness: Fails. Four audited claims were unverifiable from cited source body; one was fabricated relative to cited source; one was embellished.
++
++g. Coverage: Not top-tier. Final bibliography has 16 entries, far below the 50-200 citation density expected for a top-tier clinical DR report, and misses key primary papers from NEJM/Lancet/JAMA.
++
++h. Release readiness: Not release-ready. The pipeline itself marks abort/release_allowed=false.
++
++**M-23 + M-24 Impact Assessment**
++Unpaywall hit rate: not assessable from `run_log.txt`. The log reports `fetched=285, failed=24`, but does not expose Unpaywall hit/miss counts or DOI-to-OA swaps.
++
++Crawl4AI/content winner selection: not assessable from `run_log.txt`. The log does not include M-23c quality-score winner telemetry or source-length comparisons.
++
++Citation count: improved versus V6, but only to 16 unique final bibliography entries and 24 verified claim sentences. That is still not Deep Research grade.
++
++T1/T2 fraction: final cited bibliography has a strong T1/T2 fraction (75.0%), but the full corpus still has material deviation: T1=20%, T2=14%, T4=38%, T7=22%. Final citation quality is also weakened by secondary summaries classified as T1 and missing primary SURPASS papers.
++
++**Remaining DR Gaps**
++1. Own-gate failure remains: `release_allowed=false`, `status=abort_evaluator_critical`.
++2. Citation audit pass rate is 18/24 faithful = 75%, below the >95% required for top-tier DR.
++3. The report has too few cited sources and too few citation-bearing sentences for a high-stakes clinical research answer.
++4. Primary evidence coverage is incomplete: NEJM/Lancet/JAMA SURPASS primaries should be directly cited.
++5. Contradiction handling is conclusory, not adjudicated.
++6. Scope contamination remains from T1D, obesity-only, and non-tirzepatide evidence.
++7. Run telemetry does not prove M-23 worked: no Unpaywall hit rate, no legal OA PDF substitution summary, no winner-selection quality logs.
++
++**Required Fix**
++Fix and resweep. Required changes before another final-judge pass:
++
++1. Force primary-paper coverage for SURPASS-1 through SURPASS-5, SURPASS-AP-Combo, SURMOUNT-2 if discussing T2D weight loss, and SURMOUNT-4/3/1 only when explicitly labeled as obesity-without-diabetes or mixed population.
++2. Require citation adjacency for every numeric claim in limitations, methods, and contradiction disclosures.
++3. Reject source bindings where the cited source title/trial does not match the sentence trial name.
++4. Add population-scope gating: T1D, obesity-only, preclinical, and non-tirzepatide drug evidence must be quarantined unless the sentence explicitly says why it is indirect.
++5. Emit M-23 telemetry into `run_log.txt`: DOI count, Unpaywall queried count, OA PDF hit count, OA substitution count, paywall/stub rejects, winner backend, content length, and quality score.
++6. Replace contradiction prose with a table grouped by endpoint, dose, population, comparator, timepoint, and tier, or suppress artifact groups with explicit machine-readable reasons.
+
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..af3f647639512bcd13b17a7e8c5489900fdeacc0
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,108 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v10
++commit: ff68b86
++delta_vs_pass3: "M-23/M-24 improved corpus scale and report citation count versus V6, but V10 still failed its own release gate and live citation audit found citation-source mismatches, unverifiable DOI/publisher bodies, and population/scope drift."
++citations_verified: "24 live-audited cited claim sentences / 24 citation-bearing claim sentences in report.md; report contains only 16 unique bibliography entries, so >=25 distinct citation checks were not possible without duplication."
++citations_faithful: 18
++citations_fabricated: 1
++citations_embellished: 1
++citations_unverifiable: 4
++t1_t2_percentage_of_bibliography: "75.0%"
++t7_percentage_of_bibliography: "6.25%"
++live_fetch_method_used: "mixed: direct WebFetch-equivalent browser open/search source body; DOI/source fallback via live search when direct publisher pages blocked; no metadata-only verdicts counted as faithful"
++faithfulness_verdict: "Mostly directionally faithful, but below top-tier because 6/24 audited citation-bearing claims were fabricated, embellished, or unverifiable."
++coverage_gaps_remaining: ["Only 16 unique cited sources in bibliography for an 834-word clinical DR report", "No NEJM/Lancet/JAMA primary SURPASS-1/2/3/4/5 papers in final bibliography except secondary/post-hoc summaries", "Obesity-only and type 1 diabetes evidence used in a type 2 diabetes question", "Unpaywall and winner-selection telemetry not exposed in run_log.txt"]
++structural_hallucinations: ["Report has correct section headings, but a Safety sentence imports a non-tirzepatide GLP-1/GLP-2 phase I drug as if informative for tirzepatide safety", "A SURMOUNT-1 obesity claim is cited to SURMOUNT-3"]
++quantification_quality: "Good numeric density, but some numeric claims are uncited in limitations/methods and at least one cited quantitative sentence is attached to the wrong source."
++contradiction_handling: "Not DR-grade: manifest fails PT08; contradiction disclosure dismisses detector output without endpoint/dose/population adjudication and without citations."
++vs_gpt54_dr_verdict: "Below GPT-5.4 Deep Research quality."
++vs_gemini31_pro_dr_verdict: "Below Gemini 3.1 Pro Deep Research quality."
++rationale: |
++  V10 is an improvement over V6 in corpus size and citation density, but it is not top-tier DR. The local evaluator gate is abort/release_allowed=false. More importantly, line-by-line live source checking found one fabricated citation-source pairing, one embellished relevance claim, and four citation claims where the cited source body could not be fetched or verified directly. The final bibliography has only 16 unique cited entries and omits several primary SURPASS papers expected in a clinical tirzepatide/T2D report.
++---
++
++**Verdict**
++MATERIAL-GAPS-FIX-AND-RESWEEP. I read `report.md` line by line, checked `bibliography.json`, and live-fetched or attempted to live-fetch every cited claim sentence in the report. V10 is not release quality.
++
++The strongest immediate reason is simple: `manifest.json` says `status=abort_evaluator_critical`, `release_allowed=false`, with blockers `PT08` and `PT11`; `qwen_judge_output.json` flags `citation_tightness=needs_revision`. The content audit independently confirms that this is not just a metadata failure.
++
++**Quantitative V10 vs V6 Summary**
++V10 retrieved 309 sources, fetched 285, selected 277 evidence rows, generated 834 words, verified 24 sentences, and dropped 16 sentences. Final bibliography has 16 unique cited entries: T1=9, T2=3, T4=3, T7=1. T1+T2 among final citations is 75.0%; T7 is 6.25%.
++
++Publisher/source mix in final bibliography: Nature/Springer Nature=3, NCBI/PMC/PubMed=6, Frontiers=1, Springer=1, Taylor & Francis=1, Diabetesjournals=1, AHA DOI abstract=1, URNCST DOI=1, Elsevier DOI=1. NEJM=0, Lancet=0, JAMA primary URL=0, FDA=0. Named SURPASS/SURMOUNT papers are present, but key primary SURPASS-1/2/3/4/5 papers are often absent or replaced by secondary summaries/post-hoc sources.
++
++**Citation Live-Fetch Audit Table**
++The report contains 24 citation-bearing claim sentences, not 25. I audited all 24. I did not invent an extra citation check.
++
++| # | Report sentence quote | Cited source actually fetched/attempted | Source-body excerpt/check | Verdict |
++|---:|---|---|---|---|
++| 1 | "Across the SURPASS program...81% to 97%...66% to 95%...23% to 62%..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open hit reCAPTCHA | Source table/body reports the same A1c target ranges across SURPASS: <7.0%, <=6.5%, and <5.7%. | FAITHFUL |
++| 2 | "In that trial...75.4%, 86.0%, and 84.4%...versus 23.7%..." [2] | https://www.nature.com/articles/s41591-023-02344-1 | Nature abstract reports 75.4%, 86.0%, 84.4% vs 23.7% for HbA1c <7.0%. | FAITHFUL |
++| 3 | "Tirzepatide also produced significant, dose-dependent weight loss..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source reports dose-dependent A1c/body-weight reductions and weight loss ranging roughly -6.6% to -13.9%. | FAITHFUL |
++| 4 | "A systematic review notes...HbA1c (up to 2.4%) and body weight (up to 22%)..." [3] | https://doi.org/10.26685/urncst.1029 attempted; no source body obtained | Could not fetch DOI body or OA body with the available web tool. | UNVERIFIABLE |
++| 5 | "Beyond glycemic and weight control...fasting serum glucose...blood pressure...triglycerides..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source body describes SURPASS improvements in glycemic, weight, lipid, and cardiometabolic parameters. | FAITHFUL |
++| 6 | "IPD meta-analysis...MACE...hazard ratio 0.67 (95% CI, 0.51-0.87)." [4] | https://doi.org/10.1161/circ.152.suppl_3.4361308 attempted; secondary live page found | A secondary MIMS article repeats HR 0.67 and CI 0.51-0.87, but the cited AHA abstract body was not fetched. | UNVERIFIABLE |
++| 7 | "The most frequent adverse events...nausea, diarrhea, and vomiting..." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Direct cited PMC body was blocked/not returned; related sources support the general claim, but not the cited source body. | UNVERIFIABLE |
++| 8 | "SURPASS Phase 3...nausea 20-33%, diarrhea 18-22%, vomiting 8-13%." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Could not verify these exact ranges in the cited source body. | UNVERIFIABLE |
++| 9 | "Systematic review/meta-analysis...GI effects are the most common adverse events." [6] | https://www.mdpi.com/1424-8247/18/5/668 | Source reports GI adverse events including nausea/vomiting/diarrhea more prevalent with tirzepatide. | FAITHFUL |
++| 10 | "Type 1 diabetes and obesity...side effects 26%, nausea 15%, discontinued 4%." [7] | https://www.citedrive.com/en/discovery/1660-p-efficacy-and-safety-of-tirzepatide-for-the-treatment-of-obesity-in-adults-with-type-1-diabetesthe-mayo-clinic-experience/ | Abstract text gives side effects 26%, nausea 15%, discontinuation 4%, no severe hypoglycemia/DKA. | FAITHFUL |
++| 11 | "SURMOUNT-1...90% late responders...>=5% by week 72..." [8] | https://pubmed.ncbi.nlm.nih.gov/40677091/ and https://www.ovid.com/journals/domet/fulltext/10.1111/dom.16554~weight-reduction-over-time-in-tirzepatidetreated | Source reports 250/278 late responders, 90%, achieved >=5% body-weight reduction at week 72. | FAITHFUL |
++| 12 | "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist..." [9] | https://www.nature.com/articles/s41467-026-71080-0 | Source says PG-102 had no serious AEs/discontinuations and GI events mild/moderate. It is not tirzepatide. | EMBELLISHED |
++| 13 | "Type 1 diabetes...no severe hypoglycemia or DKA..." [7] | Same fetched Citedrive/Diabetes abstract as #10 | Abstract states no severe hypoglycemia or DKA were recorded. | FAITHFUL |
++| 14 | "SURPASS-4...104 weeks...HbA1c -2.3/-2.5/-2.6 vs -1.0; weight -7.6/-10.0/-11.4 vs +2.1 kg." [10] | https://www.researchgate.net/publication/395390302_Long-term_efficacy... and PubMed attempted | Source abstract reports exactly those 104-week HbA1c and body-weight values. | FAITHFUL |
++| 15 | "Meta-analysis of six RCTs...reduced body weight more than semaglutide 1 mg and dulaglutide 1.5 mg..." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source reports six RCTs and superior weight loss without increased hypoglycemia. | FAITHFUL |
++| 16 | "Head-to-head SURPASS-2...superior HbA1c and weight reductions vs semaglutide 1 mg..." [12] | https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf | Source PDF discusses SURPASS-2 target achievement/costs using tirzepatide vs semaglutide 1 mg trial data. | FAITHFUL |
++| 17 | "Model-based simulation...HbA1c 1.95% to 2.46%; weight 6.50 to 12.1 kg by week 66." [13] | https://www.tandfonline.com/doi/full/10.1080/03007995.2024.2322072 | Source abstract gives the same predicted HbA1c and body-weight ranges by week 66. | FAITHFUL |
++| 18 | "SURMOUNT-4...additional 5.5% reduction...placebo 14.0% regain..." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | Source reports -5.5% with continued tirzepatide vs +14.0% with placebo from week 36 to 88. | FAITHFUL |
++| 19 | "By week 88, 69.5%...>=20%...vs 12.6%..." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source table reports >=20% body-weight reduction: 69.5% vs 12.6%. | FAITHFUL |
++| 20 | "SURMOUNT-1...tirzepatide 15 mg...20.9% at 72 weeks versus 3.1% placebo." [15] | https://www.nature.com/articles/s41591-023-02597-w | Cited source is SURMOUNT-3, not SURMOUNT-1; it reports MTD -18.4% vs +2.5% from randomization. | FABRICATED |
++| 21 | "Meta-analysis...did not increase hypoglycemia compared to semaglutide 1 mg." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source conclusion reports no increased hypoglycemia; comparator-specific claim is consistent with source discussion. | FAITHFUL |
++| 22 | "GI adverse events...more common with tirzepatide than placebo...mild to moderate." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | SURMOUNT-4 source says common AEs were mostly mild/moderate GI events, more common with tirzepatide. | FAITHFUL |
++| 23 | "SURMOUNT-4 discontinuation due to AE...1.8% tirzepatide and 0.9% placebo." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source safety table reports double-blind discontinuation due to AE at 1.8% vs 0.9%. | FAITHFUL |
++| 24 | "Macronutrient malnutrition...uncommon, occurring in 0.12%..." [16] | https://pmc.ncbi.nlm.nih.gov/articles/PMC12865613/ and https://www.sciencedirect.com/science/article/pii/S2667368126000045 | Source reports 4/3141, 0.12%, tirzepatide-treated participants with TEAEs potentially related to macronutrient malnutrition. | FAITHFUL |
++
++**Criterion-by-criterion**
++a. Argumentation: Partly integrated, but still summary-like. The report lists trial results without building a hierarchy of evidence or explaining why secondary/post-hoc sources substitute for primary trials.
++
++b. Quantification: Better than V6; many numbers are precise. However, PT11 found uncited numeric claims, and the live audit found one wrong-source numeric citation.
++
++c. Scope fidelity: Not adequate. Type 1 diabetes evidence and obesity-without-diabetes evidence are used in a T2D answer. Some are flagged, but the safety section lets T1D evidence and a non-tirzepatide phase I drug influence the safety narrative.
++
++d. Contradictions: Not adequate. `contradictions.json` has 14 high-severity numeric disagreements, and `manifest.json` fails PT08. The disclosure says most are extraction artifacts but does not adjudicate them by endpoint, dose, population, comparator, or tier.
++
++e. Structural hallucinations: Headings match the clinical template, but content inside headings has structural drift: a non-tirzepatide GLP-1/GLP-2 agonist appears in tirzepatide safety, and SURMOUNT-1 is cited to a SURMOUNT-3 paper.
++
++f. Citation tightness: Fails. Four audited claims were unverifiable from cited source body; one was fabricated relative to cited source; one was embellished.
++
++g. Coverage: Not top-tier. Final bibliography has 16 entries, far below the 50-200 citation density expected for a top-tier clinical DR report, and misses key primary papers from NEJM/Lancet/JAMA.
++
++h. Release readiness: Not release-ready. The pipeline itself marks abort/release_allowed=false.
++
++**M-23 + M-24 Impact Assessment**
++Unpaywall hit rate: not assessable from `run_log.txt`. The log reports `fetched=285, failed=24`, but does not expose Unpaywall hit/miss counts or DOI-to-OA swaps.
++
++Crawl4AI/content winner selection: not assessable from `run_log.txt`. The log does not include M-23c quality-score winner telemetry or source-length comparisons.
++
++Citation count: improved versus V6, but only to 16 unique final bibliography entries and 24 verified claim sentences. That is still not Deep Research grade.
++
++T1/T2 fraction: final cited bibliography has a strong T1/T2 fraction (75.0%), but the full corpus still has material deviation: T1=20%, T2=14%, T4=38%, T7=22%. Final citation quality is also weakened by secondary summaries classified as T1 and missing primary SURPASS papers.
++
++**Remaining DR Gaps**
++1. Own-gate failure remains: `release_allowed=false`, `status=abort_evaluator_critical`.
++2. Citation audit pass rate is 18/24 faithful = 75%, below the >95% required for top-tier DR.
++3. The report has too few cited sources and too few citation-bearing sentences for a high-stakes clinical research answer.
++4. Primary evidence coverage is incomplete: NEJM/Lancet/JAMA SURPASS primaries should be directly cited.
++5. Contradiction handling is conclusory, not adjudicated.
++6. Scope contamination remains from T1D, obesity-only, and non-tirzepatide evidence.
++7. Run telemetry does not prove M-23 worked: no Unpaywall hit rate, no legal OA PDF substitution summary, no winner-selection quality logs.
++
++**Required Fix**
++Fix and resweep. Required changes before another final-judge pass:
++
++1. Force primary-paper coverage for SURPASS-1 through SURPASS-5, SURPASS-AP-Combo, SURMOUNT-2 if discussing T2D weight loss, and SURMOUNT-4/3/1 only when explicitly labeled as obesity-without-diabetes or mixed population.
++2. Require citation adjacency for every numeric claim in limitations, methods, and contradiction disclosures.
++3. Reject source bindings where the cited source title/trial does not match the sentence trial name.
++4. Add population-scope gating: T1D, obesity-only, preclinical, and non-tirzepatide drug evidence must be quarantined unless the sentence explicitly says why it is indirect.
++5. Emit M-23 telemetry into `run_log.txt`: DOI count, Unpaywall queried count, OA PDF hit count, OA substitution count, paywall/stub rejects, winner backend, content length, and quality score.
++6. Replace contradiction prose with a table grouped by endpoint, dose, population, comparator, timepoint, and tier, or suppress artifact groups with explicit machine-readable reasons.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short outputs/codex_findings/dr_output_pass_4/findings.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/codex_findings/dr_output_pass_4/findings.md' in C:\POLARIS
+ succeeded in 716ms:
+---
+verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
+pass: dr_output_pass_4_tirzepatide_v10
+commit: ff68b86
+delta_vs_pass3: "M-23/M-24 improved corpus scale and report citation count versus V6, but V10 still failed its own release gate and live citation audit found citation-source mismatches, unverifiable DOI/publisher bodies, and population/scope drift."
+citations_verified: "24 live-audited cited claim sentences / 24 citation-bearing claim sentences in report.md; report contains only 16 unique bibliography entries, so >=25 distinct citation checks were not possible without duplication."
+citations_faithful: 18
+citations_fabricated: 1
+citations_embellished: 1
+citations_unverifiable: 4
+t1_t2_percentage_of_bibliography: "75.0%"
+t7_percentage_of_bibliography: "6.25%"
+live_fetch_method_used: "mixed: direct WebFetch-equivalent browser open/search source body; DOI/source fallback via live search when direct publisher pages blocked; no metadata-only verdicts counted as faithful"
+faithfulness_verdict: "Mostly directionally faithful, but below top-tier because 6/24 audited citation-bearing claims were fabricated, embellished, or unverifiable."
+coverage_gaps_remaining: ["Only 16 unique cited sources in bibliography for an 834-word clinical DR report", "No NEJM/Lancet/JAMA primary SURPASS-1/2/3/4/5 papers in final bibliography except secondary/post-hoc summaries", "Obesity-only and type 1 diabetes evidence used in a type 2 diabetes question", "Unpaywall and winner-selection telemetry not exposed in run_log.txt"]
+structural_hallucinations: ["Report has correct section headings, but a Safety sentence imports a non-tirzepatide GLP-1/GLP-2 phase I drug as if informative for tirzepatide safety", "A SURMOUNT-1 obesity claim is cited to SURMOUNT-3"]
+quantification_quality: "Good numeric density, but some numeric claims are uncited in limitations/methods and at least one cited quantitative sentence is attached to the wrong source."
+contradiction_handling: "Not DR-grade: manifest fails PT08; contradiction disclosure dismisses detector output without endpoint/dose/population adjudication and without citations."
+vs_gpt54_dr_verdict: "Below GPT-5.4 Deep Research quality."
+vs_gemini31_pro_dr_verdict: "Below Gemini 3.1 Pro Deep Research quality."
+rationale: |
+  V10 is an improvement over V6 in corpus size and citation density, but it is not top-tier DR. The local evaluator gate is abort/release_allowed=false. More importantly, line-by-line live source checking found one fabricated citation-source pairing, one embellished relevance claim, and four citation claims where the cited source body could not be fetched or verified directly. The final bibliography has only 16 unique cited entries and omits several primary SURPASS papers expected in a clinical tirzepatide/T2D report.
+---
+
+**Verdict**
+MATERIAL-GAPS-FIX-AND-RESWEEP. I read `report.md` line by line, checked `bibliography.json`, and live-fetched or attempted to live-fetch every cited claim sentence in the report. V10 is not release quality.
+
+The strongest immediate reason is simple: `manifest.json` says `status=abort_evaluator_critical`, `release_allowed=false`, with blockers `PT08` and `PT11`; `qwen_judge_output.json` flags `citation_tightness=needs_revision`. The content audit independently confirms that this is not just a metadata failure.
+
+**Quantitative V10 vs V6 Summary**
+V10 retrieved 309 sources, fetched 285, selected 277 evidence rows, generated 834 words, verified 24 sentences, and dropped 16 sentences. Final bibliography has 16 unique cited entries: T1=9, T2=3, T4=3, T7=1. T1+T2 among final citations is 75.0%; T7 is 6.25%.
+
+Publisher/source mix in final bibliography: Nature/Springer Nature=3, NCBI/PMC/PubMed=6, Frontiers=1, Springer=1, Taylor & Francis=1, Diabetesjournals=1, AHA DOI abstract=1, URNCST DOI=1, Elsevier DOI=1. NEJM=0, Lancet=0, JAMA primary URL=0, FDA=0. Named SURPASS/SURMOUNT papers are present, but key primary SURPASS-1/2/3/4/5 papers are often absent or replaced by secondary summaries/post-hoc sources.
+
+**Citation Live-Fetch Audit Table**
+The report contains 24 citation-bearing claim sentences, not 25. I audited all 24. I did not invent an extra citation check.
+
+| # | Report sentence quote | Cited source actually fetched/attempted | Source-body excerpt/check | Verdict |
+|---:|---|---|---|---|
+| 1 | "Across the SURPASS program...81% to 97%...66% to 95%...23% to 62%..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open hit reCAPTCHA | Source table/body reports the same A1c target ranges across SURPASS: <7.0%, <=6.5%, and <5.7%. | FAITHFUL |
+| 2 | "In that trial...75.4%, 86.0%, and 84.4%...versus 23.7%..." [2] | https://www.nature.com/articles/s41591-023-02344-1 | Nature abstract reports 75.4%, 86.0%, 84.4% vs 23.7% for HbA1c <7.0%. | FAITHFUL |
+| 3 | "Tirzepatide also produced significant, dose-dependent weight loss..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source reports dose-dependent A1c/body-weight reductions and weight loss ranging roughly -6.6% to -13.9%. | FAITHFUL |
+| 4 | "A systematic review notes...HbA1c (up to 2.4%) and body weight (up to 22%)..." [3] | https://doi.org/10.26685/urncst.1029 attempted; no source body obtained | Could not fetch DOI body or OA body with the available web tool. | UNVERIFIABLE |
+| 5 | "Beyond glycemic and weight control...fasting serum glucose...blood pressure...triglycerides..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source body describes SURPASS improvements in glycemic, weight, lipid, and cardiometabolic parameters. | FAITHFUL |
+| 6 | "IPD meta-analysis...MACE...hazard ratio 0.67 (95% CI, 0.51-0.87)." [4] | https://doi.org/10.1161/circ.152.suppl_3.4361308 attempted; secondary live page found | A secondary MIMS article repeats HR 0.67 and CI 0.51-0.87, but the cited AHA abstract body was not fetched. | UNVERIFIABLE |
+| 7 | "The most frequent adverse events...nausea, diarrhea, and vomiting..." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Direct cited PMC body was blocked/not returned; related sources support the general claim, but not the cited source body. | UNVERIFIABLE |
+| 8 | "SURPASS Phase 3...nausea 20-33%, diarrhea 18-22%, vomiting 8-13%." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Could not verify these exact ranges in the cited source body. | UNVERIFIABLE |
+| 9 | "Systematic review/meta-analysis...GI effects are the most common adverse events." [6] | https://www.mdpi.com/1424-8247/18/5/668 | Source reports GI adverse events including nausea/vomiting/diarrhea more prevalent with tirzepatide. | FAITHFUL |
+| 10 | "Type 1 diabetes and obesity...side effects 26%, nausea 15%, discontinued 4%." [7] | https://www.citedrive.com/en/discovery/1660-p-efficacy-and-safety-of-tirzepatide-for-the-treatment-of-obesity-in-adults-with-type-1-diabetesthe-mayo-clinic-experience/ | Abstract text gives side effects 26%, nausea 15%, discontinuation 4%, no severe hypoglycemia/DKA. | FAITHFUL |
+| 11 | "SURMOUNT-1...90% late responders...>=5% by week 72..." [8] | https://pubmed.ncbi.nlm.nih.gov/40677091/ and https://www.ovid.com/journals/domet/fulltext/10.1111/dom.16554~weight-reduction-over-time-in-tirzepatidetreated | Source reports 250/278 late responders, 90%, achieved >=5% body-weight reduction at week 72. | FAITHFUL |
+| 12 | "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist..." [9] | https://www.nature.com/articles/s41467-026-71080-0 | Source says PG-102 had no serious AEs/discontinuations and GI events mild/moderate. It is not tirzepatide. | EMBELLISHED |
+| 13 | "Type 1 diabetes...no severe hypoglycemia or DKA..." [7] | Same fetched Citedrive/Diabetes abstract as #10 | Abstract states no severe hypoglycemia or DKA were recorded. | FAITHFUL |
+| 14 | "SURPASS-4...104 weeks...HbA1c -2.3/-2.5/-2.6 vs -1.0; weight -7.6/-10.0/-11.4 vs +2.1 kg." [10] | https://www.researchgate.net/publication/395390302_Long-term_efficacy... and PubMed attempted | Source abstract reports exactly those 104-week HbA1c and body-weight values. | FAITHFUL |
+| 15 | "Meta-analysis of six RCTs...reduced body weight more than semaglutide 1 mg and dulaglutide 1.5 mg..." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source reports six RCTs and superior weight loss without increased hypoglycemia. | FAITHFUL |
+| 16 | "Head-to-head SURPASS-2...superior HbA1c and weight reductions vs semaglutide 1 mg..." [12] | https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf | Source PDF discusses SURPASS-2 target achievement/costs using tirzepatide vs semaglutide 1 mg trial data. | FAITHFUL |
+| 17 | "Model-based simulation...HbA1c 1.95% to 2.46%; weight 6.50 to 12.1 kg by week 66." [13] | https://www.tandfonline.com/doi/full/10.1080/03007995.2024.2322072 | Source abstract gives the same predicted HbA1c and body-weight ranges by week 66. | FAITHFUL |
+| 18 | "SURMOUNT-4...additional 5.5% reduction...placebo 14.0% regain..." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | Source reports -5.5% with continued tirzepatide vs +14.0% with placebo from week 36 to 88. | FAITHFUL |
+| 19 | "By week 88, 69.5%...>=20%...vs 12.6%..." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source table reports >=20% body-weight reduction: 69.5% vs 12.6%. | FAITHFUL |
+| 20 | "SURMOUNT-1...tirzepatide 15 mg...20.9% at 72 weeks versus 3.1% placebo." [15] | https://www.nature.com/articles/s41591-023-02597-w | Cited source is SURMOUNT-3, not SURMOUNT-1; it reports MTD -18.4% vs +2.5% from randomization. | FABRICATED |
+| 21 | "Meta-analysis...did not increase hypoglycemia compared to semaglutide 1 mg." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source conclusion reports no increased hypoglycemia; comparator-specific claim is consistent with source discussion. | FAITHFUL |
+| 22 | "GI adverse events...more common with tirzepatide than placebo...mild to moderate." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | SURMOUNT-4 source says common AEs were mostly mild/moderate GI events, more common with tirzepatide. | FAITHFUL |
+| 23 | "SURMOUNT-4 discontinuation due to AE...1.8% tirzepatide and 0.9% placebo." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source safety table reports double-blind discontinuation due to AE at 1.8% vs 0.9%. | FAITHFUL |
+| 24 | "Macronutrient malnutrition...uncommon, occurring in 0.12%..." [16] | https://pmc.ncbi.nlm.nih.gov/articles/PMC12865613/ and https://www.sciencedirect.com/science/article/pii/S2667368126000045 | Source reports 4/3141, 0.12%, tirzepatide-treated participants with TEAEs potentially related to macronutrient malnutrition. | FAITHFUL |
+
+**Criterion-by-criterion**
+a. Argumentation: Partly integrated, but still summary-like. The report lists trial results without building a hierarchy of evidence or explaining why secondary/post-hoc sources substitute for primary trials.
+
+b. Quantification: Better than V6; many numbers are precise. However, PT11 found uncited numeric claims, and the live audit found one wrong-source numeric citation.
+
+c. Scope fidelity: Not adequate. Type 1 diabetes evidence and obesity-without-diabetes evidence are used in a T2D answer. Some are flagged, but the safety section lets T1D evidence and a non-tirzepatide phase I drug influence the safety narrative.
+
+d. Contradictions: Not adequate. `contradictions.json` has 14 high-severity numeric disagreements, and `manifest.json` fails PT08. The disclosure says most are extraction artifacts but does not adjudicate them by endpoint, dose, population, comparator, or tier.
+
+e. Structural hallucinations: Headings match the clinical template, but content inside headings has structural drift: a non-tirzepatide GLP-1/GLP-2 agonist appears in tirzepatide safety, and SURMOUNT-1 is cited to a SURMOUNT-3 paper.
+
+f. Citation tightness: Fails. Four audited claims were unverifiable from cited source body; one was fabricated relative to cited source; one was embellished.
+
+g. Coverage: Not top-tier. Final bibliography has 16 entries, far below the 50-200 citation density expected for a top-tier clinical DR report, and misses key primary papers from NEJM/Lancet/JAMA.
+
+h. Release readiness: Not release-ready. The pipeline itself marks abort/release_allowed=false.
+
+**M-23 + M-24 Impact Assessment**
+Unpaywall hit rate: not assessable from `run_log.txt`. The log reports `fetched=285, failed=24`, but does not expose Unpaywall hit/miss counts or DOI-to-OA swaps.
+
+Crawl4AI/content winner selection: not assessable from `run_log.txt`. The log does not include M-23c quality-score winner telemetry or source-length comparisons.
+
+Citation count: improved versus V6, but only to 16 unique final bibliography entries and 24 verified claim sentences. That is still not Deep Research grade.
+
+T1/T2 fraction: final cited bibliography has a strong T1/T2 fraction (75.0%), but the full corpus still has material deviation: T1=20%, T2=14%, T4=38%, T7=22%. Final citation quality is also weakened by secondary summaries classified as T1 and missing primary SURPASS papers.
+
+**Remaining DR Gaps**
+1. Own-gate failure remains: `release_allowed=false`, `status=abort_evaluator_critical`.
+2. Citation audit pass rate is 18/24 faithful = 75%, below the >95% required for top-tier DR.
+3. The report has too few cited sources and too few citation-bearing sentences for a high-stakes clinical research answer.
+4. Primary evidence coverage is incomplete: NEJM/Lancet/JAMA SURPASS primaries should be directly cited.
+5. Contradiction handling is conclusory, not adjudicated.
+6. Scope contamination remains from T1D, obesity-only, and non-tirzepatide evidence.
+7. Run telemetry does not prove M-23 worked: no Unpaywall hit rate, no legal OA PDF substitution summary, no winner-selection quality logs.
+
+**Required Fix**
+Fix and resweep. Required changes before another final-judge pass:
+
+1. Force primary-paper coverage for SURPASS-1 through SURPASS-5, SURPASS-AP-Combo, SURMOUNT-2 if discussing T2D weight loss, and SURMOUNT-4/3/1 only when explicitly labeled as obesity-without-diabetes or mixed population.
+2. Require citation adjacency for every numeric claim in limitations, methods, and contradiction disclosures.
+3. Reject source bindings where the cited source title/trial does not match the sentence trial name.
+4. Add population-scope gating: T1D, obesity-only, preclinical, and non-tirzepatide drug evidence must be quarantined unless the sentence explicitly says why it is indirect.
+5. Emit M-23 telemetry into `run_log.txt`: DOI count, Unpaywall queried count, OA PDF hit count, OA substitution count, paywall/stub rejects, winner backend, content length, and quality score.
+6. Replace contradiction prose with a table grouped by endpoint, dose, population, comparator, timepoint, and tier, or suppress artifact groups with explicit machine-readable reasons.
+
+
+ succeeded in 794ms:
+ M outputs/codex_findings/dr_output_pass_4/findings.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..af3f647639512bcd13b17a7e8c5489900fdeacc0
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,108 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v10
++commit: ff68b86
++delta_vs_pass3: "M-23/M-24 improved corpus scale and report citation count versus V6, but V10 still failed its own release gate and live citation audit found citation-source mismatches, unverifiable DOI/publisher bodies, and population/scope drift."
++citations_verified: "24 live-audited cited claim sentences / 24 citation-bearing claim sentences in report.md; report contains only 16 unique bibliography entries, so >=25 distinct citation checks were not possible without duplication."
++citations_faithful: 18
++citations_fabricated: 1
++citations_embellished: 1
++citations_unverifiable: 4
++t1_t2_percentage_of_bibliography: "75.0%"
++t7_percentage_of_bibliography: "6.25%"
++live_fetch_method_used: "mixed: direct WebFetch-equivalent browser open/search source body; DOI/source fallback via live search when direct publisher pages blocked; no metadata-only verdicts counted as faithful"
++faithfulness_verdict: "Mostly directionally faithful, but below top-tier because 6/24 audited citation-bearing claims were fabricated, embellished, or unverifiable."
++coverage_gaps_remaining: ["Only 16 unique cited sources in bibliography for an 834-word clinical DR report", "No NEJM/Lancet/JAMA primary SURPASS-1/2/3/4/5 papers in final bibliography except secondary/post-hoc summaries", "Obesity-only and type 1 diabetes evidence used in a type 2 diabetes question", "Unpaywall and winner-selection telemetry not exposed in run_log.txt"]
++structural_hallucinations: ["Report has correct section headings, but a Safety sentence imports a non-tirzepatide GLP-1/GLP-2 phase I drug as if informative for tirzepatide safety", "A SURMOUNT-1 obesity claim is cited to SURMOUNT-3"]
++quantification_quality: "Good numeric density, but some numeric claims are uncited in limitations/methods and at least one cited quantitative sentence is attached to the wrong source."
++contradiction_handling: "Not DR-grade: manifest fails PT08; contradiction disclosure dismisses detector output without endpoint/dose/population adjudication and without citations."
++vs_gpt54_dr_verdict: "Below GPT-5.4 Deep Research quality."
++vs_gemini31_pro_dr_verdict: "Below Gemini 3.1 Pro Deep Research quality."
++rationale: |
++  V10 is an improvement over V6 in corpus size and citation density, but it is not top-tier DR. The local evaluator gate is abort/release_allowed=false. More importantly, line-by-line live source checking found one fabricated citation-source pairing, one embellished relevance claim, and four citation claims where the cited source body could not be fetched or verified directly. The final bibliography has only 16 unique cited entries and omits several primary SURPASS papers expected in a clinical tirzepatide/T2D report.
++---
++
++**Verdict**
++MATERIAL-GAPS-FIX-AND-RESWEEP. I read `report.md` line by line, checked `bibliography.json`, and live-fetched or attempted to live-fetch every cited claim sentence in the report. V10 is not release quality.
++
++The strongest immediate reason is simple: `manifest.json` says `status=abort_evaluator_critical`, `release_allowed=false`, with blockers `PT08` and `PT11`; `qwen_judge_output.json` flags `citation_tightness=needs_revision`. The content audit independently confirms that this is not just a metadata failure.
++
++**Quantitative V10 vs V6 Summary**
++V10 retrieved 309 sources, fetched 285, selected 277 evidence rows, generated 834 words, verified 24 sentences, and dropped 16 sentences. Final bibliography has 16 unique cited entries: T1=9, T2=3, T4=3, T7=1. T1+T2 among final citations is 75.0%; T7 is 6.25%.
++
++Publisher/source mix in final bibliography: Nature/Springer Nature=3, NCBI/PMC/PubMed=6, Frontiers=1, Springer=1, Taylor & Francis=1, Diabetesjournals=1, AHA DOI abstract=1, URNCST DOI=1, Elsevier DOI=1. NEJM=0, Lancet=0, JAMA primary URL=0, FDA=0. Named SURPASS/SURMOUNT papers are present, but key primary SURPASS-1/2/3/4/5 papers are often absent or replaced by secondary summaries/post-hoc sources.
++
++**Citation Live-Fetch Audit Table**
++The report contains 24 citation-bearing claim sentences, not 25. I audited all 24. I did not invent an extra citation check.
++
++| # | Report sentence quote | Cited source actually fetched/attempted | Source-body excerpt/check | Verdict |
++|---:|---|---|---|---|
++| 1 | "Across the SURPASS program...81% to 97%...66% to 95%...23% to 62%..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open hit reCAPTCHA | Source table/body reports the same A1c target ranges across SURPASS: <7.0%, <=6.5%, and <5.7%. | FAITHFUL |
++| 2 | "In that trial...75.4%, 86.0%, and 84.4%...versus 23.7%..." [2] | https://www.nature.com/articles/s41591-023-02344-1 | Nature abstract reports 75.4%, 86.0%, 84.4% vs 23.7% for HbA1c <7.0%. | FAITHFUL |
++| 3 | "Tirzepatide also produced significant, dose-dependent weight loss..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source reports dose-dependent A1c/body-weight reductions and weight loss ranging roughly -6.6% to -13.9%. | FAITHFUL |
++| 4 | "A systematic review notes...HbA1c (up to 2.4%) and body weight (up to 22%)..." [3] | https://doi.org/10.26685/urncst.1029 attempted; no source body obtained | Could not fetch DOI body or OA body with the available web tool. | UNVERIFIABLE |
++| 5 | "Beyond glycemic and weight control...fasting serum glucose...blood pressure...triglycerides..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source body describes SURPASS improvements in glycemic, weight, lipid, and cardiometabolic parameters. | FAITHFUL |
++| 6 | "IPD meta-analysis...MACE...hazard ratio 0.67 (95% CI, 0.51-0.87)." [4] | https://doi.org/10.1161/circ.152.suppl_3.4361308 attempted; secondary live page found | A secondary MIMS article repeats HR 0.67 and CI 0.51-0.87, but the cited AHA abstract body was not fetched. | UNVERIFIABLE |
++| 7 | "The most frequent adverse events...nausea, diarrhea, and vomiting..." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Direct cited PMC body was blocked/not returned; related sources support the general claim, but not the cited source body. | UNVERIFIABLE |
++| 8 | "SURPASS Phase 3...nausea 20-33%, diarrhea 18-22%, vomiting 8-13%." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Could not verify these exact ranges in the cited source body. | UNVERIFIABLE |
++| 9 | "Systematic review/meta-analysis...GI effects are the most common adverse events." [6] | https://www.mdpi.com/1424-8247/18/5/668 | Source reports GI adverse events including nausea/vomiting/diarrhea more prevalent with tirzepatide. | FAITHFUL |
++| 10 | "Type 1 diabetes and obesity...side effects 26%, nausea 15%, discontinued 4%." [7] | https://www.citedrive.com/en/discovery/1660-p-efficacy-and-safety-of-tirzepatide-for-the-treatment-of-obesity-in-adults-with-type-1-diabetesthe-mayo-clinic-experience/ | Abstract text gives side effects 26%, nausea 15%, discontinuation 4%, no severe hypoglycemia/DKA. | FAITHFUL |
++| 11 | "SURMOUNT-1...90% late responders...>=5% by week 72..." [8] | https://pubmed.ncbi.nlm.nih.gov/40677091/ and https://www.ovid.com/journals/domet/fulltext/10.1111/dom.16554~weight-reduction-over-time-in-tirzepatidetreated | Source reports 250/278 late responders, 90%, achieved >=5% body-weight reduction at week 72. | FAITHFUL |
++| 12 | "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist..." [9] | https://www.nature.com/articles/s41467-026-71080-0 | Source says PG-102 had no serious AEs/discontinuations and GI events mild/moderate. It is not tirzepatide. | EMBELLISHED |
++| 13 | "Type 1 diabetes...no severe hypoglycemia or DKA..." [7] | Same fetched Citedrive/Diabetes abstract as #10 | Abstract states no severe hypoglycemia or DKA were recorded. | FAITHFUL |
++| 14 | "SURPASS-4...104 weeks...HbA1c -2.3/-2.5/-2.6 vs -1.0; weight -7.6/-10.0/-11.4 vs +2.1 kg." [10] | https://www.researchgate.net/publication/395390302_Long-term_efficacy... and PubMed attempted | Source abstract reports exactly those 104-week HbA1c and body-weight values. | FAITHFUL |
++| 15 | "Meta-analysis of six RCTs...reduced body weight more than semaglutide 1 mg and dulaglutide 1.5 mg..." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source reports six RCTs and superior weight loss without increased hypoglycemia. | FAITHFUL |
++| 16 | "Head-to-head SURPASS-2...superior HbA1c and weight reductions vs semaglutide 1 mg..." [12] | https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf | Source PDF discusses SURPASS-2 target achievement/costs using tirzepatide vs semaglutide 1 mg trial data. | FAITHFUL |
++| 17 | "Model-based simulation...HbA1c 1.95% to 2.46%; weight 6.50 to 12.1 kg by week 66." [13] | https://www.tandfonline.com/doi/full/10.1080/03007995.2024.2322072 | Source abstract gives the same predicted HbA1c and body-weight ranges by week 66. | FAITHFUL |
++| 18 | "SURMOUNT-4...additional 5.5% reduction...placebo 14.0% regain..." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | Source reports -5.5% with continued tirzepatide vs +14.0% with placebo from week 36 to 88. | FAITHFUL |
++| 19 | "By week 88, 69.5%...>=20%...vs 12.6%..." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source table reports >=20% body-weight reduction: 69.5% vs 12.6%. | FAITHFUL |
++| 20 | "SURMOUNT-1...tirzepatide 15 mg...20.9% at 72 weeks versus 3.1% placebo." [15] | https://www.nature.com/articles/s41591-023-02597-w | Cited source is SURMOUNT-3, not SURMOUNT-1; it reports MTD -18.4% vs +2.5% from randomization. | FABRICATED |
++| 21 | "Meta-analysis...did not increase hypoglycemia compared to semaglutide 1 mg." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source conclusion reports no increased hypoglycemia; comparator-specific claim is consistent with source discussion. | FAITHFUL |
++| 22 | "GI adverse events...more common with tirzepatide than placebo...mild to moderate." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | SURMOUNT-4 source says common AEs were mostly mild/moderate GI events, more common with tirzepatide. | FAITHFUL |
++| 23 | "SURMOUNT-4 discontinuation due to AE...1.8% tirzepatide and 0.9% placebo." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source safety table reports double-blind discontinuation due to AE at 1.8% vs 0.9%. | FAITHFUL |
++| 24 | "Macronutrient malnutrition...uncommon, occurring in 0.12%..." [16] | https://pmc.ncbi.nlm.nih.gov/articles/PMC12865613/ and https://www.sciencedirect.com/science/article/pii/S2667368126000045 | Source reports 4/3141, 0.12%, tirzepatide-treated participants with TEAEs potentially related to macronutrient malnutrition. | FAITHFUL |
++
++**Criterion-by-criterion**
++a. Argumentation: Partly integrated, but still summary-like. The report lists trial results without building a hierarchy of evidence or explaining why secondary/post-hoc sources substitute for primary trials.
++
++b. Quantification: Better than V6; many numbers are precise. However, PT11 found uncited numeric claims, and the live audit found one wrong-source numeric citation.
++
++c. Scope fidelity: Not adequate. Type 1 diabetes evidence and obesity-without-diabetes evidence are used in a T2D answer. Some are flagged, but the safety section lets T1D evidence and a non-tirzepatide phase I drug influence the safety narrative.
++
++d. Contradictions: Not adequate. `contradictions.json` has 14 high-severity numeric disagreements, and `manifest.json` fails PT08. The disclosure says most are extraction artifacts but does not adjudicate them by endpoint, dose, population, comparator, or tier.
++
++e. Structural hallucinations: Headings match the clinical template, but content inside headings has structural drift: a non-tirzepatide GLP-1/GLP-2 agonist appears in tirzepatide safety, and SURMOUNT-1 is cited to a SURMOUNT-3 paper.
++
++f. Citation tightness: Fails. Four audited claims were unverifiable from cited source body; one was fabricated relative to cited source; one was embellished.
++
++g. Coverage: Not top-tier. Final bibliography has 16 entries, far below the 50-200 citation density expected for a top-tier clinical DR report, and misses key primary papers from NEJM/Lancet/JAMA.
++
++h. Release readiness: Not release-ready. The pipeline itself marks abort/release_allowed=false.
++
++**M-23 + M-24 Impact Assessment**
++Unpaywall hit rate: not assessable from `run_log.txt`. The log reports `fetched=285, failed=24`, but does not expose Unpaywall hit/miss counts or DOI-to-OA swaps.
++
++Crawl4AI/content winner selection: not assessable from `run_log.txt`. The log does not include M-23c quality-score winner telemetry or source-length comparisons.
++
++Citation count: improved versus V6, but only to 16 unique final bibliography entries and 24 verified claim sentences. That is still not Deep Research grade.
++
++T1/T2 fraction: final cited bibliography has a strong T1/T2 fraction (75.0%), but the full corpus still has material deviation: T1=20%, T2=14%, T4=38%, T7=22%. Final citation quality is also weakened by secondary summaries classified as T1 and missing primary SURPASS papers.
++
++**Remaining DR Gaps**
++1. Own-gate failure remains: `release_allowed=false`, `status=abort_evaluator_critical`.
++2. Citation audit pass rate is 18/24 faithful = 75%, below the >95% required for top-tier DR.
++3. The report has too few cited sources and too few citation-bearing sentences for a high-stakes clinical research answer.
++4. Primary evidence coverage is incomplete: NEJM/Lancet/JAMA SURPASS primaries should be directly cited.
++5. Contradiction handling is conclusory, not adjudicated.
++6. Scope contamination remains from T1D, obesity-only, and non-tirzepatide evidence.
++7. Run telemetry does not prove M-23 worked: no Unpaywall hit rate, no legal OA PDF substitution summary, no winner-selection quality logs.
++
++**Required Fix**
++Fix and resweep. Required changes before another final-judge pass:
++
++1. Force primary-paper coverage for SURPASS-1 through SURPASS-5, SURPASS-AP-Combo, SURMOUNT-2 if discussing T2D weight loss, and SURMOUNT-4/3/1 only when explicitly labeled as obesity-without-diabetes or mixed population.
++2. Require citation adjacency for every numeric claim in limitations, methods, and contradiction disclosures.
++3. Reject source bindings where the cited source title/trial does not match the sentence trial name.
++4. Add population-scope gating: T1D, obesity-only, preclinical, and non-tirzepatide drug evidence must be quarantined unless the sentence explicitly says why it is indirect.
++5. Emit M-23 telemetry into `run_log.txt`: DOI count, Unpaywall queried count, OA PDF hit count, OA substitution count, paywall/stub rejects, winner backend, content length, and quality score.
++6. Replace contradiction prose with a table grouped by endpoint, dose, population, comparator, timepoint, and tier, or suppress artifact groups with explicit machine-readable reasons.
+
+codex
+Completed the pass 4 final-judge audit and wrote the findings to:
+
+[findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_4/findings.md)
+
+Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
+
+Key points:
+- V10 still fails its own gate: `release_allowed=false`, `status=abort_evaluator_critical`.
+- I audited all 24 citation-bearing claim sentences in `report.md`; the report does not contain 25 cited claim sentences.
+- Live/source-body audit result: 18 faithful, 1 fabricated, 1 embellished, 4 unverifiable.
+- Final bibliography has only 16 unique cited sources, with missing key primary SURPASS papers.
+- Main defects: wrong-source SURMOUNT citation, non-tirzepatide safety evidence, unverifiable DOI/source bodies, weak contradiction adjudication, and insufficient DR-grade citation breadth.
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..af3f647639512bcd13b17a7e8c5489900fdeacc0
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,108 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v10
++commit: ff68b86
++delta_vs_pass3: "M-23/M-24 improved corpus scale and report citation count versus V6, but V10 still failed its own release gate and live citation audit found citation-source mismatches, unverifiable DOI/publisher bodies, and population/scope drift."
++citations_verified: "24 live-audited cited claim sentences / 24 citation-bearing claim sentences in report.md; report contains only 16 unique bibliography entries, so >=25 distinct citation checks were not possible without duplication."
++citations_faithful: 18
++citations_fabricated: 1
++citations_embellished: 1
++citations_unverifiable: 4
++t1_t2_percentage_of_bibliography: "75.0%"
++t7_percentage_of_bibliography: "6.25%"
++live_fetch_method_used: "mixed: direct WebFetch-equivalent browser open/search source body; DOI/source fallback via live search when direct publisher pages blocked; no metadata-only verdicts counted as faithful"
++faithfulness_verdict: "Mostly directionally faithful, but below top-tier because 6/24 audited citation-bearing claims were fabricated, embellished, or unverifiable."
++coverage_gaps_remaining: ["Only 16 unique cited sources in bibliography for an 834-word clinical DR report", "No NEJM/Lancet/JAMA primary SURPASS-1/2/3/4/5 papers in final bibliography except secondary/post-hoc summaries", "Obesity-only and type 1 diabetes evidence used in a type 2 diabetes question", "Unpaywall and winner-selection telemetry not exposed in run_log.txt"]
++structural_hallucinations: ["Report has correct section headings, but a Safety sentence imports a non-tirzepatide GLP-1/GLP-2 phase I drug as if informative for tirzepatide safety", "A SURMOUNT-1 obesity claim is cited to SURMOUNT-3"]
++quantification_quality: "Good numeric density, but some numeric claims are uncited in limitations/methods and at least one cited quantitative sentence is attached to the wrong source."
++contradiction_handling: "Not DR-grade: manifest fails PT08; contradiction disclosure dismisses detector output without endpoint/dose/population adjudication and without citations."
++vs_gpt54_dr_verdict: "Below GPT-5.4 Deep Research quality."
++vs_gemini31_pro_dr_verdict: "Below Gemini 3.1 Pro Deep Research quality."
++rationale: |
++  V10 is an improvement over V6 in corpus size and citation density, but it is not top-tier DR. The local evaluator gate is abort/release_allowed=false. More importantly, line-by-line live source checking found one fabricated citation-source pairing, one embellished relevance claim, and four citation claims where the cited source body could not be fetched or verified directly. The final bibliography has only 16 unique cited entries and omits several primary SURPASS papers expected in a clinical tirzepatide/T2D report.
++---
++
++**Verdict**
++MATERIAL-GAPS-FIX-AND-RESWEEP. I read `report.md` line by line, checked `bibliography.json`, and live-fetched or attempted to live-fetch every cited claim sentence in the report. V10 is not release quality.
++
++The strongest immediate reason is simple: `manifest.json` says `status=abort_evaluator_critical`, `release_allowed=false`, with blockers `PT08` and `PT11`; `qwen_judge_output.json` flags `citation_tightness=needs_revision`. The content audit independently confirms that this is not just a metadata failure.
++
++**Quantitative V10 vs V6 Summary**
++V10 retrieved 309 sources, fetched 285, selected 277 evidence rows, generated 834 words, verified 24 sentences, and dropped 16 sentences. Final bibliography has 16 unique cited entries: T1=9, T2=3, T4=3, T7=1. T1+T2 among final citations is 75.0%; T7 is 6.25%.
++
++Publisher/source mix in final bibliography: Nature/Springer Nature=3, NCBI/PMC/PubMed=6, Frontiers=1, Springer=1, Taylor & Francis=1, Diabetesjournals=1, AHA DOI abstract=1, URNCST DOI=1, Elsevier DOI=1. NEJM=0, Lancet=0, JAMA primary URL=0, FDA=0. Named SURPASS/SURMOUNT papers are present, but key primary SURPASS-1/2/3/4/5 papers are often absent or replaced by secondary summaries/post-hoc sources.
++
++**Citation Live-Fetch Audit Table**
++The report contains 24 citation-bearing claim sentences, not 25. I audited all 24. I did not invent an extra citation check.
++
++| # | Report sentence quote | Cited source actually fetched/attempted | Source-body excerpt/check | Verdict |
++|---:|---|---|---|---|
++| 1 | "Across the SURPASS program...81% to 97%...66% to 95%...23% to 62%..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open hit reCAPTCHA | Source table/body reports the same A1c target ranges across SURPASS: <7.0%, <=6.5%, and <5.7%. | FAITHFUL |
++| 2 | "In that trial...75.4%, 86.0%, and 84.4%...versus 23.7%..." [2] | https://www.nature.com/articles/s41591-023-02344-1 | Nature abstract reports 75.4%, 86.0%, 84.4% vs 23.7% for HbA1c <7.0%. | FAITHFUL |
++| 3 | "Tirzepatide also produced significant, dose-dependent weight loss..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source reports dose-dependent A1c/body-weight reductions and weight loss ranging roughly -6.6% to -13.9%. | FAITHFUL |
++| 4 | "A systematic review notes...HbA1c (up to 2.4%) and body weight (up to 22%)..." [3] | https://doi.org/10.26685/urncst.1029 attempted; no source body obtained | Could not fetch DOI body or OA body with the available web tool. | UNVERIFIABLE |
++| 5 | "Beyond glycemic and weight control...fasting serum glucose...blood pressure...triglycerides..." [1] | https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ via live search body; direct open blocked | Source body describes SURPASS improvements in glycemic, weight, lipid, and cardiometabolic parameters. | FAITHFUL |
++| 6 | "IPD meta-analysis...MACE...hazard ratio 0.67 (95% CI, 0.51-0.87)." [4] | https://doi.org/10.1161/circ.152.suppl_3.4361308 attempted; secondary live page found | A secondary MIMS article repeats HR 0.67 and CI 0.51-0.87, but the cited AHA abstract body was not fetched. | UNVERIFIABLE |
++| 7 | "The most frequent adverse events...nausea, diarrhea, and vomiting..." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Direct cited PMC body was blocked/not returned; related sources support the general claim, but not the cited source body. | UNVERIFIABLE |
++| 8 | "SURPASS Phase 3...nausea 20-33%, diarrhea 18-22%, vomiting 8-13%." [5] | https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11088184 attempted; direct source body not obtained | Could not verify these exact ranges in the cited source body. | UNVERIFIABLE |
++| 9 | "Systematic review/meta-analysis...GI effects are the most common adverse events." [6] | https://www.mdpi.com/1424-8247/18/5/668 | Source reports GI adverse events including nausea/vomiting/diarrhea more prevalent with tirzepatide. | FAITHFUL |
++| 10 | "Type 1 diabetes and obesity...side effects 26%, nausea 15%, discontinued 4%." [7] | https://www.citedrive.com/en/discovery/1660-p-efficacy-and-safety-of-tirzepatide-for-the-treatment-of-obesity-in-adults-with-type-1-diabetesthe-mayo-clinic-experience/ | Abstract text gives side effects 26%, nausea 15%, discontinuation 4%, no severe hypoglycemia/DKA. | FAITHFUL |
++| 11 | "SURMOUNT-1...90% late responders...>=5% by week 72..." [8] | https://pubmed.ncbi.nlm.nih.gov/40677091/ and https://www.ovid.com/journals/domet/fulltext/10.1111/dom.16554~weight-reduction-over-time-in-tirzepatidetreated | Source reports 250/278 late responders, 90%, achieved >=5% body-weight reduction at week 72. | FAITHFUL |
++| 12 | "Serious adverse events appear uncommon; in a Phase I trial of a bispecific GLP-1/GLP-2 agonist..." [9] | https://www.nature.com/articles/s41467-026-71080-0 | Source says PG-102 had no serious AEs/discontinuations and GI events mild/moderate. It is not tirzepatide. | EMBELLISHED |
++| 13 | "Type 1 diabetes...no severe hypoglycemia or DKA..." [7] | Same fetched Citedrive/Diabetes abstract as #10 | Abstract states no severe hypoglycemia or DKA were recorded. | FAITHFUL |
++| 14 | "SURPASS-4...104 weeks...HbA1c -2.3/-2.5/-2.6 vs -1.0; weight -7.6/-10.0/-11.4 vs +2.1 kg." [10] | https://www.researchgate.net/publication/395390302_Long-term_efficacy... and PubMed attempted | Source abstract reports exactly those 104-week HbA1c and body-weight values. | FAITHFUL |
++| 15 | "Meta-analysis of six RCTs...reduced body weight more than semaglutide 1 mg and dulaglutide 1.5 mg..." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source reports six RCTs and superior weight loss without increased hypoglycemia. | FAITHFUL |
++| 16 | "Head-to-head SURPASS-2...superior HbA1c and weight reductions vs semaglutide 1 mg..." [12] | https://link.springer.com/content/pdf/10.1007/s13300-023-01470-w.pdf | Source PDF discusses SURPASS-2 target achievement/costs using tirzepatide vs semaglutide 1 mg trial data. | FAITHFUL |
++| 17 | "Model-based simulation...HbA1c 1.95% to 2.46%; weight 6.50 to 12.1 kg by week 66." [13] | https://www.tandfonline.com/doi/full/10.1080/03007995.2024.2322072 | Source abstract gives the same predicted HbA1c and body-weight ranges by week 66. | FAITHFUL |
++| 18 | "SURMOUNT-4...additional 5.5% reduction...placebo 14.0% regain..." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | Source reports -5.5% with continued tirzepatide vs +14.0% with placebo from week 36 to 88. | FAITHFUL |
++| 19 | "By week 88, 69.5%...>=20%...vs 12.6%..." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source table reports >=20% body-weight reduction: 69.5% vs 12.6%. | FAITHFUL |
++| 20 | "SURMOUNT-1...tirzepatide 15 mg...20.9% at 72 weeks versus 3.1% placebo." [15] | https://www.nature.com/articles/s41591-023-02597-w | Cited source is SURMOUNT-3, not SURMOUNT-1; it reports MTD -18.4% vs +2.5% from randomization. | FABRICATED |
++| 21 | "Meta-analysis...did not increase hypoglycemia compared to semaglutide 1 mg." [11] | https://www.frontiersin.org/journals/pharmacology/articles/10.3389/fphar.2022.1016639/full | Source conclusion reports no increased hypoglycemia; comparator-specific claim is consistent with source discussion. | FAITHFUL |
++| 22 | "GI adverse events...more common with tirzepatide than placebo...mild to moderate." [14] | https://jamanetwork.com/journals/jama/fullarticle/2812936 and PMC live search body | SURMOUNT-4 source says common AEs were mostly mild/moderate GI events, more common with tirzepatide. | FAITHFUL |
++| 23 | "SURMOUNT-4 discontinuation due to AE...1.8% tirzepatide and 0.9% placebo." [14] | Same JAMA/SURMOUNT-4 source as #18 | Source safety table reports double-blind discontinuation due to AE at 1.8% vs 0.9%. | FAITHFUL |
++| 24 | "Macronutrient malnutrition...uncommon, occurring in 0.12%..." [16] | https://pmc.ncbi.nlm.nih.gov/articles/PMC12865613/ and https://www.sciencedirect.com/science/article/pii/S2667368126000045 | Source reports 4/3141, 0.12%, tirzepatide-treated participants with TEAEs potentially related to macronutrient malnutrition. | FAITHFUL |
++
++**Criterion-by-criterion**
++a. Argumentation: Partly integrated, but still summary-like. The report lists trial results without building a hierarchy of evidence or explaining why secondary/post-hoc sources substitute for primary trials.
++
++b. Quantification: Better than V6; many numbers are precise. However, PT11 found uncited numeric claims, and the live audit found one wrong-source numeric citation.
++
++c. Scope fidelity: Not adequate. Type 1 diabetes evidence and obesity-without-diabetes evidence are used in a T2D answer. Some are flagged, but the safety section lets T1D evidence and a non-tirzepatide phase I drug influence the safety narrative.
++
++d. Contradictions: Not adequate. `contradictions.json` has 14 high-severity numeric disagreements, and `manifest.json` fails PT08. The disclosure says most are extraction artifacts but does not adjudicate them by endpoint, dose, population, comparator, or tier.
++
++e. Structural hallucinations: Headings match the clinical template, but content inside headings has structural drift: a non-tirzepatide GLP-1/GLP-2 agonist appears in tirzepatide safety, and SURMOUNT-1 is cited to a SURMOUNT-3 paper.
++
++f. Citation tightness: Fails. Four audited claims were unverifiable from cited source body; one was fabricated relative to cited source; one was embellished.
++
++g. Coverage: Not top-tier. Final bibliography has 16 entries, far below the 50-200 citation density expected for a top-tier clinical DR report, and misses key primary papers from NEJM/Lancet/JAMA.
++
++h. Release readiness: Not release-ready. The pipeline itself marks abort/release_allowed=false.
++
++**M-23 + M-24 Impact Assessment**
++Unpaywall hit rate: not assessable from `run_log.txt`. The log reports `fetched=285, failed=24`, but does not expose Unpaywall hit/miss counts or DOI-to-OA swaps.
++
++Crawl4AI/content winner selection: not assessable from `run_log.txt`. The log does not include M-23c quality-score winner telemetry or source-length comparisons.
++
++Citation count: improved versus V6, but only to 16 unique final bibliography entries and 24 verified claim sentences. That is still not Deep Research grade.
++
++T1/T2 fraction: final cited bibliography has a strong T1/T2 fraction (75.0%), but the full corpus still has material deviation: T1=20%, T2=14%, T4=38%, T7=22%. Final citation quality is also weakened by secondary summaries classified as T1 and missing primary SURPASS papers.
++
++**Remaining DR Gaps**
++1. Own-gate failure remains: `release_allowed=false`, `status=abort_evaluator_critical`.
++2. Citation audit pass rate is 18/24 faithful = 75%, below the >95% required for top-tier DR.
++3. The report has too few cited sources and too few citation-bearing sentences for a high-stakes clinical research answer.
++4. Primary evidence coverage is incomplete: NEJM/Lancet/JAMA SURPASS primaries should be directly cited.
++5. Contradiction handling is conclusory, not adjudicated.
++6. Scope contamination remains from T1D, obesity-only, and non-tirzepatide evidence.
++7. Run telemetry does not prove M-23 worked: no Unpaywall hit rate, no legal OA PDF substitution summary, no winner-selection quality logs.
++
++**Required Fix**
++Fix and resweep. Required changes before another final-judge pass:
++
++1. Force primary-paper coverage for SURPASS-1 through SURPASS-5, SURPASS-AP-Combo, SURMOUNT-2 if discussing T2D weight loss, and SURMOUNT-4/3/1 only when explicitly labeled as obesity-without-diabetes or mixed population.
++2. Require citation adjacency for every numeric claim in limitations, methods, and contradiction disclosures.
++3. Reject source bindings where the cited source title/trial does not match the sentence trial name.
++4. Add population-scope gating: T1D, obesity-only, preclinical, and non-tirzepatide drug evidence must be quarantined unless the sentence explicitly says why it is indirect.
++5. Emit M-23 telemetry into `run_log.txt`: DOI count, Unpaywall queried count, OA PDF hit count, OA substitution count, paywall/stub rejects, winner backend, content length, and quality score.
++6. Replace contradiction prose with a table grouped by endpoint, dose, population, comparator, timepoint, and tier, or suppress artifact groups with explicit machine-readable reasons.
+
+tokens used
+252,635

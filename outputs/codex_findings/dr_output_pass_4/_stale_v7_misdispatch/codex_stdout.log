@@ -1,0 +1,7 @@
+Wrote the final-judge audit to:
+
+[findings.md](/abs/path/C:/POLARIS/outputs/codex_findings/dr_output_pass_4/findings.md)
+
+Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
+
+Key reasons: V7 improved materially over V5, but still has `release_allowed=false`, Qwen `needs_revision` on citation tightness and hedging, 24 bibliography entries instead of the expected 19, 2 T7 citations, incomplete SURPASS-2/5/6 coverage, and mechanical contradiction handling rather than adjudicated DR synthesis.

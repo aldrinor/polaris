@@ -1,0 +1,2174 @@
+OpenAI Codex v0.121.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.4
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: none
+reasoning summaries: none
+session id: 019da7f3-c251-7441-8c2a-b231dd64499c
+--------
+user
+You are running Codex DR_output_audit_pass_3 as the FINAL JUDGE in
+the Claude↔Codex auto-loop. Continuing from pass 2 (MATERIAL-GAPS).
+This audit determines whether POLARIS pipeline A V7 output meets
+top-tier Deep Research quality (OpenAI GPT-5.4 DR / Gemini 3.1 Pro
+DR level) or requires more iteration.
+
+── CRITICAL AUDIT DISCIPLINE (USER MANDATE) ───────────────────────
+Direct quote: "he must not use pattern finding, and cherry picking,
+he must need to read every line to really determine whether the
+quality is up to standard."
+
+── CONTEXT: DR PASS 2 → M-19 → V6 ────────────────────────────────
+
+DR pass 2 (V5, commit 17c16c1) found MATERIAL-GAPS:
+- Primary SURPASS-1/3/4/5 papers IN corpus but NOT cited
+- Generator cited Lilly review (T1 PMC10115620) + PRNewswire (T6)
+- Scope leakage (T1D, obesity-only content)
+- Contradiction handling mechanical
+- Qwen partial gate
+
+Claude implemented M-19 (commit e8b138d): prompt engineering only.
+- OUTLINE_SYSTEM_PROMPT: added EVIDENCE QUALITY HIERARCHY section
+  telling the planner to prefer T1 primary RCTs over same-finding
+  T6 press releases; named pivotal trial programs (SURPASS/SURMOUNT
+  /SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP).
+- SECTION_SYSTEM_PROMPT_TEMPLATE: added EVIDENCE TIER DISCIPLINE
+  (T1 RCTs anchor efficacy/safety; T4-T7 supportive only), SCOPE
+  DISCIPLINE (population mismatch must be flagged), HEDGING
+  DISCIPLINE (claim strength tied to study design).
+
+V6 re-sweep completed at commit e8b138d:
+  - status: partial_qwen_advisory, release_allowed: false
+  - corpus.count: 311
+  - tier_fractions: T1=15.43%, T2=14.47%, T4=25.72%, T7=30.87%
+  - generator: words=984, limitations_words=79
+  - contradictions_found: 12
+  - cost: $0.00365
+
+V6 bibliography:
+  - 19 unique citations
+  - T1: 10 (52.6%)
+  - T2: 8 (42.1%)
+  - T4: 1 (5.3%)
+  - T6: 0
+  - T7: 0
+  - T1+T2: 94.7%
+
+Pre-vs-post M-19 bibliography tier progression:
+  V4: 41.7% T1+T2, 33.3% T7
+  V5: 63.0% T1+T2, 22.2% T7
+  V6: 94.7% T1+T2, 0% T7
+
+── YOUR TASK ────────────────────────────────────────────────────
+
+V7 output files:
+  outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/
+    - report.md (984 words)
+    - bibliography.json (19 citations, primary-paper-heavy)
+    - manifest.json
+    - and all the other v4/v5 files
+
+Audit order (same 8 criteria as pass 1-2):
+
+1. Read manifest.json — verify success, gate status, tier mix.
+2. Read bibliography.json — 19 citations. Check: do named SURPASS
+   papers now appear? Which tier?
+3. Read report.md cover to cover, line by line. Check:
+   a) Faithfulness: 20+ sentence-evidence verifications.
+   b) Evidence quality: tier distribution visible in citations.
+   c) Coverage: SURPASS-1/2/3/4/5/6/AP-Combo/J/SURMOUNT/SELECT/LEADER.
+   d) Scope: T1D or obesity-only content properly flagged?
+   e) Argumentation: is evidence INTEGRATED or listed?
+   f) Contradictions: are they adjudicated now or still mechanical?
+   g) Structural hallucinations: headings match scope? No invented
+      sections?
+   h) Plain-English quantification.
+
+4. Compare directly to V5:
+   - Is the Lilly review PMC10115620 still cited?
+   - Is PRNewswire gone?
+   - Are the 5 required DR-pass-1 fixes all substantially closed?
+
+5. Read qwen_judge_output.json — what specifically did qwen flag?
+
+6. Make the verdict call honestly. The user demands top-tier DR or
+   nothing.
+
+Write your findings to:
+  outputs/codex_findings/dr_output_pass_4/findings.md
+
+Required frontmatter:
+---
+verdict: TOP-TIER-DR-ACHIEVED | MATERIAL-GAPS-FIX-AND-RESWEEP | DIRECTIONAL-ONLY
+pass: dr_output_pass_4_tirzepatide_v6
+commit: e8b138d
+delta_vs_pass2: <summary>
+citations_verified: <int>/<int>
+t1_t2_percentage_of_bibliography: <percent>
+t7_percentage_of_bibliography: <percent>
+faithfulness_verdict: <>
+coverage_gaps_remaining: [<>]
+structural_hallucinations: [<>]
+quantification_quality: <>
+contradiction_handling: <>
+vs_gpt54_dr_verdict: <>
+vs_gemini31_pro_dr_verdict: <>
+rationale: |
+  <>
+---
+
+Then body:
+**Verdict**
+**Quantitative V6 vs V5 Summary**
+**Criterion-by-criterion** (a-h)
+**Citation-Level Audit Sample (20 citations)**
+**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
+**Remaining DR Gaps After M-19** (if any)
+**Required Fix** (if not TOP-TIER-DR-ACHIEVED)
+
+Verdict definitions:
+  TOP-TIER-DR-ACHIEVED: V6 meets or exceeds GPT-5.4 DR / Gemini 3.1
+    Pro DR on all 8 criteria. STOP the auto-loop.
+  MATERIAL-GAPS-FIX-AND-RESWEEP: specific substantive defects remain.
+  DIRECTIONAL-ONLY: directionally correct but not DR-grade.
+
+Be UNCOMPROMISING. User wants top-tier or continue iterating.
+
+codex
+I’ll audit the generated files directly and write the judgment artifact. I’ll start by reading the manifest, bibliography, report, Qwen output, and nearby V5 files so the verdict is based on the actual output rather than summary statistics.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/report.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/bibliography.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/qwen_judge_output.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/manifest.json' in C:\POLARIS
+ succeeded in 1068ms:
+{
+  "input_tokens": 5123,
+  "model": "qwen/qwen3-8b",
+  "output_tokens": 1041,
+  "parse_ok": true,
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Contradictions and discrepancies in weight loss data are presented without citations, and some references (e.g., T7 tier) may lack sufficient rigor.\"}, \n  \"hedging_appropriateness\": {\"verdict\": \"needs_revision\", \"note\": \"Overconfident presentation of conflicting weight loss percentages without hedging or acknowledgment of contradictory evidence.\"}, \n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, avoiding promotional language despite mention of black box warnings and retrospective studies.\"}, \n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy/safety to dose response, subgroups, and limitations, though contradictions section disrupts flow slightly.\"}, \n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Major evidence rows (primary trials, safety, dose response) are covered, though contradictions suggest gaps in resolving conflicting data.\"}\n}",
+  "verdicts": {
+    "citation_tightness": {
+      "note": "Contradictions and discrepancies in weight loss data are presented without citations, and some references (e.g., T7 tier) may lack sufficient rigor.",
+      "verdict": "needs_revision"
+    },
+    "completeness": {
+      "note": "Major evidence rows (primary trials, safety, dose response) are covered, though contradictions suggest gaps in resolving conflicting data.",
+      "verdict": "good"
+    },
+    "flow": {
+      "note": "Logical progression from efficacy/safety to dose response, subgroups, and limitations, though contradictions section disrupts flow slightly.",
+      "verdict": "good"
+    },
+    "hedging_appropriateness": {
+      "note": "Overconfident presentation of conflicting weight loss percentages without hedging or acknowledgment of contradictory evidence.",
+      "verdict": "needs_revision"
+    },
+    "tone_consistency": {
+      "note": "Tone remains evidence-grounded, avoiding promotional language despite mention of black box warnings and retrospective studies.",
+      "verdict": "good"
+    }
+  }
+}
+
+
+ succeeded in 1131ms:
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 7,
+    "findings_total": 7
+  },
+  "budget_cap_usd": 10.0,
+  "completeness": {
+    "covered_fraction": 1.0,
+    "total_applicable": 7,
+    "total_covered": 7,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
+  "contradictions_found": 12,
+  "corpus": {
+    "approved": true,
+    "count": 310,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.1774,
+      "T2": 0.1419,
+      "T3": 0.0097,
+      "T4": 0.2806,
+      "T5": 0.0194,
+      "T6": 0.0161,
+      "T7": 0.2645,
+      "UNKNOWN": 0.0903
+    }
+  },
+  "cost_usd": 0.00383928,
+  "domain": "clinical",
+  "evaluator_gate": {
+    "gate_class": "partial",
+    "qwen_critical_axes": [
+      "citation_tightness",
+      "hedging_appropriateness"
+    ],
+    "qwen_parse_ok": true,
+    "reasons": [
+      "qwen_citation_tightness_needs_revision",
+      "qwen_multi_axis_needs_revision"
+    ],
+    "release_allowed": false,
+    "rule_blockers": []
+  },
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "evidence_selection": {
+    "dropped_count": 0,
+    "evidence_selected": 293,
+    "evidence_total": 293,
+    "full_tier_counts": {
+      "T1": 54,
+      "T2": 40,
+      "T3": 3,
+      "T4": 83,
+      "T5": 4,
+      "T6": 5,
+      "T7": 76,
+      "UNKNOWN": 28
+    },
+    "notes": [
+      "pool_size<=max_rows (293/400)"
+    ],
+    "selected_tier_counts": {
+      "T1": 54,
+      "T2": 40,
+      "T3": 3,
+      "T4": 83,
+      "T5": 4,
+      "T6": 5,
+      "T7": 76,
+      "UNKNOWN": 28
+    },
+    "selection_strategy": "tier_balanced_v1_all"
+  },
+  "generator": {
+    "limitations_words": 79,
+    "outline_sections": [
+      "Efficacy",
+      "Comparative",
+      "Safety",
+      "Dose Response",
+      "Population Subgroups"
+    ],
+    "sections_kept": 5,
+    "sentences_dropped": 8,
+    "sentences_verified": 29,
+    "words": 1001
+  },
+  "protocol_sha256": "60c1adc99b362f2e1350f5ca03d77418e863cae7ac27e4a18c73b7847de804fe",
+  "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "qwen_verdicts": {
+    "acceptable": 0,
+    "good": 3,
+    "needs_revision": 2,
+    "unknown": 0
+  },
+  "release_allowed": false,
+  "retrieval": {
+    "api_calls": {
+      "fetch": 310,
+      "openalex": 199,
+      "s2": 8,
+      "serper": 8
+    },
+    "failed": 4,
+    "fetched": 306,
+    "pre_filter": 310
+  },
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776634472",
+  "slug": "clinical_tirzepatide_t2dm",
+  "status": "partial_qwen_advisory"
+}
+
+
+ succeeded in 1247ms:
+# Research report: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+
+### Efficacy
+
+In the SURPASS-1 trial of patients with type 2 diabetes, tirzepatide demonstrated dose-dependent reductions in HbA1c and body weight.[1] In SURPASS-3, tirzepatide was compared with insulin degludec as an add-on to metformin with or without SGLT2 inhibitors.[2] The SURPASS-4 trial compared tirzepatide versus insulin glargine in patients with type 2 diabetes and increased cardiovascular risk.[3] In Japanese populations, tirzepatide monotherapy was evaluated against dulaglutide in SURPASS J-mono, and as an add-on to oral medication in SURPASS J-combo.[4][5] In Chinese patients with type 2 diabetes on basal insulin, the SURPASS-CN-INS trial assessed tirzepatide added to basal insulin.[6] In a related obesity trial without diabetes, SURMOUNT-4 showed that after a 36-week lead-in with tirzepatide resulting in 20.9% weight reduction, continued treatment led to an additional 5.5% weight loss over 52 weeks, whereas switching to placebo led to 14.0% weight regain.[7]
+
+### Comparative
+
+An adjusted indirect treatment comparison of tirzepatide versus semaglutide 2 mg in patients with type 2 diabetes found that tirzepatide 10 and 15 mg significantly reduced HbA1c versus semaglutide 2 mg, with estimated treatment differences of −0.36% and −0.4%, respectively, and significantly reduced body weight with differences of −3.15 kg and −5.15 kg, respectively.[8] Another indirect comparison in people with obesity or overweight and type 2 diabetes found tirzepatide 10 and 15 mg were associated with significantly greater mean percent weight reductions versus semaglutide 2.4 mg, with mean differences of 2.57% and 4.79%, respectively, and greater HbA1c reductions.[9] In a related obesity trial without diabetes, a direct head-to-head comparison showed a least-squares mean percent change in weight of −20.2% with tirzepatide versus −13.7% with semaglutide.[10] For cardiovascular outcomes in patients with diabetes and cardiovascular disease, tirzepatide was compared with dulaglutide, where a 6-component cardiorenal end point occurred in 23.7% of tirzepatide-treated patients versus 27.4% of dulaglutide-treated patients.[11] One systematic review and meta-analysis of direct comparative studies concluded tirzepatide was significantly superior to semaglutide in achieving weight reduction, with a pooled standardized mean difference of 0.75.[12]
+
+### Safety
+
+In randomized controlled trials, the overall safety profile of tirzepatide is similar to that of GLP-1 receptor agonists, primarily characterized by gastrointestinal adverse events.[13] A systematic review of RCTs found the incidences of nausea, vomiting, and diarrhea were higher than with placebo but consistent with GLP-1 receptor agonists.[13] Regarding hypoglycemia, one systematic review reported tirzepatide 15 mg was associated with more hypoglycemia than GLP-1 receptor agonists (pooled RR=3.83, 95% CI 1.19–12.30) in a pooled analysis of trials.[13] A separate network meta-analysis in patients with obesity or overweight found no significant difference in hypoglycemia events between tirzepatide and GLP-1 receptor agonists but noted tirzepatide showed a higher severe hypoglycemia risk (<54 mg/dL).[14] The FAERS analysis reported tirzepatide was associated with a similar risk of diabetic retinopathy and medullary thyroid cancer versus SGLT-2 inhibitors.[15] Despite a black box warning for thyroid C-cell tumors, one retrospective cohort study found patients treated with tirzepatide had a significantly lower incidence of malignant thyroid cancer compared to controls (Relative Risk 0.348, p < 0.001).[16]
+
+### Dose Response
+
+Meta-analyses of randomized controlled trials demonstrate a dose-dependent relationship for tirzepatide's effects on HbA1c and body weight in type 2 diabetes.[17] Another meta-analysis confirmed these trends, finding HbA1c reductions of 0.20% with 10 mg and 0.30% with 15 mg versus 5 mg, and weight reductions of 2.64 kg and 4.26 kg, respectively.[18] A more recent network meta-analysis also found significant reductions in HbA1c with tirzepatide 10 mg (MD: -0.19) and 15 mg (MD: -0.32) versus the 5 mg dose, alongside weight reductions of 1.96 kg and 3.31 kg, respectively.[19] Regarding the time to achieve clinical thresholds, a pre-planned exploratory analysis of the SURPASS-2 and SURPASS-3 trials found the median time to first achieve a body weight loss of ≥5% was faster with tirzepatide 5 mg (16.0 weeks) and with the 10 and 15 mg doses (12.4 weeks) than with the active comparator semaglutide 1 mg (24.0 weeks).[20] The same analysis reported the median time to achieve HbA1c <7.0% was 8.1 weeks for each tirzepatide dose.[20] In terms of safety, meta-analyses indicate the risk of total adverse events and gastrointestinal adverse events is higher with the 10 mg and 15 mg doses compared to the 5 mg dose.[17][18] One review concluded that within the 5–15 mg range, the effect on lowering glycemia and reducing weight is dose-dependent, with the 15 mg dose achieving the best efficacy, but the 5 mg dose offers a more favorable safety profile.[17]
+
+### Population Subgroups
+
+In older patients with type 2 diabetes and diminished β-cell function, a case report suggests tirzepatide may help control postprandial hyperglycemia but may not replace basal insulin for fasting control, requiring monitoring for sarcopenia.[21] In a prespecified analysis of the SUMMIT trial in patients with heart failure with preserved ejection fraction and obesity, tirzepatide's effect on cardiovascular outcomes was consistent regardless of diabetes status, with a hazard ratio of 0.64 (95% CI: 0.35-1.15) for the composite of cardiovascular death or worsening heart failure in patients with type 2 diabetes and 0.61 (95% CI: 0.33-1.10) in those without diabetes (Pinteraction = 0.95).[22] However, weight loss with tirzepatide was less pronounced in patients with type 2 diabetes (10.4% [95% CI: 8.7%-12.2%]) compared to those without diabetes (12.9% [95% CI: 11.2%-14.6%]) (Pinteraction = 0.04).[22] Weight loss was significantly greater in patients with higher baseline body weight (≥75 kg) across all tirzepatide doses.[23] A separate post-hoc analysis of SURPASS trials indicated that tirzepatide was effective in reducing HbA1c and body weight in patients with glutamic acid decarboxylase autoantibodies (GADA-positive), though the HbA1c reduction was slightly less compared to GADA-negative patients (estimated treatment difference 0.21% [95% CI: 0.03, 0.39]; p=0.024).[24]
+
+### Limitations
+
+Limitations: The corpus has significant gaps in its tier distribution, with only 18% of sources being T1 primary studies and a substantial 28% classified as T4 preprints. The pipeline detected 12 high-severity contradictions, primarily concerning tirzepatide's effect on body weight, where sources disagree dramatically on the magnitude of the reported effect across different dosages. The evidence horizon spans from 2010 to the present, but the high volume of lower-tier evidence and preprints indicates a reliance on less mature research.
+
+## Methods
+Pre-registered protocol.json (SHA-256 60c1adc99b362f2e...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: scope_query_validator: 8 kept / 23 dropped).
+Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 5 parallel sections + strict_verify + regen-on-failure).
+Evaluator model: qwen/qwen3-8b (different family).
+Sources classified using T1-T7 tier taxonomy.
+Inclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.
+Prompt-injection sanitization enabled. Retrieved 2026-04-19.
+Expected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=18%, T2=14%, T3=1%, T4=28%, T5=2%, T6=2%, T7=26%, UNKNOWN=9%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 7/7 topics covered.
+
+## Contradiction disclosures
+12 contradictions detected:
+
+- tirzepatide / body weight: values [-2.11, 20.0, 22.5] %, rel diff 1166.4%.
+- tirzepatide / body weight (10 mg): values [5.0, 12.86, 93.5] %, rel diff 1770.0%.
+- tirzepatide / body weight (15 mg): values [2.37, 6.5, 7.0, 47.3, 48.4] %, rel diff 1942.2%.
+- tirzepatide / body weight (5 mg): values [-2.1, -1.75, 93.0, 95.0] %, rel diff 4623.8%.
+- tirzepatide / weight loss: values [1.8, 2.0, 2.4, 5.0, 6.9, 8.0, 14.4, 57.0] %, rel diff 3066.7%.
+- tirzepatide / weight loss (0.5 mg): values [2.46, 15.0] %, rel diff 509.8%.
+- tirzepatide / weight loss (10 mg): values [1.48, 2.24, 5.7, 13.6, 17.4, 19.0, 20.2, 21.1, 26.4] %, rel diff 1683.8%.
+- tirzepatide / weight loss (15 mg): values [-19.44, 1.29, 1.87, 2.6, 5.0, 5.0, 5.7, 7.0, 7.0, 8.2, 9.0, 16.3, 20.2, 20.9, 20.9, 22.9, 45.3, 95.0, 95.0] %, rel diff 588.7%.
+- tirzepatide / weight loss (2.4 mg): values [14.9, 25.3, 95.0] %, rel diff 537.6%.
+- tirzepatide / weight loss (2.5 mg): values [2.1, 2.5, 10.4, 14.0, 15.0, 20.9, 95.0] %, rel diff 4423.8%.
+- tirzepatide / weight loss (5 mg): values [-2.11, 1.6, 1.7, 5.0, 6.5, 7.0, 7.0, 7.0, 20.0, 48.0, 50.0, 95.0] %, rel diff 4602.4%.
+- semaglutide / weight loss (2.4 mg): values [15.0, 15.0, 15.0, 15.0, 17.4] %, rel diff 16.0%.
+
+
+## Bibliography
+[1] Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist tirzepatide in patients with type 2 diabetes (SURPASS-1): a double-blind, randomised, phase 3 trial. — https://doi.org/10.1016/S0140-6736(21)01324-6 (tier T1)
+[2] Once-weekly tirzepatide versus once-daily insulin degludec as add-on to metformin with or without SGLT2 inhibitors in patients with type 2 diabetes (SURPASS-3): a randomised, open-label, parallel-grou — https://doi.org/10.1016/S0140-6736(21)01443-4 (tier T1)
+[3] Tirzepatide versus insulin glargine in type 2 diabetes and increased cardiovascular risk (SURPASS-4): a randomised, open-label, parallel-group, multicentre, phase 3 trial. — https://doi.org/10.1016/s0140-6736(21)02188-7 (tier T1)
+[4] Efficacy and safety of tirzepatide monotherapy compared with dulaglutide in Japanese patients with type 2 diabetes (SURPASS J-mono): a double-blind, multicentre, randomised, phase 3 trial. — https://doi.org/10.1016/s2213-8587(22)00188-7 (tier T1)
+[5] Safety and efficacy of tirzepatide as an add-on to single oral antihyperglycaemic medication in patients with type 2 diabetes in Japan (SURPASS J-combo): a multicentre, randomised, open-label, paralle — https://www.sciencedirect.com/science/article/am/pii/S2213858722001875 (tier T1)
+[6] Efficacy and safety of tirzepatide added to basal insulin in patients with type 2 diabetes in China (SURPASS-CN-INS): a double-blind, multicentre, randomised, placebo-controlled, phase 3 trial. — https://doi.org/10.1016/s2213-8587(25)00248-7 (tier T1)
+[7] Continued Treatment With Tirzepatide for Maintenance of Weight Reduction in Adults With Obesity: The SURMOUNT-4 Randomized Clinical Trial. — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10714284 (tier T1)
+[8] Efficacy of tirzepatide 5, 10 and 15 mg versus semaglutide 2 mg in patients with type 2 diabetes: An adjusted indirect treatment comparison — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9546430 (tier T1)
+[9] Tirzepatide 10 and 15 mg versus semaglutide 2.4 mg in people with obesity or overweight with type 2 diabetes: An indirect treatment comparison — https://doi.org/10.1111/dom.16401 (tier T1)
+[10] Tirzepatide as Compared with Semaglutide for the Treatment of Obesity. — https://doi.org/10.1056/NEJMoa2416394 (tier T1)
+[11] Cardiorenal Outcomes With Tirzepatide Compared With Dulaglutide in Patients With Diabetes and Cardiovascular Disease — https://doi.org/10.1001/jamacardio.2026.0767 (tier T1)
+[12] Tirzepatide Versus Semaglutide for Weight Loss in Overweight and Obese Adults: A Systematic Review and Meta-Analysis of Direct Comparative Studies — https://doi.org/10.7759/cureus.86080 (tier T2)
+[13] A systematic review of the safety of tirzepatide-a new dual GLP1 and GIP agonist - is its safety profile acceptable? — https://www.frontiersin.org/articles/10.3389/fendo.2023.1121387/pdf (tier T2)
+[14] Comparative Safety of GLP-1/GIP Co-Agonists Versus GLP-1 Receptor Agonists for Weight Loss in Patients with Obesity or Overweight: A Systematic Review — https://doi.org/10.2147/DMSO.S537229 (tier T2)
+[15] The real-world safety profile of tirzepatide - PMC - NIH — https://pmc.ncbi.nlm.nih.gov/articles/PMC11473560/ (tier T1)
+[16] Tirzepatide and Medullary Thyroid Cancer Debunked | Journal of ... — https://academic.oup.com/jes/article/9/Supplement_1/bvaf149.2358/8298558 (tier T7)
+[17] Optimal dose of tirzepatide for type 2 diabetes mellitus: A meta-analysis and trial sequential analysis — https://www.frontiersin.org/articles/10.3389/fcvm.2022.990182/pdf (tier T2)
+[18] Comparing Efficacy and Safety of Different Doses of Tirzepatide for the Treatment of Type 2 Diabetes Mellitus: A Meta-Analysis of Randomized Controlled Trials — https://assets.cureus.com/uploads/review_article/pdf/184390/20230829-25847-16h6sdo.pdf (tier T2)
+[19] Evaluating the effectiveness and safety of various Tirzepatide dosages in the management of Type 2 diabetes mellitus: a network meta-analysis of randomized controlled trials — https://doi.org/10.1007/s40200-024-01412-8 (tier T2)
+[20] Time to Reach Glycaemic and Body Weight Loss Thresholds with Tirzepatide in Patients with Type 2 Diabetes: A Pre-planned Exploratory Analysis of SURPASS-2 and SURPASS-3 — https://link.springer.com/content/pdf/10.1007/s13300-023-01398-1.pdf (tier T1)
+[21] Impacts of tirzepatide on older patients with diminished β‐cell ... — https://onlinelibrary.wiley.com/doi/full/10.1111/ggi.70018 (tier T1)
+[22] Influence of Type 2 Diabetes on the Effects of Tirzepatide in Patients With Heart Failure and a Preserved Ejection Fraction With Obesity: A Prespecified Stratification-Based Analysis. — https://doi.org/10.1016/j.jacc.2025.06.058 (tier T1)
+[23] Efficacy and Safety of Tirzepatide in Patients with Type 2 Diabetes: Analysis of SURPASS-AP-Combo by Different Subgroups — https://link.springer.com/content/pdf/10.1007/s13300-024-01561-2.pdf (tier T1)
+[24] THU296 Effect Of Tirzepatide In GADA-positive Individuals With T2D: A Post Hoc Analysis Of The SURPASS 2-5 Trials — https://doi.org/10.1210/jendso/bvad114.731 (tier T7)
+
+
+ succeeded in 1375ms:
+[
+  {
+    "evidence_id": "ev_143",
+    "num": 1,
+    "statement": "Efficacy and safety of a novel dual GIP and GLP-1 receptor agonist tirzepatide in patients with type 2 diabetes (SURPASS-1): a double-blind, randomised, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/S0140-6736(21)01324-6"
+  },
+  {
+    "evidence_id": "ev_196",
+    "num": 2,
+    "statement": "Once-weekly tirzepatide versus once-daily insulin degludec as add-on to metformin with or without SGLT2 inhibitors in patients with type 2 diabetes (SURPASS-3): a randomised, open-label, parallel-group, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/S0140-6736(21)01443-4"
+  },
+  {
+    "evidence_id": "ev_221",
+    "num": 3,
+    "statement": "Tirzepatide versus insulin glargine in type 2 diabetes and increased cardiovascular risk (SURPASS-4): a randomised, open-label, parallel-group, multicentre, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/s0140-6736(21)02188-7"
+  },
+  {
+    "evidence_id": "ev_232",
+    "num": 4,
+    "statement": "Efficacy and safety of tirzepatide monotherapy compared with dulaglutide in Japanese patients with type 2 diabetes (SURPASS J-mono): a double-blind, multicentre, randomised, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/s2213-8587(22)00188-7"
+  },
+  {
+    "evidence_id": "ev_241",
+    "num": 5,
+    "statement": "Safety and efficacy of tirzepatide as an add-on to single oral antihyperglycaemic medication in patients with type 2 diabetes in Japan (SURPASS J-combo): a multicentre, randomised, open-label, parallel-group, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://www.sciencedirect.com/science/article/am/pii/S2213858722001875"
+  },
+  {
+    "evidence_id": "ev_242",
+    "num": 6,
+    "statement": "Efficacy and safety of tirzepatide added to basal insulin in patients with type 2 diabetes in China (SURPASS-CN-INS): a double-blind, multicentre, randomised, placebo-controlled, phase 3 trial.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/s2213-8587(25)00248-7"
+  },
+  {
+    "evidence_id": "ev_084",
+    "num": 7,
+    "statement": "Continued Treatment With Tirzepatide for Maintenance of Weight Reduction in Adults With Obesity: The SURMOUNT-4 Randomized Clinical Trial.",
+    "tier": "T1",
+    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10714284"
+  },
+  {
+    "evidence_id": "ev_233",
+    "num": 8,
+    "statement": "Efficacy of tirzepatide 5, 10 and 15\u2009mg versus semaglutide 2 mg in patients with type 2 diabetes: An adjusted indirect treatment comparison",
+    "tier": "T1",
+    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9546430"
+  },
+  {
+    "evidence_id": "ev_145",
+    "num": 9,
+    "statement": "Tirzepatide 10 and 15\u2009mg versus semaglutide 2.4\u2009mg in people with obesity or overweight with type 2 diabetes: An indirect treatment comparison",
+    "tier": "T1",
+    "url": "https://doi.org/10.1111/dom.16401"
+  },
+  {
+    "evidence_id": "ev_184",
+    "num": 10,
+    "statement": "Tirzepatide as Compared with Semaglutide for the Treatment of Obesity.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1056/NEJMoa2416394"
+  },
+  {
+    "evidence_id": "ev_230",
+    "num": 11,
+    "statement": "Cardiorenal Outcomes With Tirzepatide Compared With Dulaglutide in Patients With Diabetes and Cardiovascular Disease",
+    "tier": "T1",
+    "url": "https://doi.org/10.1001/jamacardio.2026.0767"
+  },
+  {
+    "evidence_id": "ev_104",
+    "num": 12,
+    "statement": "Tirzepatide Versus Semaglutide for Weight Loss in Overweight and Obese Adults: A Systematic Review and Meta-Analysis of Direct Comparative Studies",
+    "tier": "T2",
+    "url": "https://doi.org/10.7759/cureus.86080"
+  },
+  {
+    "evidence_id": "ev_269",
+    "num": 13,
+    "statement": "A systematic review of the safety of tirzepatide-a new dual GLP1 and GIP agonist - is its safety profile acceptable?",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/articles/10.3389/fendo.2023.1121387/pdf"
+  },
+  {
+    "evidence_id": "ev_267",
+    "num": 14,
+    "statement": "Comparative Safety of GLP-1/GIP Co-Agonists Versus GLP-1 Receptor Agonists for Weight Loss in Patients with Obesity or Overweight: A Systematic Review",
+    "tier": "T2",
+    "url": "https://doi.org/10.2147/DMSO.S537229"
+  },
+  {
+    "evidence_id": "ev_273",
+    "num": 15,
+    "statement": "The real-world safety profile of tirzepatide - PMC - NIH",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11473560/"
+  },
+  {
+    "evidence_id": "ev_272",
+    "num": 16,
+    "statement": "Tirzepatide and Medullary Thyroid Cancer Debunked | Journal of ...",
+    "tier": "T7",
+    "url": "https://academic.oup.com/jes/article/9/Supplement_1/bvaf149.2358/8298558"
+  },
+  {
+    "evidence_id": "ev_185",
+    "num": 17,
+    "statement": "Optimal dose of tirzepatide for type 2 diabetes mellitus: A meta-analysis and trial sequential analysis",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/articles/10.3389/fcvm.2022.990182/pdf"
+  },
+  {
+    "evidence_id": "ev_198",
+    "num": 18,
+    "statement": "Comparing Efficacy and Safety of Different Doses of Tirzepatide for the Treatment of Type 2 Diabetes Mellitus: A Meta-Analysis of Randomized Controlled Trials",
+    "tier": "T2",
+    "url": "https://assets.cureus.com/uploads/review_article/pdf/184390/20230829-25847-16h6sdo.pdf"
+  },
+  {
+    "evidence_id": "ev_150",
+    "num": 19,
+    "statement": "Evaluating the effectiveness and safety of various Tirzepatide dosages in the management of Type 2 diabetes mellitus: a network meta-analysis of randomized controlled trials",
+    "tier": "T2",
+    "url": "https://doi.org/10.1007/s40200-024-01412-8"
+  },
+  {
+    "evidence_id": "ev_176",
+    "num": 20,
+    "statement": "Time to Reach Glycaemic and Body Weight Loss Thresholds with Tirzepatide in Patients with Type 2 Diabetes: A Pre-planned Exploratory Analysis of SURPASS-2 and SURPASS-3",
+    "tier": "T1",
+    "url": "https://link.springer.com/content/pdf/10.1007/s13300-023-01398-1.pdf"
+  },
+  {
+    "evidence_id": "ev_304",
+    "num": 21,
+    "statement": "Impacts of tirzepatide on older patients with diminished \u03b2\u2010cell ...",
+    "tier": "T1",
+    "url": "https://onlinelibrary.wiley.com/doi/full/10.1111/ggi.70018"
+  },
+  {
+    "evidence_id": "ev_229",
+    "num": 22,
+    "statement": "Influence of Type 2 Diabetes on the Effects of Tirzepatide in Patients With Heart Failure and a Preserved Ejection Fraction With Obesity: A Prespecified Stratification-Based Analysis.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/j.jacc.2025.06.058"
+  },
+  {
+    "evidence_id": "ev_238",
+    "num": 23,
+    "statement": "Efficacy and Safety of Tirzepatide in Patients with Type 2 Diabetes: Analysis of SURPASS-AP-Combo by Different Subgroups",
+    "tier": "T1",
+    "url": "https://link.springer.com/content/pdf/10.1007/s13300-024-01561-2.pdf"
+  },
+  {
+    "evidence_id": "ev_207",
+    "num": 24,
+    "statement": "THU296 Effect Of Tirzepatide In GADA-positive Individuals With T2D: A Post Hoc Analysis Of The SURPASS 2-5 Trials",
+    "tier": "T7",
+    "url": "https://doi.org/10.1210/jendso/bvad114.731"
+  }
+]
+
+
+codex
+The first pass over the core files already shows a few important facts: the manifest is still `partial_qwen_advisory` with `release_allowed: false`, and the bibliography file actually contains 24 entries, not 19. I’m checking the previous V5 artifacts now so the delta and the “Lilly review / PRNewswire” regressions are grounded in file evidence.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files outputs | rg \"clinical_tirzepatide_t2dm/(report|bibliography|manifest|qwen_judge_output)\\.json|clinical_tirzepatide_t2dm/report\\.md\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PMC10115620|PRNewswire|Lilly|SURPASS-2|SURPASS-5|LEADER|SELECT|SUSTAIN|REWIND|PIONEER|STEP" outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Recurse -File outputs | Where-Object { $_.FullName -match '"'clinical_tirzepatide_t2dm' -and ("'$_.Name -eq '"'bibliography.json' -or "'$_.Name -eq '"'report.md' -or "'$_.Name -eq '"'manifest.json') } | Select-Object -ExpandProperty FullName" in C:\POLARIS
+ succeeded in 748ms:
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\bibliography.json:138:    "statement": "Time to Reach Glycaemic and Body Weight Loss Thresholds with Tirzepatide in Patients with Type 2 Diabetes: A Pre-planned Exploratory Analysis of SURPASS-2 and SURPASS-3",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\contradictions.json:483:        "context_snippet": "Lilly's tirzepatide shows additional 21.1% weight loss after 12 weeks of intensive",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\contradictions.json:926:        "context_snippet": ". The SURPASS-5 clinical trial showed a -2.11% reduction in HbA1c levels at 5 mg per w",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:11:    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:143:    "title": "A Study of Tirzepatide (LY3298176) In Participants After ... - Lilly Trials",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:473:    "title": "Efficacy of tirzepatide versus semaglutide in achieving therapeutic targets in type 2 diabetes: a post hoc analysis of the SURPASS-2 Trial.",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:495:    "title": "Tirzepatide Improved Markers of Islet Cell Function and Insulin Sensitivity in People With T2D (SURPASS-2)",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:528:    "title": "OR19-05 Efficacy of Tirzepatide versus Semaglutide in Achieving Therapeutic Targets in Type 2 Diabetes: a post hoc analysis of SURPASS-2 Trial",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:1047:    "title": "Lilly's tirzepatide shows additional 21.1% weight loss after 12 weeks ...",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:1598:    "title": "The Upcoming Weekly Tides (Semaglutide vs. Tirzepatide) against Obesity: STEP or SURPASS?",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:1950:    "title": "Time to Reach Glycaemic and Body Weight Loss Thresholds with Tirzepatide in Patients with Type 2 Diabetes: A Pre-planned Exploratory Analysis of SURPASS-2 and SURPASS-3",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:2016:    "title": "84-LB: Efficacy and Safety of Tirzepatide vs. Semaglutide Once-Weekly as Add-On Therapy to Metformin in People with Type 2 Diabetes (SURPASS-2)",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:2071:    "title": "Effect of Subcutaneous Tirzepatide vs Placebo Added to Titrated Insulin Glargine on Glycemic Control in Patients With Type 2 Diabetes: The SURPASS-5 Randomized Clinical Trial.",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:2247:    "title": "80-LB: Tirzepatide, a Dual GIP/GLP-1 Receptor Agonist, Is Effective and Safe When Added to Basal Insulin for Treatment of Type 2 Diabetes (SURPASS-5)",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:2479:    "title": "OR28-4 Efficacy and Safety of Tirzepatide Versus Semaglutide in a Hispanic or Latino Population: A Prespecified Subgroup Analysis of SURPASS-2",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\live_corpus_dump.json:3176:    "title": "A Study of Tirzepatide (LY3298176) Compared ... - Lilly Trials",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\corpus_approval.json:4:    "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\verification_details.json:14:          "sentence": "In the SURPASS-5 trial, adding tirzepatide to titrated insulin glargine resulted in a mean HbA1c change from baseline of -2.11% with the 5 mg dose, -2.40% with 10 mg, and -2.34% with 15 mg, compared to -0.86% with placebo, along with body weight reductions of -5.4 kg, -7.5 kg, and -8.8 kg, respectively, versus a 1.6 kg increase with placebo [#ev:ev_187:0-500].",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\verification_details.json:352:          "sentence": "Regarding the time to achieve clinical thresholds, a pre-planned exploratory analysis of the SURPASS-2 and SURPASS-3 trials found the median time to first achieve a body weight loss of \u22655% was faster with tirzepatide 5 mg (16.0 weeks) and with the 10 and 15 mg doses (12.4 weeks) than with the active comparator semaglutide 1 mg (24.0 weeks) [#ev:ev_176:2400-2900].",
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\report.md:17:Meta-analyses of randomized controlled trials demonstrate a dose-dependent relationship for tirzepatide's effects on HbA1c and body weight in type 2 diabetes.[17] Another meta-analysis confirmed these trends, finding HbA1c reductions of 0.20% with 10 mg and 0.30% with 15 mg versus 5 mg, and weight reductions of 2.64 kg and 4.26 kg, respectively.[18] A more recent network meta-analysis also found significant reductions in HbA1c with tirzepatide 10 mg (MD: -0.19) and 15 mg (MD: -0.32) versus the 5 mg dose, alongside weight reductions of 1.96 kg and 3.31 kg, respectively.[19] Regarding the time to achieve clinical thresholds, a pre-planned exploratory analysis of the SURPASS-2 and SURPASS-3 trials found the median time to first achieve a body weight loss of ≥5% was faster with tirzepatide 5 mg (16.0 weeks) and with the 10 and 15 mg doses (12.4 weeks) than with the active comparator semaglutide 1 mg (24.0 weeks).[20] The same analysis reported the median time to achieve HbA1c <7.0% was 8.1 weeks for each tirzepatide dose.[20] In terms of safety, meta-analyses indicate the risk of total adverse events and gastrointestinal adverse events is higher with the 10 mg and 15 mg doses compared to the 5 mg dose.[17][18] One review concluded that within the 5–15 mg range, the effect on lowering glycemia and reducing weight is dose-dependent, with the 15 mg dose achieving the best efficacy, but the 5 mg dose offers a more favorable safety profile.[17]
+outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm\report.md:76:[20] Time to Reach Glycaemic and Body Weight Loss Thresholds with Tirzepatide in Patients with Type 2 Diabetes: A Pre-planned Exploratory Analysis of SURPASS-2 and SURPASS-3 — https://link.springer.com/content/pdf/10.1007/s13300-023-01398-1.pdf (tier T1)
+
+2026-04-19T22:54:42.003904Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+
+ exited 1 in 833ms:
+2026-04-19T22:54:42.426016Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+C:\POLARIS\outputs\full_scale_sweep\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_sweep\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_tirzepatide\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_tirzepatide\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v3\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v3\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\sweep_r3_final\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\sweep_r3_final\clinical\clinical_tirzepatide_t2dm\report.md
+[31;1mGet-ChildItem: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-ChildItem -Recurse -File outputs[0m | Where-Object { $_.FullName -ma …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\POLARIS\outputs\codex_findings\full_audit_pass_5\tmp\pytest-of-msn' is denied.[0m
+[31;1mGet-ChildItem: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-ChildItem -Recurse -File outputs[0m | Where-Object { $_.FullName -ma …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\POLARIS\outputs\codex_findings\full_audit_pass_5\tmp\tmpob6m_grq' is denied.[0m
+
+ exited 1 in 1214ms:
+C:\POLARIS\outputs\full_scale_sweep\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_sweep\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_tirzepatide\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_tirzepatide\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_tirzepatide_v2\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v4\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v5\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v6\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\full_scale_v7\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\honest_sweep_r3\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\m2_diag_clinical\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\m2_fixed_clinical\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v2\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v3\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v3\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\bibliography.json
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\smoke_retrieve_v4\clinical\clinical_tirzepatide_t2dm\report.md
+C:\POLARIS\outputs\sweep_r3_final\clinical\clinical_tirzepatide_t2dm\manifest.json
+C:\POLARIS\outputs\sweep_r3_final\clinical\clinical_tirzepatide_t2dm\report.md
+[31;1mGet-ChildItem: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-ChildItem -Recurse -File outputs[0m | Where-Object { $_.FullName -ma …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\POLARIS\outputs\codex_findings\full_audit_pass_5\tmp\pytest-of-msn' is denied.[0m
+[31;1mGet-ChildItem: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mGet-ChildItem -Recurse -File outputs[0m | Where-Object { $_.FullName -ma …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mAccess to the path 'C:\POLARIS\outputs\codex_findings\full_audit_pass_5\tmp\tmpob6m_grq' is denied.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/report.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$b = Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/bibliography.json | ConvertFrom-Json; $b | Group-Object tier | Select-Object Name,Count; "TOTAL=$($b.Count)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/verification_details.json' in C:\POLARIS
+ succeeded in 1045ms:
+# Research report: What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?
+
+### Efficacy
+
+Tirzepatide demonstrated significant, dose-dependent improvements in both glycemic control and body weight across the SURPASS clinical trials in adults with type 2 diabetes.[1] The A1C reduction from baseline to the primary end point ranged from −1.87% with tirzepatide 5 mg in SURPASS-1 to −2.59% with tirzepatide 10 and 15 mg in SURPASS-5.[1] In SURPASS-1, the highest dose (15 mg) reduced A1C by 2.07% from baseline and 52% of participants achieved normoglycemia (A1c <5.7%).[1][2] The proportion of participants achieving an A1C value <7.0% with tirzepatide across the trials ranged from 81 to 97%.[1] For weight loss, body weight reductions from baseline at the primary end point ranged from −6.2 kg (−6.6%) with tirzepatide 5 mg when added to insulin glargine (SURPASS-5) to −12.9 kg (−13.9%) with tirzepatide 15 mg when added to metformin with or without an SGLT2 inhibitor (SURPASS-3).[1] Tirzepatide was superior to active comparators, including semaglutide 1 mg and various insulin regimens, in reducing A1C and body weight.[1][3] These effects were consistent across different patient populations and background therapies.[1][4]
+
+### Comparative
+
+In a direct head-to-head trial in patients with obesity without diabetes, tirzepatide demonstrated superior weight loss compared to semaglutide, with a least-squares mean percent change in weight at week 72 of −20.2% versus −13.7%.[5] Participants were also more likely to achieve weight reductions of at least 10%, 15%, 20%, and 25% with tirzepatide.[5] Another phase 3 trial reported a mean percentage change in body weight with tirzepatide of −20.2% compared with −13.7% for semaglutide at 72 weeks.[6] A real-world retrospective cohort study in patients without diabetes also found greater 6-month mean percentage weight reduction with tirzepatide (−11.15%) versus semaglutide (−8.83%).[7] A systematic review and meta-analysis of direct comparative studies concluded tirzepatide was significantly superior to semaglutide in achieving weight reduction, with a greater standardized mean difference for weight loss.[8] For glycemic control in type 2 diabetes, a network meta-analysis found all tirzepatide doses (5, 10, 15 mg) were comparable to semaglutide 2.0 mg and superior to semaglutide 1.0 mg and 0.5 mg in reducing HbA1c.[9] An indirect treatment comparison also concluded tirzepatide 10 and 15 mg were associated with significantly greater mean percent weight reductions versus semaglutide 2.4 mg in people with obesity and type 2 diabetes.[10] Compared to insulin, tirzepatide showed greater efficacy; a meta-analysis found once-weekly tirzepatide significantly decreased HbA1c and body weight compared with daily insulin glargine and degludec, with a lower risk of hypoglycemia.[11] Specifically, in a trial adding therapy to basal insulin, the mean change in HbA1c at week 52 was −2.1% with tirzepatide versus −1.1% with insulin lispro, with less hypoglycemia and more body weight reduction.[12] Another meta-analysis reported all three tirzepatide doses resulted in a significant reduction in HbA1c and a significant decrease in body weight compared with long-acting insulin.[13] Regarding safety, gastrointestinal events were the most common adverse events for both tirzepatide and semaglutide in the head-to-head obesity trial, with one source reporting at least one adverse event in approximately 76.7% of patients on tirzepatide and 79% on semaglutide.[5][6] A network meta-analysis in patients with type 2 diabetes on basal insulin found tirzepatide showed a statistically significant, higher likelihood of experiencing nausea compared with placebo or exenatide, but no significant difference in treatment discontinuation due to adverse events compared to several GLP-1 receptor agonists.[14]
+
+### Safety
+
+Gastrointestinal adverse events are the most commonly reported adverse events with tirzepatide and are dose-dependent, with reported incidences of 39% (95% CI, 35%-43%), 46% (95% CI, 42%-49%), and 49% (95% CI, 38%-60%) for the 5, 10, and 15 mg doses, respectively.[15] Among gastrointestinal events, nausea and diarrhea are the most frequent at any dose.[15] Drug discontinuation due to adverse events was highest with the 15 mg dose at 10%.[15] Regarding hypoglycemia, a meta-analysis found patients treated with tirzepatide had no significantly increased risk compared with placebo overall (OR= 2.05, 95%CI:0.95 to 4.42, p=0.07).[16] Another analysis reported tirzepatide 15mg was associated with more hypoglycemia than GLP-1 receptor agonists (pooled RR=3.83, 95% CI [1.19- 12.30], P=0.02).[17] Conversely, a different study in patients achieving normoglycemia found low rates, with 98.5% not experiencing level 2 or 3 severe hypoglycemia (<54 mg/dL) and 91% not experiencing level 1 hypoglycemia (≤70 mg/dL).[18] Rates of fatal adverse events, severe hypoglycemia, acute pancreatitis, cholelithiasis, and cholecystitis are reported as extremely low (≤ 1%) across all doses.[15] An analysis of FDA adverse event reports suggested an association between tirzepatide and thyroid cancer (reporting odds ratio = 2.09, 95% CI: 1.51–2.89), though this was lower than associations for other GLP-1 receptor agonists.[19]
+
+### Dose Response
+
+The effects of tirzepatide on glycemic and weight outcomes are dose-dependent within the 5 mg to 15 mg range.[20] This analysis also noted that fasting serum glucose showed improvement with the 15 mg dose.[21] One review concluded that within the 5–15 mg dose range, the effect in lowering glycemia and reducing weight is dose-dependent, with the 15 mg dose achieving the best efficacy benefit.[20] A separate meta-analysis confirmed that the 15 mg dose provided the greatest reductions in HbA1c and body weight compared to the 10 mg and 5 mg doses.[22] Regarding safety, gastrointestinal adverse events increased with higher doses, though one analysis reported this increase was without statistical significance.[21] Another analysis found the risk of total adverse events was significantly higher with the 10 mg and 15 mg doses compared to the 5 mg dose.[22]
+
+### Population Subgroups
+
+In a post-hoc analysis of SURPASS-1 to -5, tirzepatide demonstrated significantly greater reductions in HbA1c versus comparators in both prespecified age subgroups (<65 and ≥65 years).[23] Regarding sex, all tirzepatide doses significantly reduced body weight compared to comparators regardless of the sex of study participants across SURPASS-1 to -5.[24] In patients with heart failure with preserved ejection fraction and obesity, tirzepatide produced less weight loss at 52 weeks in those with type 2 diabetes (10.4%) than in those without diabetes (12.9%).[25] However, the effect of tirzepatide on the primary composite of cardiovascular death or worsening heart failure was similar between patients with or without diabetes, with a hazard ratio of 0.64 for patients with diabetes and 0.61 for those without.[25] In a retrospective study of adults with type 1 diabetes and obesity, tirzepatide led to significant weight loss, with a median total body weight loss of 8% at 6 months and a 1% reduction in HbA1c.[26] For individuals with type 2 diabetes who were glutamic acid decarboxylase autoantibody-positive, tirzepatide was effective, achieving HbA1c reductions of -2.11% and body weight reductions of -9.2 kg at 40/42 weeks, though HbA1c reductions were slightly greater in GADA-negative patients.[27] The most frequent adverse events across subgroups were mild-to-moderate and gastrointestinal-related, occurring during dose-escalation.[23][24]
+
+### Limitations
+
+Limitations: The corpus exhibits significant tier-distribution gaps, with only 15% of sources being T1 primary studies and a heavy reliance on T7 sources at 32%. The pipeline detected 11 high-severity contradictions, primarily concerning tirzepatide's effect on body weight, where sources disagree substantially on the magnitude of the reported outcome. The evidence horizon spans from 2010 to the present, which may not capture earlier foundational research.
+
+## Methods
+Pre-registered protocol.json (SHA-256 cf753e7f987c762c...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: scope_query_validator: 8 kept / 23 dropped).
+Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 5 parallel sections + strict_verify + regen-on-failure).
+Evaluator model: qwen/qwen3-8b (different family).
+Sources classified using T1-T7 tier taxonomy.
+Inclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.
+Prompt-injection sanitization enabled. Retrieved 2026-04-19.
+Expected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=15%, T2=15%, T3=1%, T4=22%, T5=2%, T6=2%, T7=32%, UNKNOWN=11%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 7/7 topics covered.
+
+## Contradiction disclosures
+11 contradictions detected:
+
+- tirzepatide / body weight: values [-2.11, 20.0, 22.5] %, rel diff 1166.4%.
+- tirzepatide / body weight (10 mg): values [5.0, 12.86, 93.5] %, rel diff 1770.0%.
+- tirzepatide / body weight (15 mg): values [2.37, 6.5, 7.0, 48.4, 95.0] %, rel diff 3908.4%.
+- tirzepatide / body weight (5 mg): values [-1.75, 93.0, 95.0] %, rel diff 5528.6%.
+- tirzepatide / weight loss: values [1.8, 2.4, 5.0, 6.9, 8.0] %, rel diff 344.4%.
+- tirzepatide / weight loss (0.5 mg): values [2.46, 15.0] %, rel diff 509.8%.
+- tirzepatide / weight loss (10 mg): values [2.24, 13.6, 17.4, 19.0, 20.2, 21.1, 26.4] %, rel diff 1078.6%.
+- tirzepatide / weight loss (15 mg): values [-62.0, -19.44, 1.29, 1.87, 2.6, 5.0, 7.0, 7.0, 7.0, 8.2, 9.0, 9.1, 16.3, 20.2, 20.9, 22.9, 45.3, 95.0] %, rel diff 253.2%.
+- tirzepatide / weight loss (2.4 mg): values [25.3, 95.0] %, rel diff 275.5%.
+- tirzepatide / weight loss (2.5 mg): values [2.1, 2.5, 10.4, 15.0, 20.9, 95.0] %, rel diff 4423.8%.
+- tirzepatide / weight loss (5 mg): values [-2.11, 1.6, 1.7, 5.0, 6.5, 7.0, 7.0, 7.0, 48.0, 50.0, 95.0] %, rel diff 4602.4%.
+
+
+## Bibliography
+[1] Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes — https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/ (tier T1)
+[2] 100-OR: ADA Presidents’ Select Abstract: Efficacy and Safety of Once-Weekly Tirzepatide, a Dual GIP/GLP-1 Receptor Agonist vs. Placebo as Monotherapy in People with Type 2 Diabetes (SURPASS-1) — https://doi.org/10.2337/db21-100-or (tier T7)
+[3] Tirzepatide significantly reduced A1C and body weight in people ... — https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-and-body-weight-in-people-with-type-2-diabetes-in-two-phase-3-trials-from-lillys-surpass-program-301229506.html (tier T6)
+[4] 227-OR: Tirzepatide Reduces HbA1c and Body Weight Significantly More than Placebo Regardless of Insulin Sensitivity and Beta-Cell Function—Post Hoc Analysis from SURMOUNT-2 — https://doi.org/10.2337/db24-227-or (tier T7)
+[5] Tirzepatide as Compared with Semaglutide for the Treatment of Obesity. — https://doi.org/10.1056/NEJMoa2416394 (tier T1)
+[6] Tirzepatide Shows Superior Weight Loss Over Semaglutide in ... — https://www.drugtopics.com/view/tirzepatide-shows-superior-weight-loss-over-semaglutide-in-phase-3-trial (tier UNKNOWN)
+[7] Comparative effectiveness of tirzepatide and semaglutide for obesity management in US clinical practice: a 6-month retrospective cohort study — https://doi.org/10.1007/s40618-025-02792-1 (tier T1)
+[8] Tirzepatide Versus Semaglutide for Weight Loss in Overweight and Obese Adults: A Systematic Review and Meta-Analysis of Direct Comparative Studies — https://doi.org/10.7759/cureus.86080 (tier T2)
+[9] Subcutaneously administered tirzepatide vs semaglutide for adults with type 2 diabetes: a systematic review and network meta-analysis of randomised controlled trials — https://link.springer.com/content/pdf/10.1007/s00125-024-06144-1.pdf (tier T2)
+[10] Tirzepatide 10 and 15 mg versus semaglutide 2.4 mg in people with obesity or overweight with type 2 diabetes: An indirect treatment comparison — https://doi.org/10.1111/dom.16401 (tier T1)
+[11] Tirzepatide outcompetes long-acting insulin in managing type 2 diabetes: a meta-analysis of three phase 3 randomized controlled trials — https://doi.org/10.1038/s41366-024-01621-4 (tier T2)
+[12] Tirzepatide vs Insulin Lispro Added to Basal Insulin in Type 2 Diabetes: The SURPASS-6 Randomized Clinical Trial. — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10548360 (tier T1)
+[13] Tirzepatide Versus Long-Acting Insulin in Type 2 Diabetes Mellitus: A Systematic Review and Meta-Analysis — https://doi.org/10.4103/jod.jod_213_24 (tier T2)
+[14] Efficacy and Safety of Tirzepatide Compared with GLP-1 RAs in Patients with Type 2 Diabetes Treated with Basal Insulin: A Network Meta-analysis — https://doi.org/10.1007/s13300-025-01728-5 (tier T2)
+[15] Adverse Events Related to Tirzepatide - Oxford Academic — https://academic.oup.com/jes/article-abstract/7/4/bvad016/7005432 (tier T2)
+[16] Efficacy and safety of tirzepatide for weight loss in patients ... - Frontiers — https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full (tier T2)
+[17] A systematic review of the safety of tirzepatide-a new dual GLP1 and GIP agonist - is its safety profile acceptable? — https://www.frontiersin.org/articles/10.3389/fendo.2023.1121387/pdf (tier T2)
+[18] Tirzepatide Mitigates Hyperglycemia Without Effecting Hypoglycemia — https://www.endocrinologyadvisor.com/news/tirzepatide-mitigates-hyperglycemia-without-effecting-hypoglycemia/ (tier T6)
+[19] Investigating FDA Reports of Tirzepatide-Thyroid Cancer Connection — https://www.emjreviews.com/oncology/news/investigating-fda-reports-of-tirzepatide-thyroid-cancer-connection/ (tier UNKNOWN)
+[20] Optimal dose of tirzepatide for type 2 diabetes mellitus: A meta-analysis and trial sequential analysis — https://www.frontiersin.org/articles/10.3389/fcvm.2022.990182/pdf (tier T2)
+[21] Evaluating the effectiveness and safety of various Tirzepatide dosages in the management of Type 2 diabetes mellitus: a network meta-analysis of randomized controlled trials — https://doi.org/10.1007/s40200-024-01412-8 (tier T2)
+[22] Comparing Efficacy and Safety of Different Doses of Tirzepatide for the Treatment of Type 2 Diabetes Mellitus: A Meta-Analysis of Randomized Controlled Trials — https://assets.cureus.com/uploads/review_article/pdf/184390/20230829-25847-16h6sdo.pdf (tier T2)
+[23] 743-P: Effect of Once-Weekly TZP on Glycemic Control by Baseline Age in Patient Subpopulations from the SURPASS Trials — https://doi.org/10.2337/db22-743-p (tier T7)
+[24] 720-P: Change in Body Weight from Baseline with Tirzepatide: Sex Subgroup Analysis of the SURPASS Studies — https://doi.org/10.2337/db22-720-p (tier T7)
+[25] Influence of Type 2 Diabetes on the Effects of Tirzepatide in Patients With Heart Failure and a Preserved Ejection Fraction With Obesity: A Prespecified Stratification-Based Analysis. — https://doi.org/10.1016/j.jacc.2025.06.058 (tier T1)
+[26] 1660-P: Efficacy and Safety of Tirzepatide for the Treatment of Obesity in Adults with Type 1 Diabetes—The Mayo Clinic Experience — https://doi.org/10.2337/db24-1660-p (tier T7)
+[27] THU296 Effect Of Tirzepatide In GADA-positive Individuals With T2D: A Post Hoc Analysis Of The SURPASS 2-5 Trials — https://doi.org/10.1210/jendso/bvad114.731 (tier T7)
+
+
+ succeeded in 1180ms:
+[
+  {
+    "evidence_id": "ev_000",
+    "num": 1,
+    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "tier": "T1",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+  },
+  {
+    "evidence_id": "ev_119",
+    "num": 2,
+    "statement": "100-OR: ADA Presidents\u2019 Select Abstract: Efficacy and Safety of Once-Weekly Tirzepatide, a Dual GIP/GLP-1 Receptor Agonist vs. Placebo as Monotherapy in People with Type 2 Diabetes (SURPASS-1)",
+    "tier": "T7",
+    "url": "https://doi.org/10.2337/db21-100-or"
+  },
+  {
+    "evidence_id": "ev_014",
+    "num": 3,
+    "statement": "Tirzepatide significantly reduced A1C and body weight in people ...",
+    "tier": "T6",
+    "url": "https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-and-body-weight-in-people-with-type-2-diabetes-in-two-phase-3-trials-from-lillys-surpass-program-301229506.html"
+  },
+  {
+    "evidence_id": "ev_124",
+    "num": 4,
+    "statement": "227-OR: Tirzepatide Reduces HbA1c and Body Weight Significantly More than Placebo Regardless of Insulin Sensitivity and Beta-Cell Function\u2014Post Hoc Analysis from SURMOUNT-2",
+    "tier": "T7",
+    "url": "https://doi.org/10.2337/db24-227-or"
+  },
+  {
+    "evidence_id": "ev_125",
+    "num": 5,
+    "statement": "Tirzepatide as Compared with Semaglutide for the Treatment of Obesity.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1056/NEJMoa2416394"
+  },
+  {
+    "evidence_id": "ev_018",
+    "num": 6,
+    "statement": "Tirzepatide Shows Superior Weight Loss Over Semaglutide in ...",
+    "tier": "UNKNOWN",
+    "url": "https://www.drugtopics.com/view/tirzepatide-shows-superior-weight-loss-over-semaglutide-in-phase-3-trial"
+  },
+  {
+    "evidence_id": "ev_058",
+    "num": 7,
+    "statement": "Comparative effectiveness of tirzepatide and semaglutide for obesity management in US clinical practice: a 6-month retrospective cohort study",
+    "tier": "T1",
+    "url": "https://doi.org/10.1007/s40618-025-02792-1"
+  },
+  {
+    "evidence_id": "ev_032",
+    "num": 8,
+    "statement": "Tirzepatide Versus Semaglutide for Weight Loss in Overweight and Obese Adults: A Systematic Review and Meta-Analysis of Direct Comparative Studies",
+    "tier": "T2",
+    "url": "https://doi.org/10.7759/cureus.86080"
+  },
+  {
+    "evidence_id": "ev_175",
+    "num": 9,
+    "statement": "Subcutaneously administered tirzepatide vs semaglutide for adults with type 2 diabetes: a systematic review and network meta-analysis of randomised controlled trials",
+    "tier": "T2",
+    "url": "https://link.springer.com/content/pdf/10.1007/s00125-024-06144-1.pdf"
+  },
+  {
+    "evidence_id": "ev_080",
+    "num": 10,
+    "statement": "Tirzepatide 10 and 15\u2009mg versus semaglutide 2.4\u2009mg in people with obesity or overweight with type 2 diabetes: An indirect treatment comparison",
+    "tier": "T1",
+    "url": "https://doi.org/10.1111/dom.16401"
+  },
+  {
+    "evidence_id": "ev_077",
+    "num": 11,
+    "statement": "Tirzepatide outcompetes long-acting insulin in managing type 2 diabetes: a meta-analysis of three phase 3 randomized controlled trials",
+    "tier": "T2",
+    "url": "https://doi.org/10.1038/s41366-024-01621-4"
+  },
+  {
+    "evidence_id": "ev_035",
+    "num": 12,
+    "statement": "Tirzepatide vs Insulin Lispro Added to Basal Insulin in Type 2 Diabetes: The SURPASS-6 Randomized Clinical Trial.",
+    "tier": "T1",
+    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10548360"
+  },
+  {
+    "evidence_id": "ev_162",
+    "num": 13,
+    "statement": "Tirzepatide Versus Long-Acting Insulin in Type 2 Diabetes Mellitus: A Systematic Review and Meta-Analysis",
+    "tier": "T2",
+    "url": "https://doi.org/10.4103/jod.jod_213_24"
+  },
+  {
+    "evidence_id": "ev_193",
+    "num": 14,
+    "statement": "Efficacy and Safety of Tirzepatide Compared with GLP-1 RAs in Patients with Type 2 Diabetes Treated with Basal Insulin: A Network Meta-analysis",
+    "tier": "T2",
+    "url": "https://doi.org/10.1007/s13300-025-01728-5"
+  },
+  {
+    "evidence_id": "ev_197",
+    "num": 15,
+    "statement": "Adverse Events Related to Tirzepatide - Oxford Academic",
+    "tier": "T2",
+    "url": "https://academic.oup.com/jes/article-abstract/7/4/bvad016/7005432"
+  },
+  {
+    "evidence_id": "ev_002",
+    "num": 16,
+    "statement": "Efficacy and safety of tirzepatide for weight loss in patients ... - Frontiers",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full"
+  },
+  {
+    "evidence_id": "ev_218",
+    "num": 17,
+    "statement": "A systematic review of the safety of tirzepatide-a new dual GLP1 and GIP agonist - is its safety profile acceptable?",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/articles/10.3389/fendo.2023.1121387/pdf"
+  },
+  {
+    "evidence_id": "ev_201",
+    "num": 18,
+    "statement": "Tirzepatide Mitigates Hyperglycemia Without Effecting Hypoglycemia",
+    "tier": "T6",
+    "url": "https://www.endocrinologyadvisor.com/news/tirzepatide-mitigates-hyperglycemia-without-effecting-hypoglycemia/"
+  },
+  {
+    "evidence_id": "ev_225",
+    "num": 19,
+    "statement": "Investigating FDA Reports of Tirzepatide-Thyroid Cancer Connection",
+    "tier": "UNKNOWN",
+    "url": "https://www.emjreviews.com/oncology/news/investigating-fda-reports-of-tirzepatide-thyroid-cancer-connection/"
+  },
+  {
+    "evidence_id": "ev_126",
+    "num": 20,
+    "statement": "Optimal dose of tirzepatide for type 2 diabetes mellitus: A meta-analysis and trial sequential analysis",
+    "tier": "T2",
+    "url": "https://www.frontiersin.org/articles/10.3389/fcvm.2022.990182/pdf"
+  },
+  {
+    "evidence_id": "ev_085",
+    "num": 21,
+    "statement": "Evaluating the effectiveness and safety of various Tirzepatide dosages in the management of Type 2 diabetes mellitus: a network meta-analysis of randomized controlled trials",
+    "tier": "T2",
+    "url": "https://doi.org/10.1007/s40200-024-01412-8"
+  },
+  {
+    "evidence_id": "ev_142",
+    "num": 22,
+    "statement": "Comparing Efficacy and Safety of Different Doses of Tirzepatide for the Treatment of Type 2 Diabetes Mellitus: A Meta-Analysis of Randomized Controlled Trials",
+    "tier": "T2",
+    "url": "https://assets.cureus.com/uploads/review_article/pdf/184390/20230829-25847-16h6sdo.pdf"
+  },
+  {
+    "evidence_id": "ev_083",
+    "num": 23,
+    "statement": "743-P: Effect of Once-Weekly TZP on Glycemic Control by Baseline Age in Patient Subpopulations from the SURPASS Trials",
+    "tier": "T7",
+    "url": "https://doi.org/10.2337/db22-743-p"
+  },
+  {
+    "evidence_id": "ev_086",
+    "num": 24,
+    "statement": "720-P: Change in Body Weight from Baseline with Tirzepatide: Sex Subgroup Analysis of the SURPASS Studies",
+    "tier": "T7",
+    "url": "https://doi.org/10.2337/db22-720-p"
+  },
+  {
+    "evidence_id": "ev_178",
+    "num": 25,
+    "statement": "Influence of Type 2 Diabetes on the Effects of Tirzepatide in Patients With Heart Failure and a Preserved Ejection Fraction With Obesity: A Prespecified Stratification-Based Analysis.",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/j.jacc.2025.06.058"
+  },
+  {
+    "evidence_id": "ev_208",
+    "num": 26,
+    "statement": "1660-P: Efficacy and Safety of Tirzepatide for the Treatment of Obesity in Adults with Type 1 Diabetes\u2014The Mayo Clinic Experience",
+    "tier": "T7",
+    "url": "https://doi.org/10.2337/db24-1660-p"
+  },
+  {
+    "evidence_id": "ev_156",
+    "num": 27,
+    "statement": "THU296 Effect Of Tirzepatide In GADA-positive Individuals With T2D: A Post Hoc Analysis Of The SURPASS 2-5 Trials",
+    "tier": "T7",
+    "url": "https://doi.org/10.1210/jendso/bvad114.731"
+  }
+]
+
+
+ succeeded in 1175ms:
+{
+  "drop_reason_counts": {
+    "no_content_word_overlap_any_cited_span": 1,
+    "no_integer_overlap_any_cited_span": 1,
+    "number_not_in_any_cited_span": 7
+  },
+  "sections": [
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_187:missing=['-2.11', '-2.34', '-2.40']"
+          ],
+          "sentence": "In the SURPASS-5 trial, adding tirzepatide to titrated insulin glargine resulted in a mean HbA1c change from baseline of -2.11% with the 5 mg dose, -2.40% with 10 mg, and -2.34% with 15 mg, compared to -0.86% with placebo, along with body weight reductions of -5.4 kg, -7.5 kg, and -8.8 kg, respectively, versus a 1.6 kg increase with placebo [#ev:ev_187:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_187",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_106:missing=['-1.1', '-2.1']"
+          ],
+          "sentence": "Similarly, in SURPASS-6, adding tirzepatide to insulin glargine led to a mean HbA1c reduction of -2.1% compared to -1.1% with added prandial insulin lispro at 52 weeks [#ev:ev_106:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_106",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_127:missing=['-13.6', '-17.5']"
+          ],
+          "sentence": "Another trial in Chinese adults with obesity without diabetes, SURMOUNT-CN, reported mean body weight reductions of -13.6% with tirzepatide 10 mg and -17.5% with 15 mg versus -2.3% with placebo at week 52 [#ev:ev_127:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_127",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "In the SURPASS-1 trial of patients with type 2 diabetes, tirzepatide demonstrated dose-dependent reductions in HbA1c and body weight [#ev:ev_143:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_143",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "In SURPASS-3, tirzepatide was compared with insulin degludec as an add-on to metformin with or without SGLT2 inhibitors [#ev:ev_196:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_196",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "The SURPASS-4 trial compared tirzepatide versus insulin glargine in patients with type 2 diabetes and increased cardiovascular risk [#ev:ev_221:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_221",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "In Japanese populations, tirzepatide monotherapy was evaluated against dulaglutide in SURPASS J-mono [#ev:ev_232:0-500], and as an add-on to oral medication in SURPASS J-combo [#ev:ev_241:1400-1900].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_232",
+              "start": 0
+            },
+            {
+              "end": 1900,
+              "evidence_id": "ev_241",
+              "start": 1400
+            }
+          ]
+        },
+        {
+          "sentence": "In Chinese patients with type 2 diabetes on basal insulin, the SURPASS-CN-INS trial assessed tirzepatide added to basal insulin [#ev:ev_242:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_242",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "In a related obesity trial without diabetes, SURMOUNT-4 showed that after a 36-week lead-in with tirzepatide resulting in 20.9% weight reduction, continued treatment led to an additional 5.5% weight loss over 52 weeks, whereas switching to placebo led to 14.0% weight regain [#ev:ev_084:1500-2000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2000,
+              "evidence_id": "ev_084",
+              "start": 1500
+            }
+          ]
+        }
+      ],
+      "title": "Efficacy",
+      "total_dropped": 3,
+      "total_in": 9,
+      "total_kept": 6
+    },
+    {
+      "dropped": [],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "An adjusted indirect treatment comparison of tirzepatide versus semaglutide 2 mg in patients with type 2 diabetes found that tirzepatide 10 and 15 mg significantly reduced HbA1c versus semaglutide 2 mg, with estimated treatment differences of \u22120.36% and \u22120.4%, respectively, and significantly reduced body weight with differences of \u22123.15 kg and \u22125.15 kg, respectively [#ev:ev_233:800-1300].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1300,
+              "evidence_id": "ev_233",
+              "start": 800
+            }
+          ]
+        },
+        {
+          "sentence": "Another indirect comparison in people with obesity or overweight and type 2 diabetes found tirzepatide 10 and 15 mg were associated with significantly greater mean percent weight reductions versus semaglutide 2.4 mg, with mean differences of 2.57% and 4.79%, respectively, and greater HbA1c reductions [#ev:ev_145:800-1300].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1300,
+              "evidence_id": "ev_145",
+              "start": 800
+            }
+          ]
+        },
+        {
+          "sentence": "In a related obesity trial without diabetes, a direct head-to-head comparison showed a least-squares mean percent change in weight of \u221220.2% with tirzepatide versus \u221213.7% with semaglutide [#ev:ev_184:800-1300].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1300,
+              "evidence_id": "ev_184",
+              "start": 800
+            }
+          ]
+        },
+        {
+          "sentence": "For cardiovascular outcomes in patients with diabetes and cardiovascular disease, tirzepatide was compared with dulaglutide, where a 6-component cardiorenal end point occurred in 23.7% of tirzepatide-treated patients versus 27.4% of dulaglutide-treated patients [#ev:ev_230:4700-5200].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 5200,
+              "evidence_id": "ev_230",
+              "start": 4700
+            }
+          ]
+        },
+        {
+          "sentence": "One systematic review and meta-analysis of direct comparative studies concluded tirzepatide was significantly superior to semaglutide in achieving weight reduction, with a pooled standardized mean difference of 0.75 [#ev:ev_104:1600-2100].",
+          "soft_warnings": [
+            "unhedged_superlative:'superior'"
+          ],
+          "tokens": [
+            {
+              "end": 2100,
+              "evidence_id": "ev_104",
+              "start": 1600
+            }
+          ]
+        }
+      ],
+      "title": "Comparative",
+      "total_dropped": 0,
+      "total_in": 5,
+      "total_kept": 5
+    },
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_273:missing=['2.29', '2.44', '2.61', '3.81', '3.85', '4.01', '4.12', '4.19', '4.45']"
+          ],
+          "sentence": "Post-marketing surveillance from the FAERS database confirms an increased risk of gastrointestinal adverse events with tirzepatide, with disproportionate reporting for nausea (ROR 4.01, 95% CI 3.85\u20134.19), constipation (ROR 4.12, 95% CI 3.81\u20134.45), and vomiting (ROR 2.44, 95% CI 2.29\u20132.61) [#ev:ev_273:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_273",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_269:missing=['0.31', '0.40', '0.51']",
+            "no_content_word_overlap_any_cited_span:ev_269:sentence_words=['compared', 'glargine', 'however', 'hypoglycemia', 'insulin']"
+          ],
+          "sentence": "However, the same review noted tirzepatide had lower odds of hypoglycemia compared to insulin glargine (pooled RR=0.40, 95% CI 0.31\u20130.51) [#ev:ev_269:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_269",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "In randomized controlled trials, the overall safety profile of tirzepatide is similar to that of GLP-1 receptor agonists, primarily characterized by gastrointestinal adverse events [#ev:ev_269:1500-2000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2000,
+              "evidence_id": "ev_269",
+              "start": 1500
+            }
+          ]
+        },
+        {
+          "sentence": "A systematic review of RCTs found the incidences of nausea, vomiting, and diarrhea were higher than with placebo but consistent with GLP-1 receptor agonists [#ev:ev_269:6900-7400].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 7400,
+              "evidence_id": "ev_269",
+              "start": 6900
+            }
+          ]
+        },
+        {
+          "sentence": "Regarding hypoglycemia, one systematic review reported tirzepatide 15 mg was associated with more hypoglycemia than GLP-1 receptor agonists (pooled RR=3.83, 95% CI 1.19\u201312.30) in a pooled analysis of trials [#ev:ev_269:1600-2100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2100,
+              "evidence_id": "ev_269",
+              "start": 1600
+            }
+          ]
+        },
+        {
+          "sentence": "A separate network meta-analysis in patients with obesity or overweight found no significant difference in hypoglycemia events between tirzepatide and GLP-1 receptor agonists but noted tirzepatide showed a higher severe hypoglycemia risk (<54 mg/dL) [#ev:ev_267:8600-9100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 9100,
+              "evidence_id": "ev_267",
+              "start": 8600
+            }
+          ]
+        },
+        {
+          "sentence": "The FAERS analysis reported tirzepatide was associated with a similar risk of diabetic retinopathy and medullary thyroid cancer versus SGLT-2 inhibitors [#ev:ev_273:7800-8300].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 8300,
+              "evidence_id": "ev_273",
+              "start": 7800
+            }
+          ]
+        },
+        {
+          "sentence": "Despite a black box warning for thyroid C-cell tumors, one retrospective cohort study found patients treated with tirzepatide had a significantly lower incidence of malignant thyroid cancer compared to controls (Relative Risk 0.348, p < 0.001) [#ev:ev_272:1500-2000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2000,
+              "evidence_id": "ev_272",
+              "start": 1500
+            }
+          ]
+        }
+      ],
+      "title": "Safety",
+      "total_dropped": 2,
+      "total_in": 8,
+      "total_kept": 6
+    },
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_185:missing=['-0.17', '-0.29', '-0.31', '-0.43', '-1.84', '-3.44', '-3.45', '-5.06', '0.24', '0.36']"
+          ],
+          "sentence": "One systematic review reported that compared to the 5 mg dose, tirzepatide 10 mg significantly reduced HbA1c by 0.24% (95% CI -0.31 to -0.17) and weight by 2.64 kg (95% CI -3.44 to -1.84), while the 15 mg dose reduced HbA1c by 0.36% (95% CI -0.43 to -0.29) and weight by 4.26 kg (95% CI -5.06 to -3.45) compared to 5 mg [#ev:ev_185:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_185",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "Meta-analyses of randomized controlled trials demonstrate a dose-dependent relationship for tirzepatide's effects on HbA1c and body weight in type 2 diabetes [#ev:ev_185:2500-3000].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 3000,
+              "evidence_id": "ev_185",
+              "start": 2500
+            }
+          ]
+        },
+        {
+          "sentence": "Another meta-analysis confirmed these trends, finding HbA1c reductions of 0.20% with 10 mg and 0.30% with 15 mg versus 5 mg, and weight reductions of 2.64 kg and 4.26 kg, respectively [#ev:ev_198:5300-5800].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 5800,
+              "evidence_id": "ev_198",
+              "start": 5300
+            }
+          ]
+        },
+        {
+          "sentence": "A more recent network meta-analysis also found significant reductions in HbA1c with tirzepatide 10 mg (MD: -0.19) and 15 mg (MD: -0.32) versus the 5 mg dose, alongside weight reductions of 1.96 kg and 3.31 kg, respectively [#ev:ev_150:1400-1900].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 1900,
+              "evidence_id": "ev_150",
+              "start": 1400
+            }
+          ]
+        },
+        {
+          "sentence": "Regarding the time to achieve clinical thresholds, a pre-planned exploratory analysis of the SURPASS-2 and SURPASS-3 trials found the median time to first achieve a body weight loss of \u22655% was faster with tirzepatide 5 mg (16.0 weeks) and with the 10 and 15 mg doses (12.4 weeks) than with the active comparator semaglutide 1 mg (24.0 weeks) [#ev:ev_176:2400-2900].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2900,
+              "evidence_id": "ev_176",
+              "start": 2400
+            }
+          ]
+        },
+        {
+          "sentence": "The same analysis reported the median time to achieve HbA1c <7.0% was 8.1 weeks for each tirzepatide dose [#ev:ev_176:1900-2400].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2400,
+              "evidence_id": "ev_176",
+              "start": 1900
+            }
+          ]
+        },
+        {
+          "sentence": "In terms of safety, meta-analyses indicate the risk of total adverse events and gastrointestinal adverse events is higher with the 10 mg and 15 mg doses compared to the 5 mg dose [#ev:ev_185:1500-2000][#ev:ev_198:8200-8700].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2000,
+              "evidence_id": "ev_185",
+              "start": 1500
+            },
+            {
+              "end": 8700,
+              "evidence_id": "ev_198",
+              "start": 8200
+            }
+          ]
+        },
+        {
+          "sentence": "One review concluded that within the 5\u201315 mg range, the effect on lowering glycemia and reducing weight is dose-dependent, with the 15 mg dose achieving the best efficacy, but the 5 mg dose offers a more favorable safety profile [#ev:ev_185:8000-8500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 8500,
+              "evidence_id": "ev_185",
+              "start": 8000
+            }
+          ]
+        }
+      ],
+      "title": "Dose Response",
+      "total_dropped": 1,
+      "total_in": 8,
+      "total_kept": 7
+    },
+    {
+      "dropped": [
+        {
+          "failure_reasons": [
+            "no_integer_overlap_any_cited_span:ev_238"
+          ],
+          "sentence": "In a post hoc subgroup analysis of the SURPASS-AP-Combo trial in a predominantly Chinese population, reductions in HbA1c and body weight with tirzepatide were generally consistent across subgroups defined by age, sex, and diabetes duration [#ev:ev_238:300-800].",
+          "tokens": [
+            {
+              "end": 800,
+              "evidence_id": "ev_238",
+              "start": 300
+            }
+          ]
+        },
+        {
+          "failure_reasons": [
+            "number_not_in_any_cited_span:ev_238:missing=['-2.08', '-2.53', '0.011']"
+          ],
+          "sentence": "This analysis found a statistically greater HbA1c reduction with tirzepatide 15 mg in patients younger than 65 years (-2.53%) compared to those 65 years or older (-2.08%) (P = 0.011) [#ev:ev_238:0-500].",
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_238",
+              "start": 0
+            }
+          ]
+        }
+      ],
+      "dropped_due_to_failure": false,
+      "kept": [
+        {
+          "sentence": "In older patients with type 2 diabetes and diminished \u03b2-cell function, a case report suggests tirzepatide may help control postprandial hyperglycemia but may not replace basal insulin for fasting control, requiring monitoring for sarcopenia [#ev:ev_304:0-500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 500,
+              "evidence_id": "ev_304",
+              "start": 0
+            }
+          ]
+        },
+        {
+          "sentence": "In a prespecified analysis of the SUMMIT trial in patients with heart failure with preserved ejection fraction and obesity, tirzepatide's effect on cardiovascular outcomes was consistent regardless of diabetes status, with a hazard ratio of 0.64 (95% CI: 0.35-1.15) for the composite of cardiovascular death or worsening heart failure in patients with type 2 diabetes and 0.61 (95% CI: 0.33-1.10) in those without diabetes (Pinteraction = 0.95) [#ev:ev_229:8000-8500].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 8500,
+              "evidence_id": "ev_229",
+              "start": 8000
+            }
+          ]
+        },
+        {
+          "sentence": "However, weight loss with tirzepatide was less pronounced in patients with type 2 diabetes (10.4% [95% CI: 8.7%-12.2%]) compared to those without diabetes (12.9% [95% CI: 11.2%-14.6%]) (Pinteraction = 0.04) [#ev:ev_229:6200-6700].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 6700,
+              "evidence_id": "ev_229",
+              "start": 6200
+            }
+          ]
+        },
+        {
+          "sentence": "Weight loss was significantly greater in patients with higher baseline body weight (\u226575 kg) across all tirzepatide doses [#ev:ev_238:6600-7100].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 7100,
+              "evidence_id": "ev_238",
+              "start": 6600
+            }
+          ]
+        },
+        {
+          "sentence": "A separate post-hoc analysis of SURPASS trials indicated that tirzepatide was effective in reducing HbA1c and body weight in patients with glutamic acid decarboxylase autoantibodies (GADA-positive), though the HbA1c reduction was slightly less compared to GADA-negative patients (estimated treatment difference 0.21% [95% CI: 0.03, 0.39]; p=0.024) [#ev:ev_207:2300-2800].",
+          "soft_warnings": [],
+          "tokens": [
+            {
+              "end": 2800,
+              "evidence_id": "ev_207",
+              "start": 2300
+            }
+          ]
+        }
+      ],
+      "title": "Population Subgroups",
+      "total_dropped": 2,
+      "total_in": 7,
+      "total_kept": 5
+    }
+  ],
+  "totals": {
+    "sentences_dropped": 8,
+    "sentences_verified": 29
+  }
+}
+
+
+ succeeded in 1217ms:
+
+[32;1mName[0m[32;1m Count[0m
+[32;1m----[0m [32;1m-----[0m
+T1      16
+T2       6
+T7       2
+TOTAL=24
+
+
+codex
+The V5 comparison confirms the intended improvement: the Lilly review and PRNewswire citation are gone from the V7 bibliography. But the V7 report still cites two T7 items, omits several pivotal primary trials from the bibliography, and leaves contradiction disclosure as a raw automated dump rather than adjudicated synthesis.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'New-Item -ItemType Directory -Force outputs/codex_findings/dr_output_pass_4 | Out-Null' in C:\POLARIS
+ succeeded in 789ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$b=Get-Content -Raw outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json|ConvertFrom-Json; $b|Group-Object tier|Select Name,Count; "TOTAL=$($b.Count)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$b=Get-Content -Raw outputs/full_scale_v6/clinical/clinical_tirzepatide_t2dm/bibliography.json|ConvertFrom-Json; $b|Group-Object tier|Select Name,Count; "TOTAL=$($b.Count)"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PMC10115620|prnewswire|PRNewswire|Tirzepatide significantly reduced" outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/bibliography.json outputs/full_scale_v7/clinical/clinical_tirzepatide_t2dm/report.md outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json' in C:\POLARIS
+ succeeded in 712ms:
+
+[32;1mName[0m[32;1m Count[0m
+[32;1m----[0m [32;1m-----[0m
+T1      10
+T2       8
+T4       1
+TOTAL=19
+
+
+ succeeded in 785ms:
+
+[32;1mName   [0m[32;1m Count[0m
+[32;1m----   [0m [32;1m-----[0m
+T1          6
+T2         11
+T6          2
+T7          6
+UNKNOWN     2
+TOTAL=27
+
+
+ succeeded in 748ms:
+outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json:7:    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json:19:    "statement": "Tirzepatide significantly reduced A1C and body weight in people ...",
+outputs/full_scale_v5/clinical/clinical_tirzepatide_t2dm/bibliography.json:21:    "url": "https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-and-body-weight-in-people-with-type-2-diabetes-in-two-phase-3-trials-from-lillys-surpass-program-301229506.html"
+
+codex
+I’ve got enough context to write the finding. The key judgment is not “no progress”; it is “strong citation-tier improvement, but still not top-tier DR” because the output remains advisory-blocked, under-synthesized, partially mis-tiered, and weak on pivotal trial coverage and contradiction adjudication.
+apply patch
+patch: completed
+C:\POLARIS\outputs\codex_findings\dr_output_pass_4\findings.md
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2244f43ebddb7399c1e002b227de3adf56c78a7d
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,117 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v6
++commit: e8b138d
++delta_vs_pass2: "Major improvement in bibliography quality versus V5: PMC10115620 and PRNewswire are no longer cited, and V7 bibliography is 91.7% T1+T2 by count. However, the audited V7 files differ from the supplied 19-citation V6 summary: bibliography.json has 24 citations, including 2 T7 citations, and manifest.json still has release_allowed=false with Qwen needs_revision on citation tightness and hedging."
++citations_verified: 24/24
++t1_t2_percentage_of_bibliography: 91.7%
++t7_percentage_of_bibliography: 8.3%
++faithfulness_verdict: "Generally sentence-supported by the pipeline verifier (29 kept, 8 dropped), but not top-tier: several supported sentences are trivial trial-descriptor statements, weak T7/observational evidence is used for safety and subgroup claims, and key primary trial numerical results are absent from the final narrative."
++coverage_gaps_remaining: ["SURPASS-2 primary paper not cited directly", "SURPASS-5 primary paper not cited directly despite retrieved corpus evidence", "SURPASS-6 absent from V7 bibliography/report", "SURMOUNT evidence present but obesity-only scope is peripheral", "SELECT absent", "LEADER absent", "SUSTAIN absent", "REWIND absent", "PIONEER absent", "STEP absent except corpus mention only"]
++structural_hallucinations: ["Bibliography count mismatch: task context says 19 citations, audited V7 bibliography has 24", "Methods/limitations discuss corpus-tier distribution rather than evidence actually used in the report", "Contradiction disclosures are raw detector output, not adjudicated DR synthesis"]
++quantification_quality: "Partial. Some comparative and dose-response estimates are quantified clearly, but the Efficacy section mostly lists trials without core HbA1c/weight effect sizes from SURPASS-1/3/4/J/CN-INS, and contradiction percentages are uninterpreted raw values."
++contradiction_handling: "Mechanical and not top-tier. The report appends 12 contradiction bullets with implausible mixed metrics and no reconciliation by population, dose, endpoint type, comparator, timepoint, or evidence tier."
++vs_gpt54_dr_verdict: "Below top-tier Deep Research. Improved source selection, but not enough synthesis, adjudication, or pivotal-trial coverage."
++vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons: advisory gate failed, Qwen flagged citation/hedging, and report remains list-like."
++rationale: |
++  M-19 materially improved citation discipline relative to V5, especially by removing the Lilly review and PRNewswire from the bibliography. That closes the most visible pass-2 citation-selection defect. But final-judge standard is top-tier DR or continue iterating. V7 still fails that bar: manifest release is blocked, Qwen flags citation tightness and hedging, the bibliography includes T7 citations used for substantive claims, several named pivotal programs are missing or only indirectly represented, and contradiction handling is not analytically adjudicated. The report is directionally useful, but not equivalent to GPT-5.4 Deep Research or Gemini 3.1 Pro Deep Research.
++---
++
++**Verdict**
++
++MATERIAL-GAPS-FIX-AND-RESWEEP.
++
++M-19 closed the most obvious citation-quality regression from pass 2, but V7 is not top-tier DR. The output is no longer dominated by press releases or review shortcuts, but it still reads as a compact evidence inventory rather than an expert synthesis. It also fails its own evaluator gate: `manifest.json` reports `status=partial_qwen_advisory`, `release_allowed=false`, and Qwen `needs_revision` for citation tightness and hedging.
++
++**Quantitative V6 vs V5 Summary**
++
++Audited files:
++
++| Artifact | Total citations | T1 | T2 | T6 | T7 | UNKNOWN | T1+T2 |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| V5 bibliography | 27 | 6 | 11 | 2 | 6 | 2 | 63.0% |
++| V6 summary supplied in prompt | 19 | 10 | 8 | 0 | 0 | 0 | 94.7% |
++| V7 audited bibliography | 24 | 16 | 6 | 0 | 2 | 0 | 91.7% |
++
++Manifest V7 actuals: corpus count 310, T1 corpus 17.74%, T2 14.19%, T4 28.06%, T7 26.45%, contradictions_found 12, generator words 1001, limitations_words 79, sentences_verified 29, sentences_dropped 8.
++
++The V7 bibliography is much better than V5, but it is not the 19-citation, zero-T7 bibliography described in the prompt context. The audited file contains 24 citations, including two T7 citations.
++
++**Criterion-by-criterion**
++
++a. Faithfulness: mostly sentence-supported, not top-tier. `verification_details.json` reports 29 kept sentences and 8 dropped sentences. Kept claims usually have cited evidence spans, but many are low-information descriptors rather than synthesized findings. Several important dropped claims include SURPASS-5, SURPASS-6, and SURMOUNT-CN numerical results; those losses leave the report less clinically complete.
++
++b. Evidence quality: substantially improved, still flawed. V7 cites SURPASS-1, SURPASS-3, SURPASS-4, J-mono, J-combo, CN-INS, indirect comparisons, meta-analyses, and some observational/post-hoc sources. However, two T7 citations remain, and citation [16] is used for a thyroid-cancer claim that should not carry strong safety weight in a top-tier clinical synthesis.
++
++c. Coverage: incomplete for the named bar. Present: SURPASS-1, SURPASS-3, SURPASS-4, SURPASS J-mono, SURPASS J-combo, SURPASS-CN-INS, SURPASS-AP-Combo, SURMOUNT-4, SUMMIT, and GADA-positive SURPASS 2-5 abstract. Missing or not directly cited: SURPASS-2 primary, SURPASS-5 primary, SURPASS-6, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP. Some of those comparator programs may be peripheral to tirzepatide in T2DM, but the requested coverage list is not met.
++
++d. Scope: improved but imperfect. T1D leakage from V5 is gone from the report. Obesity-only evidence is explicitly flagged as "without diabetes" in two places, which is better. Still, obesity-only and HFpEF/obesity evidence occupy meaningful space in a T2DM glycemic-control report without enough explanation of why they are secondary.
++
++e. Argumentation: listed more than integrated. The Efficacy section names trials but often omits the actual effect sizes. The Comparative and Dose Response sections quantify better, but the report does not build a coherent hierarchy such as monotherapy vs metformin add-on vs insulin add-on vs active comparator vs subgroup modifiers.
++
++f. Contradictions: still mechanical. The contradiction section lists raw detector conflicts such as weight-loss values spanning implausible ranges. It does not adjudicate whether values are percent weight change, kg change, responder percentages, placebo-adjusted effects, time-to-threshold estimates, or different populations/timepoints.
++
++g. Structural hallucinations: no invented clinical sections, but structural quality problems remain. The methods and limitations blocks describe corpus composition more than the report's used evidence. The contradiction block is presented as if it were meaningful analysis, but it is detector output requiring interpretation.
++
++h. Plain-English quantification: partial. Good examples include semaglutide comparisons, cardiorenal endpoint percentages, hypoglycemia RR, and time-to-threshold estimates. Weak examples include unquantified primary efficacy statements and unexplained contradiction percentages.
++
++**Citation-Level Audit Sample (20 citations)**
++
++| Citation | Tier | Audit judgment |
++|---|---:|---|
++| [1] SURPASS-1 primary phase 3 | T1 | Appropriate primary anchor, but report does not provide core HbA1c/weight numbers. |
++| [2] SURPASS-3 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [3] SURPASS-4 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [4] SURPASS J-mono | T1 | Appropriate regional primary evidence. |
++| [5] SURPASS J-combo | T1 | Appropriate regional primary evidence. |
++| [6] SURPASS-CN-INS | T1 | Appropriate but 2025 regional insulin-add-on evidence should be contextualized. |
++| [7] SURMOUNT-4 | T1 | High-quality RCT but obesity-only; correctly flagged as without diabetes. |
++| [8] Tirzepatide vs semaglutide 2 mg indirect comparison | T1 label | Relevant, but classification as T1 is questionable because it is an adjusted indirect comparison, not a primary RCT. |
++| [9] Tirzepatide vs semaglutide 2.4 mg indirect comparison | T1 label | Relevant to obesity/T2DM, but indirect-comparison design should be tiered/hedged more cautiously. |
++| [10] Tirzepatide vs semaglutide obesity trial | T1 | High-quality but obesity-only; correctly flagged as without diabetes. |
++| [11] Cardiorenal outcomes vs dulaglutide | T1 | Relevant but narrow cardiovascular/cardiorenal endpoint; not a substitute for full CVOT context. |
++| [12] Direct comparative studies meta-analysis | T2 | Acceptable supportive evidence, mostly obesity/weight-loss oriented. |
++| [13] Safety systematic review | T2 | Acceptable safety synthesis; report uses it appropriately for GI and hypoglycemia. |
++| [14] GLP-1/GIP vs GLP-1 safety review | T2 | Supportive; obesity/overweight population should be emphasized. |
++| [15] FAERS real-world safety profile | T1 label | Misleading tier. FAERS disproportionality/post-marketing analysis is not T1 clinical evidence. |
++| [16] Thyroid cancer abstract | T7 | Not acceptable as substantive reassurance against medullary thyroid cancer in top-tier DR. |
++| [17] Dose meta-analysis | T2 | Acceptable for dose-response synthesis. |
++| [18] Dose meta-analysis | T2 | Acceptable; Cureus venue warrants quality caution but not exclusion by itself. |
++| [19] Network meta-analysis | T2 | Acceptable supportive dose evidence. |
++| [20] SURPASS-2/3 exploratory analysis | T1 | Useful, but does not replace direct citation of SURPASS-2 primary trial. |
++
++Additional inspected citations: [21] is a case report but labelled T1, inappropriate for strong subgroup inference; [22] SUMMIT HFpEF/obesity analysis is relevant only peripherally; [23] SURPASS-AP-Combo subgroup paper is useful; [24] GADA-positive abstract is T7 and should not drive substantive conclusions.
++
++**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
++
++Partially.
++
++Closed:
++
++- Lilly review PMC10115620 is no longer cited in V7 bibliography/report.
++- PRNewswire is no longer cited in V7 bibliography/report.
++- Bibliography quality improved sharply from V5's 63.0% T1+T2 to V7's 91.7% T1+T2.
++- Obesity-only evidence is now explicitly flagged as outside diabetes in relevant sentences.
++- T1D report leakage appears removed.
++
++Not closed:
++
++- Named primary trial coverage remains incomplete: SURPASS-2, SURPASS-5, and SURPASS-6 are not in the V7 bibliography/report, despite SURPASS-5 and SURPASS-6 appearing in dropped verifier material or prior V5 output.
++- T7 citations remain in the final bibliography and are cited in the report.
++- Tier labels are overgenerous for some evidence types, including indirect comparisons, FAERS analysis, and a case report.
++- Contradiction handling is still raw and mechanical.
++- Qwen still blocks release on citation tightness and hedging.
++- The narrative is not integrated enough for top-tier DR.
++
++**Remaining DR Gaps After M-19**
++
++1. Replace remaining T7-dependent claims with higher-tier evidence or remove them.
++2. Directly cite and synthesize SURPASS-2, SURPASS-5, and SURPASS-6 primary papers.
++3. Add proper comparator context if SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP are required by the benchmark, or explicitly justify their exclusion as comparator-program context rather than tirzepatide evidence.
++4. Rebuild contradiction handling into adjudication by endpoint, unit, population, dose, comparator, and follow-up duration.
++5. Correct evidence-tier classification for indirect comparisons, FAERS, and case reports.
++6. Expand the Efficacy section beyond trial naming; include primary HbA1c and body-weight effect sizes from the pivotal T2DM trials.
++
++**Required Fix**
++
++Run another iteration. The next sweep should require zero T6/T7 citations in the final bibliography unless explicitly quarantined in limitations, enforce primary SURPASS-2/5/6 inclusion, and reject raw contradiction dumps unless each conflict is reconciled or explicitly marked as an unresolved evidence-quality problem.
+
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2244f43ebddb7399c1e002b227de3adf56c78a7d
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,117 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v6
++commit: e8b138d
++delta_vs_pass2: "Major improvement in bibliography quality versus V5: PMC10115620 and PRNewswire are no longer cited, and V7 bibliography is 91.7% T1+T2 by count. However, the audited V7 files differ from the supplied 19-citation V6 summary: bibliography.json has 24 citations, including 2 T7 citations, and manifest.json still has release_allowed=false with Qwen needs_revision on citation tightness and hedging."
++citations_verified: 24/24
++t1_t2_percentage_of_bibliography: 91.7%
++t7_percentage_of_bibliography: 8.3%
++faithfulness_verdict: "Generally sentence-supported by the pipeline verifier (29 kept, 8 dropped), but not top-tier: several supported sentences are trivial trial-descriptor statements, weak T7/observational evidence is used for safety and subgroup claims, and key primary trial numerical results are absent from the final narrative."
++coverage_gaps_remaining: ["SURPASS-2 primary paper not cited directly", "SURPASS-5 primary paper not cited directly despite retrieved corpus evidence", "SURPASS-6 absent from V7 bibliography/report", "SURMOUNT evidence present but obesity-only scope is peripheral", "SELECT absent", "LEADER absent", "SUSTAIN absent", "REWIND absent", "PIONEER absent", "STEP absent except corpus mention only"]
++structural_hallucinations: ["Bibliography count mismatch: task context says 19 citations, audited V7 bibliography has 24", "Methods/limitations discuss corpus-tier distribution rather than evidence actually used in the report", "Contradiction disclosures are raw detector output, not adjudicated DR synthesis"]
++quantification_quality: "Partial. Some comparative and dose-response estimates are quantified clearly, but the Efficacy section mostly lists trials without core HbA1c/weight effect sizes from SURPASS-1/3/4/J/CN-INS, and contradiction percentages are uninterpreted raw values."
++contradiction_handling: "Mechanical and not top-tier. The report appends 12 contradiction bullets with implausible mixed metrics and no reconciliation by population, dose, endpoint type, comparator, timepoint, or evidence tier."
++vs_gpt54_dr_verdict: "Below top-tier Deep Research. Improved source selection, but not enough synthesis, adjudication, or pivotal-trial coverage."
++vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons: advisory gate failed, Qwen flagged citation/hedging, and report remains list-like."
++rationale: |
++  M-19 materially improved citation discipline relative to V5, especially by removing the Lilly review and PRNewswire from the bibliography. That closes the most visible pass-2 citation-selection defect. But final-judge standard is top-tier DR or continue iterating. V7 still fails that bar: manifest release is blocked, Qwen flags citation tightness and hedging, the bibliography includes T7 citations used for substantive claims, several named pivotal programs are missing or only indirectly represented, and contradiction handling is not analytically adjudicated. The report is directionally useful, but not equivalent to GPT-5.4 Deep Research or Gemini 3.1 Pro Deep Research.
++---
++
++**Verdict**
++
++MATERIAL-GAPS-FIX-AND-RESWEEP.
++
++M-19 closed the most obvious citation-quality regression from pass 2, but V7 is not top-tier DR. The output is no longer dominated by press releases or review shortcuts, but it still reads as a compact evidence inventory rather than an expert synthesis. It also fails its own evaluator gate: `manifest.json` reports `status=partial_qwen_advisory`, `release_allowed=false`, and Qwen `needs_revision` for citation tightness and hedging.
++
++**Quantitative V6 vs V5 Summary**
++
++Audited files:
++
++| Artifact | Total citations | T1 | T2 | T6 | T7 | UNKNOWN | T1+T2 |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| V5 bibliography | 27 | 6 | 11 | 2 | 6 | 2 | 63.0% |
++| V6 summary supplied in prompt | 19 | 10 | 8 | 0 | 0 | 0 | 94.7% |
++| V7 audited bibliography | 24 | 16 | 6 | 0 | 2 | 0 | 91.7% |
++
++Manifest V7 actuals: corpus count 310, T1 corpus 17.74%, T2 14.19%, T4 28.06%, T7 26.45%, contradictions_found 12, generator words 1001, limitations_words 79, sentences_verified 29, sentences_dropped 8.
++
++The V7 bibliography is much better than V5, but it is not the 19-citation, zero-T7 bibliography described in the prompt context. The audited file contains 24 citations, including two T7 citations.
++
++**Criterion-by-criterion**
++
++a. Faithfulness: mostly sentence-supported, not top-tier. `verification_details.json` reports 29 kept sentences and 8 dropped sentences. Kept claims usually have cited evidence spans, but many are low-information descriptors rather than synthesized findings. Several important dropped claims include SURPASS-5, SURPASS-6, and SURMOUNT-CN numerical results; those losses leave the report less clinically complete.
++
++b. Evidence quality: substantially improved, still flawed. V7 cites SURPASS-1, SURPASS-3, SURPASS-4, J-mono, J-combo, CN-INS, indirect comparisons, meta-analyses, and some observational/post-hoc sources. However, two T7 citations remain, and citation [16] is used for a thyroid-cancer claim that should not carry strong safety weight in a top-tier clinical synthesis.
++
++c. Coverage: incomplete for the named bar. Present: SURPASS-1, SURPASS-3, SURPASS-4, SURPASS J-mono, SURPASS J-combo, SURPASS-CN-INS, SURPASS-AP-Combo, SURMOUNT-4, SUMMIT, and GADA-positive SURPASS 2-5 abstract. Missing or not directly cited: SURPASS-2 primary, SURPASS-5 primary, SURPASS-6, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP. Some of those comparator programs may be peripheral to tirzepatide in T2DM, but the requested coverage list is not met.
++
++d. Scope: improved but imperfect. T1D leakage from V5 is gone from the report. Obesity-only evidence is explicitly flagged as "without diabetes" in two places, which is better. Still, obesity-only and HFpEF/obesity evidence occupy meaningful space in a T2DM glycemic-control report without enough explanation of why they are secondary.
++
++e. Argumentation: listed more than integrated. The Efficacy section names trials but often omits the actual effect sizes. The Comparative and Dose Response sections quantify better, but the report does not build a coherent hierarchy such as monotherapy vs metformin add-on vs insulin add-on vs active comparator vs subgroup modifiers.
++
++f. Contradictions: still mechanical. The contradiction section lists raw detector conflicts such as weight-loss values spanning implausible ranges. It does not adjudicate whether values are percent weight change, kg change, responder percentages, placebo-adjusted effects, time-to-threshold estimates, or different populations/timepoints.
++
++g. Structural hallucinations: no invented clinical sections, but structural quality problems remain. The methods and limitations blocks describe corpus composition more than the report's used evidence. The contradiction block is presented as if it were meaningful analysis, but it is detector output requiring interpretation.
++
++h. Plain-English quantification: partial. Good examples include semaglutide comparisons, cardiorenal endpoint percentages, hypoglycemia RR, and time-to-threshold estimates. Weak examples include unquantified primary efficacy statements and unexplained contradiction percentages.
++
++**Citation-Level Audit Sample (20 citations)**
++
++| Citation | Tier | Audit judgment |
++|---|---:|---|
++| [1] SURPASS-1 primary phase 3 | T1 | Appropriate primary anchor, but report does not provide core HbA1c/weight numbers. |
++| [2] SURPASS-3 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [3] SURPASS-4 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [4] SURPASS J-mono | T1 | Appropriate regional primary evidence. |
++| [5] SURPASS J-combo | T1 | Appropriate regional primary evidence. |
++| [6] SURPASS-CN-INS | T1 | Appropriate but 2025 regional insulin-add-on evidence should be contextualized. |
++| [7] SURMOUNT-4 | T1 | High-quality RCT but obesity-only; correctly flagged as without diabetes. |
++| [8] Tirzepatide vs semaglutide 2 mg indirect comparison | T1 label | Relevant, but classification as T1 is questionable because it is an adjusted indirect comparison, not a primary RCT. |
++| [9] Tirzepatide vs semaglutide 2.4 mg indirect comparison | T1 label | Relevant to obesity/T2DM, but indirect-comparison design should be tiered/hedged more cautiously. |
++| [10] Tirzepatide vs semaglutide obesity trial | T1 | High-quality but obesity-only; correctly flagged as without diabetes. |
++| [11] Cardiorenal outcomes vs dulaglutide | T1 | Relevant but narrow cardiovascular/cardiorenal endpoint; not a substitute for full CVOT context. |
++| [12] Direct comparative studies meta-analysis | T2 | Acceptable supportive evidence, mostly obesity/weight-loss oriented. |
++| [13] Safety systematic review | T2 | Acceptable safety synthesis; report uses it appropriately for GI and hypoglycemia. |
++| [14] GLP-1/GIP vs GLP-1 safety review | T2 | Supportive; obesity/overweight population should be emphasized. |
++| [15] FAERS real-world safety profile | T1 label | Misleading tier. FAERS disproportionality/post-marketing analysis is not T1 clinical evidence. |
++| [16] Thyroid cancer abstract | T7 | Not acceptable as substantive reassurance against medullary thyroid cancer in top-tier DR. |
++| [17] Dose meta-analysis | T2 | Acceptable for dose-response synthesis. |
++| [18] Dose meta-analysis | T2 | Acceptable; Cureus venue warrants quality caution but not exclusion by itself. |
++| [19] Network meta-analysis | T2 | Acceptable supportive dose evidence. |
++| [20] SURPASS-2/3 exploratory analysis | T1 | Useful, but does not replace direct citation of SURPASS-2 primary trial. |
++
++Additional inspected citations: [21] is a case report but labelled T1, inappropriate for strong subgroup inference; [22] SUMMIT HFpEF/obesity analysis is relevant only peripherally; [23] SURPASS-AP-Combo subgroup paper is useful; [24] GADA-positive abstract is T7 and should not drive substantive conclusions.
++
++**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
++
++Partially.
++
++Closed:
++
++- Lilly review PMC10115620 is no longer cited in V7 bibliography/report.
++- PRNewswire is no longer cited in V7 bibliography/report.
++- Bibliography quality improved sharply from V5's 63.0% T1+T2 to V7's 91.7% T1+T2.
++- Obesity-only evidence is now explicitly flagged as outside diabetes in relevant sentences.
++- T1D report leakage appears removed.
++
++Not closed:
++
++- Named primary trial coverage remains incomplete: SURPASS-2, SURPASS-5, and SURPASS-6 are not in the V7 bibliography/report, despite SURPASS-5 and SURPASS-6 appearing in dropped verifier material or prior V5 output.
++- T7 citations remain in the final bibliography and are cited in the report.
++- Tier labels are overgenerous for some evidence types, including indirect comparisons, FAERS analysis, and a case report.
++- Contradiction handling is still raw and mechanical.
++- Qwen still blocks release on citation tightness and hedging.
++- The narrative is not integrated enough for top-tier DR.
++
++**Remaining DR Gaps After M-19**
++
++1. Replace remaining T7-dependent claims with higher-tier evidence or remove them.
++2. Directly cite and synthesize SURPASS-2, SURPASS-5, and SURPASS-6 primary papers.
++3. Add proper comparator context if SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP are required by the benchmark, or explicitly justify their exclusion as comparator-program context rather than tirzepatide evidence.
++4. Rebuild contradiction handling into adjudication by endpoint, unit, population, dose, comparator, and follow-up duration.
++5. Correct evidence-tier classification for indirect comparisons, FAERS, and case reports.
++6. Expand the Efficacy section beyond trial naming; include primary HbA1c and body-weight effect sizes from the pivotal T2DM trials.
++
++**Required Fix**
++
++Run another iteration. The next sweep should require zero T6/T7 citations in the final bibliography unless explicitly quarantined in limitations, enforce primary SURPASS-2/5/6 inclusion, and reject raw contradiction dumps unless each conflict is reconciled or explicitly marked as an unresolved evidence-quality problem.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw outputs/codex_findings/dr_output_pass_4/findings.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short outputs/codex_findings/dr_output_pass_4/findings.md' in C:\POLARIS
+ succeeded in 944ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1026ms:
+---
+verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
+pass: dr_output_pass_4_tirzepatide_v6
+commit: e8b138d
+delta_vs_pass2: "Major improvement in bibliography quality versus V5: PMC10115620 and PRNewswire are no longer cited, and V7 bibliography is 91.7% T1+T2 by count. However, the audited V7 files differ from the supplied 19-citation V6 summary: bibliography.json has 24 citations, including 2 T7 citations, and manifest.json still has release_allowed=false with Qwen needs_revision on citation tightness and hedging."
+citations_verified: 24/24
+t1_t2_percentage_of_bibliography: 91.7%
+t7_percentage_of_bibliography: 8.3%
+faithfulness_verdict: "Generally sentence-supported by the pipeline verifier (29 kept, 8 dropped), but not top-tier: several supported sentences are trivial trial-descriptor statements, weak T7/observational evidence is used for safety and subgroup claims, and key primary trial numerical results are absent from the final narrative."
+coverage_gaps_remaining: ["SURPASS-2 primary paper not cited directly", "SURPASS-5 primary paper not cited directly despite retrieved corpus evidence", "SURPASS-6 absent from V7 bibliography/report", "SURMOUNT evidence present but obesity-only scope is peripheral", "SELECT absent", "LEADER absent", "SUSTAIN absent", "REWIND absent", "PIONEER absent", "STEP absent except corpus mention only"]
+structural_hallucinations: ["Bibliography count mismatch: task context says 19 citations, audited V7 bibliography has 24", "Methods/limitations discuss corpus-tier distribution rather than evidence actually used in the report", "Contradiction disclosures are raw detector output, not adjudicated DR synthesis"]
+quantification_quality: "Partial. Some comparative and dose-response estimates are quantified clearly, but the Efficacy section mostly lists trials without core HbA1c/weight effect sizes from SURPASS-1/3/4/J/CN-INS, and contradiction percentages are uninterpreted raw values."
+contradiction_handling: "Mechanical and not top-tier. The report appends 12 contradiction bullets with implausible mixed metrics and no reconciliation by population, dose, endpoint type, comparator, timepoint, or evidence tier."
+vs_gpt54_dr_verdict: "Below top-tier Deep Research. Improved source selection, but not enough synthesis, adjudication, or pivotal-trial coverage."
+vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons: advisory gate failed, Qwen flagged citation/hedging, and report remains list-like."
+rationale: |
+  M-19 materially improved citation discipline relative to V5, especially by removing the Lilly review and PRNewswire from the bibliography. That closes the most visible pass-2 citation-selection defect. But final-judge standard is top-tier DR or continue iterating. V7 still fails that bar: manifest release is blocked, Qwen flags citation tightness and hedging, the bibliography includes T7 citations used for substantive claims, several named pivotal programs are missing or only indirectly represented, and contradiction handling is not analytically adjudicated. The report is directionally useful, but not equivalent to GPT-5.4 Deep Research or Gemini 3.1 Pro Deep Research.
+---
+
+**Verdict**
+
+MATERIAL-GAPS-FIX-AND-RESWEEP.
+
+M-19 closed the most obvious citation-quality regression from pass 2, but V7 is not top-tier DR. The output is no longer dominated by press releases or review shortcuts, but it still reads as a compact evidence inventory rather than an expert synthesis. It also fails its own evaluator gate: `manifest.json` reports `status=partial_qwen_advisory`, `release_allowed=false`, and Qwen `needs_revision` for citation tightness and hedging.
+
+**Quantitative V6 vs V5 Summary**
+
+Audited files:
+
+| Artifact | Total citations | T1 | T2 | T6 | T7 | UNKNOWN | T1+T2 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| V5 bibliography | 27 | 6 | 11 | 2 | 6 | 2 | 63.0% |
+| V6 summary supplied in prompt | 19 | 10 | 8 | 0 | 0 | 0 | 94.7% |
+| V7 audited bibliography | 24 | 16 | 6 | 0 | 2 | 0 | 91.7% |
+
+Manifest V7 actuals: corpus count 310, T1 corpus 17.74%, T2 14.19%, T4 28.06%, T7 26.45%, contradictions_found 12, generator words 1001, limitations_words 79, sentences_verified 29, sentences_dropped 8.
+
+The V7 bibliography is much better than V5, but it is not the 19-citation, zero-T7 bibliography described in the prompt context. The audited file contains 24 citations, including two T7 citations.
+
+**Criterion-by-criterion**
+
+a. Faithfulness: mostly sentence-supported, not top-tier. `verification_details.json` reports 29 kept sentences and 8 dropped sentences. Kept claims usually have cited evidence spans, but many are low-information descriptors rather than synthesized findings. Several important dropped claims include SURPASS-5, SURPASS-6, and SURMOUNT-CN numerical results; those losses leave the report less clinically complete.
+
+b. Evidence quality: substantially improved, still flawed. V7 cites SURPASS-1, SURPASS-3, SURPASS-4, J-mono, J-combo, CN-INS, indirect comparisons, meta-analyses, and some observational/post-hoc sources. However, two T7 citations remain, and citation [16] is used for a thyroid-cancer claim that should not carry strong safety weight in a top-tier clinical synthesis.
+
+c. Coverage: incomplete for the named bar. Present: SURPASS-1, SURPASS-3, SURPASS-4, SURPASS J-mono, SURPASS J-combo, SURPASS-CN-INS, SURPASS-AP-Combo, SURMOUNT-4, SUMMIT, and GADA-positive SURPASS 2-5 abstract. Missing or not directly cited: SURPASS-2 primary, SURPASS-5 primary, SURPASS-6, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP. Some of those comparator programs may be peripheral to tirzepatide in T2DM, but the requested coverage list is not met.
+
+d. Scope: improved but imperfect. T1D leakage from V5 is gone from the report. Obesity-only evidence is explicitly flagged as "without diabetes" in two places, which is better. Still, obesity-only and HFpEF/obesity evidence occupy meaningful space in a T2DM glycemic-control report without enough explanation of why they are secondary.
+
+e. Argumentation: listed more than integrated. The Efficacy section names trials but often omits the actual effect sizes. The Comparative and Dose Response sections quantify better, but the report does not build a coherent hierarchy such as monotherapy vs metformin add-on vs insulin add-on vs active comparator vs subgroup modifiers.
+
+f. Contradictions: still mechanical. The contradiction section lists raw detector conflicts such as weight-loss values spanning implausible ranges. It does not adjudicate whether values are percent weight change, kg change, responder percentages, placebo-adjusted effects, time-to-threshold estimates, or different populations/timepoints.
+
+g. Structural hallucinations: no invented clinical sections, but structural quality problems remain. The methods and limitations blocks describe corpus composition more than the report's used evidence. The contradiction block is presented as if it were meaningful analysis, but it is detector output requiring interpretation.
+
+h. Plain-English quantification: partial. Good examples include semaglutide comparisons, cardiorenal endpoint percentages, hypoglycemia RR, and time-to-threshold estimates. Weak examples include unquantified primary efficacy statements and unexplained contradiction percentages.
+
+**Citation-Level Audit Sample (20 citations)**
+
+| Citation | Tier | Audit judgment |
+|---|---:|---|
+| [1] SURPASS-1 primary phase 3 | T1 | Appropriate primary anchor, but report does not provide core HbA1c/weight numbers. |
+| [2] SURPASS-3 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
+| [3] SURPASS-4 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
+| [4] SURPASS J-mono | T1 | Appropriate regional primary evidence. |
+| [5] SURPASS J-combo | T1 | Appropriate regional primary evidence. |
+| [6] SURPASS-CN-INS | T1 | Appropriate but 2025 regional insulin-add-on evidence should be contextualized. |
+| [7] SURMOUNT-4 | T1 | High-quality RCT but obesity-only; correctly flagged as without diabetes. |
+| [8] Tirzepatide vs semaglutide 2 mg indirect comparison | T1 label | Relevant, but classification as T1 is questionable because it is an adjusted indirect comparison, not a primary RCT. |
+| [9] Tirzepatide vs semaglutide 2.4 mg indirect comparison | T1 label | Relevant to obesity/T2DM, but indirect-comparison design should be tiered/hedged more cautiously. |
+| [10] Tirzepatide vs semaglutide obesity trial | T1 | High-quality but obesity-only; correctly flagged as without diabetes. |
+| [11] Cardiorenal outcomes vs dulaglutide | T1 | Relevant but narrow cardiovascular/cardiorenal endpoint; not a substitute for full CVOT context. |
+| [12] Direct comparative studies meta-analysis | T2 | Acceptable supportive evidence, mostly obesity/weight-loss oriented. |
+| [13] Safety systematic review | T2 | Acceptable safety synthesis; report uses it appropriately for GI and hypoglycemia. |
+| [14] GLP-1/GIP vs GLP-1 safety review | T2 | Supportive; obesity/overweight population should be emphasized. |
+| [15] FAERS real-world safety profile | T1 label | Misleading tier. FAERS disproportionality/post-marketing analysis is not T1 clinical evidence. |
+| [16] Thyroid cancer abstract | T7 | Not acceptable as substantive reassurance against medullary thyroid cancer in top-tier DR. |
+| [17] Dose meta-analysis | T2 | Acceptable for dose-response synthesis. |
+| [18] Dose meta-analysis | T2 | Acceptable; Cureus venue warrants quality caution but not exclusion by itself. |
+| [19] Network meta-analysis | T2 | Acceptable supportive dose evidence. |
+| [20] SURPASS-2/3 exploratory analysis | T1 | Useful, but does not replace direct citation of SURPASS-2 primary trial. |
+
+Additional inspected citations: [21] is a case report but labelled T1, inappropriate for strong subgroup inference; [22] SUMMIT HFpEF/obesity analysis is relevant only peripherally; [23] SURPASS-AP-Combo subgroup paper is useful; [24] GADA-positive abstract is T7 and should not drive substantive conclusions.
+
+**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
+
+Partially.
+
+Closed:
+
+- Lilly review PMC10115620 is no longer cited in V7 bibliography/report.
+- PRNewswire is no longer cited in V7 bibliography/report.
+- Bibliography quality improved sharply from V5's 63.0% T1+T2 to V7's 91.7% T1+T2.
+- Obesity-only evidence is now explicitly flagged as outside diabetes in relevant sentences.
+- T1D report leakage appears removed.
+
+Not closed:
+
+- Named primary trial coverage remains incomplete: SURPASS-2, SURPASS-5, and SURPASS-6 are not in the V7 bibliography/report, despite SURPASS-5 and SURPASS-6 appearing in dropped verifier material or prior V5 output.
+- T7 citations remain in the final bibliography and are cited in the report.
+- Tier labels are overgenerous for some evidence types, including indirect comparisons, FAERS analysis, and a case report.
+- Contradiction handling is still raw and mechanical.
+- Qwen still blocks release on citation tightness and hedging.
+- The narrative is not integrated enough for top-tier DR.
+
+**Remaining DR Gaps After M-19**
+
+1. Replace remaining T7-dependent claims with higher-tier evidence or remove them.
+2. Directly cite and synthesize SURPASS-2, SURPASS-5, and SURPASS-6 primary papers.
+3. Add proper comparator context if SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP are required by the benchmark, or explicitly justify their exclusion as comparator-program context rather than tirzepatide evidence.
+4. Rebuild contradiction handling into adjudication by endpoint, unit, population, dose, comparator, and follow-up duration.
+5. Correct evidence-tier classification for indirect comparisons, FAERS, and case reports.
+6. Expand the Efficacy section beyond trial naming; include primary HbA1c and body-weight effect sizes from the pivotal T2DM trials.
+
+**Required Fix**
+
+Run another iteration. The next sweep should require zero T6/T7 citations in the final bibliography unless explicitly quarantined in limitations, enforce primary SURPASS-2/5/6 inclusion, and reject raw contradiction dumps unless each conflict is reconciled or explicitly marked as an unresolved evidence-quality problem.
+
+
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2244f43ebddb7399c1e002b227de3adf56c78a7d
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,117 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v6
++commit: e8b138d
++delta_vs_pass2: "Major improvement in bibliography quality versus V5: PMC10115620 and PRNewswire are no longer cited, and V7 bibliography is 91.7% T1+T2 by count. However, the audited V7 files differ from the supplied 19-citation V6 summary: bibliography.json has 24 citations, including 2 T7 citations, and manifest.json still has release_allowed=false with Qwen needs_revision on citation tightness and hedging."
++citations_verified: 24/24
++t1_t2_percentage_of_bibliography: 91.7%
++t7_percentage_of_bibliography: 8.3%
++faithfulness_verdict: "Generally sentence-supported by the pipeline verifier (29 kept, 8 dropped), but not top-tier: several supported sentences are trivial trial-descriptor statements, weak T7/observational evidence is used for safety and subgroup claims, and key primary trial numerical results are absent from the final narrative."
++coverage_gaps_remaining: ["SURPASS-2 primary paper not cited directly", "SURPASS-5 primary paper not cited directly despite retrieved corpus evidence", "SURPASS-6 absent from V7 bibliography/report", "SURMOUNT evidence present but obesity-only scope is peripheral", "SELECT absent", "LEADER absent", "SUSTAIN absent", "REWIND absent", "PIONEER absent", "STEP absent except corpus mention only"]
++structural_hallucinations: ["Bibliography count mismatch: task context says 19 citations, audited V7 bibliography has 24", "Methods/limitations discuss corpus-tier distribution rather than evidence actually used in the report", "Contradiction disclosures are raw detector output, not adjudicated DR synthesis"]
++quantification_quality: "Partial. Some comparative and dose-response estimates are quantified clearly, but the Efficacy section mostly lists trials without core HbA1c/weight effect sizes from SURPASS-1/3/4/J/CN-INS, and contradiction percentages are uninterpreted raw values."
++contradiction_handling: "Mechanical and not top-tier. The report appends 12 contradiction bullets with implausible mixed metrics and no reconciliation by population, dose, endpoint type, comparator, timepoint, or evidence tier."
++vs_gpt54_dr_verdict: "Below top-tier Deep Research. Improved source selection, but not enough synthesis, adjudication, or pivotal-trial coverage."
++vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons: advisory gate failed, Qwen flagged citation/hedging, and report remains list-like."
++rationale: |
++  M-19 materially improved citation discipline relative to V5, especially by removing the Lilly review and PRNewswire from the bibliography. That closes the most visible pass-2 citation-selection defect. But final-judge standard is top-tier DR or continue iterating. V7 still fails that bar: manifest release is blocked, Qwen flags citation tightness and hedging, the bibliography includes T7 citations used for substantive claims, several named pivotal programs are missing or only indirectly represented, and contradiction handling is not analytically adjudicated. The report is directionally useful, but not equivalent to GPT-5.4 Deep Research or Gemini 3.1 Pro Deep Research.
++---
++
++**Verdict**
++
++MATERIAL-GAPS-FIX-AND-RESWEEP.
++
++M-19 closed the most obvious citation-quality regression from pass 2, but V7 is not top-tier DR. The output is no longer dominated by press releases or review shortcuts, but it still reads as a compact evidence inventory rather than an expert synthesis. It also fails its own evaluator gate: `manifest.json` reports `status=partial_qwen_advisory`, `release_allowed=false`, and Qwen `needs_revision` for citation tightness and hedging.
++
++**Quantitative V6 vs V5 Summary**
++
++Audited files:
++
++| Artifact | Total citations | T1 | T2 | T6 | T7 | UNKNOWN | T1+T2 |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| V5 bibliography | 27 | 6 | 11 | 2 | 6 | 2 | 63.0% |
++| V6 summary supplied in prompt | 19 | 10 | 8 | 0 | 0 | 0 | 94.7% |
++| V7 audited bibliography | 24 | 16 | 6 | 0 | 2 | 0 | 91.7% |
++
++Manifest V7 actuals: corpus count 310, T1 corpus 17.74%, T2 14.19%, T4 28.06%, T7 26.45%, contradictions_found 12, generator words 1001, limitations_words 79, sentences_verified 29, sentences_dropped 8.
++
++The V7 bibliography is much better than V5, but it is not the 19-citation, zero-T7 bibliography described in the prompt context. The audited file contains 24 citations, including two T7 citations.
++
++**Criterion-by-criterion**
++
++a. Faithfulness: mostly sentence-supported, not top-tier. `verification_details.json` reports 29 kept sentences and 8 dropped sentences. Kept claims usually have cited evidence spans, but many are low-information descriptors rather than synthesized findings. Several important dropped claims include SURPASS-5, SURPASS-6, and SURMOUNT-CN numerical results; those losses leave the report less clinically complete.
++
++b. Evidence quality: substantially improved, still flawed. V7 cites SURPASS-1, SURPASS-3, SURPASS-4, J-mono, J-combo, CN-INS, indirect comparisons, meta-analyses, and some observational/post-hoc sources. However, two T7 citations remain, and citation [16] is used for a thyroid-cancer claim that should not carry strong safety weight in a top-tier clinical synthesis.
++
++c. Coverage: incomplete for the named bar. Present: SURPASS-1, SURPASS-3, SURPASS-4, SURPASS J-mono, SURPASS J-combo, SURPASS-CN-INS, SURPASS-AP-Combo, SURMOUNT-4, SUMMIT, and GADA-positive SURPASS 2-5 abstract. Missing or not directly cited: SURPASS-2 primary, SURPASS-5 primary, SURPASS-6, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP. Some of those comparator programs may be peripheral to tirzepatide in T2DM, but the requested coverage list is not met.
++
++d. Scope: improved but imperfect. T1D leakage from V5 is gone from the report. Obesity-only evidence is explicitly flagged as "without diabetes" in two places, which is better. Still, obesity-only and HFpEF/obesity evidence occupy meaningful space in a T2DM glycemic-control report without enough explanation of why they are secondary.
++
++e. Argumentation: listed more than integrated. The Efficacy section names trials but often omits the actual effect sizes. The Comparative and Dose Response sections quantify better, but the report does not build a coherent hierarchy such as monotherapy vs metformin add-on vs insulin add-on vs active comparator vs subgroup modifiers.
++
++f. Contradictions: still mechanical. The contradiction section lists raw detector conflicts such as weight-loss values spanning implausible ranges. It does not adjudicate whether values are percent weight change, kg change, responder percentages, placebo-adjusted effects, time-to-threshold estimates, or different populations/timepoints.
++
++g. Structural hallucinations: no invented clinical sections, but structural quality problems remain. The methods and limitations blocks describe corpus composition more than the report's used evidence. The contradiction block is presented as if it were meaningful analysis, but it is detector output requiring interpretation.
++
++h. Plain-English quantification: partial. Good examples include semaglutide comparisons, cardiorenal endpoint percentages, hypoglycemia RR, and time-to-threshold estimates. Weak examples include unquantified primary efficacy statements and unexplained contradiction percentages.
++
++**Citation-Level Audit Sample (20 citations)**
++
++| Citation | Tier | Audit judgment |
++|---|---:|---|
++| [1] SURPASS-1 primary phase 3 | T1 | Appropriate primary anchor, but report does not provide core HbA1c/weight numbers. |
++| [2] SURPASS-3 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [3] SURPASS-4 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [4] SURPASS J-mono | T1 | Appropriate regional primary evidence. |
++| [5] SURPASS J-combo | T1 | Appropriate regional primary evidence. |
++| [6] SURPASS-CN-INS | T1 | Appropriate but 2025 regional insulin-add-on evidence should be contextualized. |
++| [7] SURMOUNT-4 | T1 | High-quality RCT but obesity-only; correctly flagged as without diabetes. |
++| [8] Tirzepatide vs semaglutide 2 mg indirect comparison | T1 label | Relevant, but classification as T1 is questionable because it is an adjusted indirect comparison, not a primary RCT. |
++| [9] Tirzepatide vs semaglutide 2.4 mg indirect comparison | T1 label | Relevant to obesity/T2DM, but indirect-comparison design should be tiered/hedged more cautiously. |
++| [10] Tirzepatide vs semaglutide obesity trial | T1 | High-quality but obesity-only; correctly flagged as without diabetes. |
++| [11] Cardiorenal outcomes vs dulaglutide | T1 | Relevant but narrow cardiovascular/cardiorenal endpoint; not a substitute for full CVOT context. |
++| [12] Direct comparative studies meta-analysis | T2 | Acceptable supportive evidence, mostly obesity/weight-loss oriented. |
++| [13] Safety systematic review | T2 | Acceptable safety synthesis; report uses it appropriately for GI and hypoglycemia. |
++| [14] GLP-1/GIP vs GLP-1 safety review | T2 | Supportive; obesity/overweight population should be emphasized. |
++| [15] FAERS real-world safety profile | T1 label | Misleading tier. FAERS disproportionality/post-marketing analysis is not T1 clinical evidence. |
++| [16] Thyroid cancer abstract | T7 | Not acceptable as substantive reassurance against medullary thyroid cancer in top-tier DR. |
++| [17] Dose meta-analysis | T2 | Acceptable for dose-response synthesis. |
++| [18] Dose meta-analysis | T2 | Acceptable; Cureus venue warrants quality caution but not exclusion by itself. |
++| [19] Network meta-analysis | T2 | Acceptable supportive dose evidence. |
++| [20] SURPASS-2/3 exploratory analysis | T1 | Useful, but does not replace direct citation of SURPASS-2 primary trial. |
++
++Additional inspected citations: [21] is a case report but labelled T1, inappropriate for strong subgroup inference; [22] SUMMIT HFpEF/obesity analysis is relevant only peripherally; [23] SURPASS-AP-Combo subgroup paper is useful; [24] GADA-positive abstract is T7 and should not drive substantive conclusions.
++
++**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
++
++Partially.
++
++Closed:
++
++- Lilly review PMC10115620 is no longer cited in V7 bibliography/report.
++- PRNewswire is no longer cited in V7 bibliography/report.
++- Bibliography quality improved sharply from V5's 63.0% T1+T2 to V7's 91.7% T1+T2.
++- Obesity-only evidence is now explicitly flagged as outside diabetes in relevant sentences.
++- T1D report leakage appears removed.
++
++Not closed:
++
++- Named primary trial coverage remains incomplete: SURPASS-2, SURPASS-5, and SURPASS-6 are not in the V7 bibliography/report, despite SURPASS-5 and SURPASS-6 appearing in dropped verifier material or prior V5 output.
++- T7 citations remain in the final bibliography and are cited in the report.
++- Tier labels are overgenerous for some evidence types, including indirect comparisons, FAERS analysis, and a case report.
++- Contradiction handling is still raw and mechanical.
++- Qwen still blocks release on citation tightness and hedging.
++- The narrative is not integrated enough for top-tier DR.
++
++**Remaining DR Gaps After M-19**
++
++1. Replace remaining T7-dependent claims with higher-tier evidence or remove them.
++2. Directly cite and synthesize SURPASS-2, SURPASS-5, and SURPASS-6 primary papers.
++3. Add proper comparator context if SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP are required by the benchmark, or explicitly justify their exclusion as comparator-program context rather than tirzepatide evidence.
++4. Rebuild contradiction handling into adjudication by endpoint, unit, population, dose, comparator, and follow-up duration.
++5. Correct evidence-tier classification for indirect comparisons, FAERS, and case reports.
++6. Expand the Efficacy section beyond trial naming; include primary HbA1c and body-weight effect sizes from the pivotal T2DM trials.
++
++**Required Fix**
++
++Run another iteration. The next sweep should require zero T6/T7 citations in the final bibliography unless explicitly quarantined in limitations, enforce primary SURPASS-2/5/6 inclusion, and reject raw contradiction dumps unless each conflict is reconciled or explicitly marked as an unresolved evidence-quality problem.
+
+codex
+Wrote the final-judge audit to:
+
+[findings.md](/abs/path/C:/POLARIS/outputs/codex_findings/dr_output_pass_4/findings.md)
+
+Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
+
+Key reasons: V7 improved materially over V5, but still has `release_allowed=false`, Qwen `needs_revision` on citation tightness and hedging, 24 bibliography entries instead of the expected 19, 2 T7 citations, incomplete SURPASS-2/5/6 coverage, and mechanical contradiction handling rather than adjudicated DR synthesis.
+diff --git a/outputs/codex_findings/dr_output_pass_4/findings.md b/outputs/codex_findings/dr_output_pass_4/findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2244f43ebddb7399c1e002b227de3adf56c78a7d
+--- /dev/null
++++ b/outputs/codex_findings/dr_output_pass_4/findings.md
+@@ -0,0 +1,117 @@
++---
++verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
++pass: dr_output_pass_4_tirzepatide_v6
++commit: e8b138d
++delta_vs_pass2: "Major improvement in bibliography quality versus V5: PMC10115620 and PRNewswire are no longer cited, and V7 bibliography is 91.7% T1+T2 by count. However, the audited V7 files differ from the supplied 19-citation V6 summary: bibliography.json has 24 citations, including 2 T7 citations, and manifest.json still has release_allowed=false with Qwen needs_revision on citation tightness and hedging."
++citations_verified: 24/24
++t1_t2_percentage_of_bibliography: 91.7%
++t7_percentage_of_bibliography: 8.3%
++faithfulness_verdict: "Generally sentence-supported by the pipeline verifier (29 kept, 8 dropped), but not top-tier: several supported sentences are trivial trial-descriptor statements, weak T7/observational evidence is used for safety and subgroup claims, and key primary trial numerical results are absent from the final narrative."
++coverage_gaps_remaining: ["SURPASS-2 primary paper not cited directly", "SURPASS-5 primary paper not cited directly despite retrieved corpus evidence", "SURPASS-6 absent from V7 bibliography/report", "SURMOUNT evidence present but obesity-only scope is peripheral", "SELECT absent", "LEADER absent", "SUSTAIN absent", "REWIND absent", "PIONEER absent", "STEP absent except corpus mention only"]
++structural_hallucinations: ["Bibliography count mismatch: task context says 19 citations, audited V7 bibliography has 24", "Methods/limitations discuss corpus-tier distribution rather than evidence actually used in the report", "Contradiction disclosures are raw detector output, not adjudicated DR synthesis"]
++quantification_quality: "Partial. Some comparative and dose-response estimates are quantified clearly, but the Efficacy section mostly lists trials without core HbA1c/weight effect sizes from SURPASS-1/3/4/J/CN-INS, and contradiction percentages are uninterpreted raw values."
++contradiction_handling: "Mechanical and not top-tier. The report appends 12 contradiction bullets with implausible mixed metrics and no reconciliation by population, dose, endpoint type, comparator, timepoint, or evidence tier."
++vs_gpt54_dr_verdict: "Below top-tier Deep Research. Improved source selection, but not enough synthesis, adjudication, or pivotal-trial coverage."
++vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons: advisory gate failed, Qwen flagged citation/hedging, and report remains list-like."
++rationale: |
++  M-19 materially improved citation discipline relative to V5, especially by removing the Lilly review and PRNewswire from the bibliography. That closes the most visible pass-2 citation-selection defect. But final-judge standard is top-tier DR or continue iterating. V7 still fails that bar: manifest release is blocked, Qwen flags citation tightness and hedging, the bibliography includes T7 citations used for substantive claims, several named pivotal programs are missing or only indirectly represented, and contradiction handling is not analytically adjudicated. The report is directionally useful, but not equivalent to GPT-5.4 Deep Research or Gemini 3.1 Pro Deep Research.
++---
++
++**Verdict**
++
++MATERIAL-GAPS-FIX-AND-RESWEEP.
++
++M-19 closed the most obvious citation-quality regression from pass 2, but V7 is not top-tier DR. The output is no longer dominated by press releases or review shortcuts, but it still reads as a compact evidence inventory rather than an expert synthesis. It also fails its own evaluator gate: `manifest.json` reports `status=partial_qwen_advisory`, `release_allowed=false`, and Qwen `needs_revision` for citation tightness and hedging.
++
++**Quantitative V6 vs V5 Summary**
++
++Audited files:
++
++| Artifact | Total citations | T1 | T2 | T6 | T7 | UNKNOWN | T1+T2 |
++|---|---:|---:|---:|---:|---:|---:|---:|
++| V5 bibliography | 27 | 6 | 11 | 2 | 6 | 2 | 63.0% |
++| V6 summary supplied in prompt | 19 | 10 | 8 | 0 | 0 | 0 | 94.7% |
++| V7 audited bibliography | 24 | 16 | 6 | 0 | 2 | 0 | 91.7% |
++
++Manifest V7 actuals: corpus count 310, T1 corpus 17.74%, T2 14.19%, T4 28.06%, T7 26.45%, contradictions_found 12, generator words 1001, limitations_words 79, sentences_verified 29, sentences_dropped 8.
++
++The V7 bibliography is much better than V5, but it is not the 19-citation, zero-T7 bibliography described in the prompt context. The audited file contains 24 citations, including two T7 citations.
++
++**Criterion-by-criterion**
++
++a. Faithfulness: mostly sentence-supported, not top-tier. `verification_details.json` reports 29 kept sentences and 8 dropped sentences. Kept claims usually have cited evidence spans, but many are low-information descriptors rather than synthesized findings. Several important dropped claims include SURPASS-5, SURPASS-6, and SURMOUNT-CN numerical results; those losses leave the report less clinically complete.
++
++b. Evidence quality: substantially improved, still flawed. V7 cites SURPASS-1, SURPASS-3, SURPASS-4, J-mono, J-combo, CN-INS, indirect comparisons, meta-analyses, and some observational/post-hoc sources. However, two T7 citations remain, and citation [16] is used for a thyroid-cancer claim that should not carry strong safety weight in a top-tier clinical synthesis.
++
++c. Coverage: incomplete for the named bar. Present: SURPASS-1, SURPASS-3, SURPASS-4, SURPASS J-mono, SURPASS J-combo, SURPASS-CN-INS, SURPASS-AP-Combo, SURMOUNT-4, SUMMIT, and GADA-positive SURPASS 2-5 abstract. Missing or not directly cited: SURPASS-2 primary, SURPASS-5 primary, SURPASS-6, SELECT, LEADER, SUSTAIN, REWIND, PIONEER, STEP. Some of those comparator programs may be peripheral to tirzepatide in T2DM, but the requested coverage list is not met.
++
++d. Scope: improved but imperfect. T1D leakage from V5 is gone from the report. Obesity-only evidence is explicitly flagged as "without diabetes" in two places, which is better. Still, obesity-only and HFpEF/obesity evidence occupy meaningful space in a T2DM glycemic-control report without enough explanation of why they are secondary.
++
++e. Argumentation: listed more than integrated. The Efficacy section names trials but often omits the actual effect sizes. The Comparative and Dose Response sections quantify better, but the report does not build a coherent hierarchy such as monotherapy vs metformin add-on vs insulin add-on vs active comparator vs subgroup modifiers.
++
++f. Contradictions: still mechanical. The contradiction section lists raw detector conflicts such as weight-loss values spanning implausible ranges. It does not adjudicate whether values are percent weight change, kg change, responder percentages, placebo-adjusted effects, time-to-threshold estimates, or different populations/timepoints.
++
++g. Structural hallucinations: no invented clinical sections, but structural quality problems remain. The methods and limitations blocks describe corpus composition more than the report's used evidence. The contradiction block is presented as if it were meaningful analysis, but it is detector output requiring interpretation.
++
++h. Plain-English quantification: partial. Good examples include semaglutide comparisons, cardiorenal endpoint percentages, hypoglycemia RR, and time-to-threshold estimates. Weak examples include unquantified primary efficacy statements and unexplained contradiction percentages.
++
++**Citation-Level Audit Sample (20 citations)**
++
++| Citation | Tier | Audit judgment |
++|---|---:|---|
++| [1] SURPASS-1 primary phase 3 | T1 | Appropriate primary anchor, but report does not provide core HbA1c/weight numbers. |
++| [2] SURPASS-3 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [3] SURPASS-4 primary phase 3 | T1 | Appropriate; used mostly as trial descriptor. |
++| [4] SURPASS J-mono | T1 | Appropriate regional primary evidence. |
++| [5] SURPASS J-combo | T1 | Appropriate regional primary evidence. |
++| [6] SURPASS-CN-INS | T1 | Appropriate but 2025 regional insulin-add-on evidence should be contextualized. |
++| [7] SURMOUNT-4 | T1 | High-quality RCT but obesity-only; correctly flagged as without diabetes. |
++| [8] Tirzepatide vs semaglutide 2 mg indirect comparison | T1 label | Relevant, but classification as T1 is questionable because it is an adjusted indirect comparison, not a primary RCT. |
++| [9] Tirzepatide vs semaglutide 2.4 mg indirect comparison | T1 label | Relevant to obesity/T2DM, but indirect-comparison design should be tiered/hedged more cautiously. |
++| [10] Tirzepatide vs semaglutide obesity trial | T1 | High-quality but obesity-only; correctly flagged as without diabetes. |
++| [11] Cardiorenal outcomes vs dulaglutide | T1 | Relevant but narrow cardiovascular/cardiorenal endpoint; not a substitute for full CVOT context. |
++| [12] Direct comparative studies meta-analysis | T2 | Acceptable supportive evidence, mostly obesity/weight-loss oriented. |
++| [13] Safety systematic review | T2 | Acceptable safety synthesis; report uses it appropriately for GI and hypoglycemia. |
++| [14] GLP-1/GIP vs GLP-1 safety review | T2 | Supportive; obesity/overweight population should be emphasized. |
++| [15] FAERS real-world safety profile | T1 label | Misleading tier. FAERS disproportionality/post-marketing analysis is not T1 clinical evidence. |
++| [16] Thyroid cancer abstract | T7 | Not acceptable as substantive reassurance against medullary thyroid cancer in top-tier DR. |
++| [17] Dose meta-analysis | T2 | Acceptable for dose-response synthesis. |
++| [18] Dose meta-analysis | T2 | Acceptable; Cureus venue warrants quality caution but not exclusion by itself. |
++| [19] Network meta-analysis | T2 | Acceptable supportive dose evidence. |
++| [20] SURPASS-2/3 exploratory analysis | T1 | Useful, but does not replace direct citation of SURPASS-2 primary trial. |
++
++Additional inspected citations: [21] is a case report but labelled T1, inappropriate for strong subgroup inference; [22] SUMMIT HFpEF/obesity analysis is relevant only peripherally; [23] SURPASS-AP-Combo subgroup paper is useful; [24] GADA-positive abstract is T7 and should not drive substantive conclusions.
++
++**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
++
++Partially.
++
++Closed:
++
++- Lilly review PMC10115620 is no longer cited in V7 bibliography/report.
++- PRNewswire is no longer cited in V7 bibliography/report.
++- Bibliography quality improved sharply from V5's 63.0% T1+T2 to V7's 91.7% T1+T2.
++- Obesity-only evidence is now explicitly flagged as outside diabetes in relevant sentences.
++- T1D report leakage appears removed.
++
++Not closed:
++
++- Named primary trial coverage remains incomplete: SURPASS-2, SURPASS-5, and SURPASS-6 are not in the V7 bibliography/report, despite SURPASS-5 and SURPASS-6 appearing in dropped verifier material or prior V5 output.
++- T7 citations remain in the final bibliography and are cited in the report.
++- Tier labels are overgenerous for some evidence types, including indirect comparisons, FAERS analysis, and a case report.
++- Contradiction handling is still raw and mechanical.
++- Qwen still blocks release on citation tightness and hedging.
++- The narrative is not integrated enough for top-tier DR.
++
++**Remaining DR Gaps After M-19**
++
++1. Replace remaining T7-dependent claims with higher-tier evidence or remove them.
++2. Directly cite and synthesize SURPASS-2, SURPASS-5, and SURPASS-6 primary papers.
++3. Add proper comparator context if SELECT/LEADER/SUSTAIN/REWIND/PIONEER/STEP are required by the benchmark, or explicitly justify their exclusion as comparator-program context rather than tirzepatide evidence.
++4. Rebuild contradiction handling into adjudication by endpoint, unit, population, dose, comparator, and follow-up duration.
++5. Correct evidence-tier classification for indirect comparisons, FAERS, and case reports.
++6. Expand the Efficacy section beyond trial naming; include primary HbA1c and body-weight effect sizes from the pivotal T2DM trials.
++
++**Required Fix**
++
++Run another iteration. The next sweep should require zero T6/T7 citations in the final bibliography unless explicitly quarantined in limitations, enforce primary SURPASS-2/5/6 inclusion, and reject raw contradiction dumps unless each conflict is reconciled or explicitly marked as an unresolved evidence-quality problem.
+
+tokens used
+44,285

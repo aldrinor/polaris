@@ -1,0 +1,12 @@
+Completed the pass 4 final-judge audit and wrote the findings to:
+
+[findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_4/findings.md)
+
+Verdict: `MATERIAL-GAPS-FIX-AND-RESWEEP`.
+
+Key points:
+- V10 still fails its own gate: `release_allowed=false`, `status=abort_evaluator_critical`.
+- I audited all 24 citation-bearing claim sentences in `report.md`; the report does not contain 25 cited claim sentences.
+- Live/source-body audit result: 18 faithful, 1 fabricated, 1 embellished, 4 unverifiable.
+- Final bibliography has only 16 unique cited sources, with missing key primary SURPASS papers.
+- Main defects: wrong-source SURMOUNT citation, non-tirzepatide safety evidence, unverifiable DOI/source bodies, weak contradiction adjudication, and insufficient DR-grade citation breadth.
