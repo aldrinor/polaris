@@ -1,102 +1,107 @@
 ---
 verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
-pass: dr_output_pass_6_tirzepatide_v6
-commit: 11f3b32
-delta_vs_pass2: "Large bibliography-tier improvement versus V5: T1+T2 rose from 63.0% to 94.7%, T7 fell from 22.2% to 0%, and PRNewswire disappeared from the bibliography. However, the core SURPASS-1/2/3/4/5 claims are still anchored mainly to the Lilly review PMC10115620, misclassified as T1, while primary pivotal SURPASS papers are not individually cited. Contradictions remain mechanically listed, not clinically adjudicated."
-citations_verified: 29/29
-t1_t2_percentage_of_bibliography: "94.7%"
-t7_percentage_of_bibliography: "0.0%"
-faithfulness_verdict: "Mostly sentence-level faithful to cited spans by strict_verify, but not DR-grade because core efficacy claims rely on secondary review evidence mislabeled as T1 and several scope-mismatched obesity-only/safety extrapolations remain."
-coverage_gaps_remaining: ["SURPASS-1 primary paper not individually cited", "SURPASS-2 primary paper not individually cited", "SURPASS-3 primary paper not individually cited except MRI substudy/time-to-threshold secondary analysis", "SURPASS-4 primary paper not individually cited", "SURPASS-5 primary paper not individually cited", "SELECT not discussed", "LEADER not discussed", "SURMOUNT evidence appears only as related obesity evidence and is not integrated as out-of-scope/contextual comparator"]
-structural_hallucinations: ["No invented major section, but bibliography tiering hallucinates/overstates primary status for review-style sources including PMC10115620 and an MDPI mechanistic review."]
-quantification_quality: "Improved and numerically dense, but not plain-English DR quality: many values are copied as trial deltas without absolute baseline context, endpoint definitions, populations, comparator hierarchy, or clinical interpretation."
-contradiction_handling: "Not adequate. The report lists 12 detector contradictions with raw numeric arrays and relative differences; it does not adjudicate by endpoint, dose, population, unit, comparator, source tier, or extraction artifact status."
-vs_gpt54_dr_verdict: "Below top-tier Deep Research: better source selection than V5, but fails on primary-evidence anchoring, contradiction adjudication, and synthesis."
-vs_gemini31_pro_dr_verdict: "Below top-tier Deep Research for the same reasons; a strong DR answer would cite the pivotal trials directly and explain heterogeneity instead of dumping detector output."
+pass: dr_output_pass_6_tirzepatide_v13
+commit: 451f382
+delta_vs_pass5: V13 is a substantial pipeline improvement over V11: M-25e fixed PT08 by adding per-flag contradiction enumeration, V12/V13 expanded the report from 3 to 5 sections, and cited-bibliography quality rose to 84.6% nominal T1+T2. The release gate now passes, but live audit still finds DR-grade source-quality and auditability gaps.
+citations_verified: 26 live-attempted/26 total cited
+citations_faithful: 21
+citations_fabricated: 0
+citations_embellished: 3
+citations_unverifiable: 2
+t1_t2_percentage_of_bibliography: 84.6%
+t7_percentage_of_bibliography: 3.8%
+live_fetch_method_used: mixed
+faithfulness_verdict: Mostly faithful at the numeric sentence level, but not top-tier: several citations are source-type misclassified, one safety sentence mislabels a pharmacovigilance paper as an RCT systematic review, one obesity-only trial is used for general T2D safety, and two cited sources were not auditable from the live cited source body.
+coverage_gaps_remaining: [primary-source anchoring is still diluted by reviews and tertiary/low-quality sources; FDA label should replace Facebook for boxed warning; trial-level primary RCTs are not consistently used where available; scope gate still allows obesity/AITD/general GLP-1 evidence into a T2D-focused report]
+structural_hallucinations: [bibliography tier labels overstate evidence quality for systematic/narrative reviews as T1; Methods says inclusion/exclusion criteria listed but report only names template, not concrete criteria; contradiction disclosure lists detector artifacts as if clinically meaningful ranges]
+quantification_quality: Stronger than V11 and mostly numeric, but often list-like and dependent on secondary reviews instead of integrated primary-trial synthesis.
+contradiction_handling: PT08 is technically fixed, but the disclosure is mechanical and clinically confusing; it exposes detector artifacts rather than adjudicating endpoint/dose/population/timepoint conflicts.
+pt13_superlative_context: Mostly valid source-attributed comparative language, not promotional overreach; however it should be hedged as trial- or meta-analysis-specific.
+m25_cumulative_impact: M-25b/e delivered structural breadth and PT08 pass; M-25a reduced trial-name leakage in final text but did not guarantee primary-source anchoring; M-25c remains needed because scope leakage persists.
+vs_gpt54_dr_verdict: Below top-tier Deep Research because source selection and contradiction adjudication remain weaker than expected, despite improved citation faithfulness.
+vs_gemini31_pro_dr_verdict: Below top-tier Deep Research for the same reasons: adequate directional synthesis, insufficient source hygiene and clinical adjudication.
 rationale: |
-  V6 is a material improvement over V5, but it is not top-tier DR. The bibliography now excludes T6/T7 citations and the body is mostly adjacent-cited, yet the central efficacy paragraph still uses the Lilly review PMC10115620 as citation [1] for SURPASS-1 through SURPASS-5 rather than citing the named primary trial publications. That directly leaves the main pass-2 gap unresolved. The report also preserves mechanical contradiction disclosures and contains scope leakage from obesity-only evidence. The auto-loop should continue.
+  V13 is the first pipeline-successful run and is much better than V11, but release_allowed=True is not equivalent to top-tier DR. Live source checks found no clear fabricated quantitative claim among auditable sources, but the bibliography includes Facebook, a T7 abstract, narrative reviews labeled T1, and an obesity-only SURMOUNT-3 source used in the T2D safety section. The report also relies heavily on meta-analyses/reviews where primary RCTs should anchor SURPASS-2, SURPASS-3, SURPASS-4, SURPASS-CVOT, and SURPASS J-mono. The contradiction section passes PT08 but remains a raw detector dump rather than an expert reconciliation.
 ---
 
 **Verdict**
+MATERIAL-GAPS-FIX-AND-RESWEEP. V13 should not terminate the auto-loop as TOP-TIER-DR-ACHIEVED. It is directionally correct and mostly faithful, but not GPT-5.4 DR / Gemini 3.1 Pro DR quality.
 
-MATERIAL-GAPS-FIX-AND-RESWEEP.
+**Quantitative V13 vs V11 vs V10 Summary**
+V13: status=success, release_allowed=True, 5 sections, 1474 words, 44 verified sentences, 26 dropped, 26 bibliography entries, 12/13 rule checks passed, PT13 advisory only.
 
-Important artifact note: the task text names `outputs/full_scale_v9/...`, but that directory is not the run described in the pass context. Its manifest says `status: abort_evaluator_critical`, `release_allowed: false`, corpus count 259, generator words 702, and 15 bibliography entries. The pass-6/V6 metadata in the prompt matches `outputs/full_scale_v6/clinical/clinical_tirzepatide_t2dm`, so this audit judges that V6 artifact and records the mismatch as a process risk.
+V11/pass 5: MATERIAL-GAPS, 3 sections, 710 words, 12 citations, 16 faithful / 0 fabricated / 1 embellished / 3 unverifiable in sampled audit, PT08 still failing.
 
-**Quantitative V6 vs V5 Summary**
+V10/V11 failure mode: insufficient structure and contradiction disclosure. V13 fixes the gate mechanics, especially PT08, but does not yet fix source-hygiene and clinical-adjudication quality.
 
-V5 bibliography: 27 citations; T1+T2 = 17/27 = 63.0%; T7 = 6/27 = 22.2%; T6 = 2/27 = 7.4%; UNKNOWN = 2/27 = 7.4%.
+Independent bibliography count: T1=16, T2=6, T4=2, T6=1, T7=1. T1+T2=22/26=84.6%; T7=1/26=3.8%. Host/publisher concentration: doi.org 7, Springer 3, Nature 3, MDPI 2, Frontiers 2, NEJM 2, plus JAMA, Wiley, ScienceDirect, PMC, Cureus assets, PubMed, and Facebook.
 
-V6 bibliography: 19 citations; T1+T2 = 18/19 = 94.7%; T7 = 0/19 = 0.0%; T6 = 0/19 = 0.0%; T4 = 1/19 = 5.3%.
-
-This is a strong directional improvement. It is not sufficient for top-tier DR because the improvement is partly cosmetic: the pivotal SURPASS-1/2/3/4/5 claims are still routed through the broad Lilly review at PMC10115620, which is listed as T1. That source is the same review that pass 2 flagged. PRNewswire is gone from the V6 bibliography, but it remains present in the V6 contradiction pool as `ev_014`.
-
-Manifest check: V6 is `status: partial_qwen_advisory`, `release_allowed: false`, `gate_class: partial`, with Qwen flagging `citation_tightness` as `needs_revision`. Corpus tier mix remains poor: T1 15.43%, T2 14.47%, T4 25.72%, T7 30.87%, UNKNOWN 9.32%. Generator reports 29 verified sentences, 8 dropped sentences, 984 words, and 79 limitations words.
+**Citation Live-Fetch Audit Table (ALL 26 citations)**
+| # | Live source check | Report use checked | Category | Finding |
+|---:|---|---|---|---|
+| 1 | MDPI Pharmaceuticals 2025 systematic review/meta-analysis, DOI 10.3390/ph18050668 | SURPASS-2, SURPASS-3, J-mono weight values and GI incidence ranges | FAITHFUL | Numbers are consistent with the review tables, but this is not a primary T1 RCT despite being labeled T1. |
+| 2 | Springer PDF, Diabetes Therapy 2023, DOI 10.1007/s13300-023-01398-1 | Time to HbA1c <7.0%, SURPASS-2/3 weight thresholds | FAITHFUL | Median times and threshold proportions match the source. |
+| 3 | DOI resolved via PubMed/search to DOM 2025, DOI 10.1111/dom.70047 | SURPASS-4 104-week HbA1c and weight changes | FAITHFUL | Exact 104-week values match accessible abstract text; PubMed page itself was reCAPTCHA-blocked. |
+| 4 | Nature Medicine SURPASS-AP-Combo page/PDF redirect | Week-40 HbA1c and weight vs insulin glargine | FAITHFUL | Exact numeric claims match the source. |
+| 5 | Springer PDF, Diabetes Therapy 2024, DOI 10.1007/s13300-024-01561-2 | Subgroup consistency and higher baseline weight effect | FAITHFUL | Subgroup claims and >=75 kg weight-loss statement match. |
+| 6 | Nature Medicine SURMOUNT-3 obesity trial | General GI tolerability sentence in Safety | EMBELLISHED | The sentence is true for tirzepatide but sourced to an overweight/obesity trial after lifestyle intervention, not adult T2D evidence. Scope leak. |
+| 7 | ScienceDirect EudraVigilance pharmacovigilance analysis | GI reports, pancreatitis/vomiting common reports | EMBELLISHED | Numeric/source content is broadly supported, but report incorrectly calls it a systematic review/meta-analysis of RCTs. |
+| 8 | Frontiers Endocrinology systematic review, DOI 10.3389/fendo.2023.1121387 | Dose-dependence of nausea/diarrhea and discontinuation RR | FAITHFUL | Claims match, though the review itself cautions heterogeneity/bias. |
+| 9 | JAMA editorial/full text, DOI 10.1001/jama.2021.25016 | Hypoglycemia generally low when not used with secretagogues/insulin | FAITHFUL | Supported by editorial discussion of low hypoglycemia rates, but indirect and not ideal as a safety anchor. |
+| 10 | PMC/Springer FAERS pharmacovigilance paper, DOI 10.1007/s40618-024-02441-z | MTC ROR 13.67 and similar risk vs GLP-1RA | FAITHFUL | Exact ROR and comparative interpretation match. |
+| 11 | Facebook post URL | Boxed warning for thyroid C-cell tumors | UNVERIFIABLE | Live source body was not accessible. The claim is true from official labeling, but this citation is unacceptable for DR. |
+| 12 | Cureus/PMC narrative review, DOI 10.7759/cureus.98153 | SURPASS program did not show meaningful AITD/thyroid dysfunction increases | FAITHFUL | Sentence matches the review, but source is a narrative review and should not be labeled T1. |
+| 13 | Wiley/ResearchGate/EBSCO DOI 10.1111/dom.14775 | aITC vs semaglutide 2 mg, HbA1c and weight ETDs | FAITHFUL | Exact ETDs match. Industry-funded indirect comparison should be contextualized. |
+| 14 | Springer Diabetologia PDF, DOI 10.1007/s00125-024-06144-1 | NMA vs semaglutide doses | FAITHFUL | Exact comparative conclusions match. |
+| 15 | PubMed/search, DOI 10.1007/s00125-025-06637-7 | SURPASS-2 composite therapeutic targets 57% vs 34% | FAITHFUL | Exact percentages match accessible abstract text. |
+| 16 | Journal of Diabetology/DOAJ, DOI 10.4103/jod.jod_213_24 | Meta-analysis vs long-acting insulin, HbA1c/weight MD ranges | FAITHFUL | Exact MD values match. |
+| 17 | Springer Diabetes Therapy 2025, DOI 10.1007/s13300-025-01728-5 | Basal-insulin NMA vs GLP-1 RAs/dulaglutide | FAITHFUL | Directional claim matches, though report narrows to dulaglutide 1.5 mg while source conclusion covers selected GLP-1 RAs. |
+| 18 | NEJM DOI attempted; accessible ACC summary of NEJM article | SURPASS-CVOT HR 0.92, 95.3% CI 0.83-1.01 | FAITHFUL | Exact value confirmed through live DOI-derived secondary summary; primary NEJM body was not accessible in full. |
+| 19 | Nature Medicine 2025 open article | Real-world trial emulation HR 1.06 and HR 0.87 | FAITHFUL | Exact values match article abstract/results. |
+| 20 | Frontiers Cardiovascular Medicine 2022 | Dose-response and safety ranking | FAITHFUL | Source supports dose-dependent efficacy and more favorable safety at 5 mg. |
+| 21 | NEJM SURPASS-2 DOI page attempted; values cross-confirmed in live secondary/related sources | SURPASS-2 body weight -7.8/-10.3/-12.4 kg | FAITHFUL | Numeric claim is correct, but final report should cite the primary RCT directly and ensure the NEJM body is auditable. |
+| 22 | PMC/Cureus 2023 meta-analysis, DOI 10.7759/cureus.44314 | 10 mg/15 mg extra weight loss vs 5 mg and total AE risk | FAITHFUL | Exact -2.64 kg and -4.26 kg values and AE-risk statement match. |
+| 23 | ADA abstract DOI 10.2337/db22-743-p attempted/search | Age <65 vs >=65 consistency | UNVERIFIABLE | Could not obtain >=500 chars of source body. T7 abstract should not be needed for a top-tier report. |
+| 24 | MDPI Geriatrics 2024 | Older Japanese pilot CGM time-in-range 53.2% to 78.9% | FAITHFUL | Exact values match, but n=4 observational pilot should be framed as very low certainty. |
+| 25 | Lancet SURPASS-4 DOI/search plus publisher/press text | High-CV-risk SURPASS-4 superiority vs glargine | FAITHFUL | Trial-name binding and direction match; stronger to cite accessible Lancet/PubMed body rather than rely on secondary snippets. |
+| 26 | SURPASS J-mono DOI/search and cross-confirmation from review | Japanese monotherapy safety consistency | FAITHFUL | Direction is supported, but final report uses it only in a broad multi-citation safety sentence; primary source should be directly auditable. |
 
 **Criterion-by-criterion**
+(a) Argumentation: improved but still semi-listed. Sections assemble correct trial facts, yet they rarely synthesize why differences across comparators, timepoints, and populations matter clinically.
 
-a. Faithfulness: Conditional pass at sentence-span level, fail at DR level. `verification_details.json` records 29 kept sentences and 8 dropped. I read all kept report sentences. The kept sentences generally map to cited spans, but strict verification is not a substitute for source-quality discipline. The largest problem is citation [1]: the report uses one review article for detailed SURPASS-1/2/3/4/5 efficacy claims rather than the primary RCT papers. That is faithful to the review but not top-tier DR practice.
+(b) Quantification: strong numeric density. Most values are faithful. Weakness is over-reliance on secondary analyses and insufficient plain-English clinical interpretation of absolute vs relative effects.
 
-b. Evidence quality: Numerically improved but still materially defective. The visible bibliography is 94.7% T1/T2 and 0% T7, but T1 classification is inflated. Citation [1] is the Lilly review PMC10115620. Citation [16] is a mechanistic review, also marked T1. Citation [7] is real-world pharmacovigilance and marked T1. DR-grade clinical synthesis should separate primary RCTs, pooled analyses, reviews, pharmacovigilance, and mechanistic reviews clearly.
+(c) Scope fidelity: imperfect. SURMOUNT-3 obesity-without-T2D/lifestyle-intervention evidence and autoimmune thyroid narrative-review material leak into a T2D-focused report.
 
-c. Coverage: SURPASS-6 and SURPASS-AP-Combo now appear directly. SURPASS-3 MRI and a SURPASS-2/3 time-to-threshold analysis appear. However, SURPASS-1/2/3/4/5 primary papers still do not appear individually in the bibliography. SURMOUNT appears indirectly through obesity/overweight evidence, but the report does not make a disciplined scope distinction. SELECT and LEADER are absent. Their absence may be clinically defensible for a tirzepatide T2D efficacy/safety answer, but the audit checklist explicitly asked to check them, so coverage is incomplete against the requested standard.
+(d) Contradictions: technically disclosed per M-25e, but too mechanical. A top-tier report would adjudicate: endpoint mismatch, percent vs kg mismatch, HbA1c target percentages misread as weight, obesity vs T2D populations, and source-tier authority.
 
-d. Scope: Improved but still leaky. The report correctly says one dose-response source is a "related obesity trial without diabetes," but it still uses that obesity-only evidence to support dose response in a T2D question. The comparative section uses an overweight/obesity direct-study meta-analysis without sufficiently separating non-diabetes obesity trials from adults with T2D. There is no T1D leakage in the V6 body, unlike V5.
+(e) Structure: 5 sections are within the intended template and no major section hallucination appears. However, Methods overclaims inclusion/exclusion disclosure.
 
-e. Argumentation: Better than V5 but still more list than synthesis. The report strings trial and meta-analysis findings into sections, but it does not build a hierarchy: pivotal RCTs first, then comparative/indirect evidence, then real-world safety, then limitations. It rarely explains why results differ across comparators, background therapy, dose, diabetes status, or time horizon.
+(f) PT13: “superior” is generally valid source language for SURPASS-AP-Combo, meta-analyses, and SURPASS-4, but should be hedged to trial/source context.
 
-f. Contradictions: Fail. V6 still prints 12 raw contradiction bullets with arrays such as `[-62.0, -19.44, 1.29, ... 99.0]` and relative differences. These are visibly mixed units/endpoints/extraction artifacts: HbA1c percentages, body-weight kg/percent, threshold attainment percentages, confidence-interval values, and unrelated obesity endpoints are grouped together. The report does not adjudicate them clinically.
+(g) Bibliography quality: nominal T1+T2 is high, but tiering is unreliable. Systematic reviews/narrative reviews are labeled T1; Facebook appears as T6; a T7 abstract remains for a subgroup claim.
 
-g. Structural hallucinations: No major invented section. Section headings match the topic: Efficacy, Comparative, Safety, Dose Response, Mechanism, Limitations, Methods, Contradiction disclosures. The structural defect is not a fake heading; it is the misleading evidence-tier presentation and the raw contradiction appendix.
+(h) Primary RCT anchoring: insufficient. SURPASS-2, SURPASS-3, SURPASS-4, SURPASS-CVOT, and J-mono should be cited directly and consistently for core efficacy/safety claims.
 
-h. Plain-English quantification: Partial. The report gives many concrete numbers: HbA1c deltas, kg changes, RORs, mean differences, and time-to-threshold medians. It does not consistently translate them into clinically readable meaning, absolute risk, baseline context, endpoint hierarchy, or population comparability.
+**M-25 Impact Assessment**
+M-25a partially delivered: trial-name mismatches were dropped before final output, and no obvious SURPASS/SURMOUNT binding error remains in the final report. It did not force primary RCT anchoring.
 
-**Citation-Level Audit Sample (20 citations)**
+M-25b delivered: the report now has 5 sections and substantially better coverage.
 
-1. Report claim: SURPASS phase 3 trials show superiority for A1C and body weight. Citation [1]. Status: supported by review, not primary trial evidence; not DR-grade.
-2. A1C range from -1.87% in SURPASS-1 to -2.59% in SURPASS-5. Citation [1]. Status: span-verified, but should cite primary SURPASS-1 and SURPASS-5 papers.
-3. SURPASS-2 A1C reductions versus semaglutide 1 mg. Citation [1]. Status: span-verified through review; primary SURPASS-2 absent.
-4. A1C <7.0% range 81-97%. Citation [1]. Status: span-verified through review; lacks trial-by-trial source attribution.
-5. Body-weight range -6.2 kg to -12.9 kg across SURPASS-5/SURPASS-3. Citation [1]. Status: span-verified through review; primary SURPASS-3/5 absent.
-6. SURPASS-6 HbA1c -2.1% vs -1.1% with lispro. Citation [2]. Status: supported by primary RCT.
-7. SURPASS-AP-Combo HbA1c -2.24/-2.44/-2.49 vs -0.95. Citation [3]. Status: supported by primary RCT.
-8. SURPASS-AP-Combo weight changes -5.0/-7.0/-7.2 kg vs +1.5 kg. Citation [3]. Status: supported by primary RCT.
-9. Tirzepatide 10/15 mg vs semaglutide 2.4 mg mean percent weight differences 2.57/4.79. Citation [4]. Status: supported but indirect comparison; needs stronger caveat.
-10. Direct comparative meta-analysis SMD 0.75. Citation [5]. Status: supported, but overweight/obesity population is not cleanly T2D-specific.
-11. Basal-insulin network meta-analysis vs dulaglutide/exenatide/lixisenatide. Citation [6]. Status: supported as T2 evidence.
-12. Safety profile similar to GLP-1RAs. Citation [7]. Status: weakly placed; real-world/pharmacovigilance source marked T1 and overused for general RCT safety framing.
-13. GI adverse event incidence consistent with GLP-1RAs. Citation [8]. Status: supported by systematic review.
-14. Nausea/vomiting/diarrhea in pharmacovigilance. Citation [9]. Status: supported; T4 pharmacovigilance is appropriate as signal evidence only.
-15. Severe hypoglycemia risk in obesity/overweight network meta-analysis. Citation [10]. Status: scope-mismatched for T2D safety unless explicitly contextualized.
-16. Real-world hypoglycemia heightened by concomitant hypoglycemic drugs. Citation [9]. Status: plausible and cited, but source tier and causal limits should be clearer.
-17. Dose-response mean differences vs 5 mg. Citation [11]. Status: supported by network meta-analysis, not primary.
-18. Separate dose meta-analysis 15 mg vs 5 mg. Citation [12]. Status: supported by T2 evidence.
-19. Obesity-without-diabetes dose-response trial. Citation [13]. Status: flagged as related, but still used in a T2D dose-response section.
-20. Time to HbA1c and weight-loss thresholds in SURPASS-2/3. Citation [14]. Status: supported by preplanned analysis; useful but secondary to primary trial reporting.
+M-25e delivered for the evaluator: PT08 passes because every subject/predicate substring appears. For human DR quality, it is still a raw detector appendix.
 
-**Did M-19 Prompt Changes Close the DR Pass 2 Gaps?**
+M-25c is still needed: scope leakage and low-authority source leakage remain visible.
 
-Partially, not substantially.
+**Remaining DR Gaps**
+Replace Facebook boxed-warning citation with FDA prescribing information or DailyMed.
 
-Closed or mostly closed: PRNewswire is gone from the bibliography; T7 citations are gone from the bibliography; obvious T1D leakage is absent from the V6 body; citations are denser and more adjacent; primary-ish SURPASS-6 and AP-Combo sources now appear.
+Re-tier bibliography correctly: primary RCTs as T1, systematic reviews/meta-analyses as T2, narrative reviews lower, T7 abstracts only when unavoidable.
 
-Not closed: Lilly review PMC10115620 is still citation [1] and remains the anchor for the central SURPASS-1/2/3/4/5 efficacy paragraph. The named primary SURPASS-1/2/3/4/5 papers are still not individually cited. Contradiction handling remains mechanical. Scope discipline remains incomplete for obesity-only evidence. Qwen still blocks release on citation tightness.
+Use primary RCTs for core claims: SURPASS-2 NEJM, SURPASS-3 Lancet, SURPASS-4 Lancet, SURPASS-CVOT NEJM, SURPASS J-mono Lancet Diabetes Endocrinology, SURPASS-AP-Combo Nature Medicine.
 
-**Remaining DR Gaps After M-19**
+Add clinical adjudication to contradictions instead of raw ranges.
 
-1. Replace citation [1] review anchoring with individual primary SURPASS-1, SURPASS-2, SURPASS-3, SURPASS-4, and SURPASS-5 RCT citations.
-2. Correct tier classification: reviews and mechanistic reviews must not be labeled T1 unless the taxonomy explicitly defines T1 differently from primary studies.
-3. Rebuild contradiction handling into adjudicated prose: endpoint, unit, dose, population, comparator, timepoint, and source tier must be separated.
-4. Remove or quarantine obesity-only evidence unless it is clearly framed as external context and not as direct evidence for adults with T2D.
-5. Add a clinical synthesis layer: what is known with high confidence, what is comparator-specific, what is uncertain, and what safety signals require post-marketing caution.
-6. Address Qwen citation-tightness failure; contradiction values need source attribution or should not be printed.
+Remove or explicitly quarantine obesity-only and autoimmune-thyroid material from the adult T2D efficacy/safety answer unless used as clearly labeled indirect context.
 
-**Required Fix**
-
-Run another fix-and-resweep. The fix should not be prompt-only unless retrieval/citation selection can be forced to prioritize primary RCT records. Required behavior:
-
-1. Hard-prefer primary trial papers for SURPASS-1/2/3/4/5/6 and AP-Combo in the final bibliography.
-2. Permit reviews/meta-analyses only for synthesis after primary RCT findings are anchored.
-3. Add a contradiction adjudicator that clusters by endpoint, unit, dose, population, comparator, and timepoint before anything is surfaced in the report.
-4. Add a scope gate that excludes obesity-only/T1D sources from direct T2D conclusions unless the sentence explicitly labels them as indirect contextual evidence.
-5. Fail release if the evaluator is `partial` or `abort`, or if Qwen has any `needs_revision` axis.
+**STOP or CONTINUE decision**
+CONTINUE. V13 is a real engineering milestone and a successful release-gate pass, but not top-tier Deep Research. The next iteration should be targeted, not broad: implement M-25c scope/source gate, correct tier taxonomy, force primary RCT citation for pivotal trials, and replace the contradiction dump with an adjudicated contradiction note.
