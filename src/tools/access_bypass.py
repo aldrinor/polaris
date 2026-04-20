@@ -185,6 +185,50 @@ def _strip_navigation_boilerplate(content: str) -> str:
     return cleaned.strip()
 
 
+# M-23c: Structural markers for content quality scoring.
+# Presence of academic-paper markers indicates full article body
+# (vs paywall stub or landing page).
+_STRUCTURAL_MARKERS = (
+    "abstract", "methods", "results", "conclusion",
+    "discussion", "introduction", "background", "references",
+    "materials and methods", "statistical analysis",
+)
+
+_NUMERIC_TOKEN_RE = re.compile(r"\d+\.\d+|\d+\s*%|\d{3,}|\bp\s*[<=>]\s*0\.\d+\b")
+
+
+def _score_content_quality(content: str) -> float:
+    """Score a fetched-content candidate on quality (0.0 .. ~1.5).
+
+    Combines normalized length, structural-marker hits, and numeric
+    density. Fully stripped stubs and paywall shells score low; full
+    article bodies with numeric data score high. Used to pick the winner
+    when multiple concurrent backends (Crawl4AI, Jina, Trafilatura)
+    return successful results — replaces first-success-wins, which let
+    Jina stubs beat Crawl4AI full-article fetches.
+
+    This is NOT just length: a long paywall page with repeated
+    "subscribe to read" blocks will have no structural markers and low
+    numeric density, so it loses to a shorter true article body.
+    """
+    if not content:
+        return 0.0
+
+    length = len(content)
+    # 30K chars normalizes to 1.0 — NEJM/Lancet full articles are ~40-70K
+    length_norm = min(length / 30000.0, 1.0)
+
+    lower = content.lower()
+    marker_hits = sum(1 for m in _STRUCTURAL_MARKERS if m in lower)
+    marker_score = min(marker_hits / 6.0, 1.0)
+
+    numeric_count = len(_NUMERIC_TOKEN_RE.findall(content))
+    # Numeric tokens per KB of text; cap at 1.0
+    density = min(numeric_count / max(length / 1000.0, 1.0) / 5.0, 1.0)
+
+    return 0.5 * length_norm + 0.3 * marker_score + 0.2 * density
+
+
 def _crawl4ai_failure_result(url: str, error: str) -> AccessResult:
     """Build a standard failure AccessResult for crawl4ai.
 
@@ -345,6 +389,23 @@ class AccessBypass:
             logger.info("[ACCESS] PL: Resolved %s -> %s", url[:50], resolved_url[:50])
             url = resolved_url
 
+        # M-23a: Unpaywall step 0 — try legal OA before anything else.
+        # For DOI-bearing URLs (NEJM, Lancet, JAMA, Elsevier, Springer...)
+        # Unpaywall frequently returns a PMC or arXiv OA PDF that is the
+        # same article, legally free, full-text. This fixes the "NEJM/Lancet
+        # return 400-char paywall stubs" problem upstream of any paywall
+        # bypass logic.
+        if os.getenv("PG_UNPAYWALL_ENABLED", "1") == "1":
+            candidate_doi = self._extract_doi(url) or resolved_doi
+            if candidate_doi:
+                oa_url = await self._try_unpaywall(candidate_doi)
+                if oa_url and oa_url != url:
+                    logger.info(
+                        "[ACCESS] M-23a: Swapping %s -> OA %s",
+                        url[:60], oa_url[:80],
+                    )
+                    url = oa_url
+
         # FIX-CITE-3/GAP4: Detect PDF URLs and extract text directly.
         # Academic open-access PDFs (from S2 openAccessPdf) need PDF parsing,
         # not HTML scraping. This gives the analyzer full paper content with
@@ -425,15 +486,54 @@ class AccessBypass:
             )
             concurrent_results = []
 
+        # M-23b/c: Replace first-success-wins with quality-scored winner.
+        # OLD BUG: Jina 422-char paywall stub won the race over Crawl4AI's
+        # 45K-char NEJM SURPASS-5 fetch, because Jina's task finished first.
+        # NEW: Collect ALL successful candidates, strip boilerplate FIRST
+        # (so nav chrome containing "sign in" doesn't trigger paywall
+        # false-positives on full article bodies), filter by paywall check,
+        # then pick the highest-scoring candidate by content quality
+        # (length + structural markers + numeric density).
+        candidates: list[AccessResult] = []
+        rejected_log: list[tuple[str, str, int]] = []
         for r in concurrent_results:
-            if isinstance(r, AccessResult) and r.success and not self._detect_paywall(r.content):
-                # FIX-045B: Strip navigation boilerplate before returning
-                r.content = _strip_navigation_boilerplate(r.content)
-                logger.info(
-                    "[ACCESS] FIX-QM2: %s won concurrent fetch for %s (%d chars)",
-                    r.access_method, url[:60], len(r.content),
+            if not isinstance(r, AccessResult):
+                continue
+            if not r.success:
+                continue
+            # M-23b: strip boilerplate BEFORE paywall check
+            r.content = _strip_navigation_boilerplate(r.content)
+            if self._detect_paywall(r.content):
+                rejected_log.append((r.access_method, "paywall", len(r.content)))
+                continue
+            candidates.append(r)
+
+        if candidates:
+            # M-23c: quality-scored winner
+            scored = [(c, _score_content_quality(c.content)) for c in candidates]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            winner, winner_score = scored[0]
+            winner.metadata = {
+                **(winner.metadata or {}),
+                "quality_score": round(winner_score, 3),
+                "n_candidates": len(candidates),
+                "all_scores": {
+                    c.access_method: round(s, 3) for c, s in scored
+                },
+            }
+            logger.info(
+                "[ACCESS] M-23c: %s won quality-scored fetch for %s "
+                "(%d chars, score=%.3f, %d candidates, scores=%s)",
+                winner.access_method, url[:60], len(winner.content),
+                winner_score, len(candidates),
+                {c.access_method: round(s, 3) for c, s in scored},
+            )
+            if rejected_log:
+                logger.debug(
+                    "[ACCESS] M-23b: rejected %d stub/paywall candidates: %s",
+                    len(rejected_log), rejected_log,
                 )
-                return r
+            return winner
 
         # FIX-039/B.3: Trafilatura now runs in concurrent group above (no standalone fallback)
 
@@ -442,10 +542,11 @@ class AccessBypass:
         timeout_occurred = False
         direct_result = await self._direct_fetch(url)
 
-        if direct_result.success and not self._detect_paywall(direct_result.content):
-            # FIX-045B: Strip navigation boilerplate
+        if direct_result.success:
+            # M-23b: strip BEFORE paywall detection
             direct_result.content = _strip_navigation_boilerplate(direct_result.content)
-            return direct_result
+            if not self._detect_paywall(direct_result.content):
+                return direct_result
 
         # Track if direct fetch failed due to timeout for retry logic (FIX-D5)
         if not direct_result.success and "timeout" in str(direct_result.metadata.get("error", "")).lower():
@@ -476,10 +577,11 @@ class AccessBypass:
             logger.info("[ACCESS] Retrying direct fetch after timeout for %s", url[:60])
             await asyncio.sleep(3)
             retry_result = await self._direct_fetch(url)
-            if retry_result.success and not self._detect_paywall(retry_result.content):
-                # FIX-045B: Strip navigation boilerplate
+            if retry_result.success:
+                # M-23b: strip BEFORE paywall detection
                 retry_result.content = _strip_navigation_boilerplate(retry_result.content)
-                return retry_result
+                if not self._detect_paywall(retry_result.content):
+                    return retry_result
 
         # PL: Sci-Hub fallback for paywalled academic papers (last resort)
         # Use resolved DOI if available (more reliable than URL-based DOI extraction)
@@ -1470,6 +1572,63 @@ class AccessBypass:
                 success=False,
                 metadata={"error": str(e)},
             )
+
+    async def _try_unpaywall(self, doi: str) -> Optional[str]:
+        """M-23a: Query Unpaywall for best legal open-access URL for a DOI.
+
+        Unpaywall indexes 30M+ OA articles from repositories (arXiv,
+        PMC, institutional) and publisher DOIs. Returns the best OA URL
+        (PDF preferred) if available, else None. Free, ethical, and the
+        first thing to try for paywalled journals like NEJM/Lancet/JAMA
+        whose authors frequently post preprints or PMC copies.
+
+        Reference: https://unpaywall.org/products/api
+        Endpoint: https://api.unpaywall.org/v2/{doi}?email={email}
+        Rate limit: 100K/day with free email-tagged access.
+        """
+        import aiohttp
+
+        email = os.getenv("UNPAYWALL_EMAIL")
+        if not email:
+            return None
+
+        api_url = f"https://api.unpaywall.org/v2/{doi}?email={email}"
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    api_url, headers=_NO_BROTLI_HEADERS
+                ) as response:
+                    if response.status == 404:
+                        # Unknown DOI — normal, don't log noisily
+                        return None
+                    if response.status != 200:
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall HTTP %d for DOI %s",
+                            response.status, doi,
+                        )
+                        return None
+                    data = await response.json()
+                    if not data.get("is_oa"):
+                        return None
+                    best = data.get("best_oa_location") or {}
+                    oa_url = best.get("url_for_pdf") or best.get("url")
+                    if oa_url:
+                        logger.info(
+                            "[ACCESS] M-23a: Unpaywall found OA for %s: %s (%s)",
+                            doi, oa_url[:80],
+                            best.get("host_type", "unknown"),
+                        )
+                    return oa_url
+        except asyncio.TimeoutError:
+            logger.info("[ACCESS] M-23a: Unpaywall timeout for DOI %s", doi)
+            return None
+        except Exception as e:
+            logger.warning(
+                "[ACCESS] M-23a: Unpaywall failed for DOI %s: %s",
+                doi, str(e)[:120],
+            )
+            return None
 
     async def _direct_fetch(self, url: str) -> AccessResult:
         """Direct HTTP fetch with markdown Accept header (FIX-D6/A3) and 5xx retry (FIX-D5)."""

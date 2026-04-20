@@ -50,20 +50,36 @@ def test_m203_parser_rejects_section_count_below_min() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Test 2: parser rejects overlapping ev_ids across sections
+# Test 2: M-24 — parser ALLOWS overlap across sections
+# A single primary study often legitimately supports multiple sections
+# (a SURPASS RCT contributes to both Efficacy and Safety). The old
+# "no overlap" rule starved downstream sections of citations; M-24
+# removes it. Overlap is now reported as info telemetry, not failure.
 # ─────────────────────────────────────────────────────────────────
 
-def test_m203_parser_rejects_overlapping_ev_ids() -> None:
+def test_m24_parser_allows_overlapping_ev_ids() -> None:
     raw = json.dumps({
         "sections": [
             {"title": "Efficacy", "focus": "...", "ev_ids": ["ev_001", "ev_002"]},
-            {"title": "Safety",   "focus": "...", "ev_ids": ["ev_002", "ev_003"]},  # ev_002 overlaps
-            {"title": "Comparative Effectiveness", "focus": "...", "ev_ids": ["ev_004", "ev_005"]},
+            {"title": "Safety",   "focus": "...", "ev_ids": ["ev_002", "ev_003"]},  # ev_002 shared
+            {"title": "Comparative", "focus": "...", "ev_ids": ["ev_004", "ev_005"]},
         ]
     })
     result = _parse_outline(raw)
-    assert result.ok is False
-    assert any("overlapping_ev_ids" in c for c in result.reason_codes)
+    # M-24: overlap is legitimate, plan stays valid
+    assert result.ok is True
+    # Informational reason code is still recorded for telemetry
+    assert any(
+        c.startswith("info_overlap:") for c in result.reason_codes
+    ), f"Expected info_overlap telemetry, got {result.reason_codes}"
+    # All 3 sections survive with their (possibly shared) ev_ids intact
+    titles = [p.title for p in result.plans]
+    assert "Efficacy" in titles and "Safety" in titles
+    # ev_002 appears in BOTH Efficacy and Safety
+    eff = next(p for p in result.plans if p.title == "Efficacy")
+    safety = next(p for p in result.plans if p.title == "Safety")
+    assert "ev_002" in eff.ev_ids
+    assert "ev_002" in safety.ev_ids
 
 
 # ─────────────────────────────────────────────────────────────────
