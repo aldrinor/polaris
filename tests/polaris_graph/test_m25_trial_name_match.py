@@ -1,0 +1,191 @@
+"""M-25a tests: trial-name match in strict_verify.
+
+Reproduces the FABRICATED #20 defect from DR audit pass 4:
+  - Sentence: "SURMOUNT-1 ... tirzepatide 15 mg ... 20.9% at 72 weeks
+    versus 3.1% placebo." [ev:ev_015]
+  - ev_015 statement: "Tirzepatide after intensive lifestyle intervention
+    in adults with overweight or obesity: the SURMOUNT-3 phase 3 trial"
+
+The old strict_verify passed this sentence because:
+  (a) content words {tirzepatide, surmount} overlap between sentence
+      and evidence span, satisfying MIN_CONTENT_WORD_OVERLAP
+  (b) the numeric check ran against the span text — if the span
+      happened to contain 20.9 or 3.1 or 72 it would pass
+
+The new guard rejects the binding: sentence names SURMOUNT-1 as an
+atomic token, evidence title names SURMOUNT-3 atomically, and the
+two do not match.
+"""
+from __future__ import annotations
+
+import pytest
+
+from polaris_graph.generator.provenance_generator import (
+    extract_trial_names,
+    verify_sentence_provenance,
+)
+
+
+class TestExtractTrialNames:
+    """Unit tests for the trial-name extractor itself."""
+
+    def test_extracts_surpass_n(self) -> None:
+        assert extract_trial_names("SURPASS-1 reported HbA1c reduction") == {"SURPASS-1"}
+
+    def test_extracts_surmount_n(self) -> None:
+        assert extract_trial_names("SURMOUNT-4 at week 88 [data]") == {"SURMOUNT-4"}
+
+    def test_extracts_multiple_trials(self) -> None:
+        text = "SURPASS-1 and SURPASS-2 both showed efficacy, while SURMOUNT-3 focused on obesity."
+        assert extract_trial_names(text) == {"SURPASS-1", "SURPASS-2", "SURMOUNT-3"}
+
+    def test_extracts_named_acronyms(self) -> None:
+        """SELECT, LEADER, SUSTAIN, PIONEER, STEP, REWIND, AWARD, GRADE are
+        named trial programs. When named as ALLCAPS words in a sentence,
+        treat them as trial tokens.
+        """
+        assert extract_trial_names("The SELECT trial showed CV benefit") == {"SELECT"}
+        assert extract_trial_names("LEADER established CV safety") == {"LEADER"}
+        assert extract_trial_names("STEP-1 trial with semaglutide") == {"STEP-1"}
+
+    def test_no_false_positive_on_surmount_without_number(self) -> None:
+        """A generic phrase 'SURMOUNT program' without a number should
+        not be extracted as a specific trial token — it refers to the
+        whole program, which doesn't require sub-trial matching."""
+        # Per spec: SURMOUNT alone (no dash-number) is NOT a specific
+        # trial ID and doesn't trigger the gate.
+        result = extract_trial_names("Across the SURMOUNT program outcomes varied")
+        # Should not contain a bare "SURMOUNT" token (because that would
+        # incorrectly match SURMOUNT-1/2/3/4 evidence).
+        assert "SURMOUNT" not in result
+
+    def test_case_insensitive_matching(self) -> None:
+        """Evidence titles often use mixed case (Surmount, SURMOUNT).
+        Normalize to uppercase for comparison."""
+        assert extract_trial_names("Surmount-3 is a phase 3 trial") == {"SURMOUNT-3"}
+        assert extract_trial_names("surpass-1 randomized trial") == {"SURPASS-1"}
+
+    def test_extracts_surmount_program_dash_variants(self) -> None:
+        """SURMOUNT-CN, SURMOUNT-OSA are legitimate sub-trials."""
+        assert "SURMOUNT-CN" in extract_trial_names("SURMOUNT-CN Chinese cohort")
+        assert "SURMOUNT-OSA" in extract_trial_names("SURMOUNT-OSA sleep apnea trial")
+
+    def test_empty_for_generic_prose(self) -> None:
+        assert extract_trial_names("Tirzepatide is effective for weight loss") == set()
+
+
+class TestTrialNameMismatchRejection:
+    """Integration tests: strict_verify rejects a sentence whose named
+    trial does not appear in the cited evidence.
+    """
+
+    def test_fabricated_surmount1_cited_to_surmount3_is_rejected(self) -> None:
+        """The exact FABRICATED #20 defect from DR audit pass 4."""
+        sentence = (
+            "In SURMOUNT-1, tirzepatide 15 mg achieved >=20% body-weight "
+            "reduction in 20.9% of participants at 72 weeks versus 3.1% "
+            "with placebo. [#ev:ev_015:0-200]  # span within direct_quote length below"
+        )
+        # ev_015 is genuinely the SURMOUNT-3 paper — correct tier/label.
+        # But the generator bound it to a SURMOUNT-1 sentence. Reject.
+        pool = {
+            "ev_015": {
+                "direct_quote": (
+                    "Tirzepatide after intensive lifestyle intervention in "
+                    "adults with overweight or obesity: the SURMOUNT-3 phase "
+                    "3 trial. The MTD of tirzepatide achieved weight reduction "
+                    "of 20.9% at 72 weeks versus placebo."
+                ),
+                "statement": (
+                    "Tirzepatide after intensive lifestyle intervention: the "
+                    "SURMOUNT-3 phase 3 trial"
+                ),
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert not result.is_verified
+        assert any(
+            "trial_name_mismatch" in r for r in result.failure_reasons
+        ), f"expected trial_name_mismatch; got {result.failure_reasons}"
+
+    def test_matching_trial_name_passes(self) -> None:
+        """A SURMOUNT-3 sentence cited to a SURMOUNT-3 paper passes."""
+        quote = (
+            "Tirzepatide in SURMOUNT-3: MTD tirzepatide achieved 18.4% "
+            "weight reduction at 72 weeks."
+        )
+        sentence = (
+            f"In SURMOUNT-3, MTD tirzepatide achieved 18.4% weight reduction. "
+            f"[#ev:ev_015:0-{len(quote)}]"
+        )
+        pool = {"ev_015": {"direct_quote": quote}}
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert result.is_verified, f"expected pass; failures={result.failure_reasons}"
+
+    def test_sentence_without_trial_name_not_gated(self) -> None:
+        """A generic sentence with no trial name is not subject to the
+        trial-name gate (only numeric + content-overlap checks apply)."""
+        sentence = (
+            "Tirzepatide significantly reduced HbA1c compared to placebo. "
+            "[#ev:ev_015:0-95]"
+        )
+        pool = {
+            "ev_015": {
+                "direct_quote": (
+                    "Tirzepatide significantly reduced HbA1c compared to "
+                    "placebo across doses in the SURMOUNT-3 trial."
+                ),
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert result.is_verified, f"expected pass; failures={result.failure_reasons}"
+
+    def test_mismatched_trial_in_multi_citation_one_matching_passes(self) -> None:
+        """If the sentence names trial T and cites multiple evidence rows,
+        at least one cited row must mention T for the sentence to pass."""
+        sentence = (
+            "SURPASS-2 demonstrated superior efficacy versus semaglutide. "
+            "[#ev:ev_a:0-50][#ev:ev_b:0-50]"
+        )
+        pool = {
+            "ev_a": {
+                "direct_quote": (
+                    "Some other trial context mentioning semaglutide and "
+                    "tirzepatide comparison."
+                ),
+            },
+            "ev_b": {
+                "direct_quote": (
+                    "SURPASS-2 was a phase 3 trial comparing tirzepatide "
+                    "to semaglutide in people with T2D."
+                ),
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert result.is_verified, (
+            f"expected pass (ev_b matches trial); failures={result.failure_reasons}"
+        )
+
+    def test_mismatched_trial_in_multi_citation_none_matching_rejected(self) -> None:
+        """If none of the cited rows mention the named trial, reject."""
+        quote_a = (
+            "SURPASS-1 was the first pivotal tirzepatide trial demonstrating "
+            "sustained glycemic control vs placebo."
+        )
+        quote_b = (
+            "SURPASS-2 compared tirzepatide to semaglutide and showed "
+            "sustained glycemic control superiority."
+        )
+        sentence = (
+            f"SURPASS-6 demonstrated sustained glycemic control in tirzepatide "
+            f"patients. [#ev:ev_a:0-{len(quote_a)}][#ev:ev_b:0-{len(quote_b)}]"
+        )
+        pool = {
+            "ev_a": {"direct_quote": quote_a},
+            "ev_b": {"direct_quote": quote_b},
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert not result.is_verified
+        assert any("trial_name_mismatch" in r for r in result.failure_reasons), (
+            f"expected trial_name_mismatch; got {result.failure_reasons}"
+        )

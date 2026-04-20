@@ -1,11 +1,12 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-19 (full-scale DR auto-loop in flight)
+**Last Updated**: 2026-04-20 (M-25 planning post-DR pass 4)
 
 ## ACTIVE: Full-Scale DR Auto-Loop (user directive 2026-04-19)
 
 **Procedure**: `state/full_scale_auto_loop_procedure.md`
 **Memory**: `C:\Users\msn\.claude\projects\C--POLARIS\memory\full_scale_dr_auto_loop.md`
+**Handover**: `state/autoloop_handover_2026-04-20.md`
 
 Loop (no cycle cap, auto-continue):
 1. Claude fixes → unit tests → smoke
@@ -16,32 +17,59 @@ Loop (no cycle cap, auto-continue):
    - BLOCKED → full issues list → claude fixes, loop back to step 1
    - GREEN at GPT-5.4-DR / Gemini-3.1-Pro-DR top-tier quality → STOP
 
-**Current cycle**: Iteration 6 — V10 sweep IN FLIGHT, M-23 + M-24 fixes applied.
+**Current cycle**: Iteration 7 — V10 complete + DR pass 4 MATERIAL-GAPS. M-25 planning.
 
 Pass sequence:
 - V4-V5-V6 DR passes 1-3 → all MATERIAL-GAPS
 - V7-V9 MATERIAL-GAPS: low citation count, paywall stubs on NEJM/Lancet
-- **M-23 a-f** (commits 6c999e8 + ff68b86): access_bypass fixes
-  - Unpaywall step 0 (a), strip-before-paywall (b), quality-scored
-    winner (c), HTTP-error stub detection (d), Unpaywall PDF-only
-    swap (e), paywall regex tightening (f — catches greedy-regex
-    false positives on 50K NEJM body text).
-  - Live test on NEJM SURPASS-2: fetches 50,622 chars real article.
-- **M-24 a-b** (commit 6c999e8): outline/section prompts
-  - Remove "no overlap" rule; per-section target 8-20 ev_ids.
-  - Sentence target 10-18 (was 6-10); citation diversity ≥5 sources.
-- **V10 LAUNCHED** at commit `6c015ea` via
-  `scripts/run_full_scale_v10.py` (explicit env: MAX_EV=600,
-  fetch_cap=500, serper/s2=50, budget=$10, Firecrawl=off,
-  Unpaywall=on). Output: `outputs/full_scale_v10/`.
-- Monitor `byo1fvjat` watching logs/v10_sweep.log. Early events
-  confirm M-23a (Unpaywall keep-original on figshare no-PDF) and
-  M-23c (quality-winner logging with scores) firing correctly.
+- **M-23 a-f** (commits 6c999e8 + ff68b86): access_bypass fixes (done)
+- **M-24 a-b** (commit 6c999e8 + hotfix): outline/section prompts (done)
+- **V10 completed** at commit `ff68b86`:
+  - status=abort_evaluator_critical, release_allowed=false
+  - T1=20%, T2=14% (BEST corpus tier mix), 309 sources
+  - 3 sections, 834 words, 16 unique citations
+  - PT08+PT11 fail, Qwen citation_tightness=needs_revision
+- **DR pass 4 dispatched + completed** at commit `5502ddb`:
+  - Live-fetch mandate satisfied (no metadata-only verdicts)
+  - 18 FAITHFUL / 1 FABRICATED / 1 EMBELLISHED / 4 UNVERIFIABLE
+  - Verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
 
-Tasks: #153-155 completed → #156 IN PROGRESS (V10 + DR pass 4).
-Audit brief: `.codex/dr_output_audit_pass_4_v10_brief.md` mandates
-live-DOI fetch for 25+ citations (addresses user question about
-whether prior audits were metadata-based).
+### Pass-4 root-cause diagnosis (advisor-gated before M-25)
+
+1. **Outline section count 3 not 5**: NOT a fallback. LLM outline parsed
+   OK; prompt permits "3-5 sections", LLM chose minimum. Need to force
+   5 where corpus supports it. `manifest.generator.outline_sections=
+   ["Efficacy","Safety","Comparative"]`.
+2. **FABRICATED #20 = generator trial-binding bug**: ev_015 IS the
+   SURMOUNT-3 paper (correctly labeled). Generator wrote a SURMOUNT-1
+   sentence and bound it to ev_015 SURMOUNT-3. strict_verify passed —
+   no trial-name gate prevented the mismatch.
+3. **EMBELLISHED #12 = scope leak**: Safety section cites PG-102 phase I
+   (bispecific GLP-1/GLP-2 — NOT tirzepatide). No drug-name gate.
+4. **4 UNVERIFIABLE**: Codex couldn't live-fetch 4 sources. Deferred
+   inspection of cached corpus content.
+
+### M-25 plan (post-pass-4, advisor-gated)
+
+- [ ] **M-25a (HIGH)**: Trial-name match in strict_verify. If sentence
+      names trial (SURPASS-N/SURMOUNT-N/SELECT/LEADER/etc.), cited
+      evidence must have trial in title OR explicit post-hoc link.
+      Prevents FABRICATED-#20 class. Add failing test first.
+- [ ] **M-25b (HIGH)**: Outline "choose 5 when supported" — raise
+      minimum from 3 to 5 (4 allowed only if ≥2 sections would have
+      <8 ev_ids). Expands 3→5 sections and 834→~1400+ words.
+- [ ] **M-25c (MEDIUM)**: Drug/population scope gate in safety writer.
+      Reject evidence rows lacking tirzepatide OR explicitly non-T2DM.
+      Addresses EMBELLISHED #12.
+- [ ] **M-25d (MEDIUM)**: Emit M-23 telemetry to run_log.txt
+      (Unpaywall hits, OA swaps, winner-backend, quality score).
+- [ ] **M-25e (LOW)**: Citation adjacency in limitations + contradictions.
+      Prompt + post-processing; PT11+PT08.
+- [ ] **M-25f (DEFER)**: Adjudicated contradiction table. Post-M-25.
+
+Do NOT launch V11 until M-25a + M-25b + green suite.
+
+Tasks: #153-156 completed (V10 + DR pass 4). #157 M-25 IN PROGRESS.
 
 ---
 

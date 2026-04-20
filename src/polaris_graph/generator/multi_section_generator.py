@@ -137,13 +137,13 @@ class OutlineParseResult:
 
 OUTLINE_SYSTEM_PROMPT = f"""You are a research planner. Given a research question and a corpus of evidence blocks, produce a section plan.
 
-OUTPUT FORMAT: a valid JSON object with key "sections" whose value is a JSON array of 3-5 objects. Each object has:
+OUTPUT FORMAT: a valid JSON object with key "sections" whose value is a JSON array of 4-5 objects. Each object has:
   "title":  one of {_ALLOWED_SECTIONS}  (choose only from this list — do not invent titles)
   "focus":  one sentence describing the section's analytical focus
   "ev_ids": a JSON array of evidence IDs (e.g., ["ev_001", "ev_002"]) that the section should draw from
 
 RULES:
-- Choose 3-5 sections that are best supported by the evidence corpus.
+- M-25b: Choose EXACTLY 5 sections when the corpus supports them (i.e., at most 1 section would otherwise have <8 ev_ids). Only drop to 4 when ≥2 sections would be under-supported. NEVER emit only 3 sections when the corpus has ≥100 evidence rows — that produces a directional brief, not a Deep Research report.
 - Evidence IDs MAY appear in MULTIPLE sections when the same primary study supports claims across topics (a single SURPASS or SURMOUNT paper legitimately contributes to BOTH Efficacy and Safety sections; a guideline legitimately contributes to Background and Recommendations). Do NOT artificially partition evidence across sections at the cost of citation density.
 - Every section must have AT LEAST 8 distinct evidence IDs assigned, targeting 12-20 where the corpus supports it.
 - Aim for at least 5 unique PRIMARY sources (distinct studies/papers, not just distinct ev_ids) per section.

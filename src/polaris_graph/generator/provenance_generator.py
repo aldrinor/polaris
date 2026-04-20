@@ -522,6 +522,74 @@ MIN_CONTENT_WORD_OVERLAP = int(
 )
 
 
+# M-25a: trial-name match for strict_verify.
+#
+# DR audit pass 4 FABRICATED #20: generator wrote "SURMOUNT-1 ... 20.9%
+# at 72 weeks versus 3.1% placebo" and bound it to evidence ev_015 whose
+# title is "Tirzepatide after intensive lifestyle intervention: the
+# SURMOUNT-3 phase 3 trial". The old verifier passed the binding because
+# the content words {tirzepatide, surmount} overlap and some placebo-arm
+# percentage happened to appear in the SURMOUNT-3 span body. But the
+# trial identity was wrong — SURMOUNT-1 is not SURMOUNT-3.
+#
+# We extract named trials (SURPASS-N, SURMOUNT-N, SURMOUNT-CN, STEP-N,
+# SELECT, LEADER, SUSTAIN, PIONEER, REWIND, AWARD, GRADE) as ATOMIC
+# tokens. If a sentence names trial T, at least one cited evidence row
+# must also mention T in its statement/title/direct_quote. Sentences
+# without any named trial are not gated by this check.
+#
+# Bare-word acronyms (SELECT, LEADER, SUSTAIN, PIONEER, REWIND, AWARD,
+# GRADE) are matched when they appear in ALLCAPS to avoid over-matching
+# common words.
+
+_TRIAL_NUMBERED_RE = re.compile(
+    # SURPASS-1 through SURPASS-99, SURMOUNT-1 through SURMOUNT-99, STEP-N
+    r"\b(?:SURPASS|SURMOUNT|STEP)-(?:[0-9]{1,2}|CN|OSA|AP|J|MMO)\b",
+    re.IGNORECASE,
+)
+
+_TRIAL_ALLCAPS_RE = re.compile(
+    # Named trial programs that must be distinguished from common words
+    # by ALLCAPS presentation in the sentence/evidence.
+    r"\b(?:SELECT|LEADER|SUSTAIN|PIONEER|REWIND|AWARD|GRADE)\b",
+)
+
+
+def extract_trial_names(text: str) -> set[str]:
+    """Return the set of trial-program names (normalized to uppercase
+    with hyphen) found in the text. Used by the M-25a trial-name gate.
+
+    Numbered trials (SURPASS-2, SURMOUNT-3, STEP-1, SURMOUNT-CN) are
+    case-insensitive. Bare-word trial names (SELECT, LEADER, etc.)
+    are ALLCAPS-only to avoid matching common words.
+    """
+    if not text:
+        return set()
+    found: set[str] = set()
+    for m in _TRIAL_NUMBERED_RE.finditer(text):
+        # Normalize: uppercase the trial root and preserve dash-suffix case.
+        raw = m.group(0)
+        head, _, tail = raw.partition("-")
+        found.add(f"{head.upper()}-{tail.upper()}")
+    for m in _TRIAL_ALLCAPS_RE.finditer(text):
+        found.add(m.group(0).upper())
+    return found
+
+
+def _trial_names_in_evidence(ev: dict[str, Any]) -> set[str]:
+    """Pull trial names from every text field an evidence row might
+    carry: statement, direct_quote, title. Some backends populate only
+    one of these. A trial named in any of them counts."""
+    if not ev:
+        return set()
+    acc: set[str] = set()
+    for key in ("statement", "direct_quote", "title"):
+        val = ev.get(key) or ""
+        if val:
+            acc |= extract_trial_names(val)
+    return acc
+
+
 def verify_sentence_provenance(
     sentence: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -639,6 +707,26 @@ def verify_sentence_provenance(
                 failures.append(
                     f"no_content_word_overlap_any_cited_span:{ev_ids}:"
                     f"sentence_words={sorted(sentence_content)[:5]}"
+                )
+
+        # M-25a: trial-name match. If the sentence names a specific
+        # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least
+        # one cited evidence row must mention that trial. Prevents the
+        # DR pass-4 FABRICATED-#20 defect (SURMOUNT-1 claim bound to
+        # SURMOUNT-3 paper).
+        sentence_trials = extract_trial_names(sentence_for_numbers)
+        if sentence_trials:
+            evidence_trials: set[str] = set()
+            for tok in tokens:
+                ev = evidence_pool.get(tok.evidence_id)
+                evidence_trials |= _trial_names_in_evidence(ev or {})
+            matched = sentence_trials & evidence_trials
+            if not matched:
+                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+                failures.append(
+                    f"trial_name_mismatch:{ev_ids}:"
+                    f"sentence_trials={sorted(sentence_trials)}:"
+                    f"evidence_trials={sorted(evidence_trials)}"
                 )
 
     # Gap-2 soft check: detect unhedged superlatives. This does NOT
