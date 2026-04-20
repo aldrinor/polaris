@@ -109,7 +109,12 @@ class TestTrialNameMismatchRejection:
         ), f"expected trial_name_mismatch; got {result.failure_reasons}"
 
     def test_matching_trial_name_passes(self) -> None:
-        """A SURMOUNT-3 sentence cited to a SURMOUNT-3 paper passes."""
+        """A SURMOUNT-3 sentence cited to a SURMOUNT-3 paper passes.
+
+        Pass-7 hardening: trial-name gate uses statement/title ONLY
+        (not direct_quote). Fixture must populate statement with the
+        authoritative trial identity.
+        """
         quote = (
             "Tirzepatide in SURMOUNT-3: MTD tirzepatide achieved 18.4% "
             "weight reduction at 72 weeks."
@@ -118,7 +123,12 @@ class TestTrialNameMismatchRejection:
             f"In SURMOUNT-3, MTD tirzepatide achieved 18.4% weight reduction. "
             f"[#ev:ev_015:0-{len(quote)}]"
         )
-        pool = {"ev_015": {"direct_quote": quote}}
+        pool = {
+            "ev_015": {
+                "direct_quote": quote,
+                "statement": "SURMOUNT-3 phase 3 obesity trial with lifestyle intervention",
+            },
+        }
         result = verify_sentence_provenance(sentence, pool, require_number_match=True)
         assert result.is_verified, f"expected pass; failures={result.failure_reasons}"
 
@@ -153,18 +163,61 @@ class TestTrialNameMismatchRejection:
                     "Some other trial context mentioning semaglutide and "
                     "tirzepatide comparison."
                 ),
+                "statement": "GLP-1/GIP co-agonist comparative review",
             },
             "ev_b": {
                 "direct_quote": (
                     "SURPASS-2 was a phase 3 trial comparing tirzepatide "
                     "to semaglutide in people with T2D."
                 ),
+                "statement": "SURPASS-2 primary RCT: tirzepatide vs semaglutide",
             },
         }
         result = verify_sentence_provenance(sentence, pool, require_number_match=True)
         assert result.is_verified, (
             f"expected pass (ev_b matches trial); failures={result.failure_reasons}"
         )
+
+    def test_pass7_regression_direct_quote_mention_insufficient(self) -> None:
+        """DR pass-7 regression: the SURMOUNT-3 Nature paper's
+        direct_quote mentions SURMOUNT-1 as a prior reference. Pre-
+        hardening, M-25a saw SURMOUNT-1 in evidence text and passed a
+        fabricated 'In SURMOUNT-1, ...' sentence. Post-hardening, the
+        gate uses only statement/title — so the SURMOUNT-3 paper
+        correctly rejects a SURMOUNT-1 binding even though direct_quote
+        mentions both."""
+        # SURMOUNT-3 paper's direct_quote spans both trials (prior-ref
+        # style), but its title/statement is only SURMOUNT-3.
+        direct_quote = (
+            "Prior work in SURMOUNT-1 established the weight-reduction "
+            "efficacy of tirzepatide in obesity without diabetes. Here "
+            "we present SURMOUNT-3, an intensive-lifestyle-intervention "
+            "trial demonstrating MTD of tirzepatide produced a mean "
+            "weight reduction of 18.4% at 72 weeks."
+        )
+        sentence = (
+            f"In SURMOUNT-1, the MTD of tirzepatide led to a mean weight "
+            f"reduction of 20.9% at 72 weeks versus 3.1% with placebo. "
+            f"[#ev:ev_015:0-{len(direct_quote)}]"
+        )
+        pool = {
+            "ev_015": {
+                "direct_quote": direct_quote,
+                "statement": (
+                    "Tirzepatide after intensive lifestyle intervention: the "
+                    "SURMOUNT-3 phase 3 trial"
+                ),
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert not result.is_verified, (
+            f"pass-7 hardening regressed: expected trial_name_mismatch "
+            f"drop because statement is only SURMOUNT-3; got kept "
+            f"(failures={result.failure_reasons})"
+        )
+        assert any(
+            "trial_name_mismatch" in r for r in result.failure_reasons
+        ), f"expected trial_name_mismatch; got {result.failure_reasons}"
 
     def test_mismatched_trial_in_multi_citation_none_matching_rejected(self) -> None:
         """If none of the cited rows mention the named trial, reject."""

@@ -577,13 +577,23 @@ def extract_trial_names(text: str) -> set[str]:
 
 
 def _trial_names_in_evidence(ev: dict[str, Any]) -> set[str]:
-    """Pull trial names from every text field an evidence row might
-    carry: statement, direct_quote, title. Some backends populate only
-    one of these. A trial named in any of them counts."""
+    """Pull trial names from an evidence row's AUTHORITATIVE identity
+    fields — statement (title/summary) and title — but NOT direct_quote.
+
+    DR pass 7 (2026-04-20) demonstrated that scanning direct_quote is
+    too permissive: the SURMOUNT-3 Nature paper's direct_quote cited
+    SURMOUNT-1 as a prior reference, which let a fabricated
+    'In SURMOUNT-1, ...' sentence pass the trial-name gate when bound
+    to ev_015 (SURMOUNT-3). statement + title encode the AUTHORITATIVE
+    trial identity of the paper; direct_quote encodes what the paper
+    DISCUSSES, which legitimately spans other trials for context.
+    """
     if not ev:
         return set()
     acc: set[str] = set()
-    for key in ("statement", "direct_quote", "title"):
+    # M-25a hardening (pass 7): title/statement only. direct_quote
+    # excluded — it's too permissive for trial-name identity matching.
+    for key in ("statement", "title"):
         val = ev.get(key) or ""
         if val:
             acc |= extract_trial_names(val)
