@@ -125,3 +125,63 @@ Estimated cost to TOP-TIER-DR-ACHIEVED: 2-4 more sweeps @ ~95min
 - 05:11 V13 sweep complete (FIRST RELEASE-ALLOWED=TRUE)
 - 05:15 Pass 6 dispatch + verdict (MATERIAL-GAPS but "major improvement")
 - 05:30 This handover
+
+---
+
+## UPDATE 2026-04-20 late: V14/V15 rejected M-26a
+
+### What happened
+
+After the V13 milestone + Codex pass 6 CONTINUE verdict, the
+autonomous loop attempted **M-26a** (exclude T6 social platforms
+from evidence selector) per Codex's "Facebook for FDA boxed
+warning is unacceptable for DR" finding.
+
+**V14** (commit `1ad30a1` with M-26a): REGRESSED
+- outline=3 sections, 698 words, 22 verified, 15 citations
+- release_allowed=False (PT11 + Qwen 2 needs_revision)
+
+**V15** (same commit, reproducibility test): REGRESSED SAME WAY
+- outline=3 sections, 627 words, 19 verified
+- release_allowed=False (Qwen citation_tightness needs_revision)
+- status=partial_outline_fallback confirmed retry fired, LLM
+  returned 3 sections twice
+
+### Diagnosis
+
+M-26a filter correctly dropped 5-6 T6 rows from the 290-row pool.
+But the LLM outline planner returned 3 sections instead of 5,
+reproducibly. M-25b retry fired but also returned 3. The T6 rows
+(Facebook, press releases, blog posts) appear to carry
+**topic-diversity signals** — e.g., regulatory status, news
+announcements — that the outline LLM was using to justify broader
+sections like "Dose Response" and "Population Subgroups". Remove
+them and the LLM reverts to the minimum Efficacy/Safety/Comparative.
+
+### Action
+
+M-26a **reverted** (commit `1f88be9`). V13 baseline restored.
+Tests remain 667 pass.
+
+### Takeaway
+
+The "fix one gap, regress another" pattern reinforces advisor's
+earlier warning: remaining Codex-named gaps are architectural,
+not isolable. Tightening source-tier selection without loss of
+corpus signal requires either:
+(a) **Narrower T6 reject** — only whitelisted-bad domains (facebook,
+    instagram, tiktok) rather than entire tier
+(b) **Topic-diversity signals elsewhere** — outline prompt should
+    be given sub-topic labels derived from classifier so it can
+    justify 5 sections without the T6 rows as prompt
+(c) **Replace rather than drop** — retrieve FDA label + drop
+    Facebook together
+
+These are multi-hour fixes. V13 remains the current ship-quality
+baseline at commit `451f382`.
+
+### V13 is the checkpoint
+
+If the user wants to ship: V13 @ `451f382` is the artifact.
+If the user wants TOP-TIER-DR: start with M-26 option (a), (b),
+or (c) above — all are non-trivial.
