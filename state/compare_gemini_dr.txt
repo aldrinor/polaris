@@ -1,0 +1,858 @@
+Systemic Efficacy and Safety Profile of 
+Tirzepatide in the Management of Type 2 
+Diabetes 
+Introduction 
+The clinical management of type 2 diabetes mellitus has undergone a profound paradigm shift 
+over the past two decades. Historically, pharmacotherapy was predominantly glucocentric, 
+focusing narrowly on the reduction of glycated hemoglobin (HbA1c) through mechanisms that 
+often induced adverse physiological consequences, such as the weight gain associated with 
+insulin therapy, sulfonylureas, and thiazolidinediones, or the isolated hypotensive and diuretic 
+effects of early interventions. The subsequent introduction of incretin-based therapies, 
+specifically glucagon-like peptide-1 (GLP-1) receptor agonists, initiated a transition toward a 
+more holistic metabolic approach, offering the dual benefits of glycemic control and clinically 
+meaningful weight reduction while simultaneously conferring cardiovascular protection. 
+However, despite the efficacy of high-dose GLP-1 receptor agonists, a substantial proportion 
+of patients continue to struggle to achieve optimal glycemic targets or reach weight loss 
+thresholds capable of inducing disease remission. This therapeutic ceiling prompted the 
+exploration of multi-receptor targeted peptides, culminating in the development of tirzepatide. 
+Tirzepatide represents a significant pharmacological advancement as a first-in-class, synthetic, 
+dual glucose-dependent insulinotropic polypeptide (GIP) and GLP-1 receptor agonist. By 
+integrating the synergistic mechanisms of both primary incretin hormones, tirzepatide 
+addresses the multifaceted metabolic defects inherent in the pathophysiology of type 2 
+diabetes. The compound fundamentally alters the disease trajectory by stimulating 
+glucose-dependent insulin secretion, suppressing inappropriate fasting and postprandial 
+glucagon secretion, modulating gastric emptying, and heavily influencing central 
+appetite-regulating pathways to induce profound and sustained weight loss. 
+This comprehensive report provides an exhaustive, evidence-based analysis of the systemic 
+efficacy, physiological mechanisms, and safety profile of tirzepatide in adults with type 2 
+diabetes. The analysis synthesizes data from the extensive SURPASS clinical trial program, the 
+SURMOUNT weight management trials, the pivotal SURPASS-CVOT cardiovascular outcomes 
+trial, emerging real-world observational studies from 2024 to 2026, and the latest regulatory 
+safety updates issued by both the United States Food and Drug Administration (FDA) and 
+Health Canada. 
+Pharmacodynamics, Pharmacokinetics, and 
+Mechanism of Action 
+
+
+=== PAGE BREAK ===
+
+To fully comprehend the clinical efficacy of tirzepatide, it is essential to understand its 
+structural engineering and its highly specific receptor binding profile. Tirzepatide is a synthetic, 
+39-amino acid peptide that is based on the native GIP peptide sequence but has been heavily 
+modified to bind to both GIP and GLP-1 receptors.1 A critical structural modification is the 
+addition of a C20 fatty diacid moiety, which facilitates strong, non-covalent binding to 
+circulating serum albumin.1 This modification drastically reduces the rate of renal clearance and 
+enzymatic degradation, extending the molecule's mean half-life to approximately five days, 
+thereby enabling a highly convenient once-weekly subcutaneous dosing regimen.1 
+Unlike native incretins or early combination attempts, tirzepatide functions as an "imbalanced" 
+dual agonist. It exhibits an affinity for the GIP receptor that is comparable to that of native GIP, 
+ensuring robust activation of this pathway. Conversely, its affinity for the GLP-1 receptor is 
+significantly weaker than that of native GLP-1.1 This imbalanced profile is highly deliberate and 
+clinically vital; it leverages the massive insulinotropic potential of GIP while utilizing just enough 
+GLP-1 agonism to suppress glucagon and delay gastric emptying without overwhelming the 
+receptor and causing intolerable early gastrointestinal distress. 
+The physiological consequences of this dual agonism have been quantified in sophisticated 
+mechanistic studies. In hyperinsulinemic-euglycemic clamp studies conducted over 28 weeks, 
+the administration of tirzepatide at its maximum therapeutic dose of 15 mg increased 
+whole-body insulin sensitivity by a remarkable 63%, as measured by the M-value.2 This massive 
+reduction in peripheral insulin resistance is largely attributed to the profound reduction in 
+visceral and ectopic fat depots driven by the drug's anorexigenic effects. Simultaneously, 
+hyperglycemic clamp studies in patients with type 2 diabetes demonstrated that tirzepatide 15 
+mg significantly enhanced both the first-phase and second-phase insulin secretion rates, 
+effectively restoring the natural biphasic insulin response that is characteristically blunted or 
+lost early in the pathogenesis of type 2 diabetes.2 
+Furthermore, the dual agonism exerts potent central effects. By stimulating receptors in the 
+hindbrain and hypothalamus, tirzepatide decreases food intake while simultaneously 
+preventing the compensatory decrease in energy expenditure that typically accompanies 
+extreme caloric restriction.3 This specific synergy is what produces weight reductions that 
+significantly exceed the therapeutic ceiling of selective GLP-1 receptor mono-agonists.3 By 
+directly reducing the beta-cell workload through profound weight loss while simultaneously 
+amplifying the functional capacity of the remaining beta-cells via dual incretin receptor 
+stimulation, tirzepatide effectively reverses the lipotoxic environment contributing to beta-cell 
+apoptosis. 
+Glycemic Efficacy: The SURPASS Clinical Trial Program 
+The core clinical evidence supporting the approval and utilization of tirzepatide for glycemic 
+control in adults with type 2 diabetes is derived from the global SURPASS clinical trial program. 
+This extensive suite of phase 3 trials rigorously evaluated once-weekly tirzepatide across a 
+comprehensive range of doses (5 mg, 10 mg, and 15 mg) against placebo and a broad 
+
+
+=== PAGE BREAK ===
+
+spectrum of standard-of-care active comparators, including modern GLP-1 receptor agonists 
+and both basal and prandial insulins. The program was specifically designed to test the drug 
+across various stages of the disease continuum, from early intervention to late-stage, 
+insulin-dependent diabetes. 
+Foundational Efficacy: SURPASS-1 Monotherapy 
+The SURPASS-1 trial established the unconfounded baseline efficacy of tirzepatide as 
+monotherapy. This 40-week, multi-center, randomized, double-blind, parallel, 
+placebo-controlled trial enrolled 478 adults with type 2 diabetes whose condition was 
+inadequately controlled with diet and exercise alone.3 Participants were entirely naïve to 
+injectable therapies and had not used any oral antidiabetic medications within the three 
+months prior to enrollment.3 The study population represented early-stage disease, with a 
+mean baseline HbA1c ranging between 7.0% and 9.5% and a baseline body mass index (BMI) 
+greater than or equal to 23 kg/m².3 
+Tirzepatide demonstrated rapid, dose-dependent, and highly statistically significant reductions 
+in both HbA1c and body weight compared to placebo.4 Utilizing the efficacy estimand (which 
+evaluates the treatment effect assuming all participants adhered to the medication), the 
+reductions in HbA1c from a baseline of 7.9% were -1.87% for the 5 mg dose and -1.89% for the 
+10 mg dose.4 Corresponding weight reductions from a baseline of 85.9 kg were -7.0 kg (a 7.9% 
+reduction) for the 5 mg dose and -7.8 kg (a 9.3% reduction) for the 10 mg dose.4 
+However, the most clinically revealing metric was the proportion of patients achieving strict 
+glycemic targets. In the treatment-regimen estimand, the percentage of participants achieving 
+the standard American Diabetes Association (ADA) target of HbA1c <7.0% was 81.8% for the 5 
+mg cohort, 84.5% for the 10 mg cohort, and 78.3% for the 15 mg cohort, compared to only 
+23.0% for the placebo group.4 Most remarkably, tirzepatide pushed a massive proportion of 
+these early-stage patients into true normoglycemia (HbA1c <5.7%). Up to 51.7% of the 
+highest-dose cohort achieved an HbA1c of <5.7%, compared to a nominal 0.9% in the placebo 
+group.4 Achieving true normoglycemia with pharmacological monotherapy is a rare milestone 
+in diabetology and signals the profound beta-cell restorative capacity of dual incretin agonism. 
+Establishing Class Superiority: SURPASS-2 
+While placebo-controlled monotherapy trials establish baseline efficacy, the true benchmark 
+for a novel incretin therapy is a head-to-head comparison with the most potent existing GLP-1 
+receptor agonist. SURPASS-2 fulfilled this requirement by evaluating the efficacy and safety of 
+tirzepatide (5 mg, 10 mg, and 15 mg) against once-weekly injectable semaglutide 1 mg.5 
+Semaglutide had long been recognized as the gold standard for combined glycemic and 
+weight management prior to tirzepatide's arrival. 
+The results of SURPASS-2 decisively established tirzepatide's superiority. Tirzepatide achieved 
+greater, statistically significant mean changes from baseline in both HbA1c and body weight 
+across all studied doses compared to semaglutide 1 mg.5 At the maximum dose of 15 mg, trial 
+
+
+=== PAGE BREAK ===
+
+participants achieved an HbA1c reduction of 2.46% from a baseline of 8.28%, resulting in an 
+astonishing 92.2% of participants achieving an HbA1c <7.0%.5 Furthermore, the 15 mg dose 
+generated an average weight loss of 12.4 kg (13.1% of body weight), effectively doubling the 6.2 
+kg (6.7%) weight reduction observed in the semaglutide 1 mg cohort.5 
+Even at the lowest initiation and maintenance dose of 5 mg, tirzepatide outperformed the 
+highest approved diabetes dose of semaglutide at the time. The 5 mg tirzepatide cohort 
+achieved an HbA1c reduction of 2.09% and a body weight reduction of 7.8 kg (8.5%).5 
+Furthermore, the 5 mg tirzepatide dose allowed 29.3% of participants to achieve 
+normoglycemia (HbA1c <5.7%), a significantly greater proportion than the 19.7% observed with 
+semaglutide.5 
+ 
+ 
+ 
+Subsequent analyses of the SURPASS-2 data also explored the dynamics of early treatment 
+response. Clinical investigators examined whether early reductions in fasting serum glucose 
+
+
+=== PAGE BREAK ===
+
+(FSG) or body weight predicted long-term success.8 Interestingly, even among participants 
+who were deemed "nonearly responders" (defined as losing less than 5% of their body weight 
+in the first 8 weeks from baseline), the vast majority (81.3%) still went on to lose more than 0.5 
+kg by the end of the trial, while 11.8% maintained a stable weight, and only 7% experienced 
+weight gain.8 This indicates that tirzepatide's physiological mechanisms continue to exert 
+compounding benefits over time, and a lack of immediate, rapid weight loss during the 
+dose-escalation phase should not precipitate premature treatment discontinuation. The 
+distribution of background antihyperglycemic medications remained consistent between early 
+and nonearly responders, ruling out polypharmacy as the primary driver of response 
+variability.8 
+Outperforming Intensive Insulin Therapy: SURPASS-3 and SURPASS-4 
+As type 2 diabetes progresses and beta-cell exhaustion becomes pronounced, patients 
+traditionally transition to exogenous basal insulin. However, basal insulin therapy is notoriously 
+associated with weight gain and an increased risk of hypoglycemia, creating a vicious cycle of 
+increasing insulin resistance. Tirzepatide's ability to outperform modern basal insulins 
+fundamentally challenges the traditional step-therapy algorithms. 
+SURPASS-3 was a 52-week, randomized, open-label trial comparing tirzepatide (5 mg, 10 mg, 
+and 15 mg) to titrated insulin degludec in adults with type 2 diabetes inadequately controlled on 
+stable doses of metformin, with or without an SGLT2 inhibitor.9 The study participants were 
+insulin-naïve, had a relatively advanced mean duration of diabetes of 8.4 years, an average 
+baseline HbA1c of 8.17%, and a baseline weight of 94.3 kg.9 
+All three tirzepatide doses yielded superior HbA1c and body weight reductions compared to 
+carefully titrated insulin degludec (which reached a mean dose of 48.8 units per day by week 
+52).9 In the efficacy estimand, HbA1c dropped by -1.93% (5 mg), -2.20% (10 mg), and -2.37% (15 
+mg), compared to a -1.34% reduction with insulin degludec.9 The divergence in weight 
+trajectories was stark. While patients receiving insulin degludec gained an average of 2.3 kg 
+(exacerbating their metabolic resistance), patients on tirzepatide experienced profound, 
+dose-dependent weight losses ranging from -7.5 kg (5 mg) down to -12.9 kg (15 mg).9 Across 
+the three doses, up to 92.6% of tirzepatide patients achieved the ADA target of <7.0%, and an 
+impressive 48.4% achieved normoglycemia (<5.7%), compared to just 61.3% and 5.4% in the 
+degludec group, respectively.9 Crucially, between 69% and 86% of the tirzepatide cohort 
+achieved these strict HbA1c targets without weight gain and without clinically significant 
+hypoglycemia, indicating a highly safe pathway to strict control.10 
+These findings were amplified in the SURPASS-4 trial, which targeted a higher-risk 
+demographic. SURPASS-4 evaluated tirzepatide against titrated daily insulin glargine in 
+participants with type 2 diabetes and an increased baseline cardiovascular risk profile.11 In this 
+population, the highest dose of tirzepatide drove an HbA1c reduction of 2.58% and a massive 
+body weight reduction of 11.7 kg (13.0% of body weight) from a baseline of 90.3 kg.12 In direct 
+contrast, insulin glargine resulted in a modest 1.44% HbA1c reduction coupled with a 1.9 kg 
+
+
+=== PAGE BREAK ===
+
+weight gain.12 In the treatment-regimen estimand, 84.9% of the 15 mg tirzepatide group 
+achieved an HbA1c <7.0%, compared to only 48.8% in the insulin glargine cohort.12 The ability of 
+tirzepatide to provide superior glycemic control alongside massive weight reduction in a high 
+cardiovascular risk population without the hypoglycemic liabilities of glargine established it as 
+an essential tool for cardiometabolic risk mitigation.14 
+Tirzepatide as an Adjunct to Insulin: SURPASS-5 and SURPASS-6 
+For patients already reliant on basal insulin but failing to meet glycemic targets, the traditional 
+next step is the addition of prandial (mealtime) insulin—a regimen known as multiple daily 
+injections (MDI). MDI is highly burdensome, vastly increases the risk of severe hypoglycemia, 
+and accelerates weight gain. The SURPASS-5 and SURPASS-6 trials evaluated tirzepatide as an 
+alternative adjunctive therapy to spare patients from complex MDI regimens. 
+SURPASS-5 assessed the efficacy of adding tirzepatide to existing once-daily insulin glargine 
+(with or without metformin).15 The trial randomized 475 adults with inadequate glycemic control 
+(mean baseline HbA1c 8.31%) over 40 weeks.15 The addition of tirzepatide resulted in massive 
+improvements. At week 40, the mean HbA1c change was -2.40% with the 10 mg dose and 
+-2.34% with the 15 mg dose, compared to a mere -0.86% reduction in patients receiving a 
+placebo combined with continued glargine titration.15 In the efficacy estimand, the 10 mg dose 
+reduced body weight by 8.2 kg, and an extraordinary 97.4% of participants achieved an HbA1c 
+<7.0%.16 
+The phase 3b SURPASS-6 trial provided the definitive head-to-head evaluation against prandial 
+insulin. This open-label trial enrolled 1,428 adults taking basal insulin glargine and randomized 
+them to receive either once-weekly tirzepatide (pooled 5 mg, 10 mg, and 15 mg doses) or 
+thrice-daily prandial insulin lispro.17 The results demonstrated that tirzepatide was not only 
+noninferior but clinically superior to prandial insulin. At 52 weeks, the estimated mean change 
+from baseline in HbA1c with the pooled tirzepatide cohort was -2.1%.17 The results illustrate that 
+adding a once-weekly dual incretin agonist significantly improves glycemic control irrespective 
+of the duration of diabetes, successfully replacing the need for complex, weight-promoting 
+prandial insulin therapies.18 
+ 
+Trial 
+Study 
+Populati
+on / 
+Backgro
+und 
+Therapy 
+Tirzepati
+de Dose 
+HbA1c 
+Reductio
+n (%) 
+Body 
+Weight 
+Change 
+(kg) 
+Patients 
+Achievin
+g HbA1c 
+< 7.0% 
+Active 
+Compara
+tor 
+Outcom
+es 
+SURPASS
+-1 4 
+Early T2D, 
+Diet & 
+10 mg 
+-1.89% 
+-7.8 kg 
+84.5% 
+Placebo: 
+-0.09% 
+
+
+=== PAGE BREAK ===
+
+Exercise 
+Only 
+HbA1c, 
+-1.0 kg 
+SURPASS
+-2 5 
+Inadequa
+tely 
+controlle
+d on 
+Metformi
+n 
+15 mg 
+-2.46% 
+-12.4 kg 
+92.2% 
+Semaglut
+ide 1 mg: 
+-1.86% 
+HbA1c, 
+-6.2 kg 
+SURPASS
+-3 9 
+Metformi
+n +/- 
+SGLT2i, 
+Insulin-N
+aïve 
+15 mg 
+-2.37% 
+-12.9 kg 
+92.6% 
+Insulin 
+Degludec
+: -1.34% 
+HbA1c, 
++2.3 kg 
+SURPASS
+-4 12 
+High CV 
+Risk, 1-3 
+Oral 
+Agents 
+15 mg 
+-2.58% 
+-11.7 kg 
+84.9% 
+Insulin 
+Glargine: 
+-1.44% 
+HbA1c, 
++1.9 kg 
+SURPASS
+-5 16 
+Add-on 
+to 
+existing 
+Insulin 
+Glargine 
+10 mg 
+-2.59% 
+-8.2 kg 
+97.4% 
+Placebo + 
+Glargine: 
+-0.86% 
+HbA1c 
+Weight Management Specific to Type 2 Diabetes: The 
+SURMOUNT-2 Trial 
+While the SURPASS program evaluated weight loss as a secondary endpoint to glycemic 
+control, the magnitude of weight reduction achieved necessitated dedicated trials investigating 
+chronic weight management. It is a well-documented physiological phenomenon that 
+individuals with type 2 diabetes experience significantly more resistance to pharmacologically 
+induced weight loss compared to non-diabetic individuals with obesity, primarily due to 
+concurrent obesogenic medications, altered basal metabolic rates, and hyperinsulinemia. 
+The phase 3 SURMOUNT-2 clinical trial directly evaluated the efficacy and safety of tirzepatide 
+specifically for chronic weight management in participants living with obesity or overweight 
+and comorbid type 2 diabetes.19 The trial randomized adults with a BMI of ≥27 kg/m² and an 
+
+
+=== PAGE BREAK ===
+
+HbA1c of 7.0% to 10.0% to receive either once-weekly tirzepatide (10 mg or 15 mg) or placebo 
+over a 72-week duration.20 
+The results published in The Lancet established tirzepatide as the most potent pharmacological 
+weight-loss agent currently available for diabetic populations. Tirzepatide met all co-primary 
+and secondary endpoints.19 Participants utilizing the efficacy estimand achieved a staggering 
+mean weight reduction of 13.4% (13.5 kg) on the 10 mg dose and 15.7% (15.6 kg) on the 15 mg 
+dose, completely eclipsing the 3.3% (3.2 kg) weight loss observed in the placebo group.19 
+Between 81.6% and 86.4% of people taking tirzepatide achieved at least a 5% body weight 
+reduction, a standard clinical threshold for metabolic improvement.19 
+More critically, tirzepatide pushed a massive proportion of diabetic patients into higher-tier 
+weight loss thresholds previously only attainable via metabolic bariatric surgery. In the 15 mg 
+cohort, 51.8% of patients achieved a ≥15% body weight reduction, and 34.0% achieved an 
+astonishing ≥20% weight reduction (compared to 2.6% and 1.0% with placebo, respectively).19 
+A 15% reduction in body weight is broadly recognized in the clinical literature as a threshold 
+capable of inducing true diabetes remission and significantly ameliorating cardiovascular risk. 
+Concomitantly, glycemic control improved dramatically in SURMOUNT-2, with roughly half 
+(50.2% on 15 mg and 55.3% on 10 mg) of the participants achieving an HbA1c of <5.7% 
+(normoglycemia).19 
+Further sub-analyses of the data revealed that weight reduction with tirzepatide varied based 
+on baseline glycemic status. The data suggests that tirzepatide treatment leads to even greater 
+weight reductions in people with type 2 diabetes who possess relatively good baseline 
+glycemic control, implying that earlier intervention in the disease course yields superior lipolytic 
+and anorexigenic responses compared to interventions in individuals with long-standing, poorly 
+controlled disease.22 
+Resolution of the Metabolic Syndrome 
+Type 2 diabetes is rarely an isolated defect; it overwhelmingly clusters with abdominal obesity, 
+essential hypertension, and atherogenic dyslipidemia to form the metabolic syndrome. Given 
+tirzepatide's profound effects on adipose tissue and glucose kinetics, post hoc analyses of the 
+SURPASS 1-5 trials were conducted to assess its impact on the systemic prevalence of 
+metabolic syndrome.23 
+The analysis utilized the US National Cholesterol Education Program: Adult Treatment Panel III 
+criteria. At baseline, the prevalence of patients meeting the criteria for metabolic syndrome 
+was extraordinarily high, ranging from 67% to 88% across all treatment groups.23 By the primary 
+endpoints, the prevalence of metabolic syndrome in the tirzepatide cohorts plummeted to 
+between 38% and 64%.23 This reduction was significantly greater across all tirzepatide doses 
+compared to placebo, semaglutide 1 mg, insulin glargine, and insulin degludec (p < 0.001).23 
+These structural improvements in the underlying cardiometabolic risk profile—specifically the 
+clearance of visceral fat and reduction in circulating triglycerides—translate directly into 
+
+
+=== PAGE BREAK ===
+
+improved long-term hemodynamic stability. 
+Real-World Effectiveness and Comparative 
+Meta-Analyses 
+While randomized controlled trials provide the gold standard for establishing efficacy, the 
+highly controlled environments do not always perfectly predict outcomes in broader, 
+unselected clinical populations. However, as the clinical use of tirzepatide has scaled, 
+comprehensive meta-analyses and real-world observational data published between 2024 and 
+2026 have definitively corroborated the foundational trial findings. 
+A robust 2026 systematic review and meta-analysis synthesized findings from 13 real-world 
+observational studies encompassing a massive cohort of 89,296 adults with type 2 diabetes 
+tracked over 3 to 18 months.24 The real-world data verified tirzepatide's potency. Users 
+experienced a mean HbA1c reduction of 0.91% and an average weight loss of 9.7 kg (translating 
+to a mean decrease in BMI of 2.09 kg/m²).24 In the community setting, 64% of tirzepatide users 
+successfully reached the target HbA1c of <7.0%.24 Weight loss thresholds also mirrored clinical 
+trials, with 47% of users losing ≥5% of their baseline weight, 23% losing ≥10%, 9% losing ≥15%, 
+and 4% losing ≥20%.24 Sub-analyses noted that patients with previous GLP-1 receptor agonist 
+use experienced slightly lesser HbA1c and weight reductions compared to incretin-naïve 
+patients, indicating that prior receptor desensitization may play a minor role in response 
+magnitude.24 
+When systematically compared against existing classes of antidiabetic medications, network 
+meta-analyses repeatedly rank tirzepatide as the apex therapeutic option for dual metabolic 
+control. A 2025 meta-analysis examining seven distinct medication classes confirmed that 
+tirzepatide consistently demonstrates the most profound antidiabetic and weight-reducing 
+effects.25 The data also illuminated specific class nuances; while Sodium-Glucose 
+Cotransporter 2 (SGLT2) inhibitors exhibit a distinct and superior hypotensive effect making 
+them uniquely suitable for diabetic individuals with severe primary hypertension, tirzepatide 
+dominates in total metabolic correction.25 When compared directly to other incretins, the 15 mg 
+dose of tirzepatide is associated with massively increased odds of achieving 5% (Odds Ratio 
+16.82), 10% (Odds Ratio 12.20), and 15% (Odds Ratio 20.25) weight loss targets compared to 
+selective GLP-1 receptor agonists like liraglutide or semaglutide.27 
+Cardiorenal Outcomes: The SURPASS-CVOT Trial and 
+Beyond 
+Cardiovascular disease remains the leading cause of morbidity and mortality in patients with 
+type 2 diabetes. Modern regulatory frameworks rigorously mandate that new antidiabetic 
+therapies must not increase cardiovascular risk, with the demonstration of cardiovascular 
+superiority being a highly sought secondary objective. Tirzepatide's cardiovascular and renal 
+
+
+=== PAGE BREAK ===
+
+safety profiles have proven exceptionally favorable, culminating in landmark trial data. 
+The SURPASS-CVOT Trial: A New Benchmark in Cardioprotection 
+The SURPASS-CVOT (Cardiovascular Outcomes Trial) stands as a monumental milestone in 
+incretin literature. Published in late 2025 in the New England Journal of Medicine, it is notable 
+for being the first large-scale cardiovascular outcome trial to utilize an active comparator 
+rather than a placebo.28 The double-blind trial randomized 13,299 patients with type 2 diabetes 
+and established atherosclerotic cardiovascular disease (ASCVD) to receive either tirzepatide or 
+dulaglutide.30 Dulaglutide is a GLP-1 receptor agonist that had previously demonstrated 
+significant cardiovascular benefit against placebo, establishing an exceptionally high bar for 
+comparison.29 
+Over a median follow-up of 4 years, the primary composite endpoint—Major Adverse 
+Cardiovascular Events (MACE-3), defined as death from cardiovascular causes, nonfatal 
+myocardial infarction, or nonfatal stroke—occurred in 12.2% (801 patients) of the tirzepatide 
+group versus 13.1% (862 patients) of the dulaglutide group.30 This outcome achieved strict 
+statistical criteria for non-inferiority (Hazard Ratio 0.92; 95.3% CI, 0.83 to 1.01; P = 0.003) and 
+trended very closely toward superiority (P = 0.09).30 
+Given that dulaglutide already significantly reduces MACE relative to placebo, proving 
+non-inferiority against it—and demonstrating numerical superiority across almost all 
+sub-metrics—validates the robust systemic vascular benefits of dual GIP/GLP-1 agonism. 
+Specifically, tirzepatide was associated with an 8% reduction in overall cardiovascular event risk 
+and an impressive 16% reduction in all-cause mortality when compared directly to the active 
+dulaglutide control.32 Detailed breakdowns further highlighted fewer coronary revascularization 
+events (8.0% for tirzepatide vs. 9.4% for dulaglutide) and fewer myocardial infarctions (4.7% vs. 
+5.4%).29 
+ 
+
+
+=== PAGE BREAK ===
+
+ 
+ 
+Renal Protection 
+Diabetic nephropathy drives a vast proportion of end-stage renal disease globally. The 
+protective effects of tirzepatide on renal endpoints were initially observed in a post hoc 
+analysis of the SURPASS-4 trial.33 Participants receiving tirzepatide demonstrated a significantly 
+lower occurrence of composite kidney endpoints compared to those receiving insulin glargine 
+(Hazard Ratio 0.58).33 The therapy dramatically slowed the rate of estimated glomerular 
+filtration rate (eGFR) decline and reduced the urine albumin-to-creatinine ratio (UACR) in 
+clinically meaningful ways.33 
+These early signals were definitively confirmed as robust outcomes in the SURPASS-CVOT trial. 
+The kidney composite endpoint—specifically defined as severe outcomes including a persistent 
+
+
+=== PAGE BREAK ===
+
+doubling of serum creatinine, the progression to required kidney replacement therapy 
+(dialysis), or death due to kidney disease—occurred in only 4.9% (326 events) of the tirzepatide 
+group compared to 6.1% (404 events) of the dulaglutide group.29 This equates to a highly 
+clinically significant 21% relative risk reduction in severe, end-stage renal events over an 
+established GLP-1 receptor agonist, signaling that dual agonism provides intense, direct 
+protective effects on the renal microvasculature.29 
+Safety Profile, Tolerability, and Contraindications 
+While the systemic efficacy of tirzepatide is unprecedented, its extensive, multi-organ receptor 
+activation generates a specific adverse event profile. Ensuring patient compliance and 
+mitigating serious risks requires rigorous clinical management of tolerability issues and strict 
+adherence to defined contraindications. 
+Gastrointestinal Adverse Events 
+Consistent with the broader incretin drug class, the most frequently reported adverse events 
+associated with tirzepatide are overwhelmingly gastrointestinal in nature. These primarily 
+include dose-dependent nausea, diarrhea, vomiting, and decreased appetite.18 According to 
+2024 and 2025 meta-analyses encompassing over 14,700 patients, the incidence of these 
+gastrointestinal events is significantly higher at all doses of tirzepatide compared to placebo or 
+insulin comparators.27 Furthermore, when compared directly with selective GLP-1 receptor 
+agonists, the higher 10 mg and 15 mg doses of tirzepatide are associated with an increased risk 
+of nausea and diarrhea, though interestingly, not a proportional increase in vomiting.27 
+The pathophysiology of these events is complex. They are primarily linked to the 
+GLP-1-mediated delay in gastric emptying, which causes a feeling of intense fullness and 
+distension, combined with direct activation of nausea-signaling pathways in the hindbrain. 
+Clinically, the vast majority of these reports occurred during the initial dose-escalation phase 
+and decreased significantly over time as the body adapted to the receptor stimulation.2 To 
+mitigate these effects, strict adherence to the manufacturer's escalation protocol is essential: 
+initiation at 2.5 mg weekly, followed by incremental increases of 2.5 mg every four weeks until 
+the desired maintenance dose is achieved.15 
+Despite titration, gastrointestinal intolerability remains the primary driver for treatment 
+discontinuation. In the SURPASS-5 trial, treatment was prematurely discontinued due to 
+adverse events by 10% of participants on the 5 mg dose, 12% on the 10 mg dose, and 18% on 
+the 15 mg dose, compared to only 3% in the placebo group.15 Due to the severity of these 
+reactions in sensitive individuals, the 2026 FDA label heavily cautions against, and generally 
+does not recommend, the use of tirzepatide in patients with pre-existing severe 
+gastrointestinal disease, including severe gastroparesis.34 
+Rare but Severe Risks: Pancreas, Gallbladder, and Renal 
+Hemodynamics 
+
+
+=== PAGE BREAK ===
+
+Beyond transient nausea, tirzepatide is associated with less frequent but significantly more 
+severe organ-specific risks that require careful clinical vigilance. 
+●​ Acute Pancreatitis: Cases of acute pancreatitis have been observed in patients treated 
+with tirzepatide across the clinical trial program.34 The exact mechanism linking incretins 
+to pancreatic inflammation remains a topic of active research, but the risk is 
+documented. Treatment must be discontinued immediately and permanently if 
+pancreatitis is suspected.34 
+●​ Acute Gallbladder Disease: Rapid and massive weight loss inherently increases the 
+lithogenicity of bile and decreases gallbladder motility, leading to gallstone formation. 
+Clinical trials have recorded increased instances of acute gallbladder disease associated 
+with tirzepatide use.34 If cholecystitis is clinically suspected, prompt gallbladder imaging 
+and evaluation are required.34 
+●​ Acute Kidney Injury (AKI): While tirzepatide protects against chronic diabetic 
+nephropathy, it carries a paradoxical risk of Acute Kidney Injury. This risk is almost entirely 
+secondary to volume depletion. Severe and persistent nausea, vomiting, and diarrhea can 
+lead to profound dehydration, which subsequently precipitates acute pre-renal failure.34 
+Clinicians are strongly advised to monitor renal function meticulously in patients 
+reporting persistent, severe gastrointestinal symptoms to prevent acute volume 
+depletion.34 
+Hypoglycemia Management 
+As a dual incretin agonist, tirzepatide stimulates insulin secretion in a strictly 
+glucose-dependent manner; the mechanism ceases when blood glucose levels return to 
+normal. Therefore, as a monotherapy, the intrinsic risk of clinically significant hypoglycemia is 
+exceptionally low.10 However, the risk escalates significantly when tirzepatide is 
+co-administered with medications that cause glucose-independent insulin release, primarily 
+insulin secretagogues (e.g., sulfonylureas like glimepiride or glipizide) or exogenous insulin.34 
+Both FDA and Health Canada guidelines mandate that clinicians must proactively consider 
+significant dose reductions for concomitant insulin or sulfonylureas upon the initiation of 
+tirzepatide to prevent severe, potentially life-threatening hypoglycemic episodes.34 
+Boxed Warning: Thyroid C-Cell Tumors 
+The most severe regulatory caution regarding tirzepatide is its Boxed Warning (FDA) and 
+Serious Warnings and Precautions box (Health Canada) regarding the potential risk of thyroid 
+C-cell tumors.34 In extensive rodent toxicology studies, tirzepatide caused dose-dependent 
+and treatment-duration-dependent thyroid C-cell tumors, including both benign adenomas 
+and malignant carcinomas, at clinically relevant systemic exposures.35 
+The human relevance of this rodent-specific mechanism—which is believed to be mediated via 
+sustained GLP-1 receptor activation on rodent C-cells—remains undetermined, and it is 
+currently unknown whether tirzepatide causes medullary thyroid carcinoma (MTC) in humans.34 
+
+
+=== PAGE BREAK ===
+
+Nonetheless, exercising maximum caution, tirzepatide is strictly contraindicated in patients with 
+a personal or family history of MTC, as well as in patients diagnosed with Multiple Endocrine 
+Neoplasia syndrome type 2 (MEN 2), a genetic condition that heavily predisposes individuals to 
+MTC.34 
+Regulatory bodies currently assert that the clinical value of routine monitoring via serum 
+calcitonin or thyroid ultrasound for early detection is uncertain.34 Instead, standard of care 
+dictates that patients must be thoroughly counseled on recognizing mass-related symptoms, 
+such as a physical lump or swelling in the neck, persistent hoarseness, chronic trouble 
+swallowing (dysphagia), or unexplained shortness of breath (dyspnea).34 
+ 
+ 
+ 
+Pediatric and Geriatric Considerations 
+Clinical data regarding specific demographics continues to evolve. For geriatric populations 
+(patients aged 65 and older), extensive clinical trial data indicates no overall differences in the 
+safety or efficacy of tirzepatide compared to younger adult cohorts, allowing for standard 
+prescribing practices in elderly populations.2 
+
+
+=== PAGE BREAK ===
+
+In pediatric populations, the data is highly restricted. While the Zepbound brand (marketed 
+specifically for chronic weight management) currently states that no data is available and 
+efficacy has not been established for pediatric patients under 18 years of age 37, the Mounjaro 
+formulation (indicated for type 2 diabetes) carries specific FDA label allowances for pediatric 
+patients 10 years of age and older with type 2 diabetes mellitus, though the maximum allowable 
+dosage is capped at 10 mg once weekly rather than the adult 15 mg limit.38 
+2025-2026 Regulatory Interventions and Emerging 
+Clinical Risks 
+As the real-world utilization of tirzepatide scales exponentially—with millions of active 
+prescriptions globally—regulatory bodies are continually forced to update safety protocols. 
+Between late 2025 and 2026, several major, novel updates to the prescribing information were 
+instituted by the FDA and Health Canada, addressing emerging clinical hazards that extend far 
+beyond traditional metabolic side effects. 
+Perioperative Pulmonary Aspiration Risk: A Critical Anesthetic Update 
+Perhaps the most significant clinical update in 2026 involves the severe risk of pulmonary 
+aspiration during elective and emergency procedures requiring general anesthesia or deep 
+sedation. Prompted by urgent communications from the Canadian Anesthesiologists' Society 
+and the American Society of Anesthesiologists, Health Canada finalized a massive Summary 
+Safety Review evaluating all GLP-1 receptor agonists, including tirzepatide.39 
+The core mechanism of incretin therapies involves intentionally delaying gastric emptying to 
+increase patient satiety and blunt postprandial glucose spikes. However, in the perioperative 
+setting, this delayed emptying creates a critical hazard: standard pre-operative fasting 
+protocols (e.g., fasting from solid food past midnight prior to surgery) are often completely 
+insufficient to clear the stomach.39 The Health Canada review evaluated extensive real-world 
+data and case reports, finding a probable, mechanistic link between incretin use and instances 
+where patients retained massive amounts of gastric contents.39 Upon induction of anesthesia, 
+the loss of airway reflexes allows these retained contents to be aspirated into the lungs, leading 
+to devastating clinical syndromes including mechanical airway obstruction, severe chemical 
+pneumonitis (inflammation caused by stomach acid), or bacterial aspiration pneumonia.39 
+Consequently, updated 2026 warnings in the Product Monograph explicitly require patients to 
+inform their anesthesiologists and surgical teams of their tirzepatide use long before any 
+planned procedures.34 This finding fundamentally shifts pre-surgical protocols globally, heavily 
+implying the necessity for clinicians to proactively withhold tirzepatide doses in the 1 to 2 
+weeks preceding elective surgery. In cases of emergency surgery where withholding is 
+impossible, anesthesiologists are now shifting toward implementing point-of-care gastric 
+ultrasound assessments prior to induction to verify stomach clearance, or defaulting to rapid 
+sequence induction (RSI) to secure the airway and prevent catastrophic aspiration events.39 
+
+
+=== PAGE BREAK ===
+
+Infection Control and the KwikPen Administration Warning 
+In January 2026, the FDA issued a major update to the Dosage and Administration warnings 
+specifically highlighting infection control regarding the multi-dose, single-patient KwikPen 
+presentation of the drug.34 
+The updated label mandates in the strongest possible terms that patients must never share a 
+KwikPen with another person, even if the external pen needle has been replaced.34 The 
+underlying pharmacological rationale is that microscopic backflow of biological material (blood 
+or interstitial fluid) into the internal pen cartridge can occur via pressure vacuums during the 
+standard injection process. Sharing the pen, therefore, carries an inherent, severe, and 
+scientifically proven risk of transmitting blood-borne pathogens between individuals.34 This 
+specific warning targets dangerous real-world misuse, where families, partners, or households 
+attempt to divide high-dose, multi-use pens to distribute the high financial costs of the 
+medication, an extremely hazardous practice that entirely negates the sterile integrity of the 
+delivery device. 
+Additionally, the January 2026 update strictly noted that self-injection with the KwikPen 
+presentation is not recommended for individuals who are visually impaired unless a healthcare 
+provider explicitly determines they can properly administer it, heavily recommending that adult 
+caregivers administer the drug in these scenarios.34 
+The Supply Chain Crisis and Counterfeit "Fauxzempic" Peptides 
+The staggering efficacy of tirzepatide, coupled with intermittent but severe global supply chain 
+shortages caused by unprecedented consumer demand, has birthed a massive, highly 
+dangerous illicit market for unauthorized injectable peptides. In early 2026, Health Canada was 
+forced to issue a severe public advisory warning the public against the purchase and use of 
+unauthorized, counterfeit GLP-1 and dual-agonist products, colloquially termed in the media as 
+"fauxzempic".40 
+The hazards associated with these unauthorized injectables—sold through illicit online 
+pharmacies, social media advertisements utilizing fake regulatory endorsements, and 
+unregulated retail settings—are profound and life-threatening.41 Health Canada regulators and 
+laboratory testing identified that these counterfeit products frequently lack the declared active 
+tirzepatide ingredient entirely.42 More alarmingly, they routinely contain highly dangerous 
+unlisted contaminants, including industrial solvents, heavy metals, and physical particulates 
+such as glass or plastic fibers.42 
+Furthermore, these illicit peptides are predominantly manufactured in unsterile, clandestine 
+environments. The lack of sterility introduces massive risks of severe systemic microbial 
+infections—including endotoxins, invasive fungi, and bacteria—upon subcutaneous injection, 
+which can quickly lead to sepsis and localized tissue necrosis.42 Beyond the chemical dangers, 
+patients who bypass licensed pharmacies and self-administer counterfeit peptides also bypass 
+essential clinical screening for life-threatening contraindications, such as a history of medullary 
+
+
+=== PAGE BREAK ===
+
+thyroid carcinoma, prior pancreatitis, or severe gastroparesis, drastically elevating the 
+likelihood of severe adverse events that could have been prevented by a prescribing 
+physician.42 
+Synthesis and Future Trajectory 
+The advent of tirzepatide marks a highly distinct evolutionary leap in the pharmacotherapy of 
+type 2 diabetes and chronic weight management. By elegantly harnessing the imbalanced dual 
+agonism of both GIP and GLP-1 receptors, tirzepatide overcomes the physiological resistance 
+that limits older therapies. It achieves unprecedented, dose-dependent reductions in HbA1c, 
+effectively bringing significant portions of the diabetic population into strict normoglycemic 
+ranges that were previously thought impossible without polypharmacy or intensive insulin 
+regimens. Concurrently, its profound impact on central satiety pathways and energy 
+expenditure triggers weight loss magnitudes—often exceeding 15% to 20% of total body 
+weight—that successfully disrupt the pathophysiological foundation of insulin resistance, 
+lipotoxicity, and the broader metabolic syndrome. 
+Furthermore, robust, large-scale clinical trial data, culminating in the landmark SURPASS-CVOT 
+study, has definitively proven that these immense metabolic corrections translate directly into 
+durable, systemic cardiovascular and renal protection. Tirzepatide has proven its ability to 
+significantly reduce the rates of major adverse cardiovascular events, myocardial infarctions, 
+and catastrophic end-stage renal decline, outperforming even established, active 
+cardioprotective comparators. 
+However, the immense systemic potency of tirzepatide inherently necessitates highly 
+sophisticated clinical management. The high incidence of early gastrointestinal intolerability 
+requires diligent adherence to dose titration protocols, while its mechanisms of action 
+introduce unique clinical risks—ranging from the exacerbation of acute gallbladder disease to 
+the severe, newly identified hazard of perioperative pulmonary aspiration during deep 
+sedation. As real-world utilization continues to expand and longitudinal data matures, the 
+successful and ethical integration of tirzepatide into routine clinical practice will depend entirely 
+on balancing its unparalleled disease-modifying efficacy with rigid adherence to safety 
+protocols, continuous patient education, and stringent regulatory safeguards against the 
+dangerous global proliferation of counterfeit therapeutics. 
+Works cited 
+1.​ Tirzepatide Shows Significant Improvements in Glycemic Control, Weight Loss 
+Among Patients with Type 2 Diabetes | Pharmacy Times, accessed April 20, 2026, 
+https://www.pharmacytimes.com/view/tirzepatide-shows-significant-improveme
+nts-in-glycemic-control-weight-loss-among-patients-with-type-2-diabetes 
+2.​ MOUNJARO (tirzepatide injection), accessed April 20, 2026, 
+https://pdf.hres.ca/dpd_pm/00068421.PDF 
+3.​ Lilly's SURPASS-1 results published in The Lancet show tirzepatide's superior A1C 
+and body weight reductions versus placebo in adults with type 2 diabetes, 
+
+
+=== PAGE BREAK ===
+
+accessed April 20, 2026, 
+https://investor.lilly.com/news-releases/news-release-details/lillys-surpass-1-resul
+ts-published-lancet-show-tirzepatides 
+4.​ Lilly's tirzepatide significantly reduced A1C and body weight in people with type 2 
+diabetes, accessed April 20, 2026, 
+https://www.lilly.com/en-CA/news/press-releases/20.12.14-Tirzepatide-SURPASS1 
+5.​ Tirzepatide achieved superior A1C and body weight reductions across all three 
+doses compared to injectable semaglutide in adults with type 2 diabetes - PR 
+Newswire, accessed April 20, 2026, 
+https://www.prnewswire.com/news-releases/tirzepatide-achieved-superior-a1c-
+and-body-weight-reductions-across-all-three-doses-compared-to-injectable-s
+emaglutide-in-adults-with-type-2-diabetes-301239948.html 
+6.​ Tirzepatide achieved superior A1C and body weight reductions ..., accessed April 
+20, 2026, 
+https://investor.lilly.com/news-releases/news-release-details/tirzepatide-achieved
+-superior-a1c-and-body-weight-reductions 
+7.​ Time spent in glycaemic control with sustained body weight reduction with 
+tirzepatide: A post hoc analysis of the SURPASS clinical trial programme - PMC, 
+accessed April 20, 2026, https://pmc.ncbi.nlm.nih.gov/articles/PMC12046485/ 
+8.​ Early Fasting Serum Glucose or Weight Reduction With Tirzepatide and Metabolic 
+Outcomes in People With Type 2 Diabetes: A Post Hoc Analysis of the SURPASS 
+Trials, accessed April 20, 2026, 
+https://diabetesjournals.org/care/article/48/5/790/158020/Early-Fasting-Serum-Gl
+ucose-or-Weight-Reduction 
+9.​ Tirzepatide significantly reduced A1C and body weight in people with type 2 
+diabetes in two phase 3 trials from Lilly's SURPASS program, accessed April 20, 
+2026, 
+https://investor.lilly.com/news-releases/news-release-details/tirzepatide-significa
+ntly-reduced-a1c-and-body-weight-people 
+10.​SURPASS-3: Tirzepatide superior to basal insulin for HbA1c, body weight 
+reduction - Healio, accessed April 20, 2026, 
+https://www.healio.com/news/endocrinology/20210810/surpass3-tirzepatide-sup
+erior-to-basal-insulin-for-hba1c-body-weight-reduction 
+11.​NCT03730662 | A Study of Tirzepatide (LY3298176) Once a Week Versus Insulin 
+Glargine Once a Day in Participants With Type 2 Diabetes and Increased 
+Cardiovascular Risk | ClinicalTrials.gov, accessed April 20, 2026, 
+https://clinicaltrials.gov/study/NCT03730662 
+12.​Lilly's tirzepatide achieves all primary and key secondary study outcomes against 
+insulin glargine in adults with type 2 diabetes and increased cardiovascular risk in 
+SURPASS-4 trial - PR Newswire, accessed April 20, 2026, 
+https://www.prnewswire.com/news-releases/lillys-tirzepatide-achieves-all-primar
+y-and-key-secondary-study-outcomes-against-insulin-glargine-in-adults-with-t
+ype-2-diabetes-and-increased-cardiovascular-risk-in-surpass-4-trial-301295524
+.html 
+13.​Lilly's tirzepatide achieves all primary and key secondary study outcomes against 
+
+
+=== PAGE BREAK ===
+
+insulin glargine in adults with type 2 diabetes and increased cardiovascular risk in 
+SURPASS-4 trial, accessed April 20, 2026, 
+https://investor.lilly.com/news-releases/news-release-details/lillys-tirzepatide-achi
+eves-all-primary-and-key-secondary-study 
+14.​Tirzepatide Versus Insulin Glargine in Type 2 Diabetes and Increased 
+Cardiovascular Risk, accessed April 20, 2026, 
+https://www.acc.org/latest-in-cardiology/clinical-trials/2021/11/01/03/42/surpass-4 
+15.​Effect of Subcutaneous Tirzepatide vs Placebo Added to Titrated Insulin Glargine 
+on Glycemic Control in Patients With Type 2 Diabetes: The SURPASS-5 
+Randomized Clinical Trial - PubMed, accessed April 20, 2026, 
+https://pubmed.ncbi.nlm.nih.gov/35133415/ 
+16.​Tirzepatide significantly reduced A1C and body weight in people with type 2 
+diabetes in two phase 3 trials from Lilly's SURPASS program - PR Newswire, 
+accessed April 20, 2026, 
+https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1
+c-and-body-weight-in-people-with-type-2-diabetes-in-two-phase-3-trials-from
+-lillys-surpass-program-301229506.html 
+17.​Tirzepatide vs Insulin Lispro Added to Basal Insulin in Type 2 ..., accessed April 20, 
+2026, https://pubmed.ncbi.nlm.nih.gov/37786396/ 
+18.​SURPASS-5: Tirzepatide lowers HbA1c in adults with type 2 diabetes on insulin 
+glargine, accessed April 20, 2026, 
+https://www.healio.com/news/endocrinology/20220208/surpass5-tirzepatide-low
+ers-hba1c-in-adults-with-type-2-diabetes-on-insulin-glargine 
+19.​Lilly's SURMOUNT-2 results published in The Lancet show tirzepatide achieved a 
+mean weight reduction of 15.7% at the highest dose (15 mg) in adults with obesity 
+or overweight and type 2 diabetes, accessed April 20, 2026, 
+https://investor.lilly.com/news-releases/news-release-details/lillys-surmount-2-re
+sults-published-lancet-show-tirzepatide 
+20.​Tirzepatide once weekly for the treatment of obesity in people with type 2 
+diabetes (SURMOUNT-2): a double-blind, randomised, multicentre, 
+placebo-controlled, phase 3 trial - PubMed, accessed April 20, 2026, 
+https://pubmed.ncbi.nlm.nih.gov/37385275/ 
+21.​Tirzepatide Once Weekly for the Treatment of Obesity in People With Type 2 
+Diabetes - SURMOUNT-2 - American College of Cardiology, accessed April 20, 
+2026, 
+https://www.acc.org/latest-in-cardiology/clinical-trials/2023/07/21/15/49/surmount
+-2 
+22.​Weight Reduction With Tirzepatide Varied Meaningfully by Baseline HbA1c 
+Category in Adults With Overweight or Obesity and Type 2 Diabetes in 
+SURMOUNT-2, accessed April 20, 2026, 
+https://diabetesjournals.org/care/article/48/11/e136/163253/Weight-Reduction-Wit
+h-Tirzepatide-Varied 
+23.​Reduction of prevalence of patients meeting the criteria for metabolic syndrome 
+with tirzepatide: a post hoc analysis from the SURPASS Clinical Trial Program - 
+PMC, accessed April 20, 2026, 
+
+
+=== PAGE BREAK ===
+
+https://pmc.ncbi.nlm.nih.gov/articles/PMC10859014/ 
+24.​Efficacy of tirzepatide in glycemic control and weight management in ..., 
+accessed April 20, 2026, 
+https://www.researchgate.net/publication/399796924_Efficacy_of_tirzepatide_in_
+glycemic_control_and_weight_management_in_adults_with_type_2_diabetes_a_s
+ystematic_review_and_meta-analysis_of_real-world_studies 
+25.​Evaluation and comparison of efficacy and safety of tirzepatide, liraglutide and 
+SGLT2i in patients with type 2 diabetes mellitus: a network meta-analysis - PMC, 
+accessed April 20, 2026, https://pmc.ncbi.nlm.nih.gov/articles/PMC11668020/ 
+26.​Evaluation and comparison of efficacy and safety of tirzepatide, liraglutide and 
+SGLT2i in patients with type 2 diabetes mellitus: a network meta-analysis - 
+PubMed, accessed April 20, 2026, https://pubmed.ncbi.nlm.nih.gov/39719583/ 
+27.​The Efficacy and Safety of Tirzepatide in Patients with Diabetes and/or Obesity: 
+Systematic Review and Meta-Analysis of Randomized Clinical Trials - MDPI, 
+accessed April 20, 2026, https://www.mdpi.com/1424-8247/18/5/668 
+28.​SURPASS-CVOT: Is Tirzepatide Superior to Dulaglutide in Patients With T2D and 
+ASCVD?, accessed April 20, 2026, 
+https://www.acc.org/latest-in-cardiology/journal-scans/2026/01/07/14/20/surpass
+-cvot 
+29.​Tirzepatide Outperforms Dulaglutide in Slashing Major Heart and Kidney Risks, 
+New SURPASS-CVOT Data Reveal | Pharmacy Times, accessed April 20, 2026, 
+https://www.pharmacytimes.com/view/tirzepatide-outperforms-dulaglutide-in-sl
+ashing-major-heart-and-kidney-risks-new-surpass-cvot-data-reveal 
+30.​Cardiovascular Outcomes with Tirzepatide versus Dulaglutide in Type 2 Diabetes 
+- PubMed, accessed April 20, 2026, https://pubmed.ncbi.nlm.nih.gov/41406444/ 
+31.​SURPASS-CVOT Published: Large Trial Confirms CVD Efficacy of Tirzepatide | 
+tctmd.com, accessed April 20, 2026, 
+https://www.tctmd.com/news/surpass-cvot-published-large-trial-confirms-cvd-e
+fficacy-tirzepatide 
+32.​SURPASS-CVOT: Tirzepatide Bests Dulaglutide for Cardiovascular Protection | 
+HCPLive, accessed April 20, 2026, 
+https://www.hcplive.com/view/surpass-cvot-tirzepatide-bests-dulaglutide-cardio
+vascular-protection 
+33.​Effects of tirzepatide versus insulin glargine on kidney outcomes in type 2 
+diabetes in the SURPASS-4 trial: post-hoc analysis of an open-label, randomised, 
+phase 3 trial - PubMed, accessed April 20, 2026, 
+https://pubmed.ncbi.nlm.nih.gov/36152639/ 
+34.​ZEPBOUND® (tirzepatide) Injection, for ... - accessdata.fda.gov, accessed April 20, 
+2026, 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/217806s002lbl.pdf 
+35.​ZEPBOUND (tirzepatide) injection, for subcutaneous use - This label may not be 
+the latest approved by FDA. For current labeling information, please visit 
+https://www.fda.gov/drugsatfda, accessed April 20, 2026, 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2024/217806s003lbl.pdf 
+36.​Summary Basis of Decision for Mounjaro - Drug and Health Products Portal, 
+
+
+=== PAGE BREAK ===
+
+accessed April 20, 2026, 
+https://dhpp.hpfb-dgpsa.ca/review-documents/resource/SBD00629 
+37.​Unclassified / Non classifié Product Monograph Including Patient Medication 
+Information, accessed April 20, 2026, https://pdf.hres.ca/dpd_pm/00084150.PDF 
+38.​Reference ID: 5731062 - accessdata.fda.gov, accessed April 20, 2026, 
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/215866s009lbl.pdf 
+39.​Details for: MOUNJARO - Drug and Health Products Portal, accessed April 20, 
+2026, https://dhpp.hpfb-dgpsa.ca/dhpp/resource/102976 
+40.​Unauthorized injectable peptides and their potential serious health risks - CPSA, 
+accessed April 20, 2026, 
+https://cpsa.ca/news/unauthorized-injectable-peptides-and-their-potential-serio
+us-health-risks/ 
+41.​Health Canada warns about fake or unauthorized versions of GLP-1 drugs | CBC 
+News, accessed April 20, 2026, 
+https://www.cbc.ca/news/health/ozempic-health-canada-counterfeit-9.7054857 
+42.​Thinking about buying GLP-1 drugs like Ozempic or Mounjaro? Beware of fake or 
+unauthorized products - Recalls and Safety Alerts, accessed April 20, 2026, 
+https://recalls-rappels.canada.ca/en/alert-recall/thinking-about-buying-glp-1-dru
+gs-ozempic-or-mounjaro-beware-fake-or-unauthorized 
