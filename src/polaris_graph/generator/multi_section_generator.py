@@ -381,16 +381,33 @@ async def _call_outline(
         raw = (response.content or "").strip()
         parse_result = _parse_outline(raw, allowed_ev_ids=allowed_ev_ids)
 
-        # BUG-M-203: one retry with a tighter prompt if validation fails.
-        if (not parse_result.ok) and retry_on_invalid:
+        # BUG-M-203 + M-25b hardening: retry the outline LLM call when
+        # (a) validation failed OR (b) the LLM returned <5 sections and
+        # the corpus clearly supports 5 (≥100 candidate evidence rows).
+        # V11 showed the model defaults to 3 sections when the prompt
+        # permits 3-5; the retry re-anchors to "EXACTLY 5" so the
+        # orchestrator gets DR-grade section coverage.
+        corpus_supports_five = len(allowed_ev_ids) >= 100
+        wants_more_sections = (
+            corpus_supports_five and len(parse_result.plans) < 5
+        )
+        if ((not parse_result.ok) or wants_more_sections) and retry_on_invalid:
             retry_attempted = True
-            reason_summary = "; ".join(parse_result.reason_codes[:5]) or "invalid"
+            reason_summary = "; ".join(parse_result.reason_codes[:5]) or (
+                f"section_count_under_target:{len(parse_result.plans)}/5"
+                if wants_more_sections else "invalid"
+            )
             tighter_system = (
                 OUTLINE_SYSTEM_PROMPT
                 + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
                 + reason_summary
                 + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
-                + "1. Return EXACTLY 3-5 sections. Not 1, not 2, not 6+.\n"
+                + "1. Return EXACTLY 5 sections. The corpus has "
+                + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
+                + "enough to populate 5 distinct sections with ≥8 ev_ids each. "
+                + "3-section outlines produce directional briefs, NOT "
+                + "Deep Research. Pick the 5 section titles best supported by "
+                + "the evidence from the allowed title list.\n"
                 + "2. Every section must have at least 8 distinct ev_ids "
                 + "(target 12-20). Evidence IDs MAY be shared across "
                 + "sections when the same study supports both topics.\n"
