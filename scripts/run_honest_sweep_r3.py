@@ -964,7 +964,13 @@ async def run_one_query(
             # Fallback to 3-section deterministic outline costs
             # ~60% of word count and drops all regulatory sources.
             outline_max_tokens=2500,
-            section_max_tokens=1200,
+            # M-33 (2026-04-21): raise section_max_tokens 1200→2400 to
+            # match the upstream default. V22 diagnostic: one of six
+            # sections hit exactly 1200 tokens (capped mid-generation),
+            # limiting per-trial framing and narrative depth (1964 words
+            # vs ChatGPT DR 4830 / Gemini DR 6054). Same regression
+            # class as M-31 (script override clobbers module default).
+            section_max_tokens=2400,
             min_kept_fraction=0.4,
             max_parallel_sections=3,
             tier_fractions=dist.tier_fractions,
