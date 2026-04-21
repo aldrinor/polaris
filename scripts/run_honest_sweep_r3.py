@@ -956,7 +956,14 @@ async def run_one_query(
             research_question=q["question"],
             evidence=evidence_for_gen,
             section_temperature=0.3,
-            outline_max_tokens=800,
+            # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
+            # match the upstream default. V19 had 3 / V20 had 2
+            # "Expecting ',' delimiter" JSON decode failures — all
+            # caused by mid-JSON truncation at 800 tokens when the
+            # outline contains 5 sections × 12-20 ev_ids each.
+            # Fallback to 3-section deterministic outline costs
+            # ~60% of word count and drops all regulatory sources.
+            outline_max_tokens=2500,
             section_max_tokens=1200,
             min_kept_fraction=0.4,
             max_parallel_sections=3,

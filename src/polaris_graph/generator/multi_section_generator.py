@@ -192,13 +192,47 @@ def _parse_outline(
         return OutlineParseResult(
             plans=[], ok=False, reason_codes=["no_json_object"], raw=raw,
         )
+    payload = stripped[start:end + 1]
+
+    # M-31 (2026-04-21): DeepSeek V3.2 intermittently emits JSON with
+    # trailing commas that break strict json.loads. This is a stochastic
+    # generator quirk, not a content defect. V18: 0 failures; V19: 3
+    # failures → 3-section deterministic fallback → 755 words; V20: 2
+    # failures → similar fallback → 790 words. The cost is catastrophic:
+    # the deterministic fallback loses the LLM's evidence selection,
+    # which in V20 dropped all 48 T3 regulatory sources from the final
+    # bibliography despite M-28 retrieving them.
+    #
+    # Fix: attempt a lenient re-parse that strips trailing commas
+    # before the closing `]` / `}`. This is a safe transformation on
+    # JSON syntax — well-formed JSON has no trailing commas, so
+    # stripping them cannot change the meaning of valid JSON. Only
+    # apply the lenient pass if strict parsing failed.
+    obj = None
     try:
-        obj = json.loads(stripped[start:end + 1])
-    except json.JSONDecodeError as exc:
-        logger.warning("[multi_section] outline JSON decode failed: %s", exc)
-        return OutlineParseResult(
-            plans=[], ok=False, reason_codes=["json_decode_error"], raw=raw,
-        )
+        obj = json.loads(payload)
+    except json.JSONDecodeError as strict_exc:
+        # Trailing-comma cleanup: `,` immediately before `]` or `}`
+        # (with optional whitespace/newlines in between). This is the
+        # pattern that produced "Expecting ',' delimiter: line 22
+        # column 6" errors in V19 and V20.
+        lenient = re.sub(r",(\s*[}\]])", r"\1", payload)
+        try:
+            obj = json.loads(lenient)
+            logger.info(
+                "[multi_section] outline JSON recovered via lenient "
+                "trailing-comma cleanup (M-31)"
+            )
+        except json.JSONDecodeError as lenient_exc:
+            logger.warning(
+                "[multi_section] outline JSON decode failed "
+                "(strict: %s; lenient: %s)",
+                strict_exc, lenient_exc,
+            )
+            return OutlineParseResult(
+                plans=[], ok=False, reason_codes=["json_decode_error"],
+                raw=raw,
+            )
 
     sections_raw = obj.get("sections", [])
     if not isinstance(sections_raw, list):
