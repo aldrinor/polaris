@@ -131,6 +131,33 @@ _PT11_CONTEXT_DEPENDENT = frozenset([
 ])
 
 
+# M-30 pass-5 (addressing Codex pass-4 blocker): ALL-CAPS after a
+# context-dependent abbreviation can be either an acronym chain
+# ("U.S. FDA database", mid-sentence) or a new-sentence subject
+# ("U.S. FDA approved the summary", boundary). Disambiguate by
+# looking at the WORD AFTER the acronym:
+#   - If next-next word is a verb form (modal/auxiliary or -ed/-ing
+#     past-tense/gerund) → new sentence (boundary).
+#   - Otherwise → acronym chain continuation (non-boundary).
+_PT11_VERB_INDICATORS = frozenset([
+    # BE forms
+    "is", "was", "are", "were", "be", "been", "being",
+    # HAVE forms
+    "has", "had", "have", "having",
+    # DO forms
+    "does", "did", "do", "done", "doing",
+    # Modal auxiliaries
+    "can", "may", "might", "will", "would",
+    "could", "should", "must", "shall", "ought",
+    # Common present-tense reporting verbs (-s suffix) that frequently
+    # follow an acronym subject in research prose
+    "reports", "issues", "approves", "states", "notes",
+    "finds", "observes", "concludes", "recommends", "announces",
+    "demonstrates", "publishes", "releases", "confirms",
+    "establishes", "shows", "suggests",
+])
+
+
 # Title-case words that STRONGLY signal a sentence boundary when they
 # follow a context-dependent abbreviation (Codex pass-3 addition).
 # This list lets the boundary rule correctly split cases like
@@ -232,11 +259,29 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
     if len(alpha_only) == 1:
         return False
 
-    # ALL-CAPS multi-char word is almost always an acronym chaining onto
-    # the preceding abbreviation: "U.S. FDA database", "U.K. NHS data",
-    # "E.U. ECB report". Keep mid-sentence (non-boundary).
+    # Capture the word immediately after `next_word` (same-structure
+    # lookahead — used to disambiguate both ALL-CAPS acronym chains and
+    # Title-case proper nouns).
+    nnext_start = word_end
+    while nnext_start < len(text) and text[nnext_start] in " \t":
+        nnext_start += 1
+    nnext_end = nnext_start
+    while nnext_end < len(text) and (text[nnext_end].isalpha() or text[nnext_end] in "-'"):
+        nnext_end += 1
+    nnext_word = text[nnext_start:nnext_end]
+    nnext_lc = nnext_word.lower()
+
+    # ALL-CAPS multi-char word — usually an acronym. Distinguish by
+    # looking at the next-next word:
+    #   "U.S. FDA database"  → database is not a verb  → non-boundary
+    #   "U.S. FDA approved"  → approved ends in -ed    → boundary
+    #   "U.S. CDC reported"  → reported ends in -ed    → boundary
+    #   "U.S. EPA reports"   → reports in verb list    → boundary
+    #   "U.S. FDA is"        → is is a modal           → boundary
     if alpha_only.isupper():
-        return True
+        if _looks_like_verb_form(nnext_lc):
+            return False  # ACRONYM + verb → new sentence
+        return True  # ACRONYM + non-verb → acronym chain continuation
 
     # Explicit sentence-starter discourse markers and articles →
     # sentence boundary. Catches "U.S. The trial...",
@@ -245,19 +290,34 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
         return False
 
     # Title-case word (not in starter list) — likely a proper noun.
-    # Further disambiguate by looking at the word AFTER it. If that
-    # next-next word starts with a lowercase letter, the Title-case
-    # word is probably part of an ongoing noun phrase ("U.K. Biobank
-    # data", "U.S. Pfizer reported"). If the next-next word is
-    # uppercase or absent, default to boundary (safer).
-    nnext_start = word_end
-    while nnext_start < len(text) and text[nnext_start] in " \t":
-        nnext_start += 1
+    # Further disambiguate by looking at the next-next word. If that
+    # word starts with a lowercase letter, the Title-case word is
+    # probably part of an ongoing noun phrase ("U.K. Biobank data",
+    # "U.S. Pfizer reported"). If the next-next word is uppercase or
+    # absent, default to boundary (safer).
     if nnext_start < len(text):
         nn = text[nnext_start]
         if nn.islower():
             return True  # proper-noun continuation — mid-sentence
     # No lowercase continuation → treat as sentence boundary.
+    return False
+
+
+def _looks_like_verb_form(word_lowercase: str) -> bool:
+    """Heuristic verb-form detector on a lowercased word. True if
+    the word is a common modal/auxiliary, a -ed past-tense form, or
+    an -ing gerund/participle. Accepts occasional noun false-positives
+    (e.g. "offering", "meeting") since the consequence is a PT11
+    false-FAIL — recoverable by re-running — while the alternative
+    is a false-PASS that lets fabrication through the audit gate."""
+    if not word_lowercase:
+        return False
+    if word_lowercase in _PT11_VERB_INDICATORS:
+        return True
+    if len(word_lowercase) >= 4 and word_lowercase.endswith("ed"):
+        return True
+    if len(word_lowercase) >= 5 and word_lowercase.endswith("ing"):
+        return True
     return False
 
 

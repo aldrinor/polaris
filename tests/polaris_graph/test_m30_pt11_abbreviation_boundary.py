@@ -452,3 +452,83 @@ class TestPT11WithAbbreviations:
             "sentence-starter article. Decimals before U.S. should NOT "
             "be covered by [1] in the next sentence."
         )
+
+    def test_pt11_boundary_on_acronym_plus_verb_fda_approved(self) -> None:
+        """Codex pass-4 blocker: `U.S. FDA approved the summary.[1]`
+        must FAIL PT11. FDA is the subject of a new sentence (verb
+        'approved' follows it); [1] cites that sentence, not the
+        prior one containing the decimals."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "The measured rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, "
+            "and 9.7% in the U.S. FDA approved the endpoint summary.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert not pt11.passed, (
+            "FDA followed by past-tense verb 'approved' = new sentence; "
+            "[1] should not cover decimals in the prior sentence."
+        )
+
+    def test_pt11_boundary_on_acronym_plus_verb_cdc_reported(self) -> None:
+        """Second Codex pass-4 blocker probe: `U.S. CDC reported...[1]`."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "Cohort rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, and 9.7% "
+            "in the U.S. CDC reported a separate finding.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert not pt11.passed, (
+            "CDC followed by past-tense verb 'reported' = new sentence; "
+            "decimals in the prior sentence are uncited."
+        )
+
+    def test_pt11_boundary_on_acronym_plus_modal_fda_is(self) -> None:
+        """Modal/auxiliary verb case: `U.S. FDA is a federal agency.[1]`."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "Rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, and 9.7% "
+            "in the U.S. FDA is a federal agency providing oversight.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert not pt11.passed, (
+            "FDA followed by modal 'is' = new sentence; "
+            "decimals in the prior sentence are uncited."
+        )
+
+    def test_pt11_preserves_acronym_chain_fda_database(self) -> None:
+        """Non-verb follow-up must still be non-boundary (pass-3
+        counter-test, must continue working)."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "The measured rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, "
+            "and 9.7% in the U.S. FDA database across cohorts.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert pt11.passed, (
+            "FDA followed by non-verb 'database' = mid-sentence "
+            "acronym chain; [1] correctly cites the same sentence."
+        )
