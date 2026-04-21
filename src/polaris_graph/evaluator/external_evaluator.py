@@ -61,6 +61,101 @@ logger = logging.getLogger("polaris_graph.external_evaluator")
 # guidance, 2025. The full 26-item list requires manual attestation;
 # below are the subset of items that can be verified machine-side.
 
+# ─────────────────────────────────────────────────────────────────────────────
+# M-30 (2026-04-20): abbreviation-aware sentence boundary detection for PT11.
+#
+# V19 aborted on PT11 because the prior regex treated `vs.` as a sentence
+# terminator. A well-cited sentence like
+#   "diarrhea (10.7% vs. 4.8%), nausea (8.1% vs. 2.7%),
+#    and vomiting (5.7% vs. 1.2%).[7]"
+# was scored as 4 uncited decimals because the lookahead from 4.8, 8.1, 2.7,
+# 5.7 stopped at the nearest "vs. " and never reached "[7]" at the real
+# sentence end.
+#
+# The abbreviation list below is generalizable English orthography — NOT a
+# clinical-domain hard-code. Every domain that uses standard English prose
+# (policy, materials, energy, due-diligence) benefits from the same list.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Single-word English abbreviations that end with a period but do NOT
+# terminate a sentence. Case-sensitive where appropriate (e.g. "No." for
+# number, not "no" as adverb).
+_PT11_ABBREVIATIONS = frozenset([
+    # Comparatives
+    "vs", "v",
+    # Latin / academic
+    "etc", "cf", "viz",
+    # Document references
+    "Fig", "Figs", "Ref", "Refs", "Eq", "Eqs",
+    "No", "Nos", "pp", "Vol", "Ch", "Sec", "App",
+    # Titles
+    "Dr", "Mr", "Mrs", "Ms", "Prof", "Sr", "Jr", "Rev",
+    # Organisations
+    "Inc", "Ltd", "Co", "Corp", "Gov", "Dept",
+    # Months
+    "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug",
+    "Sep", "Sept", "Oct", "Nov", "Dec",
+])
+
+
+def _is_abbreviation_period(text: str, period_pos: int) -> bool:
+    """True if text[period_pos] == '.' and the token immediately before
+    it is a known non-terminating abbreviation (generalizable list)."""
+    if period_pos < 0 or period_pos >= len(text) or text[period_pos] != ".":
+        return False
+    # Walk back over alphabetic characters + embedded periods to find the
+    # token that ends at period_pos. Embedded periods let "e.g" / "i.e" be
+    # treated as a single token that itself ends with period_pos.
+    start = period_pos - 1
+    while start >= 0 and (text[start].isalpha() or text[start] == "."):
+        start -= 1
+    token = text[start + 1:period_pos]
+    if not token:
+        return False
+    # Direct single-word hit
+    if token in _PT11_ABBREVIATIONS:
+        return True
+    # Multi-segment abbreviations like "e.g", "i.e", "U.S", "U.K", "E.U"
+    # — the token itself contains internal periods. Check the terminal
+    # segment against the list plus classical two-letter pattern.
+    if "." in token:
+        parts = [p for p in token.split(".") if p]
+        if all(len(p) <= 2 and p.isalpha() for p in parts):
+            return True
+    # "et al." — the token we walked back is just "al"; confirm "et " is
+    # immediately before it.
+    if token == "al":
+        pre_start = max(0, start + 1 - 3)
+        if text[pre_start:start + 1].endswith("et "):
+            return True
+    return False
+
+
+def _next_real_sentence_end(text: str) -> int | None:
+    """Return the index PAST the first real sentence terminator in `text`
+    (i.e. the position of the first char of the NEXT sentence), or None if
+    no terminator is found. Skips abbreviation-period false positives."""
+    for m in re.finditer(r"[.!?](?:\s|$)", text):
+        period_pos = m.start()
+        if text[period_pos] == "." and _is_abbreviation_period(text, period_pos):
+            continue
+        return m.end()
+    return None
+
+
+def _prev_real_sentence_end(text: str) -> int:
+    """Return the index of the last real sentence terminator in `text`
+    (the position of the `.` / `!` / `?` itself), or -1 if none found.
+    Skips abbreviation-period false positives."""
+    last = -1
+    for m in re.finditer(r"[.!?](?:\s|$)", text):
+        period_pos = m.start()
+        if text[period_pos] == "." and _is_abbreviation_period(text, period_pos):
+            continue
+        last = period_pos
+    return last
+
+
 _PRISMA_TRAICE_MACHINE_ITEMS = [
     # (item_id, human_name, required_in_section)
     ("PT01", "Pre-registered protocol reference present", "methods"),
@@ -308,27 +403,30 @@ def run_rule_checks(
     # Look-ahead is to the end of the current sentence (up to `.!?`),
     # not a fixed 80-char window — decimals early in a long sentence
     # should get credit for a citation attached at the sentence end.
+    #
+    # M-30 (2026-04-20): use abbreviation-aware sentence boundary
+    # detection. `vs.`, `e.g.`, `etc.`, `Fig.`, etc. must NOT split a
+    # sentence — otherwise "10.7% vs. 4.8%, 8.1% vs. 2.7% ... [7]"
+    # is incorrectly scored as having uncited decimals.
     numeric_matches = list(re.finditer(
         r"(?<![A-Za-z0-9.])(-?\d+\.\d+)",
         text_stripped,
     ))
     uncited = 0
     for m in numeric_matches:
-        # Find sentence end (next ., !, ?) or fall back to 150 chars
+        # Lookahead: scan forward for the next real sentence boundary;
+        # if none in 200 chars, cap at 150 chars.
         after_text = text_stripped[m.end():m.end() + 200]
-        end_match = re.search(r"[.!?](?:\s|$)", after_text)
-        lookahead_end = end_match.end() if end_match else min(150, len(after_text))
+        lookahead_end = _next_real_sentence_end(after_text)
+        if lookahead_end is None:
+            lookahead_end = min(150, len(after_text))
         snippet_after = after_text[:lookahead_end]
         if not re.search(r"\[\d+\]|\[#ev:", snippet_after):
-            # Fallback: allow markers BEFORE the number (sometimes
-            # citation comes first). Check back to previous sentence end.
+            # Fallback: allow markers BEFORE the number. Walk back to
+            # the previous real sentence boundary (abbreviation-aware).
             back_text = text_stripped[max(0, m.start() - 200):m.start()]
-            last_sentence_end = max(
-                back_text.rfind(". "),
-                back_text.rfind("! "),
-                back_text.rfind("? "),
-            )
-            snippet_before = back_text[last_sentence_end + 1:] if last_sentence_end >= 0 else back_text
+            prev_end = _prev_real_sentence_end(back_text)
+            snippet_before = back_text[prev_end + 1:] if prev_end >= 0 else back_text
             if not re.search(r"\[\d+\]|\[#ev:", snippet_before):
                 uncited += 1
     pt11 = uncited < max(3, len(numeric_matches) // 10)  # allow <=10% uncited
