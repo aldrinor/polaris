@@ -156,3 +156,151 @@ class TestGeneralizationSmokeTests:
             "PFAS drinking-water standards site:epa.gov",
             "PFAS drinking-water standards site:eea.europa.eu",
         ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Guard tests (Codex audit follow-up, 2026-04-20)
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestNoHardCodedHostsInModule:
+    """Guardrail: regulatory_expander.py must not contain any
+    hard-coded agency / host / jurisdiction terms. All such content
+    lives only in YAML templates and in test fixtures. If a future
+    edit slips a host name into a docstring or comment, this test
+    fails and prevents a generalization regression.
+
+    Covers M-28 Codex audit blocker item #1.
+    """
+
+    def test_module_contains_no_agency_or_host_strings(self) -> None:
+        import pathlib
+        p = pathlib.Path(__file__).parent.parent.parent / (
+            "src/polaris_graph/retrieval/regulatory_expander.py"
+        )
+        assert p.exists(), f"expander module missing at {p}"
+        text = p.read_text(encoding="utf-8").lower()
+
+        # Banned substrings: regulatory agencies, governmental hosts,
+        # jurisdictional acronyms, clinical-domain terms. Any one of
+        # these in the expander module signals a generalization leak.
+        banned = [
+            # US agencies / hosts
+            "fda", "sec.gov", "ftc", "gao", "cbo", "epa",
+            "whitehouse", "federalregister", "accessdata",
+            "congress", "justice.gov",
+            # EU / UK / CA agencies
+            "ema", "europa.eu", "mhra", "tga", "pmda", "nmpa",
+            "hres", "canada", "nice",
+            "who.int",
+            # Clinical-domain leaks (would indicate hard-coded clinical
+            # assumption inside a generic module)
+            "mounjaro", "zepbound", "tirzepatide", "surpass", "surmount",
+            "semaglutide", "glargine", "degludec", "diabetes",
+        ]
+        leaks = [term for term in banned if term in text]
+        assert not leaks, (
+            f"regulatory_expander.py contains hard-coded agency/clinical "
+            f"terms that belong only in YAML templates or tests: {leaks}"
+        )
+
+
+class TestAnchorCountCap:
+    """Codex audit medium #2: enforce the configurable query-count cap.
+
+    PG_SWEEP_MAX_REGULATORY_ANCHORS bounds the number of queries the
+    expander emits per call so a template with 50 anchors cannot
+    blow up the retrieval budget unexpectedly.
+    """
+
+    def test_default_cap_truncates_to_ten(self, monkeypatch) -> None:
+        monkeypatch.delenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", raising=False)
+        tmpl = {"regulatory_anchors": [f"host{i}.example" for i in range(20)]}
+        result = expand_regulatory_queries("q", tmpl)
+        assert len(result) == 10
+        assert result[0] == "q site:host0.example"
+        assert result[-1] == "q site:host9.example"
+
+    def test_env_override_tightens_cap(self, monkeypatch) -> None:
+        monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "3")
+        tmpl = {"regulatory_anchors": [f"h{i}.gov" for i in range(8)]}
+        result = expand_regulatory_queries("q", tmpl)
+        assert len(result) == 3
+
+    def test_zero_env_disables_cap(self, monkeypatch) -> None:
+        monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "0")
+        tmpl = {"regulatory_anchors": [f"h{i}.gov" for i in range(25)]}
+        result = expand_regulatory_queries("q", tmpl)
+        assert len(result) == 25
+
+    def test_invalid_env_falls_back_to_default(self, monkeypatch) -> None:
+        monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "not a number")
+        tmpl = {"regulatory_anchors": [f"h{i}.gov" for i in range(15)]}
+        result = expand_regulatory_queries("q", tmpl)
+        assert len(result) == 10  # default
+
+    def test_negative_env_clamps_to_zero_disables_cap(self, monkeypatch) -> None:
+        monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "-5")
+        tmpl = {"regulatory_anchors": [f"h{i}.gov" for i in range(15)]}
+        result = expand_regulatory_queries("q", tmpl)
+        # -5 is clamped to 0 (no cap), so all 15 emitted
+        assert len(result) == 15
+
+
+class TestYamlTemplateIntegration:
+    """Codex audit medium #3: prove the templates load and expose the
+    new field to scope_gate without breaking the scope protocol flow."""
+
+    def test_clinical_template_loads_with_anchors(self) -> None:
+        from polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("clinical")
+        assert isinstance(tmpl, dict)
+        anchors = tmpl.get("regulatory_anchors")
+        assert isinstance(anchors, list) and len(anchors) > 0, (
+            "clinical template must expose non-empty regulatory_anchors"
+        )
+        # Each anchor must be a host-shaped string (sanity check).
+        for a in anchors:
+            assert isinstance(a, str) and "/" not in a and " " not in a
+
+    def test_policy_template_loads_with_anchors(self) -> None:
+        from polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("policy")
+        assert isinstance(tmpl.get("regulatory_anchors"), list)
+        assert len(tmpl["regulatory_anchors"]) > 0
+
+    def test_due_diligence_template_loads_with_anchors(self) -> None:
+        from polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("due_diligence")
+        assert isinstance(tmpl.get("regulatory_anchors"), list)
+        assert len(tmpl["regulatory_anchors"]) > 0
+
+    def test_template_without_anchors_field_still_loads(self) -> None:
+        """Tech template has no regulatory_anchors field (zero-anchor
+        domain). scope_gate must still load it, and the expander must
+        emit zero queries."""
+        from polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("tech")
+        # Either missing or an empty list — either is acceptable.
+        assert tmpl.get("regulatory_anchors", []) in ([], None) or (
+            isinstance(tmpl.get("regulatory_anchors"), list)
+            and len(tmpl["regulatory_anchors"]) == 0
+        ) or tmpl.get("regulatory_anchors") is None
+        result = expand_regulatory_queries("q", tmpl)
+        assert result == []
+
+    def test_clinical_template_expansion_end_to_end(self) -> None:
+        """Load the real clinical YAML and run the expander — prove
+        the end-to-end config → expansion path emits sensible queries.
+        Does not check specific host names (those live in the YAML,
+        not in test assertions)."""
+        from polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("clinical")
+        result = expand_regulatory_queries("test question", tmpl)
+        # Capped at 10 by default.
+        assert 0 < len(result) <= 10
+        # Each query starts with the base question and has site:{host}.
+        for q in result:
+            assert q.startswith("test question site:")
+            host = q.split("site:", 1)[1]
+            assert "/" not in host and " " not in host
