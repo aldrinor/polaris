@@ -121,6 +121,54 @@ class TestRejectInvalidEntries:
         result = expand_primary_trial_queries("q", tmpl, "s")
         assert result == ['"REAL-1" q']
 
+    def test_tab_in_entry_rejected(self) -> None:
+        """M-35 pass-2 Codex blocker fix: `str.strip()` removes only
+        leading/trailing whitespace. Interior tab must be caught by
+        the `any(ch.isspace() for ch in stripped)` guard, not by the
+        original narrower `" " in stripped` check."""
+        tmpl = {"per_query_primary_trial_anchors": {"s": [
+            "BAD\tENTRY", "OK-1",
+        ]}}
+        result = expand_primary_trial_queries("q", tmpl, "s")
+        assert result == ['"OK-1" q']
+
+    def test_newline_in_entry_rejected(self) -> None:
+        """YAML block scalars can embed newlines. Same whitespace
+        class as the tab case — must be dropped."""
+        tmpl = {"per_query_primary_trial_anchors": {"s": [
+            "BAD\nENTRY", "OK-1",
+        ]}}
+        result = expand_primary_trial_queries("q", tmpl, "s")
+        assert result == ['"OK-1" q']
+
+    def test_carriage_return_in_entry_rejected(self) -> None:
+        """Windows line-endings in a copy-pasted YAML fragment could
+        sneak in a `\\r`. Must be dropped."""
+        tmpl = {"per_query_primary_trial_anchors": {"s": [
+            "BAD\rENTRY", "OK-1",
+        ]}}
+        result = expand_primary_trial_queries("q", tmpl, "s")
+        assert result == ['"OK-1" q']
+
+    def test_vertical_tab_in_entry_rejected(self) -> None:
+        """Non-regression: vertical tab (U+000B) and form-feed
+        (U+000C) are also whitespace per Python's isspace()."""
+        tmpl = {"per_query_primary_trial_anchors": {"s": [
+            "BAD\x0bENTRY", "BAD\x0cENTRY", "OK-1",
+        ]}}
+        result = expand_primary_trial_queries("q", tmpl, "s")
+        assert result == ['"OK-1" q']
+
+    def test_backslash_in_entry_rejected(self) -> None:
+        """M-35 pass-2 Codex medium: a trailing `\\` could survive
+        as `"BAD\\" q` and escape-eat the closing quote in some
+        downstream search-query parsers. Drop defensively."""
+        tmpl = {"per_query_primary_trial_anchors": {"s": [
+            "BAD\\", "BAD\\MIDDLE", "OK-1",
+        ]}}
+        result = expand_primary_trial_queries("q", tmpl, "s")
+        assert result == ['"OK-1" q']
+
 
 class TestDeduplication:
     def test_duplicate_anchors_deduped_preserving_order(self) -> None:
@@ -214,6 +262,72 @@ class TestAnchorCountCap:
         result = expand_primary_trial_queries("q", tmpl, "s")
         # -5 clamps to 0 (no cap) → all 25 emitted.
         assert len(result) == 25
+
+
+class TestYamlTemplateSchemaCoexistence:
+    """M-35 pass-2 Codex medium #2: prove the templates load and
+    expose the correct per-query anchors, that M-28 and M-35 fields
+    coexist without breaking, and that templates without M-35 fields
+    still load with no-op expansion.
+    """
+
+    def test_clinical_template_loads_with_both_m28_and_m35_keys(self) -> None:
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("clinical")
+        assert isinstance(tmpl, dict)
+        # M-28 field
+        reg = tmpl.get("regulatory_anchors")
+        assert isinstance(reg, list) and len(reg) > 0
+        # M-35 field
+        by_slug = tmpl.get("per_query_primary_trial_anchors")
+        assert isinstance(by_slug, dict) and len(by_slug) > 0
+
+    def test_clinical_template_exposes_tirzepatide_trial_anchors(self) -> None:
+        """Generic check: at least one slug in the clinical template
+        has a non-empty anchor list, and the expander emits queries
+        for it. Does NOT assert trial names — those live in YAML,
+        not in test assertions (generalization discipline)."""
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("clinical")
+        by_slug = tmpl.get("per_query_primary_trial_anchors", {})
+        assert isinstance(by_slug, dict)
+        # Find first slug with a non-empty list and verify expansion.
+        for slug, anchors in by_slug.items():
+            if isinstance(anchors, list) and anchors:
+                result = expand_primary_trial_queries(
+                    "test question", tmpl, slug
+                )
+                assert 0 < len(result) <= 15  # default cap
+                for q in result:
+                    assert q.startswith('"') and '" test question' in q
+                return
+        raise AssertionError(
+            "clinical template has no populated "
+            "per_query_primary_trial_anchors slug"
+        )
+
+    def test_policy_template_has_no_m35_field_and_expander_noop(self) -> None:
+        """Policy template has regulatory_anchors but no M-35 field.
+        Expander must still return []."""
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("policy")
+        # M-28 field present
+        assert isinstance(tmpl.get("regulatory_anchors"), list)
+        # M-35 field absent (or empty)
+        assert tmpl.get("per_query_primary_trial_anchors", {}) in ({}, None)
+        # Expander is a no-op.
+        assert expand_primary_trial_queries(
+            "q", tmpl, "any_slug"
+        ) == []
+
+    def test_tech_template_has_neither_field_and_expander_noop(self) -> None:
+        """Tech template has no M-28 or M-35 fields — both expanders
+        are pure no-ops."""
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        tmpl = load_scope_template("tech")
+        assert expand_primary_trial_queries(
+            "q", tmpl, "any_slug"
+        ) == []
 
 
 class TestNoHardCodedTrialsInModule:

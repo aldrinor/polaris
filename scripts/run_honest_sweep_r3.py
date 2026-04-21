@@ -554,9 +554,9 @@ async def run_one_query(
             _template = load_scope_template(q["domain"])
         except Exception as _ex:
             _log(
-                f"[M-28 warn]   could not load template for domain="
+                f"[M-28/M-35 warn] could not load template for domain="
                 f"{q['domain']!r}: {_ex} — continuing without regulatory "
-                f"expansion"
+                f"(M-28) OR primary-trial (M-35) expansion"
             )
             _template = None
         _reg_queries = expand_regulatory_queries(q["question"], _template)

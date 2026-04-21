@@ -102,10 +102,23 @@ def _extract_anchors(
         if not isinstance(entry, str):
             continue
         stripped = entry.strip()
-        # Reject entries containing whitespace or double quotes. A
-        # trial name like `SURPASS-1` is one token; anything with a
-        # space would break the `"{anchor}"` quoting.
-        if not stripped or " " in stripped or '"' in stripped:
+        # Reject entries containing ANY whitespace (not just literal
+        # space — tabs / newlines / vertical-tab / form-feed /
+        # carriage-return would all break the outer `"{anchor}"`
+        # quoting downstream) or a double quote (ASCII U+0022 would
+        # break the outer quoting directly) or a backslash (could
+        # survive as `"BAD\" q` and escape-eat the closing quote in
+        # some downstream search-query parsers). M-35 pass-2 (Codex
+        # blocker): `str.strip()` removes leading/trailing whitespace
+        # but NOT interior whitespace, so `"BAD\tENTRY"` would pass
+        # the pre-pass-2 `" " in stripped` check. isspace() closes
+        # that.
+        if (
+            not stripped
+            or any(ch.isspace() for ch in stripped)
+            or '"' in stripped
+            or "\\" in stripped
+        ):
             continue
         anchors.append(stripped)
     # Deduplicate while preserving declared order.
