@@ -643,18 +643,24 @@ def run_rule_checks(
         text_stripped,
     ))
     uncited = 0
+    # M-34 (2026-04-21): widen lookahead so the abbreviation-aware
+    # sentence-end helper can actually find the terminator. Long
+    # regulatory/clinical sentences (300-450 chars) are legitimate —
+    # V23 had three sentences where the citation was at char 350-450
+    # but the helper only saw the first 200 chars, returned None, and
+    # fell back to 150. Slice now caps at 1000 chars; None-fallback
+    # returns the full slice instead of narrowing to 150.
     for m in numeric_matches:
-        # Lookahead: scan forward for the next real sentence boundary;
-        # if none in 200 chars, cap at 150 chars.
-        after_text = text_stripped[m.end():m.end() + 200]
+        after_text = text_stripped[m.end():m.end() + 1000]
         lookahead_end = _next_real_sentence_end(after_text)
         if lookahead_end is None:
-            lookahead_end = min(150, len(after_text))
+            lookahead_end = len(after_text)
         snippet_after = after_text[:lookahead_end]
         if not re.search(r"\[\d+\]|\[#ev:", snippet_after):
             # Fallback: allow markers BEFORE the number. Walk back to
             # the previous real sentence boundary (abbreviation-aware).
-            back_text = text_stripped[max(0, m.start() - 200):m.start()]
+            # Same widening applies to the back-lookup.
+            back_text = text_stripped[max(0, m.start() - 1000):m.start()]
             prev_end = _prev_real_sentence_end(back_text)
             snippet_before = back_text[prev_end + 1:] if prev_end >= 0 else back_text
             if not re.search(r"\[\d+\]|\[#ev:", snippet_before):
