@@ -1,0 +1,14 @@
+Wrote the pass-2 audit to [findings.md](C:/POLARIS/outputs/codex_findings/m28_code_audit_pass2/findings.md).
+
+Verdict: **NOT_READY**.
+
+Reason: the agency/host hard-codes are gone, but `src/polaris_graph/retrieval/regulatory_expander.py` still contains `Clinical` in docstring prose, while the pass-2 criterion explicitly required zero clinical-domain vocabulary in the `.py` file. The guard test also does not catch that term, though it did correctly fail when I temporarily inserted `fda`.
+
+Verification highlights:
+- M-28 focused tests: `31 passed`.
+- Guard mutation check: failed as expected on inserted `fda`, then reverted.
+- Cap is per-call and applied after extraction/dedupe.
+- YAML integration tests load real templates.
+- Full `tests/polaris_graph/` collected `699` tests, but this sandbox hit temp-directory permission errors outside M-28; all M-28 tests passed during the run.
+
+M-28 may not proceed to V18 sweep.

@@ -1,0 +1,12 @@
+Wrote the audit to [findings.md](C:/POLARIS/outputs/codex_findings/m28_code_audit/findings.md).
+
+Verdict: `NOT_READY`
+
+Key reasons:
+- 1 blocker: `regulatory_expander.py` still contains agency/host strings in comments/docstrings, violating the explicit “ZERO agency-specific strings anywhere in the .py file” requirement.
+- 2 mediums: anchor queries are blindly appended without a query-count cap, and test coverage lacks YAML/sweep wiring guards.
+
+Verification run:
+- `PYTHONPATH=src python -m pytest tests/polaris_graph/test_m28_regulatory_expander.py tests/polaris_graph/test_scope_query_validator.py -q`
+- Result: `27 passed`
+- YAML parse and duplicate-key checks passed manually.

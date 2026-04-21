@@ -1,0 +1,11 @@
+Pass 3 audit is complete and written to [findings.md](C:/POLARIS/outputs/codex_findings/m28_code_audit_pass3/findings.md).
+
+Verdict: **READY**
+
+Key results:
+- Forbidden-term scan of `regulatory_expander.py`: zero matches via `rg -i`.
+- Temporary `clinical` insertion: guard test failed as expected with `['clinical']`.
+- Reverted mutation: guard test passed.
+- Full suite collected 699 tests; M-28 tests passed, but the overall run is still blocked by sandbox/temp-directory `PermissionError` issues unrelated to M-28, matching pass 2’s environment limitation.
+
+No M-28 blockers or mediums remain.
