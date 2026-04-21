@@ -117,6 +117,90 @@ class TestSentenceEndLocators:
         assert end == text.index("here.") + 4
 
 
+class TestContextDependentDisambiguation:
+    """M-30 pass-2 (addressing Codex blocker): abbreviations can be
+    sentence-final when the next word starts with a capital letter.
+    `Jan.` in "in Jan. A separate claim" is a real boundary; `Jan.` in
+    "Jan. 15, 2020" is not."""
+
+    def test_month_before_capital_is_boundary(self) -> None:
+        # "...in Jan. A separate claim..." — Jan. ends the sentence.
+        text = "Declines were 4.2%, 5.3%, and 6.4% in Jan. A separate claim"
+        period_pos = text.index("Jan.") + 3
+        assert not _is_abbreviation_period(text, period_pos), (
+            "Jan. followed by capital letter should be a real sentence "
+            "boundary (Codex blocker)."
+        )
+
+    def test_month_before_digit_is_nonboundary(self) -> None:
+        # "Jan. 15, 2020" — date continuation.
+        text = "The study started Jan. 15, 2020 and ran for"
+        period_pos = text.index("Jan.") + 3
+        assert _is_abbreviation_period(text, period_pos), (
+            "Jan. followed by a date number is mid-sentence."
+        )
+
+    def test_inc_before_capital_is_boundary(self) -> None:
+        # "...Eli Lilly Inc. Separately, another trial..."
+        text = "Study was sponsored by Eli Lilly Inc. Separately, another trial"
+        period_pos = text.index("Inc.") + 3
+        assert not _is_abbreviation_period(text, period_pos)
+
+    def test_inc_before_lowercase_is_nonboundary(self) -> None:
+        # "Eli Lilly Inc. reported..."
+        text = "Eli Lilly Inc. reported tirzepatide outcomes"
+        period_pos = text.index("Inc.") + 3
+        assert _is_abbreviation_period(text, period_pos)
+
+    def test_no_before_digit_is_nonboundary(self) -> None:
+        text = "See Study No. 42 which reported"
+        period_pos = text.index("No.") + 2
+        assert _is_abbreviation_period(text, period_pos)
+
+    def test_fig_before_digit_is_nonboundary(self) -> None:
+        text = "As shown in Fig. 3A, the trend"
+        period_pos = text.index("Fig.") + 3
+        assert _is_abbreviation_period(text, period_pos)
+
+    def test_vs_followed_by_capital_still_nonboundary(self) -> None:
+        # vs. is ALWAYS_NONBOUNDARY so even "...vs. Placebo..." stays
+        # mid-sentence (common in pharma prose).
+        text = "tirzepatide 10 mg vs. Placebo comparator arm"
+        period_pos = text.index("vs.") + 2
+        assert _is_abbreviation_period(text, period_pos)
+
+    def test_dr_before_proper_noun_is_nonboundary(self) -> None:
+        text = "reported by Dr. Jastreboff in 2023"
+        period_pos = text.index("Dr.") + 2
+        assert _is_abbreviation_period(text, period_pos)
+
+
+class TestCitationAdjacentBoundary:
+    """M-30 pass-2 (addressing Codex medium): `.[N]` commonly appears
+    in POLARIS reports and must be recognised as a sentence terminator
+    so lookback/lookahead windows don't over-extend."""
+
+    def test_period_followed_by_bracket_citation_is_boundary(self) -> None:
+        text = "The trial reported 2.4% reduction.[7] Another trial showed"
+        # The `.` after "reduction" is followed immediately by `[` — the
+        # new regex must still match it as a sentence terminator.
+        end = _next_real_sentence_end(text)
+        assert end is not None
+        # End index must land AT or PAST the `.` — i.e. the `.` position + 1
+        expected_min = text.index("reduction.") + len("reduction.")
+        assert end >= expected_min
+
+    def test_prev_sentence_end_finds_period_before_bracket(self) -> None:
+        """The last char of the prior sentence is the closing `]` of
+        its trailing citation — so back_text[end+1:] starts cleanly
+        at the next sentence and does NOT see the prior-sentence
+        citation (which would be a false-positive for PT11)."""
+        text = "First sentence.[1] Second sentence with 3.4% reduction"
+        end = _prev_real_sentence_end(text)
+        # End at the `]` of [1]
+        assert end == text.index("[1]") + 2
+
+
 class TestPT11WithAbbreviations:
     """End-to-end: PT11 rule must PASS when decimals sit around 'vs.'
     abbreviations that the buggy regex misread as sentence boundaries."""
@@ -185,4 +269,41 @@ class TestPT11WithAbbreviations:
         assert not pt11.passed, (
             "PT11 must still flag reports where decimals are genuinely "
             "uncited — the fix should not over-relax the rule."
+        )
+
+    def test_pt11_does_not_accept_next_sentence_citation(self) -> None:
+        """Codex M-30 pass-1 blocker: sentence-final abbreviation must
+        NOT be treated as non-boundary when followed by a capital, or
+        else a citation in the next sentence falsely covers uncited
+        decimals in the prior sentence."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "The measured declines were 4.2%, 5.3%, 6.4%, and 7.5% "
+            "during the study enrollment period in Jan. "
+            "A separate analysis by Eli Lilly Inc. Separately reports "
+            "that tirzepatide is efficacious.[1]\n"
+            "Additional numbers 8.6%, 9.7%, 10.8%, 11.9% here. "
+            "More data 12.1%, 13.2%, 14.3%, 15.4%, 16.5%, 17.6%.\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        results, _, _ = run_rule_checks(
+            report_text=report,
+            protocol={"expected_tier_distribution": []},
+            tier_distribution_report={},
+            contradictions=[],
+            evidence_pool={},
+            generator_model="deepseek/deepseek-v3.2-exp",
+            evaluator_model="qwen/qwen3-8b",
+        )
+        pt11 = next(r for r in results if r.item_id == "PT11")
+        assert not pt11.passed, (
+            "Codex blocker: the decimals before `in Jan.` should NOT be "
+            "covered by [1] in the next sentence — Jan. is sentence-final "
+            "because 'A separate' starts with a capital letter. PT11 must "
+            "still flag these as uncited."
         )

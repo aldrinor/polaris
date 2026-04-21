@@ -77,82 +77,166 @@ logger = logging.getLogger("polaris_graph.external_evaluator")
 # (policy, materials, energy, due-diligence) benefits from the same list.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Single-word English abbreviations that end with a period but do NOT
-# terminate a sentence. Case-sensitive where appropriate (e.g. "No." for
-# number, not "no" as adverb).
-_PT11_ABBREVIATIONS = frozenset([
-    # Comparatives
+# M-30 pass-2 (addressing Codex blocker): abbreviations split into two
+# buckets because some English abbreviations genuinely never end a
+# sentence (vs., etc., titles before a name) while others do end
+# sentences in some contexts and continue them in others (Jan. 15 vs
+# Jan. A separate claim was reported).
+#
+# ALWAYS_NONBOUNDARY: period NEVER indicates sentence end. Includes
+# comparatives (vs.), Latin connectives (etc, cf, viz), and common
+# titles (Dr., Mr., Mrs.) where the following word is typically a
+# proper-noun and the combined token reads as one unit.
+#
+# CONTEXT_DEPENDENT: period may or may not end the sentence. Resolve
+# by looking at the next non-whitespace character:
+#   - digit or '(' / '-' / '+' → non-boundary (e.g. "Fig. 3", "No. 42",
+#     "Jan. 15", "Vol. 2")
+#   - lowercase letter → non-boundary (mid-sentence continuation)
+#   - uppercase letter → boundary (new sentence starts)
+#   - end-of-string → boundary
+_PT11_ALWAYS_NONBOUNDARY = frozenset([
+    # Comparatives — never end a sentence
     "vs", "v",
-    # Latin / academic
+    # Latin / academic connectives — always continuation
     "etc", "cf", "viz",
-    # Document references
+    # Titles — followed by proper-noun, treated as non-boundary.
+    # Edge case: "He is a Dr." sentence-final; accepted false-negative
+    # (decimals rarely precede sentence-final titles in research prose).
+    "Dr", "Mr", "Mrs", "Ms", "Prof", "Sr", "Jr", "Rev",
+])
+
+_PT11_CONTEXT_DEPENDENT = frozenset([
+    # Document references — usually followed by a number
     "Fig", "Figs", "Ref", "Refs", "Eq", "Eqs",
     "No", "Nos", "pp", "Vol", "Ch", "Sec", "App",
-    # Titles
-    "Dr", "Mr", "Mrs", "Ms", "Prof", "Sr", "Jr", "Rev",
-    # Organisations
+    # Organisations — can be sentence-final ("Eli Lilly Inc. We...") or
+    # mid-sentence ("Eli Lilly Inc. reported")
     "Inc", "Ltd", "Co", "Corp", "Gov", "Dept",
-    # Months
+    # Months — can be sentence-final ("in Jan. We...") or followed by
+    # a day number ("Jan. 15, 2020")
     "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug",
     "Sep", "Sept", "Oct", "Nov", "Dec",
 ])
 
 
 def _is_abbreviation_period(text: str, period_pos: int) -> bool:
-    """True if text[period_pos] == '.' and the token immediately before
-    it is a known non-terminating abbreviation (generalizable list)."""
+    """True if text[period_pos] == '.' and the period is an abbreviation
+    terminator (NOT a sentence boundary).
+
+    Two-bucket disambiguation:
+      1. ALWAYS_NONBOUNDARY tokens are non-boundary unconditionally.
+      2. CONTEXT_DEPENDENT tokens are non-boundary only when the next
+         non-whitespace character is a digit, lowercase letter, or an
+         open paren / dash. An uppercase letter after the period
+         indicates a new sentence.
+      3. Multi-segment acronyms like `e.g`, `i.e`, `U.S`, `U.K`, `E.U`
+         and the special "et al" form are non-boundary unconditionally
+         (these are always mid-sentence in English prose).
+    """
     if period_pos < 0 or period_pos >= len(text) or text[period_pos] != ".":
         return False
-    # Walk back over alphabetic characters + embedded periods to find the
-    # token that ends at period_pos. Embedded periods let "e.g" / "i.e" be
-    # treated as a single token that itself ends with period_pos.
+    # Walk back over alphabetic characters + embedded periods to find
+    # the token that ends at period_pos.
     start = period_pos - 1
     while start >= 0 and (text[start].isalpha() or text[start] == "."):
         start -= 1
     token = text[start + 1:period_pos]
     if not token:
         return False
-    # Direct single-word hit
-    if token in _PT11_ABBREVIATIONS:
-        return True
-    # Multi-segment abbreviations like "e.g", "i.e", "U.S", "U.K", "E.U"
-    # — the token itself contains internal periods. Check the terminal
-    # segment against the list plus classical two-letter pattern.
+    # Bucket 3: multi-segment acronym (e.g, i.e, U.S)
     if "." in token:
         parts = [p for p in token.split(".") if p]
-        if all(len(p) <= 2 and p.isalpha() for p in parts):
+        if parts and all(len(p) <= 2 and p.isalpha() for p in parts):
             return True
-    # "et al." — the token we walked back is just "al"; confirm "et " is
-    # immediately before it.
+    # Bucket 3 (continued): "et al."
     if token == "al":
         pre_start = max(0, start + 1 - 3)
         if text[pre_start:start + 1].endswith("et "):
             return True
+    # Bucket 1: always non-boundary
+    if token in _PT11_ALWAYS_NONBOUNDARY:
+        return True
+    # Bucket 2: context-dependent
+    if token in _PT11_CONTEXT_DEPENDENT:
+        # Scan forward for next non-whitespace char
+        after = period_pos + 1
+        while after < len(text) and text[after] in " \t":
+            after += 1
+        if after >= len(text):
+            return False  # end-of-input → real boundary
+        nxt = text[after]
+        if nxt.isdigit() or nxt in "(-+":
+            return True  # e.g. "Fig. 3", "No. 42", "Jan. 15"
+        if nxt.islower():
+            return True  # e.g. "Inc. reported" (mid-sentence continuation)
+        # Uppercase → treat as sentence boundary
+        return False
     return False
 
 
+# Sentence-terminator regex. Matches `.`, `!`, `?` when followed by
+# whitespace, end-of-string, or an inline citation `[N]` / `[#ev:...]`
+# (reports commonly write `sentence.[7] Next sentence...`).
+_SENTENCE_END_REGEX = re.compile(r"[.!?](?=\s|$|\[)")
+
+
+def _skip_trailing_citation_brackets(text: str, pos: int) -> int:
+    """Advance `pos` past any `[...]` citation brackets that immediately
+    follow. So `sentence.[7][#ev:x]` with `pos` at the `.` advances past
+    both brackets. Returns the position after the last closing `]`.
+
+    This is needed because PT11 treats `.[7]` as one sentence-end unit:
+    the `[7]` cites the PRIOR sentence, so it should be part of that
+    sentence's "end" — not the start of the next sentence.
+    """
+    while pos < len(text) and text[pos] == "[":
+        close = text.find("]", pos)
+        if close < 0:
+            break
+        pos = close + 1
+    return pos
+
+
 def _next_real_sentence_end(text: str) -> int | None:
-    """Return the index PAST the first real sentence terminator in `text`
-    (i.e. the position of the first char of the NEXT sentence), or None if
-    no terminator is found. Skips abbreviation-period false positives."""
-    for m in re.finditer(r"[.!?](?:\s|$)", text):
+    """Return the position just past the first real sentence terminator
+    in `text`, INCLUDING any trailing `[N]` / `[#ev:...]` citations. So
+    for `sentence.[7] Next` the return value points at the space after
+    `]`, letting lookahead snippets include the citation.
+
+    Returns None if no real terminator is found. Skips
+    abbreviation-period false positives."""
+    for m in _SENTENCE_END_REGEX.finditer(text):
         period_pos = m.start()
         if text[period_pos] == "." and _is_abbreviation_period(text, period_pos):
             continue
-        return m.end()
+        return _skip_trailing_citation_brackets(text, period_pos + 1)
     return None
 
 
 def _prev_real_sentence_end(text: str) -> int:
-    """Return the index of the last real sentence terminator in `text`
-    (the position of the `.` / `!` / `?` itself), or -1 if none found.
-    Skips abbreviation-period false positives."""
+    """Return the index of the last char of the last real sentence
+    (the terminator char or, if the terminator is followed by citation
+    brackets, the closing `]` of the last trailing bracket).
+
+    So for `First sentence.[1] Current claim`, the return value points
+    at the `]` of `[1]` — caller's `back_text[last_end+1:]` then starts
+    cleanly in the new sentence and does NOT see `[1]`, which correctly
+    belongs to the prior sentence.
+
+    Returns -1 if no terminator is found. Skips abbreviation-period
+    false positives."""
     last = -1
-    for m in re.finditer(r"[.!?](?:\s|$)", text):
+    for m in _SENTENCE_END_REGEX.finditer(text):
         period_pos = m.start()
         if text[period_pos] == "." and _is_abbreviation_period(text, period_pos):
             continue
-        last = period_pos
+        # Advance past trailing citation brackets so they end this sentence.
+        end_pos = _skip_trailing_citation_brackets(text, period_pos + 1)
+        # `end_pos` is the position AFTER the last `]` (or after the `.`
+        # when no brackets follow). Return that position minus 1 so the
+        # caller's `back_text[last + 1:]` starts on the next char.
+        last = end_pos - 1
     return last
 
 
