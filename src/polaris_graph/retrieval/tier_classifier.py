@@ -144,6 +144,10 @@ REGULATORY_DOMAINS = frozenset({
     "nice.org.uk", "mhra.gov.uk", "gov.uk",
     # Canada
     "cda-amc.ca", "hc-sc.gc.ca", "canada.ca",
+    "hres.ca",   # M-37: Health Canada DPD Product Monograph PDFs
+                 # (pdf.hres.ca via parent-domain match). Without this
+                 # the MOUNJARO monograph fell through to R9 OpenAlex
+                 # and got demoted T4 instead of T3 regulatory.
     # Australia / NZ
     "tga.gov.au", "medsafe.govt.nz",
     # Japan

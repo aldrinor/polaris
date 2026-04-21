@@ -117,7 +117,10 @@ regulatory_anchors:
   - ema.europa.eu        # EMA SmPC (Summary of Product Characteristics)
   - fda.gov              # FDA news / safety announcements / guidance
   - hres.ca              # Health Canada Regulatory Decision Summary PDFs
+  - pdf.hres.ca          # M-37: Health Canada DPD Product Monograph PDFs
   - canada.ca            # Health Canada Product Monograph search
+  - recalls-rappels.canada.ca  # M-37: Canadian safety recalls / DHPP
+  - health-products.canada.ca  # M-37: Health Canada Drug Products DB
   - who.int              # WHO Essential Medicines, guidelines
   - nice.org.uk          # UK National Institute for Health and Care Excellence
 
