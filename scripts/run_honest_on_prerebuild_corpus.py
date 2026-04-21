@@ -270,8 +270,11 @@ async def main_async() -> int:
         research_question=question,
         evidence=evidence_rows,
         section_temperature=0.3,
-        outline_max_tokens=800,
-        section_max_tokens=1200,
+        # M-31/M-33 (2026-04-21): match upstream defaults (2500/2400)
+        # to avoid JSON truncation and section output capping. Same
+        # regression class fixed in run_honest_sweep_r3.py.
+        outline_max_tokens=2500,
+        section_max_tokens=2400,
         min_kept_fraction=0.4,
         max_parallel_sections=3,
         # R-1: pipeline telemetry for Limitations synthesis

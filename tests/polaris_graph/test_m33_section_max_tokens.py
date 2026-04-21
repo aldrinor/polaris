@@ -23,32 +23,40 @@ content.
 from __future__ import annotations
 
 
-class TestSweepSectionMaxTokens:
-    """M-33: the sweep caller must not pass a too-small
-    section_max_tokens value. 2400 is the in-module default set by
-    M-24 for 10-18 sentence targets per section."""
+class TestAllCallersSectionMaxTokens:
+    """M-33: EVERY caller of `generate_multi_section_report` that
+    explicitly passes `section_max_tokens=` must pass at least 2400
+    (the in-module default set by M-24 for 10-18 sentence targets per
+    section). Codex M-33 audit flagged
+    `scripts/run_honest_on_prerebuild_corpus.py` as a second caller
+    that had been missed in the initial fix."""
 
-    def test_sweep_script_uses_adequate_section_max_tokens(self) -> None:
-        """Static check: the sweep script must not pass a
-        section_max_tokens value below the 2400 in-module default.
-        V22 diagnostic confirmed hitting exactly 1200 on a SURPASS
-        framing section; with 2400 the generator has headroom to emit
-        per-trial framing sentences required by M-32 rule #12."""
+    def test_all_script_callers_use_adequate_section_max_tokens(self) -> None:
+        """Static check across all Python files in scripts/: any file
+        that both imports `generate_multi_section_report` and passes
+        `section_max_tokens=N` must pass N >= 2400."""
         import pathlib
         import re
 
-        path = pathlib.Path("scripts/run_honest_sweep_r3.py")
-        text = path.read_text(encoding="utf-8")
-        matches = re.findall(r"section_max_tokens\s*=\s*(\d+)", text)
-        assert matches, "no section_max_tokens= found in sweep script"
-        for value in matches:
-            assert int(value) >= 2400, (
-                f"sweep script passes section_max_tokens={value}, below "
-                f"the 2400 in-module default (M-24). V22 hit exactly 1200 "
-                f"on one section, capping narrative depth. This is the "
-                f"M-33 regression class: script override clobbers upstream "
-                f"default."
-            )
+        scripts_dir = pathlib.Path("scripts")
+        assert scripts_dir.is_dir(), "scripts/ directory not found"
+        offenders: list[tuple[str, str]] = []
+        for py in scripts_dir.rglob("*.py"):
+            try:
+                text = py.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if "generate_multi_section_report" not in text:
+                continue
+            for value in re.findall(r"section_max_tokens\s*=\s*(\d+)", text):
+                if int(value) < 2400:
+                    offenders.append((str(py), value))
+        assert not offenders, (
+            f"script callers of generate_multi_section_report pass a "
+            f"section_max_tokens below the 2400 in-module default. This "
+            f"is the M-33 regression class (script override clobbers "
+            f"module default). Offenders: {offenders}"
+        )
 
 
 class TestModuleDefaultUnchanged:

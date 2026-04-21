@@ -112,25 +112,36 @@ class TestLenientTrailingCommaRecovery:
 
 
 class TestSweepOutlineMaxTokens:
-    """M-31 primary fix: the sweep caller must pass at least the
-    in-module default outline_max_tokens. This test is a guard against
+    """M-31 primary fix: EVERY caller of
+    `generate_multi_section_report` must pass at least the in-module
+    default outline_max_tokens (2500). This test is a guard against
     future regressions of the form run_honest_sweep_r3.py used to have
-    (passing 800, causing truncation)."""
+    (passing 800, causing truncation). Widened during M-33 audit after
+    a second caller was discovered."""
 
-    def test_sweep_script_uses_adequate_outline_max_tokens(self) -> None:
-        """Static check: the sweep script must not pass a too-small
-        outline_max_tokens value. 2500+ is the minimum (M-24 default)."""
-        import re
+    def test_all_script_callers_use_adequate_outline_max_tokens(self) -> None:
+        """Static check across all Python files in scripts/: any file
+        that both imports `generate_multi_section_report` and passes
+        `outline_max_tokens=N` must pass N >= 2500."""
         import pathlib
+        import re
 
-        path = pathlib.Path("scripts/run_honest_sweep_r3.py")
-        text = path.read_text(encoding="utf-8")
-        matches = re.findall(r"outline_max_tokens\s*=\s*(\d+)", text)
-        assert matches, "no outline_max_tokens= found in sweep script"
-        for value in matches:
-            assert int(value) >= 2500, (
-                f"sweep script passes outline_max_tokens={value}, below "
-                f"the 2500 minimum required to avoid JSON truncation "
-                f"with 5-section outlines and 12-20 ev_ids per section. "
-                f"This is the V19/V20 failure mode documented in M-31."
-            )
+        scripts_dir = pathlib.Path("scripts")
+        assert scripts_dir.is_dir(), "scripts/ directory not found"
+        offenders: list[tuple[str, str]] = []
+        for py in scripts_dir.rglob("*.py"):
+            try:
+                text = py.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if "generate_multi_section_report" not in text:
+                continue
+            for value in re.findall(r"outline_max_tokens\s*=\s*(\d+)", text):
+                if int(value) < 2500:
+                    offenders.append((str(py), value))
+        assert not offenders, (
+            f"script callers of generate_multi_section_report pass an "
+            f"outline_max_tokens below the 2500 minimum. This is the "
+            f"V19/V20 JSON truncation failure mode documented in M-31. "
+            f"Offenders: {offenders}"
+        )
