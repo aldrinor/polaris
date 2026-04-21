@@ -16,8 +16,8 @@ Design invariants:
     (`test_m28_regulatory_expander_no_hardcoded_hosts`) asserts this
     at CI time so future edits cannot slip in a hard-code by accident.
   - Template-driven: the caller chooses the anchors per domain by
-    writing them into the template. Clinical, policy, due-diligence,
-    environmental, materials, etc. all use the same expander code.
+    writing them into the template. Every domain supported by the
+    scope_templates/ directory uses the same expander code.
   - Backwards-compatible: missing list / empty list / malformed
     entries all return an empty list, so the expander is safe to call
     unconditionally.

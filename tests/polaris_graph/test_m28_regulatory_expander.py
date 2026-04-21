@@ -197,6 +197,7 @@ class TestNoHardCodedHostsInModule:
             # assumption inside a generic module)
             "mounjaro", "zepbound", "tirzepatide", "surpass", "surmount",
             "semaglutide", "glargine", "degludec", "diabetes",
+            "clinical",  # domain name itself
         ]
         leaks = [term for term in banned if term in text]
         assert not leaks, (
