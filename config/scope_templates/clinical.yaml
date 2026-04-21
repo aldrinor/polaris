@@ -120,3 +120,33 @@ regulatory_anchors:
   - canada.ca            # Health Canada Product Monograph search
   - who.int              # WHO Essential Medicines, guidelines
   - nice.org.uk          # UK National Institute for Health and Care Excellence
+
+# M-35 (2026-04-21): primary-trial anchors are trial-name tokens that
+# the amplification layer should wrap in quotes and append to the
+# question to surface pivotal-trial primary publications (typically
+# NEJM / Lancet / JAMA / Nature). Trial names are query-specific (the
+# trial program that matters depends on the drug / condition under
+# study), so this field is keyed by SWEEP SLUG rather than applied
+# globally to the whole clinical domain. Missing slug = no expansion.
+# Zero trial names are hard-coded in Python — they live only here.
+#
+# Covers Codex DR pass-11 gap #1: "Replace the citation mix with
+# primary SURPASS-1..SURPASS-6, SURPASS-CVOT, SURMOUNT-2/4 trial
+# papers as first-class sources." V23 corpus had 62 trial-mention
+# rows but mostly conference abstracts and post-hoc pooled analyses;
+# the primary NEJM / Lancet publications for SURPASS-1/2/3 and
+# SURMOUNT-1 were absent. Targeted `"SURPASS-1" {question}` queries
+# surface the pivotal trial publication directly.
+per_query_primary_trial_anchors:
+  clinical_tirzepatide_t2dm:
+    - SURPASS-1       # Rosenstock et al., Lancet 2021 — monotherapy
+    - SURPASS-2       # Frías et al., NEJM 2021 — vs semaglutide
+    - SURPASS-3       # Ludvik et al., Lancet 2021 — vs insulin degludec
+    - SURPASS-4       # Del Prato et al., Lancet 2021 — high-CV-risk
+    - SURPASS-5       # Dahl et al., JAMA 2022 — + insulin glargine
+    - SURPASS-6       # Rosenstock et al., JAMA 2023 — vs insulin lispro
+    - SURPASS-CVOT    # Ongoing cardiovascular outcome trial
+    - SURMOUNT-1      # Jastreboff et al., NEJM 2022 — obesity
+    - SURMOUNT-2      # Garvey et al., Lancet 2023 — obesity + T2D
+    - SURMOUNT-3      # Wadden et al., Nat Med 2023 — after ILI
+    - SURMOUNT-4      # Aronne et al., JAMA 2023 — weight maintenance

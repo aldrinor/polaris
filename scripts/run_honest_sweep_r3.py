@@ -547,6 +547,9 @@ async def run_one_query(
         from src.polaris_graph.retrieval.regulatory_expander import (
             expand_regulatory_queries,
         )
+        from src.polaris_graph.retrieval.primary_trial_expander import (
+            expand_primary_trial_queries,
+        )
         try:
             _template = load_scope_template(q["domain"])
         except Exception as _ex:
@@ -560,7 +563,18 @@ async def run_one_query(
         if _reg_queries:
             _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
                  f"queries (domain={q['domain']})")
-        _amplified_effective = list(q.get("amplified", [])) + _reg_queries
+        # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
+        # sweep slug (trial names are query-specific). Missing slug or
+        # missing `per_query_primary_trial_anchors` key = no-op.
+        _trial_queries = expand_primary_trial_queries(
+            q["question"], _template, q["slug"]
+        )
+        if _trial_queries:
+            _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+                 f"queries (slug={q['slug']})")
+        _amplified_effective = (
+            list(q.get("amplified", [])) + _reg_queries + _trial_queries
+        )
 
         t0 = time.time()
         retrieval = run_live_retrieval(
