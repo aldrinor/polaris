@@ -181,14 +181,19 @@ class TestCitationAdjacentBoundary:
     so lookback/lookahead windows don't over-extend."""
 
     def test_period_followed_by_bracket_citation_is_boundary(self) -> None:
+        """Codex pass-2 low/nit: exact-position assertion. The return
+        value must point AT or PAST the closing `]` so the lookahead
+        snippet includes the trailing citation."""
         text = "The trial reported 2.4% reduction.[7] Another trial showed"
-        # The `.` after "reduction" is followed immediately by `[` — the
-        # new regex must still match it as a sentence terminator.
         end = _next_real_sentence_end(text)
         assert end is not None
-        # End index must land AT or PAST the `.` — i.e. the `.` position + 1
-        expected_min = text.index("reduction.") + len("reduction.")
-        assert end >= expected_min
+        # End must be at or past the `]` of `[7]` — so that a snippet
+        # text[:end] includes the citation marker.
+        bracket_close = text.index("[7]") + 3  # position after `]`
+        assert end == bracket_close, (
+            f"expected end at position after `]` ({bracket_close}) "
+            f"so snippet includes [7]; got {end}"
+        )
 
     def test_prev_sentence_end_finds_period_before_bracket(self) -> None:
         """The last char of the prior sentence is the closing `]` of
@@ -271,28 +276,27 @@ class TestPT11WithAbbreviations:
             "uncited — the fix should not over-relax the rule."
         )
 
-    def test_pt11_does_not_accept_next_sentence_citation(self) -> None:
-        """Codex M-30 pass-1 blocker: sentence-final abbreviation must
-        NOT be treated as non-boundary when followed by a capital, or
-        else a citation in the next sentence falsely covers uncited
-        decimals in the prior sentence."""
-        report = (
+    def _mk_uncited_report(self, sentence_final_phrase: str) -> str:
+        """Build a report where 6 decimals in a prior sentence sit
+        before `{sentence_final_phrase}`. The next sentence starts with
+        "A separate..." and carries a `[1]` citation that should NOT
+        cover the prior decimals."""
+        return (
             "# Test report\n"
             "\n"
             "## Results\n"
-            "The measured declines were 4.2%, 5.3%, 6.4%, and 7.5% "
-            "during the study enrollment period in Jan. "
-            "A separate analysis by Eli Lilly Inc. Separately reports "
-            "that tirzepatide is efficacious.[1]\n"
-            "Additional numbers 8.6%, 9.7%, 10.8%, 11.9% here. "
-            "More data 12.1%, 13.2%, 14.3%, 15.4%, 16.5%, 17.6%.\n"
+            f"The measured rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, and 9.7% "
+            f"{sentence_final_phrase} "
+            f"A separate analysis reports that tirzepatide is efficacious.[1]\n"
             "\n"
             "## Methods\n"
             "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
             "Sanitization. Generator. Evaluator.\n"
         )
+
+    def _pt11_result_for(self, report_text: str):
         results, _, _ = run_rule_checks(
-            report_text=report,
+            report_text=report_text,
             protocol={"expected_tier_distribution": []},
             tier_distribution_report={},
             contradictions=[],
@@ -300,10 +304,82 @@ class TestPT11WithAbbreviations:
             generator_model="deepseek/deepseek-v3.2-exp",
             evaluator_model="qwen/qwen3-8b",
         )
-        pt11 = next(r for r in results if r.item_id == "PT11")
+        return next(r for r in results if r.item_id == "PT11")
+
+    def test_pt11_does_not_accept_next_sentence_citation_jan(self) -> None:
+        """Codex M-30 pass-1 blocker — month case."""
+        pt11 = self._pt11_result_for(
+            self._mk_uncited_report("in Jan.")
+        )
         assert not pt11.passed, (
-            "Codex blocker: the decimals before `in Jan.` should NOT be "
-            "covered by [1] in the next sentence — Jan. is sentence-final "
-            "because 'A separate' starts with a capital letter. PT11 must "
-            "still flag these as uncited."
+            "Jan. is sentence-final; [1] in next sentence must not "
+            "cover prior-sentence decimals."
+        )
+
+    def test_pt11_does_not_accept_next_sentence_citation_us(self) -> None:
+        """Codex M-30 pass-2 blocker — geographic acronym case (U.S.)."""
+        pt11 = self._pt11_result_for(
+            self._mk_uncited_report("in the U.S.")
+        )
+        assert not pt11.passed, (
+            "U.S. is sentence-final before `A separate`; [1] must not "
+            "cover prior-sentence decimals."
+        )
+
+    def test_pt11_does_not_accept_next_sentence_citation_et_al(self) -> None:
+        """Codex M-30 pass-2 blocker — academic citation case."""
+        pt11 = self._pt11_result_for(
+            self._mk_uncited_report("as reported by Smith et al.")
+        )
+        assert not pt11.passed, (
+            "`et al.` is sentence-final before `A separate`; [1] must "
+            "not cover prior-sentence decimals."
+        )
+
+    def test_pt11_does_not_accept_next_sentence_citation_etc(self) -> None:
+        """Codex M-30 pass-2 blocker — end-of-list case."""
+        pt11 = self._pt11_result_for(
+            self._mk_uncited_report("etc.")
+        )
+        assert not pt11.passed, (
+            "etc. is sentence-final before `A separate`; [1] must not "
+            "cover prior-sentence decimals."
+        )
+
+    def test_pt11_preserves_midsentence_us(self) -> None:
+        """Counter-test: `U.S.` followed by lowercase word is mid-sentence."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "The trial in the U.S. market reported a 2.4%, 3.5%, 4.6%, "
+            "5.7%, 6.8%, and 7.9% reduction across doses.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert pt11.passed, (
+            "U.S. followed by lowercase `market` is mid-sentence; "
+            "decimals are correctly cited by [1] at sentence end."
+        )
+
+    def test_pt11_preserves_midsentence_et_al(self) -> None:
+        """Counter-test: `et al.` followed by lowercase word is mid-sentence."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "As reported by Smith et al. in their 2023 publication, "
+            "reductions of 2.4%, 3.5%, 4.6%, 5.7%, 6.8%, and 7.9% "
+            "were observed.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert pt11.passed, (
+            "`et al.` followed by lowercase `in` is mid-sentence."
         )

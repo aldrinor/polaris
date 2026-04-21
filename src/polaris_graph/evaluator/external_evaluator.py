@@ -77,36 +77,47 @@ logger = logging.getLogger("polaris_graph.external_evaluator")
 # (policy, materials, energy, due-diligence) benefits from the same list.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# M-30 pass-2 (addressing Codex blocker): abbreviations split into two
-# buckets because some English abbreviations genuinely never end a
-# sentence (vs., etc., titles before a name) while others do end
-# sentences in some contexts and continue them in others (Jan. 15 vs
-# Jan. A separate claim was reported).
+# M-30 pass-3 (addressing Codex pass-2 blocker): `etc.`, `U.S.`,
+# `et al.` and other multi-segment acronyms also have sentence-final
+# vs mid-sentence ambiguity. Previous pass-2 design treated them as
+# ALWAYS non-boundary, which let `4.2%, 5.3%, 6.4%, 7.5% in the U.S. A
+# separate claim.[1]` falsely pass PT11. Pass-3 restricts
+# ALWAYS_NONBOUNDARY to only tokens that are virtually never
+# sentence-final in practice; everything else routes through
+# context-dependent next-char disambiguation.
 #
-# ALWAYS_NONBOUNDARY: period NEVER indicates sentence end. Includes
-# comparatives (vs.), Latin connectives (etc, cf, viz), and common
-# titles (Dr., Mr., Mrs.) where the following word is typically a
-# proper-noun and the combined token reads as one unit.
+# ALWAYS_NONBOUNDARY (virtually never ends a sentence):
+#   - comparatives `vs.`, `v.`
+#   - Latin connectives `cf.`, `viz.`
+#   - titles `Dr.`, `Mr.`, `Mrs.`, `Ms.`, `Prof.`, `Sr.`, `Jr.`, `Rev.`
+#     (practically always followed by a proper-noun name; the very
+#     rare "She is a Dr." sentence-final usage is an accepted
+#     false-negative since decimals don't usually precede titles).
 #
-# CONTEXT_DEPENDENT: period may or may not end the sentence. Resolve
-# by looking at the next non-whitespace character:
-#   - digit or '(' / '-' / '+' → non-boundary (e.g. "Fig. 3", "No. 42",
-#     "Jan. 15", "Vol. 2")
-#   - lowercase letter → non-boundary (mid-sentence continuation)
-#   - uppercase letter → boundary (new sentence starts)
-#   - end-of-string → boundary
+# CONTEXT_DEPENDENT (resolved by next non-whitespace char — digit/
+# paren/lowercase → non-boundary; uppercase/EOL → boundary):
+#   - end-of-list `etc`
+#   - document references (Fig, Ref, No, pp, Vol, Ch, Sec, App, ...)
+#   - organisations (Inc, Ltd, Co, Corp, Gov, Dept)
+#   - months (Jan-Dec)
+#   - multi-segment acronyms (e.g, i.e, U.S, U.K, E.U) — routed via
+#     the multi-segment detector in `_is_abbreviation_period`.
+#   - `et al` — routed via the special-case detector.
 _PT11_ALWAYS_NONBOUNDARY = frozenset([
     # Comparatives — never end a sentence
     "vs", "v",
-    # Latin / academic connectives — always continuation
-    "etc", "cf", "viz",
+    # Latin connectives that always introduce content after them
+    "cf", "viz",
     # Titles — followed by proper-noun, treated as non-boundary.
-    # Edge case: "He is a Dr." sentence-final; accepted false-negative
+    # Edge case: "She is a Dr." sentence-final; accepted false-negative
     # (decimals rarely precede sentence-final titles in research prose).
     "Dr", "Mr", "Mrs", "Ms", "Prof", "Sr", "Jr", "Rev",
 ])
 
 _PT11_CONTEXT_DEPENDENT = frozenset([
+    # End-of-list marker — can be sentence-final ("items, etc. We then...")
+    # or mid-sentence ("items, etc. and other things")
+    "etc",
     # Document references — usually followed by a number
     "Fig", "Figs", "Ref", "Refs", "Eq", "Eqs",
     "No", "Nos", "pp", "Vol", "Ch", "Sec", "App",
@@ -124,15 +135,17 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
     """True if text[period_pos] == '.' and the period is an abbreviation
     terminator (NOT a sentence boundary).
 
-    Two-bucket disambiguation:
-      1. ALWAYS_NONBOUNDARY tokens are non-boundary unconditionally.
-      2. CONTEXT_DEPENDENT tokens are non-boundary only when the next
-         non-whitespace character is a digit, lowercase letter, or an
-         open paren / dash. An uppercase letter after the period
-         indicates a new sentence.
-      3. Multi-segment acronyms like `e.g`, `i.e`, `U.S`, `U.K`, `E.U`
-         and the special "et al" form are non-boundary unconditionally
-         (these are always mid-sentence in English prose).
+    Disambiguation:
+      1. ALWAYS_NONBOUNDARY tokens (vs, cf, viz, titles) are
+         non-boundary unconditionally.
+      2. CONTEXT_DEPENDENT tokens (etc, months, orgs, doc-refs),
+         multi-segment acronyms (e.g, i.e, U.S, U.K, E.U), and the
+         `et al.` special-case all resolve by the next
+         non-whitespace character:
+           - digit / `(` / `-` / `+` → non-boundary
+           - lowercase letter        → non-boundary
+           - uppercase letter        → boundary (new sentence starts)
+           - end-of-string           → boundary
     """
     if period_pos < 0 or period_pos >= len(text) or text[period_pos] != ".":
         return False
@@ -144,34 +157,46 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
     token = text[start + 1:period_pos]
     if not token:
         return False
-    # Bucket 3: multi-segment acronym (e.g, i.e, U.S)
-    if "." in token:
-        parts = [p for p in token.split(".") if p]
-        if parts and all(len(p) <= 2 and p.isalpha() for p in parts):
-            return True
-    # Bucket 3 (continued): "et al."
-    if token == "al":
-        pre_start = max(0, start + 1 - 3)
-        if text[pre_start:start + 1].endswith("et "):
-            return True
-    # Bucket 1: always non-boundary
+
+    # Bucket 1: always non-boundary (short-circuit).
     if token in _PT11_ALWAYS_NONBOUNDARY:
         return True
-    # Bucket 2: context-dependent
-    if token in _PT11_CONTEXT_DEPENDENT:
-        # Scan forward for next non-whitespace char
-        after = period_pos + 1
-        while after < len(text) and text[after] in " \t":
-            after += 1
-        if after >= len(text):
-            return False  # end-of-input → real boundary
-        nxt = text[after]
-        if nxt.isdigit() or nxt in "(-+":
-            return True  # e.g. "Fig. 3", "No. 42", "Jan. 15"
-        if nxt.islower():
-            return True  # e.g. "Inc. reported" (mid-sentence continuation)
-        # Uppercase → treat as sentence boundary
+
+    # Determine whether this is a context-dependent abbreviation:
+    # explicit list, multi-segment acronym, or "et al.".
+    is_context_dependent = token in _PT11_CONTEXT_DEPENDENT
+
+    if not is_context_dependent and "." in token:
+        parts = [p for p in token.split(".") if p]
+        if parts and all(len(p) <= 2 and p.isalpha() for p in parts):
+            is_context_dependent = True  # e.g, i.e, U.S, U.K, E.U
+
+    if not is_context_dependent and token == "al":
+        pre_start = max(0, start + 1 - 3)
+        if text[pre_start:start + 1].endswith("et "):
+            is_context_dependent = True  # "et al."
+
+    if not is_context_dependent:
         return False
+
+    # Resolve by the next non-whitespace character.
+    after = period_pos + 1
+    while after < len(text) and text[after] in " \t":
+        after += 1
+    if after >= len(text):
+        return False  # end-of-input → real boundary
+    nxt = text[after]
+    if nxt.isdigit() or nxt in "(-+":
+        return True  # e.g. "Fig. 3", "Jan. 15", "U.S. 2023 report"
+    if nxt.islower():
+        return True  # mid-sentence continuation ("Inc. reported",
+                     # "etc. and more", "U.S. market", "et al. in 2023")
+    # Uppercase → treat as sentence boundary.
+    # Examples correctly flagged as boundary:
+    #   "in Jan. A separate..."   — month sentence-final
+    #   "in the U.S. A separate..." — country-acronym sentence-final
+    #   "Smith et al. A separate..." — citation form sentence-final
+    #   "items, etc. A separate..." — end-of-list sentence-final
     return False
 
 
