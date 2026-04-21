@@ -1,0 +1,12 @@
+Wrote the audit to [findings.md](/C:/POLARIS/outputs/codex_findings/m31_code_audit/findings.md).
+
+Verdict: `READY`
+
+I verified:
+- `outline_max_tokens=2500` matches the module default and applies to initial + retry outline calls.
+- The regex only runs after strict JSON parsing fails and does not mask missing-comma truncation.
+- The static guard reads `scripts/run_honest_sweep_r3.py` and would fail on `outline_max_tokens=800`.
+- No domain-specific behavior was introduced.
+- V19/V20 logs only show the observed 800-token `Expecting ',' delimiter` outline failures.
+
+Verification run: `python -m pytest -q tests/polaris_graph/test_m31_outline_resilience.py` passed `6/6`; only a pytest cache permission warning appeared.
