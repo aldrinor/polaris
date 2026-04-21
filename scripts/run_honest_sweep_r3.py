@@ -536,10 +536,36 @@ async def run_one_query(
         _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
+
+        # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+        # the scope template for this domain and — if the template has
+        # a `regulatory_anchors` list — emits one extra amplified query
+        # per anchor of the form `{question} site:{anchor}`. No hard-
+        # coded agency list in Python; template-driven so each domain
+        # controls its own anchors. Empty/missing list = no-op.
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.retrieval.regulatory_expander import (
+            expand_regulatory_queries,
+        )
+        try:
+            _template = load_scope_template(q["domain"])
+        except Exception as _ex:
+            _log(
+                f"[M-28 warn]   could not load template for domain="
+                f"{q['domain']!r}: {_ex} — continuing without regulatory "
+                f"expansion"
+            )
+            _template = None
+        _reg_queries = expand_regulatory_queries(q["question"], _template)
+        if _reg_queries:
+            _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+                 f"queries (domain={q['domain']})")
+        _amplified_effective = list(q.get("amplified", [])) + _reg_queries
+
         t0 = time.time()
         retrieval = run_live_retrieval(
             research_question=q["question"],
-            amplified_queries=q.get("amplified", []),
+            amplified_queries=_amplified_effective,
             protocol=protocol,
             max_serper=_max_serper,
             max_s2=_max_s2,

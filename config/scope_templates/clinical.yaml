@@ -105,3 +105,18 @@ languages:
 # where no independent adjudication committee was involved. The corpus-
 # approval gate shows funding sources alongside each source.
 excluded_sponsors: []
+
+# M-28 Fix #1 (2026-04-20): regulatory_anchors are URL hosts that the
+# amplification layer should target with dedicated `site:{anchor}`
+# queries so the corpus includes authoritative label / monograph /
+# guidance content. The list is configurable per domain; empty or
+# missing list means no regulatory expansion (backwards-compat).
+# Absolutely no hard-coded host lists in Python — only this template.
+regulatory_anchors:
+  - accessdata.fda.gov   # FDA Drugs@FDA (label, approval history, BLA/NDA docs)
+  - ema.europa.eu        # EMA SmPC (Summary of Product Characteristics)
+  - fda.gov              # FDA news / safety announcements / guidance
+  - hres.ca              # Health Canada Regulatory Decision Summary PDFs
+  - canada.ca            # Health Canada Product Monograph search
+  - who.int              # WHO Essential Medicines, guidelines
+  - nice.org.uk          # UK National Institute for Health and Care Excellence

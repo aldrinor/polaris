@@ -77,3 +77,14 @@ geography: []
 languages:
   - en
 excluded_sponsors: []
+
+# M-28 Fix #1: regulatory_anchors for policy-domain queries.
+regulatory_anchors:
+  - federalregister.gov
+  - regulations.gov
+  - gao.gov
+  - congress.gov
+  - whitehouse.gov
+  - cbo.gov
+  - who.int
+  - ec.europa.eu

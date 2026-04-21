@@ -78,3 +78,13 @@ geography: []
 languages:
   - en
 excluded_sponsors: []
+
+# M-28 Fix #1: regulatory_anchors for due-diligence queries
+# (SEC filings, FTC/DOJ actions, state regulators).
+regulatory_anchors:
+  - sec.gov
+  - ftc.gov
+  - justice.gov
+  - fdic.gov
+  - occ.gov
+  - federalreserve.gov
