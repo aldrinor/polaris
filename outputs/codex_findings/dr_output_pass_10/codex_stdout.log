@@ -1,0 +1,7 @@
+Wrote the final judge verdict to:
+
+[findings.md](C:/POLARIS/outputs/codex_findings/dr_output_pass_10/findings.md)
+
+Overall verdict: `PARTIAL`.
+
+V21 beats both on regulatory retrieval, but it does not terminate the loop because it loses to both competitors on claim framing, structural depth, and narrative depth. Ranked closure gaps are included in the file.
