@@ -131,6 +131,35 @@ _PT11_CONTEXT_DEPENDENT = frozenset([
 ])
 
 
+# Title-case words that STRONGLY signal a sentence boundary when they
+# follow a context-dependent abbreviation (Codex pass-3 addition).
+# This list lets the boundary rule correctly split cases like
+# "U.S. The trial..." (boundary) while keeping "U.S. FDA database..."
+# (mid-sentence continuation, an all-caps acronym follows an acronym).
+# Generalizable English discourse markers — no domain-specific terms.
+_PT11_SENTENCE_STARTER_WORDS = frozenset([
+    # Articles and demonstratives
+    "The", "This", "That", "These", "Those", "An",
+    # Pronouns that commonly open sentences
+    "He", "She", "It", "They", "We", "You",
+    # Discourse markers / transitional adverbs
+    "However", "Moreover", "Furthermore", "Thus", "Therefore",
+    "Nonetheless", "Nevertheless", "Conversely", "Meanwhile",
+    "Subsequently", "Previously", "Historically", "Recently",
+    "Currently", "Ultimately", "Overall", "Finally",
+    "Similarly", "Alternatively", "Separately", "Additionally",
+    "Notably", "Importantly", "Specifically", "Generally",
+    "Indeed", "Also",
+    # Conjunctions at sentence start
+    "And", "But", "Or",
+    # Prepositional / conditional openers
+    "In", "On", "At", "When", "While", "Where",
+    "If", "Though", "Although", "After", "Before", "During",
+    # Sequential openers
+    "First", "Second", "Third", "Next",
+])
+
+
 def _is_abbreviation_period(text: str, period_pos: int) -> bool:
     """True if text[period_pos] == '.' and the period is an abbreviation
     terminator (NOT a sentence boundary).
@@ -179,7 +208,8 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
     if not is_context_dependent:
         return False
 
-    # Resolve by the next non-whitespace character.
+    # Resolve by the next non-whitespace character AND the shape of
+    # the next word.
     after = period_pos + 1
     while after < len(text) and text[after] in " \t":
         after += 1
@@ -187,16 +217,47 @@ def _is_abbreviation_period(text: str, period_pos: int) -> bool:
         return False  # end-of-input → real boundary
     nxt = text[after]
     if nxt.isdigit() or nxt in "(-+":
-        return True  # e.g. "Fig. 3", "Jan. 15", "U.S. 2023 report"
+        return True  # "Fig. 3", "Jan. 15", "U.S. 2023 report"
     if nxt.islower():
-        return True  # mid-sentence continuation ("Inc. reported",
-                     # "etc. and more", "U.S. market", "et al. in 2023")
-    # Uppercase → treat as sentence boundary.
-    # Examples correctly flagged as boundary:
-    #   "in Jan. A separate..."   — month sentence-final
-    #   "in the U.S. A separate..." — country-acronym sentence-final
-    #   "Smith et al. A separate..." — citation form sentence-final
-    #   "items, etc. A separate..." — end-of-list sentence-final
+        return True  # "Inc. reported", "etc. and more", "U.S. market"
+
+    # Uppercase next char — inspect the whole next word.
+    word_end = after
+    while word_end < len(text) and (text[word_end].isalpha() or text[word_end] in "-'"):
+        word_end += 1
+    next_word = text[after:word_end]
+    alpha_only = "".join(c for c in next_word if c.isalpha())
+
+    # 1-char uppercase word: article "A" or pronoun "I" at sentence start.
+    if len(alpha_only) == 1:
+        return False
+
+    # ALL-CAPS multi-char word is almost always an acronym chaining onto
+    # the preceding abbreviation: "U.S. FDA database", "U.K. NHS data",
+    # "E.U. ECB report". Keep mid-sentence (non-boundary).
+    if alpha_only.isupper():
+        return True
+
+    # Explicit sentence-starter discourse markers and articles →
+    # sentence boundary. Catches "U.S. The trial...",
+    # "Inc. Separately reports...", "et al. However it was...".
+    if next_word in _PT11_SENTENCE_STARTER_WORDS:
+        return False
+
+    # Title-case word (not in starter list) — likely a proper noun.
+    # Further disambiguate by looking at the word AFTER it. If that
+    # next-next word starts with a lowercase letter, the Title-case
+    # word is probably part of an ongoing noun phrase ("U.K. Biobank
+    # data", "U.S. Pfizer reported"). If the next-next word is
+    # uppercase or absent, default to boundary (safer).
+    nnext_start = word_end
+    while nnext_start < len(text) and text[nnext_start] in " \t":
+        nnext_start += 1
+    if nnext_start < len(text):
+        nn = text[nnext_start]
+        if nn.islower():
+            return True  # proper-noun continuation — mid-sentence
+    # No lowercase continuation → treat as sentence boundary.
     return False
 
 

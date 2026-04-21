@@ -383,3 +383,72 @@ class TestPT11WithAbbreviations:
         assert pt11.passed, (
             "`et al.` followed by lowercase `in` is mid-sentence."
         )
+
+    def test_pt11_preserves_midsentence_us_fda(self) -> None:
+        """Codex M-30 pass-3 blocker (counter-test): `U.S.` followed by
+        an ALL-CAPS acronym (FDA, NHS, EPA, ECB, etc.) is always
+        mid-sentence — two-acronym noun phrase, not a sentence break.
+
+        Demonstrated false-fail from pass-3 findings:
+          'rates were 4.2%, ..., 9.7% in the U.S. FDA database
+           across cohorts.[1]' — PT11 must NOT flag the decimals as
+          uncited; [1] cites the same sentence."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "The measured rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, "
+            "and 9.7% in the U.S. FDA database across cohorts.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert pt11.passed, (
+            "U.S. FDA is an acronym-pair noun phrase; the decimals "
+            "before it are cited by [1] at the real sentence end."
+        )
+
+    def test_pt11_preserves_midsentence_uk_biobank(self) -> None:
+        """Counter-test: `U.K.` followed by a Title-case proper noun
+        followed by a lowercase word is mid-sentence (proper-noun
+        continuation: U.K. Biobank data)."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "Rates of 2.4%, 3.5%, 4.6%, 5.7%, 6.8%, and 7.9% were "
+            "observed in the U.K. Biobank data across five cohorts.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert pt11.passed, (
+            "U.K. Biobank data — proper noun followed by lowercase "
+            "continuation is mid-sentence."
+        )
+
+    def test_pt11_still_boundary_on_us_the(self) -> None:
+        """Counter-counter-test: `U.S. The trial...` must still be a
+        boundary even though 'The' is Title-case (it's in the
+        sentence-starter list)."""
+        report = (
+            "# Test report\n"
+            "\n"
+            "## Results\n"
+            "Cohort rates were 4.2%, 5.3%, 6.4%, 7.5%, 8.6%, and 9.7% "
+            "in the U.S. The trial was then concluded.[1]\n"
+            "\n"
+            "## Methods\n"
+            "Retrieved 2026-04-20. PubMed. T1-T7. RCTs. Sponsor. "
+            "Sanitization. Generator. Evaluator.\n"
+        )
+        pt11 = self._pt11_result_for(report)
+        assert not pt11.passed, (
+            "`U.S. The trial...` must be a boundary — 'The' is a "
+            "sentence-starter article. Decimals before U.S. should NOT "
+            "be covered by [1] in the next sentence."
+        )
