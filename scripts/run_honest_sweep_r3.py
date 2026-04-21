@@ -1010,6 +1010,14 @@ async def run_one_query(
                 continue
             section_bodies.append(f"### {sr.title}\n\n{sr.verified_text}")
         sections_concat = "\n\n".join(section_bodies)
+        # M-36 (2026-04-21): insert the Trial Summary table between the
+        # main sections and Limitations. Empty string when the prose
+        # names no clinical trials or when the LLM call failed — do
+        # not emit an empty section heading in that case.
+        if getattr(multi, "trial_summary_table_text", ""):
+            sections_concat += (
+                f"\n\n### Trial Summary\n\n{multi.trial_summary_table_text}"
+            )
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 
