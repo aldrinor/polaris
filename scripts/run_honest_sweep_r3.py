@@ -594,6 +594,33 @@ async def run_one_query(
              f"failed={retrieval.candidates_failed_fetch}, "
              f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
 
+        # M-48 (2026-04-22): tag evidence rows with per-anchor
+        # population-scope labels from the scope template. For a T2D
+        # research question, SURMOUNT-2 is direct (T2D+obesity) while
+        # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
+        # generator reads these tags to avoid merging obesity-only
+        # weight-loss estimates into direct T2D efficacy claims.
+        # No-op when the template defines no labels for this slug.
+        from src.polaris_graph.retrieval.primary_trial_expander import (
+            label_rows_with_population_scope,
+        )
+        _m48_labeled_count = sum(
+            1 for r in retrieval.evidence_rows
+            if r.get("population_scope")
+        )
+        label_rows_with_population_scope(
+            retrieval.evidence_rows, _template, q["slug"],
+        )
+        _m48_labeled_count_after = sum(
+            1 for r in retrieval.evidence_rows
+            if r.get("population_scope")
+        )
+        if _m48_labeled_count_after > _m48_labeled_count:
+            _log(
+                f"[m48]         population_scope labeled "
+                f"{_m48_labeled_count_after - _m48_labeled_count} row(s)"
+            )
+
         if len(retrieval.classified_sources) == 0:
             # BUG-B-101 fix: previously returned without any manifest,
             # so downstream couldn't tell the run happened at all.

@@ -286,7 +286,12 @@ class TestYamlTemplateSchemaCoexistence:
         """Generic check: at least one slug in the clinical template
         has a non-empty anchor list, and the expander emits queries
         for it. Does NOT assert trial names — those live in YAML,
-        not in test assertions (generalization discipline)."""
+        not in test assertions (generalization discipline).
+
+        M-48 (2026-04-22): when a slug declares per-anchor variants,
+        each anchor produces 2 queries (anchor + variant) so the total
+        cap doubles — anchor cap is applied to the ANCHOR count, not
+        the final query count. Upper bound: cap * 2."""
         from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("clinical")
         by_slug = tmpl.get("per_query_primary_trial_anchors", {})
@@ -297,9 +302,10 @@ class TestYamlTemplateSchemaCoexistence:
                 result = expand_primary_trial_queries(
                     "test question", tmpl, slug
                 )
-                assert 0 < len(result) <= 15  # default cap
+                # 15 anchor cap × up to 2 queries per anchor = 30 max.
+                assert 0 < len(result) <= 30
                 for q in result:
-                    assert q.startswith('"') and '" test question' in q
+                    assert q.startswith('"') and q.endswith(" test question")
                 return
         raise AssertionError(
             "clinical template has no populated "

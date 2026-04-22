@@ -142,26 +142,179 @@ def get_primary_trial_anchors_for_slug(
     return _extract_anchors(template, slug)
 
 
+def _extract_variants(
+    template: dict[str, Any] | None,
+    slug: str,
+) -> dict[str, str]:
+    """M-48 (2026-04-22): pull per-anchor first-author + journal variant
+    strings for a given sweep slug.
+
+    Schema:
+        per_query_primary_trial_variants:
+          <slug>:
+            <anchor>: <free-text variant>
+
+    Returns an empty dict for:
+      - missing template
+      - missing `per_query_primary_trial_variants` key
+      - malformed (non-dict) value at any level
+      - slug not present
+      - variant value not a string
+      - variant string contains ANY whitespace-only content or is empty
+
+    The variant string is used as-is (wrapped in the outer query with
+    the base question appended). Example:
+        anchor = "SURPASS-2"
+        variant = "Frías NEJM tirzepatide semaglutide"
+        emitted query = `"SURPASS-2" Frías NEJM tirzepatide semaglutide {question}`
+    """
+    if not isinstance(template, dict):
+        return {}
+    if not isinstance(slug, str) or not slug.strip():
+        return {}
+    by_slug = template.get("per_query_primary_trial_variants")
+    if not isinstance(by_slug, dict):
+        return {}
+    raw = by_slug.get(slug)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for anchor, variant in raw.items():
+        if not isinstance(anchor, str) or not isinstance(variant, str):
+            continue
+        a = anchor.strip()
+        v = variant.strip()
+        # Reject anchor with interior whitespace / double quote /
+        # backslash (same invariant as _extract_anchors) and reject
+        # variant containing a double quote that would break the
+        # outer `"{anchor}"` quoting.
+        if (
+            not a or any(ch.isspace() for ch in a)
+            or '"' in a or "\\" in a
+        ):
+            continue
+        if not v or '"' in v:
+            continue
+        out[a] = v
+    return out
+
+
+def get_trial_population_scope_for_slug(
+    template: dict[str, Any] | None,
+    slug: str,
+) -> dict[str, str]:
+    """M-48 (2026-04-22): public accessor for the per-anchor population-
+    scope labels.
+
+    Schema:
+        per_query_trial_population_scope:
+          <slug>:
+            <anchor>: "direct" | "indirect_for_t2d" | "indirect"
+
+    Used by `label_rows_with_population_scope` to tag evidence rows
+    after retrieval. Missing entry → row stays unlabeled
+    (generator treats as "direct" by default).
+    """
+    if not isinstance(template, dict):
+        return {}
+    if not isinstance(slug, str) or not slug.strip():
+        return {}
+    by_slug = template.get("per_query_trial_population_scope")
+    if not isinstance(by_slug, dict):
+        return {}
+    raw = by_slug.get(slug)
+    if not isinstance(raw, dict):
+        return {}
+    valid_labels = {"direct", "indirect_for_t2d", "indirect"}
+    out: dict[str, str] = {}
+    for anchor, label in raw.items():
+        if not isinstance(anchor, str) or not isinstance(label, str):
+            continue
+        a = anchor.strip()
+        l_ = label.strip().lower()
+        if not a or any(ch.isspace() for ch in a):
+            continue
+        if l_ not in valid_labels:
+            continue
+        out[a] = l_
+    return out
+
+
+def label_rows_with_population_scope(
+    rows: list[dict[str, Any]],
+    template: dict[str, Any] | None,
+    slug: str,
+) -> list[dict[str, Any]]:
+    """M-48 (2026-04-22): annotate evidence rows with population-scope
+    metadata derived from per-anchor labels.
+
+    For each row, scan title for any configured anchor token (case-
+    insensitive substring match). If match found, add keys:
+      - `population_scope`: one of "direct" / "indirect_for_t2d" /
+        "indirect"
+      - `indirect_for_t2d`: bool (True iff label == indirect_for_t2d)
+
+    Rows with no anchor match are unchanged. This function mutates
+    rows in place AND returns the list (convenience).
+
+    Example usage in the sweep orchestrator, after `retrieval.evidence_rows`
+    is populated:
+
+        rows = label_rows_with_population_scope(
+            retrieval.evidence_rows, template, slug
+        )
+    """
+    labels = get_trial_population_scope_for_slug(template, slug)
+    if not labels or not rows:
+        return rows
+    # Build case-insensitive lookup: {anchor_lower: (anchor_original, label)}
+    lookup = {a.lower(): (a, l_) for a, l_ in labels.items()}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = (row.get("title") or "")
+        title_l = title.lower()
+        for anchor_l, (_anchor, label) in lookup.items():
+            if anchor_l in title_l:
+                row["population_scope"] = label
+                row["indirect_for_t2d"] = (label == "indirect_for_t2d")
+                row["_m48_anchor_match"] = _anchor
+                break
+    return rows
+
+
 def expand_primary_trial_queries(
     question: str,
     template: dict[str, Any] | None,
     slug: str,
 ) -> list[str]:
-    """Return `"{anchor}" {question}` queries for a given sweep slug.
+    """Return anchor + variant queries for a given sweep slug.
+
+    For each configured anchor:
+      - emits `"{anchor}" {question}` (original M-35 form)
+      - IF the anchor has a variant in `per_query_primary_trial_variants`,
+        also emits `"{anchor}" {variant} {question}` (M-48 form)
+
+    The variant query carries first-author surname + target journal to
+    raise primary-publication landing probability. V27 hit 4/11 primary
+    trials with anchor-only queries; M-48 aims for ≥9/11.
 
     Args:
         question: the user's research question (or any base query text).
         template: the loaded scope template dict (or None if none set).
         slug: the sweep slug used to key into
-            `per_query_primary_trial_anchors`.
+            `per_query_primary_trial_anchors` and
+            `per_query_primary_trial_variants`.
 
     Returns:
-        A list of `"{anchor}" {question}` strings, one per configured
-        anchor (up to `PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS`). Empty
-        list when the template has no anchors for this slug, or when
-        the question is empty/whitespace.
+        A list of query strings; order is `[anchor1, anchor1_variant,
+        anchor2, anchor2_variant, ...]` for anchors with variants, else
+        `[anchor1, anchor2, ...]`. Total capped by
+        `PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS` applied to the ANCHOR count
+        (variants do not count against the cap so that capped runs
+        retain their variant queries).
 
-    This function is pure and deterministic — no network, no state.
+    Pure and deterministic — no network, no state.
     """
     base = (question or "").strip()
     if not base:
@@ -177,9 +330,18 @@ def expand_primary_trial_queries(
             slug, len(anchors), cap,
         )
         anchors = anchors[:cap]
-    queries = [f'"{anchor}" {base}' for anchor in anchors]
+    variants = _extract_variants(template, slug)
+    queries: list[str] = []
+    variant_count = 0
+    for anchor in anchors:
+        queries.append(f'"{anchor}" {base}')
+        variant = variants.get(anchor)
+        if variant:
+            queries.append(f'"{anchor}" {variant} {base}')
+            variant_count += 1
     logger.info(
-        "[primary_trial_expander] emitted %d anchor queries for "
-        "slug=%r base=%r", len(queries), slug, base[:60],
+        "[primary_trial_expander] emitted %d queries (%d anchors + "
+        "%d variants) for slug=%r base=%r",
+        len(queries), len(anchors), variant_count, slug, base[:60],
     )
     return queries

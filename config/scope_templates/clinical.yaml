@@ -154,3 +154,55 @@ per_query_primary_trial_anchors:
     - SURMOUNT-2      # Garvey et al., Lancet 2023 — obesity + T2D
     - SURMOUNT-3      # Wadden et al., Nat Med 2023 — after ILI
     - SURMOUNT-4      # Aronne et al., JAMA 2023 — weight maintenance
+
+# M-48 (2026-04-22): per-anchor first-author + journal query variants.
+# Codex V28 plan pass-1 approved; Codex V28 plan pass-2 APPROVED.
+# V27 retrieved 4/11 primary trials; Codex required per-anchor variants
+# (first-author surname + target journal) to raise primary landing
+# probability from ~36% to target ≥90%. Each variant is a SECOND query
+# emitted alongside `"{anchor}" {question}`, so retrieval cost per
+# anchor roughly doubles (acceptable: 11 * $0.0001 extra ≈ $0.001).
+#
+# Variants are optional. If anchor has no variant entry, only the
+# original anchor query fires (backwards-compatible).
+per_query_primary_trial_variants:
+  clinical_tirzepatide_t2dm:
+    SURPASS-1: Rosenstock Lancet tirzepatide monotherapy
+    SURPASS-2: Frías NEJM tirzepatide semaglutide
+    SURPASS-3: Ludvik Lancet tirzepatide insulin degludec
+    SURPASS-4: Del Prato Lancet tirzepatide glargine cardiovascular
+    SURPASS-5: Dahl JAMA tirzepatide glargine add-on
+    SURPASS-6: Rosenstock JAMA tirzepatide lispro premeal
+    SURPASS-CVOT: Nicholls tirzepatide cardiovascular outcomes MACE
+    SURMOUNT-1: Jastreboff NEJM tirzepatide obesity weight loss
+    SURMOUNT-2: Garvey Lancet tirzepatide obesity type 2 diabetes
+    SURMOUNT-3: Wadden Nature Medicine tirzepatide intensive lifestyle
+    SURMOUNT-4: Aronne JAMA tirzepatide weight maintenance
+
+# M-48 (2026-04-22): per-anchor population-scope labels.
+# Codex V28 plan pass-2 verbatim requirement: SURMOUNT-2 is direct T2D
+# + obesity evidence; SURMOUNT-1, -3, -4 are obesity-only and indirect
+# for a T2D efficacy question. Evidence rows matching these anchors
+# must be tagged so the generator does NOT merge their weight-loss
+# estimates into direct T2D efficacy claims.
+#
+# Schema: one of {"direct", "indirect_for_t2d", "indirect"}.
+#   direct: row is on-question for a T2D research question.
+#   indirect_for_t2d: row is off-question for T2D but useful for
+#     weight-management framing; generator must label it as such.
+#   indirect: row is tangential; generator should cite at most in a
+#     "related evidence" paragraph.
+# Missing entry → assumed direct (backwards-compatible).
+per_query_trial_population_scope:
+  clinical_tirzepatide_t2dm:
+    SURPASS-1: direct
+    SURPASS-2: direct
+    SURPASS-3: direct
+    SURPASS-4: direct
+    SURPASS-5: direct
+    SURPASS-6: direct
+    SURPASS-CVOT: direct
+    SURMOUNT-1: indirect_for_t2d  # obesity-only population
+    SURMOUNT-2: direct            # T2D + obesity population — the KEY SURMOUNT for T2D question
+    SURMOUNT-3: indirect_for_t2d  # weight-maintenance-after-ILI, obesity-only
+    SURMOUNT-4: indirect_for_t2d  # weight-maintenance, obesity-only
