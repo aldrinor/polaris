@@ -1,75 +1,127 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-20 (M-25 planning post-DR pass 4)
+**Last Updated**: 2026-04-21 (V25 launched under autoloop V2)
 
-## ACTIVE: Full-Scale DR Auto-Loop (user directive 2026-04-19)
+## ACTIVE: Autoloop V2 (user directive 2026-04-21)
 
-**Procedure**: `state/full_scale_auto_loop_procedure.md`
-**Memory**: `C:\Users\msn\.claude\projects\C--POLARIS\memory\full_scale_dr_auto_loop.md`
-**Handover**: `state/autoloop_handover_2026-04-20.md`
+**Runbook**: `state/autoloop_v2_runbook.md` (Codex-hardened)
+**Memory rule**: `memory/autoloop_v2_audit_cross_review.md`
+**Supersedes**: autoloop V1 (`memory/full_scale_dr_auto_loop.md`)
+**Current handover**: `state/autoloop_handover_2026-04-21_v25_v2_launch.md`
+**Stop condition**: BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR on 7
+dimensions. Competitor PDFs at `state/compare_chatgpt_dr.txt` /
+`state/compare_gemini_dr.txt`.
+
+### AUTONOMOUS LAUNCH RULE (load-bearing)
+
+> **Claude launches the next V{N} sweep WITHOUT asking for user
+> approval** as long as (a) code audit is Codex READY, (b) prior
+> V{N-1} did not produce a SHIPPABLE verdict, and (c) no halt
+> condition is triggered. Waiting for user "go" on every cycle
+> defeats the autonomous design.
+
+User intervention is triggered ONLY by V2 runbook §7 halt conditions
+(3-cycle cap, 24h wall-clock, $100 USD spend, dimension regression,
+repeated-root-cause, cross-review integrity, etc.).
 
 Loop (no cycle cap, auto-continue):
 1. Claude fixes → unit tests → smoke
 2. Codex code audit line-by-line
    - BLOCKED → claude fixes, loop
-   - GREEN → full-scale at MAX CAPACITY (serper/s2=50, fetch_cap=500, ev=400, $10/query budget)
-3. Codex DEEP DR-level output audit (every URL, every citation, every sentence — no pattern matching, no cherry picking)
-   - BLOCKED → full issues list → claude fixes, loop back to step 1
-   - GREEN at GPT-5.4-DR / Gemini-3.1-Pro-DR top-tier quality → STOP
+   - GREEN → full-scale at MAX CAPACITY via `scripts/run_full_scale_v{N}.py`
+     wrapper (NEVER run `run_honest_sweep_r3.py` direct — narrow
+     defaults cause phantom regressions; see
+     `memory/autoloop_full_scale_launcher_pattern.md`)
+3. Codex DEEP DR-level output audit head-to-head
+   - BLOCKED / PARTIAL → full issues list → claude fixes, loop back
+   - BEAT_BOTH on all 7 dimensions → STOP
 
-**Current cycle**: Iteration 7 — V10 complete + DR pass 4 MATERIAL-GAPS. M-25 planning.
+### Current cycle state (V23 resume)
 
-Pass sequence:
-- V4-V5-V6 DR passes 1-3 → all MATERIAL-GAPS
-- V7-V9 MATERIAL-GAPS: low citation count, paywall stubs on NEJM/Lancet
-- **M-23 a-f** (commits 6c999e8 + ff68b86): access_bypass fixes (done)
-- **M-24 a-b** (commit 6c999e8 + hotfix): outline/section prompts (done)
-- **V10 completed** at commit `ff68b86`:
-  - status=abort_evaluator_critical, release_allowed=false
-  - T1=20%, T2=14% (BEST corpus tier mix), 309 sources
-  - 3 sections, 834 words, 16 unique citations
-  - PT08+PT11 fail, Qwen citation_tightness=needs_revision
-- **DR pass 4 dispatched + completed** at commit `5502ddb`:
-  - Live-fetch mandate satisfied (no metadata-only verdicts)
-  - 18 FAITHFUL / 1 FABRICATED / 1 EMBELLISHED / 4 UNVERIFIABLE
-  - Verdict: MATERIAL-GAPS-FIX-AND-RESWEEP
+**V23 post-M-34** is the latest sweep artifact. See the handover for
+the full breakdown. Abbreviated:
 
-### Pass-4 root-cause diagnosis (advisor-gated before M-25)
+- `outputs/full_scale_v23/clinical/clinical_tirzepatide_t2dm/`
+- status=success, release_allowed=true (after M-34 re-gate)
+- 1455 prose words, 31 citations, 5 sections, 35 verified / 35 dropped
+- Evaluator: 12/13 pass; PT13 advisory only
+- DR pass 11 verdict: **PARTIAL** (1 BEAT_BOTH / 2 BEAT_ONE / 4 LOSE_BOTH)
+  - BEAT_BOTH: Contradiction handling
+  - BEAT_ONE: Regulatory, Jurisdictional (both beat ChatGPT, lose Gemini
+    due to missing Health Canada)
+  - LOSE_BOTH: Citations, Claim frames, Structural depth, Narrative depth
 
-1. **Outline section count 3 not 5**: NOT a fallback. LLM outline parsed
-   OK; prompt permits "3-5 sections", LLM chose minimum. Need to force
-   5 where corpus supports it. `manifest.generator.outline_sections=
-   ["Efficacy","Safety","Comparative"]`.
-2. **FABRICATED #20 = generator trial-binding bug**: ev_015 IS the
-   SURMOUNT-3 paper (correctly labeled). Generator wrote a SURMOUNT-1
-   sentence and bound it to ev_015 SURMOUNT-3. strict_verify passed —
-   no trial-name gate prevented the mismatch.
-3. **EMBELLISHED #12 = scope leak**: Safety section cites PG-102 phase I
-   (bispecific GLP-1/GLP-2 — NOT tirzepatide). No drug-name gate.
-4. **4 UNVERIFIABLE**: Codex couldn't live-fetch 4 sources. Deferred
-   inspection of cached corpus content.
+### V24 candidate fixes (Codex pass 11 gap list, ordered by leverage)
 
-### M-25 plan (post-pass-4, advisor-gated)
+- [ ] **M-35 (HIGH, retrieval)**: SURPASS-1..6 / SURPASS-CVOT /
+      SURMOUNT-2/4 primary-paper anchor queries in
+      `scripts/run_honest_sweep_r3.py`. Analogous to M-28's
+      regulatory-anchor pattern. Closes Citations LOSE_BOTH and most
+      of Claim frames.
+- [ ] **M-36 (MEDIUM, generator+schema)**: post-synthesis trial-summary
+      table + benefit-risk/NNT table. Outline allows table slot.
+      Closes Structural depth LOSE_BOTH.
+- [ ] **M-37 (MEDIUM, retrieval+prompt)**: Health Canada anchor queries
+      + jurisdictional-precision prompt extension. Lifts Regulatory /
+      Jurisdictional BEAT_ONE → BEAT_BOTH.
+- [ ] **M-38 (MEDIUM, prompt)**: trial-framed claim statements —
+      N / baseline / comparator / dose / endpoint / timepoint / effect
+      size in same clause. Closes remaining Claim-frames gap.
+- [ ] **M-39 (MEDIUM, generator)**: contradiction adjudication (not
+      just enumeration). Already BEAT_BOTH — consolidate, avoid
+      regression.
+- [ ] **M-40 (LOW, prompt)**: mechanism/pharmacology narrative
+      expansion. Closes Narrative depth.
 
-- [ ] **M-25a (HIGH)**: Trial-name match in strict_verify. If sentence
-      names trial (SURPASS-N/SURMOUNT-N/SELECT/LEADER/etc.), cited
-      evidence must have trial in title OR explicit post-hoc link.
-      Prevents FABRICATED-#20 class. Add failing test first.
-- [ ] **M-25b (HIGH)**: Outline "choose 5 when supported" — raise
-      minimum from 3 to 5 (4 allowed only if ≥2 sections would have
-      <8 ev_ids). Expands 3→5 sections and 834→~1400+ words.
-- [ ] **M-25c (MEDIUM)**: Drug/population scope gate in safety writer.
-      Reject evidence rows lacking tirzepatide OR explicitly non-T2DM.
-      Addresses EMBELLISHED #12.
-- [ ] **M-25d (MEDIUM)**: Emit M-23 telemetry to run_log.txt
-      (Unpaywall hits, OA swaps, winner-backend, quality score).
-- [ ] **M-25e (LOW)**: Citation adjacency in limitations + contradictions.
-      Prompt + post-processing; PT11+PT08.
-- [ ] **M-25f (DEFER)**: Adjudicated contradiction table. Post-M-25.
+Batching per memory rule: ONE fix at a time, unit tests first, Codex
+audit green before sweep, Codex DR output audit before declaring.
 
-Do NOT launch V11 until M-25a + M-25b + green suite.
+### Protocol compliance — retroactive Codex audits needed
 
-Tasks: #153-156 completed (V10 + DR pass 4). #157 M-25 IN PROGRESS.
+- [ ] **Audit `scripts/regate_v23.py`** (commit `9674405`). Higher-risk
+      script — it mutates `manifest.json` + `sweep_summary.{json,md}`
+      on existing sweep artifacts and flipped V23's release_allowed
+      false→true. Committed without a code review (user flagged).
+- [ ] **Audit `scripts/run_full_scale_v23.py`** (commit `408127f`).
+      Low-blast-radius wrapper over env vars + argv; cosmetic code
+      review expected.
+
+### Shipped fix chain M-25 through M-34 (all Codex READY)
+
+| ID   | Fix | Commit |
+|------|-----|--------|
+| M-25a | Trial-name match in strict_verify | `59b8f4a` |
+| M-25b | Outline `>=5` when corpus supports | `5df838f` |
+| M-25e | PT08 contradiction enumeration | `451f382` |
+| M-27  | Multi-source citation | `16ee8c7` |
+| M-28  | Regulatory-anchor retrieval | `8c54cd5` (pass 3) |
+| M-29  | Jurisdictional-precision prompt | `2ebe63a` |
+| M-30  | PT11 abbreviation boundary (5 passes) | `82b2625` |
+| M-31  | Outline JSON decode resilience | `e511b39` |
+| M-32  | Primary-study claim-frame prompt | `1d4c4b4` |
+| M-33  | `section_max_tokens` 1200→2400 | `23b00c9` |
+| M-34  | PT11 lookahead window 200→1000 | `bf78396` |
+
+### Trajectory
+
+| Sweep | Pass | Verdict | Release | Notes |
+|------:|-----:|---------|:-------:|:------|
+| V10   | 4    | MATERIAL-GAPS | no | 18 FAITHFUL / 1 FAB / 1 EMB / 4 UNV |
+| V11   | 5    | MATERIAL-GAPS | no | 16 / 0 / 1 / 3 — M-25a caught fabrication class |
+| V13   | 6    | MATERIAL-GAPS | yes | First release; 21 / 0 / 3 / 2 |
+| V16   | 7    | MATERIAL-GAPS | yes | 23 / 1 / 1 / 5 — M-27 density |
+| V17   | 8    | TOP-TIER (single-dim) | yes | 23 / 0 / 0 / 1 — pre-BEAT-BOTH mandate |
+| V18   | 9    | MATERIAL-GAPS | yes | M-28 regulatory landed |
+| V19   | —    | —             | no  | PT11 `vs.` false-fail; outline decode 3× fail |
+| V20   | —    | —             | —   | M-30 stack; not separately audited |
+| V21   | 10   | PARTIAL       | yes | M-31 — citations BEAT_ONE, regulatory BEAT_BOTH(*)/narrative LOSE_BOTH |
+| V22   | (skipped) | —        | —   | M-32 claim-frame prompt; cap hit at section_max_tokens=1200 |
+| V23   | 11   | **PARTIAL**   | yes | M-33 + M-34; 1 BEAT_BOTH / 2 BEAT_ONE / 4 LOSE_BOTH |
+
+(*) Pass 10 verdicts not re-audited at resume — see
+`outputs/codex_findings/dr_output_pass_10/` for the actual table.
+
+---
 
 ---
 

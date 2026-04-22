@@ -2,20 +2,41 @@
 
 ## Autoloop V2 is in force (user directive 2026-04-21)
 
-Full runbook: `state/autoloop_v2_runbook.md`.
+Full runbook: `state/autoloop_v2_runbook.md` (Codex-hardened with
+10 refinements from Codex protocol review 2026-04-21).
 
 Short form: every V{N} sweep → parallel Claude + Codex output
-audits → cross-review → both green = ship / either red = Claude
-writes fix plan → Codex reviews plan for band-aid-vs-root-cause →
-implement on green → re-launch. Fully autonomous; no user
-intervention expected between sweeps.
+audits → cross-review (per-disagreement table + lower-verdict-
+controls rule) → both green = ship / either red = Claude writes
+fix plan (root_cause / guardrail / band_aid classified) → Codex
+reviews plan → implement on green → re-launch. Fully autonomous.
 
-Memory rule: `autoloop_v2_audit_cross_review.md`.
+Memory rule: `memory/autoloop_v2_audit_cross_review.md`.
 
-## Current state
+### AUTONOMOUS LAUNCH RULE (CRITICAL — DO NOT DEFAULT TO V1)
 
-V25 is the first V to run under V2 protocol. M-41 bundle pass-2
-(last V1-protocol code fix) is in Codex audit at time of writing.
+> **Claude launches the next V{N} sweep WITHOUT asking for user
+> approval** as long as (a) code audit is Codex READY, (b) prior
+> V{N-1} did not produce SHIPPABLE, and (c) no halt condition (§7)
+> is triggered. Waiting for user "go" on every cycle defeats the
+> autonomous design.
+
+The V1 default was "ask user before every full-scale sweep". V2
+overrides this. If a new session inherits an autoloop mid-cycle
+with code-green + V{N-1} non-shippable + no halt trigger, the
+next action is: launch V{N+1}, not "wait for user go".
+
+User intervention is required ONLY on §7 halt triggers:
+cycle cap, wall-clock cap, spend cap, artifact integrity,
+baseline access, repeated-root-cause, dimension regression,
+test-quality failure, cross-review integrity, code-audit bypass,
+plan-review ping-pong.
+
+## Current state (as of 2026-04-21 autonomous V25 launch)
+
+V25 running under V2 protocol (PID at launch was 5394; log at
+`outputs/_V25_sweep_stdout.log`). All M-35..M-41 code fixes
+Codex-green. Next check autonomously via ScheduleWakeup.
 
 **Latest durable state**: V23 sweep complete, DR audit pass 11 = PARTIAL.
 
