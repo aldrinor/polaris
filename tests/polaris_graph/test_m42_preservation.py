@@ -79,9 +79,17 @@ def _load_bibliography(root: Path) -> list[dict[str, Any]]:
 
 
 def _load_contradictions(root: Path) -> list[dict[str, Any]]:
+    """Load contradictions.json; skip the test if missing (V26 mid-run
+    scenario where sweep directory exists but individual artifact files
+    haven't landed yet). Codex pass-2 MEDIUM flagged this — a missing
+    file should not be treated as an empty list (which would spuriously
+    fail the >= V25 baseline assertion)."""
     p = root / "contradictions.json"
     if not p.exists():
-        return []
+        pytest.skip(
+            f"contradictions.json not yet present at {p} "
+            f"(V26 sweep may be mid-run)"
+        )
     data = json.loads(p.read_text(encoding="utf-8"))
     return data if isinstance(data, list) else []
 
