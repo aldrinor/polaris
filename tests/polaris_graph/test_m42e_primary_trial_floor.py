@@ -185,6 +185,107 @@ class TestM42ePostHocOnPrimaryHostRejected:
         }
         assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
 
+    def test_pharmacokinetic_analysis_rejected_pass3(self) -> None:
+        """M-42e pass-3 (Codex medium #1): narrow PK/modeling markers."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Pharmacokinetic analysis of SURPASS-2",
+            "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa1111111",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_population_pk_rejected_pass3(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Population pharmacokinetic analysis of tirzepatide from SURPASS-2",
+            "url": "https://doi.org/10.1056/NEJMoa2222222",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_modeling_analysis_rejected_pass3(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Modeling analysis of SURPASS-3 efficacy data",
+            "url": "https://www.thelancet.com/journals/lancet/article/modeling",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-3") is False
+
+    def test_exposure_response_rejected_pass3(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Exposure-response analysis of SURPASS-4",
+            "url": "https://jamanetwork.com/journals/jama/article/er",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-4") is False
+
+    def test_pk_analysis_abbreviated_rejected_pass3(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "PK analysis of SURPASS-2",
+            "url": "https://doi.org/10.1056/NEJMoa3333333",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_primary_analysis_NOT_rejected_pass3(self) -> None:
+        """Non-regression: 'Primary analysis of SURPASS-2' IS the
+        primary publication and must NOT be rejected."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Primary analysis of the SURPASS-2 trial",
+            "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is True
+
+
+class TestM42eTelemetryPass3:
+    """M-42e pass-3 Codex medium #2: telemetry now splits matched /
+    reserved so audits see when quota-trim reduces reservations
+    below matched count."""
+
+    def test_telemetry_includes_matched_and_reserved(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation,
+        )
+        rows = [
+            {"evidence_id": "ev_p1",
+             "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+             "tier": "T1", "title": "SURPASS-2: Tirzepatide primary",
+             "statement": "primary"},
+            {"evidence_id": "ev_p2",
+             "url": "https://doi.org/10.1016/S0140-6736(21)01324-6",
+             "tier": "T1", "title": "SURPASS-1: Tirzepatide primary",
+             "statement": "primary"},
+            {"evidence_id": "ev_o1",
+             "url": "https://other/review",
+             "tier": "T1", "title": "A review", "statement": "r"},
+        ]
+        result = select_evidence_for_generation(
+            research_question="tirzepatide",
+            protocol=None,
+            classified_sources=[],
+            evidence_rows=rows,
+            max_rows=2,
+            primary_trial_anchors=["SURPASS-1", "SURPASS-2"],
+        )
+        m42e = [n for n in result.notes if "m42e_primary_floor" in n]
+        assert m42e, f"missing m42e note; notes={result.notes}"
+        note = m42e[0]
+        # Both fields must be present
+        assert "matched=" in note, f"matched= missing: {note}"
+        assert "reserved=" in note, f"reserved= missing: {note}"
+
 
 class TestM42eCapActuallyEnforced:
     """M-42e pass-2 Codex medium #1: the pass-1 cap test used a

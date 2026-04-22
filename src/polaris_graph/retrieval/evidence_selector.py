@@ -195,6 +195,19 @@ _M42E_NON_PRIMARY_TITLE_PATTERNS = (
     "commentary",
     "editorial",
     "perspective",
+    # Pass-3 (Codex audit medium #1): narrow modeling/PK analysis
+    # markers. These are supportive analyses that may be published on
+    # primary hosts but are not the primary trial publication. We
+    # avoid the generic bare "analysis" because "Primary analysis of
+    # SURPASS-2" IS the primary result and must not be rejected.
+    "pharmacokinetic analysis",
+    "population pharmacokinetic",
+    "modeling analysis",
+    "model-based analysis",
+    "exposure-response analysis",
+    "pk analysis",
+    "pd analysis",
+    "pkpd analysis",
 )
 
 
@@ -542,11 +555,16 @@ def select_evidence_for_generation(
     # M-42e pass-2: surface the primary-floor telemetry so sweep
     # audits can see which anchors reserved slots and whether the
     # cap truncated reservations.
+    # Pass-3 (Codex medium #2): split matched / reserved counts.
+    # When matched > T1 quota, quota-trim reduces actual reservations
+    # below matches. Report both so audits see the true state.
     if m42e_matched_anchors:
         cap = _M42E_PRIMARY_FLOOR_CAP
+        actual_reserved = len(m42e_primary_ids)
         notes.append(
-            f"m42e_primary_floor reserved={len(m42e_matched_anchors)} "
-            f"cap={cap} anchors={m42e_matched_anchors[:10]}"
+            f"m42e_primary_floor matched={len(m42e_matched_anchors)} "
+            f"reserved={actual_reserved} cap={cap} "
+            f"anchors={m42e_matched_anchors[:10]}"
         )
     if sum(selected_counts.values()) < max_rows:
         notes.append(
