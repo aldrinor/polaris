@@ -211,6 +211,58 @@ _M42E_NON_PRIMARY_TITLE_PATTERNS = (
 )
 
 
+# M-42c (2026-04-22): mechanism-evidence detection for the
+# mechanism-section selector floor. Token patterns mirror the M-40
+# outline trigger vocabulary. A row is "mechanism-flagged" when any
+# of these appear in title OR statement OR direct_quote.
+_M42C_MECHANISM_TOKENS = (
+    "mechanism",
+    "pharmacokinetic",
+    "pharmacodynamic",
+    "receptor",
+    "half-life",
+    "half life",
+    "bioavailability",
+    "metabolism",
+    "agonist",
+    "antagonist",
+    "binding",
+    "signaling",
+    "signalling",  # British spelling
+    "pathway",
+    "kinetic",
+    "clamp",       # glucose clamp / euglycemic clamp
+    "isotope",     # tracer / isotope labeling
+    "affinity",    # receptor affinity
+    "biomarker",
+    "glucagon",    # incretin mechanism
+    "insulin secretion",
+    "insulin sensitivity",
+)
+
+
+def _m42c_row_is_mechanism_rich(row: dict[str, Any]) -> bool:
+    """True if the row contains mechanism-of-action vocabulary in
+    title, statement, or direct_quote. Case-insensitive substring
+    match against `_M42C_MECHANISM_TOKENS`."""
+    fields = [
+        str(row.get("title") or ""),
+        str(row.get("statement") or ""),
+        str(row.get("direct_quote") or ""),
+    ]
+    combined = " ".join(fields).lower()
+    return any(tok in combined for tok in _M42C_MECHANISM_TOKENS)
+
+
+# M-42c floor: number of T1/T2 slots to reserve for mechanism rows
+# when the corpus contains enough mechanism-flagged content. The
+# floor fires only when the pool has >=4 mechanism rows (matches the
+# M-40 outline-trigger threshold). Slots are taken from T1 first,
+# then T2; the floor does NOT expand those tier quotas.
+_M42C_MECHANISM_FLOOR_MIN_POOL_ROWS = 4
+_M42C_MECHANISM_FLOOR_SLOTS = 3  # reserve 3 slots across T1+T2
+
+
 def _m42e_detect_primary_for_anchor(
     row: dict[str, Any],
     anchor: str,
@@ -450,6 +502,41 @@ def select_evidence_for_generation(
     # no T1 review slot remaining. This is accepted behavior —
     # trading T1 review diversity for named-trial primary coverage —
     # but future readers should know the mechanism.
+    # M-42c (2026-04-22): mechanism-rich T1+T2 floor. When the pool
+    # has >=4 mechanism-flagged rows, reserve up to 3 T1+T2 slots
+    # for mechanism content so the M-40 Mechanism section has an
+    # evidence pool deep enough for the M-42c conditional prompt
+    # target (20-35 sentences when >=8 mech ev_ids flow through).
+    # Floor operates WITHIN existing T1+T2 quotas — does NOT expand
+    # them. When no mechanism content present, no-op (backwards
+    # compatible).
+    m42c_mech_ids: set[int] = set()
+    m42c_mech_pool_rows = [s for s in scored
+                            if _m42c_row_is_mechanism_rich(s[3])]
+    m42c_mech_fires = (
+        len(m42c_mech_pool_rows) >= _M42C_MECHANISM_FLOOR_MIN_POOL_ROWS
+    )
+    if m42c_mech_fires:
+        # Mechanism rows ordered by (tier_priority, -score) — prefer
+        # T1 mechanism evidence over T2.
+        mech_ranked = sorted(
+            m42c_mech_pool_rows,
+            key=lambda s: (_TIER_PRIORITY.get(s[2], 9), -s[1], s[0]),
+        )
+        # Only count rows in tiers T1 or T2 — the mechanism floor
+        # doesn't touch T3/T4 quotas.
+        slots_left = _M42C_MECHANISM_FLOOR_SLOTS
+        for item in mech_ranked:
+            if slots_left <= 0:
+                break
+            if item[2] not in ("T1", "T2"):
+                continue
+            # Only reserve if the tier has quota slots available.
+            if quotas.get(item[2], 0) <= 0:
+                continue
+            m42c_mech_ids.add(id(item))
+            slots_left -= 1
+
     m42e_primary_ids: set[int] = set()
     m42e_matched_anchors: list[str] = []  # M-42e pass-2: telemetry
     if primary_trial_anchors and quotas.get("T1", 0) > 0:
@@ -483,22 +570,62 @@ def select_evidence_for_generation(
 
     selected: list[tuple[int, float, str, dict[str, Any]]] = []
     for tier, quota in quotas.items():
-        # M-42e: for T1 tier, reserve named-trial primary slots
-        # (computed above) before filling rest by relevance.
-        if tier == "T1" and quota > 0 and m42e_primary_ids:
+        # M-42e + M-42c: for T1 tier, reserve named-trial primary
+        # slots (M-42e) AND mechanism-evidence slots (M-42c) before
+        # filling rest by relevance. Both floors are computed above;
+        # a row can satisfy both (e.g. a SURPASS-2 primary paper
+        # that also has mechanism content — counted once).
+        if tier == "T1" and quota > 0 and (m42e_primary_ids or m42c_mech_ids):
             tier_items = by_tier.get("T1", [])
-            reserved_t1 = [
-                i for i in tier_items if id(i) in m42e_primary_ids
-            ][:quota]
-            slots_left = quota - len(reserved_t1)
-            # Fill remaining T1 slots by relevance (skipping reserved)
+            # Priority order: M-42e primary floor, then M-42c mech
+            # floor, then fill by relevance. Reserved IDs are union
+            # of both; deduped so a row satisfies at most one slot.
+            reserved_t1: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_t1_ids: set[int] = set()
+            # Pass 1: M-42e primaries
             for item in tier_items:
-                if slots_left <= 0:
+                if len(reserved_t1) >= quota:
                     break
-                if id(item) not in m42e_primary_ids:
+                if id(item) in m42e_primary_ids and id(item) not in reserved_t1_ids:
                     reserved_t1.append(item)
-                    slots_left -= 1
+                    reserved_t1_ids.add(id(item))
+            # Pass 2: M-42c mechanism T1 rows
+            for item in tier_items:
+                if len(reserved_t1) >= quota:
+                    break
+                if id(item) in m42c_mech_ids and id(item) not in reserved_t1_ids:
+                    reserved_t1.append(item)
+                    reserved_t1_ids.add(id(item))
+            # Pass 3: fill remaining T1 slots by relevance
+            for item in tier_items:
+                if len(reserved_t1) >= quota:
+                    break
+                if id(item) not in reserved_t1_ids:
+                    reserved_t1.append(item)
+                    reserved_t1_ids.add(id(item))
             selected.extend(reserved_t1)
+            continue
+        # M-42c: for T2 tier with mechanism floor, reserve mech T2
+        # rows before filling rest by relevance.
+        if tier == "T2" and quota > 0 and m42c_mech_ids:
+            tier_items = by_tier.get("T2", [])
+            reserved_t2: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_t2_ids: set[int] = set()
+            # Pass 1: M-42c mechanism T2 rows
+            for item in tier_items:
+                if len(reserved_t2) >= quota:
+                    break
+                if id(item) in m42c_mech_ids and id(item) not in reserved_t2_ids:
+                    reserved_t2.append(item)
+                    reserved_t2_ids.add(id(item))
+            # Pass 2: fill remaining T2 by relevance
+            for item in tier_items:
+                if len(reserved_t2) >= quota:
+                    break
+                if id(item) not in reserved_t2_ids:
+                    reserved_t2.append(item)
+                    reserved_t2_ids.add(id(item))
+            selected.extend(reserved_t2)
             continue
         # M-41d: for T3 (regulatory) tier, enforce a
         # jurisdictional-diversity floor — reserve one slot per
@@ -565,6 +692,14 @@ def select_evidence_for_generation(
             f"m42e_primary_floor matched={len(m42e_matched_anchors)} "
             f"reserved={actual_reserved} cap={cap} "
             f"anchors={m42e_matched_anchors[:10]}"
+        )
+    # M-42c: mechanism-floor telemetry so sweep audits see when the
+    # floor fires and how many slots were reserved.
+    if m42c_mech_fires:
+        notes.append(
+            f"m42c_mechanism_floor pool_mech_rows={len(m42c_mech_pool_rows)} "
+            f"reserved={len(m42c_mech_ids)} slots="
+            f"{_M42C_MECHANISM_FLOOR_SLOTS}"
         )
     if sum(selected_counts.values()) < max_rows:
         notes.append(

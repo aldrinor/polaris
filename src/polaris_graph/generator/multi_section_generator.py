@@ -601,6 +601,37 @@ CRITICAL RULES:
 12b. **Claim-frame hard constraint (M-38, eliminating under-framed study mentions)**: Rule #12 is asymmetric and STRICT — when you name a specific study, trial, cohort, or experiment by its short name (phase-N trial identifier in clinical; long-run battery cycling test in materials; named longitudinal cohort in epidemiology; named regulatory docket in policy), that sentence — or the IMMEDIATELY PRECEDING sentence in the same paragraph — MUST carry at LEAST THREE frame elements drawn from: sample size / cohort N; baseline value; comparator / control arm; specific dose or intervention level; primary endpoint; timepoint; effect size WITH uncertainty (CI, SD, or p-value). If you cannot produce three of those elements from the cited evidence, DO NOT name the study by its short name — phrase the sentence generically as "one randomized trial showed ... [ev_X]" or "a prospective cohort in the target population reported ... [ev_X]" or "one pooled analysis found ... [ev_X]" or "a long-run cycling test reported ... [ev_X]" instead. This hard floor prevents the failure mode where a sentence names a specific study but gives only a single effect-size number without N, baseline, or comparator — producing a news-style summary mis-labelled with a primary-study name. Concrete templates (use placeholders): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [PRIMARY_METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]." GOOD (generic when frame is unavailable): "A pre-planned pooled analysis of two phase-3 trials reported [ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — no short-name attribution because pooled data lack per-trial N. BAD (under-framed, must be rewritten): "[STUDY NAME] showed that [INTERVENTION] reduced [ENDPOINT] more than [COMPARATOR] [ev_X]." — names the study with only one frame element (effect direction); rewrite as "A head-to-head trial of [INTERVENTION] versus [COMPARATOR] reported greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]" which drops the study name because the frame is too thin. BAD (under-framed, must be rewritten): "[STUDY NAME] found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — names study with only endpoint + effect; rewrite as "One pooled analysis of two phase-3 trials found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]" ONLY if the cited evidence confirms pooled data across two trials. This rule is what converts a LOSE_BOTH on Claim frames into a competitive synthesis.
 12c. **Anaphoric and group claim-frame enforcement (M-42a, extending rule #12b to bypass patterns)**: Rule #12b fires only on explicit short-name study tokens (e.g. specific phase-3 trial identifiers like [STUDY NAME]-N). Sentences using ANAPHORIC references ("This trial", "The same trial", "The study also reported", "That analysis") or GROUP references ("the [PROGRAM] trials", "the phase-3 program", "pivotal trials") bypass that rule and reintroduce the under-framed pattern. This extension closes the bypass:  (A) An ANAPHORIC sentence referring to a specific study must EITHER (a) include at least ONE frame element (sample size, baseline, comparator, dose, endpoint, timepoint, or effect-size-with-uncertainty) in the SAME sentence, OR (b) be placed IMMEDIATELY AFTER a sentence that names the specific study with >=3 frame elements (the antecedent provides framing context). A bare anaphoric sentence with no antecedent framing context is FORBIDDEN. (B) A GROUP reference like "the [PROGRAM] trials" or "the phase-3 program" does NOT inherit from a single prior study's framing. The sentence must EITHER (a) ENUMERATE the specific studies inline — e.g. "the [PROGRAM] trials ([STUDY]-1, -2, -3) pooled N=[SAMPLE_SIZE]" — OR (b) present a pooled / program-level claim with POOLED N AND POOLED effect size stated inline (e.g. "across the [N_TRIALS] pivotal trials pooled N=[SAMPLE_SIZE] adults with [CONDITION], [ENDPOINT] reduction was [EFFECT_SIZE]"). Both parts of the rule apply across domains: in materials/chemistry "these composites" or "the second-gen samples" inherit similarly; in policy "the CMS rules" or "the parallel rulemakings" do. Concrete examples (placeholders only): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]. The same trial also reported [SECONDARY_ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — second sentence is anaphoric but inherits frame from first. GOOD: "Across the [STUDY]-1, -2, -3, and -4 pooled population (N=[SAMPLE_SIZE]), median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — group reference with pooled N inline. BAD: "This trial also reported maintained [ENDPOINT] [ev_X]." — anaphoric sentence with no antecedent frame. BAD: "The [PROGRAM] trials found greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]." — group reference without enumeration or pooled N.
 
+M-42c MECHANISM-SECTION DEPTH RULE (conditional on evidence pool):
+This rule applies ONLY when the current section title is "Mechanism".
+For other sections, rule #8 target of 10-18 sentences applies as usual.
+
+When the Mechanism section's evidence subset contains mechanism-rich
+rows (titles / statements / direct_quotes mentioning mechanism-of-
+action vocabulary — receptor / pharmacokinetic / half-life / binding /
+clamp / signaling / pathway / biomarker / agonist / antagonist /
+affinity / isotope / bioavailability / metabolism), use the depth
+target that matches pool size:
+  - 8+ mechanism-flagged ev_ids present in this section subset:
+    TARGET 20-35 sentences of mechanism narrative, covering (in
+    approximate priority order):
+      1. Receptor binding kinetics / selectivity / affinity
+      2. Pharmacokinetics (half-life, bioavailability, Tmax)
+      3. Downstream signaling / cellular effects
+      4. Cross-species translation / mechanistic biomarkers
+      5. Clamp data or metabolic-phenotype data
+      6. Contrast with single-mechanism or alternative comparators
+  - 4-7 mechanism-flagged ev_ids: TARGET 15-20 sentences covering
+    as many of the priority topics as the evidence supports.
+  - < 4 mechanism-flagged ev_ids: TARGET 10-15 sentences AND close
+    the section with an honest disclosure sentence like "The
+    mechanistic evidence available for this synthesis is limited
+    to [N] rows covering [TOPICS]; deeper pharmacology detail
+    would require additional primary sources."
+
+The conditional target prevents LLM padding or hallucination when the
+mechanism pool is thin. Evidence-gated depth; honest shorter section
+when evidence does not support 20-35 sentences.
+
 EVIDENCE TIER DISCIPLINE (for top-tier Deep Research quality):
 Each evidence block carries a tier tag [T1]-[T7]. For every sentence you
 write, prefer the highest-tier evidence that supports the claim:
