@@ -88,6 +88,237 @@ class TestM42eDetectPrimaryForAnchor:
         assert _m42e_detect_primary_for_anchor(row, "") is False
 
 
+class TestM42ePostHocOnPrimaryHostRejected:
+    """M-42e pass-2 Codex blocker fix: even on NEJM/Lancet/JAMA/
+    Nature/Diabetes Care hosts, titles declaring themselves as
+    post-hoc / subgroup / secondary / exploratory / pooled /
+    meta-analysis / substudy MUST NOT be classified as primaries.
+    Pre-pass-2 this false-positive existed."""
+
+    def test_post_hoc_on_nejm_host_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Post hoc analysis of SURPASS-2: subgroup results",
+            "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa9999999",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_post_hoc_on_nejm_doi_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Post-hoc analysis of SURPASS-2 outcomes",
+            "url": "https://doi.org/10.1056/NEJMoa8888888",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_subgroup_on_jama_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Subgroup analysis of SURPASS-5: elderly patients",
+            "url": "https://jamanetwork.com/journals/jama/fullarticle/9999",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-5") is False
+
+    def test_secondary_on_lancet_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Secondary analysis of SURPASS-3 outcomes",
+            "url": "https://doi.org/10.1016/S0140-6736(99)99999-9",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-3") is False
+
+    def test_exploratory_on_diabetes_care_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Exploratory analysis of SURPASS-4 trial cohort",
+            "url": "https://diabetesjournals.org/care/article/48/9/post-hoc",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-4") is False
+
+    def test_pooled_analysis_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Pooled analysis of SURPASS-1 through -5",
+            "url": "https://www.thelancet.com/journals/landia/article/pooled",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_meta_analysis_on_primary_host_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Network meta-analysis of SURPASS-2 and other trials",
+            "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa7777777",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+    def test_substudy_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "SURPASS-3 MRI substudy: liver fat analysis",
+            "url": "https://doi.org/10.1016/s2213-8587(25)00027-0",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-3") is False
+
+    def test_commentary_rejected(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        row = {
+            "title": "Commentary on SURPASS-2: implications for practice",
+            "url": "https://www.nejm.org/doi/full/10.1056/NEJMe2107519",
+        }
+        assert _m42e_detect_primary_for_anchor(row, "SURPASS-2") is False
+
+
+class TestM42eCapActuallyEnforced:
+    """M-42e pass-2 Codex medium #1: the pass-1 cap test used a
+    pool size == max_rows which triggered the early-exit path and
+    bypassed the floor logic entirely. This test uses pool size >
+    max_rows so the floor + cap code actually runs."""
+
+    def test_eight_primaries_with_tight_quota_cap_at_six(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation, _M42E_PRIMARY_FLOOR_CAP,
+        )
+        # 8 distinct SURPASS primaries on NEJM host + 5 T1 non-
+        # primaries (reviews) + 5 T2 meta-analyses = 18 rows total.
+        # max_rows=12 forces pool_size > max_rows so the floor code runs.
+        rows = []
+        for i in range(1, 9):  # 8 primaries
+            rows.append({
+                "evidence_id": f"ev_p{i}",
+                "url": f"https://www.nejm.org/doi/full/10.1056/NEJMoa{i:07d}",
+                "tier": "T1",
+                "title": f"SURPASS-{i}: Tirzepatide clinical trial",
+                "statement": "Tirzepatide efficacy and safety study",
+            })
+        for i in range(5):  # 5 T1 non-primary reviews
+            rows.append({
+                "evidence_id": f"ev_r{i}",
+                "url": f"https://other.example/review/{i}",
+                "tier": "T1",
+                "title": f"Review {i} of tirzepatide",
+                "statement": "Comprehensive review",
+            })
+        for i in range(5):  # 5 T2 meta-analyses
+            rows.append({
+                "evidence_id": f"ev_m{i}",
+                "url": f"https://www.frontiersin.org/articles/meta{i}",
+                "tier": "T2",
+                "title": f"Meta-analysis of GLP-1 agonists {i}",
+                "statement": "Systematic review findings",
+            })
+        anchors = [f"SURPASS-{i}" for i in range(1, 9)]  # 8 anchors
+        result = select_evidence_for_generation(
+            research_question="tirzepatide efficacy type 2 diabetes",
+            protocol=None,
+            classified_sources=[],
+            evidence_rows=rows,
+            max_rows=12,  # <18 so pool_size<=max_rows exit doesn't fire
+            primary_trial_anchors=anchors,
+        )
+        # Count SURPASS primaries in output (those with title
+        # containing "SURPASS-N: Tirzepatide clinical trial")
+        selected_primaries = [
+            r for r in result.selected_rows
+            if "SURPASS-" in r.get("title", "") and "clinical trial" in r.get("title", "")
+        ]
+        # Floor should reserve AT MOST _M42E_PRIMARY_FLOOR_CAP slots
+        # (though total primaries selected can exceed if T1 has room
+        # for additional primaries after the floor). The floor RESERVATION
+        # is capped; we verify via telemetry.
+        assert _M42E_PRIMARY_FLOOR_CAP == 6
+        # Telemetry note should surface the floor reservation count
+        m42e_notes = [n for n in result.notes if "m42e_primary_floor" in n]
+        assert m42e_notes, f"M-42e telemetry note missing; notes={result.notes}"
+        # Parse the reserved count from the note
+        import re
+        m = re.search(r"reserved=(\d+)", m42e_notes[0])
+        assert m, f"reserved count missing from: {m42e_notes[0]}"
+        reserved_count = int(m.group(1))
+        assert reserved_count <= _M42E_PRIMARY_FLOOR_CAP, (
+            f"floor reserved {reserved_count} > cap {_M42E_PRIMARY_FLOOR_CAP}"
+        )
+
+
+class TestM42eTelemetry:
+    """M-42e pass-2 Codex medium #2: EvidenceSelection.notes now
+    records when the floor fires, which anchors matched, and the
+    cap value."""
+
+    def test_notes_include_m42e_entry_when_floor_fires(self) -> None:
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation,
+        )
+        rows = [
+            {"evidence_id": "ev_p1", "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+             "tier": "T1", "title": "SURPASS-2: Tirzepatide primary", "statement": "t"},
+            {"evidence_id": "ev_p2", "url": "https://doi.org/10.1016/S0140-6736(21)01324-6",
+             "tier": "T1", "title": "SURPASS-1: Tirzepatide primary", "statement": "t"},
+            {"evidence_id": "ev_m1", "url": "https://www.frontiersin.org/meta",
+             "tier": "T2", "title": "Meta-analysis", "statement": "m"},
+            {"evidence_id": "ev_m2", "url": "https://www.frontiersin.org/meta2",
+             "tier": "T2", "title": "Systematic review", "statement": "sr"},
+            {"evidence_id": "ev_o1", "url": "https://other/review",
+             "tier": "T1", "title": "Other review", "statement": "r"},
+        ]
+        result = select_evidence_for_generation(
+            research_question="tirzepatide",
+            protocol=None,
+            classified_sources=[],
+            evidence_rows=rows,
+            max_rows=3,  # small so floor must choose
+            primary_trial_anchors=["SURPASS-1", "SURPASS-2"],
+        )
+        m42e_entries = [n for n in result.notes if "m42e_primary_floor" in n]
+        assert m42e_entries, f"no m42e_primary_floor entry; notes={result.notes}"
+        # The note should reference the cap and the matched anchors
+        note = m42e_entries[0]
+        assert "cap=" in note
+        assert "anchors=" in note
+
+    def test_notes_omit_m42e_when_no_anchors_matched(self) -> None:
+        """When no primary-trial anchors match any row in T1, notes
+        should not include an M-42e entry (floor effectively no-op)."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation,
+        )
+        rows = [
+            {"evidence_id": "ev_o1", "url": "https://other/review",
+             "tier": "T1", "title": "Other review", "statement": "r"},
+            {"evidence_id": "ev_o2", "url": "https://other/review2",
+             "tier": "T1", "title": "Another review", "statement": "r"},
+            {"evidence_id": "ev_m1", "url": "https://other/meta",
+             "tier": "T2", "title": "Meta", "statement": "m"},
+        ]
+        result = select_evidence_for_generation(
+            research_question="x",
+            protocol=None,
+            classified_sources=[],
+            evidence_rows=rows,
+            max_rows=2,
+            primary_trial_anchors=["NONEXISTENT-99"],
+        )
+        m42e_entries = [n for n in result.notes if "m42e_primary_floor" in n]
+        assert not m42e_entries, f"unexpected m42e entry: {m42e_entries}"
+
+
 class TestM42ePrimaryFloorIntegration:
     """End-to-end: pool with mixed T1 content + anchor list reserves
     primary slots correctly."""

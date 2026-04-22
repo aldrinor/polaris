@@ -165,6 +165,38 @@ _M42E_PRIMARY_DOI_PREFIXES = (
     "10.1038/s41586",  # Nature
 )
 
+# M-42e pass-2 (Codex audit blocker fix): reject titles that
+# explicitly indicate a non-primary analysis type even when the
+# URL is on a primary-publication host/DOI. Pre-pass-2 a title
+# like "Post hoc analysis of SURPASS-2: subgroup results" on NEJM
+# would be classified as primary; this fixes that.
+_M42E_NON_PRIMARY_TITLE_PATTERNS = (
+    "post hoc",
+    "post-hoc",
+    "posthoc",
+    "subgroup analysis",
+    "subgroup analyses",
+    "subgroup results",
+    "secondary analysis",
+    "secondary analyses",
+    "exploratory analysis",
+    "exploratory analyses",
+    "pooled analysis",
+    "pooled analyses",
+    "network meta-analysis",
+    "meta-analysis",      # rarely a primary; safer to reject
+    "systematic review",
+    "substudy",
+    "sub-study",
+    "sub study",
+    "pre-planned analysis",
+    "pre-specified analysis",
+    "pre-specified secondary",
+    "commentary",
+    "editorial",
+    "perspective",
+)
+
 
 def _m42e_detect_primary_for_anchor(
     row: dict[str, Any],
@@ -173,9 +205,18 @@ def _m42e_detect_primary_for_anchor(
     """True if `row` appears to be the primary publication for the
     named-trial `anchor` (e.g. 'SURPASS-2', 'SURMOUNT-1').
 
-    Detection: anchor appears in row title AND row URL/DOI matches
-    a known primary-publication prefix. Both conditions required to
-    prevent tagging post-hoc analyses / substudies / abstracts as
+    Detection (M-42e pass-2):
+      1. Anchor appears in row title (required).
+      2. Row URL/DOI matches a known primary-publication prefix OR
+         sits on a primary-publication host.
+      3. Row title does NOT match any non-primary-analysis pattern
+         (post hoc, subgroup, secondary, exploratory, pooled,
+         meta-analysis, substudy, etc.). Even on a primary host, a
+         title declaring itself as a post hoc or subgroup analysis
+         is NOT the primary publication; usually it's a follow-up
+         analysis published in the same or a companion journal.
+
+    All three conditions required to prevent tagging analyses as
     primaries.
     """
     if not anchor:
@@ -183,15 +224,18 @@ def _m42e_detect_primary_for_anchor(
     title = (row.get("title") or "").lower()
     url = (row.get("source_url") or row.get("url") or "").lower()
     anchor_l = anchor.lower()
-    # Title must contain the anchor (possibly with colon or
+    # (1) Title must contain the anchor (possibly with colon or
     # parenthesis separator).
     if anchor_l not in title:
         return False
-    # URL must look like a primary publication — DOI prefix OR
+    # (3) Title must NOT contain a non-primary-analysis marker.
+    for pat in _M42E_NON_PRIMARY_TITLE_PATTERNS:
+        if pat in title:
+            return False
+    # (2) URL must look like a primary publication — DOI prefix OR
     # host suggesting peer-reviewed journal.
     if any(p in url for p in _M42E_PRIMARY_DOI_PREFIXES):
         return True
-    # Fallback: nejm.org, thelancet.com, jamanetwork.com, nature.com
     primary_hosts = (
         "nejm.org", "thelancet.com", "jamanetwork.com",
         "nature.com", "diabetesjournals.org",
@@ -385,7 +429,16 @@ def select_evidence_for_generation(
     # anchor-matched primary rows once so we can reserve their
     # slots before the T1 pick-by-relevance pass. Capped at
     # `_M42E_PRIMARY_FLOOR_CAP` to avoid displacing T2 allocation.
+    #
+    # IMPORTANT trade-off (Codex audit medium #3): the floor
+    # operates WITHIN T1 quota; it does not expand T1 and does not
+    # directly push T2 below its quota. When T1 quota is small (e.g.
+    # 5) and 6+ primaries match, all T1 slots become primaries with
+    # no T1 review slot remaining. This is accepted behavior —
+    # trading T1 review diversity for named-trial primary coverage —
+    # but future readers should know the mechanism.
     m42e_primary_ids: set[int] = set()
+    m42e_matched_anchors: list[str] = []  # M-42e pass-2: telemetry
     if primary_trial_anchors and quotas.get("T1", 0) > 0:
         t1_items_for_m42e = by_tier.get("T1", [])
         for anchor in primary_trial_anchors:
@@ -397,6 +450,7 @@ def select_evidence_for_generation(
                     continue
                 if _m42e_detect_primary_for_anchor(item[3], anchor):
                     m42e_primary_ids.add(id(item))
+                    m42e_matched_anchors.append(anchor)  # pass-2 telemetry
                     break
         # Preservation guard: don't expand T1 usage beyond its
         # quota. The floor operates WITHIN the T1 quota — if
@@ -485,6 +539,15 @@ def select_evidence_for_generation(
         selected_counts[tier] = selected_counts.get(tier, 0) + 1
 
     notes: list[str] = []
+    # M-42e pass-2: surface the primary-floor telemetry so sweep
+    # audits can see which anchors reserved slots and whether the
+    # cap truncated reservations.
+    if m42e_matched_anchors:
+        cap = _M42E_PRIMARY_FLOOR_CAP
+        notes.append(
+            f"m42e_primary_floor reserved={len(m42e_matched_anchors)} "
+            f"cap={cap} anchors={m42e_matched_anchors[:10]}"
+        )
     if sum(selected_counts.values()) < max_rows:
         notes.append(
             f"could not fill max_rows={max_rows}; "
