@@ -1732,21 +1732,26 @@ def _m50_select_candidate_trials(
     primary_ev_ids_by_anchor: dict[str, list[str]],
     bibliography: list[dict[str, Any]],
     direct_anchors: set[str],
-) -> list[tuple[str, dict[str, Any], int]]:
+) -> list[tuple[str, dict[str, Any], int, str]]:
     """M-50 (2026-04-22): select candidate trials for per-trial
     subsections.
 
-    Returns list of (anchor, primary_row, biblio_num) tuples for every
-    anchor that:
+    Returns list of (anchor, primary_row, biblio_num, quote) tuples
+    for every anchor that:
       - is in the T2D-direct set (passed by caller via direct_anchors)
       - has ≥1 M-42e-detected primary ev_id in the pool
-      - the primary has a direct_quote ≥100 chars (strict contract)
+      - the primary has a direct_quote OR refetched quote ≥100 chars
+        (strict contract preserved)
       - the primary ev_id has a matching bibliography entry
+
+    The `quote` element is the richer of direct_quote / refetched
+    (M-47 pass-2 + M-50 pass-2 per Codex audit): length-based select
+    so a thin direct_quote does NOT short-circuit the richer refetch.
 
     If fewer than _M50_MIN_PRIMARIES_FOR_SUBSECTIONS qualify, returns
     empty list (strict gating — no subsections emitted).
     """
-    candidates: list[tuple[str, dict[str, Any], int]] = []
+    candidates: list[tuple[str, dict[str, Any], int, str]] = []
     biblio_by_evid: dict[str, int] = {}
     for entry in bibliography:
         evid = entry.get("evidence_id")
@@ -1761,21 +1766,28 @@ def _m50_select_candidate_trials(
             row = evidence_pool.get(ev_id)
             if not row:
                 continue
-            # Pick whichever quote variant is ≥100 chars.
-            # Plain `a or b` short-circuits on any non-empty string,
-            # so a thin direct_quote would hide a fat refetched quote.
+            # Pick the RICHER of direct_quote / refetched.
+            # M-50 pass-2 (Codex audit blocker): plain `a or b`
+            # short-circuits on any non-empty string, so a thin
+            # direct_quote would hide a fat refetched quote from
+            # downstream `_call_m50_per_trial_subsection`. Carry the
+            # selected quote through the candidate tuple so the
+            # LLM generator uses the exact same string we validated.
             dq = row.get("direct_quote") or ""
             rq = row.get("_m42b_refetched_quote") or ""
-            if len(dq) >= 100:
+            # Length-based selection: prefer the longer eligible one.
+            if len(rq) > len(dq) and len(rq) >= 100:
+                quote = rq
+            elif len(dq) >= 100:
                 quote = dq
             elif len(rq) >= 100:
                 quote = rq
             else:
-                continue
+                continue  # neither ≥100 → strict-contract skip
             biblio_num = biblio_by_evid.get(ev_id)
             if not isinstance(biblio_num, int):
                 continue
-            candidates.append((anchor, row, biblio_num))
+            candidates.append((anchor, row, biblio_num, quote))
             break  # one primary per anchor
 
     if len(candidates) < _M50_MIN_PRIMARIES_FOR_SUBSECTIONS:
@@ -2448,8 +2460,14 @@ def _m47_extract_candidate_values(quote: str) -> list[tuple[str, float, str]]:
 # numeric value ALSO contains a field-context token for the field.
 # Otherwise "63 participants" would spuriously match "M-value by 63%".
 _M47_FIELD_CONTEXT_TOKENS: dict[str, tuple[str, ...]] = {
-    "m_value_pct": ("m-value", "m value", "insulin sensitivity",
-                    "insulin-sensitivity", "whole-body insulin"),
+    "m_value_pct": (
+        "m-value", "m value", "insulin sensitivity",
+        "insulin-sensitivity", "whole-body insulin",
+        # M-47 pass-3 (Codex non-blocking): clamp paraphrases
+        "glucose disposal", "glucose disposal rate",
+        "insulin-stimulated glucose disposal",
+        "glucose infusion rate", "sensitivity index",
+    ),
     "first_phase_pct": ("first-phase", "first phase",
                         "early-phase insulin"),
     "second_phase_pct": ("second-phase", "second phase",
@@ -2457,9 +2475,13 @@ _M47_FIELD_CONTEXT_TOKENS: dict[str, tuple[str, ...]] = {
     "insulin_secretion_rate": ("insulin secretion rate",
                                "insulin secretion",
                                "beta-cell function"),
-    "glucagon_suppression_pct": ("glucagon suppression",
-                                  "glucagon inhibition",
-                                  "glucagon secretion"),
+    "glucagon_suppression_pct": (
+        "glucagon suppression", "glucagon inhibition",
+        "glucagon secretion",
+        # M-47 pass-3: accept bare "glucagon" and "suppressed glucagon"
+        "glucagon was suppressed", "suppressed glucagon",
+        "glucagon",
+    ),
     "half_life": ("half-life", "half life", "t1/2", "t 1/2"),
     "tmax": ("tmax", "t-max", "time to peak", "time-to-peak"),
     "cmax": ("cmax", "c-max", "peak concentration",
@@ -3231,13 +3253,17 @@ async def generate_multi_section_report(
             )
             # Run subsection calls in parallel (bounded by existing
             # section semaphore for rate limits).
+            # M-50 pass-2 (Codex audit blocker): use the pre-selected
+            # `quote` from the candidate tuple instead of recomputing
+            # with `or` short-circuit. Pre-pass-2 a thin direct_quote
+            # + fat refetched_quote would qualify at selection time
+            # but the LLM generator would receive the thin quote.
             async def _gen_one(
                 anchor: str,
                 row: dict[str, Any],
                 biblio_num: int,
+                quote: str,
             ) -> tuple[str, str, int, int, int]:
-                quote = (row.get("direct_quote") or
-                         row.get("_m42b_refetched_quote") or "")
                 prose, i_tok, o_tok = await _call_m50_per_trial_subsection(
                     trial_name=anchor,
                     direct_quote=quote,
@@ -3253,8 +3279,8 @@ async def generate_multi_section_report(
                     return await _gen_one(*args)
 
             results = await asyncio.gather(*[
-                _bounded_gen(anchor, row, num)
-                for anchor, row, num in candidates
+                _bounded_gen(anchor, row, num, quote)
+                for anchor, row, num, quote in candidates
             ])
             subsection_blocks: list[str] = []
             for anchor, prose, biblio_num, i_tok, o_tok in results:
