@@ -1220,7 +1220,8 @@ def _m42b_extract_from_quote(quote: str) -> dict[str, str]:
 
 def _m42b_year_from_row(row: dict[str, Any]) -> str:
     """Extract publication year from an evidence row. Tries URL/DOI
-    year pattern, then direct_quote. Returns 'yyyy' or empty string."""
+    year pattern, then direct_quote, then refetched quote (M-42b
+    pass-2 medium). Returns 'yyyy' or empty string."""
     url = (row.get("source_url") or row.get("url") or "")
     # Common DOI/URL year patterns: /2021/, (2021), -2021-
     m = re.search(r"[/(\-_](20\d{2})[/)\-_.]", url)
@@ -1228,6 +1229,11 @@ def _m42b_year_from_row(row: dict[str, Any]) -> str:
         return m.group(1)
     quote = row.get("direct_quote") or ""
     m = re.search(r"\b(20[0-2]\d)\b", quote[:500])
+    if m:
+        return m.group(1)
+    # Pass-2 medium: check refetched quote when original was thin.
+    refetched = row.get("_m42b_refetched_quote") or ""
+    m = re.search(r"\b(20[0-2]\d)\b", refetched[:500])
     if m:
         return m.group(1)
     return ""
@@ -1304,7 +1310,12 @@ def build_trial_summary_and_timeline_from_evidence(
         if best_row is None:
             continue
 
-        # Source content: try direct_quote first
+        # Source content: direct_quote primary, refetch fallback,
+        # SKIP if still thin. M-42b pass-2 (Codex audit blocker #1):
+        # pre-pass-2 used `statement` as an additional fallback, which
+        # violated the pass-3 source-content contract (statement is
+        # for disambiguation only, never as a standalone extraction
+        # source). Contract is now refetch-or-skip.
         quote = best_row.get("direct_quote") or ""
         if len(quote) < 100 and refetch_fn is not None:
             url = best_row.get("source_url") or best_row.get("url") or ""
@@ -1313,17 +1324,15 @@ def build_trial_summary_and_timeline_from_evidence(
                     refetched = refetch_fn(url, 2000)
                     if refetched and len(refetched) >= 100:
                         quote = refetched
-                        # Cache on row for future access
+                        # Cache on row for future access (also used
+                        # by _m42b_year_from_row in pass-2 medium fix).
                         best_row["_m42b_refetched_quote"] = refetched
                 except Exception:
                     pass
         if len(quote) < 100:
-            # Fallback to statement for disambiguation only
-            stmt = best_row.get("statement") or ""
-            if len(stmt) >= 100:
-                quote = stmt
-            else:
-                continue  # extraction_ineligible — skip this row
+            # extraction_ineligible — skip the row (NO statement
+            # fallback per contract).
+            continue
 
         cells = _m42b_extract_from_quote(quote)
         populated = sum(1 for v in cells.values() if v)
@@ -1820,18 +1829,32 @@ async def generate_multi_section_report(
                 "emitted (no LLM call)"
             )
         else:
-            # Fallback to M-36 LLM-driven table
-            kept_prose = "\n\n".join(
-                sr.verified_text for sr in section_results
-                if not sr.dropped_due_to_failure and sr.verified_text
-            )
-            if kept_prose:
+            # M-42b pass-2 (Codex audit blocker #2): LLM fallback
+            # must receive primary-trial `direct_quote`s only, NOT
+            # generated prose. Pre-pass-2 it received
+            # section_results[].verified_text which violated the
+            # pass-3 source-content contract. Now it receives
+            # concatenated direct_quote strings from primary-trial
+            # evidence rows. If no primary-trial rows have a valid
+            # direct_quote, LLM fallback is SKIPPED (table stays
+            # empty — honest about the evidence shortfall).
+            primary_direct_quotes: list[str] = []
+            for anchor in (primary_trial_anchors or []):
+                anchor_l = anchor.lower()
+                for row in evidence:
+                    if anchor_l in (row.get("title") or "").lower():
+                        q = row.get("direct_quote") or ""
+                        if len(q) >= 100:
+                            primary_direct_quotes.append(f"{anchor}: {q}")
+                        break
+            if primary_direct_quotes:
+                fallback_source = "\n\n".join(primary_direct_quotes)
                 (
                     trial_table_text,
                     trial_table_in_tok,
                     trial_table_out_tok,
                 ) = await _call_trial_summary_table(
-                    verified_prose=kept_prose,
+                    verified_prose=fallback_source,
                     bibliography=global_biblio,
                     model=gen_model,
                     temperature=trial_summary_table_temperature,
@@ -1841,6 +1864,16 @@ async def generate_multi_section_report(
                 total_out_tok += trial_table_out_tok
                 if trial_table_text:
                     total_words += len(trial_table_text.split())
+                    logger.info(
+                        "[multi_section] M-42b LLM fallback emitted table "
+                        "from %d primary-trial direct_quotes",
+                        len(primary_direct_quotes),
+                    )
+            else:
+                logger.info(
+                    "[multi_section] M-42b: no primary-trial direct_quotes "
+                    "available for LLM fallback; table suppressed"
+                )
 
     return MultiSectionResult(
         sections=section_results,

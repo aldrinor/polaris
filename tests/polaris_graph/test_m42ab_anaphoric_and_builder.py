@@ -255,6 +255,78 @@ class TestM42bBuilder:
         assert table == ""
         assert timeline == ""
 
+    def test_pass2_statement_fallback_REMOVED(self) -> None:
+        """M-42b pass-2 Codex audit blocker #1: pre-pass-2 the builder
+        would promote `statement` to the extraction source when
+        `direct_quote` was thin AND refetch unavailable. Pass-3 contract
+        says statement is disambiguation-only, never a standalone
+        extraction source. Verify rows with only a long `statement`
+        but thin `direct_quote` and no refetch produce NOTHING."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            build_trial_summary_and_timeline_from_evidence,
+        )
+        long_statement = (
+            "SURPASS-2 had 1879 patients with baseline HbA1c 8.28% "
+            "randomized to tirzepatide 15 mg versus semaglutide 1 mg, "
+            "primary endpoint HbA1c change at week 40, effect -2.30% "
+            "(p<0.001)."
+        )
+        # Second row with good direct_quote so the 2-row minimum is
+        # theoretically achievable IF statement fallback were allowed.
+        selected = [
+            {
+                "evidence_id": "ev_s2",
+                "url": "https://nejm.org/doi/2021/NEJMoa2107519",
+                "title": "SURPASS-2: Tirzepatide versus Semaglutide",
+                "direct_quote": "Short.",  # < 100 chars
+                "statement": long_statement,  # > 100 chars but MUST
+                # NOT be used as extraction source
+            },
+            {
+                "evidence_id": "ev_s3",
+                "url": "https://lancet.com/article/2022/surpass3",
+                "title": "SURPASS-3: Tirzepatide vs insulin degludec",
+                "direct_quote": (
+                    "SURPASS-3 enrolled 1444 patients with baseline HbA1c 8.17% "
+                    "randomized to tirzepatide 15 mg versus insulin degludec. "
+                    "Primary endpoint HbA1c change at week 52. Tirzepatide "
+                    "reduced HbA1c by -1.93% (p<0.001)."
+                ),
+            },
+        ]
+        biblio = [
+            {"num": 1, "evidence_id": "ev_s2"},
+            {"num": 2, "evidence_id": "ev_s3"},
+        ]
+        table, timeline = build_trial_summary_and_timeline_from_evidence(
+            selected_rows=selected,
+            primary_trial_anchors=["SURPASS-2", "SURPASS-3"],
+            bibliography=biblio,
+            refetch_fn=None,  # refetch disabled
+        )
+        # Without statement fallback: SURPASS-2 row is dropped,
+        # SURPASS-3 row qualifies (1 row) → builder returns empty
+        # (below 2-row threshold).
+        assert "SURPASS-2" not in table, (
+            "M-42b statement-fallback still active (contract violation)"
+        )
+        assert table == ""  # only 1 eligible row → below threshold
+        assert timeline == ""
+
+    def test_pass2_year_from_refetched_quote(self) -> None:
+        """M-42b pass-2 medium: year extraction now checks the
+        refetched quote after URL and original direct_quote. Caches
+        via `_m42b_refetched_quote` key."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m42b_year_from_row,
+        )
+        row = {
+            "url": "https://doi.example/noyear",
+            "direct_quote": "No date in here either",
+            "_m42b_refetched_quote": "Rosenstock et al., 2021, in SURPASS-2 ...",
+        }
+        assert _m42b_year_from_row(row) == "2021"
+
     def test_thin_quote_with_refetch_populates(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             build_trial_summary_and_timeline_from_evidence,
