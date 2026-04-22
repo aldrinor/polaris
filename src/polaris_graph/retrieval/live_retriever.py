@@ -676,6 +676,34 @@ def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
     return quote
 
 
+# M-45 pass-2 (Codex audit HIGH): per-URL method + failure-reason
+# telemetry. Module-level dict populated by `_fetch_content` just
+# before it returns, then read by `refetch_for_extraction_with_
+# diagnostics`. Keyed by url; overwritten on each call so memory
+# stays bounded. Not thread-safe for concurrent refetches of the
+# same URL, but the current sweep path is sequential per URL.
+_M45_LAST_FETCH_TELEMETRY: dict[str, dict[str, Any]] = {}
+
+
+def _m45_record_fetch_telemetry(
+    url: str, method: str, failure_reason: str = "",
+) -> None:
+    """M-45 pass-2: record the final AccessBypass method + failure
+    reason for a fetch call. Overwrites any prior entry for the same
+    URL so repeat refetches in one run show the latest attempt."""
+    _M45_LAST_FETCH_TELEMETRY[url] = {
+        "method": method or "unknown",
+        "failure_reason": failure_reason,
+    }
+
+
+def _m45_pop_fetch_telemetry(url: str) -> dict[str, Any]:
+    """M-45 pass-2: read + remove the telemetry for a URL so it's
+    not reused by a later unrelated call. Returns empty dict if no
+    entry was recorded."""
+    return _M45_LAST_FETCH_TELEMETRY.pop(url, {})
+
+
 def refetch_for_extraction_with_diagnostics(
     url: str, max_chars: int = 2000,
 ) -> tuple[str, dict[str, Any]]:
@@ -731,22 +759,33 @@ def refetch_for_extraction_with_diagnostics(
         )
         diagnostics["failure_mode"] = "exception"
         diagnostics["exception_type"] = type(exc).__name__
+        # M-45 pass-2: read any telemetry recorded before the exception.
+        te = _m45_pop_fetch_telemetry(url)
+        diagnostics["method"] = te.get("method", "none")
         return "", diagnostics
 
     diagnostics["raw_char_count"] = len(content) if content else 0
     diagnostics["body_type"] = body_type or ""
-    # _fetch_content's internal logs record the method; we don't have
-    # it as a return value (legacy signature). Best-effort inference
-    # from body type: 'abstract' / 'full_text' suggests Crawl4AI/Jina;
-    # paywall_shell suggests direct HTTP fallback. Leaving 'method'
-    # as 'none' is honest when we can't tell — future revision could
-    # extend _fetch_content to return (content, ok, title, body, method).
+    # M-45 pass-2 (Codex audit HIGH): read the winning AccessBypass
+    # method + failure reason that `_fetch_content` recorded. Pre-
+    # pass-2 the method was always "none" because `_fetch_content`
+    # discarded `result.access_method` before returning.
+    tele = _m45_pop_fetch_telemetry(url)
+    if tele:
+        diagnostics["method"] = tele.get("method", "none")
+        reason = tele.get("failure_reason", "")
+        if reason and "timeout" in reason:
+            diagnostics["failure_mode"] = "timeout"
 
     if not ok or not content:
-        diagnostics["failure_mode"] = "fetch_failed"
+        # M-45 pass-2: preserve timeout classification from telemetry
+        # (set above) instead of overwriting with generic fetch_failed.
+        if diagnostics["failure_mode"] != "timeout":
+            diagnostics["failure_mode"] = "fetch_failed"
         return "", diagnostics
     if len(content) < 100:
-        diagnostics["failure_mode"] = "thin_content"
+        if diagnostics["failure_mode"] != "timeout":
+            diagnostics["failure_mode"] = "thin_content"
         return "", diagnostics
     # Paywall-shell detection: body_type marker set by
     # _detect_article_type_from_body. We still build a provenance
@@ -794,6 +833,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     naive httpx path (useful when Playwright/Crawl4AI is unavailable).
     """
     if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
+        # M-45 pass-2: record env-opt-out so diagnostics can see it.
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", "pg_disable_access_bypass=1"
+        )
         return _fetch_content_httpx_naive(url, max_chars)
     try:
         from src.tools.access_bypass import AccessBypass
@@ -801,6 +844,9 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         logger.warning(
             "[live_retriever] AccessBypass unavailable (%s); "
             "falling back to naive httpx", exc,
+        )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", f"access_bypass_import_failed: {exc}"
         )
         return _fetch_content_httpx_naive(url, max_chars)
 
@@ -839,6 +885,11 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
             "— falling back to naive httpx (thread will continue as daemon)",
             deadline, url[:80],
         )
+        # M-45 pass-2: record AccessBypass timeout so diagnostics can
+        # distinguish timeout from backend refusal.
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
+        )
         return _fetch_content_httpx_naive(url, max_chars)
 
     if "error" in result_holder:
@@ -847,11 +898,18 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
             "[live_retriever] AccessBypass raised for %s: %s: %s",
             url[:80], type(exc).__name__, exc,
         )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive",
+            f"access_bypass_raised_{type(exc).__name__}",
+        )
         return _fetch_content_httpx_naive(url, max_chars)
     if "value" not in result_holder:
         logger.warning(
             "[live_retriever] AccessBypass produced no result for %s",
             url[:80],
+        )
+        _m45_record_fetch_telemetry(
+            url, "httpx_naive", "access_bypass_no_result"
         )
         return _fetch_content_httpx_naive(url, max_chars)
     result = result_holder["value"]
@@ -863,6 +921,9 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
             "[live_retriever] fetch_miss %s (method=%s reason=%s)",
             url[:80], method, reason or "no_content",
         )
+        # M-45 pass-2: record the winning backend + reason even on miss
+        # so downstream audits can see which backend was last invoked.
+        _m45_record_fetch_telemetry(url, method, reason or "no_content")
         return "", False, "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
@@ -879,6 +940,8 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         "[live_retriever] fetch_ok %s (method=%s chars=%d)",
         url[:80], method, len(content),
     )
+    # M-45 pass-2: record winning backend for diagnostics.
+    _m45_record_fetch_telemetry(url, method, "")
     return content, bool(content), extracted_title, body_type
 
 

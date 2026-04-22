@@ -140,6 +140,11 @@ class MultiSectionResult:
     # or no primaries matched.
     m44_injection_log: list[dict[str, Any]] = field(default_factory=list)
     m44_validator_violations: list[dict[str, Any]] = field(default_factory=list)
+    # M-47 (2026-04-22): evidence-linked clamp/PK validator diagnostic
+    # for the Mechanism section. Empty dict when Mechanism had no
+    # clamp paper in its subset (no-op). See
+    # `_m47_validate_mechanism_clamp_extraction` for schema.
+    m47_mechanism_clamp_diagnostic: dict[str, Any] = field(default_factory=dict)
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -615,6 +620,41 @@ CRITICAL RULES:
 12. **Primary-study framing (M-32, for claim-frame rigor)**: When you name a primary study, trial, cohort, experiment, or any individually identifiable empirical data source, and the cited evidence rows contain the structured metadata, provide the study's FULL FRAME in the FIRST sentence that introduces it: (a) sample size or cohort size (e.g. N=1879), (b) baseline value of the outcome being discussed (e.g. mean baseline [PRIMARY_METRIC]=[VALUE], baseline [SECONDARY_METRIC]=[VALUE]), (c) comparator / control / background condition (e.g. versus [COMPARATOR], versus placebo on [BACKGROUND], versus standard [REFERENCE_CONDITION]), and (d) the primary endpoint + timepoint (e.g. [ENDPOINT] change at [TIMEPOINT], [N-YEAR] [OUTCOME_TYPE], cycle-life to [THRESHOLD] retention). If the evidence row carries this structured metadata, you MUST emit it in that first sentence — do not compress N/baseline/endpoint into a single percent-reduction when the evidence carries the full frame. This is what distinguishes a research-grade deep synthesis from a news-style summary. Example template: "In [STUDY NAME], [STUDY_DESIGN_SUMMARY] randomized N=[SAMPLE_SIZE] participants with baseline [OUTCOME]=[BASELINE_VALUE] to [INTERVENTION] versus [COMPARATOR]; [PRIMARY_ENDPOINT] at [TIMEPOINT] was [RESULT] [ev_X]." Subsequent sentences about the same study may reference it by short name without re-framing. Generalizable beyond clinical: a materials paper gets composition + baseline performance + test condition + measured outcome; a cohort study gets population + baseline metric + intervention + outcome; a financial filing gets period + baseline metric + policy/benchmark + reported outcome.
 12b. **Claim-frame hard constraint (M-38, eliminating under-framed study mentions)**: Rule #12 is asymmetric and STRICT — when you name a specific study, trial, cohort, or experiment by its short name (phase-N trial identifier in clinical; long-run battery cycling test in materials; named longitudinal cohort in epidemiology; named regulatory docket in policy), that sentence — or the IMMEDIATELY PRECEDING sentence in the same paragraph — MUST carry at LEAST THREE frame elements drawn from: sample size / cohort N; baseline value; comparator / control arm; specific dose or intervention level; primary endpoint; timepoint; effect size WITH uncertainty (CI, SD, or p-value). If you cannot produce three of those elements from the cited evidence, DO NOT name the study by its short name — phrase the sentence generically as "one randomized trial showed ... [ev_X]" or "a prospective cohort in the target population reported ... [ev_X]" or "one pooled analysis found ... [ev_X]" or "a long-run cycling test reported ... [ev_X]" instead. This hard floor prevents the failure mode where a sentence names a specific study but gives only a single effect-size number without N, baseline, or comparator — producing a news-style summary mis-labelled with a primary-study name. Concrete templates (use placeholders): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [PRIMARY_METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]." GOOD (generic when frame is unavailable): "A pre-planned pooled analysis of two phase-3 trials reported [ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — no short-name attribution because pooled data lack per-trial N. BAD (under-framed, must be rewritten): "[STUDY NAME] showed that [INTERVENTION] reduced [ENDPOINT] more than [COMPARATOR] [ev_X]." — names the study with only one frame element (effect direction); rewrite as "A head-to-head trial of [INTERVENTION] versus [COMPARATOR] reported greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]" which drops the study name because the frame is too thin. BAD (under-framed, must be rewritten): "[STUDY NAME] found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — names study with only endpoint + effect; rewrite as "One pooled analysis of two phase-3 trials found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]" ONLY if the cited evidence confirms pooled data across two trials. This rule is what converts a LOSE_BOTH on Claim frames into a competitive synthesis.
 12c. **Anaphoric and group claim-frame enforcement (M-42a, extending rule #12b to bypass patterns)**: Rule #12b fires only on explicit short-name study tokens (e.g. specific phase-3 trial identifiers like [STUDY NAME]-N). Sentences using ANAPHORIC references ("This trial", "The same trial", "The study also reported", "That analysis") or GROUP references ("the [PROGRAM] trials", "the phase-3 program", "pivotal trials") bypass that rule and reintroduce the under-framed pattern. This extension closes the bypass:  (A) An ANAPHORIC sentence referring to a specific study must EITHER (a) include at least ONE frame element (sample size, baseline, comparator, dose, endpoint, timepoint, or effect-size-with-uncertainty) in the SAME sentence, OR (b) be placed IMMEDIATELY AFTER a sentence that names the specific study with >=3 frame elements (the antecedent provides framing context). A bare anaphoric sentence with no antecedent framing context is FORBIDDEN. (B) A GROUP reference like "the [PROGRAM] trials" or "the phase-3 program" does NOT inherit from a single prior study's framing. The sentence must EITHER (a) ENUMERATE the specific studies inline — e.g. "the [PROGRAM] trials ([STUDY]-1, -2, -3) pooled N=[SAMPLE_SIZE]" — OR (b) present a pooled / program-level claim with POOLED N AND POOLED effect size stated inline (e.g. "across the [N_TRIALS] pivotal trials pooled N=[SAMPLE_SIZE] adults with [CONDITION], [ENDPOINT] reduction was [EFFECT_SIZE]"). Both parts of the rule apply across domains: in materials/chemistry "these composites" or "the second-gen samples" inherit similarly; in policy "the CMS rules" or "the parallel rulemakings" do. Concrete examples (placeholders only): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]. The same trial also reported [SECONDARY_ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — second sentence is anaphoric but inherits frame from first. GOOD: "Across the [STUDY]-1, -2, -3, and -4 pooled population (N=[SAMPLE_SIZE]), median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — group reference with pooled N inline. BAD: "This trial also reported maintained [ENDPOINT] [ev_X]." — anaphoric sentence with no antecedent frame. BAD: "The [PROGRAM] trials found greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]." — group reference without enumeration or pooled N.
+
+M-47 MECHANISM QUANTITATIVE-EXTRACTION RULE (evidence-linked):
+This rule applies ONLY when the current section title is "Mechanism"
+AND the section's evidence subset contains a clamp / pharmacokinetic /
+pharmacodynamic primary paper (detected by vocabulary: clamp,
+hyperinsulinemic-euglycemic, hyperglycemic clamp, M-value, first-phase
+insulin, second-phase insulin, glucagon suppression, half-life,
+receptor affinity, binding kinetics, pharmacokinetic model).
+
+When such a paper is present, the Mechanism section MUST extract at
+LEAST 3 quantitative findings from that paper's direct_quote and
+report them INLINE with the paper's [ev_X] citation in the SAME
+sentence. Valid fields: M-value or insulin-sensitivity percentage;
+first-phase insulin secretion rate; second-phase insulin secretion
+rate; glucagon suppression percentage; half-life (hours or days);
+Tmax; receptor-affinity ratio (GIP vs GLP-1, or analog); clamp
+duration (weeks); participant N; baseline glucose or HbA1c for the
+clamp cohort.
+
+Broad numeric counts in the section do NOT satisfy this rule. The
+numbers MUST correspond to the cited clamp/PK paper's direct_quote
+values (±5% tolerance for unit normalization). A Mechanism section
+that cites a clamp paper but reports fewer than 3 of those fields
+WILL be flagged incomplete and regenerated with an explicit
+"required fields" hint.
+
+Example GOOD sentence (placeholder): "In the [DURATION]-week
+hyperinsulinemic-euglycemic clamp study, [COMPOUND] [DOSE]
+increased the M-value by [PCT]% versus placebo [ev_clamp]." —
+inline numeric value, named unit (M-value), clamp-paper citation
+in the same sentence.
+
+Example BAD sentence: "The mechanistic evidence is consistent with
+dual agonism [ev_clamp]." — cites the clamp paper but reports zero
+quantitative fields from it.
 
 M-42c MECHANISM-SECTION DEPTH RULE (conditional on evidence pool):
 This rule applies ONLY when the current section title is "Mechanism".
@@ -1376,6 +1416,22 @@ def build_trial_summary_and_timeline_from_evidence(
         quote = best_row.get("direct_quote") or ""
         if len(quote) < 100 and refetch_fn is not None:
             url = best_row.get("source_url") or best_row.get("url") or ""
+            # M-45 pass-2 (Codex audit medium #2): record skipped
+            # primary rows that have no refetchable URL so the
+            # diagnostic artifact covers every skipped primary row.
+            if not url and refetch_diagnostics_sink is not None:
+                refetch_diagnostics_sink.append({
+                    "url": "",
+                    "anchor": anchor,
+                    "evidence_id": best_row.get("evidence_id", ""),
+                    "attempted": False,
+                    "method": "none",
+                    "raw_char_count": len(quote),
+                    "body_type": "",
+                    "eligible": False,
+                    "failure_mode": "missing_url",
+                    "exception_type": "",
+                })
             if url:
                 try:
                     # M-45: if sink provided, route through the
@@ -2100,6 +2156,285 @@ def _m44_validate_primary_same_sentence(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# M-47 (2026-04-22): evidence-linked clamp/PK quantitative validator.
+# Codex V28 plan pass-2 APPROVED.
+#
+# Gap addressed: V27 cited the Thomas clamp paper in the Mechanism
+# section but didn't extract its M-value / insulin-secretion / half-
+# life findings — prose said "direct mechanistic evidence" without
+# the actual numbers. Gemini won Mechanism dim by mining clamp data.
+#
+# Pre-M-47: could use regex-on-whole-section to count numeric tokens,
+# but Codex rejected that as brittle (false-pass on unrelated dose
+# or N values). M-47 is evidence-linked: it extracts candidate values
+# from the CITED clamp/PK row's direct_quote, normalizes units, then
+# requires those same values to appear in Mechanism prose WITH the
+# clamp ev_id in the same sentence.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tokens that identify a clamp / PK / PD primary paper in the
+# Mechanism section evidence subset.
+_M47_CLAMP_PK_TOKENS = (
+    "clamp",
+    "hyperinsulinemic-euglycemic",
+    "hyperglycemic clamp",
+    "m-value",
+    "m value",
+    "first-phase insulin",
+    "second-phase insulin",
+    "insulin secretion rate",
+    "glucagon suppression",
+    "half-life",
+    "half life",
+    "receptor affinity",
+    "binding kinetics",
+    "pharmacokinetic",
+    "pharmacodynamic",
+    "bioavailability",
+    "tmax",
+    "cmax",
+    "auc",
+    "pk/pd",
+    "pkpd",
+)
+
+
+def _m47_row_is_clamp_or_pk_paper(row: dict[str, Any]) -> bool:
+    """M-47 (2026-04-22): detect clamp/PK/PD primary papers in
+    evidence subset. Reads title + statement + direct_quote using the
+    shared title accessor."""
+    fields = []
+    for key in ("title", "statement", "source_title"):
+        v = row.get(key)
+        if isinstance(v, str) and v:
+            fields.append(v)
+            break
+    if row.get("statement"):
+        fields.append(str(row["statement"]))
+    if row.get("direct_quote"):
+        fields.append(str(row["direct_quote"]))
+    combined = " ".join(fields).lower()
+    return any(tok in combined for tok in _M47_CLAMP_PK_TOKENS)
+
+
+# Numeric-with-unit patterns for M-47 extraction. Each pattern captures
+# the numeric value + unit group. Units are normalized downstream.
+_M47_VALUE_PATTERNS = [
+    # M-value percentage ("M-value by 63%", "63% M-value", "M-value 63")
+    (r"(?:m[\s\-]?value[^.]{0,30}?)(\d+\.?\d*)\s*%?", "m_value_pct"),
+    (r"(\d+\.?\d*)\s*%\s*(?:increase|rise|higher|greater)[^.]{0,30}?m[\s\-]?value", "m_value_pct"),
+    # Insulin secretion rate
+    (r"(?:first[\s\-]phase[^.]{0,30}?)(\d+\.?\d*)\s*%", "first_phase_pct"),
+    (r"(?:second[\s\-]phase[^.]{0,30}?)(\d+\.?\d*)\s*%", "second_phase_pct"),
+    (r"(?:insulin secretion rate[^.]{0,30}?)(\d+\.?\d*)", "insulin_secretion_rate"),
+    # Glucagon suppression
+    (r"glucagon[^.]{0,30}?(\d+\.?\d*)\s*%", "glucagon_suppression_pct"),
+    # Half-life (hours or days) — unit-sensitive
+    (r"half[\s\-]life[^.]{0,20}?(\d+\.?\d*)\s*(hours?|days?|hrs?)", "half_life"),
+    # Tmax / Cmax
+    (r"t[\s\-]?max[^.]{0,10}?(\d+\.?\d*)", "tmax"),
+    (r"c[\s\-]?max[^.]{0,10}?(\d+\.?\d*)", "cmax"),
+    # Participant N for clamp study
+    (r"\bN\s*=\s*(\d{2,})", "clamp_n"),
+    (r"(\d{2,})\s+(?:participants?|subjects?|patients?)\s+(?:underwent|enrolled|received)", "clamp_n"),
+    # Receptor affinity ratio (GIP:GLP-1 or similar)
+    (r"(\d+\.?\d*)\s*-?\s*fold\s+(?:lower|weaker|higher|stronger)\s+(?:affinity|binding)", "affinity_ratio"),
+    # Clamp duration in weeks
+    (r"(\d{1,3})\s*-?\s*week[^.]{0,20}?(?:clamp|study|trial)", "clamp_duration_weeks"),
+]
+
+
+def _m47_extract_candidate_values(quote: str) -> list[tuple[str, float, str]]:
+    """M-47 (2026-04-22): extract candidate quantitative findings
+    from a clamp/PK paper's direct_quote.
+
+    Returns list of (field_name, numeric_value, unit_hint) tuples.
+    Empty list when quote contains no recognizable clamp/PK fields.
+    """
+    if not quote:
+        return []
+    out: list[tuple[str, float, str]] = []
+    text = quote.lower()
+    for pattern, field_name in _M47_VALUE_PATTERNS:
+        for m in re.finditer(pattern, text, flags=re.IGNORECASE):
+            try:
+                val = float(m.group(1))
+            except (ValueError, IndexError):
+                continue
+            # Capture unit-hint group if present (some patterns have it)
+            unit = ""
+            try:
+                if m.lastindex and m.lastindex >= 2:
+                    unit = (m.group(2) or "").lower()
+            except Exception:
+                unit = ""
+            out.append((field_name, val, unit))
+    # Deduplicate by (field_name, round(val, 2)) to collapse
+    # near-identical matches
+    seen: set[tuple[str, float]] = set()
+    dedup: list[tuple[str, float, str]] = []
+    for f, v, u in out:
+        key = (f, round(v, 2))
+        if key not in seen:
+            seen.add(key)
+            dedup.append((f, v, u))
+    return dedup
+
+
+def _m47_prose_contains_value(
+    section_text: str,
+    ev_id: str,
+    field_name: str,
+    expected_value: float,
+    tolerance_pct: float = 5.0,
+    biblio_slice: list[dict[str, Any]] | None = None,
+) -> bool:
+    """M-47 (2026-04-22): check whether `section_text` contains a
+    reference to `expected_value` (within ±tolerance_pct%) in the
+    same sentence as a citation pointing to `ev_id`.
+
+    Unit normalization: half-life hours↔days (1 day = 24 hours),
+    percentages normalized to bare number (63% and 0.63 both match
+    63). Tolerance applied post-normalization.
+
+    `biblio_slice` maps [N] markers → ev_ids. When provided, we
+    resolve the citation marker to the ev_id; without it, we accept
+    any [ev_XXX] or [N] marker that could plausibly be the ev_id.
+    """
+    if not section_text or expected_value <= 0:
+        return False
+    # Normalize tolerance to absolute range
+    delta = max(0.01, expected_value * tolerance_pct / 100.0)
+    lo = expected_value - delta
+    hi = expected_value + delta
+
+    # Build num → ev_id lookup
+    num_to_ev: dict[int, str] = {}
+    if biblio_slice:
+        for entry in biblio_slice:
+            num = entry.get("num")
+            eid = entry.get("evidence_id")
+            if isinstance(num, int) and isinstance(eid, str):
+                num_to_ev[num] = eid
+
+    # For half-life field: allow day↔hour equivalence
+    equiv_values = [expected_value]
+    if field_name == "half_life":
+        # 5 days = 120 hours; 120 hours = 5 days
+        equiv_values.append(expected_value * 24.0)  # days → hours
+        equiv_values.append(expected_value / 24.0)  # hours → days
+
+    sentence_spans = _m44_sentence_spans(section_text)
+    for s, e in sentence_spans:
+        seg = section_text[s:e]
+        # Does this sentence cite the target ev_id?
+        cited = False
+        # Direct ev_id reference (e.g. [ev_clamp])
+        if f"[{ev_id}]" in seg:
+            cited = True
+        # [N] reference resolving to target ev_id
+        if not cited and num_to_ev:
+            for m in re.finditer(r"\[(\d+)\]", seg):
+                if num_to_ev.get(int(m.group(1))) == ev_id:
+                    cited = True
+                    break
+        if not cited:
+            continue
+        # Does this sentence contain a number within the expected range?
+        for m in re.finditer(r"(\d+\.?\d*)", seg):
+            try:
+                v = float(m.group(1))
+            except ValueError:
+                continue
+            for ev in equiv_values:
+                d = max(0.01, ev * tolerance_pct / 100.0)
+                if ev - d <= v <= ev + d:
+                    return True
+    return False
+
+
+def _m47_validate_mechanism_clamp_extraction(
+    verified_text: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    ev_ids_in_subset: list[str],
+    biblio_slice: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """M-47 (2026-04-22): evidence-linked validator for Mechanism
+    section clamp/PK extraction.
+
+    Codex plan pass-2 verbatim: "The validator extracts candidate
+    quantitative fields from the cited clamp/PK evidence row's
+    direct_quote or accepted refetched quote, normalizes units/
+    patterns, and then checks that at least three of those same
+    values/fields appear in the verified Mechanism section with the
+    clamp/PK ev_id citation. Broad numeric counts in the section do
+    not satisfy the rule."
+
+    Returns diagnostic dict:
+      {
+        'clamp_papers_in_subset': list[ev_id],
+        'per_paper': {
+            ev_id: {
+                'candidate_fields': list[(field, value, unit)],
+                'matched_fields': list[(field, value)],
+                'match_count': int,
+                'passes_threshold': bool,  # ≥3
+            }
+        },
+        'any_passes_threshold': bool,  # any clamp paper met the floor
+        'no_clamp_papers': bool,  # True when subset has none (no-op)
+      }
+    """
+    result: dict[str, Any] = {
+        "clamp_papers_in_subset": [],
+        "per_paper": {},
+        "any_passes_threshold": False,
+        "no_clamp_papers": False,
+    }
+    if not verified_text or not evidence_pool or not ev_ids_in_subset:
+        result["no_clamp_papers"] = True
+        return result
+    clamp_papers: list[str] = []
+    for ev_id in ev_ids_in_subset:
+        row = evidence_pool.get(ev_id)
+        if row and _m47_row_is_clamp_or_pk_paper(row):
+            clamp_papers.append(ev_id)
+    result["clamp_papers_in_subset"] = clamp_papers
+    if not clamp_papers:
+        result["no_clamp_papers"] = True
+        return result
+
+    for ev_id in clamp_papers:
+        row = evidence_pool[ev_id]
+        # Source text: direct_quote primary, refetched quote fallback
+        quote = (row.get("direct_quote") or
+                 row.get("_m42b_refetched_quote") or "")
+        candidates = _m47_extract_candidate_values(quote)
+        matched: list[tuple[str, float]] = []
+        for field_name, val, _unit in candidates:
+            if _m47_prose_contains_value(
+                verified_text, ev_id, field_name, val,
+                biblio_slice=biblio_slice,
+            ):
+                matched.append((field_name, val))
+        passes = len(matched) >= 3
+        if passes:
+            result["any_passes_threshold"] = True
+        result["per_paper"][ev_id] = {
+            "candidate_fields": [
+                {"field": f, "value": v, "unit": u}
+                for f, v, u in candidates
+            ],
+            "matched_fields": [
+                {"field": f, "value": v} for f, v in matched
+            ],
+            "match_count": len(matched),
+            "passes_threshold": passes,
+        }
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2246,8 +2581,13 @@ async def generate_multi_section_report(
     # keep the original verified text (honest ship).
     m44_validator_violations: list[dict[str, Any]] = []
     if m44_primary_by_anchor:
-        # First validator pass
+        # First validator pass — M-44 pass-3 (Codex audit): record the
+        # per-section violation count here so the regen replacement
+        # criterion can compare against it. Pre-pass-3 the comparison
+        # was against an empty list (dead code path — regens were
+        # always rejected even when they had fewer violations).
         sections_needing_regen: list[int] = []
+        first_pass_violations_by_idx: dict[int, int] = {}
         for idx, sr in enumerate(section_results):
             if sr.dropped_due_to_failure or not sr.verified_text:
                 continue
@@ -2260,6 +2600,7 @@ async def generate_multi_section_report(
             )
             if viols:
                 sections_needing_regen.append(idx)
+                first_pass_violations_by_idx[idx] = len(viols)
 
         # Regen pass (Codex audit finding #1): one attempt per section
         # with a focus-level hint that enumerates the required primary
@@ -2319,17 +2660,20 @@ async def generate_multi_section_report(
                         plan.title, regen_result,
                     )
                     continue
-                # Re-validate the regen output. Keep if it passes OR if
-                # it has more kept sentences than the original.
+                # Re-validate the regen output. Keep if:
+                #  (a) regen has STRICTLY fewer violations than first
+                #      pass, OR
+                #  (b) regen passes validator entirely AND produced
+                #      any verified sentences.
+                # M-44 pass-3 (Codex audit): use first-pass violation
+                # count recorded before regen, not the final list
+                # (which is empty at this point).
                 new_viols = _m44_validate_primary_same_sentence(
                     regen_result.verified_text,
                     m44_primary_by_anchor,
                     regen_result.biblio_slice,
                 )
-                orig_viols_count = sum(
-                    1 for v in m44_validator_violations
-                    if v.get("section") == plan.title
-                )
+                orig_viols_count = first_pass_violations_by_idx.get(idx, 0)
                 if len(new_viols) < orig_viols_count or (
                     not new_viols and regen_result.sentences_verified > 0
                 ):
@@ -2361,6 +2705,38 @@ async def generate_multi_section_report(
                 "[multi_section] m44_primary_citation_incomplete: "
                 "%d remaining after regen",
                 len(m44_validator_violations),
+            )
+
+    # M-47 (2026-04-22): evidence-linked clamp/PK validator for the
+    # Mechanism section. No-op when no Mechanism section exists OR
+    # when Mechanism subset has no clamp/PK primary paper.
+    m47_diag: dict[str, Any] = {}
+    mechanism_section = next(
+        (sr for sr in section_results
+         if sr.title.lower() == "mechanism"
+         and not sr.dropped_due_to_failure
+         and sr.verified_text),
+        None,
+    )
+    if mechanism_section is not None:
+        m47_diag = _m47_validate_mechanism_clamp_extraction(
+            verified_text=mechanism_section.verified_text,
+            evidence_pool=evidence_pool,
+            ev_ids_in_subset=mechanism_section.ev_ids_assigned,
+            biblio_slice=mechanism_section.biblio_slice,
+        )
+        if m47_diag.get("clamp_papers_in_subset"):
+            passed = m47_diag.get("any_passes_threshold", False)
+            per_paper = m47_diag.get("per_paper", {})
+            counts = [
+                f"{ev}:{info['match_count']}"
+                for ev, info in per_paper.items()
+            ]
+            logger.info(
+                "[multi_section] M-47 mechanism clamp validator: "
+                "papers=%d passes_threshold=%s per_paper=[%s]",
+                len(m47_diag["clamp_papers_in_subset"]),
+                passed, ", ".join(counts),
             )
 
     # Stage 3: assembly
@@ -2522,6 +2898,8 @@ async def generate_multi_section_report(
         # M-44 (2026-04-22)
         m44_injection_log=m44_injection_log,
         m44_validator_violations=m44_validator_violations,
+        # M-47 (2026-04-22)
+        m47_mechanism_clamp_diagnostic=m47_diag,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,

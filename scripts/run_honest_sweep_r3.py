@@ -1111,6 +1111,23 @@ async def run_one_query(
                 f"[m44]         injected={injected} validator_violations="
                 f"{len(m44_violations)}"
             )
+
+        # M-47 (2026-04-22): persist evidence-linked Mechanism clamp/PK
+        # validator diagnostic. Empty dict when Mechanism subset had no
+        # clamp paper (no-op); populated dict when clamp papers were
+        # present.
+        m47_diag_obj = getattr(multi, "m47_mechanism_clamp_diagnostic", {}) or {}
+        (run_dir / "m47_mechanism_clamp_diagnostic.json").write_text(
+            json.dumps(m47_diag_obj, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        if m47_diag_obj.get("clamp_papers_in_subset"):
+            passed = m47_diag_obj.get("any_passes_threshold", False)
+            _log(
+                f"[m47]         mechanism_clamp papers="
+                f"{len(m47_diag_obj['clamp_papers_in_subset'])} "
+                f"passes_threshold={passed}"
+            )
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 

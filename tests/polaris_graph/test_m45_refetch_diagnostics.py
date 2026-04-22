@@ -117,6 +117,102 @@ class TestM45DiagnosticSchema:
         assert diag["failure_mode"] == ""
 
 
+class TestM45Pass2MethodReporting:
+    """M-45 pass-2 (Codex audit HIGH): method reporting via module-
+    level telemetry recorder. Pre-pass-2 the method was always "none"
+    because _fetch_content discarded result.access_method."""
+
+    def test_method_surfaces_from_fetch_telemetry(self) -> None:
+        from src.polaris_graph.retrieval.live_retriever import (
+            _m45_record_fetch_telemetry,
+            _m45_pop_fetch_telemetry,
+        )
+        _m45_record_fetch_telemetry(
+            "https://nejm.org/x", "crawl4ai", ""
+        )
+        got = _m45_pop_fetch_telemetry("https://nejm.org/x")
+        assert got["method"] == "crawl4ai"
+
+    def test_diag_reads_method_from_fetch_telemetry(self) -> None:
+        """When _fetch_content records 'jina', the diagnostic variant
+        reads that method instead of leaving it as 'none'."""
+        with patch(
+            "src.polaris_graph.retrieval.live_retriever._fetch_content",
+        ) as mock_fetch:
+            # Simulate _fetch_content recording 'jina' telemetry and
+            # returning fat content.
+            def _fake(url, mc):
+                from src.polaris_graph.retrieval.live_retriever import (
+                    _m45_record_fetch_telemetry,
+                )
+                _m45_record_fetch_telemetry(url, "jina", "")
+                fat = "X " * 200  # 400 chars
+                return fat, True, "t", "full_text"
+            mock_fetch.side_effect = _fake
+            quote, diag = refetch_for_extraction_with_diagnostics(
+                "https://nejm.org/x"
+            )
+        assert diag["method"] == "jina"
+        assert diag["eligible"] is True
+
+    def test_diag_reads_timeout_from_fetch_telemetry(self) -> None:
+        """When AccessBypass times out, _fetch_content records
+        failure_reason containing 'timeout'. Diagnostic variant
+        surfaces that as failure_mode='timeout'."""
+        with patch(
+            "src.polaris_graph.retrieval.live_retriever._fetch_content",
+        ) as mock_fetch:
+            def _fake(url, mc):
+                from src.polaris_graph.retrieval.live_retriever import (
+                    _m45_record_fetch_telemetry,
+                )
+                _m45_record_fetch_telemetry(
+                    url, "httpx_naive",
+                    "access_bypass_timeout_90s",
+                )
+                return "", False, "", ""
+            mock_fetch.side_effect = _fake
+            quote, diag = refetch_for_extraction_with_diagnostics(
+                "https://paywalled.example/x"
+            )
+        # failure_mode upgraded from fetch_failed to timeout
+        assert diag["failure_mode"] == "timeout"
+        assert diag["method"] == "httpx_naive"
+
+
+class TestM45Pass2MissingUrlDiagnostic:
+    """M-45 pass-2 (Codex audit medium #2): primary rows with thin
+    direct_quote and no refetchable URL must still appear in the
+    sink with failure_mode='missing_url'."""
+
+    def test_missing_url_creates_diagnostic_entry(self) -> None:
+        from src.polaris_graph.generator.multi_section_generator import (
+            build_trial_summary_and_timeline_from_evidence,
+        )
+        selected_rows = [
+            {
+                "evidence_id": "ev_s2",
+                "title": "SURPASS-2 primary publication",
+                "direct_quote": "thin",  # <100 chars
+                # No source_url, no url → unrefetchable
+            },
+        ]
+        biblio = [{"num": 1, "evidence_id": "ev_s2"}]
+        sink: list[dict] = []
+        table, timeline = build_trial_summary_and_timeline_from_evidence(
+            selected_rows=selected_rows,
+            primary_trial_anchors=["SURPASS-2"],
+            bibliography=biblio,
+            refetch_fn=lambda u, mc: "",
+            refetch_diagnostics_sink=sink,
+        )
+        assert len(sink) == 1
+        assert sink[0]["failure_mode"] == "missing_url"
+        assert sink[0]["anchor"] == "SURPASS-2"
+        assert sink[0]["evidence_id"] == "ev_s2"
+        assert sink[0]["attempted"] is False
+
+
 class TestM45BackwardsCompat:
     """`refetch_for_extraction` (1-value variant) must continue to work."""
 
