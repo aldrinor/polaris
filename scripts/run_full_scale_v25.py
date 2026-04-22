@@ -1,21 +1,23 @@
 """V25 full-scale launcher — explicit, reproducible, auditable env config.
 
-V25 = V23 launcher knobs + the five V25 code fixes Codex-approved
-2026-04-21 for Codex DR pass-11 gaps:
-  M-35: SURPASS-1..6 / SURMOUNT-1..4 primary-paper retrieval anchors
-        (closes Citations LOSE_BOTH).
-  M-36: Trial Summary markdown table post-synthesis stage
-        (closes Structural depth LOSE_BOTH).
-  M-37: Health Canada pdf.hres.ca regulatory-domain tier fix +
-        jurisdictional coverage prompt rule (lifts Regulatory /
-        Jurisdictional BEAT_ONE → BEAT_BOTH).
-  M-38: Claim-frame hard constraint — 3-of-7 frame elements or
-        drop short-name attribution (closes Claim frames LOSE_BOTH).
-  M-40: Mechanism-section outline rule + title visibility to
-        outline LLM (closes Narrative depth LOSE_BOTH).
+V25 = V24 code + M-41 bundle (Codex pass-2 READY 2026-04-21):
+  M-41a: outline cap 5 → 6 when Mechanism+Regulatory both trigger
+         (closes V24 Regulatory-displacement regression).
+  M-41b: drop trial summary table rows with >2 dashes
+         (closes V24 "3 rows, 2 mostly empty" table finding).
+  M-41c: deterministic claim-frame post-check
+         (converts probabilistic M-38 prompt rule to code-enforced).
+  M-41d: evidence-selector T3 jurisdictional floor
+         (unblocks M-37 HC work that was stranded by V24's missing
+         Regulatory section).
 
-No retrieval-scale changes vs V23. Expected: ~370-400 sources with
-+11 SURPASS/SURMOUNT primary papers surfacing via anchor queries.
+FIRST V SWEEP UNDER AUTOLOOP V2 PROTOCOL. After completion:
+  1. Claude output audit + Codex output audit (parallel)
+  2. Cross-review with per-disagreement table
+  3. Gate verdict → SHIPPABLE or iterate
+  4. If iterate: fix plan + Codex plan review
+  5. Re-launch under Codex-approved plan
+  Full runbook: state/autoloop_v2_runbook.md
 
 Usage:
     python scripts/run_full_scale_v25.py --out-root outputs/full_scale_v25
