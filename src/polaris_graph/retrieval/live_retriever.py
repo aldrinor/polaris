@@ -649,6 +649,38 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         return "", False, "", ""
 
 
+def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
+    """M-42b (2026-04-22): re-fetch source content for deterministic
+    trial-table / timeline extraction when the evidence row's
+    existing `direct_quote` is thin (<100 chars) or the row was
+    never successfully fetched.
+
+    Returns a 2000-char extract (head + decimal-windows) via
+    _fetch_content + _build_provenance_quote, or empty string when
+    the URL cannot be fetched or returns thin content.
+
+    Caller is expected to cache the result on the evidence row for
+    the remainder of the run so repeat table generation within the
+    same sweep does not re-hit the network.
+
+    Generic wrapper — not trial/drug/domain-specific. Used by the
+    M-42b trial-table builder and the Trial Program Timeline builder.
+    """
+    try:
+        content, ok, _title, _body_type = _fetch_content(url, max_chars)
+    except Exception as exc:
+        logger.warning(
+            "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
+        )
+        return ""
+    if not ok or not content or len(content) < 100:
+        return ""
+    return _build_provenance_quote(
+        content, head_chars=min(1500, max_chars), window_chars=500,
+        max_total_chars=max_chars,
+    )
+
+
 def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +

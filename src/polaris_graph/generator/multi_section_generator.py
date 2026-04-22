@@ -119,6 +119,12 @@ class MultiSectionResult:
     trial_summary_table_text: str = ""
     trial_summary_table_input_tokens: int = 0
     trial_summary_table_output_tokens: int = 0
+    # M-42b (2026-04-22): Trial Program Timeline — second structural
+    # artifact emitted alongside the Trial Summary table. Empty string
+    # when deterministic builder yields no rows (same condition as
+    # trial_summary_table_text being empty OR populated by LLM fallback
+    # path which doesn't produce a timeline).
+    trial_timeline_text: str = ""
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -593,6 +599,7 @@ CRITICAL RULES:
 11b. **Jurisdictional coverage (M-37, for multi-authority completeness)**: When this section's evidence subset contains sources from MULTIPLE regulatory jurisdictions (examples of distinct jurisdictions: US FDA, European EMA, UK NICE/MHRA, Health Canada, Australian TGA, Japanese PMDA, Chinese NMPA, WHO), you MUST cite at least ONE source from EACH jurisdiction whose content appears in your evidence subset. Do not cite US and EU sources while silently skipping a Canadian Product Monograph, a Japanese PMDA decision, or an Australian TGA action that is present in your evidence. Jurisdiction-specific facts that appear in only one jurisdiction's source (e.g., KwikPen pen-device warnings, counterfeit-product communications, or jurisdiction-only approval indications) are the MOST valuable sentences in a regulatory section — name them explicitly with the jurisdiction attributed. This rule fires only when a jurisdiction's evidence is actually present in your subset; it does not require you to invent coverage.
 12. **Primary-study framing (M-32, for claim-frame rigor)**: When you name a primary study, trial, cohort, experiment, or any individually identifiable empirical data source, and the cited evidence rows contain the structured metadata, provide the study's FULL FRAME in the FIRST sentence that introduces it: (a) sample size or cohort size (e.g. N=1879), (b) baseline value of the outcome being discussed (e.g. mean baseline [PRIMARY_METRIC]=[VALUE], baseline [SECONDARY_METRIC]=[VALUE]), (c) comparator / control / background condition (e.g. versus [COMPARATOR], versus placebo on [BACKGROUND], versus standard [REFERENCE_CONDITION]), and (d) the primary endpoint + timepoint (e.g. [ENDPOINT] change at [TIMEPOINT], [N-YEAR] [OUTCOME_TYPE], cycle-life to [THRESHOLD] retention). If the evidence row carries this structured metadata, you MUST emit it in that first sentence — do not compress N/baseline/endpoint into a single percent-reduction when the evidence carries the full frame. This is what distinguishes a research-grade deep synthesis from a news-style summary. Example template: "In [STUDY NAME], [STUDY_DESIGN_SUMMARY] randomized N=[SAMPLE_SIZE] participants with baseline [OUTCOME]=[BASELINE_VALUE] to [INTERVENTION] versus [COMPARATOR]; [PRIMARY_ENDPOINT] at [TIMEPOINT] was [RESULT] [ev_X]." Subsequent sentences about the same study may reference it by short name without re-framing. Generalizable beyond clinical: a materials paper gets composition + baseline performance + test condition + measured outcome; a cohort study gets population + baseline metric + intervention + outcome; a financial filing gets period + baseline metric + policy/benchmark + reported outcome.
 12b. **Claim-frame hard constraint (M-38, eliminating under-framed study mentions)**: Rule #12 is asymmetric and STRICT — when you name a specific study, trial, cohort, or experiment by its short name (phase-N trial identifier in clinical; long-run battery cycling test in materials; named longitudinal cohort in epidemiology; named regulatory docket in policy), that sentence — or the IMMEDIATELY PRECEDING sentence in the same paragraph — MUST carry at LEAST THREE frame elements drawn from: sample size / cohort N; baseline value; comparator / control arm; specific dose or intervention level; primary endpoint; timepoint; effect size WITH uncertainty (CI, SD, or p-value). If you cannot produce three of those elements from the cited evidence, DO NOT name the study by its short name — phrase the sentence generically as "one randomized trial showed ... [ev_X]" or "a prospective cohort in the target population reported ... [ev_X]" or "one pooled analysis found ... [ev_X]" or "a long-run cycling test reported ... [ev_X]" instead. This hard floor prevents the failure mode where a sentence names a specific study but gives only a single effect-size number without N, baseline, or comparator — producing a news-style summary mis-labelled with a primary-study name. Concrete templates (use placeholders): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [PRIMARY_METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]." GOOD (generic when frame is unavailable): "A pre-planned pooled analysis of two phase-3 trials reported [ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — no short-name attribution because pooled data lack per-trial N. BAD (under-framed, must be rewritten): "[STUDY NAME] showed that [INTERVENTION] reduced [ENDPOINT] more than [COMPARATOR] [ev_X]." — names the study with only one frame element (effect direction); rewrite as "A head-to-head trial of [INTERVENTION] versus [COMPARATOR] reported greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]" which drops the study name because the frame is too thin. BAD (under-framed, must be rewritten): "[STUDY NAME] found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — names study with only endpoint + effect; rewrite as "One pooled analysis of two phase-3 trials found median time to [THRESHOLD] was [TIMEPOINT] [ev_X]" ONLY if the cited evidence confirms pooled data across two trials. This rule is what converts a LOSE_BOTH on Claim frames into a competitive synthesis.
+12c. **Anaphoric and group claim-frame enforcement (M-42a, extending rule #12b to bypass patterns)**: Rule #12b fires only on explicit short-name study tokens (e.g. specific phase-3 trial identifiers like [STUDY NAME]-N). Sentences using ANAPHORIC references ("This trial", "The same trial", "The study also reported", "That analysis") or GROUP references ("the [PROGRAM] trials", "the phase-3 program", "pivotal trials") bypass that rule and reintroduce the under-framed pattern. This extension closes the bypass:  (A) An ANAPHORIC sentence referring to a specific study must EITHER (a) include at least ONE frame element (sample size, baseline, comparator, dose, endpoint, timepoint, or effect-size-with-uncertainty) in the SAME sentence, OR (b) be placed IMMEDIATELY AFTER a sentence that names the specific study with >=3 frame elements (the antecedent provides framing context). A bare anaphoric sentence with no antecedent framing context is FORBIDDEN. (B) A GROUP reference like "the [PROGRAM] trials" or "the phase-3 program" does NOT inherit from a single prior study's framing. The sentence must EITHER (a) ENUMERATE the specific studies inline — e.g. "the [PROGRAM] trials ([STUDY]-1, -2, -3) pooled N=[SAMPLE_SIZE]" — OR (b) present a pooled / program-level claim with POOLED N AND POOLED effect size stated inline (e.g. "across the [N_TRIALS] pivotal trials pooled N=[SAMPLE_SIZE] adults with [CONDITION], [ENDPOINT] reduction was [EFFECT_SIZE]"). Both parts of the rule apply across domains: in materials/chemistry "these composites" or "the second-gen samples" inherit similarly; in policy "the CMS rules" or "the parallel rulemakings" do. Concrete examples (placeholders only): GOOD: "In [STUDY NAME] (N=[SAMPLE_SIZE], baseline [METRIC]=[BASELINE_VALUE]), [INTERVENTION_ARM] reduced [ENDPOINT] by [EFFECT_SIZE] versus [COMPARATOR_ARM] at [TIMEPOINT] [ev_X]. The same trial also reported [SECONDARY_ENDPOINT]=[VALUE] at [TIMEPOINT] [ev_X]." — second sentence is anaphoric but inherits frame from first. GOOD: "Across the [STUDY]-1, -2, -3, and -4 pooled population (N=[SAMPLE_SIZE]), median time to [THRESHOLD] was [TIMEPOINT] [ev_X]." — group reference with pooled N inline. BAD: "This trial also reported maintained [ENDPOINT] [ev_X]." — anaphoric sentence with no antecedent frame. BAD: "The [PROGRAM] trials found greater [ENDPOINT] reduction with [INTERVENTION] [ev_X]." — group reference without enumeration or pooled N.
 
 EVIDENCE TIER DISCIPLINE (for top-tier Deep Research quality):
 Each evidence block carries a tier tag [T1]-[T7]. For every sentence you
@@ -1116,6 +1123,277 @@ def _extract_trial_summary_table(
     return "\n".join([header_line, separator_line, *kept_rows])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# M-42b: Deterministic trial-table + timeline builder from EvidenceRow
+# direct_quote. Supersedes the M-36 LLM-driven table when primary-trial
+# evidence is available; LLM path retained as fallback.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Trial short-name detector — mirrors the M-41c detector but
+# re-declared here to keep this builder self-contained.
+_M42B_TRIAL_NAME_RE = re.compile(
+    r"\b(?:"
+    r"[A-Z][A-Z0-9]{2,}-\d+(?:[A-Z]+)?"
+    r"|[A-Z][A-Z0-9]{2,}-CVOT"
+    r"|SELECT|LEADER|SUSTAIN|PIONEER|REWIND"
+    r"|AWARD|GRADE|DEVOTE|HARMONY|CANVAS|DECLARE|EMPEROR"
+    r")\b",
+)
+
+# Frame-element extractors for M-42b. Each returns the first-match
+# string (or empty string if not found). All operate on direct_quote
+# text, not generated prose.
+_M42B_PAT_N = re.compile(
+    r"\bN\s*=\s*(\d{2,})\b|\b(\d{2,})\s+(?:patients|participants|"
+    r"adults|subjects|enrolled|randomi[sz]ed)\b",
+    re.IGNORECASE,
+)
+_M42B_PAT_BASELINE = re.compile(
+    r"baseline\s+(?:HbA1c|weight|BMI|body\s+mass\s+index|A1c|glucose|"
+    r"blood\s+pressure|LDL|cholesterol|capacity|loading)\s*(?:was|of)?\s*"
+    r"[^,.]*?(\d+\.?\d*\s*%?(?:\s*kg|\s*mmHg|\s*mg/dL|\s*mAh/g)?)",
+    re.IGNORECASE,
+)
+_M42B_PAT_COMPARATOR = re.compile(
+    r"\b(?:versus|vs\.?|compared\s+(?:to|with))\s+"
+    r"([a-z][a-z0-9\-\s]{2,40}?)(?:\s+\d|\s+at|\s+once|\s+twice|[,.;]|\s+group)",
+    re.IGNORECASE,
+)
+_M42B_PAT_DOSE = re.compile(
+    r"\b(\d+\.?\d*\s*mg)\s+(?:once\s+weekly|QW|SC|subcutaneous|daily|BID)?",
+    re.IGNORECASE,
+)
+_M42B_PAT_ENDPOINT = re.compile(
+    r"\b(?:primary\s+endpoint|primary\s+outcome|primary\s+efficacy)\b"
+    r"[^,.]{0,80}?\b(HbA1c|weight|body\s+weight|MACE|cardiovascular|"
+    r"mortality|capacity|cycle\s+life|phase\s+transition)\b",
+    re.IGNORECASE,
+)
+_M42B_PAT_TIMEPOINT = re.compile(
+    r"\b(?:at|by|after|over)?\s*(?:week|month|year|day)s?\s*(\d+)\b"
+    r"|\b(\d+)\s*-?\s*(?:week|month|year|day)s?\b",
+    re.IGNORECASE,
+)
+_M42B_PAT_EFFECT_WITH_UNCERTAINTY = re.compile(
+    r"([-−]?\d+\.?\d*\s*(?:%|pp|kg|mg/dL|mmol/L))[^,.;]{0,40}?"
+    r"(?:p\s*[<>=]\s*0?\.\d+|\b\d+\s*%\s+CI|\(\s*\d+\.?\d*\s*(?:to|[-–—])\s*\d+)",
+    re.IGNORECASE,
+)
+
+
+def _m42b_extract_from_quote(quote: str) -> dict[str, str]:
+    """Extract 7 frame-element cells from a direct_quote string.
+    Returns dict with keys {n, baseline, comparator, dose, endpoint,
+    timepoint, effect}. Missing fields are empty strings."""
+    if not quote:
+        return {k: "" for k in
+                ("n", "baseline", "comparator", "dose", "endpoint",
+                 "timepoint", "effect")}
+    cells: dict[str, str] = {}
+
+    m = _M42B_PAT_N.search(quote)
+    if m:
+        cells["n"] = m.group(1) or m.group(2) or ""
+    else:
+        cells["n"] = ""
+
+    m = _M42B_PAT_BASELINE.search(quote)
+    cells["baseline"] = (m.group(1).strip() if m else "")
+
+    m = _M42B_PAT_COMPARATOR.search(quote)
+    cells["comparator"] = (m.group(1).strip() if m else "")
+
+    m = _M42B_PAT_DOSE.search(quote)
+    cells["dose"] = (m.group(1).strip() if m else "")
+
+    m = _M42B_PAT_ENDPOINT.search(quote)
+    cells["endpoint"] = (m.group(1).strip() if m else "")
+
+    m = _M42B_PAT_TIMEPOINT.search(quote)
+    cells["timepoint"] = (m.group(1) or m.group(2) or "") if m else ""
+
+    m = _M42B_PAT_EFFECT_WITH_UNCERTAINTY.search(quote)
+    cells["effect"] = (m.group(1).strip() if m else "")
+    return cells
+
+
+def _m42b_year_from_row(row: dict[str, Any]) -> str:
+    """Extract publication year from an evidence row. Tries URL/DOI
+    year pattern, then direct_quote. Returns 'yyyy' or empty string."""
+    url = (row.get("source_url") or row.get("url") or "")
+    # Common DOI/URL year patterns: /2021/, (2021), -2021-
+    m = re.search(r"[/(\-_](20\d{2})[/)\-_.]", url)
+    if m:
+        return m.group(1)
+    quote = row.get("direct_quote") or ""
+    m = re.search(r"\b(20[0-2]\d)\b", quote[:500])
+    if m:
+        return m.group(1)
+    return ""
+
+
+def _m42b_find_ref_num(row: dict[str, Any], bibliography: list[dict[str, Any]]) -> int | None:
+    """Return the [N] citation number from the bibliography that
+    corresponds to this evidence row. Match by evidence_id or URL."""
+    ev_id = row.get("evidence_id") or ""
+    url = row.get("source_url") or row.get("url") or ""
+    for entry in bibliography:
+        if entry.get("evidence_id") == ev_id and ev_id:
+            return entry.get("num")
+        if entry.get("url") == url and url:
+            return entry.get("num")
+    return None
+
+
+def build_trial_summary_and_timeline_from_evidence(
+    selected_rows: list[dict[str, Any]],
+    primary_trial_anchors: list[str],
+    bibliography: list[dict[str, Any]],
+    refetch_fn: Any = None,
+) -> tuple[str, str]:
+    """M-42b deterministic builder. Consumes selected evidence rows
+    (from the generator's evidence_pool) + the sweep's
+    `primary_trial_anchors` list + global bibliography. Returns
+    `(trial_table_md, timeline_md)` — both markdown strings.
+
+    Source-content contract (per Codex plan review pass-3):
+      - Primary extraction source: `row.get("direct_quote")` — the
+        verbatim quote populated by live_retriever during fetch.
+      - Secondary: `row.get("statement")` for disambiguation only.
+      - Forbidden: prose from any generated report section.
+
+    Thin-content fallback:
+      - If `direct_quote` < 100 chars AND `refetch_fn` is provided,
+        calls `refetch_fn(url)` to fetch a fresh 2000-char extract.
+      - If still thin, the row is marked extraction-ineligible
+        (skipped).
+
+    Row acceptance:
+      - For the TABLE: >=4 of 7 frame cells populated.
+      - For the TIMELINE: publication year + trial name + at least
+        one non-empty cell (endpoint OR effect).
+
+    Returns empty strings when no rows pass the threshold (caller
+    falls back to LLM path).
+    """
+    if not selected_rows or not primary_trial_anchors:
+        return "", ""
+
+    valid_ref_nums = {
+        int(e.get("num")) for e in bibliography
+        if isinstance(e.get("num"), int)
+    }
+
+    # Per-anchor: find the best primary row + extract cells
+    table_rows: list[tuple[int, str, dict[str, str], str]] = []
+    # format: (year_int, trial_name, cells, ref_marker)
+
+    for anchor in primary_trial_anchors:
+        anchor_l = anchor.lower()
+        # Find the first selected row whose title contains this anchor
+        # AND is a primary (M-42e would have tagged it at selection
+        # time — but the builder can't assume that metadata is
+        # exposed; we re-test here via title + URL).
+        best_row = None
+        for row in selected_rows:
+            title = (row.get("title") or "").lower()
+            if anchor_l in title:
+                best_row = row
+                break
+        if best_row is None:
+            continue
+
+        # Source content: try direct_quote first
+        quote = best_row.get("direct_quote") or ""
+        if len(quote) < 100 and refetch_fn is not None:
+            url = best_row.get("source_url") or best_row.get("url") or ""
+            if url:
+                try:
+                    refetched = refetch_fn(url, 2000)
+                    if refetched and len(refetched) >= 100:
+                        quote = refetched
+                        # Cache on row for future access
+                        best_row["_m42b_refetched_quote"] = refetched
+                except Exception:
+                    pass
+        if len(quote) < 100:
+            # Fallback to statement for disambiguation only
+            stmt = best_row.get("statement") or ""
+            if len(stmt) >= 100:
+                quote = stmt
+            else:
+                continue  # extraction_ineligible — skip this row
+
+        cells = _m42b_extract_from_quote(quote)
+        populated = sum(1 for v in cells.values() if v)
+        if populated < 4:
+            continue  # row fails 4-of-7 threshold
+
+        # Citation marker
+        ref_num = _m42b_find_ref_num(best_row, bibliography)
+        if ref_num is None or ref_num not in valid_ref_nums:
+            continue  # no valid [N] citation → skip
+        ref_marker = f"[{ref_num}]"
+
+        year_str = _m42b_year_from_row(best_row)
+        year_int = int(year_str) if year_str else 0
+
+        table_rows.append((year_int, anchor, cells, ref_marker))
+
+    if len(table_rows) < 2:
+        # Not enough rows for a meaningful table — signal LLM fallback
+        logger.info(
+            "[multi_section] M-42b deterministic builder yielded %d rows "
+            "(below threshold of 2); LLM fallback will be used",
+            len(table_rows),
+        )
+        return "", ""
+
+    # ─── Render Trial Summary table ────────────────────────────
+    table_lines = [
+        "| Trial | N | Baseline | Comparator | Endpoint | Result | Ref |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for _year, trial, cells, ref in table_rows:
+        row_cells = [
+            trial,
+            cells["n"] or "—",
+            cells["baseline"] or "—",
+            cells["comparator"] or "—",
+            cells["endpoint"] or "—",
+            cells["effect"] or (f"at week {cells['timepoint']}"
+                                if cells["timepoint"] else "—"),
+            ref,
+        ]
+        table_lines.append("| " + " | ".join(row_cells) + " |")
+    trial_table_md = "\n".join(table_lines)
+
+    # ─── Render Trial Program Timeline ─────────────────────────
+    # Sort by year ascending; rows with year=0 go to end.
+    timeline_entries = sorted(
+        table_rows,
+        key=lambda r: (r[0] if r[0] else 9999, r[1]),
+    )
+    timeline_lines = ["| Year | Trial | Key result | Ref |",
+                      "|---|---|---|---|"]
+    for year, trial, cells, ref in timeline_entries:
+        year_str = str(year) if year else "—"
+        # Key result: prefer effect size; fall back to endpoint
+        key_result = cells["effect"] or cells["endpoint"] or "primary result reported"
+        timeline_lines.append(
+            f"| {year_str} | {trial} | {key_result} | {ref} |"
+        )
+    timeline_md = "\n".join(timeline_lines)
+
+    logger.info(
+        "[multi_section] M-42b deterministic builder: %d table rows, "
+        "timeline with %d entries",
+        len(table_rows), len(timeline_entries),
+    )
+    return trial_table_md, timeline_md
+
+
 async def _call_trial_summary_table(
     *,
     verified_prose: str,
@@ -1382,6 +1660,10 @@ async def generate_multi_section_report(
     # default; set `trial_summary_table_max_tokens=0` to disable.
     trial_summary_table_temperature: float = 0.2,
     trial_summary_table_max_tokens: int = 800,
+    # M-42b (2026-04-22): named-trial anchors for deterministic
+    # trial-table/timeline builder. When None/empty, LLM fallback
+    # path runs (M-36 behavior).
+    primary_trial_anchors: list[str] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -1501,35 +1783,64 @@ async def generate_multi_section_report(
         if lim_text:
             total_words += len(lim_text.split())
 
-    # M-36 (2026-04-21): Trial Summary table synthesis — one extra LLM
-    # call over the VERIFIED prose + global bibliography. Empty string
-    # when the prose names no trials, the call fails, or all candidate
-    # rows cite out-of-range [N]. Input is already strict_verified so
-    # no per-cell provenance is required.
+    # M-42b (2026-04-22): Deterministic Trial Summary + Timeline
+    # builder from EvidenceRow.direct_quote. Consumes selected
+    # primary-trial evidence rows directly (not generated prose).
+    # Supersedes M-36 LLM-driven path when deterministic extraction
+    # yields >=2 rows; otherwise falls back to M-36 LLM call.
     trial_table_text = ""
+    trial_timeline_text = ""
     trial_table_in_tok = 0
     trial_table_out_tok = 0
-    if trial_summary_table_max_tokens > 0:
-        kept_prose = "\n\n".join(
-            sr.verified_text for sr in section_results
-            if not sr.dropped_due_to_failure and sr.verified_text
-        )
-        if kept_prose and global_biblio:
-            (
-                trial_table_text,
-                trial_table_in_tok,
-                trial_table_out_tok,
-            ) = await _call_trial_summary_table(
-                verified_prose=kept_prose,
-                bibliography=global_biblio,
-                model=gen_model,
-                temperature=trial_summary_table_temperature,
-                max_tokens=trial_summary_table_max_tokens,
+    if trial_summary_table_max_tokens > 0 and global_biblio:
+        # Try M-42b deterministic path first.
+        # The generator sees `evidence` as a flat list of row dicts —
+        # this is the selected subset passed by the orchestrator.
+        # Primary anchors come from the caller; if None, LLM fallback.
+        try:
+            from src.polaris_graph.retrieval.live_retriever import (
+                refetch_for_extraction,
             )
-            total_in_tok += trial_table_in_tok
-            total_out_tok += trial_table_out_tok
-            if trial_table_text:
-                total_words += len(trial_table_text.split())
+        except Exception:
+            refetch_for_extraction = None  # type: ignore[assignment]
+        det_table, det_timeline = build_trial_summary_and_timeline_from_evidence(
+            selected_rows=evidence,
+            primary_trial_anchors=(primary_trial_anchors or []),
+            bibliography=global_biblio,
+            refetch_fn=refetch_for_extraction,
+        )
+        if det_table:
+            trial_table_text = det_table
+            trial_timeline_text = det_timeline
+            total_words += len(det_table.split())
+            if det_timeline:
+                total_words += len(det_timeline.split())
+            logger.info(
+                "[multi_section] M-42b deterministic trial table+timeline "
+                "emitted (no LLM call)"
+            )
+        else:
+            # Fallback to M-36 LLM-driven table
+            kept_prose = "\n\n".join(
+                sr.verified_text for sr in section_results
+                if not sr.dropped_due_to_failure and sr.verified_text
+            )
+            if kept_prose:
+                (
+                    trial_table_text,
+                    trial_table_in_tok,
+                    trial_table_out_tok,
+                ) = await _call_trial_summary_table(
+                    verified_prose=kept_prose,
+                    bibliography=global_biblio,
+                    model=gen_model,
+                    temperature=trial_summary_table_temperature,
+                    max_tokens=trial_summary_table_max_tokens,
+                )
+                total_in_tok += trial_table_in_tok
+                total_out_tok += trial_table_out_tok
+                if trial_table_text:
+                    total_words += len(trial_table_text.split())
 
     return MultiSectionResult(
         sections=section_results,
@@ -1546,6 +1857,7 @@ async def generate_multi_section_report(
         trial_summary_table_text=trial_table_text,
         trial_summary_table_input_tokens=trial_table_in_tok,
         trial_summary_table_output_tokens=trial_table_out_tok,
+        trial_timeline_text=trial_timeline_text,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,

@@ -1007,6 +1007,11 @@ async def run_one_query(
                 else None
             ),
             uncovered_topics=uncovered_labels,
+            # M-42b (2026-04-22): pass primary_trial_anchors so the
+            # deterministic trial-table+timeline builder can consume
+            # primary-trial evidence rows directly. Uses the same
+            # anchors as M-35 retrieval + M-42e selector floor.
+            primary_trial_anchors=_primary_anchors,
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
@@ -1029,6 +1034,14 @@ async def run_one_query(
         if getattr(multi, "trial_summary_table_text", ""):
             sections_concat += (
                 f"\n\n### Trial Summary\n\n{multi.trial_summary_table_text}"
+            )
+        # M-42b (2026-04-22): Trial Program Timeline emitted after
+        # the Trial Summary table when the deterministic builder has
+        # chronological data. Empty when only the LLM-fallback table
+        # path ran (M-36 doesn't produce timelines).
+        if getattr(multi, "trial_timeline_text", ""):
+            sections_concat += (
+                f"\n\n### Trial Program Timeline\n\n{multi.trial_timeline_text}"
             )
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
