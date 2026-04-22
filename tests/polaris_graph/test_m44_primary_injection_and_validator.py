@@ -180,6 +180,10 @@ class TestM44InjectionCodexAcceptance:
         )
 
     def test_multi_anchor_multi_section(self) -> None:
+        """M-44 pass-2 (Codex audit medium #3): anchors now respect
+        section-focus affinity. SURPASS-2 is _general (fits all
+        primary-eligible sections); SURPASS-CVOT is _cardiovascular
+        (fits Safety + Long-term Outcomes only, not Efficacy)."""
         plans = [
             SectionPlan(title="Efficacy", focus="f", ev_ids=["ev_a", "ev_b"]),
             SectionPlan(title="Safety", focus="f", ev_ids=["ev_c", "ev_d"]),
@@ -192,10 +196,14 @@ class TestM44InjectionCodexAcceptance:
         updated, log = _m44_inject_primaries_into_outline(
             plans, primary_by_anchor,
         )
-        # Efficacy + Safety: both primaries prepended
+        # Efficacy: SURPASS-2 yes; CVOT no (cardiovascular affinity
+        # doesn't include efficacy title)
         assert "ev_s2" in updated[0].ev_ids
-        assert "ev_cvot" in updated[0].ev_ids
+        assert "ev_cvot" not in updated[0].ev_ids
+        # Safety: both — SURPASS-2 by _general affinity, CVOT by
+        # _cardiovascular affinity
         assert "ev_s2" in updated[1].ev_ids
+        assert "ev_cvot" in updated[1].ev_ids
         # Regulatory: unchanged
         assert updated[2].ev_ids == ["ev_fda"]
 
@@ -226,6 +234,105 @@ class TestM44TrialMentionDetection:
         text = "SURPASS-2: tirzepatide trial."
         matches = _m44_find_trial_mentions(text, ["SURPASS-2"])
         assert len(matches) == 1
+
+
+class TestM44Pass2SectionFocusAffinity:
+    """M-44 pass-2 (Codex audit medium #3): injection is section-focus-
+    aware, not blanket 'all eligible sections'."""
+
+    def test_cvot_injected_only_in_safety_or_cv_sections(self) -> None:
+        plans = [
+            SectionPlan(title="Efficacy", focus="HbA1c reduction", ev_ids=["ev_a"]),
+            SectionPlan(title="Safety", focus="adverse events", ev_ids=["ev_b"]),
+            SectionPlan(
+                title="Long-term Outcomes",
+                focus="cardiovascular outcomes over 4 years",
+                ev_ids=["ev_c"],
+            ),
+        ]
+        primary_by_anchor = {"SURPASS-CVOT": ["ev_cvot"]}
+        updated, log = _m44_inject_primaries_into_outline(
+            plans, primary_by_anchor,
+        )
+        # Efficacy should NOT get CVOT (cardiovascular anchor)
+        assert "ev_cvot" not in updated[0].ev_ids
+        # Safety SHOULD get CVOT (affinity: safety)
+        assert updated[1].ev_ids[0] == "ev_cvot"
+        # Long-term Outcomes SHOULD get CVOT (affinity: long-term outcomes + focus keyword)
+        assert updated[2].ev_ids[0] == "ev_cvot"
+
+    def test_surmount_injected_only_in_weight_sections(self) -> None:
+        plans = [
+            SectionPlan(title="Efficacy", focus="HbA1c reduction", ev_ids=["ev_a"]),
+            SectionPlan(
+                title="Efficacy",
+                focus="body weight reduction outcomes",
+                ev_ids=["ev_b"],
+            ),
+            SectionPlan(title="Safety", focus="adverse events", ev_ids=["ev_c"]),
+        ]
+        primary_by_anchor = {"SURMOUNT-2": ["ev_sm2"]}
+        updated, log = _m44_inject_primaries_into_outline(
+            plans, primary_by_anchor,
+        )
+        # Efficacy with HbA1c focus — not weight — should NOT get SURMOUNT
+        # (it matches by title 'efficacy' alone actually — let's check)
+        # Actually SURMOUNT is _weight category, which affinities = efficacy, pop-subgroups, long-term
+        # So it DOES get injected into Efficacy by title match
+        assert updated[0].ev_ids[0] == "ev_sm2"
+        # Efficacy with weight focus also gets it
+        assert updated[1].ev_ids[0] == "ev_sm2"
+        # Safety — NOT in _weight affinity → skipped
+        assert "ev_sm2" not in updated[2].ev_ids
+
+    def test_surpass_general_goes_to_all_primary_eligible(self) -> None:
+        plans = [
+            SectionPlan(title="Efficacy", focus="f", ev_ids=["ev_a"]),
+            SectionPlan(title="Comparative", focus="f", ev_ids=["ev_b"]),
+            SectionPlan(title="Safety", focus="f", ev_ids=["ev_c"]),
+        ]
+        primary_by_anchor = {"SURPASS-2": ["ev_s2"]}
+        updated, log = _m44_inject_primaries_into_outline(
+            plans, primary_by_anchor,
+        )
+        # SURPASS-2 is _general category — all three sections get it
+        for u in updated:
+            assert "ev_s2" in u.ev_ids
+
+    def test_skipped_section_affinity_logged(self) -> None:
+        plans = [
+            SectionPlan(title="Efficacy", focus="HbA1c", ev_ids=["ev_a"]),
+        ]
+        primary_by_anchor = {"SURPASS-CVOT": ["ev_cvot"]}
+        updated, log = _m44_inject_primaries_into_outline(
+            plans, primary_by_anchor,
+        )
+        assert "ev_cvot" not in updated[0].ev_ids
+        assert any(
+            e["action"] == "skipped_section_affinity"
+            and e["anchor"] == "SURPASS-CVOT"
+            for e in log
+        )
+
+
+class TestM44Pass2ValidatorPreviousSentence:
+    """M-44 pass-2 (Codex audit finding #4): adjacent sentence now
+    includes both previous AND next, not only next."""
+
+    def test_primary_cited_in_previous_sentence_passes(self) -> None:
+        text = (
+            "The primary publication reported efficacy [1]. "
+            "SURPASS-2 was the lead trial."
+        )
+        biblio = [{"num": 1, "evidence_id": "ev_s2_primary"}]
+        primary_by_anchor = {"SURPASS-2": ["ev_s2_primary"]}
+        violations = _m44_validate_primary_same_sentence(
+            text, primary_by_anchor, biblio,
+        )
+        assert violations == [], (
+            f"previous-sentence citation should pass post-pass-2: "
+            f"{violations}"
+        )
 
 
 class TestM44SentenceSpans:

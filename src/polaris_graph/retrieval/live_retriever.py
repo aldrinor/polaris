@@ -665,20 +665,111 @@ def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
 
     Generic wrapper — not trial/drug/domain-specific. Used by the
     M-42b trial-table builder and the Trial Program Timeline builder.
+
+    M-45 (2026-04-22): see `refetch_for_extraction_with_diagnostics`
+    for a variant that returns structured per-URL diagnostics
+    (backend, char count, body type, eligibility, failure mode) for
+    the V28 preflight and downstream audits. This function is a thin
+    wrapper around that variant.
     """
+    quote, _diag = refetch_for_extraction_with_diagnostics(url, max_chars)
+    return quote
+
+
+def refetch_for_extraction_with_diagnostics(
+    url: str, max_chars: int = 2000,
+) -> tuple[str, dict[str, Any]]:
+    """M-45 (2026-04-22): refetch with structured per-URL diagnostics.
+
+    Codex V28 plan pass-2 APPROVED this diagnostic-first approach.
+    V27 still produced thin quotes for paywalled PDFs despite the
+    AccessBypass cascade existing. This variant records WHY each
+    refetch landed or failed so audits can branch the fix
+    (explicit-wire Jina/Firecrawl, better extraction window, or
+    strict skip) based on real data instead of assumption.
+
+    Returns (quote, diagnostics) where:
+      - quote: same as `refetch_for_extraction` — non-empty iff the
+        refetched content is ≥100 chars and the provenance quote
+        was built; empty string otherwise. Strict ≥100 char contract
+        preserved (no statement fallback, no prose fallback).
+      - diagnostics: dict with these keys:
+          url: the input URL (truncated to 200 chars for JSON safety)
+          attempted: bool — did we try the fetch at all
+          method: str — AccessBypass method that produced content
+            ('crawl4ai', 'jina', 'firecrawl', 'httpx', 'archive_org',
+            'scihub', or 'none')
+          raw_char_count: int — bytes returned by _fetch_content
+            before provenance-quote extraction
+          body_type: str — 'abstract' / 'full_text' / 'paywall_shell'
+            / 'html_meta' per `_detect_article_type_from_body`
+          eligible: bool — True iff quote was emitted (≥100 chars)
+          failure_mode: str — one of:
+            '' (eligible), 'exception', 'fetch_failed',
+            'thin_content', 'paywall_shell'
+          exception_type: str — class name when failure_mode=exception
+    """
+    diagnostics: dict[str, Any] = {
+        "url": (url or "")[:200],
+        "attempted": False,
+        "method": "none",
+        "raw_char_count": 0,
+        "body_type": "",
+        "eligible": False,
+        "failure_mode": "",
+        "exception_type": "",
+    }
+    if not url:
+        diagnostics["failure_mode"] = "empty_url"
+        return "", diagnostics
+    diagnostics["attempted"] = True
     try:
-        content, ok, _title, _body_type = _fetch_content(url, max_chars)
+        content, ok, _title, body_type = _fetch_content(url, max_chars)
     except Exception as exc:
         logger.warning(
             "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
         )
-        return ""
-    if not ok or not content or len(content) < 100:
-        return ""
-    return _build_provenance_quote(
+        diagnostics["failure_mode"] = "exception"
+        diagnostics["exception_type"] = type(exc).__name__
+        return "", diagnostics
+
+    diagnostics["raw_char_count"] = len(content) if content else 0
+    diagnostics["body_type"] = body_type or ""
+    # _fetch_content's internal logs record the method; we don't have
+    # it as a return value (legacy signature). Best-effort inference
+    # from body type: 'abstract' / 'full_text' suggests Crawl4AI/Jina;
+    # paywall_shell suggests direct HTTP fallback. Leaving 'method'
+    # as 'none' is honest when we can't tell — future revision could
+    # extend _fetch_content to return (content, ok, title, body, method).
+
+    if not ok or not content:
+        diagnostics["failure_mode"] = "fetch_failed"
+        return "", diagnostics
+    if len(content) < 100:
+        diagnostics["failure_mode"] = "thin_content"
+        return "", diagnostics
+    # Paywall-shell detection: body_type marker set by
+    # _detect_article_type_from_body. We still build a provenance
+    # quote from the content but tag the diagnostic so downstream
+    # audits can filter these out if they want only full-text sources.
+    if body_type == "paywall_shell":
+        diagnostics["failure_mode"] = "paywall_shell"
+        # Continue to build the quote — the shell may still contain
+        # enough abstract text to hit ≥100 chars. Eligibility is
+        # determined by the provenance-quote length check below.
+    quote = _build_provenance_quote(
         content, head_chars=min(1500, max_chars), window_chars=500,
         max_total_chars=max_chars,
     )
+    if not quote or len(quote) < 100:
+        if not diagnostics["failure_mode"]:
+            diagnostics["failure_mode"] = "thin_content"
+        return "", diagnostics
+    diagnostics["eligible"] = True
+    if diagnostics["failure_mode"] == "paywall_shell":
+        # Eligible despite shell marker — abstract-only case.
+        diagnostics["failure_mode"] = ""
+    return quote, diagnostics
 
 
 def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:

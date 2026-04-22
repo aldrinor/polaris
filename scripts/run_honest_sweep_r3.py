@@ -1070,6 +1070,47 @@ async def run_one_query(
             sections_concat += (
                 f"\n\n### Trial Program Timeline\n\n{multi.trial_timeline_text}"
             )
+
+        # M-45 (2026-04-22): persist per-URL refetch diagnostics for
+        # primary-trial refetches. Codex V28 plan pass-2 acceptance:
+        # refetch_diagnostics.json records backend + char count +
+        # eligibility for every skipped primary row. Written even when
+        # empty (list of zero entries) so downstream audits know the
+        # builder ran vs. was disabled.
+        m45_diag = getattr(multi, "refetch_diagnostics", None) or []
+        (run_dir / "refetch_diagnostics.json").write_text(
+            json.dumps(m45_diag, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        if m45_diag:
+            eligible = sum(1 for d in m45_diag if d.get("eligible"))
+            _log(
+                f"[m45]         refetch diagnostics: {len(m45_diag)} urls "
+                f"attempted, {eligible} eligible"
+            )
+
+        # M-44 (2026-04-22): persist primary-trial injection +
+        # validator telemetry.
+        m44_injection = getattr(multi, "m44_injection_log", None) or []
+        m44_violations = getattr(multi, "m44_validator_violations", None) or []
+        (run_dir / "m44_primary_citation_telemetry.json").write_text(
+            json.dumps(
+                {
+                    "injection_log": m44_injection,
+                    "validator_violations": m44_violations,
+                },
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        if m44_injection or m44_violations:
+            injected = sum(
+                1 for e in m44_injection if e.get("action") == "injected"
+            )
+            _log(
+                f"[m44]         injected={injected} validator_violations="
+                f"{len(m44_violations)}"
+            )
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 

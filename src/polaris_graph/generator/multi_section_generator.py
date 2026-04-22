@@ -125,6 +125,21 @@ class MultiSectionResult:
     # trial_summary_table_text being empty OR populated by LLM fallback
     # path which doesn't produce a timeline).
     trial_timeline_text: str = ""
+    # M-45 (2026-04-22): per-URL refetch diagnostics collected during
+    # M-42b trial-table building. List of dicts (see
+    # `refetch_for_extraction_with_diagnostics` in live_retriever for
+    # schema). Empty list when no refetches were triggered (either all
+    # direct_quotes were already fat, or builder didn't run).
+    # Orchestrator persists this to refetch_diagnostics.json.
+    refetch_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    # M-44 (2026-04-22): primary-trial citation injection + validator
+    # telemetry. injection_log records which primaries were prepended
+    # into which sections. validator_violations records named-trial
+    # mentions in verified prose that lacked a same/adjacent-sentence
+    # primary citation. Both are empty lists when no anchors configured
+    # or no primaries matched.
+    m44_injection_log: list[dict[str, Any]] = field(default_factory=list)
+    m44_validator_violations: list[dict[str, Any]] = field(default_factory=list)
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -1288,6 +1303,8 @@ def build_trial_summary_and_timeline_from_evidence(
     primary_trial_anchors: list[str],
     bibliography: list[dict[str, Any]],
     refetch_fn: Any = None,
+    *,
+    refetch_diagnostics_sink: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str]:
     """M-42b deterministic builder. Consumes selected evidence rows
     (from the generator's evidence_pool) + the sweep's
@@ -1331,11 +1348,17 @@ def build_trial_summary_and_timeline_from_evidence(
         # Find the first selected row whose title contains this anchor
         # AND is a primary (M-42e would have tagged it at selection
         # time — but the builder can't assume that metadata is
-        # exposed; we re-test here via title + URL).
+        # exposed; we re-test here via title + URL). M-48 pass-2:
+        # live rows use `statement` not `title`.
         best_row = None
         for row in selected_rows:
-            title = (row.get("title") or "").lower()
-            if anchor_l in title:
+            title_text = ""
+            for k in ("title", "statement", "source_title"):
+                v = row.get(k)
+                if isinstance(v, str) and v:
+                    title_text = v
+                    break
+            if anchor_l in title_text.lower():
                 best_row = row
                 break
         if best_row is None:
@@ -1347,19 +1370,47 @@ def build_trial_summary_and_timeline_from_evidence(
         # violated the pass-3 source-content contract (statement is
         # for disambiguation only, never as a standalone extraction
         # source). Contract is now refetch-or-skip.
+        # M-45 (2026-04-22): when refetch_diagnostics_sink is provided,
+        # use the diagnostic-capable refetch variant so the orchestrator
+        # can emit refetch_diagnostics.json per Codex pass-2 acceptance.
         quote = best_row.get("direct_quote") or ""
         if len(quote) < 100 and refetch_fn is not None:
             url = best_row.get("source_url") or best_row.get("url") or ""
             if url:
                 try:
-                    refetched = refetch_fn(url, 2000)
+                    # M-45: if sink provided, route through the
+                    # diagnostic variant for per-URL telemetry.
+                    if refetch_diagnostics_sink is not None:
+                        from src.polaris_graph.retrieval.live_retriever import (
+                            refetch_for_extraction_with_diagnostics,
+                        )
+                        refetched, diag = refetch_for_extraction_with_diagnostics(
+                            url, 2000,
+                        )
+                        diag["anchor"] = anchor
+                        diag["evidence_id"] = best_row.get("evidence_id", "")
+                        refetch_diagnostics_sink.append(diag)
+                    else:
+                        refetched = refetch_fn(url, 2000)
                     if refetched and len(refetched) >= 100:
                         quote = refetched
                         # Cache on row for future access (also used
                         # by _m42b_year_from_row in pass-2 medium fix).
                         best_row["_m42b_refetched_quote"] = refetched
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if refetch_diagnostics_sink is not None:
+                        refetch_diagnostics_sink.append({
+                            "url": url[:200],
+                            "anchor": anchor,
+                            "evidence_id": best_row.get("evidence_id", ""),
+                            "attempted": True,
+                            "eligible": False,
+                            "failure_mode": "builder_exception",
+                            "exception_type": type(exc).__name__,
+                            "raw_char_count": 0,
+                            "body_type": "",
+                            "method": "none",
+                        })
         if len(quote) < 100:
             # extraction_ineligible — skip the row (NO statement
             # fallback per contract).
@@ -1750,13 +1801,81 @@ def _m44_detect_primary_ev_ids(
     return out
 
 
+# M-44 pass-2 (Codex audit medium #3): per-anchor → section-focus
+# affinity. Rather than flattening all primaries into every eligible
+# section, match anchor against section title/focus tokens so CVOT
+# lands in Safety / Cardiovascular sections, SURMOUNT lands in
+# Weight-loss / Population-Subgroups, SURPASS lands in Efficacy /
+# Comparative. Generic SURPASS (glycemic primary) still falls through
+# to Efficacy by default when no specific match found.
+_M44_ANCHOR_SECTION_AFFINITY: dict[str, frozenset[str]] = {
+    # Cardiovascular outcomes trials → Safety + Long-term Outcomes
+    # (captured via "cardiovascular", "cvot", "mace" tokens)
+    "_cardiovascular": frozenset({"safety", "long-term outcomes"}),
+    # Weight-loss trials (SURMOUNT) → Weight/Population-Subgroups/Efficacy
+    "_weight": frozenset({
+        "efficacy", "population subgroups", "long-term outcomes",
+    }),
+    # Default (general efficacy like SURPASS) → broad eligible set
+    "_general": frozenset({
+        "efficacy", "comparative", "safety", "dose response",
+        "population subgroups", "long-term outcomes",
+    }),
+}
+
+
+def _m44_anchor_category(anchor: str) -> str:
+    """M-44 pass-2 (Codex medium #3): categorize a trial anchor into
+    a section-affinity bucket. Returns one of:
+      - '_cardiovascular' for CVOT / MACE / cardiovascular-outcome trials
+      - '_weight' for weight-loss / obesity-focused trials (SURMOUNT family)
+      - '_general' for everything else (glycemic efficacy, default)
+    """
+    a = (anchor or "").lower()
+    if "cvot" in a or "cardio" in a or "mace" in a:
+        return "_cardiovascular"
+    if "surmount" in a or "mount" in a or "weight" in a:
+        return "_weight"
+    return "_general"
+
+
+def _m44_section_matches_anchor(
+    section_title: str, section_focus: str, anchor: str,
+) -> bool:
+    """M-44 pass-2 (Codex medium #3): check whether a primary-trial
+    anchor should be injected into this section based on title/focus
+    affinity rather than blanket "all eligible sections"."""
+    if not _m44_section_is_primary_eligible(section_title):
+        return False
+    category = _m44_anchor_category(anchor)
+    affinity = _M44_ANCHOR_SECTION_AFFINITY.get(category, frozenset())
+    title_l = (section_title or "").lower().strip()
+    focus_l = (section_focus or "").lower()
+    # Title-based match
+    for allowed in affinity:
+        if allowed in title_l:
+            return True
+    # Focus-based match: if anchor category tokens appear in focus
+    # text, allow the match (e.g. focus mentions "cardiovascular" →
+    # CVOT primary eligible).
+    if category == "_cardiovascular":
+        return any(t in focus_l for t in ("cardio", "mace", "cvot"))
+    if category == "_weight":
+        return any(
+            t in focus_l or t in title_l
+            for t in ("weight", "obesity", "adipos", "bmi")
+        )
+    # _general: already handled by title-based check on affinity set
+    return False
+
+
 def _m44_inject_primaries_into_outline(
     plans: list[SectionPlan],
     primary_ev_ids_by_anchor: dict[str, list[str]],
     max_ev_per_section: int = 20,
 ) -> tuple[list[SectionPlan], list[dict[str, Any]]]:
-    """M-44 (2026-04-22): ensure primary-trial ev_ids appear in every
-    primary-eligible section's ev_ids list.
+    """M-44 (2026-04-22): ensure primary-trial ev_ids appear in
+    section-focus-matched section ev_ids lists.
 
     Codex plan pass-2 acceptance: "Given a section subset candidate
     pool containing SURPASS-2 primary, SURPASS-2 post-hoc, and a
@@ -1764,12 +1883,15 @@ def _m44_inject_primaries_into_outline(
     ahead of derivatives, and the generated/validated prose cites the
     primary when naming SURPASS-2."
 
-    Strategy: for each primary-eligible section, scan for a match-able
-    anchor (first anchor with ≥1 ev_id in the pool). If the primary
-    isn't already in section.ev_ids, prepend it. If section is at the
-    cap and all slots are non-primary, swap the lowest-priority ev_id
-    for the primary (practical compromise since we have no per-row
-    score at this stage).
+    Strategy (pass-2, Codex audit medium #3):
+    - Each anchor has a category (_cardiovascular / _weight / _general)
+      mapped to a frozenset of section-title affinities.
+    - Only inject an anchor's primary into a section when the section
+      title OR focus matches the affinity tokens for that anchor's
+      category. Prevents CVOT from landing in Efficacy-only sections
+      or SURMOUNT from landing in Safety-only sections.
+    - If section is at cap, swap the lowest-priority ev_id for the
+      primary.
 
     Returns (updated_plans, injection_log). injection_log is a list of
     {section, anchor, ev_id, action} dicts for telemetry.
@@ -1800,6 +1922,17 @@ def _m44_inject_primaries_into_outline(
             continue
 
         for anchor, primary_ev in primary_pairs:
+            # M-44 pass-2: section-focus affinity check.
+            if not _m44_section_matches_anchor(
+                plan.title, plan.focus, anchor
+            ):
+                log.append({
+                    "section": plan.title,
+                    "anchor": anchor,
+                    "ev_id": primary_ev,
+                    "action": "skipped_section_affinity",
+                })
+                continue
             if primary_ev in new_ev_ids:
                 log.append({
                     "section": plan.title,
@@ -1933,8 +2066,15 @@ def _m44_validate_primary_same_sentence(
                 break
         if idx is None:
             continue
-        # Citations in same + next sentence
+        # M-44 pass-2 (Codex audit finding #4): "immediately adjacent
+        # sentence" includes BOTH the previous and the following
+        # sentence. Pre-pass-2 only forward-checked, causing false
+        # violations when primary cite landed in the preceding
+        # sentence (a common writing pattern: "[1] In SURPASS-2,
+        # N=1879...").
         check_ranges: list[tuple[int, int]] = [sentence_spans[idx]]
+        if idx - 1 >= 0:
+            check_ranges.append(sentence_spans[idx - 1])
         if idx + 1 < len(sentence_spans):
             check_ranges.append(sentence_spans[idx + 1])
         citations_found: list[str] = []
@@ -2095,21 +2235,114 @@ async def generate_multi_section_report(
 
     section_results = await asyncio.gather(*[_bounded_run(p) for p in plans])
 
-    # M-44 (2026-04-22): post-generation same-sentence validator.
-    # For each primary-eligible section, scan verified prose for
-    # named-trial tokens; each trial mention must cite a matching
-    # M-42e primary ev_id in the same sentence or immediately
-    # adjacent sentence. Violations trigger one regeneration with
-    # explicit primary_cite_required ev_id list appended to prompt.
-    #
-    # Currently the validator records violations as telemetry;
-    # regeneration path is a V29 scope item (requires re-plumbing
-    # _run_section for a second pass with M-44 hints). For V28 the
-    # injection step (above) plus the validator telemetry is the
-    # active intervention; the prompt-level enforcement from M-20
-    # + M-42a + M-41c still applies.
+    # M-44 (2026-04-22): post-generation same-sentence validator +
+    # one-shot regeneration. For each primary-eligible section, scan
+    # verified prose for named-trial tokens; each trial mention must
+    # cite a matching M-42e primary ev_id in the same sentence or
+    # immediately adjacent (prev/next) sentence. Violations trigger
+    # ONE regeneration with explicit primary_cite_required ev_id list
+    # appended to the section's focus prompt. If still missing after
+    # regen, emit `m44_primary_citation_incomplete` telemetry and
+    # keep the original verified text (honest ship).
     m44_validator_violations: list[dict[str, Any]] = []
     if m44_primary_by_anchor:
+        # First validator pass
+        sections_needing_regen: list[int] = []
+        for idx, sr in enumerate(section_results):
+            if sr.dropped_due_to_failure or not sr.verified_text:
+                continue
+            if not _m44_section_is_primary_eligible(sr.title):
+                continue
+            viols = _m44_validate_primary_same_sentence(
+                sr.verified_text,
+                m44_primary_by_anchor,
+                sr.biblio_slice,
+            )
+            if viols:
+                sections_needing_regen.append(idx)
+
+        # Regen pass (Codex audit finding #1): one attempt per section
+        # with a focus-level hint that enumerates the required primary
+        # ev_ids. Only sections matching the violation were marked.
+        if sections_needing_regen:
+            logger.info(
+                "[multi_section] M-44 validator regen pass for %d "
+                "section(s)", len(sections_needing_regen),
+            )
+            regen_plans_by_idx: dict[int, SectionPlan] = {}
+            for idx in sections_needing_regen:
+                sr = section_results[idx]
+                # Build an augmented focus containing the required ev_ids.
+                required_ev_ids: list[str] = []
+                for anchor, evs in m44_primary_by_anchor.items():
+                    if not evs:
+                        continue
+                    # Only list primaries assigned to this section's
+                    # subset (in ev_ids_assigned), so the hint is
+                    # actionable.
+                    for ev in evs:
+                        if ev in sr.ev_ids_assigned:
+                            required_ev_ids.append(ev)
+                            break
+                if not required_ev_ids:
+                    continue
+                # Match plans by title; SectionPlan.title is unique.
+                orig_plan = next(
+                    (p for p in plans if p.title == sr.title), None,
+                )
+                if orig_plan is None:
+                    continue
+                hint = (
+                    f"\n\nREQUIRED: When you name any of the following "
+                    f"trials by short-name, cite the corresponding "
+                    f"primary-publication evidence ID in the same "
+                    f"sentence or the immediately adjacent sentence: "
+                    f"{', '.join(required_ev_ids)}."
+                )
+                regen_plans_by_idx[idx] = SectionPlan(
+                    title=orig_plan.title,
+                    focus=orig_plan.focus + hint,
+                    ev_ids=orig_plan.ev_ids,
+                )
+            # Run regens in parallel with the same semaphore.
+            regen_items = list(regen_plans_by_idx.items())
+            regen_tasks = [
+                _bounded_run(plan) for _, plan in regen_items
+            ]
+            regen_results = await asyncio.gather(
+                *regen_tasks, return_exceptions=True,
+            )
+            for (idx, plan), regen_result in zip(regen_items, regen_results):
+                if isinstance(regen_result, Exception):
+                    logger.warning(
+                        "[multi_section] M-44 regen raised for %s: %s",
+                        plan.title, regen_result,
+                    )
+                    continue
+                # Re-validate the regen output. Keep if it passes OR if
+                # it has more kept sentences than the original.
+                new_viols = _m44_validate_primary_same_sentence(
+                    regen_result.verified_text,
+                    m44_primary_by_anchor,
+                    regen_result.biblio_slice,
+                )
+                orig_viols_count = sum(
+                    1 for v in m44_validator_violations
+                    if v.get("section") == plan.title
+                )
+                if len(new_viols) < orig_viols_count or (
+                    not new_viols and regen_result.sentences_verified > 0
+                ):
+                    section_results[idx] = regen_result
+                    logger.info(
+                        "[multi_section] M-44 regen replaced %s "
+                        "(old_viols=%d new_viols=%d)",
+                        plan.title, orig_viols_count, len(new_viols),
+                    )
+
+        # Final validator pass — records remaining violations as
+        # m44_primary_citation_incomplete telemetry.
+        m44_validator_violations = []
         for sr in section_results:
             if sr.dropped_due_to_failure or not sr.verified_text:
                 continue
@@ -2125,8 +2358,8 @@ async def generate_multi_section_report(
                 m44_validator_violations.append(v)
         if m44_validator_violations:
             logger.info(
-                "[multi_section] M-44 validator: %d trial-mention(s) "
-                "missing same/adjacent-sentence primary citation",
+                "[multi_section] m44_primary_citation_incomplete: "
+                "%d remaining after regen",
                 len(m44_validator_violations),
             )
 
@@ -2185,6 +2418,11 @@ async def generate_multi_section_report(
     trial_timeline_text = ""
     trial_table_in_tok = 0
     trial_table_out_tok = 0
+    # M-45 (2026-04-22): diagnostic accumulator initialized at function
+    # scope so it's always available for the final MultiSectionResult
+    # even when the M-42b builder doesn't run (empty list = no builder
+    # activity, not a missing field).
+    m45_refetch_diagnostics: list[dict[str, Any]] = []
     if trial_summary_table_max_tokens > 0 and global_biblio:
         # Try M-42b deterministic path first.
         # The generator sees `evidence` as a flat list of row dicts —
@@ -2196,11 +2434,15 @@ async def generate_multi_section_report(
             )
         except Exception:
             refetch_for_extraction = None  # type: ignore[assignment]
+        # M-45 (2026-04-22): m45_refetch_diagnostics was initialized
+        # at function scope above so the MultiSectionResult field is
+        # always populated (empty list when builder doesn't run).
         det_table, det_timeline = build_trial_summary_and_timeline_from_evidence(
             selected_rows=evidence,
             primary_trial_anchors=(primary_trial_anchors or []),
             bibliography=global_biblio,
             refetch_fn=refetch_for_extraction,
+            refetch_diagnostics_sink=m45_refetch_diagnostics,
         )
         if det_table:
             trial_table_text = det_table
@@ -2275,6 +2517,11 @@ async def generate_multi_section_report(
         trial_summary_table_input_tokens=trial_table_in_tok,
         trial_summary_table_output_tokens=trial_table_out_tok,
         trial_timeline_text=trial_timeline_text,
+        # M-45 (2026-04-22)
+        refetch_diagnostics=m45_refetch_diagnostics,
+        # M-44 (2026-04-22)
+        m44_injection_log=m44_injection_log,
+        m44_validator_violations=m44_validator_violations,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,
