@@ -86,8 +86,12 @@ def _row_tier(row: dict[str, Any], url_to_tier: dict[str, str]) -> str:
 # one jurisdiction or None. No drug-specific tokens; the host list
 # mirrors the regulatory_anchors template schema across domains.
 _M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
+    # M-41d pass-2 (Codex audit medium #3): removed bare "europa.eu"
+    # from EMA — it was too broad (collapsed any EU-domain source
+    # into EMA). Kept "ema.europa.eu" which is the specific EMA
+    # documents host.
     ("FDA",  ("fda.gov",)),
-    ("EMA",  ("ema.europa.eu", "europa.eu")),
+    ("EMA",  ("ema.europa.eu",)),
     ("NICE", ("nice.org.uk",)),
     ("MHRA", ("mhra.gov.uk",)),
     ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca")),
@@ -101,13 +105,33 @@ _M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
 def _row_jurisdiction(row: dict[str, Any]) -> str | None:
     """Return the regulatory jurisdiction code a row belongs to, or
     None if the URL is not from a recognized regulatory host.
-    Parent-domain match: any subdomain of a listed host counts."""
+
+    M-41d pass-2 (Codex audit medium #3): uses proper host-suffix
+    matching instead of substring `in`. Pre-pass-2 `h in url` would
+    classify `https://not-fda.gov.example/path` as FDA because the
+    literal string `fda.gov` appears in the path. Now we extract the
+    actual host component from the URL and require it to either
+    equal one of the listed hosts or end with `.{host}` (proper
+    subdomain). Plain substring-in-path no longer matches.
+    """
     url = (row.get("source_url") or row.get("url") or "").lower()
     if not url:
         return None
+    # Extract host: scheme://host/path → host. Be permissive about
+    # missing schemes; in that case treat the first path segment as
+    # host if it looks like a hostname.
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url if "://" in url else f"http://{url}")
+        host = (parsed.hostname or "").lower()
+    except (ValueError, AttributeError):
+        return None
+    if not host:
+        return None
     for code, hosts in _M41D_JURISDICTION_HOSTS:
         for h in hosts:
-            if h in url:
+            # Proper suffix match: host == h OR host ends with ".h".
+            if host == h or host.endswith("." + h):
                 return code
     return None
 

@@ -259,6 +259,51 @@ class TestM41cUnderFramedDrop:
         # TEST-2 matches the short-name pattern; no frame elements → dropped
         assert len(dropped) == 1
 
+    def test_pass2_standards_codes_not_treated_as_trials(self) -> None:
+        """M-41c pass-2 Codex medium #1: standards-body identifiers
+        (ISO-9001, IEC-62109, ASTM-D412, IEEE-754) match the hyphen-
+        digit pattern but MUST NOT be treated as named trials. Their
+        sentences should be kept regardless of frame-element count
+        because the rule is scoped to named clinical trials, not
+        technical standards."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            filter_underframed_trial_sentences,
+        )
+        cases = [
+            "The device was tested per ISO-9001 [1].",
+            "Compliance with IEC-62109 was verified [2].",
+            "Material properties followed ASTM-D412 [3].",
+            "Encoded per IEEE-754 floating-point spec [4].",
+            "Per DIN-17100 structural steel standard [5].",
+            "ICH-E6 guidelines were followed [6].",
+            "NCT-12345678 registered on clinicaltrials.gov [7].",
+        ]
+        sentences = [_FakeSentence(s) for s in cases]
+        kept, dropped = filter_underframed_trial_sentences(sentences)
+        # All standards-identifier sentences should be KEPT (not
+        # dropped) because they're not named trials.
+        assert len(kept) == len(cases), (
+            f"Expected {len(cases)} kept, got {len(kept)}; "
+            f"wrongly-dropped: {[d.sentence for d in dropped]}"
+        )
+        assert len(dropped) == 0
+
+    def test_pass2_trial_name_still_detected_alongside_standard(
+        self,
+    ) -> None:
+        """Mixed sentence: contains both a standards code and a trial
+        name. The trial name detection should still fire, so the
+        under-framed sentence is dropped."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            filter_underframed_trial_sentences,
+        )
+        s = _FakeSentence(
+            "Following ISO-9001 standards, SURPASS-2 reported benefit [1]."
+        )
+        kept, dropped = filter_underframed_trial_sentences([s])
+        # SURPASS-2 is present + under-framed → drop
+        assert len(dropped) == 1
+
     def test_empty_sentence_passed_through(self) -> None:
         from src.polaris_graph.generator.multi_section_generator import (
             filter_underframed_trial_sentences,
@@ -398,6 +443,50 @@ class TestM41dJurisdictionalFloor:
         assert any("hres.ca" in u for u in selected_urls), (
             f"Health Canada missing from selection — M-41d intent: {selected_urls}"
         )
+
+    def test_pass2_host_suffix_match_rejects_substring_trick(self) -> None:
+        """M-41d pass-2: proper host matching — a URL whose path
+        contains `fda.gov` but whose actual host is something else
+        must NOT classify as FDA."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _row_jurisdiction,
+        )
+        # Path contains 'fda.gov' but host is 'not-fda.gov.example'
+        assert _row_jurisdiction({
+            "url": "https://not-fda.gov.example/some/path/to/fda.gov.pdf"
+        }) != "FDA"
+        # Malicious lookalike: 'fda-gov.com' host should NOT be FDA
+        assert _row_jurisdiction({
+            "url": "https://fda-gov.com/label"
+        }) != "FDA"
+
+    def test_pass2_proper_subdomain_still_matches(self) -> None:
+        """M-41d pass-2: host-suffix match allows real subdomains
+        (accessdata.fda.gov is a real FDA subdomain)."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _row_jurisdiction,
+        )
+        assert _row_jurisdiction({
+            "url": "https://accessdata.fda.gov/drugsatfda_docs/label/foo"
+        }) == "FDA"
+        assert _row_jurisdiction({
+            "url": "https://pdf.hres.ca/dpd_pm/00073189.pdf"
+        }) == "HC"
+
+    def test_pass2_bare_europa_eu_no_longer_collapses_to_ema(self) -> None:
+        """M-41d pass-2: `europa.eu` bare parent was removed; only
+        `ema.europa.eu` specifically classifies as EMA."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _row_jurisdiction,
+        )
+        # Different europa.eu subdomain (e.g. EFSA) should not be EMA
+        assert _row_jurisdiction({
+            "url": "https://www.efsa.europa.eu/en/opinion/123"
+        }) is None
+        # EMA itself still classifies
+        assert _row_jurisdiction({
+            "url": "https://www.ema.europa.eu/en/documents/assessment"
+        }) == "EMA"
 
     def test_no_regression_without_multiple_jurisdictions(self) -> None:
         """If T3 pool has only one jurisdiction, selector behavior
