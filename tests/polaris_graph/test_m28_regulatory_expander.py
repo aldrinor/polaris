@@ -214,13 +214,15 @@ class TestAnchorCountCap:
     blow up the retrieval budget unexpectedly.
     """
 
-    def test_default_cap_truncates_to_ten(self, monkeypatch) -> None:
+    def test_default_cap_truncates_to_twelve(self, monkeypatch) -> None:
+        """M-43 (2026-04-22): default cap raised 10 -> 12 so an
+        11-anchor template is not silently truncated."""
         monkeypatch.delenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", raising=False)
         tmpl = {"regulatory_anchors": [f"host{i}.example" for i in range(20)]}
         result = expand_regulatory_queries("q", tmpl)
-        assert len(result) == 10
+        assert len(result) == 12
         assert result[0] == "q site:host0.example"
-        assert result[-1] == "q site:host9.example"
+        assert result[-1] == "q site:host11.example"
 
     def test_env_override_tightens_cap(self, monkeypatch) -> None:
         monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "3")
@@ -238,7 +240,8 @@ class TestAnchorCountCap:
         monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "not a number")
         tmpl = {"regulatory_anchors": [f"h{i}.gov" for i in range(15)]}
         result = expand_regulatory_queries("q", tmpl)
-        assert len(result) == 10  # default
+        # M-43: default raised 10 -> 12.
+        assert len(result) == 12
 
     def test_negative_env_clamps_to_zero_disables_cap(self, monkeypatch) -> None:
         monkeypatch.setenv("PG_SWEEP_MAX_REGULATORY_ANCHORS", "-5")
@@ -294,12 +297,28 @@ class TestYamlTemplateIntegration:
         """Load the real clinical YAML and run the expander — prove
         the end-to-end config → expansion path emits sensible queries.
         Does not check specific host names (those live in the YAML,
-        not in test assertions)."""
+        not in test assertions).
+
+        M-43 (2026-04-22): default cap raised to 12; end-to-end test
+        verifies the template fits under the current cap and does not
+        silently truncate.
+        """
         from polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("clinical")
         result = expand_regulatory_queries("test question", tmpl)
-        # Capped at 10 by default.
-        assert 0 < len(result) <= 10
+        # Capped at 12 by default (M-43).
+        assert 0 < len(result) <= 12
+        # M-43 regression guard: the clinical template must NOT be
+        # silently truncated. Count of emitted queries must equal the
+        # count of declared anchors in the template.
+        declared = [
+            a for a in (tmpl.get("regulatory_anchors") or [])
+            if isinstance(a, str) and a.strip() and "/" not in a.strip()
+        ]
+        assert len(result) == len(declared), (
+            f"anchor truncation: emitted={len(result)} declared="
+            f"{len(declared)}. Cap may be below template size."
+        )
         # Each query starts with the base question and has site:{host}.
         for q in result:
             assert q.startswith("test question site:")
