@@ -132,6 +132,15 @@ def main() -> int:
     )
 
     # Per-anchor coverage check
+    # M-48 pass-2 (Codex blocker): live retriever uses `statement`
+    # (not `title`). Check title / statement / source_title.
+    def _row_title(r: dict) -> str:
+        for key in ("title", "statement", "source_title"):
+            v = r.get(key)
+            if isinstance(v, str) and v:
+                return v
+        return ""
+
     coverage: dict[str, dict] = {}
     for anchor in anchors:
         primary_hits = [
@@ -140,15 +149,14 @@ def main() -> int:
         ]
         any_hits = [
             r for r in retrieval.evidence_rows
-            if anchor.lower() in (r.get("title") or "").lower()
+            if anchor.lower() in _row_title(r).lower()
         ]
         coverage[anchor] = {
             "primary_count": len(primary_hits),
             "any_title_mention_count": len(any_hits),
             "primary_urls": [r.get("source_url") or r.get("url") or ""
                              for r in primary_hits[:3]],
-            "example_titles": [r.get("title") or ""
-                               for r in primary_hits[:3]],
+            "example_titles": [_row_title(r) for r in primary_hits[:3]],
         }
 
     # Tally

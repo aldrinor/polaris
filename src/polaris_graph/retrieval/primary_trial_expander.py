@@ -272,7 +272,16 @@ def label_rows_with_population_scope(
     for row in rows:
         if not isinstance(row, dict):
             continue
-        title = (row.get("title") or "")
+        # M-48 pass-2 (Codex blocker): live retriever rows populate
+        # `statement` with the candidate title (not `title`). Read
+        # from title / statement / source_title in that order so the
+        # labeler works on both live rows and fixture rows.
+        title = ""
+        for key in ("title", "statement", "source_title"):
+            v = row.get(key)
+            if isinstance(v, str) and v:
+                title = v
+                break
         title_l = title.lower()
         for anchor_l, (_anchor, label) in lookup.items():
             if anchor_l in title_l:

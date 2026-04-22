@@ -244,6 +244,83 @@ class TestM48PopulationScope:
         assert "population_scope" not in out[0]
 
 
+class TestM48LiveRowSchema:
+    """M-48 pass-2 (Codex blocker fix): live retriever rows populate
+    `statement` with the candidate title (not `title`). The labeler
+    must work on live-shaped rows too, not just fixture rows with
+    explicit `title`."""
+
+    def test_live_row_with_statement_only_gets_labeled(self) -> None:
+        """Live retriever builds rows as
+        {"evidence_id", "source_url", "statement": cand.title[:300],
+         "direct_quote", "tier", "source", "full_content_length"}
+        — there is NO `title` key. Pre-pass-2 the labeler returned []
+        for every live row; pass-2 must label them via `statement`."""
+        tmpl = _template_with_variants_and_scope()
+        rows = [
+            {
+                "evidence_id": "ev_live1",
+                "source_url": "https://nejm.org/abc",
+                "statement": "SURMOUNT-1: Tirzepatide for obesity",
+                "direct_quote": "placeholder",
+                "tier": "T1",
+                "source": "serper",
+                "full_content_length": 5000,
+            },
+            {
+                "evidence_id": "ev_live2",
+                "source_url": "https://lancet.com/xyz",
+                "statement": "SURMOUNT-2: Tirzepatide for T2D + obesity",
+                "direct_quote": "placeholder",
+                "tier": "T1",
+                "source": "serper",
+                "full_content_length": 8000,
+            },
+        ]
+        out = label_rows_with_population_scope(
+            rows, tmpl, "clinical_tirzepatide_t2dm",
+        )
+        # ev_live1: SURMOUNT-1 → indirect_for_t2d
+        assert out[0]["population_scope"] == "indirect_for_t2d"
+        assert out[0]["indirect_for_t2d"] is True
+        # ev_live2: SURMOUNT-2 → direct
+        assert out[1]["population_scope"] == "direct"
+
+    def test_m42e_detect_primary_works_on_live_rows(self) -> None:
+        """Regression: M-42e primary detection must work on live rows
+        (statement not title). This test would have caught the Codex
+        blocker at M-42e time."""
+        from src.polaris_graph.retrieval.evidence_selector import (
+            _m42e_detect_primary_for_anchor,
+        )
+        live_row = {
+            "evidence_id": "ev_live3",
+            "source_url": "https://www.nejm.org/doi/10.1056/NEJMoa2107519",
+            "statement": "SURPASS-2: Tirzepatide versus semaglutide",
+            "direct_quote": "x",
+            "tier": "T1",
+            "source": "serper",
+        }
+        assert _m42e_detect_primary_for_anchor(live_row, "SURPASS-2") is True
+
+    def test_title_takes_precedence_when_both_present(self) -> None:
+        """Backwards-compat: if both title and statement present, title wins
+        (preserves fixture tests and any retrievers that write title)."""
+        tmpl = _template_with_variants_and_scope()
+        rows = [
+            {
+                "title": "SURPASS-2: Tirzepatide vs semaglutide",
+                "statement": "SURMOUNT-1 obesity placeholder that shouldn't match",
+                "url": "https://x",
+            },
+        ]
+        out = label_rows_with_population_scope(
+            rows, tmpl, "clinical_tirzepatide_t2dm",
+        )
+        assert out[0]["_m48_anchor_match"] == "SURPASS-2"
+        assert out[0]["population_scope"] == "direct"
+
+
 class TestM48RealTemplateIntegration:
     """Verify the real clinical.yaml has the M-48 schema populated
     for the tirzepatide slug."""

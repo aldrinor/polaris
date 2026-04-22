@@ -279,12 +279,33 @@ _M42C_MECHANISM_TOKENS = (
 )
 
 
+def _row_title_text(row: dict[str, Any]) -> str:
+    """M-48 pass-2 (2026-04-22, Codex blocker fix): shared accessor for
+    a row's title/title-like text.
+
+    Live evidence rows from `run_live_retrieval` populate `statement`
+    with `cand.title[:300]` — NOT `title`. Pre-pass-2 accessors only
+    read `row["title"]`, silently returning `""` for every live row.
+    This broke M-42e primary detection AND M-48 population-scope
+    labeling AND the preflight coverage check on real sweep data
+    (tests passed only because fixtures used `title`).
+
+    Precedence: explicit `title` > `statement` (live-retriever form) >
+    `source_title` (alternative schema seen in some retrievers) > "".
+    Returns a plain string (never None)."""
+    for key in ("title", "statement", "source_title"):
+        v = row.get(key)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
 def _m42c_row_is_mechanism_rich(row: dict[str, Any]) -> bool:
     """True if the row contains mechanism-of-action vocabulary in
     title, statement, or direct_quote. Case-insensitive substring
     match against `_M42C_MECHANISM_TOKENS`."""
     fields = [
-        str(row.get("title") or ""),
+        _row_title_text(row),
         str(row.get("statement") or ""),
         str(row.get("direct_quote") or ""),
     ]
@@ -324,7 +345,9 @@ def _m42e_detect_primary_for_anchor(
     """
     if not anchor:
         return False
-    title = (row.get("title") or "").lower()
+    # M-48 pass-2 (Codex blocker fix): live retriever populates
+    # `statement` not `title`. Use shared accessor.
+    title = _row_title_text(row).lower()
     url = (row.get("source_url") or row.get("url") or "").lower()
     anchor_l = anchor.lower()
     # (1) Title must contain the anchor (possibly with colon or
@@ -367,6 +390,150 @@ def _row_relevance(
         return 0.0
     overlap = ev_toks & anchors
     return len(overlap) / max(1, len(anchors))
+
+
+def _m46_short_pool_ordered_selection(
+    *,
+    evidence_rows: list[dict[str, Any]],
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    full_counts: dict[str, int],
+    max_rows: int,
+    primary_trial_anchors: list[str] | None,
+) -> EvidenceSelection:
+    """M-46 (2026-04-22): compute floor detection + deterministic
+    priority ordering + telemetry for the short-pool case
+    (pool_size <= max_rows).
+
+    Pre-M-46: the early-exit branch returned evidence_rows as-is with
+    a single `pool_size<=max_rows` note and no floor telemetry. When
+    floors were configured, the reservations silently did not fire.
+
+    Post-M-46: all rows are kept (no truncation), but ordering is
+    [M-42e primaries → M-42c mechanism → M-42d HC → rest by tier
+    priority then -relevance then index]. Notes include the same
+    floor-telemetry entries seen on truncating runs so downstream
+    audits see consistent signals regardless of pool size.
+
+    The function is self-contained and does NOT share state with the
+    main branch; it re-detects primaries / mechanism / HC using the
+    same module-level predicates (`_m42e_detect_primary_for_anchor`,
+    `_m42c_row_is_mechanism_rich`, `_row_jurisdiction`).
+    """
+    notes: list[str] = [
+        f"pool_size<=max_rows ({len(scored)}/{max_rows})",
+        "m46_short_pool_ordered_selection",
+    ]
+
+    # --- M-42e primary detection ---
+    m42e_ids: set[int] = set()
+    m42e_anchors: list[str] = []
+    if primary_trial_anchors:
+        # Prefer T1 primaries; fall back to any-tier if no T1 match
+        # (matches M-42e spirit — the primary paper is the priority).
+        t1_scored = [s for s in scored if s[2] == "T1"]
+        for anchor in primary_trial_anchors:
+            if len(m42e_ids) >= _M42E_PRIMARY_FLOOR_CAP:
+                break
+            matched = False
+            for item in t1_scored:
+                if id(item) in m42e_ids:
+                    continue
+                if _m42e_detect_primary_for_anchor(item[3], anchor):
+                    m42e_ids.add(id(item))
+                    m42e_anchors.append(anchor)
+                    matched = True
+                    break
+            # No fallback to other tiers — same contract as main branch.
+            del matched  # quiet linters
+    if m42e_anchors:
+        notes.append(
+            f"m42e_primary_floor matched={len(m42e_anchors)} "
+            f"reserved={len(m42e_ids)} cap={_M42E_PRIMARY_FLOOR_CAP} "
+            f"anchors={m42e_anchors[:10]}"
+        )
+
+    # --- M-42c mechanism detection ---
+    mech_pool = [s for s in scored if _m42c_row_is_mechanism_rich(s[3])]
+    m42c_ids: set[int] = set()
+    if len(mech_pool) >= _M42C_MECHANISM_FLOOR_MIN_POOL_ROWS:
+        mech_ranked = sorted(
+            mech_pool,
+            key=lambda s: (_TIER_PRIORITY.get(s[2], 9), -s[1], s[0]),
+        )
+        slots_left = _M42C_MECHANISM_FLOOR_SLOTS
+        for item in mech_ranked:
+            if slots_left <= 0:
+                break
+            if item[2] not in ("T1", "T2"):
+                continue
+            if id(item) in m42e_ids:
+                # Primary-trial slot already reserved — don't double-count.
+                continue
+            m42c_ids.add(id(item))
+            slots_left -= 1
+        notes.append(
+            f"m42c_mechanism_floor pool_mech_rows={len(mech_pool)} "
+            f"reserved={len(m42c_ids)} "
+            f"slots={_M42C_MECHANISM_FLOOR_SLOTS}"
+        )
+
+    # --- M-42d HC quota expansion detection ---
+    hc_rows = [s for s in scored
+               if s[2] == "T3"
+               and _row_jurisdiction(s[3]) == _M42D_HC_JURISDICTION_CODE]
+    hc_quota = _m42d_hc_quota()
+    m42d_hc_ids: set[int] = set()
+    m42d_hc_extras = 0
+    if hc_rows and hc_quota > 1:
+        # In short-pool mode, reserve up to `hc_quota` HC rows
+        # (bounded by pool) — first one mirrors the 1-per-juris pass
+        # in the main branch, extras are the M-42d expansion.
+        hc_sorted = sorted(hc_rows, key=lambda s: (-s[1], s[0]))
+        target = min(hc_quota, len(hc_sorted))
+        for item in hc_sorted[:target]:
+            m42d_hc_ids.add(id(item))
+        m42d_hc_extras = max(0, len(m42d_hc_ids) - 1)
+        if m42d_hc_extras > 0:
+            notes.append(
+                f"m42d_hc_quota_expand hc_pool={len(hc_rows)} "
+                f"reserved={len(m42d_hc_ids)} "
+                f"extras_added={m42d_hc_extras} quota={hc_quota}"
+            )
+
+    # --- Deterministic priority ordering ---
+    # Priority class: 0 = M-42e primary, 1 = M-42c mechanism,
+    # 2 = M-42d HC, 3 = rest. Within same class: by tier priority,
+    # then -score, then index.
+    def _priority_class(item: tuple[int, float, str, dict[str, Any]]) -> int:
+        iid = id(item)
+        if iid in m42e_ids:
+            return 0
+        if iid in m42c_ids:
+            return 1
+        if iid in m42d_hc_ids:
+            return 2
+        return 3
+
+    ordered = sorted(
+        scored,
+        key=lambda item: (
+            _priority_class(item),
+            _TIER_PRIORITY.get(item[2], 9),
+            -item[1],
+            item[0],
+        ),
+    )
+    selected_rows = [item[3] for item in ordered]
+    selected_counts = dict(full_counts)
+
+    return EvidenceSelection(
+        selected_rows=selected_rows,
+        full_counts=full_counts,
+        selected_counts=selected_counts,
+        dropped_count=0,
+        selection_strategy="tier_balanced_v1_all_m46_ordered",
+        notes=notes,
+    )
 
 
 def select_evidence_for_generation(
@@ -446,17 +613,28 @@ def select_evidence_for_generation(
     for _, _, tier, _ in scored:
         full_counts[tier] = full_counts.get(tier, 0) + 1
 
-    # Early exit: if total <= max_rows, keep everything (but still emit
-    # telemetry so the manifest is consistent).
+    # M-46 (2026-04-22): when total <= max_rows, still keep everything,
+    # BUT compute floor-detection + deterministic priority ordering
+    # + telemetry so downstream consumers see the same reservation
+    # signals they would see on a truncating run.
+    #
+    # Pre-M-46 behavior: early-exit branch returned evidence_rows as-is
+    # with a single `pool_size<=max_rows` note and no floor telemetry.
+    # M-42e primaries, M-42c mechanism rows, and M-42d HC rows were
+    # silently not prioritized when pool was small.
+    #
+    # Post-M-46 behavior: selected list ordered as [M-42e primaries →
+    # M-42c mechanism → M-42d HC → rest by (tier priority, -relevance,
+    # index)]. All original rows are kept; only ordering changes.
+    # Notes include the m42e_primary_floor / m42c_mechanism_floor /
+    # m42d_hc_quota_expand entries seen on truncating runs.
     if len(scored) <= max_rows:
-        selected_counts = dict(full_counts)
-        return EvidenceSelection(
-            selected_rows=list(evidence_rows),
+        return _m46_short_pool_ordered_selection(
+            evidence_rows=evidence_rows,
+            scored=scored,
             full_counts=full_counts,
-            selected_counts=selected_counts,
-            dropped_count=0,
-            selection_strategy="tier_balanced_v1_all",
-            notes=[f"pool_size<=max_rows ({len(scored)}/{max_rows})"],
+            max_rows=max_rows,
+            primary_trial_anchors=primary_trial_anchors,
         )
 
     # Floors: reserve at least 1 slot for each present T1, T2, T3
