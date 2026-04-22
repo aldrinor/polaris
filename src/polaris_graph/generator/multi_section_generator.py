@@ -2443,6 +2443,35 @@ def _m47_extract_candidate_values(quote: str) -> list[tuple[str, float, str]]:
     return dedup
 
 
+# M-47 pass-2 (Codex audit blocker #1): per-field context-token sets.
+# The validator must require that the sentence containing the matched
+# numeric value ALSO contains a field-context token for the field.
+# Otherwise "63 participants" would spuriously match "M-value by 63%".
+_M47_FIELD_CONTEXT_TOKENS: dict[str, tuple[str, ...]] = {
+    "m_value_pct": ("m-value", "m value", "insulin sensitivity",
+                    "insulin-sensitivity", "whole-body insulin"),
+    "first_phase_pct": ("first-phase", "first phase",
+                        "early-phase insulin"),
+    "second_phase_pct": ("second-phase", "second phase",
+                         "late-phase insulin"),
+    "insulin_secretion_rate": ("insulin secretion rate",
+                               "insulin secretion",
+                               "beta-cell function"),
+    "glucagon_suppression_pct": ("glucagon suppression",
+                                  "glucagon inhibition",
+                                  "glucagon secretion"),
+    "half_life": ("half-life", "half life", "t1/2", "t 1/2"),
+    "tmax": ("tmax", "t-max", "time to peak", "time-to-peak"),
+    "cmax": ("cmax", "c-max", "peak concentration",
+             "peak plasma"),
+    "clamp_n": ("participants", "subjects", "patients",
+                "enrolled", "randomized", "randomised"),
+    "affinity_ratio": ("affinity", "binding", "receptor"),
+    "clamp_duration_weeks": ("clamp", "week study",
+                             "week trial", "-week clamp"),
+}
+
+
 def _m47_prose_contains_value(
     section_text: str,
     ev_id: str,
@@ -2453,22 +2482,22 @@ def _m47_prose_contains_value(
 ) -> bool:
     """M-47 (2026-04-22): check whether `section_text` contains a
     reference to `expected_value` (within ±tolerance_pct%) in the
-    same sentence as a citation pointing to `ev_id`.
+    same sentence as a citation pointing to `ev_id` AND in the same
+    sentence as a field-context token for `field_name`.
 
-    Unit normalization: half-life hours↔days (1 day = 24 hours),
-    percentages normalized to bare number (63% and 0.63 both match
-    63). Tolerance applied post-normalization.
+    M-47 pass-2 (Codex audit blocker #1): field-aware matching. The
+    sentence must contain both (a) a number within tolerance of the
+    expected value, AND (b) a field-context token (e.g. 'M-value'
+    for m_value_pct, 'half-life' for half_life). Pre-pass-2 matching
+    was value-only, so "63 participants" would false-pass an
+    M-value=63 extraction.
 
-    `biblio_slice` maps [N] markers → ev_ids. When provided, we
-    resolve the citation marker to the ev_id; without it, we accept
-    any [ev_XXX] or [N] marker that could plausibly be the ev_id.
+    Unit normalization: half-life hours↔days (1 day = 24 hours).
+
+    `biblio_slice` maps [N] markers → ev_ids.
     """
     if not section_text or expected_value <= 0:
         return False
-    # Normalize tolerance to absolute range
-    delta = max(0.01, expected_value * tolerance_pct / 100.0)
-    lo = expected_value - delta
-    hi = expected_value + delta
 
     # Build num → ev_id lookup
     num_to_ev: dict[int, str] = {}
@@ -2486,21 +2515,30 @@ def _m47_prose_contains_value(
         equiv_values.append(expected_value * 24.0)  # days → hours
         equiv_values.append(expected_value / 24.0)  # hours → days
 
+    context_tokens = _M47_FIELD_CONTEXT_TOKENS.get(field_name, ())
+
     sentence_spans = _m44_sentence_spans(section_text)
     for s, e in sentence_spans:
         seg = section_text[s:e]
+        seg_lower = seg.lower()
         # Does this sentence cite the target ev_id?
         cited = False
-        # Direct ev_id reference (e.g. [ev_clamp])
         if f"[{ev_id}]" in seg:
             cited = True
-        # [N] reference resolving to target ev_id
         if not cited and num_to_ev:
             for m in re.finditer(r"\[(\d+)\]", seg):
                 if num_to_ev.get(int(m.group(1))) == ev_id:
                     cited = True
                     break
         if not cited:
+            continue
+        # M-47 pass-2: also require field-context token in the same
+        # sentence. When no context_tokens configured for this field,
+        # fall through to value-only matching (backwards compat).
+        has_context = not context_tokens or any(
+            tok in seg_lower for tok in context_tokens
+        )
+        if not has_context:
             continue
         # Does this sentence contain a number within the expected range?
         for m in re.finditer(r"(\d+\.?\d*)", seg):
@@ -2568,9 +2606,20 @@ def _m47_validate_mechanism_clamp_extraction(
 
     for ev_id in clamp_papers:
         row = evidence_pool[ev_id]
-        # Source text: direct_quote primary, refetched quote fallback
-        quote = (row.get("direct_quote") or
-                 row.get("_m42b_refetched_quote") or "")
+        # Source text: pick richer of direct_quote or refetched
+        # quote. M-47 pass-2 (Codex audit blocker #3): plain `a or b`
+        # short-circuits on any non-empty string, so a thin
+        # direct_quote hid a fat refetched quote.
+        dq = row.get("direct_quote") or ""
+        rq = row.get("_m42b_refetched_quote") or ""
+        if len(rq) > len(dq) and len(rq) >= 100:
+            quote = rq
+        elif len(dq) >= 100:
+            quote = dq
+        elif len(rq) >= 100:
+            quote = rq
+        else:
+            quote = dq or rq  # whatever we have; candidates will be empty
         candidates = _m47_extract_candidate_values(quote)
         matched: list[tuple[str, float]] = []
         for field_name, val, _unit in candidates:
@@ -2881,13 +2930,21 @@ async def generate_multi_section_report(
     # M-47 (2026-04-22): evidence-linked clamp/PK validator for the
     # Mechanism section. No-op when no Mechanism section exists OR
     # when Mechanism subset has no clamp/PK primary paper.
+    # Pass-2 (Codex audit blocker #2): on failure, regenerate Mechanism
+    # with explicit field/value hints; if still failing, emit
+    # `m47_mechanism_extraction_incomplete` telemetry flag.
     m47_diag: dict[str, Any] = {}
-    mechanism_section = next(
-        (sr for sr in section_results
-         if sr.title.lower() == "mechanism"
-         and not sr.dropped_due_to_failure
-         and sr.verified_text),
-        None,
+    m47_incomplete: bool = False
+    mechanism_section_idx = None
+    for _idx, sr in enumerate(section_results):
+        if (sr.title.lower() == "mechanism"
+                and not sr.dropped_due_to_failure
+                and sr.verified_text):
+            mechanism_section_idx = _idx
+            break
+    mechanism_section = (
+        section_results[mechanism_section_idx]
+        if mechanism_section_idx is not None else None
     )
     if mechanism_section is not None:
         m47_diag = _m47_validate_mechanism_clamp_extraction(
@@ -2909,6 +2966,104 @@ async def generate_multi_section_report(
                 len(m47_diag["clamp_papers_in_subset"]),
                 passed, ", ".join(counts),
             )
+
+            # M-47 pass-2 (Codex audit blocker #2): regen Mechanism
+            # section if ANY clamp paper has <3 linked fields. Build
+            # an explicit field/value hint from the extracted
+            # candidates.
+            if not passed:
+                orig_plan = next(
+                    (p for p in plans
+                     if p.title.lower() == "mechanism"),
+                    None,
+                )
+                if orig_plan is not None:
+                    # Build required-fields hint from the clamp papers
+                    # that failed the threshold.
+                    hint_lines: list[str] = []
+                    for ev_id, info in per_paper.items():
+                        if info.get("passes_threshold"):
+                            continue
+                        candidates_list = info.get("candidate_fields", [])
+                        if not candidates_list:
+                            continue
+                        fields_desc = ", ".join(
+                            f"{c['field']}={c['value']}"
+                            for c in candidates_list[:6]
+                        )
+                        hint_lines.append(
+                            f"  - [{ev_id}]: report at least 3 of "
+                            f"{{{fields_desc}}} inline with the "
+                            f"[{ev_id}] citation in the same sentence."
+                        )
+                    if hint_lines:
+                        hint = (
+                            "\n\nREQUIRED M-47 EXTRACTION: The cited "
+                            "clamp/PK paper(s) require inline numeric "
+                            "extraction. Report at least 3 of the "
+                            "listed fields (with the corresponding "
+                            "field-name tokens so the validator can "
+                            "verify) in the Mechanism section:\n"
+                            + "\n".join(hint_lines)
+                        )
+                        regen_plan = SectionPlan(
+                            title=orig_plan.title,
+                            focus=orig_plan.focus + hint,
+                            ev_ids=orig_plan.ev_ids,
+                        )
+                        try:
+                            regen_result = await _bounded_run(regen_plan)
+                            regen_diag = (
+                                _m47_validate_mechanism_clamp_extraction(
+                                    verified_text=regen_result.verified_text,
+                                    evidence_pool=evidence_pool,
+                                    ev_ids_in_subset=(
+                                        regen_result.ev_ids_assigned
+                                    ),
+                                    biblio_slice=regen_result.biblio_slice,
+                                )
+                            )
+                            regen_passed = regen_diag.get(
+                                "any_passes_threshold", False
+                            )
+                            # Replace if regen matched more fields OR
+                            # fully passed with nonzero sentences
+                            orig_max = max(
+                                (info["match_count"]
+                                 for info in per_paper.values()),
+                                default=0,
+                            )
+                            regen_max = max(
+                                (info["match_count"]
+                                 for info in regen_diag.get(
+                                     "per_paper", {}).values()),
+                                default=0,
+                            )
+                            if regen_max > orig_max or (
+                                regen_passed
+                                and regen_result.sentences_verified > 0
+                            ):
+                                section_results[mechanism_section_idx] = regen_result
+                                m47_diag = regen_diag
+                                logger.info(
+                                    "[multi_section] M-47 regen replaced "
+                                    "Mechanism (old_max=%d new_max=%d "
+                                    "passed=%s)",
+                                    orig_max, regen_max, regen_passed,
+                                )
+                        except Exception as exc:
+                            logger.warning(
+                                "[multi_section] M-47 regen raised: %s",
+                                exc,
+                            )
+
+            if not m47_diag.get("any_passes_threshold", False):
+                m47_incomplete = True
+                m47_diag["m47_mechanism_extraction_incomplete"] = True
+                logger.info(
+                    "[multi_section] m47_mechanism_extraction_incomplete "
+                    "after regen",
+                )
 
     # Stage 3: assembly
     biblio_slices = [sr.biblio_slice for sr in section_results

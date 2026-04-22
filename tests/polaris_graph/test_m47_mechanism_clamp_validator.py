@@ -297,6 +297,121 @@ class TestM47ValidatorIntegration:
         assert result["any_passes_threshold"] is False
 
 
+class TestM47Pass2FieldContext:
+    """M-47 pass-2 (Codex audit blocker #1): prose-side matching must
+    be field-aware, not value-only. Codex reproduced a false pass:
+    'M-value by 63%' vs 'The trial enrolled 63 participants' would
+    both match an M-value=63 extraction pre-pass-2."""
+
+    def test_codex_false_pass_reproducer_now_fails(self) -> None:
+        """Exact reproducer from Codex audit report."""
+        evidence_pool = {
+            "ev_clamp": {
+                "evidence_id": "ev_clamp",
+                "title": "Clamp study",
+                "direct_quote": (
+                    "M-value by 63%. Glucagon suppression 42%. "
+                    "Half-life 5 days."
+                ),
+            },
+        }
+        verified_text = (
+            "The trial enrolled 63 participants, lasted 42 weeks, "
+            "and used a 5 mg dose [1]."
+        )
+        biblio = [{"num": 1, "evidence_id": "ev_clamp"}]
+        result = _m47_validate_mechanism_clamp_extraction(
+            verified_text=verified_text,
+            evidence_pool=evidence_pool,
+            ev_ids_in_subset=["ev_clamp"],
+            biblio_slice=biblio,
+        )
+        # Pre-pass-2 this false-passed; pass-2 must reject because
+        # "63 participants" has no "M-value" token in same sentence.
+        assert result["any_passes_threshold"] is False, (
+            f"Codex false-pass reproducer must now fail post-pass-2; "
+            f"got per_paper={result['per_paper']}"
+        )
+
+    def test_field_context_token_required(self) -> None:
+        """Matching 63% without 'M-value' token should fail."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m47_prose_contains_value,
+        )
+        # No "M-value" or related token in the sentence
+        text = "The endpoint improved by 63% versus baseline [1]."
+        biblio = [{"num": 1, "evidence_id": "ev_c"}]
+        assert _m47_prose_contains_value(
+            text, "ev_c", "m_value_pct", 63.0,
+            biblio_slice=biblio,
+        ) is False
+
+    def test_field_context_token_enables_match(self) -> None:
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m47_prose_contains_value,
+        )
+        # "M-value" present — match allowed
+        text = "The M-value increased by 63% versus placebo [1]."
+        biblio = [{"num": 1, "evidence_id": "ev_c"}]
+        assert _m47_prose_contains_value(
+            text, "ev_c", "m_value_pct", 63.0,
+            biblio_slice=biblio,
+        ) is True
+
+    def test_half_life_field_context(self) -> None:
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m47_prose_contains_value,
+        )
+        # Without "half-life" token, 5 days shouldn't match
+        text = "The study ran for 5 days [1]."
+        biblio = [{"num": 1, "evidence_id": "ev_c"}]
+        assert _m47_prose_contains_value(
+            text, "ev_c", "half_life", 5.0,
+            biblio_slice=biblio,
+        ) is False
+        # With "half-life" token, matches
+        text2 = "The half-life is approximately 5 days [1]."
+        assert _m47_prose_contains_value(
+            text2, "ev_c", "half_life", 5.0,
+            biblio_slice=biblio,
+        ) is True
+
+
+class TestM47Pass2QuoteSelection:
+    """M-47 pass-2 (Codex audit blocker #3): validator picks richer of
+    direct_quote or _m42b_refetched_quote, not short-circuit on any
+    non-empty direct_quote."""
+
+    def test_thin_direct_quote_with_fat_refetch_picks_refetch(self) -> None:
+        evidence_pool = {
+            "ev_clamp": {
+                "evidence_id": "ev_clamp",
+                "title": "Clamp study",
+                "direct_quote": "thin",  # <100
+                "_m42b_refetched_quote": (
+                    "In a 28-week hyperinsulinemic-euglycemic clamp "
+                    "study, tirzepatide 15 mg increased M-value by 63%. "
+                    "Glucagon suppression was 42% during hyperglycemia. "
+                    "Half-life 5 days. N=30 participants."
+                ),
+            },
+        }
+        verified_text = (
+            "The M-value increased 63% [1]. Glucagon suppression "
+            "was 42% [1]. Half-life is 5 days [1]."
+        )
+        biblio = [{"num": 1, "evidence_id": "ev_clamp"}]
+        result = _m47_validate_mechanism_clamp_extraction(
+            verified_text=verified_text,
+            evidence_pool=evidence_pool,
+            ev_ids_in_subset=["ev_clamp"],
+            biblio_slice=biblio,
+        )
+        # Should have extracted candidates from the refetched quote
+        assert result["per_paper"]["ev_clamp"]["match_count"] >= 3
+        assert result["any_passes_threshold"] is True
+
+
 class TestM47PromptRule:
     """The M-47 mechanism quantitative-extraction rule must be present
     in SECTION_SYSTEM_PROMPT_TEMPLATE."""
