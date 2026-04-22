@@ -40,10 +40,16 @@ logger = logging.getLogger("polaris_graph.regulatory_expander")
 
 
 # PG_SWEEP_MAX_REGULATORY_ANCHORS: soft upper bound on how many anchor
-# queries this function will emit from a single template. Defaults to
-# 10. A template with more anchors still loads fine; the expander just
-# truncates emission to the cap. Set to 0 to disable the cap.
-_DEFAULT_MAX_ANCHORS = 10
+# queries this function will emit from a single template. A template
+# with more anchors still loads fine; the expander just truncates
+# emission to the cap. Set to 0 to disable the cap.
+#
+# M-43 (2026-04-22): raised default 10 → 12. V26 regressed NICE=0
+# because adding M-42d's hpfb-dgpsa.ca anchor pushed nice.org.uk to
+# position 11 and the cap silently dropped it. 12 gives headroom for
+# the current clinical template (11 anchors) plus one future addition.
+# Extra Serper cost per run: ~2 queries × ~$0.0001 = negligible.
+_DEFAULT_MAX_ANCHORS = 12
 
 
 def _max_anchors() -> int:
