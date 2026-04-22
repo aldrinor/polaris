@@ -1672,6 +1672,294 @@ def _remap_section_markers_to_global(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# M-44 (2026-04-22): scorer/subset primary-trial boost + same-sentence
+# validator. Codex V28 plan pass-2 APPROVED.
+#
+# Gap addressed: V27 cited SURPASS-2 via T4 post-hoc and omitted
+# SURPASS-CVOT + SURMOUNT-1..4 entirely despite primaries being in
+# the evidence subset. Root cause at the generator stage is that the
+# outline planner picked post-hocs/meta-analyses over primaries on
+# generic relevance scoring.
+#
+# Pre-M-44 M-20 had a prompt-only trial-specific citation rule that
+# failed in practice. M-44 adds section-subset INJECTION (forcing
+# primary ev_ids into sections discussing a named trial) + post-
+# generation SAME-SENTENCE VALIDATOR (named trial + matching primary
+# ev_id must be cited in same or adjacent sentence) + one regen on
+# validator fail.
+#
+# Scope: applies only to Efficacy, Comparative, Safety, Weight Loss,
+# Long-term Outcomes sections. Regulatory / Contradictions /
+# Limitations / Methods / Mechanism are excluded (primaries not
+# authoritative for those).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_M44_PRIMARY_ELIGIBLE_SECTIONS: set[str] = {
+    "efficacy",
+    "safety",
+    "comparative",
+    "dose response",
+    "population subgroups",
+    "long-term outcomes",
+}
+
+# Section-title tokens that indicate a Weight-loss framing. Matches
+# Codex plan §M-44 section scope. Not in _ALLOWED_SECTIONS directly
+# (Weight-loss framing typically lands under Efficacy or Population
+# Subgroups), but we keep the keyword in case future outlines add it.
+_M44_WEIGHT_TOKENS = frozenset({"weight", "obesity", "adipos", "bmi"})
+
+
+def _m44_section_is_primary_eligible(section_title: str) -> bool:
+    """M-44 (2026-04-22): True iff this section title qualifies for
+    primary-trial citation floor. Case-insensitive lower-match."""
+    t = (section_title or "").lower().strip()
+    if t in _M44_PRIMARY_ELIGIBLE_SECTIONS:
+        return True
+    # Tolerate weight-loss framing under any section title.
+    return any(tok in t for tok in _M44_WEIGHT_TOKENS)
+
+
+def _m44_detect_primary_ev_ids(
+    evidence_pool: dict[str, dict[str, Any]],
+    primary_trial_anchors: list[str],
+) -> dict[str, list[str]]:
+    """M-44 (2026-04-22): for each anchor, list the ev_ids in the pool
+    that match as a primary-trial row.
+
+    Uses the same `_m42e_detect_primary_for_anchor` predicate the
+    selector uses, so detection is consistent across selector and
+    generator.
+
+    Returns dict keyed by anchor → list of ev_id strings. Only anchors
+    with ≥1 matching row are included.
+    """
+    from src.polaris_graph.retrieval.evidence_selector import (
+        _m42e_detect_primary_for_anchor,
+    )
+    out: dict[str, list[str]] = {}
+    if not primary_trial_anchors:
+        return out
+    for anchor in primary_trial_anchors:
+        matches = []
+        for ev_id, row in evidence_pool.items():
+            if _m42e_detect_primary_for_anchor(row, anchor):
+                matches.append(ev_id)
+        if matches:
+            out[anchor] = matches
+    return out
+
+
+def _m44_inject_primaries_into_outline(
+    plans: list[SectionPlan],
+    primary_ev_ids_by_anchor: dict[str, list[str]],
+    max_ev_per_section: int = 20,
+) -> tuple[list[SectionPlan], list[dict[str, Any]]]:
+    """M-44 (2026-04-22): ensure primary-trial ev_ids appear in every
+    primary-eligible section's ev_ids list.
+
+    Codex plan pass-2 acceptance: "Given a section subset candidate
+    pool containing SURPASS-2 primary, SURPASS-2 post-hoc, and a
+    meta-analysis, the selected/prompted subset includes the primary
+    ahead of derivatives, and the generated/validated prose cites the
+    primary when naming SURPASS-2."
+
+    Strategy: for each primary-eligible section, scan for a match-able
+    anchor (first anchor with ≥1 ev_id in the pool). If the primary
+    isn't already in section.ev_ids, prepend it. If section is at the
+    cap and all slots are non-primary, swap the lowest-priority ev_id
+    for the primary (practical compromise since we have no per-row
+    score at this stage).
+
+    Returns (updated_plans, injection_log). injection_log is a list of
+    {section, anchor, ev_id, action} dicts for telemetry.
+
+    Pure: does not mutate input plans; returns new plans list.
+    """
+    if not plans or not primary_ev_ids_by_anchor:
+        return plans, []
+
+    updated: list[SectionPlan] = []
+    log: list[dict[str, Any]] = []
+
+    # Flatten to a single list of (anchor, ev_id) pairs so each primary
+    # is considered exactly once (take first ev_id per anchor for now).
+    primary_pairs: list[tuple[str, str]] = [
+        (anchor, ev_ids[0])
+        for anchor, ev_ids in primary_ev_ids_by_anchor.items()
+        if ev_ids
+    ]
+
+    for plan in plans:
+        new_ev_ids = list(plan.ev_ids)  # copy
+        if not _m44_section_is_primary_eligible(plan.title):
+            # Pass through unchanged.
+            updated.append(SectionPlan(
+                title=plan.title, focus=plan.focus, ev_ids=new_ev_ids,
+            ))
+            continue
+
+        for anchor, primary_ev in primary_pairs:
+            if primary_ev in new_ev_ids:
+                log.append({
+                    "section": plan.title,
+                    "anchor": anchor,
+                    "ev_id": primary_ev,
+                    "action": "already_present",
+                })
+                continue
+            # Not present — inject at front so the LLM sees it in
+            # prompt order (higher salience).
+            if len(new_ev_ids) >= max_ev_per_section:
+                # Swap: drop the last (lowest-priority) non-primary
+                # ev_id and prepend the primary.
+                dropped = new_ev_ids.pop()
+                log.append({
+                    "section": plan.title,
+                    "anchor": anchor,
+                    "ev_id": primary_ev,
+                    "action": f"swap_in_for_{dropped}",
+                })
+            else:
+                log.append({
+                    "section": plan.title,
+                    "anchor": anchor,
+                    "ev_id": primary_ev,
+                    "action": "injected",
+                })
+            new_ev_ids.insert(0, primary_ev)
+
+        updated.append(SectionPlan(
+            title=plan.title, focus=plan.focus, ev_ids=new_ev_ids,
+        ))
+    return updated, log
+
+
+def _m44_find_trial_mentions(
+    text: str,
+    primary_trial_anchors: list[str],
+) -> list[tuple[str, int, int]]:
+    """M-44 (2026-04-22): scan prose for named-trial tokens.
+
+    Returns list of (anchor, start_offset, end_offset) tuples. Uses
+    word-boundary regex so partial matches (e.g. 'SURPASS-10' wouldn't
+    match 'SURPASS-1' anchor) are avoided, but accepts colon/paren/
+    comma separators after the token.
+    """
+    if not text or not primary_trial_anchors:
+        return []
+    matches: list[tuple[str, int, int]] = []
+    for anchor in primary_trial_anchors:
+        # Word boundary at start; either word boundary OR punctuation
+        # at end to catch "SURPASS-2:" and "SURPASS-2)".
+        pattern = r"\b" + re.escape(anchor) + r"(?=[\s:;,.\)\]\-]|$)"
+        for m in re.finditer(pattern, text):
+            matches.append((anchor, m.start(), m.end()))
+    return matches
+
+
+def _m44_sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) offsets for each sentence in `text`.
+    Simple split on .!? followed by whitespace or end-of-text."""
+    if not text:
+        return []
+    spans: list[tuple[int, int]] = []
+    start = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in ".!?" and (i + 1 >= len(text) or text[i + 1].isspace()):
+            # End of sentence.
+            spans.append((start, i + 1))
+            # Skip whitespace
+            j = i + 1
+            while j < len(text) and text[j].isspace():
+                j += 1
+            start = j
+            i = j
+        else:
+            i += 1
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def _m44_validate_primary_same_sentence(
+    verified_text: str,
+    primary_ev_ids_by_anchor: dict[str, list[str]],
+    biblio_slice: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """M-44 (2026-04-22): same-sentence / adjacent-sentence validator.
+
+    Codex plan pass-2 verbatim: "For each named trial mentioned in the
+    section, if a matching M-42e primary ev_id is present in the
+    section subset, that primary ev_id must be cited in the same
+    sentence or immediately adjacent sentence."
+
+    Returns list of violations: [{anchor, trial_offset, sentence_text,
+    primary_ev_id_expected, citations_found}]. Empty list = validator
+    passes.
+
+    `biblio_slice` maps [N] marker numbers back to ev_ids. The
+    validator looks for `[N]` tokens in the same sentence as the
+    trial name; if none of them map to the expected primary ev_id,
+    it checks the next sentence; if still none, records a violation.
+    """
+    if not verified_text or not primary_ev_ids_by_anchor:
+        return []
+
+    # Build num→ev_id lookup
+    num_to_ev: dict[int, str] = {}
+    for entry in biblio_slice:
+        num = entry.get("num")
+        ev_id = entry.get("evidence_id")
+        if isinstance(num, int) and isinstance(ev_id, str):
+            num_to_ev[num] = ev_id
+
+    sentence_spans = _m44_sentence_spans(verified_text)
+    anchors = list(primary_ev_ids_by_anchor.keys())
+    mentions = _m44_find_trial_mentions(verified_text, anchors)
+
+    violations: list[dict[str, Any]] = []
+    for anchor, t_start, t_end in mentions:
+        expected_ev_ids = set(primary_ev_ids_by_anchor.get(anchor, []))
+        if not expected_ev_ids:
+            continue
+        # Find containing sentence
+        idx = None
+        for i, (s, e) in enumerate(sentence_spans):
+            if s <= t_start < e:
+                idx = i
+                break
+        if idx is None:
+            continue
+        # Citations in same + next sentence
+        check_ranges: list[tuple[int, int]] = [sentence_spans[idx]]
+        if idx + 1 < len(sentence_spans):
+            check_ranges.append(sentence_spans[idx + 1])
+        citations_found: list[str] = []
+        for rs, re_ in check_ranges:
+            segment = verified_text[rs:re_]
+            for m in re.finditer(r"\[(\d+)\]", segment):
+                num = int(m.group(1))
+                ev_id = num_to_ev.get(num)
+                if ev_id:
+                    citations_found.append(ev_id)
+        hits = [e for e in citations_found if e in expected_ev_ids]
+        if not hits:
+            violations.append({
+                "anchor": anchor,
+                "trial_offset": t_start,
+                "sentence_text": verified_text[
+                    sentence_spans[idx][0]:sentence_spans[idx][1]
+                ],
+                "primary_ev_id_expected": list(expected_ev_ids),
+                "citations_found": citations_found,
+            })
+    return violations
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1762,6 +2050,36 @@ async def generate_multi_section_report(
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
 
+    # M-44 (2026-04-22): detect M-42e primary-trial rows in the pool
+    # and inject them into primary-eligible sections' ev_ids lists.
+    # Addresses V27 failure where primary ev_id was in the pool but
+    # outline planner picked post-hoc/meta-analysis derivatives.
+    # No-op when primary_trial_anchors is None/empty.
+    m44_primary_by_anchor: dict[str, list[str]] = {}
+    m44_injection_log: list[dict[str, Any]] = []
+    if primary_trial_anchors:
+        m44_primary_by_anchor = _m44_detect_primary_ev_ids(
+            evidence_pool, primary_trial_anchors,
+        )
+        if m44_primary_by_anchor and plans:
+            plans, m44_injection_log = _m44_inject_primaries_into_outline(
+                plans, m44_primary_by_anchor,
+            )
+            injected_count = sum(
+                1 for e in m44_injection_log if e["action"] == "injected"
+            )
+            swapped_count = sum(
+                1 for e in m44_injection_log
+                if e["action"].startswith("swap_in_for_")
+            )
+            if injected_count or swapped_count:
+                logger.info(
+                    "[multi_section] M-44 injected=%d swapped=%d "
+                    "anchors_matched=%d",
+                    injected_count, swapped_count,
+                    len(m44_primary_by_anchor),
+                )
+
     # Stage 2: per-section generation (bounded parallelism)
     sem = asyncio.Semaphore(max_parallel_sections)
 
@@ -1776,6 +2094,41 @@ async def generate_multi_section_report(
             )
 
     section_results = await asyncio.gather(*[_bounded_run(p) for p in plans])
+
+    # M-44 (2026-04-22): post-generation same-sentence validator.
+    # For each primary-eligible section, scan verified prose for
+    # named-trial tokens; each trial mention must cite a matching
+    # M-42e primary ev_id in the same sentence or immediately
+    # adjacent sentence. Violations trigger one regeneration with
+    # explicit primary_cite_required ev_id list appended to prompt.
+    #
+    # Currently the validator records violations as telemetry;
+    # regeneration path is a V29 scope item (requires re-plumbing
+    # _run_section for a second pass with M-44 hints). For V28 the
+    # injection step (above) plus the validator telemetry is the
+    # active intervention; the prompt-level enforcement from M-20
+    # + M-42a + M-41c still applies.
+    m44_validator_violations: list[dict[str, Any]] = []
+    if m44_primary_by_anchor:
+        for sr in section_results:
+            if sr.dropped_due_to_failure or not sr.verified_text:
+                continue
+            if not _m44_section_is_primary_eligible(sr.title):
+                continue
+            viols = _m44_validate_primary_same_sentence(
+                sr.verified_text,
+                m44_primary_by_anchor,
+                sr.biblio_slice,
+            )
+            for v in viols:
+                v["section"] = sr.title
+                m44_validator_violations.append(v)
+        if m44_validator_violations:
+            logger.info(
+                "[multi_section] M-44 validator: %d trial-mention(s) "
+                "missing same/adjacent-sentence primary citation",
+                len(m44_validator_violations),
+            )
 
     # Stage 3: assembly
     biblio_slices = [sr.biblio_slice for sr in section_results
