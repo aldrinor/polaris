@@ -73,6 +73,45 @@ def _row_tier(row: dict[str, Any], url_to_tier: dict[str, str]) -> str:
     return str(tier)
 
 
+# M-41d (2026-04-21): jurisdictional-diversity floor for T3 regulatory
+# selection. V24 had 0 Health Canada entries in its bibliography
+# despite 7 HC rows in the corpus (M-37 shipped the tier fix and the
+# prompt rule, but the evidence selector tier-quota gave T3 only 12
+# slots that all went to FDA/EMA/NICE since they scored higher on
+# lexical relevance than a Canadian monograph). M-41d adds a floor:
+# within the T3 quota, reserve one slot for each present jurisdiction
+# whose evidence appears in the pool.
+#
+# Jurisdiction detection is by URL host suffix. A row maps to exactly
+# one jurisdiction or None. No drug-specific tokens; the host list
+# mirrors the regulatory_anchors template schema across domains.
+_M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
+    ("FDA",  ("fda.gov",)),
+    ("EMA",  ("ema.europa.eu", "europa.eu")),
+    ("NICE", ("nice.org.uk",)),
+    ("MHRA", ("mhra.gov.uk",)),
+    ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca")),
+    ("TGA",  ("tga.gov.au",)),
+    ("PMDA", ("pmda.go.jp",)),
+    ("WHO",  ("who.int",)),
+    ("NMPA", ("nmpa.gov.cn",)),
+]
+
+
+def _row_jurisdiction(row: dict[str, Any]) -> str | None:
+    """Return the regulatory jurisdiction code a row belongs to, or
+    None if the URL is not from a recognized regulatory host.
+    Parent-domain match: any subdomain of a listed host counts."""
+    url = (row.get("source_url") or row.get("url") or "").lower()
+    if not url:
+        return None
+    for code, hosts in _M41D_JURISDICTION_HOSTS:
+        for h in hosts:
+            if h in url:
+                return code
+    return None
+
+
 def _row_relevance(
     row: dict[str, Any],
     question_tokens: set[str],
@@ -253,7 +292,47 @@ def select_evidence_for_generation(
 
     selected: list[tuple[int, float, str, dict[str, Any]]] = []
     for tier, quota in quotas.items():
-        selected.extend(by_tier.get(tier, [])[:quota])
+        # M-41d: for T3 (regulatory) tier, enforce a
+        # jurisdictional-diversity floor — reserve one slot per
+        # present jurisdiction (FDA, EMA, NICE, HC, ...) before
+        # filling the rest of the T3 quota by relevance. Prevents the
+        # V24 failure mode where Health Canada evidence was in the
+        # corpus but outcompeted within T3 by higher-scoring FDA/EMA.
+        tier_items = by_tier.get(tier, [])
+        if tier == "T3" and quota > 0 and tier_items:
+            # Group T3 items by jurisdiction.
+            juris_groups: dict[str | None, list[tuple[int, float, str, dict[str, Any]]]] = {}
+            for item in tier_items:
+                jur = _row_jurisdiction(item[3])
+                juris_groups.setdefault(jur, []).append(item)
+            present_juris = [j for j in juris_groups if j is not None]
+            # Reserve 1 slot per present jurisdiction (capped at the
+            # T3 quota — we never over-fill). Pick the top-scoring
+            # row per jurisdiction as the reserved slot.
+            reserved: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_ids: set[int] = set()
+            slots_left = quota
+            for jur in present_juris:
+                if slots_left <= 0:
+                    break
+                for item in juris_groups[jur]:
+                    if id(item) not in reserved_ids:
+                        reserved.append(item)
+                        reserved_ids.add(id(item))
+                        slots_left -= 1
+                        break
+            # Fill remaining slots from the tier's global score order,
+            # skipping already-reserved items.
+            for item in tier_items:
+                if slots_left <= 0:
+                    break
+                if id(item) not in reserved_ids:
+                    reserved.append(item)
+                    reserved_ids.add(id(item))
+                    slots_left -= 1
+            selected.extend(reserved)
+        else:
+            selected.extend(tier_items[:quota])
 
     # Sort final selection by (tier_priority, -score, original_idx) for
     # deterministic output order.

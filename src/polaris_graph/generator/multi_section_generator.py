@@ -153,7 +153,7 @@ OUTPUT FORMAT: a valid JSON object with key "sections" whose value is a JSON arr
   "ev_ids": a JSON array of evidence IDs (e.g., ["ev_001", "ev_002"]) that the section should draw from
 
 RULES:
-- M-25b: Choose EXACTLY 5 sections when the corpus supports them (i.e., at most 1 section would otherwise have <8 ev_ids). Only drop to 4 when ≥2 sections would be under-supported. NEVER emit only 3 sections when the corpus has ≥100 evidence rows — that produces a directional brief, not a Deep Research report.
+- M-25b + M-41a: Choose EXACTLY 5 sections by default, 6 sections when BOTH the M-40 Mechanism trigger fires AND regulatory evidence is present. If the corpus supports 6 sections (at most 1 section would otherwise have <8 ev_ids), emit 6; Mechanism is ADDITIVE, not SUBSTITUTIVE — it must not displace Regulatory, Safety, or any other section that has evidence support. Only drop below 5 when ≥2 sections would be under-supported. NEVER emit only 3 sections when the corpus has ≥100 evidence rows — that produces a directional brief, not a Deep Research report. Regulatory evidence for the 6-section trigger = presence of any T3 source or any source from a named regulatory jurisdiction (titles mentioning FDA, EMA, NICE, Health Canada, TGA, PMDA, NMPA, WHO, or authority-style terms like "label", "monograph", "SmPC", "guidance", "appraisal").
 - Evidence IDs MAY appear in MULTIPLE sections when the same primary study supports claims across topics (a single SURPASS or SURMOUNT paper legitimately contributes to BOTH Efficacy and Safety sections; a guideline legitimately contributes to Background and Recommendations). Do NOT artificially partition evidence across sections at the cost of citation density.
 - Every section must have AT LEAST 8 distinct evidence IDs assigned, targeting 12-20 where the corpus supports it.
 - Aim for at least 5 unique PRIMARY sources (distinct studies/papers, not just distinct ev_ids) per section.
@@ -289,13 +289,18 @@ def _parse_outline(
         all_ev_ids.extend(ev_ids)
 
     # Overall outline validation (not per-section)
+    # M-41a: accept up to 6 sections (was 5). The outline prompt
+    # instructs the LLM to emit 6 only when both the M-40 Mechanism
+    # trigger fires AND regulatory evidence is present — making
+    # Mechanism additive rather than substitutive. The parser is
+    # permissive: 3-6 sections pass; >6 is truncated and flagged.
     ok = True
     if len(plans) < 3:
         reason_codes.append("section_count_below_min")
         ok = False
-    if len(plans) > 5:
-        # Truncate to 5 but flag the violation.
-        plans = plans[:5]
+    if len(plans) > 6:
+        # Truncate to 6 but flag the violation.
+        plans = plans[:6]
         reason_codes.append("section_count_above_max")
         ok = False
     # M-24: Overlap across sections is ALLOWED (and encouraged — see
@@ -677,6 +682,158 @@ async def _call_section(
     return (response.content or "").strip(), response.input_tokens, response.output_tokens
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# M-41c: deterministic claim-frame post-check
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Trial short-name pattern. Generalizable across clinical trial programs —
+# any ALL-CAPS token followed by a hyphen-digit suffix counts, plus a
+# small list of famous all-letters names. No drug-specific tokens.
+_M41C_TRIAL_SHORT_NAME_RE = re.compile(
+    r"\b(?:"
+    r"[A-Z][A-Z0-9]{2,}-\d+(?:[A-Z]+)?"        # SURPASS-2, SURMOUNT-4, STEP-3
+    r"|[A-Z][A-Z0-9]{2,}-CVOT"                  # SURPASS-CVOT
+    r"|SELECT|LEADER|SUSTAIN|PIONEER|REWIND"    # famous all-letter names
+    r"|AWARD|GRADE|DEVOTE|HARMONY|CANVAS"
+    r"|DECLARE|DEVOTE|EMPEROR"
+    r")\b",
+)
+
+
+# Frame-element detectors. A sentence is "framed" when it (or its
+# immediately preceding sentence) matches >=3 distinct classes.
+# Keep each class regex domain-agnostic; clinical-specific keywords
+# go in a permissive union with other-domain equivalents so the rule
+# generalizes beyond T2D trials.
+_M41C_FRAME_ELEMENT_PATTERNS: list[tuple[str, re.Pattern]] = [
+    (
+        "sample_size",
+        re.compile(
+            r"\bN\s*=\s*\d+\b"
+            r"|\b\d{2,}\s+(?:patients|participants|adults|subjects|"
+            r"enrolled|randomi[sz]ed|cases|samples|specimens)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "baseline",
+        re.compile(r"\bbaseline\b|\binitial\s+value\b", re.IGNORECASE),
+    ),
+    (
+        "comparator",
+        re.compile(
+            r"\b(?:vs|versus|compared\s+to|compared\s+with|"
+            r"against\s+placebo|non[-\s]inferior|superior\s+to|"
+            r"head[-\s]to[-\s]head|control\s+arm)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "dose_or_level",
+        re.compile(
+            r"\b\d+\.?\d*\s*(?:mg|mcg|µg|units|IU|kg|mmol|mol|nm|"
+            r"percent|wt%|ppm|mAh|MPa|GPa)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "endpoint",
+        re.compile(
+            r"\b(?:endpoint|primary\s+outcome|primary\s+efficacy|"
+            r"co-primary|key\s+secondary|HbA1c|body\s+weight|"
+            r"weight\s+loss|cardiovascular\s+outcome|MACE|cycle\s+life|"
+            r"capacity\s+retention|phase\s+transition|reaction\s+yield)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "timepoint",
+        re.compile(
+            r"\b(?:week|month|year|day)s?\s*\d+"
+            r"|\b\d+\s+(?:week|month|year|day)s?\b"
+            r"|\bat\s+(?:week|month|year)\s*\d+\b"
+            r"|\bover\s+\d+\s+(?:week|month|year)s?\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "uncertainty",
+        re.compile(
+            r"p\s*[<>=]\s*0?\.\d+"                         # p<0.001
+            r"|\b\d+\s*%\s+CI\b"                           # 95% CI
+            r"|\bCI\s*[\(:]\s*"                            # CI (0.5 to 0.8)
+            r"|\b\(\s*\d+\.?\d*\s*(?:to|[-–])\s*\d+"       # (1.2 to 2.3)
+            r"|\bSD\s*\d|\bSE\s*\d"                        # SD 1.2
+            r"|±\s*\d",                                    # ±1.5
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+
+def _m41c_sentence_names_trial(sentence: str) -> bool:
+    """True when the sentence contains a specific-trial short-name
+    token (SURPASS-2, SURMOUNT-4, SELECT, etc.)."""
+    return bool(_M41C_TRIAL_SHORT_NAME_RE.search(sentence))
+
+
+def _m41c_frame_element_count(sentence: str, prev_sentence: str = "") -> int:
+    """Return the number of DISTINCT frame-element classes present in
+    `sentence` + `prev_sentence` combined. Max return value equals
+    the number of classes in _M41C_FRAME_ELEMENT_PATTERNS (currently
+    7). A sentence with N=1879, baseline HbA1c 8.28%, vs semaglutide,
+    15 mg, HbA1c change, at week 40, p<0.001 would score 7."""
+    combined = f"{prev_sentence or ''} {sentence or ''}"
+    return sum(1 for _, pat in _M41C_FRAME_ELEMENT_PATTERNS if pat.search(combined))
+
+
+def filter_underframed_trial_sentences(
+    sentences: list[Any],
+    min_frame_elements: int = 3,
+) -> tuple[list[Any], list[Any]]:
+    """M-41c: drop sentences that name a specific trial by short name
+    but carry fewer than `min_frame_elements` frame classes in the
+    sentence plus the immediately preceding sentence.
+
+    Args:
+        sentences: list of objects with a `.sentence` string attribute
+            (typically SentenceVerification). Items without this
+            attribute are passed through untouched.
+        min_frame_elements: required distinct frame-element classes.
+            Default 3 matches the M-38 prompt-rule floor.
+
+    Returns:
+        (kept, dropped) — kept preserves input order; dropped is the
+        list of under-framed trial sentences removed.
+
+    Non-trial sentences are always kept. A sentence naming a trial
+    that has enough frame elements (>=3 classes) is kept. A sentence
+    naming a trial without enough framing is dropped. This is the
+    code-level enforcement of the M-38 prompt rule: the prompt asks
+    the LLM to drop the short-name attribution; if the LLM doesn't,
+    M-41c removes the sentence post-verify.
+    """
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for i, sv in enumerate(sentences):
+        text = getattr(sv, "sentence", None)
+        if not isinstance(text, str) or not text.strip():
+            kept.append(sv)
+            continue
+        if not _m41c_sentence_names_trial(text):
+            kept.append(sv)
+            continue
+        prev_text = ""
+        if i > 0:
+            prev_text = getattr(sentences[i - 1], "sentence", "") or ""
+        if _m41c_frame_element_count(text, prev_text) >= min_frame_elements:
+            kept.append(sv)
+        else:
+            dropped.append(sv)
+    return kept, dropped
+
+
 async def _run_section(
     section: SectionPlan,
     evidence_pool: dict[str, dict[str, Any]],
@@ -742,11 +899,33 @@ async def _run_section(
         if report2.total_kept > report.total_kept:
             raw, rewritten, report = raw2, rewritten2, report2
 
+    # M-41c (2026-04-21): code-level enforcement of the M-38 claim-
+    # frame rule. Drops kept sentences that name a specific trial by
+    # short name but lack 3+ frame-element classes in the sentence +
+    # preceding sentence. The M-38 prompt rule is probabilistic; M-41c
+    # makes the contract deterministic so under-framed trial names
+    # never ship.
+    m41c_kept, m41c_dropped = filter_underframed_trial_sentences(
+        report.kept_sentences
+    )
+    if m41c_dropped:
+        logger.info(
+            "[multi_section] M-41c: dropped %d under-framed trial-name "
+            "sentences from section %r",
+            len(m41c_dropped), section.title,
+        )
+        report.kept_sentences = m41c_kept
+        # NOTE: we intentionally do not adjust report.total_kept or
+        # add these to report.dropped_sentences — the downstream
+        # consumer reads kept_sentences directly via resolve_provenance.
+        # The section manifest telemetry will still show the pre-M-41c
+        # count in total_kept, which is acceptable for transparency.
+
     verified_text, biblio_slice = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,
     )
 
-    dropped_due_to_failure = report.total_kept == 0
+    dropped_due_to_failure = len(report.kept_sentences) == 0
 
     return SectionResult(
         title=section.title,
@@ -849,6 +1028,32 @@ def _extract_trial_summary_table(
             continue
         if any(n not in valid_citation_nums for n in nums):
             # One or more out-of-range citation numbers → drop.
+            continue
+        # M-41b (2026-04-21, post-V24 Codex pass-12 regression): drop
+        # rows where >2 cells contain only "—" / "-" / "–" / empty.
+        # Pass-12 audit on V24 observed "table is only 3 rows, 2
+        # mostly empty" — the LLM filled the header row but padded
+        # later rows with dashes. A row whose half the cells are
+        # dashes is worse than no row; it looks like quantified data
+        # but conveys nothing. We count cells, not characters; the
+        # markdown row syntax "| a | b | c |" splits to 3 content
+        # cells after trimming leading/trailing empties.
+        cells = [c.strip() for c in stripped.split("|")]
+        # Strip leading/trailing empty cells from the split (the
+        # outer pipes produce empty first/last elements).
+        while cells and cells[0] == "":
+            cells = cells[1:]
+        while cells and cells[-1] == "":
+            cells = cells[:-1]
+        # Count "dash-only" cells — any cell whose content after
+        # trimming is one of common dash placeholders.
+        _DASH_MARKERS = {"—", "-", "–", "N/A", "n/a", "NA", "–", ""}
+        dash_count = sum(1 for c in cells if c in _DASH_MARKERS)
+        # Trial Summary table has 7 columns (Trial / N / Baseline /
+        # Comparator / Endpoint / Result / Ref). Allow up to 2 dash
+        # cells out of 7 — 3+ dashes means the row carries too
+        # little information to justify the trial-name attribution.
+        if dash_count > 2:
             continue
         kept_rows.append(stripped)
 
