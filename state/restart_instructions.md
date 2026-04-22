@@ -27,10 +27,17 @@ with code-green + V{N-1} non-shippable + no halt trigger, the
 next action is: launch V{N+1}, not "wait for user go".
 
 User intervention is required ONLY on §7 halt triggers:
-cycle cap, wall-clock cap, spend cap, artifact integrity,
-baseline access, repeated-root-cause, dimension regression,
-test-quality failure, cross-review integrity, code-audit bypass,
-plan-review ping-pong.
+**wall-clock cap (24h), spend cap ($100 default), artifact
+integrity, baseline access, repeated-root-cause (2 cycles same
+failure), dimension regression, test-quality failure,
+cross-review integrity, code-audit bypass, plan-review
+ping-pong (>3).**
+
+**Cycle cap REMOVED** per user directive 2026-04-21 ("remove
+the fire cap"). The loop iterates until BEAT_BOTH or another
+halt trigger — restoring the original V1 mandate of
+no-cycle-cap auto-continue. Wall-clock + spend caps substitute
+as runaway protection.
 
 ## Current state (as of 2026-04-21 autonomous V25 launch)
 

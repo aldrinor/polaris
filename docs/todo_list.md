@@ -20,9 +20,14 @@ dimensions. Competitor PDFs at `state/compare_chatgpt_dr.txt` /
 > condition is triggered. Waiting for user "go" on every cycle
 > defeats the autonomous design.
 
-User intervention is triggered ONLY by V2 runbook §7 halt conditions
-(3-cycle cap, 24h wall-clock, $100 USD spend, dimension regression,
-repeated-root-cause, cross-review integrity, etc.).
+User intervention is triggered ONLY by V2 runbook §7 halt conditions:
+24h wall-clock, $100 USD spend, dimension regression,
+repeated-root-cause (2 cycles same failure), cross-review integrity,
+artifact integrity, plan ping-pong >3, test-quality gaming.
+
+**Cycle cap REMOVED** per user directive 2026-04-21 ("remove the
+fire cap"). No-cycle-cap restores the V1 "auto-continue" mandate.
+Wall-clock + spend caps substitute as runaway protection.
 
 Loop (no cycle cap, auto-continue):
 1. Claude fixes → unit tests → smoke
