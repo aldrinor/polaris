@@ -123,9 +123,12 @@ class TestHcQuotaExpansion:
             protocol=None,
             classified_sources=[],
             evidence_rows=rows,
-            max_rows=7,
+            # max_rows < pool to force T3 floor block (avoid
+            # pool_size<=max_rows short-circuit).
+            max_rows=5,
         )
-        # All 7 rows should be selected. HC should get 2.
+        # 5 slots; expected: 1 HC + 1 FDA + 1 EMA reserved +
+        # 1 HC expansion + 1 fill-by-relevance = 5.
         from src.polaris_graph.retrieval.evidence_selector import (
             _row_jurisdiction,
         )
@@ -320,6 +323,9 @@ class TestHcExpansionTelemetry:
         assert telemetry, f"M-42d telemetry missing. notes={result.notes}"
         note = telemetry[0]
         assert "hc_pool=3" in note, note
+        # M-42d pass-2 (Codex MEDIUM): `reserved` reports actual slots
+        # taken = 1 (1-per-juris) + extras_added.
+        assert "reserved=2" in note, note
         assert "extras_added=1" in note, note
         assert "quota=2" in note, note
 

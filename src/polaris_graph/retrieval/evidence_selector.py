@@ -743,11 +743,14 @@ def select_evidence_for_generation(
             # Record telemetry for the HC expansion pass. Only emit
             # when the expansion actually added rows so audits can
             # distinguish "fired and added" vs "did not fire".
+            #
+            # M-42d pass-2 (Codex audit MEDIUM): `reserved` now reports
+            # actual slots taken by the HC floor (1 from the 1-per-juris
+            # pass + m42d_hc_extras) instead of the desired target
+            # bounded by pool. When `hc_quota` exceeds available slots,
+            # this prevents overstated telemetry.
             if m42d_hc_extras > 0:
-                m42d_hc_reserved = min(
-                    hc_quota,
-                    len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, [])),
-                )
+                m42d_hc_reserved = 1 + m42d_hc_extras
                 m42d_telemetry_note = (
                     f"m42d_hc_quota_expand hc_pool="
                     f"{len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, []))} "
