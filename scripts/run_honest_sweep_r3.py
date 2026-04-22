@@ -974,10 +974,26 @@ async def run_one_query(
         # sweep slug. Empty list when no anchors (no change vs V25).
         from src.polaris_graph.retrieval.primary_trial_expander import (
             get_primary_trial_anchors_for_slug,
+            get_trial_population_scope_for_slug,
         )
         _primary_anchors = get_primary_trial_anchors_for_slug(
             _template, q["slug"]
         )
+
+        # M-50 (2026-04-22): derive the T2D-direct anchor set from the
+        # template's population_scope labels. Anchors labeled "direct"
+        # qualify for per-trial subsections. SURMOUNT-1/3/4 (indirect
+        # for T2D) excluded so weight-loss-only trials don't generate
+        # T2D-misleading subsections.
+        def _m50_direct_anchors_for_sweep(tmpl, slug):
+            scope = get_trial_population_scope_for_slug(tmpl, slug)
+            direct = [a for a, lab in scope.items() if lab == "direct"]
+            if not direct and _primary_anchors:
+                # When template has no scope labels, fall back to all
+                # configured anchors (backwards-compatible with slugs
+                # that haven't defined population_scope yet).
+                direct = list(_primary_anchors)
+            return direct
         evidence_selection = select_evidence_for_generation(
             research_question=q["question"],
             protocol=protocol,
@@ -1039,6 +1055,14 @@ async def run_one_query(
             # primary-trial evidence rows directly. Uses the same
             # anchors as M-35 retrieval + M-42e selector floor.
             primary_trial_anchors=_primary_anchors,
+            # M-50 (2026-04-22): pass T2D-direct anchors for per-trial
+            # subsections. Derived from the template's
+            # per_query_trial_population_scope dict — anchors labeled
+            # "direct" are eligible for subsections. SURMOUNT-1/3/4
+            # (indirect) excluded.
+            direct_trial_anchors=_m50_direct_anchors_for_sweep(
+                _template, q["slug"]
+            ),
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
@@ -1069,6 +1093,15 @@ async def run_one_query(
         if getattr(multi, "trial_timeline_text", ""):
             sections_concat += (
                 f"\n\n### Trial Program Timeline\n\n{multi.trial_timeline_text}"
+            )
+
+        # M-50 (2026-04-22): per-trial subsections for T2D-direct
+        # primary trials. Empty string when fewer than 2 qualifying
+        # primaries (strict gating — no empty subsections).
+        if getattr(multi, "m50_per_trial_subsections_text", ""):
+            sections_concat += (
+                f"\n\n## Per-Trial Summaries\n\n"
+                f"{multi.m50_per_trial_subsections_text}"
             )
 
         # M-45 (2026-04-22): persist per-URL refetch diagnostics for
@@ -1128,6 +1161,37 @@ async def run_one_query(
                 f"{len(m47_diag_obj['clamp_papers_in_subset'])} "
                 f"passes_threshold={passed}"
             )
+
+        # M-50 (2026-04-22): persist per-trial subsection telemetry.
+        m50_entries = getattr(
+            multi, "m50_per_trial_subsections_entries", [],
+        ) or []
+        (run_dir / "m50_per_trial_subsections.json").write_text(
+            json.dumps(
+                {
+                    "entries": m50_entries,
+                    "total_subsections": len(m50_entries),
+                    "total_chars": len(
+                        getattr(multi, "m50_per_trial_subsections_text", "")
+                    ),
+                    "input_tokens": getattr(
+                        multi,
+                        "m50_per_trial_subsections_input_tokens",
+                        0,
+                    ),
+                    "output_tokens": getattr(
+                        multi,
+                        "m50_per_trial_subsections_output_tokens",
+                        0,
+                    ),
+                },
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        if m50_entries:
+            trials = ", ".join(e.get("trial", "") for e in m50_entries)
+            _log(f"[m50]         per-trial subsections: {len(m50_entries)} [{trials}]")
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 

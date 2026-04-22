@@ -145,6 +145,13 @@ class MultiSectionResult:
     # clamp paper in its subset (no-op). See
     # `_m47_validate_mechanism_clamp_extraction` for schema.
     m47_mechanism_clamp_diagnostic: dict[str, Any] = field(default_factory=dict)
+    # M-50 (2026-04-22): per-trial subsection block. Empty string when
+    # fewer than 2 T2D-direct primaries qualify (strict gating). List
+    # of {trial, prose, biblio_num} dicts when subsections rendered.
+    m50_per_trial_subsections_text: str = ""
+    m50_per_trial_subsections_entries: list[dict[str, Any]] = field(default_factory=list)
+    m50_per_trial_subsections_input_tokens: int = 0
+    m50_per_trial_subsections_output_tokens: int = 0
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -1621,6 +1628,161 @@ async def _call_trial_summary_table(
     return table, in_tok, out_tok
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# M-50 (2026-04-22): per-trial subsection generator. Codex V28 plan
+# pass-2 APPROVED as the 4th BEAT_BOTH target.
+#
+# Gap addressed: V27 Structural depth lost (LOSE_BOTH) to both ChatGPT
+# (trial table) and Gemini (per-trial subsections). M-42b added the
+# table; M-50 adds named subsections for T2D-direct primary trials.
+#
+# Each subsection covers 7 elements: N, population, comparator,
+# endpoint, timepoint, effect-estimate-with-uncertainty, safety
+# caveat. Gated on M-42e primary availability AND T2D-direct
+# population_scope (SURMOUNT-1/3/4 excluded — obesity-only indirect).
+#
+# Strict gating: ≥2 T2D-direct primaries needed, else no subsections
+# emitted (no padding with empty subsections).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_M50_MIN_PRIMARIES_FOR_SUBSECTIONS = 2
+_M50_SUBSECTION_SYSTEM_PROMPT = """You are writing one PER-TRIAL SUBSECTION for a clinical research report.
+
+The user will provide:
+- Trial name (e.g., a phase-3 trial identifier)
+- Source quote from the primary publication
+- Bibliography marker number [N]
+
+Write a 4-6 sentence subsection covering these 7 elements (each inline):
+1. N (sample size)
+2. Population (inclusion criteria / baseline characteristics / CV risk profile)
+3. Comparator (control arm)
+4. Primary endpoint
+5. Timepoint
+6. Effect estimate WITH uncertainty (CI, SD, or p-value)
+7. Safety caveat (key adverse event signal or open-label / sponsorship note)
+
+Output format:
+- Plain prose, one paragraph.
+- Cite the primary source with [N] at the end of EACH factual claim.
+- Do NOT include a heading — the orchestrator adds "### TRIAL_NAME" around your output.
+- Do NOT include ellipses (...) or placeholders — use only verifiable numbers from the quote.
+- Do NOT claim findings beyond the quote — if any of the 7 elements is missing from the quote, skip it and mention what's missing in the final sentence.
+
+Example skeleton (placeholders; do NOT use drug names or study names from this example):
+"[TRIAL] enrolled N=[N] [POPULATION] [N]. Participants were randomized to [INTERVENTION] versus [COMPARATOR] [N]. The primary endpoint was [ENDPOINT] at [TIMEPOINT] [N]. [INTERVENTION] reduced [ENDPOINT] by [EFFECT] ([UNCERTAINTY]) versus [COMPARATOR] [N]. Adverse events: [SAFETY_SIGNAL] [N]."
+
+CRITICAL:
+- Every sentence must end with [N] citation.
+- No extrapolation, no marketing language.
+- If the quote does not contain an element, omit the element — do not invent.
+"""
+
+
+async def _call_m50_per_trial_subsection(
+    *,
+    trial_name: str,
+    direct_quote: str,
+    biblio_num: int,
+    model: str,
+    temperature: float = 0.2,
+    max_tokens: int = 400,
+) -> tuple[str, int, int]:
+    """M-50 (2026-04-22): generate one per-trial subsection.
+
+    Returns (prose, input_tokens, output_tokens). Empty prose when the
+    LLM call fails. Caller wraps prose in '### TRIAL_NAME\\n\\n' heading.
+    """
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+    prompt = (
+        f"Trial name: {trial_name}\n\n"
+        f"Primary-source quote ([{biblio_num}] citation marker):\n\n"
+        f"{direct_quote}\n\n"
+        f"Write the subsection now covering the 7 elements inline, "
+        f"citing [{biblio_num}] after each factual claim."
+    )
+
+    client = OpenRouterClient(model=model)
+    try:
+        response = await client.generate(
+            prompt=prompt,
+            system=_M50_SUBSECTION_SYSTEM_PROMPT,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = (response.content or "").strip()
+        in_tok = response.input_tokens
+        out_tok = response.output_tokens
+    except Exception as exc:
+        logger.warning("[multi_section] M-50 subsection call failed for %s: %s",
+                       trial_name, exc)
+        text, in_tok, out_tok = "", 0, 0
+    finally:
+        if hasattr(client, "close"):
+            try:
+                await client.close()
+            except Exception:
+                pass
+    return text, in_tok, out_tok
+
+
+def _m50_select_candidate_trials(
+    evidence_pool: dict[str, dict[str, Any]],
+    primary_ev_ids_by_anchor: dict[str, list[str]],
+    bibliography: list[dict[str, Any]],
+    direct_anchors: set[str],
+) -> list[tuple[str, dict[str, Any], int]]:
+    """M-50 (2026-04-22): select candidate trials for per-trial
+    subsections.
+
+    Returns list of (anchor, primary_row, biblio_num) tuples for every
+    anchor that:
+      - is in the T2D-direct set (passed by caller via direct_anchors)
+      - has ≥1 M-42e-detected primary ev_id in the pool
+      - the primary has a direct_quote ≥100 chars (strict contract)
+      - the primary ev_id has a matching bibliography entry
+
+    If fewer than _M50_MIN_PRIMARIES_FOR_SUBSECTIONS qualify, returns
+    empty list (strict gating — no subsections emitted).
+    """
+    candidates: list[tuple[str, dict[str, Any], int]] = []
+    biblio_by_evid: dict[str, int] = {}
+    for entry in bibliography:
+        evid = entry.get("evidence_id")
+        num = entry.get("num")
+        if isinstance(evid, str) and isinstance(num, int):
+            biblio_by_evid[evid] = num
+
+    for anchor, ev_ids in primary_ev_ids_by_anchor.items():
+        if anchor not in direct_anchors:
+            continue  # skip SURMOUNT-1/3/4 (indirect) and any other
+        for ev_id in ev_ids:
+            row = evidence_pool.get(ev_id)
+            if not row:
+                continue
+            # Pick whichever quote variant is ≥100 chars.
+            # Plain `a or b` short-circuits on any non-empty string,
+            # so a thin direct_quote would hide a fat refetched quote.
+            dq = row.get("direct_quote") or ""
+            rq = row.get("_m42b_refetched_quote") or ""
+            if len(dq) >= 100:
+                quote = dq
+            elif len(rq) >= 100:
+                quote = rq
+            else:
+                continue
+            biblio_num = biblio_by_evid.get(ev_id)
+            if not isinstance(biblio_num, int):
+                continue
+            candidates.append((anchor, row, biblio_num))
+            break  # one primary per anchor
+
+    if len(candidates) < _M50_MIN_PRIMARIES_FOR_SUBSECTIONS:
+        return []
+    return candidates
+
+
 async def _call_limitations(
     *,
     tier_fractions: dict[str, float] | None,
@@ -2467,6 +2629,15 @@ async def generate_multi_section_report(
     # trial-table/timeline builder. When None/empty, LLM fallback
     # path runs (M-36 behavior).
     primary_trial_anchors: list[str] | None = None,
+    # M-50 (2026-04-22): T2D-direct anchor set for per-trial
+    # subsections. Only anchors in this set render subsections;
+    # indirect (SURMOUNT-1/3/4) excluded. When None, defaults to
+    # the full `primary_trial_anchors` set (caller responsibility to
+    # filter). Empty set disables M-50.
+    direct_trial_anchors: list[str] | None = None,
+    # M-50 max tokens per subsection call
+    m50_subsection_max_tokens: int = 400,
+    m50_subsection_temperature: float = 0.2,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -2877,6 +3048,91 @@ async def generate_multi_section_report(
                     "available for LLM fallback; table suppressed"
                 )
 
+    # M-50 (2026-04-22): per-trial subsection generator. Adds named
+    # subsections for T2D-direct primary trials. Gated on ≥2 qualifying
+    # primaries (strict — no padding with empty subsections).
+    m50_subsections_text = ""
+    m50_subsection_entries: list[dict[str, Any]] = []
+    m50_in_tok = 0
+    m50_out_tok = 0
+    if (
+        primary_trial_anchors
+        and m44_primary_by_anchor
+        and direct_trial_anchors is not None
+        and m50_subsection_max_tokens > 0
+        and global_biblio
+    ):
+        direct_set = set(direct_trial_anchors)
+        candidates = _m50_select_candidate_trials(
+            evidence_pool=evidence_pool,
+            primary_ev_ids_by_anchor=m44_primary_by_anchor,
+            bibliography=global_biblio,
+            direct_anchors=direct_set,
+        )
+        if candidates:
+            logger.info(
+                "[multi_section] M-50 generating per-trial subsections "
+                "for %d trials", len(candidates),
+            )
+            # Run subsection calls in parallel (bounded by existing
+            # section semaphore for rate limits).
+            async def _gen_one(
+                anchor: str,
+                row: dict[str, Any],
+                biblio_num: int,
+            ) -> tuple[str, str, int, int, int]:
+                quote = (row.get("direct_quote") or
+                         row.get("_m42b_refetched_quote") or "")
+                prose, i_tok, o_tok = await _call_m50_per_trial_subsection(
+                    trial_name=anchor,
+                    direct_quote=quote,
+                    biblio_num=biblio_num,
+                    model=gen_model,
+                    temperature=m50_subsection_temperature,
+                    max_tokens=m50_subsection_max_tokens,
+                )
+                return anchor, prose, biblio_num, i_tok, o_tok
+
+            async def _bounded_gen(*args):
+                async with sem:
+                    return await _gen_one(*args)
+
+            results = await asyncio.gather(*[
+                _bounded_gen(anchor, row, num)
+                for anchor, row, num in candidates
+            ])
+            subsection_blocks: list[str] = []
+            for anchor, prose, biblio_num, i_tok, o_tok in results:
+                m50_in_tok += i_tok
+                m50_out_tok += o_tok
+                if prose and len(prose) >= 100:
+                    block = f"### {anchor}\n\n{prose}"
+                    subsection_blocks.append(block)
+                    m50_subsection_entries.append({
+                        "trial": anchor,
+                        "biblio_num": biblio_num,
+                        "prose_chars": len(prose),
+                        "input_tokens": i_tok,
+                        "output_tokens": o_tok,
+                    })
+            if len(subsection_blocks) >= _M50_MIN_PRIMARIES_FOR_SUBSECTIONS:
+                m50_subsections_text = "\n\n".join(subsection_blocks)
+                total_words += sum(len(s.split()) for s in subsection_blocks)
+                total_in_tok += m50_in_tok
+                total_out_tok += m50_out_tok
+                logger.info(
+                    "[multi_section] M-50 emitted %d subsection(s); "
+                    "total chars=%d",
+                    len(subsection_blocks), len(m50_subsections_text),
+                )
+            else:
+                logger.info(
+                    "[multi_section] M-50 suppressed: %d subsection(s) "
+                    "generated, below threshold of %d",
+                    len(subsection_blocks),
+                    _M50_MIN_PRIMARIES_FOR_SUBSECTIONS,
+                )
+
     return MultiSectionResult(
         sections=section_results,
         outline=plans,
@@ -2900,6 +3156,11 @@ async def generate_multi_section_report(
         m44_validator_violations=m44_validator_violations,
         # M-47 (2026-04-22)
         m47_mechanism_clamp_diagnostic=m47_diag,
+        # M-50 (2026-04-22)
+        m50_per_trial_subsections_text=m50_subsections_text,
+        m50_per_trial_subsections_entries=m50_subsection_entries,
+        m50_per_trial_subsections_input_tokens=m50_in_tok,
+        m50_per_trial_subsections_output_tokens=m50_out_tok,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,
