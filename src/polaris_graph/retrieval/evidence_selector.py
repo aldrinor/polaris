@@ -136,6 +136,72 @@ def _row_jurisdiction(row: dict[str, Any]) -> str | None:
     return None
 
 
+# M-42e (2026-04-22): named-trial primary-paper floor for T1 tier.
+# V25 had SURPASS-2 NEJM cited but missed SURPASS-1 Rosenstock,
+# SURPASS-3 Ludvik, SURMOUNT-1 Jastreboff as first-class biblio
+# entries even though M-35 anchor queries surfaced them into the
+# corpus. The tier-balanced selector gave T1 proportional slots
+# allocated by relevance, letting meta-analyses and review papers
+# outscore primary trials on lexical relevance.
+#
+# M-42e adds a T1 named-trial-primary floor: for each anchor trial
+# configured in `per_query_primary_trial_anchors`, if the T1 pool
+# contains a matching primary paper (title regex), reserve 1 slot
+# before filling T1 by relevance. Capped at 6 (prevents displacing
+# T2 meta-analysis allocation below V25 baseline).
+_M42E_PRIMARY_FLOOR_CAP = 6
+
+# Known primary-publication DOI prefixes (NEJM, Lancet, JAMA,
+# Diabetes Care, Nat Med). Used alongside title regex to detect
+# primary-trial rows in T1 pool.
+_M42E_PRIMARY_DOI_PREFIXES = (
+    "10.1056/nejm",    # NEJM
+    "10.1016/s0140-6736",  # Lancet
+    "10.1016/s2213-8587",  # Lancet Diabetes & Endocrinology
+    "10.1001/jama",    # JAMA
+    "10.2337/dc",      # Diabetes Care
+    "10.1038/s41591",  # Nat Med
+    "10.1016/s2468-1253",  # Lancet Gastro
+    "10.1038/s41586",  # Nature
+)
+
+
+def _m42e_detect_primary_for_anchor(
+    row: dict[str, Any],
+    anchor: str,
+) -> bool:
+    """True if `row` appears to be the primary publication for the
+    named-trial `anchor` (e.g. 'SURPASS-2', 'SURMOUNT-1').
+
+    Detection: anchor appears in row title AND row URL/DOI matches
+    a known primary-publication prefix. Both conditions required to
+    prevent tagging post-hoc analyses / substudies / abstracts as
+    primaries.
+    """
+    if not anchor:
+        return False
+    title = (row.get("title") or "").lower()
+    url = (row.get("source_url") or row.get("url") or "").lower()
+    anchor_l = anchor.lower()
+    # Title must contain the anchor (possibly with colon or
+    # parenthesis separator).
+    if anchor_l not in title:
+        return False
+    # URL must look like a primary publication — DOI prefix OR
+    # host suggesting peer-reviewed journal.
+    if any(p in url for p in _M42E_PRIMARY_DOI_PREFIXES):
+        return True
+    # Fallback: nejm.org, thelancet.com, jamanetwork.com, nature.com
+    primary_hosts = (
+        "nejm.org", "thelancet.com", "jamanetwork.com",
+        "nature.com", "diabetesjournals.org",
+    )
+    for h in primary_hosts:
+        if h in url:
+            return True
+    return False
+
+
 def _row_relevance(
     row: dict[str, Any],
     question_tokens: set[str],
@@ -163,6 +229,7 @@ def select_evidence_for_generation(
     classified_sources: list[Any],
     evidence_rows: list[dict[str, Any]],
     max_rows: int,
+    primary_trial_anchors: list[str] | None = None,
 ) -> EvidenceSelection:
     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
 
@@ -314,8 +381,58 @@ def select_evidence_for_generation(
     for tier in by_tier:
         by_tier[tier].sort(key=lambda x: (-x[1], x[0]))
 
+    # M-42e (2026-04-22): T1 named-trial primary floor. Compute
+    # anchor-matched primary rows once so we can reserve their
+    # slots before the T1 pick-by-relevance pass. Capped at
+    # `_M42E_PRIMARY_FLOOR_CAP` to avoid displacing T2 allocation.
+    m42e_primary_ids: set[int] = set()
+    if primary_trial_anchors and quotas.get("T1", 0) > 0:
+        t1_items_for_m42e = by_tier.get("T1", [])
+        for anchor in primary_trial_anchors:
+            if len(m42e_primary_ids) >= _M42E_PRIMARY_FLOOR_CAP:
+                break
+            # Find the highest-scoring T1 row matching this anchor
+            for item in t1_items_for_m42e:
+                if id(item) in m42e_primary_ids:
+                    continue
+                if _m42e_detect_primary_for_anchor(item[3], anchor):
+                    m42e_primary_ids.add(id(item))
+                    break
+        # Preservation guard: don't expand T1 usage beyond its
+        # quota. The floor operates WITHIN the T1 quota — if
+        # T1 quota is 8 and 6 anchor-matched primaries exist, all
+        # 6 primaries + 2 top-scored rows fill the T1 quota.
+        # If primary_count > T1 quota, cap reservations at quota.
+        if len(m42e_primary_ids) > quotas.get("T1", 0):
+            # Reduce reservations to match quota — keep highest-scored
+            # primaries.
+            t1_items_by_score = sorted(
+                [i for i in t1_items_for_m42e if id(i) in m42e_primary_ids],
+                key=lambda x: (-x[1], x[0]),
+            )
+            m42e_primary_ids = set(
+                id(i) for i in t1_items_by_score[:quotas.get("T1", 0)]
+            )
+
     selected: list[tuple[int, float, str, dict[str, Any]]] = []
     for tier, quota in quotas.items():
+        # M-42e: for T1 tier, reserve named-trial primary slots
+        # (computed above) before filling rest by relevance.
+        if tier == "T1" and quota > 0 and m42e_primary_ids:
+            tier_items = by_tier.get("T1", [])
+            reserved_t1 = [
+                i for i in tier_items if id(i) in m42e_primary_ids
+            ][:quota]
+            slots_left = quota - len(reserved_t1)
+            # Fill remaining T1 slots by relevance (skipping reserved)
+            for item in tier_items:
+                if slots_left <= 0:
+                    break
+                if id(item) not in m42e_primary_ids:
+                    reserved_t1.append(item)
+                    slots_left -= 1
+            selected.extend(reserved_t1)
+            continue
         # M-41d: for T3 (regulatory) tier, enforce a
         # jurisdictional-diversity floor — reserve one slot per
         # present jurisdiction (FDA, EMA, NICE, HC, ...) before

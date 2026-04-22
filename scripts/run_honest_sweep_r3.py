@@ -940,12 +940,24 @@ async def run_one_query(
             select_evidence_for_generation,
         )
         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+        # M-42e (2026-04-22): pass primary_trial_anchors to the
+        # selector so it can reserve T1 slots for named-trial
+        # primary papers. Anchors come from the loaded scope
+        # template's `per_query_primary_trial_anchors` map keyed by
+        # sweep slug. Empty list when no anchors (no change vs V25).
+        from src.polaris_graph.retrieval.primary_trial_expander import (
+            get_primary_trial_anchors_for_slug,
+        )
+        _primary_anchors = get_primary_trial_anchors_for_slug(
+            _template, q["slug"]
+        )
         evidence_selection = select_evidence_for_generation(
             research_question=q["question"],
             protocol=protocol,
             classified_sources=retrieval.classified_sources,
             evidence_rows=retrieval.evidence_rows,
             max_rows=max_ev,
+            primary_trial_anchors=_primary_anchors,
         )
         evidence_for_gen = evidence_selection.selected_rows
         _log(f"[select]      strategy={evidence_selection.selection_strategy} "

@@ -131,6 +131,17 @@ def _extract_anchors(
     return unique
 
 
+def get_primary_trial_anchors_for_slug(
+    template: dict[str, Any] | None,
+    slug: str,
+) -> list[str]:
+    """M-42e (2026-04-22): public accessor for the raw anchor list
+    for a given sweep slug. Used by the evidence selector to apply
+    a T1 primary-paper floor. Same validation rules as `_extract_anchors`
+    — returns cleaned, deduplicated anchors or empty list."""
+    return _extract_anchors(template, slug)
+
+
 def expand_primary_trial_queries(
     question: str,
     template: dict[str, Any] | None,
