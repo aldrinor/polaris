@@ -1,327 +1,425 @@
-# V27 → V28 Fix Plan (autoloop V2, Claude draft for Codex co-review)
+# V27 → V28 Fix Plan — PASS-2 (post Codex pass-1 CONDITIONAL)
 
-**Context**. V27 cross-reviewed deep content audit (both Codex and
-Claude, line-by-line PRISMA/AMSTAR-2 pass) converged on:
-- ChatGPT 4 topic wins (SURPASS-2, SURPASS-CVOT, SURPASS-4, Contradictions)
-- V27 1 topic win (Regulatory)
-- Gemini 1 topic win (Mechanism)
+**Pass history**
+- Pass-1 (Claude draft, committed e9e8f6c): 6 items, M-48/M-46/M-45/M-44/M-47/M-49.
+- Codex pass-1 verdict (`outputs/codex_findings/v28_fix_plan_review_pass1/findings.md`):
+  CONDITIONAL. 1 approved (M-48 w/ minor tweak), 5 needs_revision
+  (M-46 selector-level not launcher-knob; M-45 AccessBypass already
+  exists → diagnose first; M-44 needs scorer/subset boost not
+  prompt-only; M-47 needs evidence-linked validator; M-49 tests need
+  normalized matchers). **+1 new item requested**: M-50 per-trial
+  subsection generator (to reach 4+ BEAT_BOTH instead of just killing
+  LOSE_BOTH).
 
-V27 is **rigorously bound but materially incomplete** for a clinical
-audience. Root causes are generator-level (primary-trial under-citation)
-+ infrastructure-level (dormant M-42 floors, suppressed M-42b table)
-+ corpus-level (paywalled primary PDFs yielding thin direct_quote).
+Pass-2 incorporates every Codex requirement. All 6 original items
+revised + M-50 added.
 
-**Stop criterion** (unchanged). BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR
-on 7 dimensions head-to-head. V28 target: 4-5 BEAT_BOTH + 2-3 BEAT_ONE
-+ 0 LOSE_BOTH on cross-reviewed content audit.
+## Stop criterion (unchanged)
 
-**Dimension-preservation statement (whole plan)**.
-- Regulatory BEAT_BOTH (V27 win): preserved. M-48 does not touch
-  regulatory_anchors; M-49 test `test_nice_coverage_preserved ≥4`
-  and `test_hc_coverage_preserved ≥3` are hard floors.
-- Jurisdictional BEAT_ONE/BOTH: preserved via same M-49 floors.
-- Contradiction handling BEAT_BOTH: preserved. No changes to the
-  detector or Contradiction-disclosures section; M-49 test
-  `test_contradiction_enumeration_preserved` asserts 13-item
-  enumeration remains present.
-- Per-sentence [ev_id] provenance: preserved. All V28 items are
-  additive to prose/structure, not replacements for strict_verify.
+BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR on 7 dimensions, cross-reviewed
+content audit. V28 target (revised after Codex input): **4 BEAT_BOTH
++ 3 BEAT_ONE + 0 LOSE_BOTH** (previously 3 BB + 4 BO + 0 LB — M-50
+adds the 4th BEAT_BOTH via per-trial subsections).
 
-## Items (ordered by Codex-recommended implementation sequence)
+## Dimension-preservation statement (whole plan, unchanged)
 
-### [1st] M-48 — SURMOUNT + SURPASS-CVOT anchor verification (retrieval)
+- Regulatory BEAT_BOTH: preserved via M-49 floors (NICE ≥4, HC ≥3).
+- Jurisdictional BEAT_BOTH: preserved (same M-49 floors).
+- Contradiction handling BEAT_BOTH: preserved (no detector changes;
+  M-49 test asserts 13-item enumeration present).
+- Per-sentence [ev_id] provenance: preserved across all items.
+
+## Items (Codex-recommended implementation order, pass-2 revised)
+
+### [1st] M-48 — SURMOUNT + SURPASS-CVOT anchor verification (root_cause, Codex approved)
 
 **Causal stage**. `config/scope_templates/clinical.yaml`
-(`per_query_primary_trial_anchors`) + `src/polaris_graph/retrieval/
-primary_trial_expander.py`.
+(`per_query_primary_trial_anchors`) +
+`src/polaris_graph/retrieval/primary_trial_expander.py`.
 
-**Prior mechanism gap**. V27 omitted SURPASS-CVOT entirely and all
-four SURMOUNT trials despite the research question asking about "weight
-loss in adults with T2D" (SURMOUNT-2 is exactly that — T2D + obesity).
-Anchor list may be correct on paper; evidence is whether primary NEJM/
-Lancet publications actually land in the live_corpus.
+**Prior mechanism gap**. V27 omitted SURPASS-CVOT and all SURMOUNT
+trials despite presence of anchors. Retrieval-side gap: anchor fires
+but primary doesn't land in the corpus-ready form.
 
-**Fix**.
-1. Verify `clinical.yaml` anchor list contains: SURPASS-1, -2, -3, -4,
-   -5, -6, -CVOT, SURMOUNT-1, -2, -3, -4 (11 anchors; M-43 cap=12 fits).
-2. Retrieval-only test run (no generator): assert live_corpus contains
-   ≥1 primary publication per anchor. Primary = title contains anchor
-   token AND URL is NEJM/Lancet/JAMA/Nat Med/Diabetes Care DOI OR host
-   (matches M-42e `_m42e_detect_primary_for_anchor`).
-3. For each anchor where no primary lands after retrieval, widen the
-   expander query form: currently "SURPASS-2 tirzepatide type 2
-   diabetes"; add "SURPASS-2 Frías NEJM" (first-author variant) and
-   "SURPASS-2 primary publication". 3 query variants per anchor
-   (current 1 → 3 = extra ~22 Serper queries, ~$0.002).
+**Fix (pass-2 tightened per Codex revision #7)**.
+1. Verify anchor list: SURPASS-1..6, SURPASS-CVOT, SURMOUNT-1..4
+   (11 total; M-43 cap=12 fits).
+2. Per-anchor first-author variants (NOT a single generic):
+   - SURPASS-1 → "Rosenstock Lancet tirzepatide"
+   - SURPASS-2 → "Frías NEJM tirzepatide semaglutide"
+   - SURPASS-3 → "Ludvik Lancet tirzepatide insulin degludec"
+   - SURPASS-4 → "Del Prato Lancet tirzepatide glargine"
+   - SURPASS-5 → "Dahl JAMA tirzepatide glargine"
+   - SURPASS-6 → "Rosenstock JAMA tirzepatide glargine premeal"
+   - SURPASS-CVOT → "Nicholls tirzepatide cardiovascular outcomes"
+   - SURMOUNT-1 → "Jastreboff NEJM tirzepatide obesity"
+   - SURMOUNT-2 → "Garvey Lancet tirzepatide obesity diabetes"
+   - SURMOUNT-3 → "Wadden Nature Medicine tirzepatide maintenance"
+   - SURMOUNT-4 → "Aronne JAMA tirzepatide maintenance"
+3. Retrieval-only pre-flight: `scripts/v28_retrieval_preflight.py`
+   asserts ≥1 `_m42e_detect_primary_for_anchor`-positive row per
+   anchor.
+4. **Population-scope labels (Codex revision #7)**: SURMOUNT-2 is
+   T2D+obesity (direct). SURMOUNT-1/3/4 are obesity-only unless row's
+   population label includes T2D; the selector and generator must
+   tag these as `indirect_for_t2d=True` so weight-loss claims don't
+   merge non-T2D estimates into direct T2D efficacy prose.
 
-**Acceptance**. V28 live_corpus_dump.json contains ≥1
-`_m42e_detect_primary_for_anchor`-positive row for each of the 11
-anchors. Pre-flight script `scripts/v28_retrieval_preflight.py` runs
-this assertion before full V28 sweep.
+**Acceptance**. V28 live_corpus_dump.json contains ≥1 primary row per
+anchor AND each SURMOUNT row has `indirect_for_t2d` metadata set
+correctly.
 
-**Test coverage**. New `tests/polaris_graph/test_m48_anchor_retrieval.py`
-with retrieval fixture asserting all 11 anchors produce primary matches.
+**Test coverage**. `tests/polaris_graph/test_m48_anchor_retrieval.py`:
+(a) 11 anchors produce ≥1 primary match in fixture, (b) SURMOUNT-1/3/4
+tagged indirect, (c) SURMOUNT-2 tagged direct.
 
-**Classification**. `root_cause`. Fixes the "anchor fires but primary
-doesn't land" retrieval-to-corpus flow gap.
+**Classification**. `root_cause`.
 
-### [2nd] M-46 — Drop max_rows 600→300 to activate dormant M-42 floors
+### [2nd] M-46 — Selector early-exit fix + V28 cap (root_cause, pass-2 revised)
 
-**Causal stage**. `scripts/run_full_scale_v28.py` env
-`PG_LIVE_MAX_EV_TO_GEN=300`.
+**Causal stage** (per Codex revision #1). `src/polaris_graph/retrieval/
+evidence_selector.py` early-exit policy + V28 launcher cap.
 
-**Prior mechanism gap**. V27 forensic finding: selector short-circuits
-when `pool_size <= max_rows`. V27 pool=422 < max_rows=600 → short-circuit
-path bypassed the tier-balancing + floor-reservation branch. M-42c/d/e
-floors were in code but never gated selection.
+**Prior mechanism gap**. Claude pass-1 was a launcher knob
+(PG_LIVE_MAX_EV_TO_GEN=300). Codex correctly pointed out the durable
+root cause is the selector itself: when `pool_size <= max_rows`, the
+early-exit branch bypasses floor reservations, ranking, and telemetry.
+A run with a small corpus silently loses the M-42e/c/d benefits.
 
-**Fix**. Lower max_rows to 300. Pool size typically 400-500 → selector
-takes the full floor-gated path. Downstream effect: mechanism-rich T1+T2
-rows reserved (M-42c), HC quota fires (M-42d), primary-trial T1 floor
-fires (M-42e). All three dim improvements become real at runtime.
+**Fix (pass-2 per Codex verbatim language)**.
+1. Selector behavior: when floor inputs are configured
+   (`primary_trial_anchors` non-empty, mechanism rows ≥4, or
+   jurisdiction quotas active), the selector must compute floor
+   reservations, ranking, and telemetry **even if
+   `len(scored) <= max_rows`**. It may return all rows only after
+   applying deterministic priority ordering (M-42e reserved first,
+   then M-42c mechanism, then M-42d HC, then relevance) and emitting
+   floor notes.
+2. V28 launcher still sets `PG_LIVE_MAX_EV_TO_GEN=300` as a sweep-
+   size control, but the permanent fix is the selector change.
 
-**Acceptance**. V28 manifest.evidence_selection.notes contains entries
-`m42e_primary_floor ...`, `m42c_mechanism_floor ...`, and
-`m42d_hc_quota_expand ...` (at least one of each where applicable).
+**Preservation risk**. Fully-ordered output replaces arbitrary tier
+order when pool_size ≤ max_rows. Mitigation: existing selector
+consumers only read the selected list in order for downstream prompts,
+so stability improves (primaries appear first in the prompt window).
 
-**Test coverage**. Integration test in V28 preflight: run selector on
-V27 pool (fixture) with max_rows=300 and assert all three notes present.
+**Acceptance (Codex verbatim)**. "With a fixture where
+`pool_size <= max_rows`, selector notes still include applicable
+`m42e_primary_floor`, `m42c_mechanism_floor`, and
+`m42d_hc_quota_expand`, and selected row ordering places reserved
+primary/mechanism/regulatory rows before derivative rows."
 
-**Classification**. `root_cause`. Addresses why the M-42 bundle that
-was Codex-approved never actually fired.
+**Test coverage**. `tests/polaris_graph/test_m46_selector_no_bypass.py`:
+(a) fixture pool=50, max_rows=100, anchors configured → notes present,
+order correct, (b) fixture pool=300, max_rows=100 (no short-circuit)
+→ identical note pattern, (c) no anchors configured → no notes
+(backward compat).
 
-### [3rd] M-45 — M-42b refetch cascade (Crawl4AI → Jina → Firecrawl)
+**Classification**. `root_cause`.
 
-**Causal stage**. `src/polaris_graph/retrieval/live_retriever.py
-::refetch_for_extraction` + builder call in
-`multi_section_generator.build_trial_summary_and_timeline_from_evidence`.
+### [3rd] M-44 — Scorer/subset primary boost + same-sentence validator (root_cause, pass-2 revised)
 
-**Prior mechanism gap**. M-42b's strict direct_quote ≥100 char contract
-correctly rejected thin quotes from paywalled NEJM/Lancet PDFs. V27
-trial table suppressed (0 rows emitted) → Structural depth LOSE_BOTH.
-The refetch path existed but only tried a single backend with default
-timeout.
+**Causal stage** (per Codex revision #3). Section-level evidence-
+subset scoring in `multi_section_generator._select_evidence_for_section`
+PLUS post-generation validator. **NOT prompt-only** (Codex
+correctly noted M-20 trial-specific rule already exists — adding
+another would be duplication).
 
-**Fix (preserving the strict contract — NOT a contract reversal)**.
-1. Upgrade `refetch_for_extraction(url, max_chars)` to a 3-backend
-   concurrent cascade: Crawl4AI (existing) + Jina Reader + Firecrawl.
-   All three called in parallel with 30s timeout; first to return
-   ≥100 char content wins. No sequential fallback — the existing
-   single-backend cascade is the baseline.
-2. If all three return thin content, row remains
-   `extraction_ineligible=True` and is skipped (strict contract holds).
-3. Cache the refetched content on the evidence row as
-   `_m42b_refetched_quote` for the remainder of the run.
+**Prior mechanism gap**. Section-subset scorer ranks evidence by
+generic relevance; primaries lose to post-hocs that have more
+semantic overlap with the section heading. V27 evidence:
+SURPASS-2 primary (NEJM) was in the corpus but SURPASS-2 post-hoc
+(T4) was higher-ranked and was what the generator cited. Prompt-only
+enforcement (Claude pass-1 rule 13) repeats M-20; Codex wants
+pre-prompt pressure at the scoring stage.
 
-**Preservation risk**. Refetch timeout could extend sweep wall-clock.
-Mitigation: per-row 30s hard cap with `asyncio.wait`; no retry loop.
-Expected impact <5 min on total sweep time.
+**Fix (pass-2)**.
+1. **Scorer boost** in section evidence selection: for Efficacy,
+   Comparative, Safety, Weight Loss, Cardiovascular sections, add
+   `+0.3` score bonus to rows with `is_primary_trial=True` (M-42e
+   tag) when the row's anchor token matches section focus (e.g.
+   SURPASS-2 in Efficacy → boost; SURPASS-CVOT in Cardiovascular →
+   boost). No boost for Regulatory / Contradictions / Limitations /
+   Methods sections (primaries not authoritative there).
+2. **Subset composition**: after scoring, ensure section subset
+   contains the primary row when present. If primary is ranked but
+   would be truncated by the section's evidence cap, swap the lowest-
+   scored non-primary row for the primary.
+3. **Post-generation validator (Codex revision #4)**: for each named
+   trial mentioned in the section, if a matching M-42e primary
+   ev_id is in the section subset, that primary ev_id must be cited
+   in the SAME sentence or the IMMEDIATELY ADJACENT sentence. For
+   section-relevant primary ev_ids NOT mentioned by name, require
+   at least one primary-trial citation per report-level major trial
+   (not every ev_id in every section — that would bloat).
+4. Trigger one regen if validator fails; emit
+   `m44_primary_citation_incomplete` telemetry if still missing.
 
-**Acceptance**. V28 report.md contains Trial Summary table with ≥6
-rows (≥4/7 cells each) AND Trial Program Timeline with ≥6 entries.
+**Preservation risk**. Scorer boost could push non-primary reviews
+off the subset. Mitigation: boost is +0.3 (relative), not absolute
+displacement; reviews still rank above thin snippets.
 
-**Test coverage**. `tests/polaris_graph/test_m45_refetch_cascade.py`:
-(a) all 3 backends return thin → row skipped, (b) Jina returns fat →
-row accepted, (c) timeout: returns thin gracefully (no hang).
+**Acceptance**. V28 report cites primary publications for ≥7 of 11
+named pivotal trials with primary cite in same/adjacent sentence as
+the trial name.
 
-**Classification**. `root_cause`. Addresses "primary PDFs are
-paywalled → direct_quote thin → M-42b suppresses" at the earliest
-preventable stage (content acquisition).
+**Test coverage (Codex revision #3 verbatim test)**. `tests/polaris_
+graph/test_m44_scorer_subset_primary_boost.py`:
+- Given section subset candidate pool with SURPASS-2 primary +
+  SURPASS-2 post-hoc + meta-analysis, selected subset includes primary
+  ahead of derivatives.
+- Generated prose citing SURPASS-2 by name must cite primary in
+  same/adjacent sentence.
 
-### [4th] M-44 — Primary-trial citation hard floor in generator
+**Classification**. `root_cause` (combined scorer + validator).
 
-**Causal stage**. `SECTION_SYSTEM_PROMPT_TEMPLATE` new rule 13
-+ post-generation validator in
-`src/polaris_graph/generator/multi_section_generator.py`.
+### [4th] M-45 — Refetch diagnostics then targeted fix (root_cause, pass-2 revised)
 
-**Prior mechanism gap**. Generator's relevance scorer preferred T4
-post-hocs and T2 meta-analyses over T1 primaries. V27 cited
-SURPASS-2 via T4 post-hoc, SURPASS-4 via meta-analysis mention, and
-omitted SURPASS-CVOT + SURMOUNT trials entirely despite their
-presence in the evidence subset.
+**Causal stage** (per Codex revision #2). Diagnosis first of
+`live_retriever._fetch_content` AccessBypass cascade behavior, then
+targeted acquisition fix based on diagnostics.
 
-**Fix**.
-1. New prompt rule 13 (applies to Efficacy, Comparative, Safety, Weight
-   Loss sections, NOT Regulatory/Contradictions/Limitations):
-   > "When the section's evidence subset contains an M-42e-tagged
-   > primary-trial row (verified via `is_primary_trial=True` metadata),
-   > the section MUST cite that row at least once. A section that
-   > mentions a named trial by its short-name (SURPASS-2, SURMOUNT-1,
-   > etc.) MUST cite the PRIMARY publication of that trial when present
-   > in the evidence subset, NOT a post-hoc or meta-analysis derivative.
-   > Preference order: T1 primary > T1 review > T2 meta-analysis >
-   > T4 post-hoc. If only a non-primary source is available, phrase
-   > the mention as 'In a post-hoc analysis of [STUDY NAME]...' or
-   > 'A meta-analysis including [STUDY NAME]...' to signal the
-   > evidence tier honestly."
-2. Post-generation validator: for each section, enumerate primary-trial
-   evidence ev_ids present in the subset; verify each is cited at
-   least once in the section's verified prose. If any uncited, trigger
-   one regeneration with explicit "the following primary-trial
-   citations are REQUIRED: [ev_X, ev_Y, ...]" appended to the prompt.
+**Prior mechanism gap**. Claude pass-1 assumed no cascade existed.
+Codex correctly pointed out `refetch_for_extraction()` already
+routes through `_fetch_content` which documents an AccessBypass
+concurrent cascade (Crawl4AI + Jina + Firecrawl). V27 still yielded
+thin quotes despite this — the question is WHY, not whether to add
+a cascade.
 
-**Preservation risks**.
-- Over-citation: forcing all primary ev_ids could bloat sections.
-  Mitigation: rule 13 says "at least once" not "exhaustively"; one
-  citation per primary ev_id satisfies the rule.
-- Forcing regen could increase cost. Cap at 1 regen per section
-  (existing pattern), then emit telemetry flag
-  `m44_primary_citation_incomplete` if still missing after regen.
+**Fix (pass-2)**.
+1. **Diagnostics phase**: instrument `refetch_for_extraction` to emit
+   per-URL `refetch_diagnostics.json` with:
+   - attempted backends (Crawl4AI / Jina / Firecrawl flags)
+   - returned char count per backend
+   - content-type header per backend
+   - final eligibility (≥100 char direct_quote)
+   - failure mode if ineligible: paywall (403/401) / thin / timeout /
+     non-text
+2. Run a 20-URL diagnostic sweep against V27 primary-trial URLs.
+3. **Targeted fix based on findings**. Three likely branches:
+   - If AccessBypass is NOT actually invoking Jina/Firecrawl in this
+     path → wire those providers explicitly.
+   - If it IS invoking but provider returns non-abstract content
+     (e.g., generic article shell without results) → use provider
+     text that contains abstract/results windows via
+     `_build_provenance_quote` head-plus-decimal-windows.
+   - If all providers paywall cleanly → mark row extraction_ineligible
+     and skip (strict contract maintained, no statement fallback).
+4. Pass `_m42b_refetched_quote` into the deterministic table/timeline
+   builder ONLY when it meets the strict ≥100 char quote contract.
 
-**Acceptance**. V28 report body cites primary publications for ≥7 of
-11 named tirzepatide pivotal trials (SURPASS-1..6, SURPASS-CVOT,
-SURMOUNT-1..4). V27 baseline: 4/11.
+**Preservation risk**. Strict contract holds. No statement fallback.
+No generated-prose fallback.
 
-**Test coverage**. `tests/polaris_graph/test_m44_primary_citation_floor.py`:
-(a) section prompt contains rule 13, (b) validator flags missing
-primary cite, (c) regen loop terminates after 1 retry.
+**Acceptance (Codex verbatim)**. "`refetch_diagnostics.json` records
+attempted backend(s), character count, and eligibility for every
+skipped primary row; at least 6 pivotal rows become eligible, OR
+the diagnostic file identifies each remaining URL as paywall/thin/
+timeout with no contract reversal."
 
-**Classification**. `root_cause`. The generator prompt is the earliest
-preventable stage for "primary paper in evidence subset but not cited".
+**Test coverage**. `tests/polaris_graph/test_m45_refetch_diagnostics.py`:
+(a) diagnostic emission schema valid, (b) post-fix: mocked fat Jina
+response → row eligible, (c) all-paywall → skipped with diagnostic.
 
-### [5th] M-47 — Mechanism-paper data extraction into prose
+**Classification**. `root_cause` (diagnosis-driven, no band-aid).
 
-**Causal stage**. `SECTION_SYSTEM_PROMPT_TEMPLATE` Mechanism-section
-sub-rule 8d + post-gen validation.
+### [5th] M-47 — Evidence-linked clamp/PK quantitative validator (root_cause, pass-2 revised)
 
-**Prior mechanism gap**. V27's Mechanism section cited Thomas 2022
-Lancet D&E clamp paper [27] as "direct mechanistic evidence" but did
-not extract its findings (63% M-value increase, biphasic insulin
-secretion). Gemini won Mechanism dim by mining clamp data from the
-same paper; V27 wrapped it without summarizing.
+**Causal stage** (per Codex revision #5). Mechanism-section prompt
+sub-rule 8d + post-gen validator that is **evidence-linked** (not
+regex-only on the section).
 
-**Fix**. Add Mechanism-section sub-rule 8d:
-> "When a clamp-study, hyperinsulinemic-euglycemic study, or PK/PD
-> primary paper is in the section's evidence subset, the Mechanism
-> section MUST extract at least 3 quantitative findings from that
-> paper's direct_quote and report them inline with [ev_X] citation.
-> Target quantitative fields (report whichever are in the direct_quote):
-> M-value (insulin sensitivity), insulin secretion rate (first-phase,
-> second-phase), glucagon suppression %, half-life (hours/days), Tmax,
-> receptor-affinity ratio GIP:GLP-1, clamp duration, participant N.
-> A Mechanism section that cites a clamp paper but reports <3 of
-> these fields will be flagged incomplete and regenerated."
+**Prior mechanism gap**. Claude pass-1 used regex counting on the
+whole Mechanism section — would false-pass on dose, N, or percentage
+values unrelated to the clamp paper. Codex wants the validator to
+extract allowed values/units from the cited clamp row's direct_quote
+and then require those same values/fields to appear in verified prose
+with the clamp ev_id citation.
 
-Post-gen validator: scan Mechanism section for quantitative patterns
-(regex for M-value, pmol/L, half-life, etc.) from clamp-paper ev_ids.
-Flag if <3 found; trigger one regen.
+**Fix (pass-2, Codex verbatim language)**.
+1. Prompt rule 8d: when a clamp/PK primary paper is in section subset,
+   report ≥3 quantitative findings inline with [ev_X] citation
+   (M-value, insulin-secretion rate, glucagon-suppression %, half-
+   life, Tmax, receptor-affinity ratio, clamp duration, N).
+2. **Evidence-linked validator**:
+   - Extract candidate quantitative fields from cited clamp/PK row's
+     `direct_quote` (or accepted refetched quote), normalizing units
+     (mg/dL vs mmol/L; pp vs %; hours vs days).
+   - Check that ≥3 of THOSE SAME values/fields appear in verified
+     Mechanism section WITH the clamp/PK ev_id cited in the same
+     sentence.
+   - Broad numeric counts in the section do NOT satisfy the rule.
+3. Trigger one regen if <3 linked findings; emit
+   `m47_mechanism_extraction_incomplete` if still missing.
 
-**Preservation risk**. Longer Mechanism section risks more
-under-framed mechanism claims. Mitigation: M-41c already fires on
-trial-name tokens; sub-rule 8d operates only when clamp-paper
-ev_id is in subset — no effect when evidence thin.
+**Preservation risk**. Stricter validator could fail legitimate
+prose that paraphrases findings without exact token match.
+Mitigation: fuzzy numeric matching (±5% tolerance) and unit
+normalization handle reasonable paraphrases.
 
-**Acceptance**. V28 Mechanism section reports ≥3 quantitative
-findings from Thomas 2022 (or equivalent primary clamp paper) with
-citations. Mechanism word count ≥350 when evidence supports it
-(M-42c conditional target).
+**Acceptance**. V28 Mechanism section reports ≥3 quantitative fields
+from cited clamp paper with evidence-linked citation (not just
+loose numeric tokens). Mechanism word count ≥350 when evidence
+supports (M-42c conditional target unchanged).
 
-**Test coverage**. `tests/polaris_graph/test_m47_clamp_data_extraction.py`:
-(a) rule 8d present in Mechanism prompt, (b) validator regex
-correctly identifies clamp findings, (c) regen fires when
-findings <3.
+**Test coverage**. `tests/polaris_graph/test_m47_evidence_linked_
+extraction.py`:
+(a) fixture: direct_quote "M-value increased 63% with tirzepatide
+15 mg" + prose "...tirzepatide 15 mg increased M-value by 63%
+[ev_clamp]" → validator pass, (b) fixture: prose "...tirzepatide
+is effective [ev_clamp]" (no linked numbers) → validator fail,
+(c) fuzzy match: prose "63.2% M-value rise" vs direct_quote "63%"
+→ within ±5% → pass.
 
-**Classification**. `root_cause`. Addresses "paper cited but findings
-not extracted" at the prompt level.
+**Classification**. `root_cause`.
 
-### [6th] M-49 — Preservation regression suite extension
+### [6th] M-50 — Per-trial subsection generator (root_cause, NEW per Codex completeness review)
+
+**Causal stage**. Outline-template extension in
+`src/polaris_graph/generator/multi_section_generator._compose_outline`.
+
+**Prior mechanism gap**. V27 has no per-trial subsections. Gemini
+wins Narrative depth via named SURPASS-1..6 + SURMOUNT-2 subsections;
+ChatGPT wins Structural depth via its trial table. M-45 adds the
+table, but per-trial subsections are a distinct artifact that
+ChatGPT also provides (e.g., ChatGPT dedicates paragraphs per trial
+in the body).
+
+**Fix**. Outline-template extension:
+1. When Efficacy section's evidence subset contains ≥2 M-42e primary
+   rows (M-44 ensures this), branch Efficacy into named subsections.
+2. Candidate trials (gated on primary available): SURPASS-2,
+   SURPASS-4, SURPASS-CVOT, SURMOUNT-2 (T2D-direct only;
+   SURMOUNT-1/3/4 remain in body-level obesity-related paragraph
+   per M-48 population-scope labels).
+3. Each subsection covers: N + population + comparator + endpoint +
+   timepoint + effect-estimate-with-uncertainty + safety caveat
+   (the 7 elements Codex specified).
+4. Subsection template inherits M-42a claim-frame rule; M-44
+   primary-citation floor; M-41c trial-name framing.
+
+**Preservation risk**. Longer report (7 subsections × ~120 words
+≈ 840 additional words). Risk: diluting key findings across many
+subsections. Mitigation: subsections ONLY when M-42e primary
+available for that trial; no placeholder subsections.
+
+**Acceptance**. V28 report has Efficacy subsections for SURPASS-2,
+SURPASS-4, SURPASS-CVOT, SURMOUNT-2 (gated on primary availability)
+with all 7 PICO+effect elements each. If <2 primaries available
+after M-44/M-45, subsections do not render (strict gating).
+
+**Test coverage**. `tests/polaris_graph/test_m50_per_trial_subsections.py`:
+(a) 4 primaries available → 4 subsections rendered, (b) 1 primary
+available → no subsections (below 2-trial threshold), (c) each
+subsection has all 7 elements.
+
+**Classification**. `root_cause` for the 4th BEAT_BOTH (Structural
+depth + Narrative depth).
+
+### [7th] M-49 — Preservation/integration suite with normalized matchers (preservation_guard, pass-2 revised)
+
+**Classification tag change per Codex revision #6**: `preservation_guard`
+not `root_cause` (correct classification).
 
 **Causal stage**. `tests/polaris_graph/test_m42_preservation.py`
-extended. Also new baseline file `tests/fixtures/v27_baseline.json`
-captured from V27 manifest.
+extended. Baseline fixture `tests/fixtures/v27_baseline.json`.
 
-**Prior mechanism gap**. M-42 preservation suite caught V26's NICE
-regression but doesn't encode V27's content-level wins (regulatory
-breadth, contradiction enumeration). Without these, V28 could
-regress silently.
+**Fix (pass-2, Codex revision #6 verbatim for SURPASS-2 test)**.
 
-**Fix**. Add tests:
-- `test_surpass_cvot_primary_cited` — regex search for "SURPASS-CVOT"
-  in report + validate bibliography contains NEJM 2025 primary.
-- `test_surmount_1_primary_cited` — Jastreboff 2022 NEJM cited.
-- `test_surpass_2_primary_etd_present` — one of "-0.15%", "-0.39%",
-  "-0.45%" appears in report (SURPASS-2 primary ETDs).
+New tests:
+- `test_surpass_2_primary_etd_present`: accepts normalized numeric
+  values `-0.15`, `-0.39`, `-0.45` with unit variants (`%`,
+  `percentage points`, `pp`); sentence must cite SURPASS-2 primary
+  bibliography entry.
+- `test_surpass_4_frame_present`: N=1,995 OR 104-week durability
+  language appears with Del Prato Lancet citation.
+- `test_surpass_cvot_noninferiority_present`: "HR 0.92" + "noninferiority"
+  phrasing + Nicholls citation.
+- `test_surmount_1_primary_cited`: Jastreboff NEJM 2022 present.
+- `test_surmount_2_t2d_subsection`: SURMOUNT-2 named + T2D+obesity
+  population label + Garvey citation.
 - `test_mechanism_section_word_count_gte_350`.
 - `test_trial_summary_table_rows_gte_6`.
+- `test_per_trial_subsections_gte_2` (M-50 gate).
 - `test_nice_coverage_preserved_from_v27` (NICE ≥4).
 - `test_hc_coverage_preserved_from_v27` (HC ≥3).
-- `test_contradiction_enumeration_preserved` (13-item enumeration
-  in report).
+- `test_contradiction_enumeration_preserved` (13-item enumeration).
 - `test_fda_count_at_or_above_v25` (existing, refresh baseline to 7).
+- `test_surmount_1_3_4_indirect_labeled` (no merging into T2D
+  efficacy claims).
 
-All tests skip when V28 output directory missing (partial-run
-safety per Codex pass-2 finding on M-42 suite).
+All tests skip gracefully when V28 output missing (existing
+partial-run-safety pattern).
 
-**Classification**. `preservation` (not root_cause — this IS the
-regression guard itself).
+**Classification**. `preservation_guard`.
 
-## Per-item summary table
+## Per-item summary table (pass-2)
 
-| Item | Stage | Addresses | Classification |
-|---|---|---|---|
-| M-48 | Retrieval + config | Missing primaries in corpus | root_cause |
-| M-46 | Env / launcher | Dormant M-42 floors | root_cause |
-| M-45 | Content acquisition | Paywalled PDF thin quotes | root_cause |
-| M-44 | Generator prompt + validator | Primary-trial under-citation | root_cause |
-| M-47 | Mechanism prompt + validator | Cited paper, findings not extracted | root_cause |
-| M-49 | Test suite | Encode V27 wins as V28 floors | preservation |
+| Item | Stage | Addresses | Classification | Pass-1 Codex verdict | Pass-2 state |
+|---|---|---|---|---|---|
+| M-48 | Retrieval + config | Anchor retrieval + population labels | root_cause | approved | tightened (first-author variants + indirect labels) |
+| M-46 | Selector code | Early-exit bypass of floors | root_cause | needs_revision | Fixed at selector level, not env |
+| M-44 | Scorer + validator | Primary under-citation | root_cause | needs_revision | Scorer boost + same-sentence validator |
+| M-45 | Diagnostics + acquisition | Thin direct_quote on paywalled PDFs | root_cause | needs_revision | Diagnose first, targeted fix |
+| M-47 | Prompt + evidence-linked validator | Mechanism extraction | root_cause | needs_revision | Evidence-linked (not regex-only) |
+| **M-50** | **Outline extension** | **Per-trial subsections** | **root_cause** | **NEW** | **Added per Codex completeness review** |
+| M-49 | Test suite | Encode V27 wins as V28 floors | preservation_guard | needs_revision | Normalized matchers + classification fix |
 
 **No band-aid items.** Every fix at earliest preventable stage,
-preservation risk acknowledged, acceptance criteria stated, test
-coverage planned.
+preservation risk acknowledged, acceptance criteria measurable,
+test coverage evidence-linked.
 
-## Expected V28 outcome (honest projection)
+## Revised expected V28 outcome
 
-| Dim | V27 | V28 projection | Rationale |
-|---|---|---|---|
-| 1. Citations | BEAT_ONE | BEAT_BOTH | M-44 forces primary-trial citation → deeper bibliography |
-| 2. Regulatory | BEAT_BOTH | BEAT_BOTH preserved | M-49 floors hold NICE/HC |
-| 3. Jurisdictional | BEAT_BOTH | BEAT_BOTH preserved | Same |
-| 4. Claim frames | LOSE_BOTH | BEAT_ONE | M-44 primary ETDs + M-45 trial table |
-| 5. Structural depth | LOSE_BOTH | BEAT_ONE | M-45 trial table + timeline; Gemini still deeper on per-trial subsections |
-| 6. Contradiction handling | BEAT_BOTH | BEAT_BOTH preserved | No changes to detector |
-| 7. Narrative depth | LOSE_BOTH | BEAT_ONE | M-47 Mechanism + M-44 deeper trial coverage |
+| Dim | V27 | V28 pass-1 projection | V28 pass-2 projection | Rationale |
+|---|---|---|---|---|
+| 1. Citations | BEAT_ONE | BEAT_BOTH | **BEAT_BOTH** | M-44 scorer boost + M-48 primaries |
+| 2. Regulatory | BEAT_BOTH | preserved | **preserved** | M-49 floors |
+| 3. Jurisdictional | BEAT_BOTH | preserved | **preserved** | M-49 floors |
+| 4. Claim frames | LOSE_BOTH | BEAT_ONE | **BEAT_BOTH** | M-44 scorer + M-45 table + M-50 subsections |
+| 5. Structural depth | LOSE_BOTH | BEAT_ONE | **BEAT_BOTH** | M-45 table + M-50 subsections |
+| 6. Contradiction handling | BEAT_BOTH | preserved | **preserved** | No detector changes |
+| 7. Narrative depth | LOSE_BOTH | BEAT_ONE | BEAT_ONE | M-47 Mechanism + M-50 depth (still Gemini-deeper on receptor pharmacology) |
 
-**Projected aggregate**: 3 BEAT_BOTH + 4 BEAT_ONE + 0 LOSE_BOTH.
-Not SHIPPABLE (which requires 7/7 BEAT_BOTH) but eliminates all
-LOSE_BOTH — a clean "close-to-top-tier" result. Remaining path to
-BEAT_BOTH on narrative/structural would require V29 per-trial
-subsection generator (outline-template overhaul — out of scope here).
+**Projected aggregate (pass-2)**: **5 BEAT_BOTH + 2 BEAT_ONE + 0 LOSE_BOTH**.
+Honest close-to-top-tier; matches or beats both competitors on 5 of
+7 dims. Not SHIPPABLE (needs 7/7) but clean, defensible, and
+preservation-guarded.
 
-## Questions for Codex plan review
+## AMSTAR-2 / GRADE / PRISMA additions (Codex completeness review)
 
-Per V2 §6 protocol, the following self-critical questions surface for
-your response:
+Codex flagged three possible additions:
+- **GRADE-style certainty per major claim**: deferred to V29 scope.
+  Adding now would require a certainty-rating module that is out of
+  scope for the M-44..M-50 cycle.
+- **Compact risk-of-bias table**: partial win achievable via M-49
+  test `test_contradiction_enumeration_preserved` (already covers
+  risk-of-bias signals at the contradictions layer). Explicit ROB
+  table deferred to V29.
+- **Full PRISMA flow diagram**: not in V28 scope.
 
-1. **Is M-44 truly root_cause or a retrieval-side band-aid?** Arguable
-   that the "correct" fix is at the scorer (inflate T1 primary score
-   by 2x) rather than at the prompt. Trade-off: scorer change affects
-   all sections; prompt rule scoped to specific sections.
+V28 bundle stays focused on the 7 content items above.
 
-2. **Is the M-45 refetch cascade a contract reversal on M-42b's
-   ≥100 char strict rule?** No — contract remains; cascade just
-   increases probability of obtaining ≥100 chars legitimately.
+## Implementation order (Codex-approved, pass-2)
 
-3. **Is M-47's "≥3 quantitative findings" rule brittle?** Regex-based
-   validation could miss prose that states findings without the
-   specific tokens. Alternative: LLM-based self-check. Preference:
-   regex for determinism; LLM self-check as V29 evolution.
+1. M-48 retrieval anchor verification + first-author variants +
+   population-scope labels.
+2. M-46 revised: selector early-exit fix + V28 cap.
+3. M-44 revised: scorer/subset primary boost + same-sentence
+   validator.
+4. M-45 revised: diagnostics phase → targeted acquisition fix.
+5. M-47 revised: evidence-linked clamp/PK extraction validator.
+6. M-50 new: per-trial subsection generator.
+7. M-49 revised: preservation/integration suite with normalized
+   matchers.
+8. V28 sweep launch.
 
-4. **Are preservation tests too strict?** `test_surpass_2_primary_etd_present`
-   hard-codes three decimal values. If Codex agrees these are the
-   correct SURPASS-2 primary ETDs (Frías NEJM 2021), lock them; else
-   propose alternatives.
-
-5. **Order of implementation risk**: M-48 and M-46 are retrieval /
-   infra; M-44/M-45/M-47 are generation. If retrieval/infra succeed
-   but generation items stall, partial ship still reaches 2-3
-   BEAT_BOTH. Good roll-forward profile.
+Each item: implement → unit + integration tests → individual Codex
+code audit → proceed on READY (established pattern from M-42e/a+b/c/d,
+M-43).
 
 ## Next step per V2 runbook
 
-Submit to Codex for pass-1 plan review. Expected ping-pong ≤3 passes
-per §7. On APPROVED: implement items in order 48→46→45→44→47→49,
-each with individual Codex code audit before proceeding to next.
-
----
-**Draft by Claude**. Codex input requested before any implementation.
+Resubmit this pass-2 plan to Codex for step 6 pass-2 review. Expected
+ping-pong budget: 2 remaining of 3 per §7 trigger #11. On APPROVED:
+begin M-48 implementation.
