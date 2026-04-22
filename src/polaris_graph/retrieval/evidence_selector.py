@@ -14,6 +14,7 @@ exactly what the generator saw.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -94,12 +95,49 @@ _M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
     ("EMA",  ("ema.europa.eu",)),
     ("NICE", ("nice.org.uk",)),
     ("MHRA", ("mhra.gov.uk",)),
-    ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca")),
+    # M-42d (2026-04-22): added `hpfb-dgpsa.ca` — Health Products and
+    # Food Branch / Drug and Health Product Portal host. Existing
+    # *.canada.ca hosts already catch recalls-rappels.canada.ca,
+    # health-products.canada.ca, pdf.hres.ca via suffix match.
+    ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca",
+              "hpfb-dgpsa.ca")),
     ("TGA",  ("tga.gov.au",)),
     ("PMDA", ("pmda.go.jp",)),
     ("WHO",  ("who.int",)),
     ("NMPA", ("nmpa.gov.cn",)),
 ]
+
+
+# M-42d (2026-04-22): Health Canada quota expansion. V25 baseline had
+# 1 HC entry in the bibliography (M-41d reserved 1 slot per present
+# jurisdiction). V26 aims for >=2 HC entries covering >=2 distinct
+# topics (e.g. monograph + recall/advisory). The expansion is a
+# quota-bounded 2nd reservation that ONLY fires after every present
+# jurisdiction has its 1st reservation, so FDA/EMA/NICE/MHRA each
+# keep their baseline 1 slot regardless of HC's 2nd. Relevance-fill
+# still runs afterwards so FDA/EMA/NICE can exceed 1 slot naturally.
+#
+# Env override `PG_M41D_HC_QUOTA` (default 2). Setting to 1 restores
+# exact M-41d behavior (no HC expansion).
+_M42D_HC_QUOTA_DEFAULT = 2
+_M42D_HC_JURISDICTION_CODE = "HC"
+
+
+def _m42d_hc_quota() -> int:
+    """Return the Health Canada quota (1..N) for the T3 selector floor.
+
+    M-42d (2026-04-22): configurable via `PG_M41D_HC_QUOTA` env var.
+    Defaults to 2. Values <1 clamp to 1 (legacy M-41d behavior).
+    Invalid strings fall back to default.
+    """
+    raw = os.environ.get("PG_M41D_HC_QUOTA", "")
+    if not raw:
+        return _M42D_HC_QUOTA_DEFAULT
+    try:
+        v = int(raw)
+    except (ValueError, TypeError):
+        return _M42D_HC_QUOTA_DEFAULT
+    return max(1, v)
 
 
 def _row_jurisdiction(row: dict[str, Any]) -> str | None:
@@ -569,6 +607,9 @@ def select_evidence_for_generation(
             )
 
     selected: list[tuple[int, float, str, dict[str, Any]]] = []
+    # M-42d: telemetry notes populated inside the T3 block (HC expansion).
+    # Collected here and flushed to `notes` after the main tier loop.
+    _m42d_pending_notes: list[str] = []
     for tier, quota in quotas.items():
         # M-42e + M-42c: for T1 tier, reserve named-trial primary
         # slots (M-42e) AND mechanism-evidence slots (M-42c) before
@@ -633,6 +674,14 @@ def select_evidence_for_generation(
         # filling the rest of the T3 quota by relevance. Prevents the
         # V24 failure mode where Health Canada evidence was in the
         # corpus but outcompeted within T3 by higher-scoring FDA/EMA.
+        #
+        # M-42d (2026-04-22): after the per-jurisdiction first-slot
+        # pass, HC gets up to `_m42d_hc_quota()` additional reserved
+        # slots (default 2 total). Preservation guard: HC's 2nd..Nth
+        # slots only fire AFTER every present jurisdiction already has
+        # its 1st, so FDA/EMA/NICE/MHRA are never displaced. The
+        # relevance fill that follows still lets high-scoring
+        # FDA/EMA/NICE rows beyond 1 slot be selected naturally.
         tier_items = by_tier.get(tier, [])
         if tier == "T3" and quota > 0 and tier_items:
             # Group T3 items by jurisdiction.
@@ -656,6 +705,31 @@ def select_evidence_for_generation(
                         reserved_ids.add(id(item))
                         slots_left -= 1
                         break
+            # M-42d: HC quota expansion. After every present
+            # jurisdiction has its 1st slot, reserve up to
+            # (hc_quota - 1) additional HC rows from the quota that
+            # remains. This NEVER displaces FDA/EMA/NICE's 1st slots
+            # because those are already allocated above.
+            hc_quota = _m42d_hc_quota()
+            m42d_hc_extras = 0
+            if (
+                hc_quota > 1
+                and _M42D_HC_JURISDICTION_CODE in juris_groups
+                and slots_left > 0
+            ):
+                hc_rows = juris_groups[_M42D_HC_JURISDICTION_CODE]
+                # Rows are already in tier_items' original order (by
+                # score then index). Skip the one already reserved.
+                extras_remaining = hc_quota - 1
+                for item in hc_rows:
+                    if slots_left <= 0 or extras_remaining <= 0:
+                        break
+                    if id(item) not in reserved_ids:
+                        reserved.append(item)
+                        reserved_ids.add(id(item))
+                        slots_left -= 1
+                        extras_remaining -= 1
+                        m42d_hc_extras += 1
             # Fill remaining slots from the tier's global score order,
             # skipping already-reserved items.
             for item in tier_items:
@@ -666,6 +740,22 @@ def select_evidence_for_generation(
                     reserved_ids.add(id(item))
                     slots_left -= 1
             selected.extend(reserved)
+            # Record telemetry for the HC expansion pass. Only emit
+            # when the expansion actually added rows so audits can
+            # distinguish "fired and added" vs "did not fire".
+            if m42d_hc_extras > 0:
+                m42d_hc_reserved = min(
+                    hc_quota,
+                    len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, [])),
+                )
+                m42d_telemetry_note = (
+                    f"m42d_hc_quota_expand hc_pool="
+                    f"{len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, []))} "
+                    f"reserved={m42d_hc_reserved} "
+                    f"extras_added={m42d_hc_extras} "
+                    f"quota={hc_quota}"
+                )
+                _m42d_pending_notes.append(m42d_telemetry_note)
         else:
             selected.extend(tier_items[:quota])
 
@@ -701,6 +791,9 @@ def select_evidence_for_generation(
             f"reserved={len(m42c_mech_ids)} slots="
             f"{_M42C_MECHANISM_FLOOR_SLOTS}"
         )
+    # M-42d: flush HC quota expansion telemetry collected inside the T3
+    # block. Empty list = expansion did not fire (legacy behavior).
+    notes.extend(_m42d_pending_notes)
     if sum(selected_counts.values()) < max_rows:
         notes.append(
             f"could not fill max_rows={max_rows}; "

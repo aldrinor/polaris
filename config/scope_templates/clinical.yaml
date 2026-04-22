@@ -121,6 +121,7 @@ regulatory_anchors:
   - canada.ca            # Health Canada Product Monograph search
   - recalls-rappels.canada.ca  # M-37: Canadian safety recalls / DHPP
   - health-products.canada.ca  # M-37: Health Canada Drug Products DB
+  - hpfb-dgpsa.ca        # M-42d: HPFB Drug and Health Product Portal (DHPP root)
   - who.int              # WHO Essential Medicines, guidelines
   - nice.org.uk          # UK National Institute for Health and Care Excellence
 
