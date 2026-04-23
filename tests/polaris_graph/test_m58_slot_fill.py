@@ -447,6 +447,78 @@ class TestParseFailures:
         )
         assert payload.fields_by_name()["dose"].value == "5 mg"
 
+    def test_partial_number_substring_raises(self) -> None:
+        """Codex M-58 pass-4 regression: span='1879' value='879'
+        must raise. Pass-3 substring containment accepted this
+        (879 IS a substring of 1879); pass-4 word-boundary check
+        rejects it (no \\b between '1' and '879')."""
+        quote = "N was 1879 at baseline."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "879",  # truncation exploit
+                 "source_span": "1879"},
+            ]
+        })
+        with pytest.raises(SlotFillParseError) as exc:
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("N",),
+            )
+        assert "not supported" in str(exc.value).lower()
+
+    def test_partial_dose_unit_substring_raises(self) -> None:
+        """Codex M-58 pass-4 exact repro: span='15 mg' with
+        value='5 mg'. Pass-3 accepted (5 mg IS a raw substring of
+        15 mg); pass-4 rejects (no \\b between '1' and '5')."""
+        quote = "Dose escalated to 15 mg weekly."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "dose", "status": "extracted",
+                 "value": "5 mg",  # truncation exploit
+                 "source_span": "15 mg"},
+            ]
+        })
+        with pytest.raises(SlotFillParseError):
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("dose",),
+            )
+
+    def test_clean_token_inside_parentheses_accepted(self) -> None:
+        """Word-boundary check does NOT reject clean tokens
+        surrounded by punctuation: span='(5 mg)' with value='5 mg'
+        passes because '(' and ')' are non-word, so \\b triggers
+        around '5 mg'."""
+        quote = "Initial dose (5 mg) weekly."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "dose", "status": "extracted",
+                 "value": "5 mg",
+                 "source_span": "(5 mg)"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("dose",),
+        )
+        assert payload.fields_by_name()["dose"].value == "5 mg"
+
+    def test_verbatim_from_equals_span_accepted(self) -> None:
+        """span='N=1879' with value='1879' passes under pass-4:
+        '=' is non-word so \\b triggers around '1879'."""
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "1879",
+                 "source_span": "N=1879"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), _frame_row(), ("N",),
+        )
+        assert payload.fields_by_name()["N"].value == "1879"
+
     def test_value_misbound_to_wrong_span_raises(self) -> None:
         """Codex M-58 pass-2 regression: value '10 mg' with
         source_span='5 mg' must be rejected even though '10 mg' IS

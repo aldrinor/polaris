@@ -53,6 +53,7 @@ from the payload so downstream layers see byte-identical prose.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -109,47 +110,93 @@ class SlotFillParseError(ValueError):
 def _value_supported_by_span(
     value: str, source_span: str, direct_quote: str,
 ) -> bool:
-    """Codex M-58 audit Blocker fix (pass 1 → pass 3):
+    """Codex M-58 audit Blocker fix (pass 1 → pass 4):
 
     pass-1: added a value-support check (not just span-in-quote).
-    pass-2: dropped the `direct_quote + token-overlap` fallback
-            (accepted `span="5 mg" + value="10 mg"`).
+    pass-2: dropped the direct_quote + token-overlap fallback
+            (accepted span='5 mg' + value='10 mg').
     pass-3: dropped lowercase from normalization (accepted
-            `span="5 M" + value="5 m"` — molar vs meter, a real
-            scientific semantic inversion).
+            span='5 M' + value='5 m' — molar vs meter).
+    pass-4: replaced raw substring with "not-extended-by-word-char"
+            lookaround match (raw substring accepted span='15 mg'
+            + value='5 mg' and span='1879' + value='879' — partial
+            numerics). Uses `(?<!\\w)needle(?!\\w)` rather than
+            `\\b` so values with non-word edges (e.g. '-0.47%')
+            still match cleanly.
 
-    Final policy — strict verbatim with whitespace-only
-    normalization:
-      1. `value` is a verbatim substring of `source_span`.
-      2. `value` with whitespace collapsed (NOT lowercased) is a
-         substring of `source_span` with whitespace collapsed.
-         Accommodates LLM whitespace/tab normalization only.
+    Final policy — not-extended-by-word-char containment with
+    whitespace-only normalization:
 
-    Case-mismatches (`HbA1c` vs `hba1c`, `5 M` vs `5 m`) are now
-    rejected. The prompt contract requires verbatim substring of
-    direct_quote; case drift is a contract violation, not a
-    tolerable LLM quirk. Scientific units are case-sensitive and
-    we fail closed.
+      1. `value` appears in `source_span` AND is not extended into
+         a larger word on either side. "5 mg" in "(5 mg) weekly"
+         matches; "5 mg" in "15 mg" does not.
+      2. whitespace-collapsed `value` appears in whitespace-
+         collapsed `source_span` under the same rule.
+         Accommodates LLM whitespace/tab variation only.
 
-    `direct_quote` parameter retained in the signature for future
-    document-scope checks, currently unused.
+    Rejected:
+      - case drift (pass-3)
+      - substring-inside-word drift (pass-4)
+      - direct_quote fallback (pass-2)
+
+    Narrow residual (documented, not fixed at M-58): if the SAME
+    exact value string appears multiple times in `source_span`
+    with different semantics (e.g. two "5 mg" mentions — one
+    initial, one maintenance dose), M-58 cannot disambiguate
+    which mention the field referred to. M-59 or the contract
+    prompt itself would need to encode that distinction.
+
+    `direct_quote` parameter retained for future document-scope
+    checks, currently unused.
     """
     if not value or not source_span:
         return False
-    if value in source_span:
+    if _word_bounded_in(value, source_span):
         return True
-    if _normalize_for_span_check(value) in _normalize_for_span_check(source_span):
+    if _word_bounded_in(
+        _normalize_for_span_check(value),
+        _normalize_for_span_check(source_span),
+    ):
         return True
     return False
 
 
 def _normalize_for_span_check(s: str) -> str:
-    """Whitespace-collapse ONLY. No lowercasing. Codex M-58 pass-3
-    blocker: lowercasing conflated `5 M` with `5 m` (molarity vs
-    meter) and let semantically wrong units pass. Case-sensitive
-    tokens (unit prefixes, gene symbols like HbA1c, chemical
-    element capitalization) must survive the normalization."""
+    """Whitespace-collapse ONLY. No lowercasing (pass-3). Case-
+    sensitive scientific tokens (HbA1c, 5 M vs 5 m, Ca2+) must
+    survive the normalization."""
     return " ".join(s.split())
+
+
+def _word_bounded_in(needle: str, haystack: str) -> bool:
+    """True when `needle` appears in `haystack` and is NOT extended
+    into a larger word on either side.
+
+    Uses negative lookaround `(?<!\\w)` + `(?!\\w)` rather than
+    `\\b`. The difference matters for values whose edge characters
+    are non-word (e.g. "-0.47%"): `\\b` would reject them because
+    it needs a word char adjacent to the boundary, while
+    lookaround correctly accepts them since the rule is "not
+    extended by a word char".
+
+    Rejects pass-4 exploits:
+      - needle="5 mg",  haystack="15 mg"   → False ("1" before "5" is \\w)
+      - needle="879",   haystack="1879"    → False ("1" before "8" is \\w)
+      - needle="5 mg",  haystack="5 mgg"   → False ("g" after "g" is \\w)
+
+    Accepts legitimate matches:
+      - needle="1879",  haystack="N=1879"  → True  ("=" not \\w; edge after)
+      - needle="5 mg",  haystack="(5 mg)"  → True
+      - needle="-0.47%",haystack="-0.47%"  → True  (both edges at string-edge)
+      - needle="HbA1c", haystack="Baseline HbA1c was" → True
+
+    Empty needle returns False. Anchored regex with re.UNICODE so
+    non-ASCII word characters (e.g. 'é') are treated correctly.
+    """
+    if not needle:
+        return False
+    pattern = r"(?<!\w)" + re.escape(needle) + r"(?!\w)"
+    return re.search(pattern, haystack, flags=re.UNICODE) is not None
 
 
 # ─────────────────────────────────────────────────────────────────────
