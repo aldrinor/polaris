@@ -458,42 +458,43 @@ def _compose_task_needs(entry: SlotCoverageEntry) -> str:
 # Helpers
 # ─────────────────────────────────────────────────────────────────────
 def _is_curator_actionable(is_gap_row: bool, status: str) -> bool:
-    """Codex M-60 audit pass-2: eligibility is strictly 'curator
-    can fix this by providing licensed content', NOT a generic
-    'something went wrong'.
+    """Codex M-60 audit pass-2 + pass-3: strict allowlist of
+    curator-actionable (status, row-type) combinations.
 
-    Curator-actionable cases:
-      - Gap row where M-60 language is present and citation is
-        present (status=pass) — NO action needed, don't emit.
-      - Gap row where retrieval failed AND validator saw issues
-        we'd expect M-60 prose to address OR the extraction was
-        just never attempted: the curator should provide
-        licensed content. This maps to gap-row status in
-        {fail_min_fields, fail_missing_payload,
-         fail_payload_mismatch} — all reflect "no content
-        available" from the curator's perspective.
-      - Non-gap row where extraction fell short:
-        status=fail_min_fields. Curator supplies a richer
-        licensed copy.
+    Pass-3 residual: pass-2 used a denylist that defaulted unknown
+    statuses to True. A future verdict added without updating this
+    predicate would silently route to curator. Pass-3 switches to
+    an allowlist so new statuses default to engineer routing.
 
-    NOT curator-actionable (engineer investigation):
-      - fail_unbound_citation — M-58 render wiring bug
-      - fail_gap_no_language — M-58 gap-template invariant
-      - fail_payload_mismatch — pipeline crossed wires
-      - pass — nothing to do
+    Curator-actionable:
+      (gap,     FAIL_MIN_FIELDS)      — gap row, curator can
+                                        supply licensed content
+      (gap,     FAIL_MISSING_PAYLOAD) — gap row, M-58 never ran
+                                        or couldn't run
+      (non-gap, FAIL_MIN_FIELDS)      — retrieval worked but
+                                        extraction fell short;
+                                        curator supplies richer copy
+
+    NOT curator-actionable (engineer or no-op):
+      (any,     PASS)                 — nothing to do
+      (any,     FAIL_UNBOUND_CITATION) — M-58 render wiring
+      (any,     FAIL_GAP_NO_LANGUAGE)  — M-58 gap-template
+      (any,     FAIL_PAYLOAD_MISMATCH) — pipeline crossed wires
+      (non-gap, FAIL_MISSING_PAYLOAD)  — non-gap without payload
+                                        usually means M-58
+                                        didn't run; engineer
+                                        attention more likely
+                                        than curator content
+
+    Any (row_type, status) not in the allowlist defaults to
+    engineer routing. New verdicts MUST be explicitly added.
     """
-    if status == ValidationVerdict.PASS.value:
-        return False
-    engineer_statuses = {
-        ValidationVerdict.FAIL_UNBOUND_CITATION.value,
-        ValidationVerdict.FAIL_GAP_NO_LANGUAGE.value,
-        ValidationVerdict.FAIL_PAYLOAD_MISMATCH.value,
+    curator_actionable = {
+        (True,  ValidationVerdict.FAIL_MIN_FIELDS.value),
+        (True,  ValidationVerdict.FAIL_MISSING_PAYLOAD.value),
+        (False, ValidationVerdict.FAIL_MIN_FIELDS.value),
     }
-    if status in engineer_statuses:
-        return False
-    # Remaining: FAIL_MIN_FIELDS, FAIL_MISSING_PAYLOAD — curator
-    # can supply content. Apply for both gap and non-gap rows.
-    return True
+    return (is_gap_row, status) in curator_actionable
 
 
 def _available_artifacts(row: FrameRow) -> list[str]:

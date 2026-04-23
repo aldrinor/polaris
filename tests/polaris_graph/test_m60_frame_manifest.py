@@ -531,6 +531,41 @@ class TestHumanCompletionTasks:
         assert len(tasks) == 0
         assert coverage.entries[0].human_completion_eligible is False
 
+    def test_nongap_missing_payload_not_routed_to_curator(self) -> None:
+        """Codex M-60 pass-3: non-gap row with FAIL_MISSING_PAYLOAD
+        is more likely engineer bug (M-58 didn't run) than curator
+        content issue. Pass-3 allowlist excludes this combination.
+        """
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)  # non-gap row (abstract_only)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_MISSING_PAYLOAD),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
+        assert coverage.entries[0].human_completion_eligible is False
+
+    def test_gap_missing_payload_routed_to_curator(self) -> None:
+        """Gap row with FAIL_MISSING_PAYLOAD stays curator-
+        actionable — the curator can supply licensed content
+        regardless of why M-58 didn't produce a payload."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(
+            provenance=ProvenanceClass.FRAME_GAP_UNRECOVERABLE,
+            failure_reason="paywalled",
+            has_abstract=False, has_metadata=False,
+        ),)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_MISSING_PAYLOAD),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 1
+        assert coverage.entries[0].human_completion_eligible is True
+
     def test_payload_mismatch_not_routed_to_curator(self) -> None:
         """Codex M-60 pass-2 adjacent: fail_payload_mismatch is
         pipeline-crossed-wires (engineer), not curator work."""
