@@ -1,5 +1,57 @@
 # V29 → V30 Fix Plan — Report Contract Architecture (Path A+B)
 
+## Codex plan review pass-1 — CONDITIONAL-no-blockers (2026-04-23)
+
+`outputs/codex_findings/v30_fix_plan_review_pass1/findings.md`
+— APPROVED for starting M-54 implementation. 8 architectural
+revisions to weave into M-58/M-59/M-60/M-61/M-62 before those
+items are considered complete. No pass-2 plan review required.
+
+**Core architectural sharpening (Codex)**: M-58/M-59 must emit
+**structured field payload FIRST**, prose renders FROM that. Payload
+per required field:
+```json
+{
+  "field_name": "etd_with_uncertainty",
+  "status": "extracted | not_extractable | gap_unrecoverable",
+  "value": "-0.45% (95% CI -0.57, -0.33)",
+  "bound_ev_id": "ev_frás_nejm",
+  "source_span": "Table 2, row 3"
+}
+```
+
+Otherwise validator forced to infer from prose → recreates softer
+version of the same architectural problem we're fixing.
+
+**Specific Codex revisions to bake in**:
+1. **M-55**: compiler tests must prove arbitrary entity types compile
+   without code changes (not just `pivotal_trial`/`mechanism_primary`/`regulatory`).
+2. **M-58**: strict one-row-one-slot for required-field completion;
+   enrichment-row references allowed ONLY in Layer 5, must NOT satisfy
+   required fields for slot.
+3. **M-58**: structured field payload contract (see above).
+4. **M-59**: validates slot existence + bound evidence + per-field
+   completion status from structured output, not prose heuristics.
+5. **M-60**: manifest per-slot failure metadata — slot_id, entity_id,
+   status, failure_reason, retrieval_attempt_log, available_artifacts,
+   human_completion_eligible. Prose gap paragraph templated FROM this.
+6. **M-61**: free-text consent_proof insufficient. Require structured:
+   curator_id, source_type, source_locator (DOI+page), acquired_at,
+   artifact_sha256, retention_path, quote_page_range, attestation.
+   State explicitly that strict_verify CANNOT verify quote-to-source
+   authenticity for human-curated content; provenance is audit-log
+   + retained-artifact based.
+7. **M-62**: use **policy** template (not materials) — stresses non-DOI
+   entity types. Add entity-type generalization tests.
+8. **New intermediate artifact**: slot-coverage-at-field-granularity
+   object consumable by M-60 manifest. Otherwise M-59/M-60 are forced
+   to infer from prose.
+
+**Implementation order confirmed by Codex**:
+M-54 → M-55 → M-56 → M-57 → M-58 (structured slot-fill) → M-59 →
+M-60 → M-61 (alternate evidence-ingest path, not Layer 4 primitive)
+→ M-62 (policy template regression).
+
 **User decision (2026-04-23)**: Path A + Path B per
 `outputs/audits/v29/true_root_cause_cross_review.md`. Build
 Report Contract Architecture AND hybrid human/licensed completion
