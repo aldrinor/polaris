@@ -215,15 +215,23 @@ class TestM51Cap:
 
 
 class TestM51TrimOverflow:
-    """Codex revision #2: explicit max_rows overflow fixture."""
+    """Codex revision #2: explicit max_rows overflow fixture.
+
+    Codex M-51 pass-1 audit flagged that using a T1 primary tests
+    M-42e retention, not M-51 specifically. Revised fixture: use a
+    T4 primary so M-42e's T1-only floor doesn't catch it, forcing
+    M-51 to do the insertion + trim work."""
 
     def test_insertion_triggers_trim_to_max_rows(self) -> None:
-        """Pool is 10 non-primary T1 rows; max_rows=10; selector
-        allocates all 10. Add a primary, anchor configured. M-51
-        must insert the primary AND trim one non-primary to keep
-        len=10."""
-        non_primary_rows = [_non_primary_row(f"ev_r{i}") for i in range(50)]
-        primary_row = _primary_row("ev_s4", "SURPASS-4")
+        """Pool: 50 non-primary T4 rows + 1 T4 SURPASS-4 primary;
+        max_rows=10. M-42e cannot reserve (T4 not T1), so M-51 is the
+        mechanism that inserts the primary. Must trim a non-M-51 tail
+        row to keep len=10. M-51 telemetry note must be present."""
+        non_primary_rows = [
+            _non_primary_row(f"ev_r{i}", tier="T4") for i in range(50)
+        ]
+        # T4 primary so M-42e T1-only floor doesn't catch it
+        primary_row = _primary_row("ev_s4", "SURPASS-4", tier="T4")
         rows = non_primary_rows + [primary_row]
         result = select_evidence_for_generation(
             research_question="tirzepatide review",
@@ -233,11 +241,28 @@ class TestM51TrimOverflow:
             max_rows=10,
             primary_trial_anchors=["SURPASS-4"],
         )
+        # (1) Length exactly max_rows
         assert len(result.selected_rows) == 10
+        # (2) Primary survives trim
         selected_ids = set(r["evidence_id"] for r in result.selected_rows)
         assert "ev_s4" in selected_ids, (
             f"SURPASS-4 must survive trim; got {selected_ids}"
         )
+        # (3) M-51 note present (not m42e)
+        m51_notes = [
+            n for n in result.notes if "m51_anchor_primary_custody" in n
+        ]
+        assert m51_notes, (
+            f"M-51 telemetry note missing; got notes={result.notes}"
+        )
+        assert "matched=1" in m51_notes[0]
+        # (4) One non-M-51 row evicted (starts from 51 rows, trimmed to 10)
+        # Evicted 41 rows; at least 1 is from the non-primary set.
+        non_primary_kept = sum(
+            1 for r in result.selected_rows
+            if r["evidence_id"].startswith("ev_r")
+        )
+        assert non_primary_kept == 9  # 10 - 1 primary
 
 
 class TestM51BackwardCompatibility:
