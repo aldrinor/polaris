@@ -452,6 +452,55 @@ def _m46_short_pool_ordered_selection(
             f"anchors={m42e_anchors[:10]}"
         )
 
+    # --- M-51 primary custody (short-pool path) ---
+    # V29 cycle 1. Short-pool path keeps ALL rows so no truncation
+    # trim is needed. But we still want to scan the full `scored`
+    # pool for anchor-matched primaries that M-42e (T1-only) may
+    # have missed (non-T1 primaries, or rows with tie-breaking
+    # mis-rankings). Any match is prioritized to class 0 in
+    # `_priority_class` via `m51_extra_ids`.
+    m51_extra_ids: set[int] = set()
+    m51_sp_matched_anchors: list[str] = []
+    if primary_trial_anchors:
+        def _m51_canonical_identity_sp(row: dict[str, Any]) -> tuple:
+            evid = row.get("evidence_id")
+            if isinstance(evid, str) and evid:
+                return ("ev", evid)
+            url = (row.get("source_url") or row.get("url") or "").lower()
+            title = _row_title_text(row).lower()[:200]
+            dq = (row.get("direct_quote") or "")[:200]
+            return ("key", url, title, dq)
+        already_canon = {
+            _m51_canonical_identity_sp(item[3]) for item in scored
+            if id(item) in m42e_ids
+        }
+        seen_anchors_sp: set[str] = set()
+        for anchor in primary_trial_anchors:
+            if anchor in seen_anchors_sp:
+                continue
+            seen_anchors_sp.add(anchor)
+            # Already covered by M-42e for this anchor?
+            if anchor in m42e_anchors:
+                continue
+            # Scan full scored pool (includes non-T1) for this anchor
+            for scored_item in scored:
+                if id(scored_item) in m42e_ids:
+                    continue
+                if id(scored_item) in m51_extra_ids:
+                    continue
+                if _m42e_detect_primary_for_anchor(scored_item[3], anchor):
+                    m51_extra_ids.add(id(scored_item))
+                    m51_sp_matched_anchors.append(anchor)
+                    break
+    if m51_sp_matched_anchors:
+        notes.append(
+            f"m51_anchor_primary_custody matched="
+            f"{len(m51_sp_matched_anchors)} "
+            f"inserted={len(m51_sp_matched_anchors)} "
+            f"cap={len({a for a in primary_trial_anchors})} "
+            f"anchors={m51_sp_matched_anchors[:12]}"
+        )
+
     # --- M-42c mechanism detection ---
     mech_pool = [s for s in scored if _m42c_row_is_mechanism_rich(s[3])]
     m42c_ids: set[int] = set()
@@ -501,12 +550,12 @@ def _m46_short_pool_ordered_selection(
             )
 
     # --- Deterministic priority ordering ---
-    # Priority class: 0 = M-42e primary, 1 = M-42c mechanism,
-    # 2 = M-42d HC, 3 = rest. Within same class: by tier priority,
-    # then -score, then index.
+    # Priority class: 0 = M-42e primary OR M-51 anchor-primary extra,
+    # 1 = M-42c mechanism, 2 = M-42d HC, 3 = rest. Within same class:
+    # by tier priority, then -score, then index.
     def _priority_class(item: tuple[int, float, str, dict[str, Any]]) -> int:
         iid = id(item)
-        if iid in m42e_ids:
+        if iid in m42e_ids or iid in m51_extra_ids:
             return 0
         if iid in m42c_ids:
             return 1
@@ -940,6 +989,103 @@ def select_evidence_for_generation(
         else:
             selected.extend(tier_items[:quota])
 
+    # ─── M-51 (2026-04-23): V29 Strategy β cycle 1 — anchor-matched
+    # primary hard-reservation post-process. Per Codex V29 plan pass-1
+    # review (CONDITIONAL-no-blockers) at
+    # `outputs/codex_findings/v29_fix_plan_review_pass1/findings.md`.
+    #
+    # Prior mechanism gap (verified by V28 cross-review):
+    # `outputs/audits/v28/cross_review.md` shows SURPASS-4 Del Prato
+    # Lancet + SURPASS-CVOT Nicholls were present in V28's
+    # `live_corpus_dump.json` but absent from the final bibliography.
+    # The existing M-42e floor only scans `by_tier.get("T1", [])`
+    # within the T1 quota slice; when T1 quota is tight and
+    # non-primary T1 rows outrank primaries by relevance, primaries
+    # are still dropped. This is the dominant root cause driving 4
+    # of 7 V28 LOSE_BOTH dimensions.
+    #
+    # M-51 post-process: for each unique anchor, scan the FULL `scored`
+    # pool (not just T1); insert any anchor-matched primary not
+    # already in `selected` at position 0 (highest priority). Cap at
+    # min(|unique_anchors|, max_rows). Trim non-M-51 tail rows to
+    # keep len(selected) <= max_rows.
+    #
+    # Codex review revisions woven in:
+    #   - Canonical identity (not Python `id()`): evidence_id if
+    #     present, else (source_url, title, direct_quote[:200]).
+    #   - Derived cap min(|unique_anchors|, max_rows), not literal 11.
+    #   - Trim protects M-51-inserted rows; pops lowest-priority
+    #     non-M-51 tail rows when overflow.
+    #   - No-anchors path is a no-op (byte-identical to pre-M-51).
+
+    def _m51_canonical_identity(row: dict[str, Any]) -> tuple:
+        """Stable identity for M-51 duplicate detection. Prefers
+        `evidence_id` when present; falls back to normalized
+        (source_url, title, direct_quote[:200]) tuple."""
+        evid = row.get("evidence_id")
+        if isinstance(evid, str) and evid:
+            return ("ev", evid)
+        url = (row.get("source_url") or row.get("url") or "").lower()
+        title = _row_title_text(row).lower()[:200]
+        dq = (row.get("direct_quote") or "")[:200]
+        return ("key", url, title, dq)
+
+    m51_inserted_ids: set[int] = set()  # ids of (tuple) items in `selected`
+    m51_matched_anchors: list[str] = []
+    if primary_trial_anchors:
+        selected_canon = {
+            _m51_canonical_identity(item[3]) for item in selected
+        }
+        unique_anchors = []
+        seen_anchors: set[str] = set()
+        for a in primary_trial_anchors:
+            if a in seen_anchors:
+                continue
+            seen_anchors.add(a)
+            unique_anchors.append(a)
+        m51_cap = min(len(unique_anchors), max_rows)
+        for anchor in unique_anchors:
+            if len(m51_matched_anchors) >= m51_cap:
+                break
+            # Scan full scored pool for first anchor-matched primary
+            # not already in selected.
+            for scored_item in scored:
+                canon = _m51_canonical_identity(scored_item[3])
+                if canon in selected_canon:
+                    continue
+                if _m42e_detect_primary_for_anchor(scored_item[3], anchor):
+                    selected.insert(0, scored_item)
+                    selected_canon.add(canon)
+                    m51_inserted_ids.add(id(scored_item))
+                    m51_matched_anchors.append(anchor)
+                    break
+        # Trim non-reserved tail if M-51 overflowed max_rows. Pop
+        # lowest-priority non-M-51-inserted rows from END of list.
+        # Sort by (tier_priority, -score, idx) so the tail IS the
+        # lowest priority after the main tier loop's sort runs
+        # below — but here we haven't sorted yet. Pop items with
+        # the lowest tier priority first (T7 before T1).
+        if len(selected) > max_rows:
+            # Build eviction candidates: indices of non-M-51 items
+            # sorted by (reverse tier priority, +score, reverse idx).
+            # We want to evict lowest-tier, lowest-score first.
+            eviction_order = sorted(
+                [
+                    i for i, item in enumerate(selected)
+                    if id(item) not in m51_inserted_ids
+                ],
+                key=lambda i: (
+                    -_TIER_PRIORITY.get(selected[i][2], 9),  # lowest tier first
+                    selected[i][1],                           # lowest score first
+                    -selected[i][0],                          # highest idx first
+                ),
+            )
+            to_evict = len(selected) - max_rows
+            evict_ids = set(eviction_order[:to_evict])
+            # Rebuild selected in original order, skipping evicted.
+            selected = [item for i, item in enumerate(selected)
+                        if i not in evict_ids]
+
     # Sort final selection by (tier_priority, -score, original_idx) for
     # deterministic output order.
     selected.sort(key=lambda x: (_TIER_PRIORITY.get(x[2], 9), -x[1], x[0]))
@@ -975,6 +1121,18 @@ def select_evidence_for_generation(
     # M-42d: flush HC quota expansion telemetry collected inside the T3
     # block. Empty list = expansion did not fire (legacy behavior).
     notes.extend(_m42d_pending_notes)
+    # M-51 (2026-04-23): anchor-custody telemetry for V29 diagnosis.
+    if m51_matched_anchors:
+        m51_cap_final = min(
+            len({a for a in primary_trial_anchors or []}), max_rows,
+        )
+        notes.append(
+            f"m51_anchor_primary_custody matched="
+            f"{len(m51_matched_anchors)} "
+            f"inserted={len(m51_matched_anchors)} "
+            f"cap={m51_cap_final} "
+            f"anchors={m51_matched_anchors[:12]}"
+        )
     if sum(selected_counts.values()) < max_rows:
         notes.append(
             f"could not fill max_rows={max_rows}; "
