@@ -48,7 +48,7 @@ from enum import Enum
 
 from ..nodes.contract_outline import ContractOutline
 from ..nodes.report_contract import ReportContract, RequiredEntity
-from .slot_fill import SlotFillPayload
+from .slot_fill import GAP_PROSE_MARKER, SlotFillPayload
 
 
 class ValidationVerdict(str, Enum):
@@ -120,9 +120,11 @@ class ValidationReport:
         return out
 
 
-# M-58 render_slot_prose gap marker. If M-60 overrides the gap
-# template, update this constant or thread an override here.
-_GAP_MARKER = "was not retrievable"
+# Codex M-59 audit Nit fix: import the gap marker from slot_fill
+# (single source of truth) instead of duplicating the English
+# phrase here. If M-60 later overrides the template, it must
+# update slot_fill.GAP_PROSE_MARKER and M-59 picks up the change.
+_GAP_MARKER = GAP_PROSE_MARKER
 
 
 def validate_slot_completion(

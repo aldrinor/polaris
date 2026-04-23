@@ -494,16 +494,30 @@ def compose_gap_payload(
 # Prose rendering (deterministic)
 # ─────────────────────────────────────────────────────────────────────
 _NOT_EXTRACTABLE_PHRASE = "not extractable from available primary content"
+
+# Gap-disclosure marker — the canonical substring M-59 validator
+# looks for to confirm explicit gap language is present. Exposed
+# as module-level constant so M-59 imports this single source of
+# truth (Codex M-59 audit Nit) rather than duplicating the English
+# phrase. If M-60 later owns the template, it can override
+# GAP_PROSE_MARKER while preserving the invariant.
+GAP_PROSE_MARKER = "was not retrievable"
+
 # NOTE: the gap-prose template below is a STOPGAP owned by M-58 until
 # M-60 ships. Codex M-58 audit Nit: surface-language policy belongs
 # in M-60 (the manifest/report-surface layer). When M-60 lands it
 # should either pass a `gap_template` parameter to render_slot_prose
 # or subclass the renderer. Until then this string lives here so the
-# pipeline has an honest failure sentence today.
+# pipeline has an honest failure sentence today. The phrase MUST
+# contain GAP_PROSE_MARKER so M-59 validator can detect it.
 _GAP_PHRASE = (
     "Primary publication was not retrievable from open-access, "
     "abstract, or metadata sources. All required fields are "
     "unavailable for this entity."
+)
+assert GAP_PROSE_MARKER in _GAP_PHRASE, (
+    "gap template invariant violated — _GAP_PHRASE must contain "
+    "GAP_PROSE_MARKER so M-59 can verify gap language"
 )
 
 

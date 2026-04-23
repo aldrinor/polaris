@@ -27,6 +27,7 @@ from __future__ import annotations
 import pytest
 
 from src.polaris_graph.generator.slot_fill import (
+    GAP_PROSE_MARKER,
     SlotFieldFill,
     SlotFillPayload,
 )
@@ -336,6 +337,23 @@ class TestMinFieldsThreshold:
 # ─────────────────────────────────────────────────────────────────────
 # (5-7) Gap-slot handling
 # ─────────────────────────────────────────────────────────────────────
+class TestGapMarkerSharedConstant:
+    """Codex M-59 audit Nit: gap-language marker must be imported
+    from slot_fill (single source of truth), not duplicated.
+    Locks in the invariant so a future M-60 template rewrite can't
+    silently desync M-58 renderer and M-59 validator."""
+
+    def test_gap_marker_is_imported_from_slot_fill(self) -> None:
+        from src.polaris_graph.generator.slot_validator import _GAP_MARKER
+        assert _GAP_MARKER == GAP_PROSE_MARKER
+
+    def test_slot_fill_gap_phrase_contains_marker(self) -> None:
+        """slot_fill._GAP_PHRASE (what M-58 renders) must contain
+        GAP_PROSE_MARKER (what M-59 looks for)."""
+        from src.polaris_graph.generator.slot_fill import _GAP_PHRASE
+        assert GAP_PROSE_MARKER in _GAP_PHRASE
+
+
 class TestGapSlots:
     def test_gap_with_m60_language_and_citation_passes(self) -> None:
         contract = _contract((_entity(),))
