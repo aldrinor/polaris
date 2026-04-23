@@ -97,14 +97,32 @@ class ProvenanceClass(str, Enum):
 
 @dataclass(frozen=True)
 class RetrievalAttempt:
-    """One network attempt log entry. Carried in FrameRow.retrieval_attempts
-    and surfaced by M-60 manifest rendering for audit."""
+    """One network attempt log entry — EXACTLY ONE PER HTTP REQUEST
+    (not per source). Codex M-56 audit Blocker 2: retry chains must
+    be fully visible so M-60 manifest can show exactly what was
+    tried.
+
+    Deterministic fields only — `duration_ms` lives in
+    RetrievalTiming so FrameRow payload equality is meaningful.
+    """
 
     source: str           # "crossref" | "unpaywall" | "pubmed"
-    url: str              # exact URL requested
+    url: str              # full requested URL including query params
+    attempt_index: int    # 1-based per-source counter (1, 2, 3 = retry 1, 2, 3)
     http_status: int | None  # None on network-level failure
-    duration_ms: int
     outcome: str          # "success" | "not_found" | "error:<short>"
+                          # | "retryable_http_<code>" | "retryable_network:<cls>"
+
+
+@dataclass(frozen=True)
+class RetrievalTiming:
+    """Per-attempt timing, separated from RetrievalAttempt so
+    FrameRow.retrieval_attempts stays byte-deterministic across
+    runs. Codex M-56 audit Blocker 1."""
+
+    source: str
+    attempt_index: int
+    duration_ms: int
 
 
 @dataclass(frozen=True)
@@ -136,8 +154,17 @@ class FrameRow:
     year: int | None
     # Failure metadata (only populated on gap)
     failure_reason: str | None
-    # Audit log
+    # Audit log — deterministic payload: one RetrievalAttempt per
+    # HTTP request (retry chain fully expanded). Codex M-56 audit
+    # Blocker 2.
     retrieval_attempts: tuple[RetrievalAttempt, ...] = field(
+        default_factory=tuple
+    )
+    # Per-attempt timing, non-deterministic (wall-clock-derived).
+    # Lives outside the determinism-comparable payload per Codex
+    # M-56 audit Blocker 1. Correlated to retrieval_attempts via
+    # (source, attempt_index).
+    retrieval_timings: tuple[RetrievalTiming, ...] = field(
         default_factory=tuple
     )
 
@@ -339,136 +366,218 @@ def _strip_jats_tags(text: str) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # Layer 3 — Network callers
 # ─────────────────────────────────────────────────────────────────────
+def _build_full_url(
+    base: str, params: dict[str, Any] | None,
+) -> str:
+    """Compose a URL string including query params so logs carry
+    the exact HTTP line. Codex M-56 audit Blocker 2: PubMed
+    attempts must show id/rettype/retmode, not just base endpoint."""
+    if not params:
+        return base
+    # Deterministic param ordering — sorted by key.
+    q = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}{q}"
+
+
 def _request_with_retry(
     client: httpx.Client,
     method: str,
+    source: str,
     url: str,
     *,
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
-) -> tuple[httpx.Response | None, int, str]:
-    """Deterministic retry with fixed backoff. Returns
-    (response_or_None, elapsed_ms, outcome).
+) -> tuple[
+    httpx.Response | None,
+    str,
+    list[RetrievalAttempt],
+    list[RetrievalTiming],
+]:
+    """Deterministic retry with fixed backoff. Emits ONE
+    RetrievalAttempt per HTTP request (Codex M-56 audit Blocker 2)
+    with per-attempt timing in a separate RetrievalTiming list
+    (Blocker 1: non-deterministic wall-clock out of payload).
 
-    outcome ∈ {"success", "not_found", "error:timeout",
-    "error:http_<code>", "error:network:<short>"}.
+    Returns (response_or_None, final_outcome, attempts, timings).
+    final_outcome ∈ {"success", "not_found", "error:timeout",
+    "error:http_<code>", "error:network:<short>", "error:exhausted:<cls>"}.
     """
     headers = {**(headers or {}), "User-Agent": _POLARIS_UA}
-    t0 = time.monotonic()
+    full_url = _build_full_url(url, params)
+    attempts: list[RetrievalAttempt] = []
+    timings: list[RetrievalTiming] = []
     last_exc: Exception | None = None
-    for attempt in range(_MAX_RETRIES):
+    for attempt_idx in range(1, _MAX_RETRIES + 1):
+        t0 = time.monotonic()
         try:
             if method == "GET":
                 r = client.get(url, headers=headers, params=params)
             else:
                 raise ValueError(f"unsupported method {method!r}")
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            elapsed = int((time.monotonic() - t0) * 1000)
             last_exc = exc
-            if attempt < _MAX_RETRIES - 1:
-                time.sleep(_BACKOFF_SECONDS[attempt])
+            outcome = (
+                f"retryable_network:{type(exc).__name__}"
+                if attempt_idx < _MAX_RETRIES
+                else f"error:{type(exc).__name__}"
+            )
+            attempts.append(RetrievalAttempt(
+                source=source, url=full_url,
+                attempt_index=attempt_idx,
+                http_status=None, outcome=outcome,
+            ))
+            timings.append(RetrievalTiming(
+                source=source, attempt_index=attempt_idx,
+                duration_ms=elapsed,
+            ))
+            if attempt_idx < _MAX_RETRIES:
+                time.sleep(_BACKOFF_SECONDS[attempt_idx - 1])
                 continue
-            return (
-                None,
-                int((time.monotonic() - t0) * 1000),
-                f"error:{type(exc).__name__}",
-            )
+            return (None, outcome, attempts, timings)
         except Exception as exc:  # network / TLS / unexpected
+            elapsed = int((time.monotonic() - t0) * 1000)
             last_exc = exc
-            return (
-                None,
-                int((time.monotonic() - t0) * 1000),
-                f"error:network:{type(exc).__name__}",
-            )
+            outcome = f"error:network:{type(exc).__name__}"
+            attempts.append(RetrievalAttempt(
+                source=source, url=full_url,
+                attempt_index=attempt_idx,
+                http_status=None, outcome=outcome,
+            ))
+            timings.append(RetrievalTiming(
+                source=source, attempt_index=attempt_idx,
+                duration_ms=elapsed,
+            ))
+            return (None, outcome, attempts, timings)
+
+        elapsed = int((time.monotonic() - t0) * 1000)
 
         if r.status_code == 200:
-            return (r, int((time.monotonic() - t0) * 1000), "success")
-        if r.status_code == 404:
-            return (r, int((time.monotonic() - t0) * 1000), "not_found")
-        if r.status_code in (429, 500, 502, 503, 504):
-            # Retryable server errors / rate limit
-            if attempt < _MAX_RETRIES - 1:
-                time.sleep(_BACKOFF_SECONDS[attempt])
-                continue
-            return (
-                r,
-                int((time.monotonic() - t0) * 1000),
-                f"error:http_{r.status_code}",
-            )
-        # Non-retryable (400, 401, 403, etc.)
-        return (
-            r,
-            int((time.monotonic() - t0) * 1000),
-            f"error:http_{r.status_code}",
-        )
+            attempts.append(RetrievalAttempt(
+                source=source, url=full_url,
+                attempt_index=attempt_idx,
+                http_status=200, outcome="success",
+            ))
+            timings.append(RetrievalTiming(
+                source=source, attempt_index=attempt_idx,
+                duration_ms=elapsed,
+            ))
+            return (r, "success", attempts, timings)
 
-    # Exhausted retries without returning
-    return (
-        None,
-        int((time.monotonic() - t0) * 1000),
-        f"error:exhausted:{type(last_exc).__name__ if last_exc else 'unknown'}",
+        if r.status_code == 404:
+            attempts.append(RetrievalAttempt(
+                source=source, url=full_url,
+                attempt_index=attempt_idx,
+                http_status=404, outcome="not_found",
+            ))
+            timings.append(RetrievalTiming(
+                source=source, attempt_index=attempt_idx,
+                duration_ms=elapsed,
+            ))
+            return (r, "not_found", attempts, timings)
+
+        if r.status_code in (429, 500, 502, 503, 504):
+            # Retryable. Log attempt, maybe continue.
+            if attempt_idx < _MAX_RETRIES:
+                attempts.append(RetrievalAttempt(
+                    source=source, url=full_url,
+                    attempt_index=attempt_idx,
+                    http_status=r.status_code,
+                    outcome=f"retryable_http_{r.status_code}",
+                ))
+                timings.append(RetrievalTiming(
+                    source=source, attempt_index=attempt_idx,
+                    duration_ms=elapsed,
+                ))
+                time.sleep(_BACKOFF_SECONDS[attempt_idx - 1])
+                continue
+            # Final retry failed.
+            outcome = f"error:http_{r.status_code}"
+            attempts.append(RetrievalAttempt(
+                source=source, url=full_url,
+                attempt_index=attempt_idx,
+                http_status=r.status_code, outcome=outcome,
+            ))
+            timings.append(RetrievalTiming(
+                source=source, attempt_index=attempt_idx,
+                duration_ms=elapsed,
+            ))
+            return (r, outcome, attempts, timings)
+
+        # Non-retryable (400, 401, 403, etc.)
+        outcome = f"error:http_{r.status_code}"
+        attempts.append(RetrievalAttempt(
+            source=source, url=full_url,
+            attempt_index=attempt_idx,
+            http_status=r.status_code, outcome=outcome,
+        ))
+        timings.append(RetrievalTiming(
+            source=source, attempt_index=attempt_idx,
+            duration_ms=elapsed,
+        ))
+        return (r, outcome, attempts, timings)
+
+    # Exhausted retries
+    outcome = (
+        f"error:exhausted:{type(last_exc).__name__ if last_exc else 'unknown'}"
     )
+    return (None, outcome, attempts, timings)
 
 
 def _call_crossref(
     client: httpx.Client, doi: str
-) -> tuple[dict[str, Any] | None, RetrievalAttempt]:
+) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
     url = _CROSSREF_BASE + _urlsafe_doi(doi)
-    r, elapsed, outcome = _request_with_retry(client, "GET", url)
-    attempt = RetrievalAttempt(
-        source="crossref",
-        url=url,
-        http_status=r.status_code if r is not None else None,
-        duration_ms=elapsed,
-        outcome=outcome,
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "crossref", url,
     )
     if outcome != "success" or r is None:
-        return None, attempt
+        return None, attempts, timings
     try:
         data = r.json()
     except ValueError:
-        return None, RetrievalAttempt(
-            source=attempt.source,
-            url=attempt.url,
-            http_status=attempt.http_status,
-            duration_ms=attempt.duration_ms,
+        # Replace the final success attempt with an invalid_json
+        # failure record so the log is honest about the outcome.
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
             outcome="error:invalid_json",
         )
-    return data, attempt
+        return None, attempts, timings
+    return data, attempts, timings
 
 
 def _call_unpaywall(
     client: httpx.Client, doi: str, *, email: str | None = None
-) -> tuple[dict[str, Any] | None, RetrievalAttempt]:
+) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
     email = email or os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
     url = _UNPAYWALL_BASE + _urlsafe_doi(doi)
-    r, elapsed, outcome = _request_with_retry(
-        client, "GET", url, params={"email": email},
-    )
-    attempt = RetrievalAttempt(
-        source="unpaywall",
-        url=url,
-        http_status=r.status_code if r is not None else None,
-        duration_ms=elapsed,
-        outcome=outcome,
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "unpaywall", url,
+        params={"email": email},
     )
     if outcome != "success" or r is None:
-        return None, attempt
+        return None, attempts, timings
     try:
         data = r.json()
     except ValueError:
-        return None, RetrievalAttempt(
-            source=attempt.source,
-            url=attempt.url,
-            http_status=attempt.http_status,
-            duration_ms=attempt.duration_ms,
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
             outcome="error:invalid_json",
         )
-    return data, attempt
+        return None, attempts, timings
+    return data, attempts, timings
 
 
 def _call_pubmed(
     client: httpx.Client, pmid: str
-) -> tuple[str | None, RetrievalAttempt]:
+) -> tuple[str | None, list[RetrievalAttempt], list[RetrievalTiming]]:
     url = _PUBMED_EFETCH_BASE
     params = {
         "db": "pubmed",
@@ -476,30 +585,24 @@ def _call_pubmed(
         "rettype": "abstract",
         "retmode": "xml",
     }
-    r, elapsed, outcome = _request_with_retry(
-        client, "GET", url, params=params,
-    )
-    # PubMed returns 200 with empty body for unknown PMIDs, so also
-    # treat empty body as not_found.
-    attempt = RetrievalAttempt(
-        source="pubmed",
-        url=url,
-        http_status=r.status_code if r is not None else None,
-        duration_ms=elapsed,
-        outcome=outcome,
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "pubmed", url, params=params,
     )
     if outcome != "success" or r is None:
-        return None, attempt
+        return None, attempts, timings
     body = r.text or ""
     if not body.strip():
-        return None, RetrievalAttempt(
-            source=attempt.source,
-            url=attempt.url,
-            http_status=attempt.http_status,
-            duration_ms=attempt.duration_ms,
+        # PubMed returns 200 empty for unknown PMIDs. Replace the
+        # success record with not_found so the log matches reality.
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
             outcome="not_found",
         )
-    return body, attempt
+        return None, attempts, timings
+    return body, attempts, timings
 
 
 def _urlsafe_doi(doi: str) -> str:
@@ -579,6 +682,7 @@ def _fetch_frame_entity_inner(
             year=None,
             failure_reason=None,
             retrieval_attempts=(),
+            retrieval_timings=(),
         )
 
     # Anchor-only entities (no DOI, no PMID, no URL): cannot resolve.
@@ -607,10 +711,12 @@ def _fetch_frame_entity_inner(
                 "requires doi, pmid, or url."
             ),
             retrieval_attempts=(),
+            retrieval_timings=(),
         )
 
     # Normal path: DOI / PMID
     attempts: list[RetrievalAttempt] = []
+    timings: list[RetrievalTiming] = []
     title: str | None = None
     authors: tuple[str, ...] = ()
     journal: str | None = None
@@ -621,8 +727,9 @@ def _fetch_frame_entity_inner(
 
     # Step 1: CrossRef for metadata + abstract when DOI present
     if doi:
-        cr_data, cr_attempt = _call_crossref(client, doi)
-        attempts.append(cr_attempt)
+        cr_data, cr_attempts, cr_timings = _call_crossref(client, doi)
+        attempts.extend(cr_attempts)
+        timings.extend(cr_timings)
         if cr_data is not None:
             parsed = _parse_crossref_response(cr_data)
             title = parsed.get("title")
@@ -635,8 +742,9 @@ def _fetch_frame_entity_inner(
     oa_pdf_url: str | None = None
     oa_html_url: str | None = None
     if doi:
-        up_data, up_attempt = _call_unpaywall(client, doi)
-        attempts.append(up_attempt)
+        up_data, up_attempts, up_timings = _call_unpaywall(client, doi)
+        attempts.extend(up_attempts)
+        timings.extend(up_timings)
         if up_data is not None:
             parsed_up = _parse_unpaywall_response(up_data)
             if parsed_up.get("is_oa"):
@@ -646,8 +754,9 @@ def _fetch_frame_entity_inner(
     # Step 3: PubMed EFetch when PMID present and we still lack abstract
     abstract_pubmed: str | None = None
     if pmid and not abstract_crossref:
-        pm_xml, pm_attempt = _call_pubmed(client, pmid)
-        attempts.append(pm_attempt)
+        pm_xml, pm_attempts, pm_timings = _call_pubmed(client, pmid)
+        attempts.extend(pm_attempts)
+        timings.extend(pm_timings)
         if pm_xml is not None:
             parsed_pm = _parse_pubmed_xml(pm_xml)
             abstract_pubmed = parsed_pm.get("abstract")
@@ -717,6 +826,7 @@ def _fetch_frame_entity_inner(
         year=year,
         failure_reason=failure_reason,
         retrieval_attempts=tuple(attempts),
+        retrieval_timings=tuple(timings),
     )
 
 
@@ -734,12 +844,19 @@ def _collect_identifiers(binding: EvidenceBinding) -> dict[str, str]:
 
 def _summarize_failure(attempts: list[RetrievalAttempt]) -> str:
     """Compose a short failure_reason string from the attempt log.
-    Consumed by M-60 manifest rendering."""
+    Consumed by M-60 manifest rendering. Summarizes the FINAL
+    outcome per source (aggregates retry noise, while the full
+    chain remains visible via FrameRow.retrieval_attempts)."""
     if not attempts:
         return "no retrieval attempted (no resolvable identifier)"
+    # Collapse per-source by taking the last attempt for each
+    # source (which carries the terminal outcome).
+    final_by_source: dict[str, RetrievalAttempt] = {}
+    for a in attempts:
+        final_by_source[a.source] = a
     summaries = [
         f"{a.source}={a.outcome}({a.http_status})"
-        for a in attempts
+        for a in final_by_source.values()
     ]
     return "all sources failed: " + "; ".join(summaries)
 

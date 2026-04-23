@@ -34,6 +34,7 @@ from src.polaris_graph.retrieval.frame_fetcher import (
     FrameRow,
     ProvenanceClass,
     RetrievalAttempt,
+    RetrievalTiming,
     _collect_identifiers,
     _parse_crossref_response,
     _parse_pubmed_xml,
@@ -527,6 +528,17 @@ class TestRetryOnTransient:
         cr_calls = [u for u in transport.call_log if "crossref.org" in u]
         assert len(cr_calls) >= 2
 
+        # Codex M-56 Blocker 2 fix: retry chain is visible as
+        # separate attempts, NOT collapsed into one summary record.
+        cr_attempts = [
+            a for a in row.retrieval_attempts if a.source == "crossref"
+        ]
+        assert len(cr_attempts) == 2
+        assert cr_attempts[0].attempt_index == 1
+        assert cr_attempts[0].outcome == "retryable_http_503"
+        assert cr_attempts[1].attempt_index == 2
+        assert cr_attempts[1].outcome == "success"
+
     def test_exhausted_retries_emits_error_outcome(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -544,8 +556,69 @@ class TestRetryOnTransient:
             row = fetch_frame_entity(_binding(), client=client)
 
         assert row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
+        # Codex M-56 audit Blocker 2 fix: full retry chain visible
+        # as one RetrievalAttempt per HTTP request. 3 attempts per
+        # source × 2 sources (crossref + unpaywall; pubmed not
+        # called because crossref/unpaywall already failed for this
+        # binding with pmid) = at least 6 entries.
         for a in row.retrieval_attempts:
-            assert "error" in a.outcome or a.outcome == "not_found"
+            assert (
+                a.outcome.startswith("error:")
+                or a.outcome.startswith("retryable_")
+                or a.outcome == "not_found"
+            )
+        # Each source should have 3 attempts (max_retries)
+        cr_attempts = [a for a in row.retrieval_attempts if a.source == "crossref"]
+        assert len(cr_attempts) == 3
+        assert [a.attempt_index for a in cr_attempts] == [1, 2, 3]
+        # First 2 retryable, last terminal error
+        assert cr_attempts[0].outcome == "retryable_http_503"
+        assert cr_attempts[1].outcome == "retryable_http_503"
+        assert cr_attempts[2].outcome == "error:http_503"
+
+
+class TestAttemptURLQueryParams:
+    """Codex M-56 audit Blocker 2 fix: logged URL for PubMed and
+    Unpaywall must include the query params the retriever actually
+    sent, so M-60 manifest can reconstruct the exact HTTP line."""
+
+    def test_pubmed_attempt_url_includes_pmid_and_params(self) -> None:
+        binding = _binding(
+            primary="pmid:34010531",
+            secondaries=(),
+        )
+        transport = _Transport([
+            ("eutils.ncbi.nlm.nih.gov", 200, _pubmed_xml()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(binding, client=client)
+
+        pm_attempts = [
+            a for a in row.retrieval_attempts if a.source == "pubmed"
+        ]
+        assert len(pm_attempts) == 1
+        url = pm_attempts[0].url
+        assert "id=34010531" in url
+        assert "db=pubmed" in url
+        assert "rettype=abstract" in url
+        assert "retmode=xml" in url
+
+    def test_unpaywall_attempt_url_includes_email(self) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(primary="doi:10.1/x", secondaries=()),
+                client=client,
+            )
+
+        up_attempts = [
+            a for a in row.retrieval_attempts if a.source == "unpaywall"
+        ]
+        assert len(up_attempts) == 1
+        assert "email=" in up_attempts[0].url
 
 
 class TestRetrievalAttemptLog:
@@ -564,7 +637,12 @@ class TestRetrievalAttemptLog:
             assert isinstance(a, RetrievalAttempt)
             assert a.http_status == 200
             assert a.outcome == "success"
-            assert a.duration_ms >= 0
+            assert a.attempt_index == 1  # no retry on 200
+        # Timings parallel attempts (Blocker 1 fix)
+        assert len(row.retrieval_timings) == len(row.retrieval_attempts)
+        for t in row.retrieval_timings:
+            assert isinstance(t, RetrievalTiming)
+            assert t.duration_ms >= 0
 
     def test_404_logged_as_not_found(self) -> None:
         transport = _Transport([
@@ -584,7 +662,11 @@ class TestRetrievalAttemptLog:
 # (5) Determinism
 # ─────────────────────────────────────────────────────────────────────
 class TestDeterminism:
-    def test_same_inputs_yield_same_frame_row(self) -> None:
+    """Codex M-56 audit Blocker 1 fix: FrameRow payload (including
+    retrieval_attempts) is now deterministic. Wall-clock duration
+    lives in the separate retrieval_timings tuple, NOT compared."""
+
+    def test_same_inputs_yield_byte_identical_payload(self) -> None:
         rules = [
             ("api.crossref.org", 200, _crossref_response()),
             ("api.unpaywall.org", 200,
@@ -596,9 +678,12 @@ class TestDeterminism:
             r1 = fetch_frame_entity(_binding(), client=c1)
             r2 = fetch_frame_entity(_binding(), client=c2)
 
-        # Payload fields must match; retrieval_attempts duration_ms
-        # may differ so compare everything but that.
+        # Strong determinism claim: every payload field matches.
+        # retrieval_attempts contains NO wall-clock data now and so
+        # must compare equal in full.
         assert r1.entity_id == r2.entity_id
+        assert r1.entity_type == r2.entity_type
+        assert r1.rendering_slot == r2.rendering_slot
         assert r1.provenance_class == r2.provenance_class
         assert r1.direct_quote == r2.direct_quote
         assert r1.quote_source == r2.quote_source
@@ -608,7 +693,35 @@ class TestDeterminism:
         assert r1.journal == r2.journal
         assert r1.year == r2.year
         assert r1.oa_pdf_url == r2.oa_pdf_url
-        assert len(r1.retrieval_attempts) == len(r2.retrieval_attempts)
+        assert r1.failure_reason == r2.failure_reason
+        # Byte-identical attempt log
+        assert r1.retrieval_attempts == r2.retrieval_attempts
+        # Timings have same shape but duration_ms may differ
+        assert len(r1.retrieval_timings) == len(r2.retrieval_timings)
+        for t1m, t2m in zip(r1.retrieval_timings, r2.retrieval_timings):
+            assert t1m.source == t2m.source
+            assert t1m.attempt_index == t2m.attempt_index
+
+    def test_frame_row_without_timings_fully_comparable(self) -> None:
+        """Additional Blocker 1 proof: a FrameRow variant with
+        retrieval_timings zeroed must be structurally equal across
+        runs — the determinism guarantee surfaces as direct equality
+        once the non-deterministic tuple is stripped."""
+        rules = [
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+        ]
+        t1 = _Transport(list(rules))
+        t2 = _Transport(list(rules))
+        with _client_with_transport(t1) as c1, _client_with_transport(t2) as c2:
+            r1 = fetch_frame_entity(_binding(), client=c1)
+            r2 = fetch_frame_entity(_binding(), client=c2)
+
+        # Compare by constructing dict without retrieval_timings
+        from dataclasses import replace
+        r1_comparable = replace(r1, retrieval_timings=())
+        r2_comparable = replace(r2, retrieval_timings=())
+        assert r1_comparable == r2_comparable
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -644,8 +757,14 @@ class TestFailureSummary:
 
     def test_composed(self) -> None:
         attempts = [
-            RetrievalAttempt("crossref", "url1", 404, 100, "not_found"),
-            RetrievalAttempt("unpaywall", "url2", 500, 200, "error:http_500"),
+            RetrievalAttempt(
+                source="crossref", url="url1", attempt_index=1,
+                http_status=404, outcome="not_found",
+            ),
+            RetrievalAttempt(
+                source="unpaywall", url="url2", attempt_index=1,
+                http_status=500, outcome="error:http_500",
+            ),
         ]
         summary = _summarize_failure(attempts)
         assert "crossref" in summary and "unpaywall" in summary
