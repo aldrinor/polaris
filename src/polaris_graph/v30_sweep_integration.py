@@ -652,6 +652,35 @@ def _synthesize_phase1_validation(
     )
 
 
+import re as _re
+
+
+# Pre-compiled regex cache for word-boundary lookups to avoid
+# repeated compilation across 15+ entities per sweep.
+_BOUNDARY_CACHE: dict[str, _re.Pattern] = {}
+
+
+def _word_bounded_search(needle: str, haystack: str) -> bool:
+    """Word-boundary substring search: `needle` appears in
+    `haystack` with no word-character extension on either edge.
+    Uses `(?<!\\w)needle(?!\\w)` lookaround (same pattern pass-4
+    of M-58 audit landed on).
+
+    Prevents false-passes like:
+      - doi='10.1000/abc' in 'See 10.1000/abcdef for details'
+      - anchor='SURPASS-1' in 'SURPASS-10' (future trial numbering)
+    """
+    if not needle:
+        return False
+    pat = _BOUNDARY_CACHE.get(needle)
+    if pat is None:
+        pat = _re.compile(
+            r"(?<!\w)" + _re.escape(needle) + r"(?!\w)",
+        )
+        _BOUNDARY_CACHE[needle] = pat
+    return pat.search(haystack) is not None
+
+
 def _entity_cited_in_legacy(
     entity_id: str,
     contract_entity: Any,
@@ -659,26 +688,44 @@ def _entity_cited_in_legacy(
     legacy_bibliography: list[dict[str, Any]] | None,
 ) -> bool:
     """Cross-check whether the legacy generator's verified output
-    refers to this contracted entity. Uses a deliberately-
-    conservative disjunction so the phase-1 synth biases toward
-    surfacing drift rather than claiming false coverage. Checks
-    ALL locator forms on the contract entity — DOI, PMID,
-    anchor, label_name, url_pattern — so regulatory /
-    non-paper entities (which lack DOIs) still get a fair check:
+    refers to this contracted entity.
 
-      Bibliography:
-        - entity.doi matches any biblio.doi → cited.
-        - entity.pmid matches any biblio.pmid → cited.
-        - entity.url_pattern is substring of biblio.url → cited.
+    Codex sweep-integration audit pass-2 blocker: raw substring
+    matching produced two classes of false pass:
+      1. Shared url_pattern domains (e.g. `accessdata.fda.gov`
+         is shared by fda_mounjaro_label AND fda_zepbound_label
+         — a report mentioning only Zepbound would false-pass
+         Mounjaro).
+      2. DOI superstring matches (`10.1000/abc` inside
+         `10.1000/abcdef`).
 
-      Report text:
-        - entity.doi as substring of report → cited.
-        - entity.anchor as substring of report (trial names
-          like "SURPASS-2" or case names like "Merck v. Becerra").
-        - entity.label_name as substring of report ("Mounjaro",
-          "Zepbound", "TA924", etc. — regulatory artifacts).
-        - entity.url_pattern as substring of report
-          ("accessdata.fda.gov", "ema.europa.eu", etc.).
+    Pass-2 fix:
+      - Identifier matches (DOI, PMID, anchor) require
+        word-boundary lookaround via _word_bounded_search.
+      - URL-pattern matches in text require CONJUNCTION with
+        an entity-specific disambiguator (label_name, anchor,
+        or DOI) also present in the text. A raw URL-pattern
+        match alone is NOT sufficient — two entities sharing a
+        url_pattern can't both claim the same citation.
+      - label_name matches use word boundaries so "Mounjaro"
+        doesn't match "PreMounjaro" (hypothetical but cheap to
+        guard).
+
+    Bibliography precedence:
+      - DOI exact match OR PMID exact match → cited (most
+        specific; no further check needed).
+      - url_pattern substring of biblio.url AND the biblio
+        entry's title/name echoes the entity's label_name or
+        anchor → cited (disambiguated).
+
+    Report text precedence:
+      - DOI word-bounded → cited.
+      - anchor word-bounded → cited.
+      - label_name word-bounded + (url_pattern present OR
+        anchor present) → cited. (label_name alone can be
+        generic — e.g. "Mounjaro" might appear in an unrelated
+        discussion. Requiring co-occurrence with a locator
+        tightens the check.)
 
     None → return False (caller decides verdict).
     """
@@ -692,31 +739,80 @@ def _entity_cited_in_legacy(
     pmid_field = contract_entity.pmid
     pmid = str(pmid_field).strip() if pmid_field else ""
 
-    # Bibliography check
+    # Bibliography: DOI / PMID exact match takes precedence.
     if legacy_bibliography:
         for biblio in legacy_bibliography:
             if not isinstance(biblio, dict):
                 continue
             b_doi = (biblio.get("doi") or "").strip()
             b_pmid = str(biblio.get("pmid") or "").strip()
-            b_url = (biblio.get("url") or "").strip()
             if doi and b_doi and doi.lower() == b_doi.lower():
                 return True
             if pmid and b_pmid and pmid == b_pmid:
                 return True
-            if url_pattern and b_url and url_pattern in b_url:
+
+    # Bibliography: url_pattern + entity-specific disambiguator.
+    if legacy_bibliography and url_pattern:
+        for biblio in legacy_bibliography:
+            if not isinstance(biblio, dict):
+                continue
+            b_url = (biblio.get("url") or "").strip()
+            if not b_url or url_pattern not in b_url:
+                continue
+            # Disambiguator: bibliography entry's title or name
+            # must echo the entity's label_name or anchor.
+            b_title = (biblio.get("title") or "").strip()
+            b_name = (biblio.get("name") or "").strip()
+            haystack = f"{b_title} | {b_name}"
+            if label_name and _word_bounded_search(
+                label_name, haystack,
+            ):
+                return True
+            if anchor and _word_bounded_search(anchor, haystack):
                 return True
 
-    # Report text check
+    # Report text check with tighter semantics.
     if legacy_report_text:
         rt = legacy_report_text
-        if doi and doi in rt:
+        # DOI: word-bounded
+        if doi and _word_bounded_search(doi, rt):
             return True
-        if anchor and anchor in rt:
+        # Anchor: word-bounded (handles SURPASS-1 vs SURPASS-10,
+        # Merck v. Becerra vs a paraphrase containing only
+        # "Merck").
+        if anchor and _word_bounded_search(anchor, rt):
             return True
-        if label_name and label_name in rt:
-            return True
-        if url_pattern and url_pattern in rt:
-            return True
+        # Label_name + co-locator: co-occurrence is checked at
+        # LINE granularity so a report mentioning Zepbound +
+        # accessdata.fda.gov on one line and Mounjaro + a
+        # different url (pdf.hres.ca) on another does NOT
+        # false-pass fda_mounjaro_label.
+        if label_name and _word_bounded_search(label_name, rt):
+            if url_pattern:
+                # Must find at least one line where BOTH
+                # label_name AND url_pattern appear.
+                for line in rt.splitlines():
+                    if (
+                        _word_bounded_search(label_name, line)
+                        and url_pattern in line
+                    ):
+                        return True
+                # No line co-located → label alone + url_pattern
+                # on a different line is NOT enough; fall
+                # through to False.
+            elif anchor:
+                # Anchor is checked at line granularity too
+                # for consistency.
+                for line in rt.splitlines():
+                    if (
+                        _word_bounded_search(label_name, line)
+                        and _word_bounded_search(anchor, line)
+                    ):
+                        return True
+            else:
+                # Entity has NO url_pattern AND NO anchor:
+                # label_name alone is the entity's only
+                # identifier (rare; statute-only entities).
+                return True
 
     return False

@@ -259,13 +259,18 @@ class TestClinicalChain:
         # legacy report that cites every SURPASS trial so the
         # phase-1 synth emits PASS verdicts that reflect the
         # actual report content, not just retrieval success.
+        # Use exact contract anchors/label_names — the pass-2
+        # tightening enforces word-boundary semantics so
+        # paraphrased citations ("Thomas clamp" vs contract
+        # anchor "Thomas-clamp") correctly FAIL the check.
         _legacy_report = "\n".join(
             f"SURPASS-{i} was discussed in the efficacy section."
             for i in range(1, 7)
         ) + (
             "\nSURPASS-CVOT assessed cardiovascular outcomes.\n"
             "SURMOUNT-2 enrolled T2D+obesity patients.\n"
-            "Thomas clamp study measured M-value.\n"
+            # Use hyphenated anchor to match contract exactly
+            "Thomas-clamp study measured M-value.\n"
         )
         _legacy_biblio = [
             {"doi": "10.1016/S0140-6736(21)01324-6"},  # SURPASS-1
@@ -277,8 +282,8 @@ class TestClinicalChain:
             {"doi": "10.1056/NEJMoa2509079"},          # CVOT
             {"doi": "10.1016/S0140-6736(23)01200-X"},  # SURMOUNT-2
             {"doi": "10.1016/S2213-8587(22)00041-1"},  # Thomas clamp
-            # Regulatory entities have no DOI; rely on url_pattern
-            # substring match in report text
+            # Regulatory entities have no DOI; use url+title so
+            # pass-2's label_name disambiguator check succeeds.
         ]
         _legacy_report += (
             "\nFDA Mounjaro label: accessdata.fda.gov\n"
@@ -286,7 +291,8 @@ class TestClinicalChain:
             "EMA Mounjaro EPAR: ema.europa.eu\n"
             "NICE TA924: nice.org.uk/guidance/ta924\n"
             "NICE TA1026: nice.org.uk/guidance/ta1026\n"
-            "Health Canada monograph: pdf.hres.ca\n"
+            # HC monograph full label_name from contract
+            "Mounjaro Canadian Product Monograph: pdf.hres.ca\n"
         )
 
         from src.polaris_graph.v30_sweep_integration import (
@@ -367,6 +373,134 @@ class TestClinicalChain:
             f"expected retrieval_only warning; got "
             f"{result.warnings}"
         )
+
+    def test_shared_url_pattern_does_not_false_pass(
+        self, tmp_path: Path, clinical_template: dict,
+        _log, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex sweep-integration pass-2 blocker repro: FDA
+        Mounjaro and FDA Zepbound both have url_pattern=
+        'accessdata.fda.gov'. A report mentioning only Zepbound
+        must NOT false-pass Mounjaro. Tightened cross-check
+        requires label_name disambiguator when url_pattern is
+        shared."""
+        monkeypatch.setenv("PG_V30_ENABLED", "1")
+        import src.polaris_graph.retrieval.frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "fetch_compiled_frame",
+            lambda bindings, **_: _stub_fetch_rows(
+                _FakeCompiled(bindings)
+            ),
+        )
+        # Legacy report mentions Zepbound only
+        legacy_report = (
+            "FDA Zepbound label: accessdata.fda.gov describes "
+            "chronic weight management criteria.\n"
+            "SURPASS-1\nSURPASS-2\nSURPASS-3\nSURPASS-4\n"
+            "SURPASS-5\nSURPASS-6\nSURPASS-CVOT\nSURMOUNT-2\n"
+            "Thomas-clamp\n"
+            "Mounjaro Canadian Product Monograph: pdf.hres.ca\n"
+            "EMA Mounjaro EPAR: ema.europa.eu\n"
+            "NICE TA924: nice.org.uk/guidance/ta924\n"
+            "NICE TA1026: nice.org.uk/guidance/ta1026\n"
+        )
+        legacy_biblio = [
+            {"doi": d}
+            for d in [
+                "10.1016/S0140-6736(21)01324-6",
+                "10.1056/NEJMoa2107519",
+                "10.1016/S0140-6736(21)01443-4",
+                "10.1016/S0140-6736(21)01997-1",
+                "10.1001/jama.2022.0078",
+                "10.1001/jama.2023.0023",
+                "10.1056/NEJMoa2509079",
+                "10.1016/S0140-6736(23)01200-X",
+                "10.1016/S2213-8587(22)00041-1",
+            ]
+        ]
+        from src.polaris_graph.v30_sweep_integration import (
+            run_v30_post_generation,
+        )
+        result = run_v30_post_generation(
+            research_question="q",
+            scope_template=clinical_template,
+            slug="clinical_tirzepatide_t2dm",
+            run_dir=tmp_path,
+            log=_log,
+            legacy_report_text=legacy_report,
+            legacy_bibliography=legacy_biblio,
+        )
+        cov = result.frame_coverage_report
+        # fda_mounjaro_label must be FAIL_UNBOUND_CITATION
+        # (mentioned url_pattern IS in report but label_name
+        # "Mounjaro" only appears in the HC monograph line, where
+        # the co-occurring locator is pdf.hres.ca not
+        # accessdata.fda.gov)
+        mj_entry = next(
+            e for e in cov["entries"]
+            if e["entity_id"] == "fda_mounjaro_label"
+        )
+        assert mj_entry["status"] == "fail_unbound_citation"
+        # fda_zepbound_label must PASS (Zepbound label_name +
+        # accessdata.fda.gov url_pattern both word-bounded)
+        zb_entry = next(
+            e for e in cov["entries"]
+            if e["entity_id"] == "fda_zepbound_label"
+        )
+        assert zb_entry["status"] == "pass"
+
+    def test_doi_superstring_does_not_false_pass(
+        self, tmp_path: Path, clinical_template: dict,
+        _log, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex sweep-integration pass-2 blocker repro: a DOI
+        superstring (10.1056/NEJMoa2107519 is substring of
+        10.1056/NEJMoa2107519X) must NOT match. Word-boundary
+        check rejects."""
+        from src.polaris_graph.v30_sweep_integration import (
+            _entity_cited_in_legacy,
+        )
+
+        class _E:
+            doi = "10.1056/NEJMoa2107519"
+            anchor = None
+            label_name = None
+            url_pattern = None
+            pmid = None
+
+        # Report contains a DOI that EXTENDS the target
+        report = "See 10.1056/NEJMoa2107519X for the extended trial."
+        assert _entity_cited_in_legacy(
+            "surpass_2_primary", _E, report, None,
+        ) is False
+
+        # Exact match passes
+        report2 = "SURPASS-2 (Frias, DOI 10.1056/NEJMoa2107519)."
+        assert _entity_cited_in_legacy(
+            "surpass_2_primary", _E, report2, None,
+        ) is True
+
+    def test_surpass_1_vs_surpass_10_disambiguation(
+        self,
+    ) -> None:
+        """Anchor word-boundary: if a report only cites
+        SURPASS-10 (hypothetical future trial), SURPASS-1 must
+        not false-pass on substring."""
+        from src.polaris_graph.v30_sweep_integration import (
+            _entity_cited_in_legacy,
+        )
+
+        class _Surpass1:
+            doi = None
+            anchor = "SURPASS-1"
+            label_name = None
+            url_pattern = None
+            pmid = None
+
+        report = "SURPASS-10 extended the program to adolescents."
+        assert _entity_cited_in_legacy(
+            "surpass_1_primary", _Surpass1, report, None,
+        ) is False
 
     def test_entity_not_cited_in_legacy_yields_unbound_citation(
         self, tmp_path: Path, clinical_template: dict,
