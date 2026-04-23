@@ -97,30 +97,26 @@ def _frame_row(
 
 
 def _well_formed_response(required_fields: tuple[str, ...]) -> str:
-    """Simulate an LLM response per the prompt contract. All fields
-    are extracted with source_spans that ARE substrings of the
-    fixture quote."""
+    """Simulate an LLM response per the pass-5 prompt contract:
+    `value` and `source_span` must be IDENTICAL verbatim substrings
+    of direct_quote. No field-level truncation or rewriting."""
     field_to_extract = {
-        "N": ("1879", "N=1879"),
-        "population": ("T2D", "T2D"),
-        "primary_endpoint": (
-            "change in HbA1c at 40 weeks",
-            "change in HbA1c at 40 weeks",
-        ),
+        "N": "N=1879",
+        "population": "T2D",
+        "primary_endpoint": "change in HbA1c at 40 weeks",
         "etd_with_uncertainty": (
-            "-0.47% (95% CI -0.59 to -0.35)",
-            "-0.47% (95% CI -0.59 to -0.35)",
+            "-0.47% (95% CI -0.59 to -0.35)"
         ),
     }
     fields = []
     for fname in required_fields:
         if fname in field_to_extract:
-            val, span = field_to_extract[fname]
+            text = field_to_extract[fname]
             fields.append({
                 "field_name": fname,
                 "status": "extracted",
-                "value": val,
-                "source_span": span,
+                "value": text,
+                "source_span": text,
             })
         else:
             fields.append({
@@ -204,7 +200,8 @@ class TestParseHappy:
 
         by_name = payload.fields_by_name()
         assert by_name["N"].status == "extracted"
-        assert by_name["N"].value == "1879"
+        # Pass-5: value == source_span verbatim substring contract
+        assert by_name["N"].value == "N=1879"
         assert by_name["N"].source_span == "N=1879"
         assert by_name["N"].bound_ev_id == "surpass_2_primary"
 
@@ -373,21 +370,27 @@ class TestParseFailures:
         assert "not supported" in msg or "anti-fabrication" in msg
         assert "1880" in str(exc.value)
 
-    def test_value_whitespace_normalization_accepted(self) -> None:
-        """value='1879' with source_span='N=1879' passes via
-        normalized-substring check: 'n=1879' contains '1879' after
-        whitespace/case collapse."""
+    def test_value_substring_of_span_raises(self) -> None:
+        """Pass-5 contract: value and source_span must be IDENTICAL.
+        value='1879' + span='N=1879' was legitimate under pass-3/4
+        policies, but pass-5 rejects ALL substring drift (including
+        legitimate ones) to close the exploit class. The LLM must
+        quote either '1879' OR 'N=1879' for BOTH value and span —
+        never a subset of one in the other."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
-                 "value": "1879",
+                 "value": "1879",  # subset of span
                  "source_span": "N=1879"},
             ]
         })
-        payload = parse_slot_fill_response(
-            response, _slot_plan(), _frame_row(), ("N",),
+        with pytest.raises(SlotFillParseError) as exc:
+            parse_slot_fill_response(
+                response, _slot_plan(), _frame_row(), ("N",),
+            )
+        assert "identical" in str(exc.value).lower() or (
+            "does not match" in str(exc.value).lower()
         )
-        assert payload.fields_by_name()["N"].value == "1879"
 
     def test_value_case_mismatch_raises(self) -> None:
         """Codex M-58 pass-3 regression: lowercasing in
@@ -428,7 +431,8 @@ class TestParseFailures:
             parse_slot_fill_response(
                 response, _slot_plan(), row, ("concentration",),
             )
-        assert "not supported" in str(exc.value).lower()
+        msg = str(exc.value).lower()
+        assert "not supported" in msg or "does not match" in msg
 
     def test_whitespace_only_normalization_still_accepted(self) -> None:
         """Whitespace variation is the ONE form pass-3 still accepts.
@@ -465,7 +469,8 @@ class TestParseFailures:
             parse_slot_fill_response(
                 response, _slot_plan(), row, ("N",),
             )
-        assert "not supported" in str(exc.value).lower()
+        msg = str(exc.value).lower()
+        assert "not supported" in msg or "does not match" in msg
 
     def test_partial_dose_unit_substring_raises(self) -> None:
         """Codex M-58 pass-4 exact repro: span='15 mg' with
@@ -485,11 +490,10 @@ class TestParseFailures:
                 response, _slot_plan(), row, ("dose",),
             )
 
-    def test_clean_token_inside_parentheses_accepted(self) -> None:
-        """Word-boundary check does NOT reject clean tokens
-        surrounded by punctuation: span='(5 mg)' with value='5 mg'
-        passes because '(' and ')' are non-word, so \\b triggers
-        around '5 mg'."""
+    def test_punctuation_drift_raises(self) -> None:
+        """Pass-5: span='(5 mg)' with value='5 mg' drops the
+        punctuation — raises. LLM must quote the same string for
+        both fields."""
         quote = "Initial dose (5 mg) weekly."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -499,25 +503,102 @@ class TestParseFailures:
                  "source_span": "(5 mg)"},
             ]
         })
-        payload = parse_slot_fill_response(
-            response, _slot_plan(), row, ("dose",),
-        )
-        assert payload.fields_by_name()["dose"].value == "5 mg"
+        with pytest.raises(SlotFillParseError):
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("dose",),
+            )
 
-    def test_verbatim_from_equals_span_accepted(self) -> None:
-        """span='N=1879' with value='1879' passes under pass-4:
-        '=' is non-word so \\b triggers around '1879'."""
+    def test_value_equal_to_span_accepted(self) -> None:
+        """The ONE accepted form under pass-5: value == source_span,
+        with both being a verbatim substring of direct_quote."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
-                 "value": "1879",
+                 "value": "N=1879",
                  "source_span": "N=1879"},
             ]
         })
         payload = parse_slot_fill_response(
             response, _slot_plan(), _frame_row(), ("N",),
         )
+        assert payload.fields_by_name()["N"].value == "N=1879"
+        assert payload.fields_by_name()["N"].source_span == "N=1879"
+
+    def test_bare_value_equal_to_bare_span_accepted(self) -> None:
+        """Alternative: quote just the bare number for BOTH fields."""
+        quote = "Enrolled 1879 participants. HbA1c 8.3% baseline."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "1879",
+                 "source_span": "1879"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("N",),
+        )
         assert payload.fields_by_name()["N"].value == "1879"
+
+    def test_whitespace_only_drift_accepted(self) -> None:
+        """The one tolerated LLM drift: whitespace collapse.
+        direct_quote has 'N=1879  participants' (double space).
+        LLM emits source_span='N=1879  participants' (verbatim,
+        check 1 passes) and value='N=1879 participants' (single
+        space) — whitespace_collapse normalizes both sides to
+        'N=1879 participants', so value_matches_span returns True."""
+        quote = "SURPASS-2 enrolled N=1879  participants with T2D."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "N=1879 participants",   # one space
+                 "source_span": "N=1879  participants"},  # two spaces
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("N",),
+        )
+        # Value stored as the LLM emitted it; normalization only
+        # affects the MATCHING check, not the stored payload.
+        assert payload.fields_by_name()["N"].value == "N=1879 participants"
+
+    def test_sign_truncation_raises(self) -> None:
+        """Codex M-58 pass-5 exploit: value='0.47%' from
+        source_span='-0.47%' drops the sign. Pass-4 lookaround
+        accepted this ('-' is non-word, so lookaround permitted
+        '0.47%' inside '-0.47%'); pass-5 strict equality rejects."""
+        quote = "ETD vs semaglutide 1mg was -0.47% (95% CI)."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "etd", "status": "extracted",
+                 "value": "0.47%",  # sign stripped
+                 "source_span": "-0.47%"},
+            ]
+        })
+        with pytest.raises(SlotFillParseError):
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("etd",),
+            )
+
+    def test_ionic_state_truncation_raises(self) -> None:
+        """Codex M-58 pass-5 exploit: value='Ca2' from
+        source_span='Ca2+' drops the ionic charge. Different
+        chemical entity. Pass-5 rejects."""
+        quote = "Ca2+ signaling was upregulated."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "ion", "status": "extracted",
+                 "value": "Ca2",
+                 "source_span": "Ca2+"},
+            ]
+        })
+        with pytest.raises(SlotFillParseError):
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("ion",),
+            )
 
     def test_value_misbound_to_wrong_span_raises(self) -> None:
         """Codex M-58 pass-2 regression: value '10 mg' with
@@ -612,7 +693,8 @@ class TestRenderSlotProse:
         )
         prose = render_slot_prose(payload)
         assert "SURPASS-2" in prose
-        assert "N: 1879" in prose
+        # Pass-5 fixture now uses value='N=1879'
+        assert "N: N=1879" in prose
         assert "primary_endpoint:" in prose
         assert "[surpass_2_primary]" in prose
         # Every extracted field has a citation
@@ -681,10 +763,12 @@ class TestEntityTypeAgnostic:
             ),
         )
         required = ("enactment_year", "remedy_type", "standing")
+        # Pass-5: value == source_span verbatim
         response = json.dumps({
             "fields": [
                 {"field_name": "enactment_year", "status": "extracted",
-                 "value": "1871", "source_span": "Enacted 1871"},
+                 "value": "Enacted 1871",
+                 "source_span": "Enacted 1871"},
                 {"field_name": "remedy_type", "status": "extracted",
                  "value": "civil remedy",
                  "source_span": "civil remedy"},

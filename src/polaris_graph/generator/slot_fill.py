@@ -107,96 +107,61 @@ class SlotFillParseError(ValueError):
     """LLM response could not be parsed into a SlotFillPayload."""
 
 
-def _value_supported_by_span(
-    value: str, source_span: str, direct_quote: str,
-) -> bool:
-    """Codex M-58 audit Blocker fix (pass 1 → pass 4):
+def _value_matches_span(value: str, source_span: str) -> bool:
+    """Codex M-58 audit: after five passes of substring-containment
+    exploits, the exploit surface is closed by eliminating the
+    distinction entirely.
 
-    pass-1: added a value-support check (not just span-in-quote).
-    pass-2: dropped the direct_quote + token-overlap fallback
-            (accepted span='5 mg' + value='10 mg').
-    pass-3: dropped lowercase from normalization (accepted
-            span='5 M' + value='5 m' — molar vs meter).
-    pass-4: replaced raw substring with "not-extended-by-word-char"
-            lookaround match (raw substring accepted span='15 mg'
-            + value='5 mg' and span='1879' + value='879' — partial
-            numerics). Uses `(?<!\\w)needle(?!\\w)` rather than
-            `\\b` so values with non-word edges (e.g. '-0.47%')
-            still match cleanly.
+    `value` and `source_span` must denote the SAME verbatim text.
+    They are two names for the same thing: the extracted fact IS
+    the source snippet. Any drift between them — character, case,
+    sign, digit, unit — is a contract violation.
 
-    Final policy — not-extended-by-word-char containment with
-    whitespace-only normalization:
+    Accepted:
+      1. value == source_span (strict equality)
+      2. whitespace-collapsed(value) == whitespace-collapsed(source_span)
+         — LLM whitespace/tab/newline variation only. No other
+         normalization.
 
-      1. `value` appears in `source_span` AND is not extended into
-         a larger word on either side. "5 mg" in "(5 mg) weekly"
-         matches; "5 mg" in "15 mg" does not.
-      2. whitespace-collapsed `value` appears in whitespace-
-         collapsed `source_span` under the same rule.
-         Accommodates LLM whitespace/tab variation only.
+    History of rejected alternatives that each created an exploit:
+      - pass-1: value anywhere in direct_quote (accepted
+        value='1880' + span='N=1879').
+      - pass-2: value in source_span OR in direct_quote + token
+        overlap (accepted span='5 mg' + value='10 mg').
+      - pass-3: value in source_span substring, with lowercase
+        normalization (accepted span='5 M' + value='5 m' — molar
+        vs meter).
+      - pass-4: value in source_span bounded by (?<!\\w)needle(?!\\w)
+        (accepted span='-0.47%' + value='0.47%' — sign truncation;
+        span='Ca2+' + value='Ca2' — ionic-state truncation).
 
-    Rejected:
-      - case drift (pass-3)
-      - substring-inside-word drift (pass-4)
-      - direct_quote fallback (pass-2)
+    pass-5 resolution: value MUST equal source_span. The LLM prompt
+    is aligned to this: "value and source_span must be the same
+    verbatim substring of direct_quote". Ambiguity about which
+    part of a longer span represents "the fact" is resolved by
+    requiring the LLM to pick exactly one form.
 
-    Narrow residual (documented, not fixed at M-58): if the SAME
-    exact value string appears multiple times in `source_span`
-    with different semantics (e.g. two "5 mg" mentions — one
-    initial, one maintenance dose), M-58 cannot disambiguate
-    which mention the field referred to. M-59 or the contract
-    prompt itself would need to encode that distinction.
-
-    `direct_quote` parameter retained for future document-scope
-    checks, currently unused.
+    For M-58 consumers: `render_slot_prose` uses `value` verbatim,
+    so the prose reflects exactly what the LLM quoted. If the
+    span has context the clinician should see (e.g. "N=1879"),
+    both value AND span carry it.
     """
     if not value or not source_span:
         return False
-    if _word_bounded_in(value, source_span):
+    if value == source_span:
         return True
-    if _word_bounded_in(
-        _normalize_for_span_check(value),
-        _normalize_for_span_check(source_span),
-    ):
+    # Sole remaining normalization: whitespace collapse. Does NOT
+    # affect case, digits, units, signs, punctuation, or diacritics.
+    if _whitespace_collapse(value) == _whitespace_collapse(source_span):
         return True
     return False
 
 
-def _normalize_for_span_check(s: str) -> str:
-    """Whitespace-collapse ONLY. No lowercasing (pass-3). Case-
-    sensitive scientific tokens (HbA1c, 5 M vs 5 m, Ca2+) must
-    survive the normalization."""
+def _whitespace_collapse(s: str) -> str:
+    """Collapse runs of whitespace (space, tab, newline) to a single
+    space; strip leading/trailing whitespace. No other
+    normalization."""
     return " ".join(s.split())
-
-
-def _word_bounded_in(needle: str, haystack: str) -> bool:
-    """True when `needle` appears in `haystack` and is NOT extended
-    into a larger word on either side.
-
-    Uses negative lookaround `(?<!\\w)` + `(?!\\w)` rather than
-    `\\b`. The difference matters for values whose edge characters
-    are non-word (e.g. "-0.47%"): `\\b` would reject them because
-    it needs a word char adjacent to the boundary, while
-    lookaround correctly accepts them since the rule is "not
-    extended by a word char".
-
-    Rejects pass-4 exploits:
-      - needle="5 mg",  haystack="15 mg"   → False ("1" before "5" is \\w)
-      - needle="879",   haystack="1879"    → False ("1" before "8" is \\w)
-      - needle="5 mg",  haystack="5 mgg"   → False ("g" after "g" is \\w)
-
-    Accepts legitimate matches:
-      - needle="1879",  haystack="N=1879"  → True  ("=" not \\w; edge after)
-      - needle="5 mg",  haystack="(5 mg)"  → True
-      - needle="-0.47%",haystack="-0.47%"  → True  (both edges at string-edge)
-      - needle="HbA1c", haystack="Baseline HbA1c was" → True
-
-    Empty needle returns False. Anchored regex with re.UNICODE so
-    non-ASCII word characters (e.g. 'é') are treated correctly.
-    """
-    if not needle:
-        return False
-    pattern = r"(?<!\w)" + re.escape(needle) + r"(?!\w)"
-    return re.search(pattern, haystack, flags=re.UNICODE) is not None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -255,10 +220,13 @@ def build_slot_fill_prompt(
             {
                 "field_name": "<one of the required fields>",
                 "status": "extracted | not_extractable",
-                "value": "<the extracted value as a string, or null>",
+                "value": (
+                    "<verbatim substring of direct_quote — MUST equal "
+                    "source_span — or null when not_extractable>"
+                ),
                 "source_span": (
-                    "<verbatim substring of direct_quote that backs "
-                    "the value, or null>"
+                    "<verbatim substring of direct_quote — MUST equal "
+                    "value — or null when not_extractable>"
                 ),
             }
         ]
@@ -281,9 +249,9 @@ def build_slot_fill_prompt(
         f"\n"
         f"=== REQUIRED FIELDS ===\n"
         f"For EACH of the following required fields, either extract "
-        f"its value verbatim from DIRECT_QUOTE and report the exact "
-        f"substring used (source_span), OR mark status=not_extractable "
-        f"with value=null and source_span=null.\n"
+        f"its value as a verbatim substring of DIRECT_QUOTE "
+        f"(value and source_span MUST be IDENTICAL strings), OR mark "
+        f"status=not_extractable with value=null and source_span=null.\n"
         f"{fields_bullets}\n"
         f"\n"
         f"=== OUTPUT CONTRACT ===\n"
@@ -294,12 +262,18 @@ def build_slot_fill_prompt(
         f"RULES:\n"
         f"1. Every required field MUST appear in fields[] exactly once.\n"
         f"2. status MUST be one of: extracted | not_extractable.\n"
-        f"3. source_span MUST be a verbatim substring of DIRECT_QUOTE "
-        f"when status=extracted.\n"
+        f"3. When status=extracted: `value` and `source_span` MUST be "
+        f"byte-identical strings (modulo whitespace collapse), both "
+        f"copied verbatim from DIRECT_QUOTE. Do not truncate. Do not "
+        f"normalize case. Do not drop signs, units, or punctuation.\n"
         f"4. Do NOT add fields outside the required list.\n"
         f"5. Do NOT cite anything other than {bound_ev_id}.\n"
         f"6. If DIRECT_QUOTE does not state a field, use "
         f"status=not_extractable. Do NOT guess. Do NOT infer.\n"
+        f"7. To extract a number with surrounding context (e.g. 'N=1879' "
+        f"to document what the N refers to), quote the full phrase "
+        f"for BOTH value and source_span. If you want just the bare "
+        f"number '1879', quote exactly '1879' for BOTH. Never mix.\n"
     )
     return prompt
 
@@ -422,22 +396,19 @@ def parse_slot_fill_response(
                     f"substring of direct_quote (anti-fabrication "
                     f"check 1 failed)"
                 )
-            # Codex M-58 audit Blocker (pass 1→3 tightening).
-            # Extracted `value` must be supported by `source_span`
-            # itself, not just appear somewhere in direct_quote.
-            # Final policy (pass-3): strict verbatim-in-span OR
-            # whitespace-collapsed verbatim-in-span. No lowercase
-            # (pass-3 caught `5 M` vs `5 m` unit-case exploit).
-            # No direct_quote fallback (pass-2 caught
-            # `span="5 mg" + value="10 mg"` misbinding exploit).
-            # See _value_supported_by_span docstring for the full
-            # three-pass history.
-            if not _value_supported_by_span(value, source_span, direct_quote):
+            # Codex M-58 audit Blocker (pass 1→5 final tightening).
+            # After five passes of substring-containment exploits,
+            # the exploit surface is closed by collapsing the
+            # value/source_span distinction: they must denote the
+            # SAME verbatim text. See _value_matches_span docstring
+            # for the full five-pass history.
+            if not _value_matches_span(value, source_span):
                 raise SlotFillParseError(
-                    f"fields[{fname!r}].value={value!r} is not "
-                    f"supported by source_span={source_span!r}; "
-                    f"extracted values must be verbatim from the "
-                    f"span (anti-fabrication check 2 failed)"
+                    f"fields[{fname!r}].value={value!r} does not "
+                    f"match source_span={source_span!r}; value and "
+                    f"source_span must denote the identical verbatim "
+                    f"substring of direct_quote (anti-fabrication "
+                    f"check 2 failed)"
                 )
         else:
             # not_extractable
