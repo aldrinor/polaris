@@ -379,8 +379,41 @@ class TestReferentialIntegrity:
         template = _template_with_contract(contract)
         with pytest.raises(ContractSchemaError) as exc:
             load_report_contract_for_slug(template, "test_slug")
-        assert "rendering_slot" in exc.value.path
+        # Codex M-54 audit Medium: path must use YAML list INDEX, not
+        # entity id. With one entity the offending index is [0].
+        assert exc.value.path == (
+            "per_query_report_contract.test_slug."
+            "required_entities[0].rendering_slot"
+        )
         assert "unknown_slot" in exc.value.reason
+        # Original logical id still surfaced in reason for debug
+        assert "e1" in exc.value.reason
+
+    def test_entity_references_undeclared_slot_path_uses_index_second_entity(
+        self,
+    ) -> None:
+        """Regression guard for Codex M-54 Medium: when the offending
+        entity is NOT the first in the list, the raised path must
+        carry its YAML list index, not its id."""
+        contract_raw = {
+            "test_slug": {
+                "schema_version": "v30.1",
+                "required_entities": [
+                    _minimal_entity(eid="e_ok", slot="s1"),
+                    _minimal_entity(eid="e_bad", slot="nonexistent"),
+                ],
+                "rendering_slots": {"s1": _minimal_slot()},
+            }
+        }
+        template = _template_with_contract(contract_raw)
+        with pytest.raises(ContractSchemaError) as exc:
+            load_report_contract_for_slug(template, "test_slug")
+        assert exc.value.path == (
+            "per_query_report_contract.test_slug."
+            "required_entities[1].rendering_slot"
+        )
+        assert "nonexistent" in exc.value.reason
+        assert "e_bad" in exc.value.reason
 
     def test_all_slots_must_be_referenced_is_NOT_required(self) -> None:
         """Declaring extra slots without entities is allowed — the

@@ -229,6 +229,7 @@ def load_report_contract_for_slug(
             "must contain at least one entity",
         )
     entities: list[RequiredEntity] = []
+    entity_yaml_index: dict[str, int] = {}  # entity id -> YAML list index
     seen_entity_ids: set[str] = set()
     for i, e in enumerate(entities_raw):
         path = f"per_query_report_contract.{slug}.required_entities[{i}]"
@@ -293,6 +294,7 @@ def load_report_contract_for_slug(
                 f"{path}.rendering_slot",
                 "must be non-empty string",
             )
+        entity_yaml_index[eid] = i
         entities.append(RequiredEntity(
             id=eid,
             type=etype,
@@ -387,14 +389,18 @@ def load_report_contract_for_slug(
 
     # ── Referential integrity ─────────────────────────────────────
     # Every entity's rendering_slot must resolve to a declared slot.
+    # Path uses the YAML list index (entity_yaml_index[e.id]) so callers
+    # can map the error to the exact YAML node, not the logical id.
     declared_slot_ids = {s.id for s in slots}
     for e in entities:
         if e.rendering_slot not in declared_slot_ids:
+            idx = entity_yaml_index[e.id]
             raise ContractSchemaError(
                 f"per_query_report_contract.{slug}.required_entities"
-                f"[{e.id}].rendering_slot",
-                f"references unknown slot {e.rendering_slot!r}; "
-                f"known slots: {sorted(declared_slot_ids)}",
+                f"[{idx}].rendering_slot",
+                f"entity id={e.id!r} references unknown slot "
+                f"{e.rendering_slot!r}; known slots: "
+                f"{sorted(declared_slot_ids)}",
             )
 
     return ReportContract(
