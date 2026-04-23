@@ -1169,6 +1169,26 @@ async def run_one_query(
                 f"passes_threshold={passed}"
             )
 
+        # M-53 (2026-04-23): V29-c per-anchor custody telemetry.
+        # Codex-required diagnostic for V30 planning — each configured
+        # anchor gets a 9-field JSON entry tracking the full custody
+        # chain: found_in_live_corpus → selected_into_pool →
+        # injected_into_section → direct_quote_adequate →
+        # cited_in_verified_prose. When V29 fails to lift a dim, this
+        # file identifies exactly which custody step broke.
+        custody_log = getattr(multi, "v29_primary_custody_log", []) or []
+        (run_dir / "v29_primary_custody.json").write_text(
+            json.dumps(custody_log, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        if custody_log:
+            cited = sum(1 for e in custody_log if e.get("cited_in_verified_prose"))
+            total = len(custody_log)
+            _log(
+                f"[m53]         v29 primary custody: {cited}/{total} "
+                f"anchors cited_in_verified_prose"
+            )
+
         # M-50 (2026-04-22): persist per-trial subsection telemetry.
         m50_entries = getattr(
             multi, "m50_per_trial_subsections_entries", [],

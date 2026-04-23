@@ -152,6 +152,14 @@ class MultiSectionResult:
     m50_per_trial_subsections_entries: list[dict[str, Any]] = field(default_factory=list)
     m50_per_trial_subsections_input_tokens: int = 0
     m50_per_trial_subsections_output_tokens: int = 0
+    # M-53 (2026-04-23): V29-c per-anchor custody telemetry.
+    # List of dicts, one per configured anchor, with 9 fields per
+    # Codex plan pass-1 revision #6 (anchor / found_in_live_corpus /
+    # found_ev_id / selected_into_pool / injected_into_section /
+    # direct_quote_chars / direct_quote_adequate /
+    # cited_in_verified_prose / citation_count). Orchestrator
+    # persists to v29_primary_custody.json.
+    v29_primary_custody_log: list[dict[str, Any]] = field(default_factory=list)
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -2001,6 +2009,140 @@ def _m44_section_is_primary_eligible(section_title: str) -> bool:
     return any(tok in t for tok in _M44_WEIGHT_TOKENS)
 
 
+def _m53_compute_primary_custody_log(
+    primary_trial_anchors: list[str] | None,
+    live_corpus: list[dict[str, Any]] | None,
+    evidence_pool: dict[str, dict[str, Any]],
+    section_results: list["SectionResult"],
+    global_biblio: list[dict[str, Any]],
+    m44_injection_log: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """M-53 (2026-04-23): V29-c per-anchor custody telemetry.
+
+    Codex plan pass-1 revisions #6-7 woven in:
+    - Retain all 9 fields.
+    - Compute `selected_into_pool` by canonical ev_id/key membership
+      in the final `evidence_pool` (single source of truth).
+    - Compute `cited_in_verified_prose` AFTER bibliography numbering
+      is finalized, using the ev_id → biblio number mapping that
+      rendered the report.
+
+    Returns list of 9-field dicts, one per configured anchor. Empty
+    list when no anchors configured.
+    """
+    if not primary_trial_anchors:
+        return []
+    from src.polaris_graph.retrieval.evidence_selector import (
+        _m42e_detect_primary_for_anchor,
+    )
+
+    # Build ev_id → biblio_num mapping (finalized bibliography)
+    ev_id_to_biblio_num: dict[str, int] = {}
+    for entry in global_biblio:
+        evid = entry.get("evidence_id")
+        num = entry.get("num")
+        if isinstance(evid, str) and isinstance(num, int):
+            ev_id_to_biblio_num[evid] = num
+
+    # Build injection log lookup: anchor → list of section titles
+    injections_by_anchor: dict[str, list[str]] = {}
+    for entry in m44_injection_log:
+        anchor = entry.get("anchor")
+        section = entry.get("section")
+        action = entry.get("action", "")
+        if not isinstance(anchor, str) or not anchor:
+            continue
+        # Count any action that places an ev_id into a section
+        # (injected, swap_in_for_*, already_present, injected_from_corpus
+        # at the pool level also counts as "injected_into_pool")
+        if action in ("injected", "already_present") or action.startswith(
+            "swap_in_for_"
+        ) or action == "injected_from_corpus":
+            injections_by_anchor.setdefault(anchor, [])
+            if isinstance(section, str) and section and section not in (
+                "<pool-level>", *injections_by_anchor[anchor]
+            ):
+                injections_by_anchor[anchor].append(section)
+
+    # Deduplicate anchors preserving order
+    unique_anchors: list[str] = []
+    seen: set[str] = set()
+    for a in primary_trial_anchors:
+        if a not in seen:
+            seen.add(a)
+            unique_anchors.append(a)
+
+    out: list[dict[str, Any]] = []
+    for anchor in unique_anchors:
+        # Found in live_corpus?
+        found_row = None
+        for row in (live_corpus or []):
+            if _m42e_detect_primary_for_anchor(row, anchor):
+                found_row = row
+                break
+        found_in_corpus = found_row is not None
+        found_ev_id = (
+            found_row.get("evidence_id")
+            if found_row and isinstance(found_row.get("evidence_id"), str)
+            else ""
+        )
+
+        # Selected into pool? (Scan pool for anchor-matched rows,
+        # using canonical ev_id/content-key identity — not dict membership.)
+        selected_ev_id: str = ""
+        for ev_id, pool_row in evidence_pool.items():
+            if _m42e_detect_primary_for_anchor(pool_row, anchor):
+                selected_ev_id = ev_id
+                break
+        selected_into_pool = bool(selected_ev_id)
+
+        # Injected into which section(s)? Use injection log.
+        injected_sections = injections_by_anchor.get(anchor, [])
+        injected_into_section = (
+            injected_sections[0] if injected_sections else None
+        )
+
+        # Direct quote adequacy (from pool row if selected, else from
+        # found_row if only in corpus).
+        ref_row = (
+            evidence_pool.get(selected_ev_id)
+            if selected_ev_id
+            else found_row
+        )
+        direct_quote_chars = (
+            len(ref_row.get("direct_quote", ""))
+            if ref_row else 0
+        )
+        direct_quote_adequate = direct_quote_chars >= 100
+
+        # Cited in verified prose? Check bibliography-num citations in
+        # each section's verified_text. Uses ev_id → biblio_num map
+        # that rendered the report.
+        citation_count = 0
+        if selected_ev_id and selected_ev_id in ev_id_to_biblio_num:
+            biblio_num = ev_id_to_biblio_num[selected_ev_id]
+            import re as _re
+            pattern = _re.compile(rf"\[{biblio_num}\]")
+            for sr in section_results:
+                if sr.dropped_due_to_failure or not sr.verified_text:
+                    continue
+                citation_count += len(pattern.findall(sr.verified_text))
+        cited_in_verified_prose = citation_count > 0
+
+        out.append({
+            "anchor": anchor,
+            "found_in_live_corpus": found_in_corpus,
+            "found_ev_id": found_ev_id,
+            "selected_into_pool": selected_into_pool,
+            "injected_into_section": injected_into_section,
+            "direct_quote_chars": direct_quote_chars,
+            "direct_quote_adequate": direct_quote_adequate,
+            "cited_in_verified_prose": cited_in_verified_prose,
+            "citation_count": citation_count,
+        })
+    return out
+
+
 def _m52_pull_from_live_corpus(
     evidence_pool: dict[str, dict[str, Any]],
     live_corpus: list[dict[str, Any]] | None,
@@ -3510,6 +3652,17 @@ async def generate_multi_section_report(
         m50_per_trial_subsections_entries=m50_subsection_entries,
         m50_per_trial_subsections_input_tokens=m50_in_tok,
         m50_per_trial_subsections_output_tokens=m50_out_tok,
+        # M-53 (2026-04-23) V29-c — per-anchor custody log.
+        # Computed AFTER bibliography + section results are final,
+        # so the ev_id → biblio_num mapping matches what was rendered.
+        v29_primary_custody_log=_m53_compute_primary_custody_log(
+            primary_trial_anchors=primary_trial_anchors,
+            live_corpus=live_corpus,
+            evidence_pool=evidence_pool,
+            section_results=section_results,
+            global_biblio=global_biblio,
+            m44_injection_log=m44_injection_log,
+        ),
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,

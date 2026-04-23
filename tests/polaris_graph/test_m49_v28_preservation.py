@@ -386,6 +386,74 @@ class TestM44TelemetryArtifact:
 # ─────────────────────────────────────────────────────────────────
 # Metadata-only tests (always run)
 # ─────────────────────────────────────────────────────────────────
+class TestM53V29PrimaryCustody:
+    """M-49 extension for V29: assert every configured anchor ends
+    with cited_in_verified_prose=true. This is the authoritative
+    V29 success test — if any anchor failed custody, V29 did not
+    ship the pivotal trial coverage."""
+
+    def test_all_anchors_cited_in_verified_prose(self) -> None:
+        root = _require_v28_output()
+        custody_path = root / "v29_primary_custody.json"
+        if not custody_path.exists():
+            pytest.skip(
+                "v29_primary_custody.json not present — pre-V29 sweep "
+                "output, or V29 bundle not yet in effect"
+            )
+        custody_log = json.loads(custody_path.read_text(encoding="utf-8"))
+        assert isinstance(custody_log, list), (
+            f"v29_primary_custody.json expected list, got "
+            f"{type(custody_log).__name__}"
+        )
+        failing = [
+            e for e in custody_log
+            if not e.get("cited_in_verified_prose")
+        ]
+        if failing:
+            # Generate diagnostic detail for each failing anchor:
+            # identify which custody step broke.
+            fail_report = []
+            for e in failing:
+                anchor = e.get("anchor", "?")
+                if not e.get("found_in_live_corpus"):
+                    reason = "retrieval (not in live_corpus)"
+                elif not e.get("selected_into_pool"):
+                    reason = "selector (dropped from evidence_pool)"
+                elif not e.get("injected_into_section"):
+                    reason = "generator (not injected into any section)"
+                elif not e.get("direct_quote_adequate"):
+                    reason = (
+                        f"quote thin "
+                        f"({e.get('direct_quote_chars', 0)} chars)"
+                    )
+                else:
+                    reason = "generator prose (cited ev_id but no biblio [N])"
+                fail_report.append(f"  {anchor}: FAIL at {reason}")
+            pytest.fail(
+                f"V29 custody: {len(failing)}/{len(custody_log)} "
+                f"anchors not cited_in_verified_prose:\n"
+                + "\n".join(fail_report)
+            )
+
+    def test_custody_log_has_required_9_fields(self) -> None:
+        root = _require_v28_output()
+        custody_path = root / "v29_primary_custody.json"
+        if not custody_path.exists():
+            pytest.skip("v29_primary_custody.json not present")
+        custody_log = json.loads(custody_path.read_text(encoding="utf-8"))
+        required = {
+            "anchor", "found_in_live_corpus", "found_ev_id",
+            "selected_into_pool", "injected_into_section",
+            "direct_quote_chars", "direct_quote_adequate",
+            "cited_in_verified_prose", "citation_count",
+        }
+        for entry in custody_log:
+            assert required.issubset(entry.keys()), (
+                f"custody entry missing required fields. Entry: {entry}. "
+                f"Missing: {required - entry.keys()}"
+            )
+
+
 class TestBaselineConstants:
     """Sanity check: V27/V28 constants are correctly typed."""
 
