@@ -88,3 +88,120 @@ regulatory_anchors:
   - cbo.gov
   - who.int
   - ec.europa.eu
+
+
+# -------------------------------------------------------------------
+# M-62 (2026-04-23): V30 Report Contract Architecture — non-clinical
+# generalization guard. Codex plan review rev #8 required proving the
+# architecture works with non-DOI / non-paper entity types. This
+# policy contract exercises:
+#   - statute entities (no DOI, url_pattern only)
+#   - court_decision entities (no DOI, citation locator only)
+#   - regulatory_ruling entities (agency decision URL)
+#   - cbo_report entities (CBO analyses with DOI-like identifiers)
+#
+# If M-54..M-61 work for this contract without code changes, that
+# proves architecture-not-clinical-hardcoding per Codex rev #7/#8.
+# -------------------------------------------------------------------
+per_query_report_contract:
+  policy_medicare_drug_price:
+    schema_version: "v30.1"
+
+    section_order:
+      - Statute
+      - Implementation
+      - Litigation
+      - Economic_Analysis
+
+    required_entities:
+      - id: ira_2022_section_11001
+        type: statute
+        anchor: IRA-2022-S11001
+        url_pattern: congress.gov/bill/117th-congress/house-bill/5376
+        required_fields:
+          - enactment_year
+          - section_citation
+          - effective_date
+          - covered_drugs_criteria
+          - negotiation_timeline
+          - penalty_structure
+        min_fields_for_completion: 4
+        rendering_slot: statute_ira_s11001
+
+      - id: cms_revised_guidance_2024
+        type: regulatory_ruling
+        anchor: CMS-Revised-Guidance-2024
+        url_pattern: cms.gov/files/document
+        required_fields:
+          - issuing_agency
+          - publication_date
+          - scope_of_applicability
+          - methodology_change_summary
+          - public_comment_period
+        min_fields_for_completion: 3
+        rendering_slot: implementation_cms_guidance
+
+      - id: merck_v_becerra_2024
+        type: court_decision
+        anchor: Merck-v-Becerra
+        url_pattern: courtlistener.com
+        required_fields:
+          - court
+          - docket_number
+          - disposition
+          - constitutional_basis
+          - date_decided
+        min_fields_for_completion: 3
+        rendering_slot: litigation_merck
+
+      - id: nfib_v_ira_2024
+        type: court_decision
+        anchor: NFIB-v-HHS
+        url_pattern: courtlistener.com
+        required_fields:
+          - court
+          - docket_number
+          - disposition
+          - plaintiff_standing
+          - date_decided
+        min_fields_for_completion: 3
+        rendering_slot: litigation_nfib
+
+      - id: cbo_baseline_ira_2022
+        type: cbo_report
+        anchor: CBO-Baseline-IRA
+        url_pattern: cbo.gov/publication
+        required_fields:
+          - projection_window
+          - gross_savings_estimate
+          - methodology
+          - sensitivity_scenarios
+        min_fields_for_completion: 3
+        rendering_slot: economic_cbo_baseline
+
+    rendering_slots:
+      statute_ira_s11001:
+        section: Statute
+        subsection_title: "IRA 2022 §11001 (Public Law 117-169)"
+        ordering: 1
+        required: true
+      implementation_cms_guidance:
+        section: Implementation
+        subsection_title: "CMS revised guidance (2024)"
+        ordering: 1
+        required: true
+      litigation_merck:
+        section: Litigation
+        subsection_title: "Merck & Co. v. Becerra (D.D.C. 2024)"
+        ordering: 1
+        required: true
+      litigation_nfib:
+        section: Litigation
+        subsection_title: "NFIB v. HHS (W.D. Tex. 2024)"
+        ordering: 2
+        required: true
+      economic_cbo_baseline:
+        section: Economic_Analysis
+        subsection_title: "CBO 10-year baseline IRA savings projection"
+        ordering: 1
+        required: true
