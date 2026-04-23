@@ -1636,76 +1636,103 @@ async def run_one_query(
 
         # V30 Report Contract Architecture integration (Phase 1 of
         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
-        # no-op. When enabled, runs M-54→M-55→M-56→M-57→M-60→M-61
-        # post-generation: compiles the per-query contract, fetches
-        # deterministic DOI/PMID/Unpaywall content for each
-        # contracted entity, composes the outline, emits the
-        # structured frame_coverage_report + human_gap_tasks.json.
+        # complete no-op — the runner doesn't even import the V30
+        # module (Codex sweep-integration audit Medium: fully
+        # hermetic gating). When enabled, runs M-54→M-55→M-56→M-57→
+        # M-60→M-61 post-generation: compiles the per-query
+        # contract, fetches deterministic DOI/PMID/Unpaywall content
+        # for each contracted entity, composes the outline, emits
+        # the structured frame_coverage_report +
+        # human_gap_tasks.json.
         #
         # Phase 2 (separate cycle) will wire M-58 slot-bound prompts
         # + M-59 validator into the generator. At Phase 1 we only
         # attach the coverage block to manifest and append the
         # Methods disclosure to report.md — existing generator
         # output is untouched.
-        try:
-            from src.polaris_graph.v30_sweep_integration import (
-                run_v30_post_generation,
-            )
-            v30_result = run_v30_post_generation(
-                research_question=q["question"],
-                scope_template=_template,
-                slug=q["slug"],
-                run_dir=run_dir,
-                log=_log,
-            )
-            if v30_result.enabled:
-                manifest["v30_enabled"] = True
-                if v30_result.frame_coverage_report is not None:
-                    manifest["frame_coverage_report"] = (
-                        v30_result.frame_coverage_report
-                    )
-                if v30_result.error is not None:
-                    manifest["v30_error"] = v30_result.error
-                if v30_result.warnings:
-                    manifest["v30_warnings"] = list(
-                        v30_result.warnings
-                    )
-                # Append Methods disclosure to report.md (if the
-                # sweep produced a report — on success paths
-                # report.md exists). Operator/clinician-facing.
-                if v30_result.methods_disclosure_text:
-                    report_path = run_dir / "report.md"
+        if os.environ.get("PG_V30_ENABLED", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.v30_sweep_integration import (
+                    append_disclosure_to_report,
+                    merge_v30_into_manifest,
+                    run_v30_post_generation,
+                )
+                # Cross-check material for Codex blocker fix:
+                # read the just-written report.md + bibliography
+                # so phase-1 synth can verify each entity was cited
+                # in the legacy output, not just retrieved.
+                _report_path = run_dir / "report.md"
+                _legacy_report_text = (
+                    _report_path.read_text(encoding="utf-8")
+                    if _report_path.exists() else None
+                )
+                _biblio_path = run_dir / "bibliography.json"
+                _legacy_bibliography = None
+                if _biblio_path.exists():
                     try:
-                        existing = (
-                            report_path.read_text(encoding="utf-8")
-                            if report_path.exists() else ""
+                        _biblio_raw = json.loads(
+                            _biblio_path.read_text(encoding="utf-8")
                         )
-                        disclosure_block = (
-                            "\n\n---\n\n"
-                            "## V30 Frame Coverage Disclosure\n\n"
-                            f"{v30_result.methods_disclosure_text}\n"
-                        )
-                        report_path.write_text(
-                            existing + disclosure_block,
-                            encoding="utf-8",
-                        )
+                        if isinstance(_biblio_raw, list):
+                            _legacy_bibliography = _biblio_raw
+                        elif isinstance(_biblio_raw, dict):
+                            _legacy_bibliography = (
+                                _biblio_raw.get("entries")
+                                or _biblio_raw.get("bibliography")
+                                or None
+                            )
+                    except Exception as _biblio_exc:
                         _log(
-                            "[V30]         appended frame-coverage "
-                            "disclosure to report.md"
+                            f"[V30]         WARN bibliography.json "
+                            f"parse failed: {_biblio_exc}"
                         )
+
+                v30_result = run_v30_post_generation(
+                    research_question=q["question"],
+                    scope_template=_template,
+                    slug=q["slug"],
+                    run_dir=run_dir,
+                    log=_log,
+                    legacy_report_text=_legacy_report_text,
+                    legacy_bibliography=_legacy_bibliography,
+                )
+                # Manifest merge via factored helper (unit-tested
+                # in tests/polaris_graph/test_v30_sweep_integration.py).
+                merge_v30_into_manifest(manifest, v30_result)
+                # Append Methods disclosure to report.md only if
+                # the report actually exists — helper never
+                # creates a disclosure-only file.
+                if v30_result.enabled and v30_result.methods_disclosure_text:
+                    try:
+                        appended = append_disclosure_to_report(
+                            _report_path,
+                            v30_result.methods_disclosure_text,
+                        )
+                        if appended:
+                            _log(
+                                "[V30]         appended frame-"
+                                "coverage disclosure to report.md"
+                            )
+                        else:
+                            _log(
+                                "[V30]         skipped disclosure "
+                                "append: report.md missing"
+                            )
                     except Exception as _report_exc:
                         _log(
-                            f"[V30]         WARN report.md append "
-                            f"failed: {_report_exc}"
+                            f"[V30]         WARN report.md "
+                            f"append failed: {_report_exc}"
                         )
-        except Exception as _v30_exc:
-            _log(
-                f"[V30]         ERROR integration exception: "
-                f"{type(_v30_exc).__name__}: {_v30_exc}"
-            )
-            manifest["v30_error"] = (
-                f"{type(_v30_exc).__name__}: {_v30_exc}"
-            )
+            except Exception as _v30_exc:
+                _log(
+                    f"[V30]         ERROR integration exception: "
+                    f"{type(_v30_exc).__name__}: {_v30_exc}"
+                )
+                manifest["v30_error"] = (
+                    f"{type(_v30_exc).__name__}: {_v30_exc}"
+                )
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",

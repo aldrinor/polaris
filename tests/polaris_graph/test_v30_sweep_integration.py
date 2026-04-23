@@ -230,6 +230,8 @@ class TestNoContractSkip:
         assert result.enabled is True
         assert result.frame_coverage_report is None
         assert result.error is None
+        # Codex sweep-integration audit Nit fix: explicit reason
+        assert result.skipped_reason == "no_contract_for_slug"
         # Log message mentions missing contract
         assert any(
             "no per_query_report_contract" in m
@@ -253,6 +255,40 @@ class TestClinicalChain:
                 _FakeCompiled(bindings)
             ),
         )
+        # Codex sweep-integration audit Blocker fix: supply a
+        # legacy report that cites every SURPASS trial so the
+        # phase-1 synth emits PASS verdicts that reflect the
+        # actual report content, not just retrieval success.
+        _legacy_report = "\n".join(
+            f"SURPASS-{i} was discussed in the efficacy section."
+            for i in range(1, 7)
+        ) + (
+            "\nSURPASS-CVOT assessed cardiovascular outcomes.\n"
+            "SURMOUNT-2 enrolled T2D+obesity patients.\n"
+            "Thomas clamp study measured M-value.\n"
+        )
+        _legacy_biblio = [
+            {"doi": "10.1016/S0140-6736(21)01324-6"},  # SURPASS-1
+            {"doi": "10.1056/NEJMoa2107519"},          # SURPASS-2
+            {"doi": "10.1016/S0140-6736(21)01443-4"},  # SURPASS-3
+            {"doi": "10.1016/S0140-6736(21)01997-1"},  # SURPASS-4
+            {"doi": "10.1001/jama.2022.0078"},         # SURPASS-5
+            {"doi": "10.1001/jama.2023.0023"},         # SURPASS-6
+            {"doi": "10.1056/NEJMoa2509079"},          # CVOT
+            {"doi": "10.1016/S0140-6736(23)01200-X"},  # SURMOUNT-2
+            {"doi": "10.1016/S2213-8587(22)00041-1"},  # Thomas clamp
+            # Regulatory entities have no DOI; rely on url_pattern
+            # substring match in report text
+        ]
+        _legacy_report += (
+            "\nFDA Mounjaro label: accessdata.fda.gov\n"
+            "FDA Zepbound: accessdata.fda.gov\n"
+            "EMA Mounjaro EPAR: ema.europa.eu\n"
+            "NICE TA924: nice.org.uk/guidance/ta924\n"
+            "NICE TA1026: nice.org.uk/guidance/ta1026\n"
+            "Health Canada monograph: pdf.hres.ca\n"
+        )
+
         from src.polaris_graph.v30_sweep_integration import (
             run_v30_post_generation,
         )
@@ -264,6 +300,8 @@ class TestClinicalChain:
             slug="clinical_tirzepatide_t2dm",
             run_dir=tmp_path,
             log=_log,
+            legacy_report_text=_legacy_report,
+            legacy_bibliography=_legacy_biblio,
         )
 
         assert result.enabled is True
@@ -272,8 +310,14 @@ class TestClinicalChain:
         # Clinical contract has 15 entities
         assert cov["total_entities"] == 15
         assert cov["pipeline_fault_count"] == 0
-        # All stub rows are ABSTRACT_ONLY → synth PASS → pass_count=15
+        # With legacy cross-check supplied, 9 clinical DOIs + 6
+        # regulatory URL-pattern matches = 15 PASS. All entities
+        # cited in the synthesized legacy output.
         assert cov["pass_count"] == 15
+        # No retrieval_only warning (cross-check was available)
+        assert not any(
+            "retrieval_only" in w for w in result.warnings
+        )
 
         # Methods disclosure produced
         assert "Frame coverage" in result.methods_disclosure_text
@@ -283,6 +327,94 @@ class TestClinicalChain:
         assert tasks_path.exists()
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         assert tasks == []
+
+    def test_no_legacy_crosscheck_emits_retrieval_only_warning(
+        self, tmp_path: Path, clinical_template: dict,
+        _log, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex sweep-integration audit Blocker fix: when the
+        caller doesn't supply legacy_report_text / bibliography,
+        phase-1 synth explicitly flags retrieval-only semantics
+        in warnings so the manifest reader knows the PASS
+        verdicts weren't cross-checked."""
+        monkeypatch.setenv("PG_V30_ENABLED", "1")
+        import src.polaris_graph.retrieval.frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "fetch_compiled_frame",
+            lambda bindings, **_: _stub_fetch_rows(
+                _FakeCompiled(bindings)
+            ),
+        )
+        from src.polaris_graph.v30_sweep_integration import (
+            run_v30_post_generation,
+        )
+        result = run_v30_post_generation(
+            research_question="q",
+            scope_template=clinical_template,
+            slug="clinical_tirzepatide_t2dm",
+            run_dir=tmp_path,
+            log=_log,
+            legacy_report_text=None,
+            legacy_bibliography=None,
+        )
+        # Non-gap rows still marked PASS (retrieval-only), but
+        # warning surfaces the semantic caveat
+        assert result.frame_coverage_report["pass_count"] == 15
+        assert any(
+            "phase1_synth_retrieval_only" in w
+            for w in result.warnings
+        ), (
+            f"expected retrieval_only warning; got "
+            f"{result.warnings}"
+        )
+
+    def test_entity_not_cited_in_legacy_yields_unbound_citation(
+        self, tmp_path: Path, clinical_template: dict,
+        _log, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex sweep-integration audit Blocker repro: a non-gap
+        entity that the legacy generator retrieved but did NOT
+        cite should NOT be marked PASS. Phase-1 synth downgrades
+        to FAIL_UNBOUND_CITATION (engineer-owned) which keeps the
+        coverage report honest."""
+        monkeypatch.setenv("PG_V30_ENABLED", "1")
+        import src.polaris_graph.retrieval.frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "fetch_compiled_frame",
+            lambda bindings, **_: _stub_fetch_rows(
+                _FakeCompiled(bindings)
+            ),
+        )
+        # Legacy report cites SURPASS-1 only; everything else is
+        # retrieved but not in the verified output.
+        legacy_report = "The SURPASS-1 monotherapy trial."
+        legacy_biblio = [
+            {"doi": "10.1016/S0140-6736(21)01324-6"},  # only SURPASS-1
+        ]
+        from src.polaris_graph.v30_sweep_integration import (
+            run_v30_post_generation,
+        )
+        result = run_v30_post_generation(
+            research_question="q",
+            scope_template=clinical_template,
+            slug="clinical_tirzepatide_t2dm",
+            run_dir=tmp_path,
+            log=_log,
+            legacy_report_text=legacy_report,
+            legacy_bibliography=legacy_biblio,
+        )
+        cov = result.frame_coverage_report
+        # Only SURPASS-1 passes; other 14 are FAIL_UNBOUND_CITATION
+        assert cov["pass_count"] == 1
+        counts_by_status = cov["by_status"]
+        assert counts_by_status.get("pass") == 1
+        assert counts_by_status.get("fail_unbound_citation") == 14
+        # Engineer-owned failures DO NOT become curator tasks
+        tasks = result.human_gap_tasks_json
+        assert tasks == [], (
+            f"expected zero curator tasks when failures are "
+            f"engineer-owned; got {len(tasks)}"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -486,6 +618,122 @@ class TestExceptionSafety:
 # ─────────────────────────────────────────────────────────────────────
 # (7) Policy slug non-clinical end-to-end
 # ─────────────────────────────────────────────────────────────────────
+class TestRunnerHookMergeHelper:
+    """Codex sweep-integration audit Medium: the actual runner
+    integration needs its own smoke test. Exercises the factored
+    helpers `merge_v30_into_manifest` + `append_disclosure_to_report`
+    without running a full sweep (no network, no LLM)."""
+
+    def test_merge_disabled_is_noop(self) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            V30SweepResult, merge_v30_into_manifest,
+        )
+        manifest = {"status": "success", "run_id": "r1"}
+        disabled = V30SweepResult(
+            enabled=False,
+            frame_coverage_report=None,
+            methods_disclosure_text=None,
+            human_gap_tasks_json=None,
+            warnings=[],
+            error=None,
+        )
+        merge_v30_into_manifest(manifest, disabled)
+        # No mutation
+        assert manifest == {"status": "success", "run_id": "r1"}
+        assert "v30_enabled" not in manifest
+
+    def test_merge_enabled_with_coverage(self) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            V30SweepResult, merge_v30_into_manifest,
+        )
+        manifest = {"status": "success"}
+        coverage = {"total_entities": 5, "pass_count": 5}
+        result = V30SweepResult(
+            enabled=True,
+            frame_coverage_report=coverage,
+            methods_disclosure_text="coverage text",
+            human_gap_tasks_json=[],
+            warnings=[],
+            error=None,
+        )
+        merge_v30_into_manifest(manifest, result)
+        assert manifest["v30_enabled"] is True
+        assert manifest["frame_coverage_report"] == coverage
+        assert "v30_error" not in manifest
+        assert "v30_warnings" not in manifest
+        assert "v30_skipped_reason" not in manifest
+
+    def test_merge_enabled_with_skipped_reason(self) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            V30SweepResult, merge_v30_into_manifest,
+        )
+        manifest = {}
+        result = V30SweepResult(
+            enabled=True,
+            frame_coverage_report=None,
+            methods_disclosure_text=None,
+            human_gap_tasks_json=None,
+            warnings=[],
+            error=None,
+            skipped_reason="no_contract_for_slug",
+        )
+        merge_v30_into_manifest(manifest, result)
+        assert manifest["v30_enabled"] is True
+        assert manifest["v30_skipped_reason"] == "no_contract_for_slug"
+        assert "frame_coverage_report" not in manifest
+
+    def test_merge_enabled_with_error_and_warnings(self) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            V30SweepResult, merge_v30_into_manifest,
+        )
+        manifest = {}
+        result = V30SweepResult(
+            enabled=True,
+            frame_coverage_report=None,
+            methods_disclosure_text=None,
+            human_gap_tasks_json=None,
+            warnings=["w1", "w2"],
+            error="RuntimeError: kaboom",
+        )
+        merge_v30_into_manifest(manifest, result)
+        assert manifest["v30_error"] == "RuntimeError: kaboom"
+        assert manifest["v30_warnings"] == ["w1", "w2"]
+
+    def test_append_disclosure_no_report_returns_false(
+        self, tmp_path: Path,
+    ) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            append_disclosure_to_report,
+        )
+        result = append_disclosure_to_report(
+            tmp_path / "report.md",
+            "disclosure body",
+        )
+        assert result is False
+        # Does NOT create the file
+        assert not (tmp_path / "report.md").exists()
+
+    def test_append_disclosure_existing_report(
+        self, tmp_path: Path,
+    ) -> None:
+        from src.polaris_graph.v30_sweep_integration import (
+            append_disclosure_to_report,
+        )
+        report = tmp_path / "report.md"
+        report.write_text(
+            "# Original Report\n\nSome content.\n",
+            encoding="utf-8",
+        )
+        result = append_disclosure_to_report(
+            report, "3 of 5 entities populated.",
+        )
+        assert result is True
+        final = report.read_text(encoding="utf-8")
+        assert final.startswith("# Original Report")
+        assert "V30 Frame Coverage Disclosure" in final
+        assert "3 of 5 entities populated." in final
+
+
 class TestPolicySweepIntegration:
     def test_policy_medicare_drug_price_integration(
         self, tmp_path: Path, policy_template: dict,

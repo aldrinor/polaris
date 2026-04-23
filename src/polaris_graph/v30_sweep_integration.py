@@ -71,7 +71,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class V30SweepResult:
-    """Output shape caller consumes to update manifest + report."""
+    """Output shape caller consumes to update manifest + report.
+
+    `skipped_reason` is populated when V30 was enabled but could
+    not produce a coverage report — e.g. slug has no contract.
+    Codex sweep-integration audit Nit: lets live-run manifests
+    distinguish "no V30 attempted" from "V30 skipped because of
+    known non-migrated slug".
+    """
 
     enabled: bool
     frame_coverage_report: dict[str, Any] | None
@@ -79,6 +86,7 @@ class V30SweepResult:
     human_gap_tasks_json: list[dict[str, Any]] | None
     warnings: list[str]
     error: str | None
+    skipped_reason: str | None = None
 
 
 _ENABLED_ENV = "PG_V30_ENABLED"
@@ -88,12 +96,68 @@ def _is_enabled() -> bool:
     return os.environ.get(_ENABLED_ENV, "0").strip() in ("1", "true", "True")
 
 
+def merge_v30_into_manifest(
+    manifest: dict[str, Any], v30_result: V30SweepResult,
+) -> None:
+    """Runner-hook helper (Codex sweep-integration audit Medium):
+    factored out of the sweep runner so the manifest merge can
+    be unit-tested without running a full sweep. Mutates
+    `manifest` in place per the Phase 1 contract:
+
+      - PG_V30_ENABLED=0 → no mutation whatsoever.
+      - enabled + error → manifest["v30_error"] populated.
+      - enabled + skipped_reason → manifest["v30_skipped_reason"]
+        populated.
+      - enabled + warnings → manifest["v30_warnings"] list.
+      - enabled + frame_coverage_report → inline merged.
+    """
+    if not v30_result.enabled:
+        return
+    manifest["v30_enabled"] = True
+    if v30_result.frame_coverage_report is not None:
+        manifest["frame_coverage_report"] = (
+            v30_result.frame_coverage_report
+        )
+    if v30_result.skipped_reason is not None:
+        manifest["v30_skipped_reason"] = v30_result.skipped_reason
+    if v30_result.error is not None:
+        manifest["v30_error"] = v30_result.error
+    if v30_result.warnings:
+        manifest["v30_warnings"] = list(v30_result.warnings)
+
+
+def append_disclosure_to_report(
+    report_path: Path, disclosure_text: str,
+) -> bool:
+    """Append the V30 frame-coverage disclosure to report.md.
+
+    Runner-hook helper (Codex sweep-integration audit Medium).
+    Returns True on successful append, False when report.md is
+    missing (never creates a disclosure-only file, matching the
+    intended boundary).
+    """
+    if not report_path.exists():
+        return False
+    existing = report_path.read_text(encoding="utf-8")
+    disclosure_block = (
+        "\n\n---\n\n"
+        "## V30 Frame Coverage Disclosure\n\n"
+        f"{disclosure_text}\n"
+    )
+    report_path.write_text(
+        existing + disclosure_block, encoding="utf-8",
+    )
+    return True
+
+
 def run_v30_post_generation(
     research_question: str,
     scope_template: dict[str, Any] | None,
     slug: str,
     run_dir: Path,
     log: Any,
+    legacy_report_text: str | None = None,
+    legacy_bibliography: list[dict[str, Any]] | None = None,
 ) -> V30SweepResult:
     """Run V30 contract/compile/fetch/outline/coverage chain.
 
@@ -107,6 +171,17 @@ def run_v30_post_generation(
             human_gap_tasks.json here if there are operator tasks.
         log: logging callable (sweep's _log) so V30 messages
             appear in run_log.txt alongside the rest.
+        legacy_report_text: the verified report.md text from the
+            legacy multi_section_generator, if available. Used by
+            phase-1 synth validation (Codex audit Blocker fix) to
+            cross-check per-entity citation presence before
+            claiming PASS. When None, synth downgrades every
+            non-gap verdict to "retrieval_only" semantics.
+        legacy_bibliography: the resolved citation bibliography
+            dict list from the legacy pipeline (entries with
+            `evidence_id`, `doi`, `title`, `url` fields). Used
+            alongside legacy_report_text to detect whether the
+            contract entity was cited in the verified output.
 
     Returns:
         V30SweepResult — caller merges frame_coverage_report into
@@ -122,6 +197,7 @@ def run_v30_post_generation(
             human_gap_tasks_json=None,
             warnings=[],
             error=None,
+            skipped_reason=None,
         )
 
     warnings: list[str] = []
@@ -133,6 +209,8 @@ def run_v30_post_generation(
             run_dir=run_dir,
             log=log,
             warnings=warnings,
+            legacy_report_text=legacy_report_text,
+            legacy_bibliography=legacy_bibliography,
         )
     except Exception as exc:  # noqa: BLE001
         tb_line = f"{type(exc).__name__}: {exc}"
@@ -144,6 +222,7 @@ def run_v30_post_generation(
             human_gap_tasks_json=None,
             warnings=warnings,
             error=tb_line,
+            skipped_reason=None,
         )
 
 
@@ -154,6 +233,8 @@ def _run_inner(
     run_dir: Path,
     log: Any,
     warnings: list[str],
+    legacy_report_text: str | None = None,
+    legacy_bibliography: list[dict[str, Any]] | None = None,
 ) -> V30SweepResult:
     """Actual chain. Separated so run_v30_post_generation can wrap
     it in a broad exception guard without obscuring the happy-path
@@ -195,6 +276,7 @@ def _run_inner(
             human_gap_tasks_json=None,
             warnings=warnings,
             error=str(exc),
+            skipped_reason="compile_frame_error",
         )
     if compiled is None:
         log(
@@ -208,6 +290,7 @@ def _run_inner(
             human_gap_tasks_json=None,
             warnings=warnings,
             error=None,
+            skipped_reason="no_contract_for_slug",
         )
 
     log(
@@ -247,12 +330,27 @@ def _run_inner(
     )
 
     # M-59: at phase-1 integration we don't yet have SlotFillPayloads
-    # from an M-58-wired generator. Synthesize a minimal validation
-    # report that marks every non-gap entity as PASS (it was
-    # retrieved) and every gap entity with FAIL_MIN_FIELDS (curator-
-    # actionable). This is a deliberately-conservative placeholder
-    # until Phase 2 wires real SlotFillPayloads from the generator.
-    validation = _synthesize_phase1_validation(outline, frame_rows)
+    # from an M-58-wired generator. Codex sweep-integration audit
+    # Blocker fix: previous synth marked every non-gap row PASS
+    # without checking actual legacy output, overclaiming coverage
+    # in the manifest. New synth cross-checks each entity against
+    # the provided legacy_report_text + legacy_bibliography:
+    #   - gap row                              → FAIL_MIN_FIELDS
+    #   - non-gap + entity cited in legacy out → PASS
+    #   - non-gap + entity NOT cited           → FAIL_UNBOUND_CITATION
+    #                                            (engineer-owned)
+    # When legacy_report_text is None (e.g. abort-path call), we
+    # downgrade to retrieval-only semantics: non-gap → PASS with
+    # an explicit "retrieval_only" warning so the manifest reader
+    # knows the verdict was not cross-checked against output.
+    validation = _synthesize_phase1_validation(
+        outline=outline,
+        frame_rows=frame_rows,
+        compiled=compiled,
+        legacy_report_text=legacy_report_text,
+        legacy_bibliography=legacy_bibliography,
+        warnings=warnings,
+    )
 
     # M-60: compose coverage report + methods disclosure + M-61 tasks
     coverage = compose_frame_coverage(
@@ -400,27 +498,29 @@ def _merge_human_completions(
 
 
 def _synthesize_phase1_validation(
-    outline: Any, frame_rows: tuple,
+    outline: Any,
+    frame_rows: tuple,
+    compiled: Any,
+    legacy_report_text: str | None,
+    legacy_bibliography: list[dict[str, Any]] | None,
+    warnings: list[str],
 ) -> Any:
-    """Phase-1 placeholder ValidationReport.
+    """Phase-1 ValidationReport with legacy cross-check.
 
-    Until M-58 generator integration lands, we don't have real
-    SlotFillPayloads to feed M-59. This synthesizer emits a
-    conservative report:
+    Codex sweep-integration audit Blocker fix. Until M-58 generator
+    integration lands, we don't have real SlotFillPayloads to feed
+    M-59. This synthesizer cross-checks each entity against the
+    legacy generator's verified report text + bibliography:
 
-      - Non-gap row (retrieved OA / abstract / metadata / human-
-        curated) → PASS. M-56 fetched content successfully; the
-        legacy multi_section_generator will produce prose. In
-        phase 2 this becomes FAIL_MIN_FIELDS when the LLM can't
-        extract required fields from direct_quote.
-
-      - Gap row (provenance_class=FRAME_GAP_UNRECOVERABLE) →
-        FAIL_MIN_FIELDS. Curator-actionable. M-60 will route
-        to human_gap_tasks.json.
-
-    This synth is honest about its provisional status: no
-    content-level extraction check happens. Phase 2 adds real
-    M-58 structured field payloads.
+      - Gap row (FRAME_GAP_UNRECOVERABLE) → FAIL_MIN_FIELDS
+        (curator-actionable).
+      - Non-gap + cited in legacy output → PASS.
+      - Non-gap + NOT cited in legacy output →
+        FAIL_UNBOUND_CITATION (engineer-owned; M-60 won't route
+        to curator).
+      - Non-gap + legacy outputs unavailable (None passed) → PASS
+        with retrieval_only semantics, and a warning appended so
+        manifest readers see the verdict wasn't cross-checked.
     """
     from .generator.slot_validator import (
         EntityValidation,
@@ -431,6 +531,21 @@ def _synthesize_phase1_validation(
     from .retrieval.frame_fetcher import ProvenanceClass
 
     rows_by_eid = {r.entity_id: r for r in frame_rows}
+    contract_entities = compiled.contract.entities_by_id()
+
+    cross_check_available = (
+        legacy_report_text is not None
+        or legacy_bibliography is not None
+    )
+    if not cross_check_available:
+        warnings.append(
+            "phase1_synth_retrieval_only: legacy_report_text + "
+            "legacy_bibliography not supplied; non-gap verdicts "
+            "reflect retrieval coverage only, NOT report coverage. "
+            "Codex sweep-integration audit Blocker — phase-1 synth "
+            "cannot independently verify that the legacy generator "
+            "cited each contracted entity."
+        )
 
     entity_validations: list[EntityValidation] = []
     slot_verdicts: list[SlotAggregateVerdict] = []
@@ -440,47 +555,168 @@ def _synthesize_phase1_validation(
             per_entity = []
             for entity_id in slot.entity_ids:
                 row = rows_by_eid.get(entity_id)
+                contract_entity = contract_entities.get(entity_id)
                 is_gap = (
                     row is not None
                     and row.provenance_class
                     == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
                 )
-                verdict = (
-                    ValidationVerdict.FAIL_MIN_FIELDS
-                    if is_gap
-                    else ValidationVerdict.PASS
-                )
+
+                if is_gap:
+                    verdict = ValidationVerdict.FAIL_MIN_FIELDS
+                    reason = (
+                        "phase-1 synth: gap row flagged curator-"
+                        "actionable"
+                    )
+                    ev_cited = False
+                elif not cross_check_available:
+                    # Retrieval-only semantics. Module-level warning
+                    # already emitted once.
+                    verdict = ValidationVerdict.PASS
+                    reason = (
+                        "phase-1 synth (retrieval-only; no legacy "
+                        "output cross-check): non-gap row assumed "
+                        "PASS pending M-58 integration"
+                    )
+                    ev_cited = True
+                else:
+                    ev_cited = _entity_cited_in_legacy(
+                        entity_id=entity_id,
+                        contract_entity=contract_entity,
+                        legacy_report_text=legacy_report_text,
+                        legacy_bibliography=legacy_bibliography,
+                    )
+                    if ev_cited:
+                        verdict = ValidationVerdict.PASS
+                        reason = (
+                            "phase-1 synth: non-gap row + legacy "
+                            "output cites this entity → PASS"
+                        )
+                    else:
+                        # Legacy generator retrieved the entity but
+                        # did not cite it in the verified output.
+                        # Engineer-owned (M-60 won't route to
+                        # curator); flags generator / verification
+                        # drift.
+                        verdict = ValidationVerdict.FAIL_UNBOUND_CITATION
+                        reason = (
+                            "phase-1 synth: retrieval succeeded but "
+                            "legacy report does not cite this "
+                            "entity (entity_id / DOI / anchor not "
+                            "found in report.md or bibliography) — "
+                            "engineer investigation"
+                        )
+
                 ev = EntityValidation(
                     slot_id=slot.slot_id,
                     entity_id=entity_id,
                     is_gap=is_gap,
-                    required_min_fields=1,
-                    observed_completion_count=0 if is_gap else 1,
-                    bound_ev_id_present_in_prose=not is_gap,
-                    verdict=verdict,
-                    reason=(
-                        "phase-1 synth: gap row flagged curator-"
-                        "actionable"
-                        if is_gap else
-                        "phase-1 synth: non-gap row assumed PASS "
-                        "pending M-58 integration"
+                    required_min_fields=(
+                        contract_entity.min_fields_for_completion
+                        if contract_entity else 1
                     ),
+                    observed_completion_count=(
+                        0 if (is_gap or not ev_cited) else 1
+                    ),
+                    bound_ev_id_present_in_prose=ev_cited,
+                    verdict=verdict,
+                    reason=reason,
                 )
                 entity_validations.append(ev)
                 per_entity.append(ev)
+
+            # Slot-level aggregate: PASS iff all entities PASS,
+            # else the first failing entity's verdict. (Mirrors
+            # M-59 aggregate semantics.)
+            first_fail = next(
+                (e for e in per_entity
+                 if e.verdict != ValidationVerdict.PASS),
+                None,
+            )
             slot_verdicts.append(SlotAggregateVerdict(
                 slot_id=slot.slot_id,
                 entity_verdicts=tuple(per_entity),
                 overall=(
-                    ValidationVerdict.PASS
-                    if all(e.verdict == ValidationVerdict.PASS
-                           for e in per_entity)
-                    else ValidationVerdict.FAIL_MIN_FIELDS
+                    ValidationVerdict.PASS if first_fail is None
+                    else first_fail.verdict
                 ),
-                reason="phase-1 synth aggregate",
+                reason=(
+                    f"phase-1 synth slot aggregate: "
+                    f"{'all pass' if first_fail is None else first_fail.reason}"
+                ),
             ))
 
     return ValidationReport(
         entity_validations=tuple(entity_validations),
         slot_verdicts=tuple(slot_verdicts),
     )
+
+
+def _entity_cited_in_legacy(
+    entity_id: str,
+    contract_entity: Any,
+    legacy_report_text: str | None,
+    legacy_bibliography: list[dict[str, Any]] | None,
+) -> bool:
+    """Cross-check whether the legacy generator's verified output
+    refers to this contracted entity. Uses a deliberately-
+    conservative disjunction so the phase-1 synth biases toward
+    surfacing drift rather than claiming false coverage. Checks
+    ALL locator forms on the contract entity — DOI, PMID,
+    anchor, label_name, url_pattern — so regulatory /
+    non-paper entities (which lack DOIs) still get a fair check:
+
+      Bibliography:
+        - entity.doi matches any biblio.doi → cited.
+        - entity.pmid matches any biblio.pmid → cited.
+        - entity.url_pattern is substring of biblio.url → cited.
+
+      Report text:
+        - entity.doi as substring of report → cited.
+        - entity.anchor as substring of report (trial names
+          like "SURPASS-2" or case names like "Merck v. Becerra").
+        - entity.label_name as substring of report ("Mounjaro",
+          "Zepbound", "TA924", etc. — regulatory artifacts).
+        - entity.url_pattern as substring of report
+          ("accessdata.fda.gov", "ema.europa.eu", etc.).
+
+    None → return False (caller decides verdict).
+    """
+    if contract_entity is None:
+        return False
+
+    doi = (contract_entity.doi or "").strip()
+    anchor = (contract_entity.anchor or "").strip()
+    label_name = (contract_entity.label_name or "").strip()
+    url_pattern = (contract_entity.url_pattern or "").strip()
+    pmid_field = contract_entity.pmid
+    pmid = str(pmid_field).strip() if pmid_field else ""
+
+    # Bibliography check
+    if legacy_bibliography:
+        for biblio in legacy_bibliography:
+            if not isinstance(biblio, dict):
+                continue
+            b_doi = (biblio.get("doi") or "").strip()
+            b_pmid = str(biblio.get("pmid") or "").strip()
+            b_url = (biblio.get("url") or "").strip()
+            if doi and b_doi and doi.lower() == b_doi.lower():
+                return True
+            if pmid and b_pmid and pmid == b_pmid:
+                return True
+            if url_pattern and b_url and url_pattern in b_url:
+                return True
+
+    # Report text check
+    if legacy_report_text:
+        rt = legacy_report_text
+        if doi and doi in rt:
+            return True
+        if anchor and anchor in rt:
+            return True
+        if label_name and label_name in rt:
+            return True
+        if url_pattern and url_pattern in rt:
+            return True
+
+    return False
