@@ -1,12 +1,49 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-22 (V28 complete → V29-V32 strategic roadmap)
+**Last Updated**: 2026-04-23 (V29 halted §7#9 → V30 Report Contract Architecture in flight)
 
-## ACTIVE: V29 primary-publication custody (Strategy β cycle 1 of 4)
+## ACTIVE: V30 Report Contract Architecture (Layer 1 of 5 landed)
 
-**Current cycle**: V29 pending. V28 completed 2026-04-22 23:14 with
-cross-reviewed verdict **3 BEAT_BOTH + 0 BEAT_ONE + 4 LOSE_BOTH** —
-NOT SHIPPABLE. Net ≥BEAT_ONE count REGRESSED 5 → 3 vs V27.
+**Current cycle**: V30 implementation in flight. V29 halted 2026-04-23
+per §7 trigger #9 (repeated root cause: V28+V29 both landed
+**3 BB + 0 BO + 4 LB** cross-reviewed). Custody-only fix was
+Codex-READY but dimensional outcome didn't move → FALSIFIES custody as
+root cause. Architectural diagnosis (both auditors): POLARIS is
+corpus-driven; competitors are frame-driven. True fix: report
+schema INSTANTIATES then fills, not retrieve-then-narrate. User
+approved Path A+B (Report Contract + hybrid licensed/human completion).
+
+**V30 plan**: `outputs/audits/v29/fix_plan_v30.md`
+**Codex plan review pass-1**: `outputs/codex_findings/v30_fix_plan_review_pass1/findings.md` (**CONDITIONAL-no-blockers** — M-54 approved unchanged; M-58/59/60/61/62 have revisions woven into implementation)
+
+### V30 implementation layers (9 items M-54..M-62)
+
+| Layer | Item | Status | Note |
+|---|---|---|---|
+| 1. Schema | **M-54** Report contract YAML + loader | **✅ landed (53/53 tests)** | Entity-type-agnostic per Codex rev #7; awaits Codex M-54 audit |
+| 2. Compile | M-55 Frame compiler | in_progress (next) | Query → instantiated contract |
+| 3. Retrieve | M-56 Deterministic DOI/PMID/Unpaywall | pending | Replaces Serper/S2 non-determinism |
+| 4. Plan | M-57 Contract-instantiated outline | pending | Slots become section/subsection skeleton |
+| 5. Gen | M-58 Slot-bound generator (structured-first per Codex rev #1) | pending | field_name/status/value/bound_ev_id payload |
+| 5. Gen | M-59 Slot-completion validator | pending | Replaces M-44 soft injection |
+| 5. Gen | M-60 Explicit gap rendering + manifest metadata (Codex rev #4) | pending | No silent omission |
+| 5. Gen | M-61 Hybrid completion sidecar (structured provenance per Codex rev #6) | pending | artifact_sha256 + retention |
+| Guard | M-62 Non-clinical generalization (Codex rev #8: policy > materials) | pending | Preservation gate |
+
+### V30 stop condition (UNCHANGED)
+
+BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR on 7 dimensions. Competitor
+PDFs at `state/compare_chatgpt_dr.txt` / `state/compare_gemini_dr.txt`.
+strict_verify gate remains STRICT (both auditors); V30 changes the
+output contract from silent omission to explicit insufficiency.
+
+### V29 retrospective (kept for history)
+
+V29 completed 2026-04-22 23:14 with cross-reviewed verdict
+**3 BEAT_BOTH + 0 BEAT_ONE + 4 LOSE_BOTH** — identical to V28.
+Custody bundle (M-51/52/53) Codex-verified READY but ceiling didn't
+move. 7/11 anchors failed at retrieval (non-determinism), 4/11
+passed custody but LLM cite-rejected. § 7#9 fired.
 
 **Current handover**: `state/autoloop_handover_2026-04-22_v29_entry.md`
 **V28 gate verdict**: `outputs/audits/v28/gate_verdict.md`
