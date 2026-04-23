@@ -1,5 +1,69 @@
 # POLARIS Bug Log
 
+## BUG-V28-PRIMARY-CUSTODY: Selector drops anchor-matched primaries despite retrieval success (2026-04-22)
+
+**Status:** OPEN — V29 fix scoped (candidates A+B+C per
+outputs/audits/v28/strategic_cross_review.md). User approved.
+**Severity:** P0 — drives 4 of 7 cross-reviewed V28 dimensions to
+LOSE_BOTH. Net ≥BEAT_ONE count regressed V27→V28 from 5 to 3.
+**Source:** V28 deep content audit — both Claude and Codex
+independently identified same root cause.
+
+**Symptom:** V28 report cites SURPASS-2 via T4 post-hoc (Diabetologia
+2025) instead of the Frías NEJM 2021 primary publication. SURPASS-4
+(Del Prato Lancet 2021) and SURPASS-CVOT (Nicholls NEJM 2025) are
+completely absent from V28 report body AND bibliography. Pivotal
+tirzepatide-T2DM trial coverage: 6 of 11 named trials (target ≥9).
+
+**Root cause:** Pipeline-ordering problem at the selector-to-
+generator custody boundary.
+1. Retrieval (M-28 + M-35 + M-48) landed primaries in live_corpus.
+   Codex verified: Del Prato at live_corpus_dump.json:2478,
+   Nicholls at live_corpus_dump.json:1741, 3163, 3185.
+2. Selector (evidence_selector.py) tier-balanced selection dropped
+   these primaries in favor of higher-relevance-scored meta-analyses
+   / post-hocs.
+3. Generator (multi_section_generator.py) M-44 injection ran, but
+   `_m44_detect_primary_ev_ids` only scans `evidence_pool` — not
+   live_corpus — so it saw 0 primaries to inject.
+4. M-50 per-trial subsection generator fell back to whichever
+   primaries DID survive selection (SURPASS-1, -3, -5), not the
+   target set (SURPASS-2, -4, -CVOT, SURMOUNT-2).
+
+**Evidence:** V28 `m44_primary_citation_telemetry.json` shows 0
+injections. V28 `m50_per_trial_subsections.json` shows 3 subsections
+for SURPASS-1/3/5. V28 bibliography does not contain DOI
+`10.1056/NEJMoa2107519` (SURPASS-2 Frías), DOI
+`10.1016/S0140-6736(21)01648-4` (SURPASS-4 Del Prato), or any
+Nicholls 2025 publication. But these URLs appear in
+`outputs/full_scale_v28/clinical/clinical_tirzepatide_t2dm/live_corpus_dump.json`.
+
+**Fix (V29 scope, user-approved 2026-04-22):**
+- V29-a: Selector post-process — scan live_corpus for anchor-matched
+  primary rows not in selected_rows; INSERT at position 0. Cap at 11.
+- V29-b: Generator — extend M-44 to pull from live_corpus when
+  evidence_pool lacks anchor-matched primary.
+- V29-c: Per-anchor custody telemetry (5 booleans + supporting
+  fields) in `v29_primary_custody.json`. M-49 extended to assert
+  every anchor ends with `cited_in_verified_prose=true`.
+
+**Reference:**
+- outputs/audits/v28/claude_deep_content_audit.md
+- outputs/codex_findings/v28_deep_content_audit/findings.md
+- outputs/audits/v28/cross_review.md
+- outputs/audits/v28/gate_verdict.md
+- outputs/audits/v28/strategic_cross_review.md
+
+**Broader architectural implication:** The V28 failure confirms
+that POLARIS's current retrieve-broad → score → recover-named-trial
+pipeline order is backwards from what competitors do
+(curate-pivotal-frame → enrich). V30 will rewrite the generator as
+two-stage (Phase 1 primary-only skeleton + Phase 2 enrichment).
+V29 is the narrow custody fix; V30-V31 are the architectural lift
+to 7/7 BEAT_BOTH.
+
+---
+
 ## BUG-LB-SELF-GRADE-INFLATION: Loopback LLM responder self-graded VerificationBatch B at 100%/90% SUPPORTED (2026-04-17)
 **Status:** POST-MORTEM — responses already consumed, cannot be retracted
 **Severity:** P0 — operator-fabrication defect, exactly the pattern flagged in user's behavioral rule `[Metadata audits are banned]` and MEMORY.md "loopback mode the agent IS the LLM"

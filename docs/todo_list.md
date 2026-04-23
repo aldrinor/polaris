@@ -1,16 +1,104 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-21 (V25 launched under autoloop V2)
+**Last Updated**: 2026-04-22 (V28 complete → V29-V32 strategic roadmap)
 
-## ACTIVE: Autoloop V2 (user directive 2026-04-21)
+## ACTIVE: V29 primary-publication custody (Strategy β cycle 1 of 4)
 
-**Runbook**: `state/autoloop_v2_runbook.md` (Codex-hardened)
-**Memory rule**: `memory/autoloop_v2_audit_cross_review.md`
-**Supersedes**: autoloop V1 (`memory/full_scale_dr_auto_loop.md`)
-**Current handover**: `state/autoloop_handover_2026-04-21_v25_v2_launch.md`
-**Stop condition**: BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR on 7
-dimensions. Competitor PDFs at `state/compare_chatgpt_dr.txt` /
-`state/compare_gemini_dr.txt`.
+**Current cycle**: V29 pending. V28 completed 2026-04-22 23:14 with
+cross-reviewed verdict **3 BEAT_BOTH + 0 BEAT_ONE + 4 LOSE_BOTH** —
+NOT SHIPPABLE. Net ≥BEAT_ONE count REGRESSED 5 → 3 vs V27.
+
+**Current handover**: `state/autoloop_handover_2026-04-22_v29_entry.md`
+**V28 gate verdict**: `outputs/audits/v28/gate_verdict.md`
+**V28 cross-review**: `outputs/audits/v28/cross_review.md`
+**Strategic path (Claude+Codex)**: `outputs/audits/v28/strategic_cross_review.md`
+
+**Stop condition UNCHANGED**: BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro
+DR on 7 dimensions. Competitor PDFs at `state/compare_chatgpt_dr.txt`
+/ `state/compare_gemini_dr.txt`.
+
+### V29-V32 roadmap (Claude + Codex converged on Strategy β)
+
+Both auditors independently converged on "architectural pipeline
+rewrite" (strategy β). 7/7 BEAT_BOTH IS achievable autonomously —
+the ceiling is pipeline-ordering, not human curation.
+
+| Cycle | Scope | Projected | Cost |
+|---|---|---|---|
+| **V29** | Selector hard-reserves anchor-matched primaries + generator pulls from live_corpus + **per-anchor custody telemetry** | 4-5 BB + 2-3 BO + 0-1 LB | ~12h / $5 |
+| V30 | Two-stage generator: Phase 1 pivotal-primary skeleton (fail-loud, NO substitution) + Phase 2 meta/review enrichment | 5-6 BB + 1-2 BO + 0 LB | ~5d / $5 |
+| V31 | Apply two-stage pattern to Mechanism section — primary clamp/PK extraction first | **7/7 BEAT_BOTH** | ~3d / $5 |
+| V32 | Calibration: run on non-clinical slug to verify architecture generalizes (not tirzepatide-specific) | validation | ~2d / $2 |
+
+**Total**: ~11-12 days engineering + $17 + 4 sweep cycles.
+
+### V29 scope (Codex-constrained — custody only)
+
+Per strategic cross-review lower-verdict-controls adjudication,
+V29 is **narrow**:
+
+1. **V29-a**: Selector hard-reservation in
+   `src/polaris_graph/retrieval/evidence_selector.py`. For each
+   anchor in `primary_trial_anchors`, scan live_corpus (not just
+   selected_rows) for `_m42e_detect_primary_for_anchor`-positive
+   rows. If found in corpus but missing from selected, INSERT at
+   position 0. Cap at `len(anchors)` = 11.
+2. **V29-b**: Generator-side named-trial injection in
+   `src/polaris_graph/generator/multi_section_generator.py`. When
+   anchor's primary is in live_corpus but not evidence_pool, pull
+   into section ev_ids.
+3. **V29-c**: Per-anchor custody telemetry file
+   `v29_primary_custody.json` with 5 booleans per anchor (found /
+   selected / injected / quote_adequate / cited_in_prose) plus
+   supporting fields. M-49 extended to assert every anchor ends
+   with `cited_in_verified_prose=true`.
+
+**OUT OF V29 SCOPE** (per Codex discipline):
+- Trial Summary table cell correction (deferred — cosmetic
+  pending custody fix)
+- M-47 validator relaxation (deferred to V30)
+- Mechanism extraction architecture (V31)
+- Any prompt rewrites beyond injection hints
+
+### V28 result summary (just completed)
+
+V28 shipped 2026-04-22 23:14 (2h51m, $0.018). Manifest status
+`partial_qwen_advisory`, release_allowed=false (same baseline as
+V26/V27 — pipeline-level, not content-level flag).
+
+**Cross-reviewed scoreboard**:
+
+| Dim | V27 | V28 | Delta |
+|---|:-:|:-:|:-:|
+| 1. Citations | BEAT_ONE | LOSE_BOTH | ↓ |
+| 2. Regulatory | BEAT_ONE | BEAT_BOTH | ↑ |
+| 3. Jurisdictional | BEAT_ONE | BEAT_BOTH | ↑ |
+| 4. Claim frames | LOSE_BOTH | LOSE_BOTH | = |
+| 5. Structural depth | LOSE_BOTH | LOSE_BOTH | = |
+| 6. Contradictions | BEAT_BOTH | BEAT_BOTH | = |
+| 7. Narrative depth | BEAT_ONE | LOSE_BOTH | ↓ |
+
+**Root cause (both auditors agree)**: Primary papers landed in
+live_corpus but didn't become the spine. SURPASS-4 Del Prato +
+SURPASS-CVOT Nicholls both verified present in live_corpus_dump.json
+but absent from final bibliography. M-44 telemetry shows 0
+injections because the target primaries were already dropped by
+the selector before M-44 could act.
+
+All 4 current LOSE_BOTH dims (Citations, Claim frames, Structural
+depth, Narrative depth) root-cause to **one defect**: selector-to-
+generator flow doesn't preserve anchor-matched primaries. Fixing
+this lifts all 4 simultaneously.
+
+### 2026-04-22 note on autonomous launch
+
+V28 fired §7 trigger #7 (regression without compensating same-axis
+BEAT_BOTH) and #10 (net dimensional health regressed). User
+surfaced, reviewed both auditors' strategic briefs, and approved
+**Strategy β roadmap** — V29 scope is user-approved, implement
+without further check-in. V30-V32 await post-V29 reassessment
+(Codex recommendation adopted by Claude: "defer V30-V32 until
+V29 lands so per-anchor telemetry de-risks V30").
 
 ### AUTONOMOUS LAUNCH RULE (load-bearing)
 

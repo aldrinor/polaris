@@ -3656,3 +3656,36 @@
 - AFFECTED_FILES: outputs/codex_findings/full_audit_pass_16/findings.md, this entry.
 - STATUS: ★ APPROVED. 16 Codex passes → 10 cycles → M-1 through M-15 + small reverts → APPROVED-FOR-FULL-SCALE-RUN.
 - NEXT_STEP: Commit the pass-16 findings; write the morning-read summary at the top of session_log; USER WAKE-UP message.
+
+
+[2026-04-21 RESUME ENTRY — consolidated]
+- ACTION: Session resume after ~2 weeks of unlogged autoloop work (M-25..M-34 fix chain, V11..V23 sweeps, DR passes 5..11). Resume reads the todo list, handover, and plan; updates stale docs; preserves the commit history as the authoritative per-fix record.
+- RATIONALE: The prior [2026-04-19 06:15:00] entry declared pass-16 APPROVED under a single-query-release stop criterion. User mandate shifted to BEAT-BOTH head-to-head on 7 dimensions on 2026-04-20; all subsequent work happened against that criterion but session_log was not appended. Rather than retroactively back-fill 20+ fix entries, this single entry consolidates: (a) the shift in stop criterion, (b) what shipped (M-25..M-34), (c) the current state (V23 post-M-34, DR pass 11 PARTIAL), (d) a pointer to commit messages and the new current handover for detail.
+- DOCS/RESEARCH: No external research this turn — purely a resume/reconciliation action.
+- SYNC: Stale docs updated:
+  - docs/todo_list.md (M-25 planning → V24 candidate fixes + fix-chain recap + trajectory table)
+  - state/restart_instructions.md (2026-04-19 pass-16 content archived at bottom; current state header up top)
+  - state/autoloop_handover_2026-04-21_current.md CREATED (supersedes the three 2026-04-20 snapshots)
+- AFFECTED_FILES:
+  - CREATED: state/autoloop_handover_2026-04-21_current.md
+  - REWRITTEN: state/restart_instructions.md
+  - MODIFIED: docs/todo_list.md (ACTIVE block header through M-25 planning block)
+  - APPENDED: this entry
+- EVIDENCE/FINDINGS:
+  - V23 manifest: status=success, release_allowed=true, 5 sections, 35 sentences verified, 1455 words, 31 citations, gate_class=pass, corpus=360 sources with T1+T2+T3=42.22%.
+  - Codex DR pass 11 findings table: 1 BEAT_BOTH (Contradiction handling) / 2 BEAT_ONE (Regulatory, Jurisdictional — both beat ChatGPT, lose Gemini) / 4 LOSE_BOTH (Citations, Claim frames, Structural depth, Narrative depth). This corrects my earlier in-session summary which had stated "Regulatory BEAT_BOTH; 5 dims LOSE_BOTH" — the actual BEAT_BOTH dimension is Contradiction handling.
+  - Shipped Codex-READY fix chain: M-25a/b/e, M-27, M-28 (pass-3 READY), M-29, M-30 (pass-5 READY), M-31, M-32, M-33 (pass-2 READY), M-34. Commits: 59b8f4a, 5df838f, 451f382, 16ee8c7, 8c54cd5, 2ebe63a, 82b2625, e511b39, 1d4c4b4, 23b00c9, bf78396.
+  - Two committed-without-audit utility scripts: scripts/run_full_scale_v23.py (408127f) and scripts/regate_v23.py (9674405). User flagged on resume. Retroactive audits queued as todo items.
+- STATUS: Resumed. All durable state docs now reflect 2026-04-21 state. V23 is the latest sweep; DR pass 11 PARTIAL; V24 candidate fixes M-35..M-40 queued in todo_list.
+- NEXT_STEP: Await user direction on sequencing — Option A (retroactive Codex audit of regate_v23 + run_full_scale_v23 first), Option B (start V24 with M-35 SURPASS primary-paper retrieval anchors), or Option C (batch M-35 + M-37 as joint retrieval-side pivot).
+
+
+[2026-04-22 23:45:00]
+- ACTION: Closed V28 cycle. Strategic path (Claude + Codex) to 7/7 BEAT_BOTH committed. User approved Strategy β architectural roadmap.
+- RATIONALE: V28 landed 2026-04-22 23:14 (2h51m, $0.018 cost). Cross-reviewed verdict 3 BEAT_BOTH + 0 BEAT_ONE + 4 LOSE_BOTH. Net ≥BEAT_ONE count regressed 5→3 vs V27. §7 triggers #7 + #10 fired. User surfaced. Requested "best plan to reach highest quality + how Claude and Codex think about it". Launched parallel strategic briefs (Codex at outputs/codex_findings/v28_strategic_path/findings.md, Claude at outputs/audits/v28/claude_strategic_path.md). Both auditors independently converged on Strategy β (3-4 cycle architectural rewrite). Codex's discipline slightly stricter than Claude's on V29 scope — lower-verdict-controls applied: V29 is custody-only, not A+B+D. Also adopted Codex's two plan additions Claude missed: (1) per-anchor custody telemetry with 5 booleans, (2) V32 calibration cycle on non-clinical slug.
+- DOCS/RESEARCH: V2 runbook §3 cross-review, §5 fix-plan schema, §7 halt-trigger enumeration. Strategic cross-review at outputs/audits/v28/strategic_cross_review.md.
+- SYNC: Updated docs/todo_list.md top with V29-V32 roadmap. Updated state/restart_instructions.md with V29 entry point + task graph. Wrote state/autoloop_handover_2026-04-22_v29_entry.md. Added V28 root-cause entry to logs/bug_log.md.
+- AFFECTED_FILES: outputs/audits/v28/{claude_deep_content_audit,cross_review,gate_verdict,claude_strategic_path,strategic_cross_review}.md, outputs/codex_findings/v28_deep_content_audit/findings.md, outputs/codex_findings/v28_strategic_path/findings.md, docs/todo_list.md, state/restart_instructions.md, state/autoloop_handover_2026-04-22_v29_entry.md, logs/bug_log.md, .codex/v28_deep_content_audit_brief.md, .codex/v28_strategic_path_to_highest_quality_brief.md.
+- EVIDENCE/FINDINGS: V28 cross-reviewed scoreboard 3 BB + 0 BO + 4 LB documented in cross_review.md. Both auditors converged on root cause: primary publications land in live_corpus but don't become the spine — Codex verified Del Prato Lancet (SURPASS-4) + Nicholls records (SURPASS-CVOT) present in live_corpus_dump.json but absent from final bibliography. M-44 injection telemetry shows 0 injections because target primaries were dropped by selector before M-44 could act. Strategic brief consensus: 7/7 BEAT_BOTH achievable autonomously; pipeline-ordering is the gap; 3-4 cycle architectural rewrite is the cheapest path. Total projected cost V29-V32: 11-12 days engineering + $17 + 4 sweep cycles.
+- STATUS: V28 complete. V29 scope approved. Task #15 ready (V29 fix plan). Tasks #12-14 blocked on #15 plan approval. Task #16 blocked on #12-14.
+- NEXT_STEP: Task #15 — write outputs/audits/v28/fix_plan_v29.md with V2 §5 schema for V29-a (selector hard-reservation) + V29-b (generator injection) + V29-c (custody telemetry). Submit to Codex for plan pass-1 review. On APPROVED: implement in Codex-recommended order.
