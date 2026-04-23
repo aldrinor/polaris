@@ -3795,3 +3795,26 @@
   - Legacy adapter to_section_plan_dicts(): produces {"title", "focus", "ev_ids"} dicts compatible with existing multi_section_generator SectionPlan shape
 - STATUS: V30 Layers 1 + 2a + 2b + 3 complete. M-54/M-55/M-56/M-57 all sealed. M-56 pass-2 APPROVED; M-57 ready for Codex audit. Next: commit M-57 + launch Codex M-57 audit.
 - NEXT_STEP: Commit M-57 files; write tight `.codex/m57_code_audit_brief.md`; launch Codex M-57 audit; on APPROVED proceed to M-58 slot-bound generator prompts (Layer 4 start).
+
+
+[2026-04-23 13:30:00]
+- ACTION: M-58 slot-bound structured-first generator shipped — V30 Layer 4a complete. Plus upgraded Codex default to gpt-5.4 + xhigh reasoning (strongest accessible tier on ChatGPT auth; gpt-5.5 not yet available).
+- RATIONALE: Codex plan review rev #1 required structured-first (not prose-first): "each slot should emit a machine-readable payload for every required field: field_name, status (extracted | not_extractable | gap_unrecoverable), value, bound_ev_id, source_span." M-58 implements this as three pure functions — build_slot_fill_prompt (prompt construction with JSON schema + anti-fabrication rules), parse_slot_fill_response (strict JSON validator with substring-of-direct_quote anti-fabrication check), render_slot_prose (deterministic prose from payload with per-sentence [ev_id] citations) — plus compose_gap_payload for gap rows that SKIPS the LLM entirely. No LLM calls inside M-58; integration with multi_section_generator happens at sweep-integration time. User also requested Codex at gpt-5.5 xhigh; gpt-5.5 returned "model does not exist" on this ChatGPT auth, but gpt-5.4 + xhigh reasoning is now the default via ~/.codex/config.toml (previous audits ran at reasoning effort=none which is the weakest setting — xhigh will give meaningfully stronger audit reasoning on the same model).
+- DOCS/RESEARCH: V30 plan M-58 section lines 306-362. Codex plan review rev #1 (structured-first), rev #7 (entity-type-agnostic), rev #4 (gap-unrecoverable status). Codex CLI docs: `-m <model>` + `-c model_reasoning_effort=xhigh` flags; config.toml `model = "gpt-5.4"` + `model_reasoning_effort = "xhigh"` at top level.
+- SYNC: ~/.codex/config.toml updated with default model + reasoning. TaskList #22 M-57 completed, #23 M-58 implementation done — will mark completed after Codex audit.
+- AFFECTED_FILES:
+  - MODIFIED C:\Users\msn\.codex\config.toml (top-level `model = "gpt-5.4"` + `model_reasoning_effort = "xhigh"` — applies to ALL future `codex exec` invocations across all projects)
+  - NEW src/polaris_graph/generator/slot_fill.py (360 lines: SlotFieldFill / SlotFillPayload / SlotFillParseError dataclasses; build_slot_fill_prompt / parse_slot_fill_response / compose_gap_payload / render_slot_prose pure functions)
+  - NEW tests/polaris_graph/test_m58_slot_fill.py (27 tests in 7 classes covering prompt construction / happy-path parsing / 10 failure modes / gap payload / deterministic prose / entity-type-agnostic statute+dft / round-trip prompt→parse→render)
+- EVIDENCE/FINDINGS:
+  - M-58 ships with 27/27 tests pass in 7.25s
+  - Combined V30 regression: M-54 54 + M-55 41 + M-56 35 + M-57 20 + M-58 27 = 177/177 pass in 8.88s
+  - Anti-fabrication: parse_slot_fill_response raises SlotFillParseError when source_span is not a verbatim substring of direct_quote. LLM cannot fabricate extracted values.
+  - Strict JSON contract: missing required field, extra unexpected field, invalid status, not_extractable-with-value, duplicate field — all raise with diagnostic.
+  - Fenced responses handled: LLM responses wrapped in ```json...``` or ```...``` are unwrapped automatically.
+  - Gap handling: frame_row with FRAME_GAP_UNRECOVERABLE → build_slot_fill_prompt raises (compose_gap_payload is the correct path; no silent LLM call on a gap row). compose_gap_payload produces status=gap_unrecoverable for every required field without any LLM.
+  - Prose rendering deterministic: same payload → byte-identical prose; every extracted/not_extractable/gap sentence carries [bound_ev_id] citation.
+  - Entity-type-agnostic: statute (42 USC §1983) and dft_primary (band_gap 1.42 eV) slots produce structured fills identical to pivotal_trial handling. No per-type branching in M-58 code.
+  - Codex reasoning upgrade from effort=none → effort=xhigh: previous Codex audits surfaced real blockers (M-56 Blocker 1+2) — xhigh should surface deeper issues more consistently.
+- STATUS: V30 Layers 1 + 2a + 2b + 3 + 4a complete. M-54/M-55/M-56/M-57/M-58 all sealed with tests. Ready to commit M-58 and launch Codex M-58 audit at xhigh reasoning.
+- NEXT_STEP: Commit M-58 files; write `.codex/m58_code_audit_brief.md`; launch Codex M-58 audit at gpt-5.4 xhigh; on APPROVED proceed to M-59 slot-completion validator.
