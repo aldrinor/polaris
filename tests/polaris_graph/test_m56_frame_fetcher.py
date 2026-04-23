@@ -1,0 +1,690 @@
+"""M-56 tests: V30 deterministic frame fetcher.
+
+Layer 2b of V30 Report Contract Architecture. All tests are
+deterministic and run without network access — network is mocked
+via an injected httpx.MockTransport.
+
+Covers:
+1. Pure parsers (CrossRef, Unpaywall, PubMed) given raw responses.
+2. Orchestrator path dispatch:
+   - DOI-primary: CrossRef → Unpaywall → PubMed fallback chain.
+   - PMID-only-primary: skip CrossRef, use PubMed.
+   - URL-pattern-primary (regulatory): skip all 3, emit METADATA_ONLY.
+   - Anchor-only: emit FRAME_GAP_UNRECOVERABLE.
+3. Provenance class transitions:
+   - OA PDF found → OPEN_ACCESS
+   - No OA + CrossRef abstract → ABSTRACT_ONLY
+   - No OA + no CrossRef abstract + PubMed abstract → ABSTRACT_ONLY
+   - Metadata but no abstract → METADATA_ONLY
+   - All sources fail → FRAME_GAP_UNRECOVERABLE + failure_reason
+4. Retrieval attempt log populated for every attempt.
+5. Deterministic: same inputs → same FrameRow.
+6. Retry on transient failures (503 then 200 → success).
+7. fetch_compiled_frame preserves binding order.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+import pytest
+
+from src.polaris_graph.nodes.frame_compiler import EvidenceBinding
+from src.polaris_graph.retrieval.frame_fetcher import (
+    FrameRow,
+    ProvenanceClass,
+    RetrievalAttempt,
+    _collect_identifiers,
+    _parse_crossref_response,
+    _parse_pubmed_xml,
+    _parse_unpaywall_response,
+    _summarize_failure,
+    fetch_compiled_frame,
+    fetch_frame_entity,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Fixture helpers
+# ─────────────────────────────────────────────────────────────────────
+def _binding(
+    entity_id: str = "surpass_2_primary",
+    entity_type: str = "pivotal_trial",
+    primary: str = "doi:10.1056/NEJMoa2107519",
+    secondaries: tuple[str, ...] = ("pmid:34010531",),
+    slot: str = "efficacy_surpass_2",
+) -> EvidenceBinding:
+    return EvidenceBinding(
+        entity_id=entity_id,
+        entity_type=entity_type,
+        primary_identifier=primary,
+        secondary_identifiers=secondaries,
+        rendering_slot=slot,
+        required_fields=("N", "primary_endpoint"),
+        min_fields_for_completion=2,
+    )
+
+
+def _crossref_response(
+    doi: str = "10.1056/NEJMoa2107519",
+    title: str = "Tirzepatide versus Semaglutide Once Weekly",
+    abstract: str | None = (
+        "<jats:p>BACKGROUND: tirzepatide. METHODS: we enrolled 1879.</jats:p>"
+    ),
+    year: int = 2021,
+    journal: str = "New England Journal of Medicine",
+) -> dict[str, Any]:
+    msg: dict[str, Any] = {
+        "DOI": doi,
+        "title": [title],
+        "container-title": [journal],
+        "published-print": {"date-parts": [[year, 6, 10]]},
+        "author": [
+            {"family": "Frias", "given": "Juan P."},
+            {"family": "Davies", "given": "Melanie J."},
+        ],
+    }
+    if abstract is not None:
+        msg["abstract"] = abstract
+    return {"status": "ok", "message": msg}
+
+
+def _unpaywall_response(
+    *,
+    is_oa: bool,
+    pdf_url: str | None = None,
+    html_url: str | None = None,
+) -> dict[str, Any]:
+    if is_oa:
+        best: dict[str, Any] = {}
+        if pdf_url is not None:
+            best["url_for_pdf"] = pdf_url
+            if html_url is None:
+                best["url_for_landing_page"] = pdf_url
+        if html_url is not None:
+            best["url_for_landing_page"] = html_url
+        return {
+            "doi": "10.1056/NEJMoa2107519",
+            "is_oa": True,
+            "best_oa_location": best,
+        }
+    return {
+        "doi": "10.1056/NEJMoa2107519",
+        "is_oa": False,
+        "best_oa_location": None,
+    }
+
+
+def _pubmed_xml(
+    *, abstract: str = "Tirzepatide reduced HbA1c by 2.3%.",
+    title: str = "Tirzepatide versus semaglutide",
+    year: int = 2021,
+) -> str:
+    return f"""<?xml version="1.0"?>
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation>
+      <Article>
+        <ArticleTitle>{title}</ArticleTitle>
+        <Abstract>
+          <AbstractText>{abstract}</AbstractText>
+        </Abstract>
+        <AuthorList>
+          <Author>
+            <LastName>Frias</LastName>
+            <Initials>JP</Initials>
+          </Author>
+        </AuthorList>
+        <Journal>
+          <Title>NEJM</Title>
+          <JournalIssue>
+            <PubDate><Year>{year}</Year></PubDate>
+          </JournalIssue>
+        </Journal>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+</PubmedArticleSet>"""
+
+
+class _Transport:
+    """Programmable httpx transport that returns canned responses by
+    URL substring match. Used to test the orchestrator without real
+    network."""
+
+    def __init__(self, rules: list[tuple[str, int, Any]]) -> None:
+        """rules: list of (url_substring, status_code, body) tuples.
+        body can be dict (JSON) or str (text)."""
+        self.rules = rules
+        self.call_log: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        self.call_log.append(url)
+        for sub, status, body in self.rules:
+            if sub in url:
+                if isinstance(body, dict):
+                    return httpx.Response(status, json=body)
+                if isinstance(body, str):
+                    return httpx.Response(
+                        status, text=body,
+                        headers={"content-type": "text/xml"},
+                    )
+                return httpx.Response(status)
+        return httpx.Response(404, json={"error": "no_rule_matched"})
+
+
+class _SequencedTransport:
+    """Transport that returns different responses on successive calls
+    to the same URL substring. Used to exercise retry on transient
+    errors. `sequences[substring]` is consumed in FIFO order."""
+
+    def __init__(self, sequences: dict[str, list[tuple[int, Any]]]) -> None:
+        self.sequences = {k: list(v) for k, v in sequences.items()}
+        self.call_log: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        self.call_log.append(url)
+        for sub, seq in self.sequences.items():
+            if sub in url and seq:
+                status, body = seq.pop(0)
+                if isinstance(body, dict):
+                    return httpx.Response(status, json=body)
+                if isinstance(body, str):
+                    return httpx.Response(
+                        status, text=body,
+                        headers={"content-type": "text/xml"},
+                    )
+                return httpx.Response(status)
+        return httpx.Response(404, json={"error": "no_rule_matched"})
+
+
+def _client_with_transport(transport_fn: _Transport) -> httpx.Client:
+    return httpx.Client(
+        transport=httpx.MockTransport(transport_fn),
+        timeout=5.0,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (1) Pure parsers
+# ─────────────────────────────────────────────────────────────────────
+class TestCrossrefParser:
+    def test_full_parse(self) -> None:
+        data = _crossref_response()
+        parsed = _parse_crossref_response(data)
+        assert parsed["doi"] == "10.1056/NEJMoa2107519"
+        assert "Tirzepatide" in parsed["title"]
+        assert parsed["year"] == 2021
+        assert parsed["journal"] == "New England Journal of Medicine"
+        assert len(parsed["authors"]) == 2
+        assert "Frias" in parsed["authors"][0]
+        assert "tirzepatide" in (parsed["abstract"] or "").lower()
+        # JATS tags stripped
+        assert "<jats:p>" not in (parsed["abstract"] or "")
+
+    def test_empty_response(self) -> None:
+        parsed = _parse_crossref_response({})
+        assert parsed["title"] is None
+        assert parsed["authors"] == ()
+        assert parsed["year"] is None
+        assert parsed["abstract"] is None
+
+    def test_missing_abstract(self) -> None:
+        data = _crossref_response(abstract=None)
+        parsed = _parse_crossref_response(data)
+        assert parsed["abstract"] is None
+        assert parsed["title"]  # still present
+
+    def test_fallback_year_from_issued(self) -> None:
+        data = _crossref_response()
+        del data["message"]["published-print"]
+        data["message"]["issued"] = {"date-parts": [[2023, 1, 1]]}
+        parsed = _parse_crossref_response(data)
+        assert parsed["year"] == 2023
+
+
+class TestUnpaywallParser:
+    def test_oa_found(self) -> None:
+        parsed = _parse_unpaywall_response(
+            _unpaywall_response(is_oa=True, pdf_url="https://oa.example/x.pdf")
+        )
+        assert parsed["is_oa"] is True
+        assert parsed["oa_pdf_url"] == "https://oa.example/x.pdf"
+
+    def test_not_oa(self) -> None:
+        parsed = _parse_unpaywall_response(
+            _unpaywall_response(is_oa=False)
+        )
+        assert parsed["is_oa"] is False
+        assert parsed["oa_pdf_url"] is None
+
+    def test_empty_response(self) -> None:
+        parsed = _parse_unpaywall_response({})
+        assert parsed["is_oa"] is False
+
+
+class TestPubmedParser:
+    def test_full_parse(self) -> None:
+        parsed = _parse_pubmed_xml(_pubmed_xml())
+        assert "Tirzepatide" in parsed["abstract"]
+        assert parsed["title"]
+        assert parsed["year"] == 2021
+        assert parsed["authors"][0].startswith("Frias")
+
+    def test_malformed_returns_empty(self) -> None:
+        parsed = _parse_pubmed_xml("<not>valid</xml")
+        assert parsed == {}
+
+    def test_empty_string(self) -> None:
+        assert _parse_pubmed_xml("") == {}
+        assert _parse_pubmed_xml("   ") == {}
+
+    def test_labeled_abstract_sections(self) -> None:
+        xml = """<PubmedArticleSet><PubmedArticle><MedlineCitation>
+        <Article>
+          <ArticleTitle>T</ArticleTitle>
+          <Abstract>
+            <AbstractText Label="BACKGROUND">High HbA1c.</AbstractText>
+            <AbstractText Label="METHODS">RCT.</AbstractText>
+          </Abstract>
+        </Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"""
+        parsed = _parse_pubmed_xml(xml)
+        assert "BACKGROUND:" in parsed["abstract"]
+        assert "METHODS:" in parsed["abstract"]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (2) Identifier collection helper
+# ─────────────────────────────────────────────────────────────────────
+class TestCollectIdentifiers:
+    def test_all_four_collected(self) -> None:
+        b = _binding(
+            primary="doi:10.1/a",
+            secondaries=("pmid:123", "url:example.com", "anchor:T"),
+        )
+        ids = _collect_identifiers(b)
+        assert ids == {
+            "doi": "10.1/a", "pmid": "123",
+            "url": "example.com", "anchor": "T",
+        }
+
+    def test_primary_wins_on_collision(self) -> None:
+        b = _binding(
+            primary="doi:PRIMARY",
+            secondaries=("doi:SECONDARY",),
+        )
+        assert _collect_identifiers(b)["doi"] == "PRIMARY"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (3) Orchestrator path dispatch
+# ─────────────────────────────────────────────────────────────────────
+class TestOrchestratorOpenAccessPath:
+    def test_oa_pdf_found_emits_open_access(self) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200,
+             _unpaywall_response(is_oa=True, pdf_url="https://x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.oa_pdf_url == "https://x.pdf"
+        assert row.quote_source == "crossref_abstract"
+        assert "tirzepatide" in row.direct_quote.lower()
+        assert row.doi == "10.1056/NEJMoa2107519"
+        assert row.pmid == "34010531"
+        assert row.year == 2021
+        assert row.failure_reason is None
+        assert len(row.retrieval_attempts) >= 2
+
+    def test_doi_only_no_oa_crossref_abstract_yields_abstract_only(
+        self,
+    ) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(primary="doi:10.1056/NEJMoa2107519", secondaries=()),
+                client=client,
+            )
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert row.oa_pdf_url is None
+        assert row.quote_source == "crossref_abstract"
+        assert row.direct_quote  # non-empty
+
+    def test_no_oa_no_crossref_abstract_but_pubmed_yields_abstract_only(
+        self,
+    ) -> None:
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("eutils.ncbi.nlm.nih.gov", 200, _pubmed_xml()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert row.quote_source == "pubmed_abstract"
+        assert "Tirzepatide" in row.direct_quote
+
+    def test_html_only_oa_still_classified_open_access(self) -> None:
+        """Unpaywall reports is_oa=True with only landing-page URL
+        (no PDF). Still OPEN_ACCESS — HTML is fetchable at M-57."""
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url=None,
+                html_url="https://oa.example/article",
+            )),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.oa_pdf_url == "https://oa.example/article"
+
+    def test_metadata_only_when_no_abstract_no_oa(self) -> None:
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            # PubMed returns 200 but empty body
+            ("eutils.ncbi.nlm.nih.gov", 200, "   "),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""
+        assert row.title  # we got metadata
+        assert row.year == 2021
+
+
+class TestOrchestratorFailurePaths:
+    def test_all_404_yields_gap(self) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 404, {"message": "not found"}),
+            ("api.unpaywall.org", 404, {"message": "not found"}),
+            ("eutils.ncbi.nlm.nih.gov", 200, ""),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
+        assert row.failure_reason is not None
+        assert "all sources failed" in row.failure_reason
+        # Gap row still retains identifiers + attempts log
+        assert row.doi == "10.1056/NEJMoa2107519"
+        assert len(row.retrieval_attempts) >= 2
+
+    def test_anchor_only_binding_yields_gap_without_network(self) -> None:
+        binding = _binding(
+            primary="anchor:SURPASS-CVOT",
+            secondaries=(),
+        )
+        transport = _Transport([])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(binding, client=client)
+
+        assert row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
+        assert row.retrieval_attempts == ()
+        assert "anchor-only" in row.failure_reason
+        # No network call fired
+        assert transport.call_log == []
+
+    def test_pmid_only_uses_pubmed(self) -> None:
+        """PMID-only binding skips CrossRef + Unpaywall entirely."""
+        binding = _binding(
+            primary="pmid:34010531",
+            secondaries=(),
+        )
+        transport = _Transport([
+            ("eutils.ncbi.nlm.nih.gov", 200, _pubmed_xml()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(binding, client=client)
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert row.quote_source == "pubmed_abstract"
+        assert row.pmid == "34010531"
+        # No CrossRef or Unpaywall calls fired
+        assert not any(
+            "crossref" in u or "unpaywall" in u
+            for u in transport.call_log
+        )
+
+
+class TestOrchestratorRegulatoryPath:
+    def test_url_pattern_primary_yields_metadata_only(self) -> None:
+        binding = EvidenceBinding(
+            entity_id="fda_mounjaro_label",
+            entity_type="regulatory",
+            primary_identifier="url:accessdata.fda.gov",
+            secondary_identifiers=(),
+            rendering_slot="regulatory_fda_t2d",
+            required_fields=("indications", "boxed_warning"),
+            min_fields_for_completion=2,
+        )
+        transport = _Transport([])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(binding, client=client)
+
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.url == "accessdata.fda.gov"
+        assert row.quote_source == "url_pattern_placeholder"
+        assert row.failure_reason is None
+        # No network calls fired (regulatory route deferred to
+        # existing POLARIS fetch infrastructure)
+        assert transport.call_log == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (4) Retrieval attempt logging
+# ─────────────────────────────────────────────────────────────────────
+class TestRetryOnTransient:
+    """Retry schedule is fixed-deterministic per docstring: 1s/2s/4s
+    backoff. To keep tests fast we monkeypatch time.sleep to a no-op
+    and check that 503 followed by 200 eventually succeeds."""
+
+    def test_transient_503_then_200_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher.time.sleep",
+            lambda s: None,
+        )
+        transport = _SequencedTransport({
+            "api.crossref.org": [
+                (503, {"error": "service unavailable"}),
+                (200, _crossref_response()),
+            ],
+            "api.unpaywall.org": [
+                (200, _unpaywall_response(is_oa=False)),
+            ],
+        })
+        client = httpx.Client(
+            transport=httpx.MockTransport(transport),
+            timeout=5.0,
+        )
+        try:
+            row = fetch_frame_entity(
+                _binding(primary="doi:10.1/x", secondaries=()),
+                client=client,
+            )
+        finally:
+            client.close()
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        # CrossRef retried: substring 'api.crossref.org' appeared >=2
+        cr_calls = [u for u in transport.call_log if "crossref.org" in u]
+        assert len(cr_calls) >= 2
+
+    def test_exhausted_retries_emits_error_outcome(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher.time.sleep",
+            lambda s: None,
+        )
+        # Always 503 → should exhaust retries and log error
+        transport = _Transport([
+            ("api.crossref.org", 503, {"error": "x"}),
+            ("api.unpaywall.org", 503, {"error": "x"}),
+            ("eutils.ncbi.nlm.nih.gov", 503, ""),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
+        for a in row.retrieval_attempts:
+            assert "error" in a.outcome or a.outcome == "not_found"
+
+
+class TestRetrievalAttemptLog:
+    def test_success_logged(self) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200,
+             _unpaywall_response(is_oa=True, pdf_url="https://x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        sources = {a.source for a in row.retrieval_attempts}
+        assert {"crossref", "unpaywall"} <= sources
+        for a in row.retrieval_attempts:
+            assert isinstance(a, RetrievalAttempt)
+            assert a.http_status == 200
+            assert a.outcome == "success"
+            assert a.duration_ms >= 0
+
+    def test_404_logged_as_not_found(self) -> None:
+        transport = _Transport([
+            ("api.crossref.org", 404, {"error": "not_found"}),
+            ("api.unpaywall.org", 404, {"error": "not_found"}),
+            ("eutils.ncbi.nlm.nih.gov", 404, ""),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        for a in row.retrieval_attempts:
+            assert a.http_status == 404
+            assert a.outcome == "not_found"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (5) Determinism
+# ─────────────────────────────────────────────────────────────────────
+class TestDeterminism:
+    def test_same_inputs_yield_same_frame_row(self) -> None:
+        rules = [
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200,
+             _unpaywall_response(is_oa=True, pdf_url="https://x.pdf")),
+        ]
+        t1 = _Transport(list(rules))
+        t2 = _Transport(list(rules))
+        with _client_with_transport(t1) as c1, _client_with_transport(t2) as c2:
+            r1 = fetch_frame_entity(_binding(), client=c1)
+            r2 = fetch_frame_entity(_binding(), client=c2)
+
+        # Payload fields must match; retrieval_attempts duration_ms
+        # may differ so compare everything but that.
+        assert r1.entity_id == r2.entity_id
+        assert r1.provenance_class == r2.provenance_class
+        assert r1.direct_quote == r2.direct_quote
+        assert r1.quote_source == r2.quote_source
+        assert r1.doi == r2.doi and r1.pmid == r2.pmid
+        assert r1.title == r2.title
+        assert r1.authors == r2.authors
+        assert r1.journal == r2.journal
+        assert r1.year == r2.year
+        assert r1.oa_pdf_url == r2.oa_pdf_url
+        assert len(r1.retrieval_attempts) == len(r2.retrieval_attempts)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (6) fetch_compiled_frame batch mode
+# ─────────────────────────────────────────────────────────────────────
+class TestCompiledFrameFetch:
+    def test_preserves_binding_order(self) -> None:
+        bindings = (
+            _binding(entity_id="e1", primary="doi:10.1/a"),
+            _binding(entity_id="e2", primary="doi:10.1/b"),
+            _binding(entity_id="e3", primary="doi:10.1/c"),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+        ])
+        with _client_with_transport(transport) as client:
+            rows = fetch_compiled_frame(bindings, client=client)
+
+        assert tuple(r.entity_id for r in rows) == ("e1", "e2", "e3")
+        assert all(
+            r.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+            for r in rows
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (7) Failure summary composition
+# ─────────────────────────────────────────────────────────────────────
+class TestFailureSummary:
+    def test_empty_attempts(self) -> None:
+        assert "no retrieval" in _summarize_failure([])
+
+    def test_composed(self) -> None:
+        attempts = [
+            RetrievalAttempt("crossref", "url1", 404, 100, "not_found"),
+            RetrievalAttempt("unpaywall", "url2", 500, 200, "error:http_500"),
+        ]
+        summary = _summarize_failure(attempts)
+        assert "crossref" in summary and "unpaywall" in summary
+        assert "404" in summary and "500" in summary
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (8) FrameRow contract
+# ─────────────────────────────────────────────────────────────────────
+class TestFrameRowContract:
+    def test_is_gap_true_only_for_unrecoverable(self) -> None:
+        row = FrameRow(
+            entity_id="x", entity_type="t", rendering_slot="s",
+            provenance_class=ProvenanceClass.FRAME_GAP_UNRECOVERABLE,
+            direct_quote="", quote_source="none",
+            doi=None, pmid=None, oa_pdf_url=None, url=None,
+            title=None, authors=(), journal=None, year=None,
+            failure_reason="test", retrieval_attempts=(),
+        )
+        assert row.is_gap() is True
+
+        row2 = FrameRow(
+            entity_id="x", entity_type="t", rendering_slot="s",
+            provenance_class=ProvenanceClass.ABSTRACT_ONLY,
+            direct_quote="stuff", quote_source="crossref_abstract",
+            doi="10.1/x", pmid=None, oa_pdf_url=None, url=None,
+            title="T", authors=(), journal="J", year=2024,
+            failure_reason=None, retrieval_attempts=(),
+        )
+        assert row2.is_gap() is False
+
+    def test_frame_row_is_frozen(self) -> None:
+        row = FrameRow(
+            entity_id="x", entity_type="t", rendering_slot="s",
+            provenance_class=ProvenanceClass.ABSTRACT_ONLY,
+            direct_quote="", quote_source="none",
+            doi=None, pmid=None, oa_pdf_url=None, url=None,
+            title=None, authors=(), journal=None, year=None,
+            failure_reason=None, retrieval_attempts=(),
+        )
+        with pytest.raises(Exception):  # FrozenInstanceError
+            row.entity_id = "changed"  # type: ignore

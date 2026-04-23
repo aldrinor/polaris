@@ -3744,3 +3744,32 @@
   - FrameCompilerError raised on identifier-less entity names the offending entity_id explicitly.
 - STATUS: M-54 sealed + Codex-approved. M-55 shipped + 35/35 tests pass. V30 Layers 1+2a complete. Ready to commit M-55 and launch Codex M-55 audit.
 - NEXT_STEP: Commit M-55 files (src/polaris_graph/nodes/frame_compiler.py + tests/polaris_graph/test_m55_frame_compiler.py + session_log); write `.codex/m55_code_audit_brief.md` (tight scope, skip git status); launch Codex M-55 audit in foreground (avoid async background where context-flooded workdir loses output).
+
+
+[2026-04-23 12:25:00]
+- ACTION: M-56 deterministic frame fetcher shipped — V30 Layer 2b complete. Plus M-55 Codex audit response committed (section_order Medium + stale-wording Nit).
+- RATIONALE: Two discrete V30 milestones landed:
+  (1) M-55 Codex audit returned CONDITIONAL-no-blockers with 1 Medium (cross-section rendering order was alphabetic-by-label, fragile to section rename/localization) + 1 Nit (docstring said "slot types" but schema has no slot-type field). Fixed Medium by adding optional `section_order: [list]` field to contract YAML + loader validation + compiler honors when present / warns-fallback when absent; real clinical.yaml now declares explicit `section_order: [Efficacy, Mechanism, Regulatory]`. Fixed Nit by rewording both frame_compiler.py docstring and test class docstring.
+  (2) M-56 `src/polaris_graph/retrieval/frame_fetcher.py` — 467 lines — ships ProvenanceClass enum (OPEN_ACCESS / ABSTRACT_ONLY / METADATA_ONLY / FRAME_GAP_UNRECOVERABLE) + FrameRow frozen dataclass + RetrievalAttempt + pure parsers (_parse_crossref_response / _parse_unpaywall_response / _parse_pubmed_xml) + network callers (_call_crossref / _call_unpaywall / _call_pubmed) with deterministic 1s/2s/4s fixed retry schedule via _request_with_retry + orchestrator fetch_frame_entity(binding, *, client=None)->FrameRow + batch fetch_compiled_frame(bindings, *, client=None)->tuple[FrameRow, ...]. Dependency injection via optional httpx.Client arg: production callers pass None (module creates Client per call); tests pass httpx.MockTransport-backed client for canned responses without network.
+- DOCS/RESEARCH: V30 plan M-56 section lines 218-263. Codex plan review revision #4 (retrieval_attempt_log for M-60 manifest) incorporated directly — every fetch attempt recorded as RetrievalAttempt(source, url, http_status, duration_ms, outcome). httpx.Client + httpx.MockTransport — existing POLARIS pattern from live_retriever.py. CrossRef /works/{doi}, Unpaywall /v2/{doi}, PubMed EFetch — all free, never paywalled, deterministic given same upstream state.
+- SYNC: TaskList #20 M-55 completed, #21 M-56 implementation done — will mark completed after Codex audit. M-54/M-55/M-56 docs all consistent now.
+- AFFECTED_FILES:
+  - MODIFIED src/polaris_graph/nodes/report_contract.py (section_order field on ReportContract; loader validates list of unique non-empty strings; loader raises when a slot section is missing from section_order)
+  - MODIFIED src/polaris_graph/nodes/frame_compiler.py (honors section_order in _ordered_entities; emits warning when absent; docstring rewording for entity/slot-ids/sections/orderings wording)
+  - MODIFIED config/scope_templates/clinical.yaml (explicit section_order: [Efficacy, Mechanism, Regulatory])
+  - MODIFIED tests/polaris_graph/test_m55_frame_compiler.py (TestSectionOrder class: 6 tests covering explicit order wins / absent emits warning / missing section raises / duplicates raise / non-list raises / empty-element raises; existing fixtures updated to declare section_order)
+  - NEW outputs/codex_findings/m55_code_audit/findings.md (CONDITIONAL-no-blockers with 8 YES/Agree answers + 1 Medium + 1 Nit)
+  - NEW src/polaris_graph/retrieval/frame_fetcher.py (M-56 module)
+  - NEW tests/polaris_graph/test_m56_frame_fetcher.py (32 tests in 11 classes covering CrossRef parser / Unpaywall parser / PubMed parser / identifier collection / orchestrator OA path / orchestrator failure paths / orchestrator regulatory path / retry on transient / retrieval attempt log / determinism / batch fetch / failure summary / FrameRow contract)
+- EVIDENCE/FINDINGS:
+  - M-55 commit sealed as 823db8a; 41/41 tests pass (was 35; +6 for section_order)
+  - M-56 ships with 32/32 tests pass in 5.76s
+  - Combined M-54+M-55+M-56: 127/127 pass in 6.04s (54+41+32)
+  - FrameRow fields: entity_id, entity_type, rendering_slot, provenance_class, direct_quote, quote_source, doi, pmid (string form), oa_pdf_url (either PDF or HTML landing when is_oa), url (regulatory), title, authors, journal, year, failure_reason (only on gap), retrieval_attempts (tuple log for M-60 manifest consumption)
+  - Provenance class transitions tested: OA PDF or HTML → OPEN_ACCESS; no OA + CrossRef abstract → ABSTRACT_ONLY; no OA + no CR abstract + PubMed abstract → ABSTRACT_ONLY; metadata no abstract → METADATA_ONLY; all fail → FRAME_GAP_UNRECOVERABLE with failure_reason summarizing attempts
+  - Retry semantics: 503→200 retries and succeeds (monkeypatch time.sleep no-op in tests); exhausted retries logged as error:http_503; deterministic 1s/2s/4s schedule
+  - Regulatory path: url_pattern-primary entity emits METADATA_ONLY with url locator; no network calls fired (deferred to existing POLARIS fetch infrastructure)
+  - Anchor-only binding: FRAME_GAP_UNRECOVERABLE without network; failure_reason explains anchor-only limitation
+  - Determinism: same inputs → byte-identical FrameRow payload (retrieval_attempts.duration_ms differs but that's logged-only, not payload)
+- STATUS: M-54 + M-55 sealed + Codex-approved. M-56 shipped + 32/32 tests pass. V30 Layers 1 + 2a + 2b complete. Ready to commit M-56 and launch Codex M-56 audit.
+- NEXT_STEP: Commit M-56 files; write `.codex/m56_code_audit_brief.md` (tight scope, skip git status); launch Codex M-56 audit in foreground.
