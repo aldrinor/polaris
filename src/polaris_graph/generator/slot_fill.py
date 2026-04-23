@@ -109,36 +109,47 @@ class SlotFillParseError(ValueError):
 def _value_supported_by_span(
     value: str, source_span: str, direct_quote: str,
 ) -> bool:
-    """Codex M-58 audit Blocker fix: verify that an extracted value
-    is supported by the claimed source_span, not just that the span
-    itself is real.
+    """Codex M-58 audit Blocker fix (pass 1 + pass 2): verify that
+    an extracted value is supported by the claimed source_span, NOT
+    just that it appears somewhere in the document.
 
     Accepted forms (tightest → looser):
       1. `value` is a verbatim substring of `source_span`.
-      2. `value` is a verbatim substring of `direct_quote` AND at
-         least one non-trivial token of `value` appears in
-         `source_span`. This accommodates the common case where
-         the model normalizes whitespace or quotes a clean version
-         of a number ("1879") from a messier span ("N=1879 (95%)").
+      2. Normalized `value` (whitespace-collapsed, lowercased) is a
+         substring of normalized `source_span`. Accommodates LLM
+         whitespace / case normalization (span="N = 1879" with
+         value="1879"; span="HbA1c" with value="hba1c").
 
-    Returns False when value cannot be traced to real source text.
+    Rejected: value elsewhere in `direct_quote` even if it shares
+    tokens with source_span. Codex M-58 pass-2 caught this
+    exploit: span="5 mg" + value="10 mg" both contain token "mg"
+    and "10 mg" appears elsewhere in direct_quote, but "10 mg" is
+    NOT supported by span="5 mg". The pass-1 fallback accepted
+    this; pass-2 rejects it.
+
+    `direct_quote` parameter retained for callers that may want
+    document-scope checks later; currently unused. Kept in the
+    signature so the call site is stable and a future auditor
+    sees the intent.
     """
     if not value or not source_span:
         return False
-    # Tightest form: value is a verbatim substring of source_span.
+    # Tightest form
     if value in source_span:
         return True
-    # Fallback: value is a verbatim substring of direct_quote and
-    # shares at least one non-trivial token with source_span.
-    if value not in direct_quote:
-        return False
-    value_tokens = {
-        t for t in value.replace(",", " ").split() if len(t) >= 2
-    }
-    span_tokens = {
-        t for t in source_span.replace(",", " ").split() if len(t) >= 2
-    }
-    return bool(value_tokens & span_tokens)
+    # Normalized-substring-of-span only
+    if _normalize_for_span_check(value) in _normalize_for_span_check(source_span):
+        return True
+    return False
+
+
+def _normalize_for_span_check(s: str) -> str:
+    """Whitespace-collapse + lower-case. Preserves all non-whitespace
+    characters so numeric values like '1879' and unit strings like
+    'mg' remain distinguishable. Conservative by design — anything
+    more aggressive (stripping punctuation, unicode folding) risks
+    creating false positives."""
+    return " ".join(s.lower().split())
 
 
 # ─────────────────────────────────────────────────────────────────────

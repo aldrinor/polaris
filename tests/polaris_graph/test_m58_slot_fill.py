@@ -374,14 +374,9 @@ class TestParseFailures:
         assert "1880" in str(exc.value)
 
     def test_value_whitespace_normalization_accepted(self) -> None:
-        """A value that is a verbatim substring of direct_quote AND
-        shares a token with source_span should be accepted. Common
-        when LLM strips whitespace or quotes a clean number from a
-        messier span."""
-        # direct_quote has "N=1879" — a loose span "N=1879 (95% CI)"
-        # is a valid substring of a different fixture quote; use the
-        # default quote with "N=1879" and a value of "1879" (token-
-        # extracted from the span).
+        """value='1879' with source_span='N=1879' passes via
+        normalized-substring check: 'n=1879' contains '1879' after
+        whitespace/case collapse."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
@@ -392,9 +387,51 @@ class TestParseFailures:
         payload = parse_slot_fill_response(
             response, _slot_plan(), _frame_row(), ("N",),
         )
-        by_name = payload.fields_by_name()
-        assert by_name["N"].value == "1879"
-        assert by_name["N"].source_span == "N=1879"
+        assert payload.fields_by_name()["N"].value == "1879"
+
+    def test_value_case_insensitive_normalization_accepted(self) -> None:
+        """Normalized span-containment tolerates case mismatch:
+        span='HbA1c' with value='hba1c' passes because
+        normalize('HbA1c') contains normalize('hba1c')."""
+        quote = "Baseline HbA1c was 8.3%."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "marker", "status": "extracted",
+                 "value": "hba1c",
+                 "source_span": "HbA1c"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("marker",),
+        )
+        assert payload.fields_by_name()["marker"].value == "hba1c"
+
+    def test_value_misbound_to_wrong_span_raises(self) -> None:
+        """Codex M-58 pass-2 regression: value '10 mg' with
+        source_span='5 mg' must be rejected even though '10 mg' IS
+        in direct_quote elsewhere AND shares token 'mg' with the
+        span. The pass-1 fallback (value ∈ direct_quote + token
+        overlap) let this through; pass-2 tightens to normalized-
+        substring-of-span only, which correctly rejects it."""
+        quote = (
+            "Dose: 5 mg daily for 4 weeks, then escalated to 10 mg "
+            "for weeks 5-40."
+        )
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "initial_dose", "status": "extracted",
+                 "value": "10 mg",  # fabricated binding
+                 "source_span": "5 mg"},  # real span, wrong value
+            ]
+        })
+        with pytest.raises(SlotFillParseError) as exc:
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("initial_dose",),
+            )
+        msg = str(exc.value).lower()
+        assert "not supported" in msg or "anti-fabrication" in msg
 
     def test_duplicate_field_raises(self) -> None:
         response = json.dumps({
