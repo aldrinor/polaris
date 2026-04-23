@@ -94,11 +94,19 @@ regulatory_anchors:
 # M-62 (2026-04-23): V30 Report Contract Architecture — non-clinical
 # generalization guard. Codex plan review rev #8 required proving the
 # architecture works with non-DOI / non-paper entity types. This
-# policy contract exercises:
-#   - statute entities (no DOI, url_pattern only)
-#   - court_decision entities (no DOI, citation locator only)
-#   - regulatory_ruling entities (agency decision URL)
-#   - cbo_report entities (CBO analyses with DOI-like identifiers)
+# policy contract exercises four non-clinical entity types (all
+# use `url_pattern` as the retrieval locator; no DOIs; no PMIDs):
+#   - statute            — IRA §11001 on congress.gov
+#   - regulatory_ruling  — CMS revised guidance on cms.gov
+#   - court_decision     — federal-court cases on courtlistener.com
+#   - cbo_report         — CBO baseline analysis on cbo.gov
+#
+# For M-61 human-curated completions, court_decision entities also
+# exercise the `source_locator` as a Bluebook case citation (not a
+# URL, not a DOI) — the strongest non-DOI identifier path in the
+# whole V30 architecture. See
+# tests/polaris_graph/test_m62_non_clinical_regression.py
+# TestM61NonClinicalHumanCompletion.test_court_decision_completion_with_case_citation_locator.
 #
 # If M-54..M-61 work for this contract without code changes, that
 # proves architecture-not-clinical-hardcoding per Codex rev #7/#8.

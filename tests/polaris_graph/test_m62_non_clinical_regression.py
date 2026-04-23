@@ -436,6 +436,54 @@ class TestM60NonClinicalManifest:
 # ─────────────────────────────────────────────────────────────────────
 # (7) M-61 human completion for statute (doi=null)
 # ─────────────────────────────────────────────────────────────────────
+class TestM56UrlPatternFetcherIntegration:
+    """Codex M-62 audit Medium 1: the chain tests consume synthetic
+    stub rows for M-56 output. A regression in url-pattern-primary
+    fetcher handling could slip through. Integration test uses a
+    fake httpx.MockTransport so url_pattern entities are routed
+    through fetch_frame_entity with zero real network calls."""
+
+    def test_url_pattern_entity_yields_metadata_only_no_network(
+        self, policy_template: dict,
+    ) -> None:
+        import httpx
+
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            ProvenanceClass as PC,
+            fetch_frame_entity,
+        )
+
+        compiled = compile_frame(
+            "q", policy_template, POLICY_SLUG,
+        )
+        statute_binding = next(
+            b for b in compiled.evidence_bindings
+            if b.entity_type == "statute"
+        )
+
+        # Transport that WOULD return 500 on any call — if M-56
+        # calls it for a url-pattern entity, that's a regression.
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(str(request.url))
+            return httpx.Response(500)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        try:
+            row = fetch_frame_entity(statute_binding, client=client)
+        finally:
+            client.close()
+
+        # URL-pattern-primary entities (no DOI, no PMID) must be
+        # routed to METADATA_ONLY placeholder without any HTTP.
+        assert row.provenance_class == PC.METADATA_ONLY
+        assert calls == [], (
+            f"unexpected HTTP calls for url-pattern entity: {calls}"
+        )
+        assert row.url == "congress.gov/bill/117th-congress/house-bill/5376"
+
+
 class TestM61NonClinicalHumanCompletion:
     def test_statute_completion_with_null_doi(self) -> None:
         """Non-clinical entities (statute, court_decision) have
@@ -464,6 +512,58 @@ class TestM61NonClinicalHumanCompletion:
         }, 0)
         assert record.doi is None
         assert record.entity_id == "ira_2022_section_11001"
+
+    def test_court_decision_completion_with_case_citation_locator(
+        self,
+    ) -> None:
+        """Codex M-62 audit Medium 2: court_decision case-citation
+        source_locator path must be exercised. Unlike statutes
+        (which can have Pub. L. identifiers) court decisions are
+        located by court/docket/date citations — the most
+        non-DOI identifier path in the whole V30 architecture."""
+        record = parse_completion({
+            "entity_id": "merck_v_becerra_2024",
+            "doi": None,
+            "direct_quote": (
+                "Merck & Co. v. Becerra, No. 23-cv-1615 (D.D.C. "
+                "2024). On April 24, 2024 the district court "
+                "denied plaintiffs' motion for summary judgment "
+                "on First Amendment compelled-speech and Fifth "
+                "Amendment takings claims."
+            ),
+            "provenance": {
+                "curator_id": "legal_curator@firm",
+                "source_type": "licensed_institutional_access",
+                # Case-citation locator — NOT a DOI, NOT a URL;
+                # Bluebook-style legal citation
+                "source_locator": (
+                    "Merck & Co. v. Becerra, No. 23-cv-1615, "
+                    "slip op. at 12-18 (D.D.C. Apr. 24, 2024)"
+                ),
+                "acquired_at": "2026-04-23T16:00:00+00:00",
+                "artifact_sha256": "c" * 64,
+                "artifact_retention_path": "/audit/merck_becerra_slip_opinion.pdf",
+                "quote_page_range": "pp.12-18",
+                "attestation": (
+                    "I hereby certify access via Westlaw "
+                    "institutional subscription."
+                ),
+            },
+        }, 0)
+        # doi=null accepted for court_decision
+        assert record.doi is None
+        # Source locator carries the Bluebook citation, not a URL
+        assert "No. 23-cv-1615" in record.provenance.source_locator
+        assert "D.D.C." in record.provenance.source_locator
+        assert "Apr. 24, 2024" in record.provenance.source_locator
+        # Task validation: matches a doi=null court_decision task
+        tasks = [{
+            "entity_id": "merck_v_becerra_2024",
+            "doi": None,
+        }]
+        result = validate_against_tasks((record,), tasks)
+        assert len(result.accepted) == 1
+        assert len(result.rejected) == 0
 
     def test_statute_task_generation(
         self, policy_template: dict,
