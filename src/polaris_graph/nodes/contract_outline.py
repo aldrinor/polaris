@@ -32,6 +32,11 @@ FrameRows (M-56), emit a ContractOutline where:
    holds the contract-side entity ids (e.g. `surpass_2_primary`).
    M-58/M-59/M-60 consume these; no reliance on opaque ev_xxx
    rewriting.
+5. **Intra-slot ordering inherited, not re-asserted.** Within-slot
+   entity order is READ from `CompiledFrame.ordered_entity_ids`
+   (M-55), not re-sorted by M-57. If the compiler ordering policy
+   evolves (e.g. per-entity priority key), M-57 picks up the new
+   order for free. Codex M-57 audit Medium fix.
 
 ## What M-57 does NOT do
 
@@ -193,6 +198,15 @@ def compose_outline_from_contract(
     contract = compiled_frame.contract
     section_order = _resolve_section_order(contract)
 
+    # Codex M-57 audit Medium fix: within-slot entity ordering is
+    # INHERITED from M-55 compiler, not re-sorted by M-57. The
+    # compiler's ordered_entity_ids tuple is the single source of
+    # truth for entity rendering order — M-57 only projects that
+    # order onto slots.
+    compiler_entity_rank = {
+        eid: i for i, eid in enumerate(compiled_frame.ordered_entity_ids)
+    }
+
     # Group slots by section
     slots_by_section: dict[str, list[Any]] = {}
     for slot in contract.rendering_slots:
@@ -209,13 +223,19 @@ def compose_outline_from_contract(
         slot_plans: list[ContractSlotPlan] = []
         for slot in sorted_slots:
             entities = entities_by_slot.get(slot.id, [])
-            # Preserve compiler ordering of entities (already
-            # deterministic via M-55 _ordered_entities).
-            # For slots with multiple entities, compiler sorted them
-            # alongside their siblings; within a slot we re-sort by
-            # entity.id for stable within-slot ordering.
-            entities_sorted = sorted(entities, key=lambda e: e.id)
-            eids = tuple(e.id for e in entities_sorted)
+            # Inherit compiler-determined entity order. An entity
+            # not present in the compiler ordering (defensive;
+            # should not happen on a well-formed CompiledFrame)
+            # sorts to the end by id.
+            max_rank = len(compiler_entity_rank)
+            entities_ordered = sorted(
+                entities,
+                key=lambda e: (
+                    compiler_entity_rank.get(e.id, max_rank),
+                    e.id,
+                ),
+            )
+            eids = tuple(e.id for e in entities_ordered)
 
             provenance_classes: list[str] = []
             gap_count = 0

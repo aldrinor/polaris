@@ -471,6 +471,46 @@ class TestLegacyAdapter:
         assert plans[1]["title"] == "Mechanism"
         assert plans[1]["ev_ids"] == ["e3"]
 
+    def test_intra_slot_entity_order_inherits_from_compiler(self) -> None:
+        """Codex M-57 audit Medium fix: entity ordering within a
+        slot must come from the M-55 compiler's ordered_entity_ids,
+        not be re-sorted alphabetically by M-57.
+
+        Constructed setup where compiler order diverges from id
+        alphabetic order so we can witness inheritance: both
+        entities in same slot, but one has a smaller id alphabetically.
+        The compiler still orders them by (section, slot.ordering,
+        entity.id) — so in a single slot they happen to tie on
+        section+ordering and alphabetic id wins. This test instead
+        proves M-57 consults the compiler tuple explicitly: if we
+        patched that tuple in reverse, M-57 would emit reverse order.
+        """
+        template = _template(
+            [
+                _entity(eid="alpha_b", slot="s_multi"),
+                _entity(eid="alpha_a", slot="s_multi"),
+            ],
+            {"s_multi": _slot()},
+            section_order=["Efficacy"],
+        )
+        cf, rows = _compile_then_rows(template)
+        # Baseline: alphabetic within slot (compiler sort = id asc)
+        outline = compose_outline_from_contract(cf, rows)
+        assert outline.sections[0].slots[0].entity_ids == (
+            "alpha_a", "alpha_b"
+        )
+
+        # Now craft a CompiledFrame with REVERSED ordered_entity_ids
+        # and confirm M-57 follows it.
+        from dataclasses import replace
+        cf_reversed = replace(
+            cf, ordered_entity_ids=("alpha_b", "alpha_a"),
+        )
+        outline_reversed = compose_outline_from_contract(cf_reversed, rows)
+        assert outline_reversed.sections[0].slots[0].entity_ids == (
+            "alpha_b", "alpha_a"
+        )
+
     def test_all_entity_ids_flattened(self) -> None:
         template = _template(
             [
