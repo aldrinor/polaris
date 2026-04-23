@@ -3719,3 +3719,28 @@
   - Descope declared explicitly: domain-inheritance/contract-composition deferred from M-54 loader to M-55 compiler (documented in report_contract.py module docstring "## Descoped at M-54")
 - STATUS: M-54 shipped and passing. V30 Layer 1 durable. Ready for commit + Codex M-54 audit. Task #19 completed, #20 M-55 in_progress.
 - NEXT_STEP: Commit M-54 files specifically (NOT git add -A — branch has 60+ unrelated deletions). Launch Codex M-54 audit brief for pass-1 review. On APPROVED/CONDITIONAL-no-blockers proceed to M-55 frame compiler.
+
+
+[2026-04-23 11:50:00]
+- ACTION: M-55 frame compiler shipped — V30 Layer 2a complete. Plus M-54 Codex audit response committed (Medium path-precision + Nit test-tightening).
+- RATIONALE: Two discrete V30 milestones landed:
+  (1) Codex M-54 audit returned CONDITIONAL-no-blockers with 1 Medium (ref-integrity error path used entity logical id instead of YAML list index, breaking path-precise error contract) + 1 Nit (test only asserted substring match). Fixed both by introducing entity_yaml_index[eid]=i tracking during iteration, changing the raise path to `required_entities[{idx}].rendering_slot`, moving the logical id to the error reason string for debug retention, and tightening the test to assert exact path string + adding `test_entity_references_undeclared_slot_path_uses_index_second_entity` with 2 entities proving the YAML index (not dict-insert position) is used.
+  (2) M-55 `src/polaris_graph/nodes/frame_compiler.py` — 229 lines — ships CompiledFrame dataclass + compile_frame(research_question, template, slug)->CompiledFrame|None. Responsibilities: (a) wrap M-54 ReportContract with per-entity EvidenceBinding carrying primary_identifier via priority DOI>PMID>url_pattern>anchor + secondaries, (b) emit schema_version forward-compat warnings into CompiledFrame.warnings (instead of M-54 loader accepting silently), (c) deterministic ordering sort by (section, slot.ordering, entity.id), (d) reject entities with zero identifiers via FrameCompilerError (structural validity is not sufficient — must be retrievable). Entity-type-agnostic per Codex plan review rev #7: statute/dft_primary/unknown_xyz compile unchanged.
+- DOCS/RESEARCH: Codex M-54 findings at outputs/codex_findings/m54_code_audit/findings.md (recovered after Codex accidentally wrote the smoke-test payload to findings.md). V30 plan M-55 section in outputs/audits/v29/fix_plan_v30.md lines 188-216. Codex plan review item #1 (structured-first, applies to M-58) and #7 (entity-type-agnostic, applies to M-55+M-62).
+- SYNC: TaskList #19 M-54 completed (already marked), #20 M-55 implementation complete — will mark completed after Codex M-55 audit. docs/todo_list.md up to date; no further change needed until M-55 audit lands.
+- AFFECTED_FILES:
+  - MODIFIED src/polaris_graph/nodes/report_contract.py (entity_yaml_index tracking, path-precise ref-integrity raise, descope block updated to match M-55 final decision)
+  - MODIFIED tests/polaris_graph/test_m54_contract_schema.py (tightened ref-integrity path assertion; added regression test with second-entity offending case)
+  - NEW outputs/codex_findings/m54_code_audit/findings.md (Codex CONDITIONAL-no-blockers verdict with 6 answers + 1 Medium + 1 Nit)
+  - NEW src/polaris_graph/nodes/frame_compiler.py (CompiledFrame, EvidenceBinding, FrameCompilerError, compile_frame, get_identifier_priority_order, _ordered_entities, _compile_binding)
+  - NEW tests/polaris_graph/test_m55_frame_compiler.py (35 tests in 11 classes: WellFormed, BackwardsCompat, IdentifierPriority, NoIdentifierRejection, SchemaVersionWarnings, EntityTypeAgnostic, DeterministicOrdering, ResearchQuestionValidation, CompiledFrameHelpers, SchemaErrorsPropagate, RealClinicalYaml)
+- EVIDENCE/FINDINGS:
+  - M-54 commit sealed as 3059166; 54/54 tests pass (was 53; +1 regression test)
+  - M-55 ships with 35/35 tests pass in 6.49s
+  - Combined M-54+M-55 suite: 89/89 pass in 7.54s
+  - Real clinical.yaml integration: compile_frame("...", template, "clinical_tirzepatide_t2dm") returns CompiledFrame with 15 evidence_bindings, zero warnings, all entities have primary_identifier, SURPASS-2 resolves to doi:10.1056/NEJMoa2107519 with pmid:34010531 as secondary, FDA Mounjaro falls through to url:accessdata.fda.gov, Efficacy section ordered SURPASS-1..6→CVOT→SURMOUNT-2 per slot ordering field.
+  - Identifier priority order DOI>PMID>url_pattern>anchor matches what M-56 retriever will consume.
+  - Schema-version unknown emits warning but still compiles — exactly the forward-compat contract M-54 loader accepts and M-55 compiler surfaces to callers.
+  - FrameCompilerError raised on identifier-less entity names the offending entity_id explicitly.
+- STATUS: M-54 sealed + Codex-approved. M-55 shipped + 35/35 tests pass. V30 Layers 1+2a complete. Ready to commit M-55 and launch Codex M-55 audit.
+- NEXT_STEP: Commit M-55 files (src/polaris_graph/nodes/frame_compiler.py + tests/polaris_graph/test_m55_frame_compiler.py + session_log); write `.codex/m55_code_audit_brief.md` (tight scope, skip git status); launch Codex M-55 audit in foreground (avoid async background where context-flooded workdir loses output).

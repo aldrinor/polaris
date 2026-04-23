@@ -46,11 +46,11 @@ Entity types at M-54 level (extensible at M-55 compiler):
 
 - **Domain-inheritance / contract composition** (V30 plan §M-54 test
   coverage item (d)): intentionally deferred. The current contract
-  is a flat per-slug map. If M-55 or a later layer introduces
-  inheritance (e.g. "clinical_tirzepatide_hfpef inherits from
-  clinical_tirzepatide_t2dm then overrides SURPASS-6"), inheritance
-  resolution belongs in M-55 compiler, not the M-54 loader. The
-  loader remains a pure YAML-shape validator.
+  is a flat per-slug map. The loader remains a pure YAML-shape
+  validator. M-55 (frame_compiler.py) does not implement inheritance
+  either — see its "## Descoped at M-55" block for the rationale
+  (only one slug exists in V30; adding `extends:` before a concrete
+  second-slug use-case would be speculative abstraction).
 """
 from __future__ import annotations
 
