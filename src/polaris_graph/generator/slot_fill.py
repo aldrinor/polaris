@@ -109,47 +109,47 @@ class SlotFillParseError(ValueError):
 def _value_supported_by_span(
     value: str, source_span: str, direct_quote: str,
 ) -> bool:
-    """Codex M-58 audit Blocker fix (pass 1 + pass 2): verify that
-    an extracted value is supported by the claimed source_span, NOT
-    just that it appears somewhere in the document.
+    """Codex M-58 audit Blocker fix (pass 1 → pass 3):
 
-    Accepted forms (tightest → looser):
+    pass-1: added a value-support check (not just span-in-quote).
+    pass-2: dropped the `direct_quote + token-overlap` fallback
+            (accepted `span="5 mg" + value="10 mg"`).
+    pass-3: dropped lowercase from normalization (accepted
+            `span="5 M" + value="5 m"` — molar vs meter, a real
+            scientific semantic inversion).
+
+    Final policy — strict verbatim with whitespace-only
+    normalization:
       1. `value` is a verbatim substring of `source_span`.
-      2. Normalized `value` (whitespace-collapsed, lowercased) is a
-         substring of normalized `source_span`. Accommodates LLM
-         whitespace / case normalization (span="N = 1879" with
-         value="1879"; span="HbA1c" with value="hba1c").
+      2. `value` with whitespace collapsed (NOT lowercased) is a
+         substring of `source_span` with whitespace collapsed.
+         Accommodates LLM whitespace/tab normalization only.
 
-    Rejected: value elsewhere in `direct_quote` even if it shares
-    tokens with source_span. Codex M-58 pass-2 caught this
-    exploit: span="5 mg" + value="10 mg" both contain token "mg"
-    and "10 mg" appears elsewhere in direct_quote, but "10 mg" is
-    NOT supported by span="5 mg". The pass-1 fallback accepted
-    this; pass-2 rejects it.
+    Case-mismatches (`HbA1c` vs `hba1c`, `5 M` vs `5 m`) are now
+    rejected. The prompt contract requires verbatim substring of
+    direct_quote; case drift is a contract violation, not a
+    tolerable LLM quirk. Scientific units are case-sensitive and
+    we fail closed.
 
-    `direct_quote` parameter retained for callers that may want
-    document-scope checks later; currently unused. Kept in the
-    signature so the call site is stable and a future auditor
-    sees the intent.
+    `direct_quote` parameter retained in the signature for future
+    document-scope checks, currently unused.
     """
     if not value or not source_span:
         return False
-    # Tightest form
     if value in source_span:
         return True
-    # Normalized-substring-of-span only
     if _normalize_for_span_check(value) in _normalize_for_span_check(source_span):
         return True
     return False
 
 
 def _normalize_for_span_check(s: str) -> str:
-    """Whitespace-collapse + lower-case. Preserves all non-whitespace
-    characters so numeric values like '1879' and unit strings like
-    'mg' remain distinguishable. Conservative by design — anything
-    more aggressive (stripping punctuation, unicode folding) risks
-    creating false positives."""
-    return " ".join(s.lower().split())
+    """Whitespace-collapse ONLY. No lowercasing. Codex M-58 pass-3
+    blocker: lowercasing conflated `5 M` with `5 m` (molarity vs
+    meter) and let semantically wrong units pass. Case-sensitive
+    tokens (unit prefixes, gene symbols like HbA1c, chemical
+    element capitalization) must survive the normalization."""
+    return " ".join(s.split())
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -375,14 +375,16 @@ def parse_slot_fill_response(
                     f"substring of direct_quote (anti-fabrication "
                     f"check 1 failed)"
                 )
-            # Codex M-58 audit Blocker: extracted `value` must itself
-            # be supported by `source_span`. Without this check, the
-            # LLM can emit `value="1880"` + `source_span="N=1879"`,
-            # pass the parser, and fabricate prose. We require `value`
-            # to appear verbatim in `source_span` (exact match) or —
-            # to accommodate the common case where the model emits a
-            # normalized form of a span snippet — appear verbatim in
-            # `direct_quote` AND share tokens with `source_span`.
+            # Codex M-58 audit Blocker (pass 1→3 tightening).
+            # Extracted `value` must be supported by `source_span`
+            # itself, not just appear somewhere in direct_quote.
+            # Final policy (pass-3): strict verbatim-in-span OR
+            # whitespace-collapsed verbatim-in-span. No lowercase
+            # (pass-3 caught `5 M` vs `5 m` unit-case exploit).
+            # No direct_quote fallback (pass-2 caught
+            # `span="5 mg" + value="10 mg"` misbinding exploit).
+            # See _value_supported_by_span docstring for the full
+            # three-pass history.
             if not _value_supported_by_span(value, source_span, direct_quote):
                 raise SlotFillParseError(
                     f"fields[{fname!r}].value={value!r} is not "

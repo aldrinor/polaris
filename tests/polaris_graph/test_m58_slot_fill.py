@@ -389,23 +389,63 @@ class TestParseFailures:
         )
         assert payload.fields_by_name()["N"].value == "1879"
 
-    def test_value_case_insensitive_normalization_accepted(self) -> None:
-        """Normalized span-containment tolerates case mismatch:
-        span='HbA1c' with value='hba1c' passes because
-        normalize('HbA1c') contains normalize('hba1c')."""
+    def test_value_case_mismatch_raises(self) -> None:
+        """Codex M-58 pass-3 regression: lowercasing in
+        normalization conflates case-sensitive scientific tokens.
+        span='HbA1c' with value='hba1c' must RAISE now — the LLM
+        must emit the verbatim casing from direct_quote. Case drift
+        is a contract violation, not a tolerable LLM quirk."""
         quote = "Baseline HbA1c was 8.3%."
         row = _frame_row(quote=quote)
         response = json.dumps({
             "fields": [
                 {"field_name": "marker", "status": "extracted",
-                 "value": "hba1c",
+                 "value": "hba1c",  # lowercase drift
                  "source_span": "HbA1c"},
             ]
         })
+        with pytest.raises(SlotFillParseError):
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("marker",),
+            )
+
+    def test_molarity_meter_case_raises(self) -> None:
+        """Codex M-58 pass-3 exact exploit repro: span='5 M' (molar
+        concentration) with value='5 m' (meter) are semantically
+        distinct units. The pass-2 lowercase normalization accepted
+        this; pass-3 whitespace-only normalization rejects it."""
+        quote = "The compound was prepared at 5 M concentration."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "concentration",
+                 "status": "extracted",
+                 "value": "5 m",  # WRONG — that's meters, not molar
+                 "source_span": "5 M"},
+            ]
+        })
+        with pytest.raises(SlotFillParseError) as exc:
+            parse_slot_fill_response(
+                response, _slot_plan(), row, ("concentration",),
+            )
+        assert "not supported" in str(exc.value).lower()
+
+    def test_whitespace_only_normalization_still_accepted(self) -> None:
+        """Whitespace variation is the ONE form pass-3 still accepts.
+        span='5\\tmg' (tab) with value='5 mg' (space) passes."""
+        quote = "Administered 5\tmg weekly."
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                {"field_name": "dose", "status": "extracted",
+                 "value": "5 mg",
+                 "source_span": "5\tmg"},
+            ]
+        })
         payload = parse_slot_fill_response(
-            response, _slot_plan(), row, ("marker",),
+            response, _slot_plan(), row, ("dose",),
         )
-        assert payload.fields_by_name()["marker"].value == "hba1c"
+        assert payload.fields_by_name()["dose"].value == "5 mg"
 
     def test_value_misbound_to_wrong_span_raises(self) -> None:
         """Codex M-58 pass-2 regression: value '10 mg' with
