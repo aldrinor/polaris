@@ -285,18 +285,20 @@ class TestGapStructuredMetadata:
             failure_reason="all sources failed",
             has_oa=False, has_abstract=False, has_metadata=False,
         ),)
+        # Codex M-60 pass-2 alignment: gap+PASS (M-60 language
+        # rendered + citation present) is a curator no-op. Use
+        # FAIL_MIN_FIELDS to represent "retrieval failed, extraction
+        # impossible" — the curator-actionable gap case.
         validation = _make_validation([
-            ("s1", "e1", ValidationVerdict.PASS),  # gap with marker = PASS
+            ("s1", "e1", ValidationVerdict.FAIL_MIN_FIELDS),
         ])
-        # Override the is_gap flag; validator treats PASS with gap
-        # provenance as expected
         coverage = compose_frame_coverage(
             cf, outline, rows, validation,
         )
         entry = coverage.entries[0]
         assert entry.slot_id == "s1"
         assert entry.entity_id == "e1"
-        assert entry.status == "pass"
+        assert entry.status == "fail_min_fields"
         assert entry.provenance_class == "frame_gap_unrecoverable"
         assert entry.failure_reason == "all sources failed"
         # retrieval_attempt_log: one dict per HTTP attempt (Codex
@@ -307,7 +309,7 @@ class TestGapStructuredMetadata:
         assert entry.retrieval_attempt_log[0]["outcome"] == "not_found"
         # Available artifacts: empty when no metadata either
         assert entry.available_artifacts == []
-        # Gap is human_completion_eligible
+        # Gap row with fail_min_fields IS curator-actionable
         assert entry.human_completion_eligible is True
         assert coverage.frame_gap_count == 1
 
@@ -457,9 +459,11 @@ class TestHumanCompletionTasks:
         )
         validation = _make_validation([
             ("s1", "pass1", ValidationVerdict.PASS),
-            # Gap row that didn't get M-60 language yet — this is
-            # the eligible-for-human-completion state
-            ("s2", "gap1", ValidationVerdict.FAIL_GAP_NO_LANGUAGE),
+            # Codex M-60 pass-2 alignment: a gap row where
+            # extraction (min_fields) fell short is curator-
+            # actionable. fail_gap_no_language would be ENGINEER
+            # work (template invariant).
+            ("s2", "gap1", ValidationVerdict.FAIL_MIN_FIELDS),
         ])
         coverage = compose_frame_coverage(cf, outline, rows, validation)
         tasks = compose_human_completion_tasks(coverage)
@@ -473,6 +477,72 @@ class TestHumanCompletionTasks:
         # Gap row triggers RETRIEVAL gap guidance
         assert "RETRIEVAL gap" in tasks[0]["needs"]
         assert "N, primary_endpoint" in tasks[0]["needs"]
+
+    def test_unbound_citation_not_routed_to_curator(self) -> None:
+        """Codex M-60 pass-2 blocker: fail_unbound_citation is an
+        engineer issue (M-58 render wiring), not a curator issue.
+        Should NOT appear in tasks."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_UNBOUND_CITATION),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
+        assert coverage.entries[0].human_completion_eligible is False
+
+    def test_gap_no_language_not_routed_to_curator(self) -> None:
+        """Codex M-60 pass-2 blocker: fail_gap_no_language is an
+        engineer issue (M-58 gap-template invariant), not a
+        curator issue. Should NOT appear in tasks."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(
+            provenance=ProvenanceClass.FRAME_GAP_UNRECOVERABLE,
+            failure_reason="paywalled",
+            has_abstract=False, has_metadata=False,
+        ),)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_GAP_NO_LANGUAGE),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
+        assert coverage.entries[0].human_completion_eligible is False
+
+    def test_gap_pass_not_routed_to_curator(self) -> None:
+        """Codex M-60 pass-2 blocker: gap row with status=pass
+        (M-60 language + citation present) needs no curator action.
+        Should NOT appear in tasks with 'no action needed'."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(
+            provenance=ProvenanceClass.FRAME_GAP_UNRECOVERABLE,
+            failure_reason="paywalled",
+            has_abstract=False, has_metadata=False,
+        ),)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.PASS),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
+        assert coverage.entries[0].human_completion_eligible is False
+
+    def test_payload_mismatch_not_routed_to_curator(self) -> None:
+        """Codex M-60 pass-2 adjacent: fail_payload_mismatch is
+        pipeline-crossed-wires (engineer), not curator work."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_PAYLOAD_MISMATCH),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
 
     def test_min_fields_fail_task_has_extraction_guidance(self) -> None:
         """Codex M-60 audit Blocker #2: `needs` must be failure-

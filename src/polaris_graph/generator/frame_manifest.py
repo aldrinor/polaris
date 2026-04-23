@@ -263,9 +263,13 @@ def compose_frame_coverage(
                         for a in row.retrieval_attempts
                     ],
                     available_artifacts=_available_artifacts(row),
-                    human_completion_eligible=(
-                        is_gap_row
-                        or status != ValidationVerdict.PASS.value
+                    # Codex M-60 audit pass-2 blocker: eligibility is
+                    # strictly "curator can fix". Engineer-owned
+                    # statuses (unbound citation, gap-no-language,
+                    # payload mismatch) and already-passing entries
+                    # are NOT routed to human completion.
+                    human_completion_eligible=_is_curator_actionable(
+                        is_gap_row=is_gap_row, status=status,
                     ),
                     is_pipeline_fault=False,
                     required_fields=required_fields,
@@ -404,14 +408,24 @@ def compose_human_completion_tasks(
 
 
 def _compose_task_needs(entry: SlotCoverageEntry) -> str:
-    """Failure-specific operator guidance. Codex M-60 audit
-    Blocker #2: the generic 'provide direct_quote' string was
-    not specific enough — the curator needs to know whether the
-    task is retrieval (gap), extraction (min_fields fail), or
-    citation (unbound) so they act correctly."""
+    """Failure-specific operator guidance.
+
+    Codex M-60 audit pass-2 realignment: this function is ONLY
+    called for curator-actionable entries (engineer-owned statuses
+    and already-passing entries are filtered upstream by
+    `_is_curator_actionable`). So only two branches matter:
+
+      - gap row: RETRIEVAL guidance (curator provides licensed
+        content to fill the primary-publication gap).
+      - non-gap row with fail_min_fields: EXTRACTION guidance
+        (curator provides richer licensed copy to cover fields
+        that M-56's abstract / metadata couldn't supply).
+
+    Any other status reaching here is a routing bug — emit a
+    defensive catch-all so it shows up in manifest rather than
+    being silently invisible.
+    """
     required_csv = ", ".join(entry.required_fields) or "(none declared)"
-    if entry.status == "pass":
-        return "no action needed"
     if entry.provenance_class == "frame_gap_unrecoverable":
         return (
             f"RETRIEVAL gap: source not reachable via open-access, "
@@ -429,31 +443,59 @@ def _compose_task_needs(entry: SlotCoverageEntry) -> str:
             f"a direct_quote from a richer licensed copy covering "
             f"the missing fields in [{required_csv}]."
         )
-    if entry.status == "fail_unbound_citation":
-        return (
-            f"CITATION gap: content extracted but rendered prose "
-            f"missing [{entry.entity_id}] citation token. Engineer "
-            f"should check M-58 render_slot_prose wiring; operator "
-            f"intervention not required."
-        )
-    if entry.status == "fail_gap_no_language":
-        return (
-            f"GAP-LANGUAGE gap: row was gap_unrecoverable but "
-            f"rendered prose lacks the M-60 gap marker. Engineer "
-            f"should verify M-58 gap-template invariant; operator "
-            f"intervention not required unless the underlying "
-            f"retrieval gap is addressable."
-        )
+    # Defensive catch-all. Should not fire if _is_curator_actionable
+    # is kept in sync with this function. Surface the routing drift
+    # loudly in the manifest rather than silently mislabeling it.
     return (
-        f"VALIDATION fail ({entry.status}): see failure_reason "
-        f"+ retrieval_attempt_log; operator to provide direct_quote "
-        f"covering [{required_csv}]."
+        f"ROUTING CHECK: entry status={entry.status!r} reached "
+        f"the curator task composer but does not match a known "
+        f"curator-actionable case. Verify "
+        f"_is_curator_actionable / _compose_task_needs alignment."
     )
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────
+def _is_curator_actionable(is_gap_row: bool, status: str) -> bool:
+    """Codex M-60 audit pass-2: eligibility is strictly 'curator
+    can fix this by providing licensed content', NOT a generic
+    'something went wrong'.
+
+    Curator-actionable cases:
+      - Gap row where M-60 language is present and citation is
+        present (status=pass) — NO action needed, don't emit.
+      - Gap row where retrieval failed AND validator saw issues
+        we'd expect M-60 prose to address OR the extraction was
+        just never attempted: the curator should provide
+        licensed content. This maps to gap-row status in
+        {fail_min_fields, fail_missing_payload,
+         fail_payload_mismatch} — all reflect "no content
+        available" from the curator's perspective.
+      - Non-gap row where extraction fell short:
+        status=fail_min_fields. Curator supplies a richer
+        licensed copy.
+
+    NOT curator-actionable (engineer investigation):
+      - fail_unbound_citation — M-58 render wiring bug
+      - fail_gap_no_language — M-58 gap-template invariant
+      - fail_payload_mismatch — pipeline crossed wires
+      - pass — nothing to do
+    """
+    if status == ValidationVerdict.PASS.value:
+        return False
+    engineer_statuses = {
+        ValidationVerdict.FAIL_UNBOUND_CITATION.value,
+        ValidationVerdict.FAIL_GAP_NO_LANGUAGE.value,
+        ValidationVerdict.FAIL_PAYLOAD_MISMATCH.value,
+    }
+    if status in engineer_statuses:
+        return False
+    # Remaining: FAIL_MIN_FIELDS, FAIL_MISSING_PAYLOAD — curator
+    # can supply content. Apply for both gap and non-gap rows.
+    return True
+
+
 def _available_artifacts(row: FrameRow) -> list[str]:
     """Deterministic ordered list of artifact kinds M-56 produced
     for this entity. M-61 operator dashboard shows this so the
