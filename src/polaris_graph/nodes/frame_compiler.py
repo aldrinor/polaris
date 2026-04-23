@@ -26,9 +26,14 @@ generation) consumes both bindings and slots.
 
 ## Codex review revisions woven in
 
-- **#7 (M-62 generalization)**: compiler is entity-type-agnostic.
-  `statute`, `dft_primary`, `court_decision` all compile without
-  code changes. Only two universal contracts enforced:
+- **#7 (M-62 generalization)**: compiler is entity-type-agnostic
+  AND slot-id/section/ordering-agnostic. `statute`,
+  `dft_primary`, `court_decision` entity types + arbitrary slot
+  ids, section names, and slot orderings all compile without
+  code changes. (The schema has no slot-TYPE vocabulary — that was
+  stale plan wording; the actual contract is shape-agnostic over
+  ids, section labels, and orderings.) Only two universal contracts
+  enforced:
     1. Entity must have at least one identifier (doi/pmid/url_pattern/anchor).
     2. Schema-version unknowns become warnings, not errors.
 - **#1/#7**: no per-type hardcoding of required_fields vocabulary.
@@ -199,6 +204,21 @@ def compile_frame(
             f"treat field semantics as best-effort."
         )
 
+    # ── Cross-section ordering policy ────────────────────────────
+    # Codex M-55 audit Medium: alphabetic-by-label is fragile to
+    # section rename/localization. When the contract declares
+    # `section_order`, honor it; otherwise fall back to alphabetic
+    # and emit a warning so future templates are nudged toward
+    # explicit ordering.
+    if contract.section_order is None:
+        warnings.append(
+            "contract has no explicit section_order; falling back "
+            "to alphabetic-by-label cross-section ordering. This is "
+            "fragile to section rename/localization — declare "
+            "`section_order: [...]` in the contract YAML for stable "
+            "cross-section rendering."
+        )
+
     # ── Deterministic entity ordering ────────────────────────────
     ordered = _ordered_entities(contract)
 
@@ -219,16 +239,36 @@ def compile_frame(
 
 
 def _ordered_entities(contract: ReportContract) -> list[RequiredEntity]:
-    """Deterministic rendering order: (section, slot.ordering,
-    entity.id). Section names compare as strings; ties within a
-    section break by slot.ordering; ties within a slot break by
-    entity id. All three are stable attributes of the contract.
+    """Deterministic rendering order.
+
+    Cross-section order:
+      - if `contract.section_order` is declared: sections sort by
+        their index in that tuple.
+      - else: alphabetic by section label (a warning is surfaced
+        by the compiler — see Codex M-55 audit Medium).
+    Within-section tiebreak: slot.ordering, then entity.id.
     """
     slot_by_id = contract.slots_by_id()
 
-    def sort_key(e: RequiredEntity) -> tuple[str, int, str]:
-        slot = slot_by_id[e.rendering_slot]
-        return (slot.section, slot.ordering, e.id)
+    if contract.section_order is not None:
+        section_rank = {s: i for i, s in enumerate(contract.section_order)}
+        # A section referenced by a slot but absent from section_order
+        # would already have raised at M-54 load. Defensive default:
+        # sort unknown sections after all declared sections.
+        max_rank = len(section_rank)
+
+        def sort_key(e: RequiredEntity) -> tuple[int, int, str]:
+            slot = slot_by_id[e.rendering_slot]
+            return (
+                section_rank.get(slot.section, max_rank),
+                slot.ordering,
+                e.id,
+            )
+    else:
+        # Alphabetic-by-label fallback. Warning emitted in compile_frame.
+        def sort_key(e: RequiredEntity) -> tuple[str | int, int, str]:  # type: ignore[misc]
+            slot = slot_by_id[e.rendering_slot]
+            return (slot.section, slot.ordering, e.id)
 
     return sorted(contract.required_entities, key=sort_key)
 

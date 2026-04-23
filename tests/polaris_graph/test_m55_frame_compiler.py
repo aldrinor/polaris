@@ -89,16 +89,16 @@ def _template(
     slots: dict[str, dict],
     schema_version: str = "v30.1",
     slug: str = "test_slug",
+    section_order: list[str] | None = None,
 ) -> dict:
-    return {
-        "per_query_report_contract": {
-            slug: {
-                "schema_version": schema_version,
-                "required_entities": entities,
-                "rendering_slots": slots,
-            }
-        }
+    body: dict = {
+        "schema_version": schema_version,
+        "required_entities": entities,
+        "rendering_slots": slots,
     }
+    if section_order is not None:
+        body["section_order"] = section_order
+    return {"per_query_report_contract": {slug: body}}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -125,10 +125,13 @@ class TestWellFormedCompilation:
         assert b.primary_identifier == "doi:10.1056/NEJMoa2107519"
         assert b.rendering_slot == "s1"
 
-    def test_warnings_empty_on_known_schema_version(self) -> None:
+    def test_warnings_empty_on_known_version_and_explicit_section_order(
+        self,
+    ) -> None:
         template = _template(
             [_entity(doi="10.1056/NEJMoa2107519")],
-            {"s1": _slot()},
+            {"s1": _slot(section="Efficacy")},
+            section_order=["Efficacy"],
         )
         cf = compile_frame("q", template, "test_slug")
         assert cf.warnings == ()
@@ -270,8 +273,9 @@ class TestSchemaVersionWarnings:
     def test_known_version_no_warnings(self) -> None:
         template = _template(
             [_entity(doi="10.1/x")],
-            {"s1": _slot()},
+            {"s1": _slot(section="Efficacy")},
             schema_version="v30.1",
+            section_order=["Efficacy"],
         )
         cf = compile_frame("q", template, "test_slug")
         assert cf.warnings == ()
@@ -279,10 +283,12 @@ class TestSchemaVersionWarnings:
     def test_unknown_version_emits_warning(self) -> None:
         template = _template(
             [_entity(doi="10.1/x")],
-            {"s1": _slot()},
+            {"s1": _slot(section="Efficacy")},
             schema_version="v99.7",
+            section_order=["Efficacy"],
         )
         cf = compile_frame("q", template, "test_slug")
+        # exactly 1 warning: schema-version; no section_order fallback
         assert len(cf.warnings) == 1
         assert "v99.7" in cf.warnings[0]
         assert "unknown" in cf.warnings[0].lower()
@@ -304,8 +310,11 @@ class TestSchemaVersionWarnings:
 # ─────────────────────────────────────────────────────────────────────
 class TestEntityTypeAgnostic:
     """Codex M-55 plan review revision #7: compiler must prove
-    arbitrary entity types and slot types compile without code
-    changes. Protects M-62 non-clinical generalization guard."""
+    arbitrary entity types plus arbitrary slot ids / sections /
+    orderings compile without code changes. (The schema has no
+    slot-TYPE field — that was stale plan wording; the actual
+    contract is shape-agnostic over ids/sections/orderings.)
+    Protects M-62 non-clinical generalization guard."""
 
     def test_compiles_policy_entity_type(self) -> None:
         template = _template(
@@ -362,6 +371,94 @@ class TestEntityTypeAgnostic:
 # ─────────────────────────────────────────────────────────────────────
 # (7) Deterministic ordering
 # ─────────────────────────────────────────────────────────────────────
+class TestSectionOrder:
+    """Codex M-55 audit Medium: cross-section rendering order is
+    now template-declared via `section_order:` instead of being
+    fragile alphabetic-by-label. M-55 compiler uses section_order
+    when present; falls back to alphabetic with a warning when
+    absent."""
+
+    def test_explicit_section_order_wins(self) -> None:
+        """Non-alphabetic explicit order — `Z_section` first
+        even though alphabetic would place it last."""
+        template = _template(
+            [
+                _entity(eid="e1_in_z", doi="10.1/z", slot="s_z"),
+                _entity(eid="e2_in_a", doi="10.1/a", slot="s_a"),
+            ],
+            {
+                "s_z": _slot(section="Z_section", ordering=1),
+                "s_a": _slot(section="A_section", ordering=1),
+            },
+            section_order=["Z_section", "A_section"],
+        )
+        cf = compile_frame("q", template, "test_slug")
+        assert cf.ordered_entity_ids == ("e1_in_z", "e2_in_a")
+        # No warning because section_order is declared
+        assert cf.warnings == ()
+
+    def test_absent_section_order_emits_warning(self) -> None:
+        template = _template(
+            [_entity(doi="10.1/x")],
+            {"s1": _slot(section="Efficacy")},
+        )
+        cf = compile_frame("q", template, "test_slug")
+        assert any(
+            "section_order" in w and "alphabetic" in w
+            for w in cf.warnings
+        ), f"expected section_order-missing warning, got {cf.warnings}"
+
+    def test_section_order_missing_section_raises_at_loader(self) -> None:
+        """A slot references a section not in section_order → raise
+        at M-54 load (so error surfaces before compiler runs)."""
+        template = _template(
+            [_entity(doi="10.1/x", slot="s1")],
+            {
+                "s1": _slot(section="Efficacy"),
+                "s2": _slot(section="Regulatory"),  # declared but unused
+            },
+            section_order=["Efficacy"],  # Regulatory missing
+        )
+        # Need an entity in s2 to make section referenced
+        template["per_query_report_contract"]["test_slug"][
+            "required_entities"
+        ].append(_entity(eid="e2", doi="10.1/y", slot="s2"))
+        with pytest.raises(ContractSchemaError) as exc:
+            compile_frame("q", template, "test_slug")
+        assert "section_order" in exc.value.path
+        assert "Regulatory" in exc.value.reason
+
+    def test_section_order_duplicates_raise(self) -> None:
+        template = _template(
+            [_entity(doi="10.1/x", slot="s1")],
+            {"s1": _slot(section="Efficacy")},
+            section_order=["Efficacy", "Efficacy"],
+        )
+        with pytest.raises(ContractSchemaError) as exc:
+            compile_frame("q", template, "test_slug")
+        assert "section_order" in exc.value.path
+
+    def test_section_order_non_list_raises(self) -> None:
+        template = _template(
+            [_entity(doi="10.1/x", slot="s1")],
+            {"s1": _slot(section="Efficacy")},
+        )
+        template["per_query_report_contract"]["test_slug"][
+            "section_order"
+        ] = "Efficacy"  # str not list
+        with pytest.raises(ContractSchemaError):
+            compile_frame("q", template, "test_slug")
+
+    def test_section_order_empty_string_element_raises(self) -> None:
+        template = _template(
+            [_entity(doi="10.1/x", slot="s1")],
+            {"s1": _slot(section="Efficacy")},
+            section_order=["Efficacy", ""],
+        )
+        with pytest.raises(ContractSchemaError):
+            compile_frame("q", template, "test_slug")
+
+
 class TestDeterministicOrdering:
     def test_ordered_by_section_then_ordering_then_id(self) -> None:
         template = _template(

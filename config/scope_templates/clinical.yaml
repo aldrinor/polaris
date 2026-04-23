@@ -229,6 +229,14 @@ per_query_report_contract:
   clinical_tirzepatide_t2dm:
     schema_version: "v30.1"
 
+    # Explicit cross-section rendering order (M-55 Codex audit
+    # Medium fix). M-55 compiler uses this; falls back to
+    # alphabetic-by-label with warning if absent.
+    section_order:
+      - Efficacy
+      - Mechanism
+      - Regulatory
+
     required_entities:
       - id: surpass_1_primary
         type: pivotal_trial

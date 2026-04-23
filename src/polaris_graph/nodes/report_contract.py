@@ -126,6 +126,11 @@ class ReportContract:
     schema_version: str
     required_entities: tuple[RequiredEntity, ...]
     rendering_slots: tuple[RenderingSlot, ...]
+    # Optional explicit section ordering. When None the M-55 compiler
+    # falls back to alphabetic-by-label ordering and emits a warning.
+    # Fixes Codex M-55 audit Medium (cross-section order was fragile
+    # to section-label rename/localization).
+    section_order: tuple[str, ...] | None = None
 
     def entities_by_id(self) -> dict[str, RequiredEntity]:
         return {e.id: e for e in self.required_entities}
@@ -403,11 +408,48 @@ def load_report_contract_for_slug(
                 f"{sorted(declared_slot_ids)}",
             )
 
+    # ── Optional section_order ────────────────────────────────────
+    # Addresses Codex M-55 audit Medium: cross-section rendering
+    # order was alphabetic-by-label. When `section_order:` is
+    # declared, M-55 compiler uses it instead. Every section
+    # referenced by a rendering_slot must appear in section_order
+    # if the field is present.
+    section_order_raw = raw.get("section_order")
+    section_order: tuple[str, ...] | None = None
+    if section_order_raw is not None:
+        if not isinstance(section_order_raw, list):
+            raise ContractSchemaError(
+                f"per_query_report_contract.{slug}.section_order",
+                f"expected list, got {type(section_order_raw).__name__}",
+            )
+        if not all(
+            isinstance(s, str) and s.strip() for s in section_order_raw
+        ):
+            raise ContractSchemaError(
+                f"per_query_report_contract.{slug}.section_order",
+                "every element must be non-empty string",
+            )
+        if len(section_order_raw) != len(set(section_order_raw)):
+            raise ContractSchemaError(
+                f"per_query_report_contract.{slug}.section_order",
+                "duplicates not allowed",
+            )
+        referenced_sections = {s.section for s in slots}
+        missing_from_order = referenced_sections - set(section_order_raw)
+        if missing_from_order:
+            raise ContractSchemaError(
+                f"per_query_report_contract.{slug}.section_order",
+                f"missing sections that slots reference: "
+                f"{sorted(missing_from_order)}",
+            )
+        section_order = tuple(section_order_raw)
+
     return ReportContract(
         slug=slug,
         schema_version=schema_version,
         required_entities=tuple(entities),
         rendering_slots=tuple(slots),
+        section_order=section_order,
     )
 
 
