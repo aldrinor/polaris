@@ -1063,6 +1063,13 @@ async def run_one_query(
             direct_trial_anchors=_m50_direct_anchors_for_sweep(
                 _template, q["slug"]
             ),
+            # M-52 (2026-04-23): V29-b. Pass the full retrieved
+            # live_corpus so the generator can pull anchor-matched
+            # primaries into evidence_pool when the selector's M-51
+            # hard-reservation failed (e.g. selector called without
+            # anchors, or selector bug). Belt-and-suspenders with
+            # M-51. No-op when primary_trial_anchors is empty.
+            live_corpus=retrieval.evidence_rows,
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "

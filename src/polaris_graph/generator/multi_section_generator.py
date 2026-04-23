@@ -2001,6 +2001,135 @@ def _m44_section_is_primary_eligible(section_title: str) -> bool:
     return any(tok in t for tok in _M44_WEIGHT_TOKENS)
 
 
+def _m52_pull_from_live_corpus(
+    evidence_pool: dict[str, dict[str, Any]],
+    live_corpus: list[dict[str, Any]] | None,
+    primary_trial_anchors: list[str],
+) -> list[dict[str, Any]]:
+    """M-52 (2026-04-23): V29 Strategy β cycle 1, item 2. Belt-and-
+    suspenders companion to M-51. Pulls anchor-matched primary rows
+    from `live_corpus` into `evidence_pool` when the selector-
+    enforced M-51 hard-reservation failed (e.g. selector called
+    without `primary_trial_anchors` param, or selector bug).
+
+    Codex plan pass-1 revisions #4-5 woven in:
+    - Preserve existing live-corpus `evidence_id` when present and
+      not colliding with a different row already in evidence_pool.
+    - Fallback `ev_from_corpus_{anchor_slug}_{n}` ONLY for rows
+      missing evidence_id OR colliding with a different row.
+    - Pulled rows must carry all fields strict_verify + bibliography
+      rendering need: evidence_id, direct_quote, source_url, title,
+      tier. Rows missing any required field are skipped (fail-loud,
+      not silent mutation).
+
+    Mutates `evidence_pool` in place; returns list of pulled row
+    dicts (newly added entries) for telemetry.
+    """
+    if not live_corpus or not primary_trial_anchors:
+        return []
+    from src.polaris_graph.retrieval.evidence_selector import (
+        _m42e_detect_primary_for_anchor,
+    )
+    pulled: list[dict[str, Any]] = []
+    # Track existing ev_ids + canonical keys in the pool
+    pool_ev_ids = set(evidence_pool.keys())
+
+    def _content_canon(row: dict[str, Any]) -> tuple:
+        """Content-identity (ignores evidence_id): for collision
+        detection when two rows share an ID but differ in content."""
+        url = (row.get("source_url") or row.get("url") or "").lower()
+        title_text = ""
+        for k in ("title", "statement", "source_title"):
+            v = row.get(k)
+            if isinstance(v, str) and v:
+                title_text = v
+                break
+        dq = (row.get("direct_quote") or "")[:200]
+        return ("key", url, title_text.lower()[:200], dq)
+
+    pool_content_canon = {
+        _content_canon(row): ev_id
+        for ev_id, row in evidence_pool.items()
+    }
+
+    def _anchor_slug(anchor: str) -> str:
+        # For ev_from_corpus_<slug>_<n>: lowercase + replace non-alphanum
+        return "".join(c if c.isalnum() else "_" for c in anchor.lower())
+
+    for anchor in primary_trial_anchors:
+        # Already have a primary for this anchor in the pool?
+        have_it = any(
+            _m42e_detect_primary_for_anchor(row, anchor)
+            for row in evidence_pool.values()
+        )
+        if have_it:
+            continue
+        # Find best candidate in live_corpus
+        for corpus_row in live_corpus:
+            if not _m42e_detect_primary_for_anchor(corpus_row, anchor):
+                continue
+            # Codex revision #5: require strict_verify-essential fields
+            required = ("direct_quote", "tier")
+            if any(not corpus_row.get(f) for f in required):
+                continue
+            # Prefer url field; build effective source_url if missing
+            src_url = corpus_row.get("source_url") or corpus_row.get("url")
+            if not src_url:
+                continue
+            # Content canonical key (ignores evidence_id) —
+            # detects "same row already in pool, different id".
+            content_key = _content_canon(corpus_row)
+            if content_key in pool_content_canon:
+                # Same content already in pool under some id; skip.
+                continue
+            # Codex revision #4: preserve live-corpus evidence_id when
+            # present AND not colliding with a DIFFERENT row in pool.
+            corpus_evid = corpus_row.get("evidence_id")
+            if (
+                isinstance(corpus_evid, str)
+                and corpus_evid
+                and corpus_evid not in pool_ev_ids
+            ):
+                ev_id = corpus_evid
+            else:
+                # Collision (existing pool row uses this ID for
+                # different content) OR missing ID → prefixed fallback
+                base = f"ev_from_corpus_{_anchor_slug(anchor)}"
+                n = 0
+                ev_id = base
+                while ev_id in pool_ev_ids:
+                    n += 1
+                    ev_id = f"{base}_{n}"
+            # Build the row to add — ensure all required fields plus
+            # preserved title/source_url. Use a shallow copy to avoid
+            # mutating the live_corpus entry.
+            new_row = dict(corpus_row)
+            new_row["evidence_id"] = ev_id
+            new_row["source_url"] = src_url
+            # Title accessor fallback (M-48 live-row schema): prefer
+            # title, else statement.
+            if not new_row.get("title"):
+                for k in ("statement", "source_title"):
+                    v = new_row.get(k)
+                    if isinstance(v, str) and v:
+                        new_row["title"] = v
+                        break
+            evidence_pool[ev_id] = new_row
+            pool_ev_ids.add(ev_id)
+            pool_content_canon[content_key] = ev_id
+            pulled.append({
+                "anchor": anchor,
+                "evidence_id": ev_id,
+                "source_url": src_url,
+                "preserved_live_corpus_id": (
+                    isinstance(corpus_evid, str) and corpus_evid
+                    and corpus_evid == ev_id
+                ),
+            })
+            break  # one primary per anchor
+    return pulled
+
+
 def _m44_detect_primary_ev_ids(
     evidence_pool: dict[str, dict[str, Any]],
     primary_trial_anchors: list[str],
@@ -2014,6 +2143,12 @@ def _m44_detect_primary_ev_ids(
 
     Returns dict keyed by anchor → list of ev_id strings. Only anchors
     with ≥1 matching row are included.
+
+    M-52 (V29-b) extension: caller should run
+    `_m52_pull_from_live_corpus(evidence_pool, live_corpus, anchors)`
+    BEFORE this function so any missing primaries in the pool have
+    been pulled from live_corpus. This function only scans
+    `evidence_pool` (single source of truth after M-52 pull).
     """
     from src.polaris_graph.retrieval.evidence_selector import (
         _m42e_detect_primary_for_anchor,
@@ -2709,6 +2844,11 @@ async def generate_multi_section_report(
     # M-50 max tokens per subsection call
     m50_subsection_max_tokens: int = 400,
     m50_subsection_temperature: float = 0.2,
+    # M-52 (2026-04-23): V29-b. Full live_corpus (pre-selector
+    # evidence_rows) so the generator can pull anchor-matched
+    # primaries into evidence_pool when the selector missed them.
+    # When None/empty, M-52 pull is a no-op (backwards-compatible).
+    live_corpus: list[dict[str, Any]] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -2774,10 +2914,38 @@ async def generate_multi_section_report(
     # No-op when primary_trial_anchors is None/empty.
     m44_primary_by_anchor: dict[str, list[str]] = {}
     m44_injection_log: list[dict[str, Any]] = []
+    m52_pulled_rows: list[dict[str, Any]] = []
     if primary_trial_anchors:
+        # M-52 (2026-04-23) V29-b: pull anchor-matched primaries from
+        # live_corpus into evidence_pool when the selector missed them.
+        # Belt-and-suspenders safety net for M-51 at the selector.
+        # Codex plan pass-1 revisions #4-5 applied inside
+        # `_m52_pull_from_live_corpus`.
+        m52_pulled_rows = _m52_pull_from_live_corpus(
+            evidence_pool, live_corpus, primary_trial_anchors,
+        )
+        if m52_pulled_rows:
+            logger.info(
+                "[multi_section] M-52 pulled %d primary row(s) from "
+                "live_corpus into evidence_pool: %s",
+                len(m52_pulled_rows),
+                [p["anchor"] for p in m52_pulled_rows],
+            )
         m44_primary_by_anchor = _m44_detect_primary_ev_ids(
             evidence_pool, primary_trial_anchors,
         )
+        # Merge M-52 pulls into the M-44 injection_log under a new
+        # action type so downstream telemetry (m44_primary_citation_
+        # telemetry.json) shows the corpus-pull origin.
+        for pull in m52_pulled_rows:
+            m44_injection_log.append({
+                "section": "<pool-level>",
+                "anchor": pull["anchor"],
+                "ev_id": pull["evidence_id"],
+                "action": "injected_from_corpus",
+                "preserved_live_corpus_id":
+                    pull.get("preserved_live_corpus_id", False),
+            })
         if m44_primary_by_anchor and plans:
             plans, m44_injection_log = _m44_inject_primaries_into_outline(
                 plans, m44_primary_by_anchor,
