@@ -64,13 +64,20 @@ class SlotCoverageEntry:
     """One entry per contract slot in the manifest.
 
     Codex plan review #4 required all seven fields below. Extras
-    (section, subsection_title, doi, pmid) are carried so M-61
-    task generation and operator dashboards don't have to re-join
-    against the contract.
+    (section, subsection_title, doi, pmid, required_fields,
+    entity_type) are carried so M-61 task generation and operator
+    dashboards don't have to re-join against the contract.
+
+    `is_pipeline_fault` flags the defensive path where M-56 did
+    not emit a FrameRow for a contracted entity (pipeline
+    crossed wires). Codex M-60 audit Medium: these entries should
+    NOT be routed to human completion — they need engineer
+    attention, not curator attention.
     """
 
     slot_id: str
     entity_id: str
+    entity_type: str
     section: str
     subsection_title: str
     status: str                       # from ValidationVerdict enum value
@@ -79,7 +86,10 @@ class SlotCoverageEntry:
     retrieval_attempt_log: list[dict[str, Any]]
     available_artifacts: list[str]
     human_completion_eligible: bool
-    # Identifier echoes for M-61 consumption
+    is_pipeline_fault: bool
+    # Contract echoes for M-61 consumption (Codex M-60 audit Blocker)
+    required_fields: list[str]
+    min_fields_for_completion: int
     doi: str | None
     pmid: str | None
 
@@ -96,6 +106,11 @@ class FrameCoverageReport:
     frame_gap_count: int
     partial_count: int
     pass_count: int
+    # Codex M-60 audit Medium: distinguish pipeline faults (M-56
+    # did not emit a FrameRow for a contracted entity — engineer
+    # attention needed) from retrieval gaps (curator/human
+    # completion needed).
+    pipeline_fault_count: int
     by_status: dict[str, int]
     entries: tuple[SlotCoverageEntry, ...]
 
@@ -114,6 +129,7 @@ class FrameCoverageReport:
             "frame_gap_count": self.frame_gap_count,
             "partial_count": self.partial_count,
             "pass_count": self.pass_count,
+            "pipeline_fault_count": self.pipeline_fault_count,
             "by_status": dict(self.by_status),
             "entries": [asdict(e) for e in self.entries],
         }
@@ -147,6 +163,10 @@ def compose_frame_coverage(
     rows_by_eid: dict[str, FrameRow] = {
         r.entity_id: r for r in frame_rows
     }
+    # Pull contract for per-entity required_fields lookup (Codex
+    # M-60 audit Blocker — M-61 task payload needs missing-field
+    # detail).
+    contract_entities = compiled_frame.contract.entities_by_id()
     # Build verdicts keyed by (slot_id, entity_id) for O(1) lookup
     verdicts_by_key: dict[tuple[str, str], str] = {}
     reasons_by_key: dict[tuple[str, str], str] = {}
@@ -158,6 +178,7 @@ def compose_frame_coverage(
     gap_count = 0
     partial_count = 0
     pass_count = 0
+    pipeline_fault_count = 0
     by_status: dict[str, int] = {}
 
     for section in outline.sections:
@@ -169,28 +190,44 @@ def compose_frame_coverage(
                     ValidationVerdict.FAIL_MISSING_PAYLOAD.value,
                 )
                 by_status[status] = by_status.get(status, 0) + 1
+                contract_entity = contract_entities.get(entity_id)
+                required_fields = (
+                    list(contract_entity.required_fields)
+                    if contract_entity else []
+                )
+                min_fields = (
+                    contract_entity.min_fields_for_completion
+                    if contract_entity else 0
+                )
 
                 if row is None:
                     # M-56 should have produced a row; defensive
-                    # fallback.
+                    # fallback. Codex M-60 audit Medium: this is a
+                    # pipeline-integrity fault, not a retrieval
+                    # gap. NOT routed to human completion.
                     entries.append(_empty_coverage_entry(
                         slot_id=slot.slot_id,
                         entity_id=entity_id,
+                        entity_type=(
+                            contract_entity.type
+                            if contract_entity else "unknown"
+                        ),
                         section=section.section,
                         subsection_title=slot.subsection_title,
                         status=status,
                         validator_reason=reasons_by_key.get(
                             (slot.slot_id, entity_id), ""
                         ),
+                        required_fields=required_fields,
+                        min_fields_for_completion=min_fields,
                     ))
-                    gap_count += 1
+                    pipeline_fault_count += 1
                     continue
 
                 is_gap_row = (
                     row.provenance_class
                     == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
                 )
-                is_partial_row = slot.is_partial
 
                 if is_gap_row:
                     gap_count += 1
@@ -202,15 +239,10 @@ def compose_frame_coverage(
                     # meet min_fields or lacks citation).
                     partial_count += 1
 
-                if is_partial_row and not is_gap_row:
-                    # Slot has mixed outcome — flag as partial for
-                    # manifest aggregate even if this specific
-                    # entity passed.
-                    partial_count += 0  # already counted via status
-
                 entries.append(SlotCoverageEntry(
                     slot_id=slot.slot_id,
                     entity_id=entity_id,
+                    entity_type=row.entity_type,
                     section=section.section,
                     subsection_title=slot.subsection_title,
                     status=status,
@@ -235,6 +267,9 @@ def compose_frame_coverage(
                         is_gap_row
                         or status != ValidationVerdict.PASS.value
                     ),
+                    is_pipeline_fault=False,
+                    required_fields=required_fields,
+                    min_fields_for_completion=min_fields,
                     doi=row.doi,
                     pmid=row.pmid,
                 ))
@@ -249,6 +284,7 @@ def compose_frame_coverage(
         frame_gap_count=gap_count,
         partial_count=partial_count,
         pass_count=pass_count,
+        pipeline_fault_count=pipeline_fault_count,
         by_status=by_status,
         entries=tuple(entries),
     )
@@ -261,8 +297,18 @@ def compose_methods_disclosure(
     count. Attached to report.md so clinicians see at a glance
     how many contract slots weren't fully populated.
 
-    Deterministic prose; no LLM."""
-    if coverage.frame_gap_count == 0 and coverage.partial_count == 0:
+    Deterministic prose; no LLM. Three shapes:
+      - all-pass (zero partial, zero gap, zero pipeline-fault)
+      - partial-only (some partial, no gap, no pipeline-fault)
+      - gaps-present (at least one retrieval gap)
+      - pipeline-fault (surfaces separately; Codex M-60 Medium)
+    """
+    has_issues = (
+        coverage.frame_gap_count
+        or coverage.partial_count
+        or coverage.pipeline_fault_count
+    )
+    if not has_issues:
         return (
             f"Frame coverage: all {coverage.total_entities} "
             f"contract-required entities populated with bound evidence."
@@ -286,6 +332,16 @@ def compose_methods_disclosure(
             f"  - Unretrievable (paywalled with no OA/abstract): "
             f"{coverage.frame_gap_count}"
         )
+    if coverage.pipeline_fault_count:
+        # Codex M-60 audit Medium: distinct line item. A pipeline
+        # fault is NOT an unretrievable paywalled gap — it's an
+        # engineering bug (M-56 failed to produce a row for a
+        # contracted entity). Surface it explicitly so readers
+        # don't mistake it for an expected retrieval failure.
+        lines.append(
+            f"  - Pipeline faults (engineer investigation "
+            f"required): {coverage.pipeline_fault_count}"
+        )
     lines.append(
         "  - Gap slots render explicit gap language in the "
         "relevant subsection; see manifest.json "
@@ -299,21 +355,34 @@ def compose_human_completion_tasks(
 ) -> list[dict[str, Any]]:
     """Compose M-61 hybrid-completion task list (Path B).
 
-    Codex plan review #6: M-61 must produce a structured task
-    file with per-entity doi/pmid/required_fields/failure_reason.
+    Codex plan review #6 + M-60 audit Blocker: M-61 must receive
+    per-entity doi/pmid/required_fields/failure_reason. Each
+    task dict now carries the full contract's required_fields
+    list plus a failure-specific `needs` string telling the
+    operator what the curator must deliver for this entry.
+
     M-60 provides the upstream source here; M-61's own layer
     threads provenance attestation (artifact hash, retention,
     curator_id) when the operator fulfills the task.
 
     Returns JSON-serializable list of task dicts; caller writes
     to human_gap_tasks.json or equivalent.
+
+    Pipeline-fault entries (is_pipeline_fault=True) are NOT
+    included — those need engineer attention, not curator
+    attention.
     """
     tasks: list[dict[str, Any]] = []
     for entry in coverage.entries:
         if not entry.human_completion_eligible:
             continue
+        if entry.is_pipeline_fault:
+            # Defensive: human_completion_eligible should already
+            # be False for pipeline faults, but guard explicitly.
+            continue
         tasks.append({
             "entity_id": entry.entity_id,
+            "entity_type": entry.entity_type,
             "slot_id": entry.slot_id,
             "section": entry.section,
             "subsection_title": entry.subsection_title,
@@ -323,13 +392,63 @@ def compose_human_completion_tasks(
             "status": entry.status,
             "retrieval_attempt_log": entry.retrieval_attempt_log,
             "available_artifacts": entry.available_artifacts,
-            "needs": (
-                "operator to provide direct_quote from licensed "
-                "source with structured provenance (artifact hash, "
-                "retention pointer)"
-            ),
+            # Codex M-60 audit Blocker: M-61 task payload must
+            # carry required_fields so the operator knows what to
+            # deliver. Also include min_fields_for_completion so
+            # the curator sees the success threshold.
+            "required_fields": list(entry.required_fields),
+            "min_fields_for_completion": entry.min_fields_for_completion,
+            "needs": _compose_task_needs(entry),
         })
     return tasks
+
+
+def _compose_task_needs(entry: SlotCoverageEntry) -> str:
+    """Failure-specific operator guidance. Codex M-60 audit
+    Blocker #2: the generic 'provide direct_quote' string was
+    not specific enough — the curator needs to know whether the
+    task is retrieval (gap), extraction (min_fields fail), or
+    citation (unbound) so they act correctly."""
+    required_csv = ", ".join(entry.required_fields) or "(none declared)"
+    if entry.status == "pass":
+        return "no action needed"
+    if entry.provenance_class == "frame_gap_unrecoverable":
+        return (
+            f"RETRIEVAL gap: source not reachable via open-access, "
+            f"abstract, or metadata paths. Operator must provide "
+            f"direct_quote from a licensed copy covering at least "
+            f"{entry.min_fields_for_completion} of "
+            f"[{required_csv}], with structured provenance "
+            f"(artifact hash, retention pointer, curator_id)."
+        )
+    if entry.status == "fail_min_fields":
+        return (
+            f"EXTRACTION gap: retrieval succeeded but only a "
+            f"subset of required fields was extractable from the "
+            f"available content. Operator must supplement with "
+            f"a direct_quote from a richer licensed copy covering "
+            f"the missing fields in [{required_csv}]."
+        )
+    if entry.status == "fail_unbound_citation":
+        return (
+            f"CITATION gap: content extracted but rendered prose "
+            f"missing [{entry.entity_id}] citation token. Engineer "
+            f"should check M-58 render_slot_prose wiring; operator "
+            f"intervention not required."
+        )
+    if entry.status == "fail_gap_no_language":
+        return (
+            f"GAP-LANGUAGE gap: row was gap_unrecoverable but "
+            f"rendered prose lacks the M-60 gap marker. Engineer "
+            f"should verify M-58 gap-template invariant; operator "
+            f"intervention not required unless the underlying "
+            f"retrieval gap is addressable."
+        )
+    return (
+        f"VALIDATION fail ({entry.status}): see failure_reason "
+        f"+ retrieval_attempt_log; operator to provide direct_quote "
+        f"covering [{required_csv}]."
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -362,7 +481,11 @@ def _failure_reason(
 ) -> str | None:
     """Compose a single failure_reason string per manifest
     consumers' expectations. Gap rows carry M-56's failure_reason;
-    partial/unbound rows carry M-59's validator reason."""
+    partial/unbound rows carry M-59's validator reason.
+
+    The pipeline-fault path is handled by `_empty_coverage_entry`,
+    not by this function.
+    """
     if row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE:
         return row.failure_reason
     if status == ValidationVerdict.PASS.value:
@@ -373,28 +496,53 @@ def _failure_reason(
 def _empty_coverage_entry(
     slot_id: str,
     entity_id: str,
+    entity_type: str,
     section: str,
     subsection_title: str,
     status: str,
     validator_reason: str,
+    required_fields: list[str],
+    min_fields_for_completion: int,
 ) -> SlotCoverageEntry:
     """Fallback for the (should-not-happen) case where a FrameRow
-    is missing for a contracted entity."""
+    is missing for a contracted entity.
+
+    Codex M-60 audit Medium fix: this is a pipeline-integrity
+    fault, not a retrieval gap. Pipeline-fault message dominates
+    validator wording so engineers see the root cause first. NOT
+    routed to human completion — a curator cannot fix a pipeline
+    bug.
+    """
+    # Prepend the pipeline-fault diagnosis so it leads. Append
+    # validator wording only if it adds specificity.
+    pipeline_msg = (
+        "FrameRow missing for contracted entity — M-56 did not "
+        "produce a row (pipeline crossed wires; engineer "
+        "attention required)"
+    )
+    failure_reason = (
+        f"{pipeline_msg}; validator also noted: {validator_reason}"
+        if validator_reason
+        else pipeline_msg
+    )
     return SlotCoverageEntry(
         slot_id=slot_id,
         entity_id=entity_id,
+        entity_type=entity_type,
         section=section,
         subsection_title=subsection_title,
         status=status,
-        provenance_class="frame_gap_unrecoverable",
-        failure_reason=(
-            validator_reason
-            or "FrameRow missing for contracted entity — M-56 did "
-            "not produce a row (pipeline crossed wires)"
-        ),
+        provenance_class="pipeline_fault",
+        failure_reason=failure_reason,
         retrieval_attempt_log=[],
         available_artifacts=[],
-        human_completion_eligible=True,
+        # Codex M-60 audit Medium: do NOT route pipeline faults to
+        # human completion. A curator cannot reconcile a missing
+        # M-56 row; this needs engineer intervention.
+        human_completion_eligible=False,
+        is_pipeline_fault=True,
+        required_fields=required_fields,
+        min_fields_for_completion=min_fields_for_completion,
         doi=None,
         pmid=None,
     )

@@ -250,9 +250,16 @@ class TestAllPass:
         assert coverage.pass_count == 1
         assert coverage.frame_gap_count == 0
         assert coverage.partial_count == 0
+        assert coverage.pipeline_fault_count == 0
         assert len(coverage.entries) == 1
-        assert coverage.entries[0].status == "pass"
-        assert coverage.entries[0].human_completion_eligible is False
+        entry = coverage.entries[0]
+        assert entry.status == "pass"
+        assert entry.human_completion_eligible is False
+        assert entry.is_pipeline_fault is False
+        # Codex M-60 audit Blocker fix: required_fields echoed
+        assert entry.required_fields == ["N", "primary_endpoint"]
+        assert entry.min_fields_for_completion == 1
+        assert entry.entity_type == "pivotal_trial"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -407,6 +414,7 @@ class TestMethodsDisclosure:
             frame_gap_count=gaps,
             partial_count=partial,
             pass_count=pass_count,
+            pipeline_fault_count=0,
             by_status={},
             entries=(),
         )
@@ -449,7 +457,9 @@ class TestHumanCompletionTasks:
         )
         validation = _make_validation([
             ("s1", "pass1", ValidationVerdict.PASS),
-            ("s2", "gap1", ValidationVerdict.PASS),
+            # Gap row that didn't get M-60 language yet — this is
+            # the eligible-for-human-completion state
+            ("s2", "gap1", ValidationVerdict.FAIL_GAP_NO_LANGUAGE),
         ])
         coverage = compose_frame_coverage(cf, outline, rows, validation)
         tasks = compose_human_completion_tasks(coverage)
@@ -457,7 +467,28 @@ class TestHumanCompletionTasks:
         assert len(tasks) == 1
         assert tasks[0]["entity_id"] == "gap1"
         assert tasks[0]["failure_reason"] == "paywalled"
-        assert "operator to provide" in tasks[0]["needs"]
+        # Codex M-60 audit Blocker: required_fields emitted
+        assert tasks[0]["required_fields"] == ["N", "primary_endpoint"]
+        assert tasks[0]["min_fields_for_completion"] == 1
+        # Gap row triggers RETRIEVAL gap guidance
+        assert "RETRIEVAL gap" in tasks[0]["needs"]
+        assert "N, primary_endpoint" in tasks[0]["needs"]
+
+    def test_min_fields_fail_task_has_extraction_guidance(self) -> None:
+        """Codex M-60 audit Blocker #2: `needs` must be failure-
+        specific. A min_fields fail is an EXTRACTION gap, not a
+        RETRIEVAL gap."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)  # abstract_only, not a gap row
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_MIN_FIELDS),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 1
+        assert "EXTRACTION gap" in tasks[0]["needs"]
+        assert "richer licensed copy" in tasks[0]["needs"]
 
     def test_tasks_serializable(self) -> None:
         cf = _make_compiled_frame((_make_binding(),))
@@ -518,7 +549,10 @@ class TestDeterministic:
 # (10) Missing FrameRow defensive fallback
 # ─────────────────────────────────────────────────────────────────────
 class TestMissingFrameRowDefensive:
-    def test_missing_row_produces_empty_entry(self) -> None:
+    """Codex M-60 audit Medium: pipeline faults must be
+    distinguished from retrieval gaps."""
+
+    def test_missing_row_classified_as_pipeline_fault(self) -> None:
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         # Intentionally no rows
@@ -528,26 +562,105 @@ class TestMissingFrameRowDefensive:
         ])
         coverage = compose_frame_coverage(cf, outline, rows, validation)
         entry = coverage.entries[0]
-        assert entry.provenance_class == "frame_gap_unrecoverable"
-        # When validator has a reason, it wins; the "FrameRow missing"
-        # default only fires if validator_reason is empty too.
-        assert entry.failure_reason  # non-None, non-empty
-        assert entry.human_completion_eligible is True
-        assert coverage.frame_gap_count == 1
+        # NOT frame_gap_unrecoverable — that would mask the bug
+        assert entry.provenance_class == "pipeline_fault"
+        assert entry.is_pipeline_fault is True
+        # Pipeline fault is NOT routed to human completion
+        assert entry.human_completion_eligible is False
+        # Pipeline diagnosis dominates the failure_reason
+        assert "FrameRow missing" in entry.failure_reason
+        assert "engineer" in entry.failure_reason.lower()
+        # Aggregate counts
+        assert coverage.pipeline_fault_count == 1
+        assert coverage.frame_gap_count == 0  # not counted as gap
 
-    def test_missing_row_and_no_validator_reason_falls_back(self) -> None:
+    def test_pipeline_fault_with_validator_reason_still_leads(self) -> None:
+        """Codex M-60 audit Medium: the pipeline-fault diagnosis
+        must LEAD, not be suppressed by validator wording."""
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows: tuple[FrameRow, ...] = ()
-        # Empty validation report — no verdict for (s1, e1)
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_MISSING_PAYLOAD),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        entry = coverage.entries[0]
+        # Pipeline message must appear BEFORE validator wording
+        reason = entry.failure_reason
+        assert reason.startswith("FrameRow missing")
+        assert "validator also noted" in reason
+
+    def test_pipeline_fault_no_validator_reason(self) -> None:
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows: tuple[FrameRow, ...] = ()
         validation = ValidationReport(
             entity_validations=(),
             slot_verdicts=(),
         )
         coverage = compose_frame_coverage(cf, outline, rows, validation)
         entry = coverage.entries[0]
-        # Default status when no verdict in report
-        assert entry.status == "fail_missing_payload"
-        # When there's no validator_reason AND no row, the composite
-        # helper emits the hardcoded pipeline-crossed-wires message.
+        assert entry.is_pipeline_fault is True
         assert "FrameRow missing" in entry.failure_reason
+        # Pure pipeline message (no "validator also noted" tail)
+        assert "validator also noted" not in entry.failure_reason
+
+    def test_pipeline_fault_not_in_human_tasks(self) -> None:
+        """Codex M-60 audit Medium: pipeline faults must not be
+        routed to operator handoff. A curator cannot fix a pipeline
+        bug."""
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows: tuple[FrameRow, ...] = ()
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.FAIL_MISSING_PAYLOAD),
+        ])
+        coverage = compose_frame_coverage(cf, outline, rows, validation)
+        tasks = compose_human_completion_tasks(coverage)
+        assert len(tasks) == 0
+
+
+class TestPartialOnlyDisclosure:
+    """Codex M-60 audit Nit: partial-only Methods disclosure shape
+    wasn't directly tested. Lock it in now."""
+
+    def _coverage(
+        self, pass_count: int, partial: int, gaps: int = 0,
+        pipeline_faults: int = 0,
+    ) -> FrameCoverageReport:
+        total = pass_count + partial + gaps + pipeline_faults
+        return FrameCoverageReport(
+            research_question="q",
+            schema_version="v30.1",
+            total_slots=total,
+            total_entities=total,
+            frame_gap_count=gaps,
+            partial_count=partial,
+            pass_count=pass_count,
+            pipeline_fault_count=pipeline_faults,
+            by_status={},
+            entries=(),
+        )
+
+    def test_partial_only_no_gaps_no_pipeline(self) -> None:
+        text = compose_methods_disclosure(
+            self._coverage(pass_count=5, partial=2, gaps=0),
+        )
+        assert "Fully populated: 5" in text
+        assert "Partial coverage" in text
+        assert "2" in text
+        # Should NOT say "Unretrievable" (no true gap rows)
+        assert "Unretrievable" not in text
+        # Should NOT mention pipeline faults
+        assert "Pipeline faults" not in text
+
+    def test_pipeline_fault_surfaces_separately(self) -> None:
+        text = compose_methods_disclosure(
+            self._coverage(
+                pass_count=5, partial=0, gaps=0, pipeline_faults=1,
+            ),
+        )
+        assert "Pipeline faults" in text
+        assert "engineer investigation" in text
+        # Not mis-routed as a paywalled gap
+        assert "Unretrievable" not in text
