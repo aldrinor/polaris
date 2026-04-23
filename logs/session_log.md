@@ -3773,3 +3773,25 @@
   - Determinism: same inputs → byte-identical FrameRow payload (retrieval_attempts.duration_ms differs but that's logged-only, not payload)
 - STATUS: M-54 + M-55 sealed + Codex-approved. M-56 shipped + 32/32 tests pass. V30 Layers 1 + 2a + 2b complete. Ready to commit M-56 and launch Codex M-56 audit.
 - NEXT_STEP: Commit M-56 files; write `.codex/m56_code_audit_brief.md` (tight scope, skip git status); launch Codex M-56 audit in foreground.
+
+
+[2026-04-23 13:00:00]
+- ACTION: M-56 Codex pass-2 APPROVED. M-57 contract-driven outline composer shipped. V30 Layer 3 complete.
+- RATIONALE: Codex M-56 pass-1 returned CONDITIONAL-blockers on two issues: (1) FrameRow not byte-identical because duration_ms inside retrieval_attempts; (2) RetrievalAttempt log collapsed retry chains into single summary per source and PubMed URL missing query params. Both fixed in commit a8279ff by: splitting FrameRow into retrieval_attempts (deterministic payload) + retrieval_timings (wall-clock, non-deterministic); rewriting _request_with_retry to emit one RetrievalAttempt per HTTP request with attempt_index + refined outcome vocabulary (retryable_/error_/success); _build_full_url composes URLs with sorted-key query params so PubMed attempts log id/db/retmode/rettype and Unpaywall logs email. Codex pass-2 verdict: APPROVED. M-57 then built atop approved M-54/M-55/M-56 foundation: standalone `src/polaris_graph/nodes/contract_outline.py` module with pure function compose_outline_from_contract(compiled_frame, frame_rows) -> ContractOutline producing deterministic section/slot structure from contract (NOT LLM-emergent). Gap-slot preservation is explicit: slots whose frame rows all classify as FRAME_GAP_UNRECOVERABLE still appear in outline with is_gap=True, is_partial flag for multi-entity slots with mixed outcomes. Entity-type-agnostic per Codex rev #7.
+- DOCS/RESEARCH: V30 plan M-57 section lines 265-304. Codex plan review #4 (gap preservation + structured metadata for M-60 manifest) incorporated directly — ContractSlotPlan.provenance_classes tuple makes per-slot provenance visible to M-60 without re-fetching rows.
+- SYNC: TaskList #21 M-56 completed (pass-2 APPROVED), #22 M-57 implementation complete — will mark completed after Codex audit.
+- AFFECTED_FILES:
+  - NEW src/polaris_graph/nodes/contract_outline.py (260 lines: ContractSlotPlan dataclass / ContractSectionPlan dataclass / ContractOutline dataclass with helpers slots_by_id/sections_by_name/all_entity_ids/gap_slot_ids/to_section_plan_dicts + pure function compose_outline_from_contract + _validate_frame_rows_parallel + _resolve_section_order + _compose_section_focus)
+  - NEW tests/polaris_graph/test_m57_contract_outline.py (19 tests in 11 classes: WellFormedCompose / SectionOrdering / SlotOrdering / GapSlotPreservation / PartialSlot / ParallelValidation / EntityTypeAgnostic / Determinism / LegacyAdapter / FocusComposition / RealClinicalYaml)
+  - NEW outputs/codex_findings/m56_code_audit/pass2_findings.md (Codex APPROVED verdict + scoped regression evidence 130/130)
+- EVIDENCE/FINDINGS:
+  - M-56 pass-2 APPROVED by Codex; pass2_findings.md confirms both blocker resolutions verified; scoped regression M-54+M-55+M-56 = 130/130 pass
+  - M-57 ships with 19/19 tests pass in 3.08s
+  - Combined V30 regression: M-54 54 + M-55 41 + M-56 35 + M-57 19 = 149/149 pass in 2.85s
+  - Real clinical.yaml integration test: compose_outline_from_contract on 15-entity/15-slot contract produces 3 sections (Efficacy/Mechanism/Regulatory) in explicit section_order with 8/1/6 slot distribution matching contract
+  - Gap-slot preservation: slot with FRAME_GAP_UNRECOVERABLE provenance still appears, is_gap=True, provenance_classes=("frame_gap_unrecoverable",)
+  - Partial-slot: multi-entity slot with mixed OA+gap rows flagged is_partial=True
+  - Parallel-validation: length mismatch or entity_id order mismatch between compiled_frame.evidence_bindings and frame_rows raises ValueError with diagnostic
+  - Legacy adapter to_section_plan_dicts(): produces {"title", "focus", "ev_ids"} dicts compatible with existing multi_section_generator SectionPlan shape
+- STATUS: V30 Layers 1 + 2a + 2b + 3 complete. M-54/M-55/M-56/M-57 all sealed. M-56 pass-2 APPROVED; M-57 ready for Codex audit. Next: commit M-57 + launch Codex M-57 audit.
+- NEXT_STEP: Commit M-57 files; write tight `.codex/m57_code_audit_brief.md`; launch Codex M-57 audit; on APPROVED proceed to M-58 slot-bound generator prompts (Layer 4 start).
