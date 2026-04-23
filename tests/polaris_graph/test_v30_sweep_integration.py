@@ -334,15 +334,15 @@ class TestClinicalChain:
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         assert tasks == []
 
-    def test_no_legacy_crosscheck_emits_retrieval_only_warning(
+    def test_phase1_retrieval_coverage_warning_always_present(
         self, tmp_path: Path, clinical_template: dict,
         _log, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Codex sweep-integration audit Blocker fix: when the
-        caller doesn't supply legacy_report_text / bibliography,
-        phase-1 synth explicitly flags retrieval-only semantics
-        in warnings so the manifest reader knows the PASS
-        verdicts weren't cross-checked."""
+        """Pass-4 scope narrow: Phase-1 ships RETRIEVAL-coverage
+        semantics, not report-coverage. Every V30 run emits the
+        `phase1_retrieval_coverage_only` warning so manifest
+        readers know PASS means "M-56 fetched it", NOT
+        "legacy generator cited it"."""
         monkeypatch.setenv("PG_V30_ENABLED", "1")
         import src.polaris_graph.retrieval.frame_fetcher as ff
         monkeypatch.setattr(
@@ -360,30 +360,22 @@ class TestClinicalChain:
             slug="clinical_tirzepatide_t2dm",
             run_dir=tmp_path,
             log=_log,
-            legacy_report_text=None,
-            legacy_bibliography=None,
         )
-        # Non-gap rows still marked PASS (retrieval-only), but
-        # warning surfaces the semantic caveat
         assert result.frame_coverage_report["pass_count"] == 15
         assert any(
-            "phase1_synth_retrieval_only" in w
+            "phase1_retrieval_coverage_only" in w
             for w in result.warnings
-        ), (
-            f"expected retrieval_only warning; got "
-            f"{result.warnings}"
-        )
+        ), f"expected phase1_retrieval_coverage_only warning; got {result.warnings}"
 
-    def test_shared_url_pattern_does_not_false_pass(
+    def test_phase1_retrieval_only_ignores_legacy_params(
         self, tmp_path: Path, clinical_template: dict,
         _log, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Codex sweep-integration pass-2 blocker repro: FDA
-        Mounjaro and FDA Zepbound both have url_pattern=
-        'accessdata.fda.gov'. A report mentioning only Zepbound
-        must NOT false-pass Mounjaro. Tightened cross-check
-        requires label_name disambiguator when url_pattern is
-        shared."""
+        """Pass-4 scope change: `legacy_report_text` and
+        `legacy_bibliography` parameters are retained for
+        call-site backwards compatibility but their values are
+        IGNORED. An empty legacy report still yields PASS for
+        retrieved entities."""
         monkeypatch.setenv("PG_V30_ENABLED", "1")
         import src.polaris_graph.retrieval.frame_fetcher as ff
         monkeypatch.setattr(
@@ -392,32 +384,6 @@ class TestClinicalChain:
                 _FakeCompiled(bindings)
             ),
         )
-        # Legacy report mentions Zepbound only
-        legacy_report = (
-            "FDA Zepbound label: accessdata.fda.gov describes "
-            "chronic weight management criteria.\n"
-            "SURPASS-1\nSURPASS-2\nSURPASS-3\nSURPASS-4\n"
-            "SURPASS-5\nSURPASS-6\nSURPASS-CVOT\nSURMOUNT-2\n"
-            "Thomas-clamp\n"
-            "Mounjaro Canadian Product Monograph: pdf.hres.ca\n"
-            "EMA Mounjaro EPAR: ema.europa.eu\n"
-            "NICE TA924: nice.org.uk/guidance/ta924\n"
-            "NICE TA1026: nice.org.uk/guidance/ta1026\n"
-        )
-        legacy_biblio = [
-            {"doi": d}
-            for d in [
-                "10.1016/S0140-6736(21)01324-6",
-                "10.1056/NEJMoa2107519",
-                "10.1016/S0140-6736(21)01443-4",
-                "10.1016/S0140-6736(21)01997-1",
-                "10.1001/jama.2022.0078",
-                "10.1001/jama.2023.0023",
-                "10.1056/NEJMoa2509079",
-                "10.1016/S0140-6736(23)01200-X",
-                "10.1016/S2213-8587(22)00041-1",
-            ]
-        ]
         from src.polaris_graph.v30_sweep_integration import (
             run_v30_post_generation,
         )
@@ -427,128 +393,32 @@ class TestClinicalChain:
             slug="clinical_tirzepatide_t2dm",
             run_dir=tmp_path,
             log=_log,
-            legacy_report_text=legacy_report,
-            legacy_bibliography=legacy_biblio,
+            legacy_report_text="",
+            legacy_bibliography=[],
         )
-        cov = result.frame_coverage_report
-        # fda_mounjaro_label must be FAIL_UNBOUND_CITATION
-        # (mentioned url_pattern IS in report but label_name
-        # "Mounjaro" only appears in the HC monograph line, where
-        # the co-occurring locator is pdf.hres.ca not
-        # accessdata.fda.gov)
-        mj_entry = next(
-            e for e in cov["entries"]
-            if e["entity_id"] == "fda_mounjaro_label"
-        )
-        assert mj_entry["status"] == "fail_unbound_citation"
-        # fda_zepbound_label must PASS (Zepbound label_name +
-        # accessdata.fda.gov url_pattern both word-bounded)
-        zb_entry = next(
-            e for e in cov["entries"]
-            if e["entity_id"] == "fda_zepbound_label"
-        )
-        assert zb_entry["status"] == "pass"
+        assert result.frame_coverage_report["pass_count"] == 15
 
-    def test_doi_superstring_does_not_false_pass(
-        self, tmp_path: Path, clinical_template: dict,
-        _log, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Codex sweep-integration pass-2 blocker repro: a DOI
-        superstring (10.1056/NEJMoa2107519 is substring of
-        10.1056/NEJMoa2107519X) must NOT match. Word-boundary
-        check rejects."""
+    def test_entity_cited_in_legacy_stub_returns_false(self) -> None:
+        """Pass-4: _entity_cited_in_legacy is deprecated and now
+        a no-op stub. Call it to confirm the stub exists and
+        always returns False (documenting the scope change)."""
         from src.polaris_graph.v30_sweep_integration import (
             _entity_cited_in_legacy,
         )
 
         class _E:
-            doi = "10.1056/NEJMoa2107519"
-            anchor = None
-            label_name = None
-            url_pattern = None
+            doi = "10.1/x"
+            anchor = "ANCHOR"
+            label_name = "Label"
+            url_pattern = "example.org"
             pmid = None
 
-        # Report contains a DOI that EXTENDS the target
-        report = "See 10.1056/NEJMoa2107519X for the extended trial."
+        # No matter what we pass, the deprecated stub returns False
         assert _entity_cited_in_legacy(
-            "surpass_2_primary", _E, report, None,
+            "e1", _E,
+            "A report that clearly cites 10.1/x and ANCHOR.",
+            [{"doi": "10.1/x"}],
         ) is False
-
-        # Exact match passes
-        report2 = "SURPASS-2 (Frias, DOI 10.1056/NEJMoa2107519)."
-        assert _entity_cited_in_legacy(
-            "surpass_2_primary", _E, report2, None,
-        ) is True
-
-    def test_surpass_1_vs_surpass_10_disambiguation(
-        self,
-    ) -> None:
-        """Anchor word-boundary: if a report only cites
-        SURPASS-10 (hypothetical future trial), SURPASS-1 must
-        not false-pass on substring."""
-        from src.polaris_graph.v30_sweep_integration import (
-            _entity_cited_in_legacy,
-        )
-
-        class _Surpass1:
-            doi = None
-            anchor = "SURPASS-1"
-            label_name = None
-            url_pattern = None
-            pmid = None
-
-        report = "SURPASS-10 extended the program to adolescents."
-        assert _entity_cited_in_legacy(
-            "surpass_1_primary", _Surpass1, report, None,
-        ) is False
-
-    def test_entity_not_cited_in_legacy_yields_unbound_citation(
-        self, tmp_path: Path, clinical_template: dict,
-        _log, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Codex sweep-integration audit Blocker repro: a non-gap
-        entity that the legacy generator retrieved but did NOT
-        cite should NOT be marked PASS. Phase-1 synth downgrades
-        to FAIL_UNBOUND_CITATION (engineer-owned) which keeps the
-        coverage report honest."""
-        monkeypatch.setenv("PG_V30_ENABLED", "1")
-        import src.polaris_graph.retrieval.frame_fetcher as ff
-        monkeypatch.setattr(
-            ff, "fetch_compiled_frame",
-            lambda bindings, **_: _stub_fetch_rows(
-                _FakeCompiled(bindings)
-            ),
-        )
-        # Legacy report cites SURPASS-1 only; everything else is
-        # retrieved but not in the verified output.
-        legacy_report = "The SURPASS-1 monotherapy trial."
-        legacy_biblio = [
-            {"doi": "10.1016/S0140-6736(21)01324-6"},  # only SURPASS-1
-        ]
-        from src.polaris_graph.v30_sweep_integration import (
-            run_v30_post_generation,
-        )
-        result = run_v30_post_generation(
-            research_question="q",
-            scope_template=clinical_template,
-            slug="clinical_tirzepatide_t2dm",
-            run_dir=tmp_path,
-            log=_log,
-            legacy_report_text=legacy_report,
-            legacy_bibliography=legacy_biblio,
-        )
-        cov = result.frame_coverage_report
-        # Only SURPASS-1 passes; other 14 are FAIL_UNBOUND_CITATION
-        assert cov["pass_count"] == 1
-        counts_by_status = cov["by_status"]
-        assert counts_by_status.get("pass") == 1
-        assert counts_by_status.get("fail_unbound_citation") == 14
-        # Engineer-owned failures DO NOT become curator tasks
-        tasks = result.human_gap_tasks_json
-        assert tasks == [], (
-            f"expected zero curator tasks when failures are "
-            f"engineer-owned; got {len(tasks)}"
-        )
 
 
 # ─────────────────────────────────────────────────────────────────────

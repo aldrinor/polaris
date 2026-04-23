@@ -1659,44 +1659,20 @@ async def run_one_query(
                     merge_v30_into_manifest,
                     run_v30_post_generation,
                 )
-                # Cross-check material for Codex blocker fix:
-                # read the just-written report.md + bibliography
-                # so phase-1 synth can verify each entity was cited
-                # in the legacy output, not just retrieved.
+                # Phase 1 ships RETRIEVAL-coverage semantics only.
+                # Legacy report / bibliography cross-check was
+                # deprecated after three Codex audit rounds of
+                # heuristic false-passes (see pass-4 scope narrow
+                # in v30_sweep_integration module docstring).
+                # Phase 2 (M-58 + M-59 generator integration)
+                # will claim true report-coverage.
                 _report_path = run_dir / "report.md"
-                _legacy_report_text = (
-                    _report_path.read_text(encoding="utf-8")
-                    if _report_path.exists() else None
-                )
-                _biblio_path = run_dir / "bibliography.json"
-                _legacy_bibliography = None
-                if _biblio_path.exists():
-                    try:
-                        _biblio_raw = json.loads(
-                            _biblio_path.read_text(encoding="utf-8")
-                        )
-                        if isinstance(_biblio_raw, list):
-                            _legacy_bibliography = _biblio_raw
-                        elif isinstance(_biblio_raw, dict):
-                            _legacy_bibliography = (
-                                _biblio_raw.get("entries")
-                                or _biblio_raw.get("bibliography")
-                                or None
-                            )
-                    except Exception as _biblio_exc:
-                        _log(
-                            f"[V30]         WARN bibliography.json "
-                            f"parse failed: {_biblio_exc}"
-                        )
-
                 v30_result = run_v30_post_generation(
                     research_question=q["question"],
                     scope_template=_template,
                     slug=q["slug"],
                     run_dir=run_dir,
                     log=_log,
-                    legacy_report_text=_legacy_report_text,
-                    legacy_bibliography=_legacy_bibliography,
                 )
                 # Manifest merge via factored helper (unit-tested
                 # in tests/polaris_graph/test_v30_sweep_integration.py).

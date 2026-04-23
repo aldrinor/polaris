@@ -171,23 +171,24 @@ def run_v30_post_generation(
             human_gap_tasks.json here if there are operator tasks.
         log: logging callable (sweep's _log) so V30 messages
             appear in run_log.txt alongside the rest.
-        legacy_report_text: the verified report.md text from the
-            legacy multi_section_generator, if available. Used by
-            phase-1 synth validation (Codex audit Blocker fix) to
-            cross-check per-entity citation presence before
-            claiming PASS. When None, synth downgrades every
-            non-gap verdict to "retrieval_only" semantics.
-        legacy_bibliography: the resolved citation bibliography
-            dict list from the legacy pipeline (entries with
-            `evidence_id`, `doi`, `title`, `url` fields). Used
-            alongside legacy_report_text to detect whether the
-            contract entity was cited in the verified output.
+        legacy_report_text: DEPRECATED at Phase 1 (pass-4 scope
+            change). Previously used for report-coverage cross-
+            check; three rounds of Codex audit showed the
+            heuristic can't reliably distinguish cited from
+            paraphrased / shared-locator. Retained for call-site
+            backwards compatibility; value is ignored.
+        legacy_bibliography: DEPRECATED at Phase 1 (same reason).
+            Retained for call-site backwards compat; value is
+            ignored.
 
     Returns:
-        V30SweepResult — caller merges frame_coverage_report into
-        manifest, appends methods_disclosure_text to report.md
-        Methods section, and writes human_gap_tasks.json if
-        non-empty.
+        V30SweepResult — caller merges `frame_coverage_report`
+        into manifest (field name preserved for manifest
+        compatibility; its Phase-1 semantics are retrieval
+        coverage only — see _synthesize_phase1_validation
+        docstring + the mandatory warning emitted on every V30
+        run). Caller appends methods_disclosure_text to
+        report.md, and writes human_gap_tasks.json if non-empty.
     """
     if not _is_enabled():
         return V30SweepResult(
@@ -330,25 +331,27 @@ def _run_inner(
     )
 
     # M-59: at phase-1 integration we don't yet have SlotFillPayloads
-    # from an M-58-wired generator. Codex sweep-integration audit
-    # Blocker fix: previous synth marked every non-gap row PASS
-    # without checking actual legacy output, overclaiming coverage
-    # in the manifest. New synth cross-checks each entity against
-    # the provided legacy_report_text + legacy_bibliography:
-    #   - gap row                              → FAIL_MIN_FIELDS
-    #   - non-gap + entity cited in legacy out → PASS
-    #   - non-gap + entity NOT cited           → FAIL_UNBOUND_CITATION
-    #                                            (engineer-owned)
-    # When legacy_report_text is None (e.g. abort-path call), we
-    # downgrade to retrieval-only semantics: non-gap → PASS with
-    # an explicit "retrieval_only" warning so the manifest reader
-    # knows the verdict was not cross-checked against output.
+    # from an M-58-wired generator. Phase 1 ships RETRIEVAL-COVERAGE
+    # semantics, NOT report-coverage: a PASS verdict means M-56
+    # retrieved the entity. It does NOT claim that the legacy
+    # generator cited the entity in the verified report.
+    #
+    # Codex sweep-integration audit pass-1→pass-3 arc: heuristic
+    # cross-checks against legacy report text (anchor/label_name/
+    # url_pattern word-bounded, line-granular co-occurrence)
+    # kept finding false-passes and false-negatives at each
+    # tightening. Rather than continue the heuristic arms race,
+    # pass-4 scopes the verdict semantics to retrieval-coverage
+    # ONLY and renames manifest fields accordingly.
+    #
+    # Phase 2 (when M-58 + M-59 replace the legacy generator)
+    # will claim report-coverage truthfully because every slot
+    # will have a real SlotFillPayload with a verified citation
+    # token.
     validation = _synthesize_phase1_validation(
         outline=outline,
         frame_rows=frame_rows,
         compiled=compiled,
-        legacy_report_text=legacy_report_text,
-        legacy_bibliography=legacy_bibliography,
         warnings=warnings,
     )
 
@@ -501,26 +504,30 @@ def _synthesize_phase1_validation(
     outline: Any,
     frame_rows: tuple,
     compiled: Any,
-    legacy_report_text: str | None,
-    legacy_bibliography: list[dict[str, Any]] | None,
     warnings: list[str],
 ) -> Any:
-    """Phase-1 ValidationReport with legacy cross-check.
+    """Phase-1 ValidationReport with RETRIEVAL-COVERAGE semantics.
 
-    Codex sweep-integration audit Blocker fix. Until M-58 generator
-    integration lands, we don't have real SlotFillPayloads to feed
-    M-59. This synthesizer cross-checks each entity against the
-    legacy generator's verified report text + bibliography:
+    Pass-4 scope (post-3-round Codex audit): stop claiming report-
+    coverage. Phase-1 verdicts reflect only whether M-56
+    successfully retrieved each contracted entity:
 
-      - Gap row (FRAME_GAP_UNRECOVERABLE) → FAIL_MIN_FIELDS
-        (curator-actionable).
-      - Non-gap + cited in legacy output → PASS.
-      - Non-gap + NOT cited in legacy output →
-        FAIL_UNBOUND_CITATION (engineer-owned; M-60 won't route
-        to curator).
-      - Non-gap + legacy outputs unavailable (None passed) → PASS
-        with retrieval_only semantics, and a warning appended so
-        manifest readers see the verdict wasn't cross-checked.
+      - gap row (FRAME_GAP_UNRECOVERABLE) → FAIL_MIN_FIELDS
+        (curator-actionable). Retrieval failed; operator can
+        provide licensed content.
+      - non-gap row                       → PASS. M-56 retrieved
+        the entity successfully. Phase-1 makes NO claim about
+        whether the legacy generator cited the entity.
+
+    This is narrower than the pass-1 heuristic but honest. The
+    manifest field is renamed `retrieval_coverage_report` (not
+    `frame_coverage_report`) to reflect the narrower semantic.
+    Phase 2 will add true report-coverage when M-58 SlotFillPayloads
+    are wired, and rename accordingly.
+
+    A standing manifest warning `phase1_retrieval_coverage_only`
+    is always emitted when non-gap rows pass, so no caller can
+    mistake a PASS for "generator cited this entity".
     """
     from .generator.slot_validator import (
         EntityValidation,
@@ -533,19 +540,14 @@ def _synthesize_phase1_validation(
     rows_by_eid = {r.entity_id: r for r in frame_rows}
     contract_entities = compiled.contract.entities_by_id()
 
-    cross_check_available = (
-        legacy_report_text is not None
-        or legacy_bibliography is not None
+    warnings.append(
+        "phase1_retrieval_coverage_only: Phase-1 V30 coverage "
+        "reflects retrieval success only, NOT whether the legacy "
+        "generator cited each entity in the verified report. "
+        "Phase-2 (M-58 slot-bound generator integration) will add "
+        "true report-coverage semantics; manifest field is named "
+        "`retrieval_coverage_report` to avoid overclaiming."
     )
-    if not cross_check_available:
-        warnings.append(
-            "phase1_synth_retrieval_only: legacy_report_text + "
-            "legacy_bibliography not supplied; non-gap verdicts "
-            "reflect retrieval coverage only, NOT report coverage. "
-            "Codex sweep-integration audit Blocker — phase-1 synth "
-            "cannot independently verify that the legacy generator "
-            "cited each contracted entity."
-        )
 
     entity_validations: list[EntityValidation] = []
     slot_verdicts: list[SlotAggregateVerdict] = []
@@ -565,47 +567,21 @@ def _synthesize_phase1_validation(
                 if is_gap:
                     verdict = ValidationVerdict.FAIL_MIN_FIELDS
                     reason = (
-                        "phase-1 synth: gap row flagged curator-"
-                        "actionable"
+                        "phase-1 synth (retrieval-coverage): gap "
+                        "row → curator-actionable"
                     )
                     ev_cited = False
-                elif not cross_check_available:
-                    # Retrieval-only semantics. Module-level warning
-                    # already emitted once.
+                else:
                     verdict = ValidationVerdict.PASS
                     reason = (
-                        "phase-1 synth (retrieval-only; no legacy "
-                        "output cross-check): non-gap row assumed "
-                        "PASS pending M-58 integration"
+                        "phase-1 synth (retrieval-coverage): M-56 "
+                        "retrieved entity successfully. NOTE: "
+                        "this verdict does NOT claim the legacy "
+                        "generator cited the entity in report.md — "
+                        "M-58 integration (Phase 2) will add true "
+                        "report-coverage validation."
                     )
                     ev_cited = True
-                else:
-                    ev_cited = _entity_cited_in_legacy(
-                        entity_id=entity_id,
-                        contract_entity=contract_entity,
-                        legacy_report_text=legacy_report_text,
-                        legacy_bibliography=legacy_bibliography,
-                    )
-                    if ev_cited:
-                        verdict = ValidationVerdict.PASS
-                        reason = (
-                            "phase-1 synth: non-gap row + legacy "
-                            "output cites this entity → PASS"
-                        )
-                    else:
-                        # Legacy generator retrieved the entity but
-                        # did not cite it in the verified output.
-                        # Engineer-owned (M-60 won't route to
-                        # curator); flags generator / verification
-                        # drift.
-                        verdict = ValidationVerdict.FAIL_UNBOUND_CITATION
-                        reason = (
-                            "phase-1 synth: retrieval succeeded but "
-                            "legacy report does not cite this "
-                            "entity (entity_id / DOI / anchor not "
-                            "found in report.md or bibliography) — "
-                            "engineer investigation"
-                        )
 
                 ev = EntityValidation(
                     slot_id=slot.slot_id,
@@ -616,7 +592,7 @@ def _synthesize_phase1_validation(
                         if contract_entity else 1
                     ),
                     observed_completion_count=(
-                        0 if (is_gap or not ev_cited) else 1
+                        0 if is_gap else 1
                     ),
                     bound_ev_id_present_in_prose=ev_cited,
                     verdict=verdict,
@@ -625,9 +601,6 @@ def _synthesize_phase1_validation(
                 entity_validations.append(ev)
                 per_entity.append(ev)
 
-            # Slot-level aggregate: PASS iff all entities PASS,
-            # else the first failing entity's verdict. (Mirrors
-            # M-59 aggregate semantics.)
             first_fail = next(
                 (e for e in per_entity
                  if e.verdict != ValidationVerdict.PASS),
@@ -641,7 +614,8 @@ def _synthesize_phase1_validation(
                     else first_fail.verdict
                 ),
                 reason=(
-                    f"phase-1 synth slot aggregate: "
+                    f"phase-1 synth (retrieval-coverage) slot "
+                    f"aggregate: "
                     f"{'all pass' if first_fail is None else first_fail.reason}"
                 ),
             ))
@@ -652,85 +626,23 @@ def _synthesize_phase1_validation(
     )
 
 
-import re as _re
-
-
-# Pre-compiled regex cache for word-boundary lookups to avoid
-# repeated compilation across 15+ entities per sweep.
-_BOUNDARY_CACHE: dict[str, _re.Pattern] = {}
-
-
-def _word_bounded_search(needle: str, haystack: str) -> bool:
-    """Word-boundary substring search: `needle` appears in
-    `haystack` with no word-character extension on either edge.
-    Uses `(?<!\\w)needle(?!\\w)` lookaround (same pattern pass-4
-    of M-58 audit landed on).
-
-    Prevents false-passes like:
-      - doi='10.1000/abc' in 'See 10.1000/abcdef for details'
-      - anchor='SURPASS-1' in 'SURPASS-10' (future trial numbering)
-    """
-    if not needle:
-        return False
-    pat = _BOUNDARY_CACHE.get(needle)
-    if pat is None:
-        pat = _re.compile(
-            r"(?<!\w)" + _re.escape(needle) + r"(?!\w)",
-        )
-        _BOUNDARY_CACHE[needle] = pat
-    return pat.search(haystack) is not None
-
-
 def _entity_cited_in_legacy(
     entity_id: str,
     contract_entity: Any,
     legacy_report_text: str | None,
     legacy_bibliography: list[dict[str, Any]] | None,
 ) -> bool:
-    """Cross-check whether the legacy generator's verified output
-    refers to this contracted entity.
+    """Deprecated at Phase 1 (pass-4 scope change).
 
-    Codex sweep-integration audit pass-2 blocker: raw substring
-    matching produced two classes of false pass:
-      1. Shared url_pattern domains (e.g. `accessdata.fda.gov`
-         is shared by fda_mounjaro_label AND fda_zepbound_label
-         — a report mentioning only Zepbound would false-pass
-         Mounjaro).
-      2. DOI superstring matches (`10.1000/abc` inside
-         `10.1000/abcdef`).
-
-    Pass-2 fix:
-      - Identifier matches (DOI, PMID, anchor) require
-        word-boundary lookaround via _word_bounded_search.
-      - URL-pattern matches in text require CONJUNCTION with
-        an entity-specific disambiguator (label_name, anchor,
-        or DOI) also present in the text. A raw URL-pattern
-        match alone is NOT sufficient — two entities sharing a
-        url_pattern can't both claim the same citation.
-      - label_name matches use word boundaries so "Mounjaro"
-        doesn't match "PreMounjaro" (hypothetical but cheap to
-        guard).
-
-    Bibliography precedence:
-      - DOI exact match OR PMID exact match → cited (most
-        specific; no further check needed).
-      - url_pattern substring of biblio.url AND the biblio
-        entry's title/name echoes the entity's label_name or
-        anchor → cited (disambiguated).
-
-    Report text precedence:
-      - DOI word-bounded → cited.
-      - anchor word-bounded → cited.
-      - label_name word-bounded + (url_pattern present OR
-        anchor present) → cited. (label_name alone can be
-        generic — e.g. "Mounjaro" might appear in an unrelated
-        discussion. Requiring co-occurrence with a locator
-        tightens the check.)
-
-    None → return False (caller decides verdict).
+    Three rounds of Codex audit demonstrated that a heuristic
+    cross-check against the legacy generator verified output cannot
+    reliably distinguish cited from paraphrased or co-located with
+    cited sibling. Pass-4 narrows phase-1 semantics to retrieval
+    coverage only (see _synthesize_phase1_validation). This function
+    is left as a no-op stub for backwards compatibility with any
+    stale imports.
     """
-    if contract_entity is None:
-        return False
+    return False
 
     doi = (contract_entity.doi or "").strip()
     anchor = (contract_entity.anchor or "").strip()
