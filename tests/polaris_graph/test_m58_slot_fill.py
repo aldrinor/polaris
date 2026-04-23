@@ -351,6 +351,51 @@ class TestParseFailures:
             )
         assert "must be null" in str(exc.value)
 
+    def test_fabricated_value_with_real_span_raises(self) -> None:
+        """Codex M-58 audit Blocker: anti-fabrication check 2.
+
+        LLM can claim to extract `value="1880"` while citing a real
+        `source_span="N=1879"` (the span IS in direct_quote, but the
+        value is fabricated). Without check 2 this passed; now it
+        must raise SlotFillParseError."""
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "1880",  # fabricated
+                 "source_span": "N=1879"},  # real span
+            ]
+        })
+        with pytest.raises(SlotFillParseError) as exc:
+            parse_slot_fill_response(
+                response, _slot_plan(), _frame_row(), ("N",),
+            )
+        msg = str(exc.value).lower()
+        assert "not supported" in msg or "anti-fabrication" in msg
+        assert "1880" in str(exc.value)
+
+    def test_value_whitespace_normalization_accepted(self) -> None:
+        """A value that is a verbatim substring of direct_quote AND
+        shares a token with source_span should be accepted. Common
+        when LLM strips whitespace or quotes a clean number from a
+        messier span."""
+        # direct_quote has "N=1879" — a loose span "N=1879 (95% CI)"
+        # is a valid substring of a different fixture quote; use the
+        # default quote with "N=1879" and a value of "1879" (token-
+        # extracted from the span).
+        response = json.dumps({
+            "fields": [
+                {"field_name": "N", "status": "extracted",
+                 "value": "1879",
+                 "source_span": "N=1879"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), _frame_row(), ("N",),
+        )
+        by_name = payload.fields_by_name()
+        assert by_name["N"].value == "1879"
+        assert by_name["N"].source_span == "N=1879"
+
     def test_duplicate_field_raises(self) -> None:
         response = json.dumps({
             "fields": [
@@ -371,6 +416,25 @@ class TestParseFailures:
 # (4) Gap payload
 # ─────────────────────────────────────────────────────────────────────
 class TestComposeGapPayload:
+    def test_non_gap_row_raises(self) -> None:
+        """Codex M-58 audit Medium: symmetric guard — gap composer
+        must reject non-gap rows so routing bugs surface rather
+        than silently erasing evidence."""
+        row = _frame_row(provenance=ProvenanceClass.ABSTRACT_ONLY)
+        with pytest.raises(ValueError) as exc:
+            compose_gap_payload(_slot_plan(), row, ("N",))
+        assert "non-gap" in str(exc.value).lower()
+
+    def test_open_access_row_raises(self) -> None:
+        row = _frame_row(provenance=ProvenanceClass.OPEN_ACCESS)
+        with pytest.raises(ValueError):
+            compose_gap_payload(_slot_plan(), row, ("N",))
+
+    def test_metadata_only_row_raises(self) -> None:
+        row = _frame_row(provenance=ProvenanceClass.METADATA_ONLY)
+        with pytest.raises(ValueError):
+            compose_gap_payload(_slot_plan(), row, ("N",))
+
     def test_gap_row_produces_all_gap_fields(self) -> None:
         required = ("N", "primary_endpoint", "etd_with_uncertainty")
         row = _frame_row(

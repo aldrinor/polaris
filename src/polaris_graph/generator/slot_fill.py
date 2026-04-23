@@ -106,6 +106,41 @@ class SlotFillParseError(ValueError):
     """LLM response could not be parsed into a SlotFillPayload."""
 
 
+def _value_supported_by_span(
+    value: str, source_span: str, direct_quote: str,
+) -> bool:
+    """Codex M-58 audit Blocker fix: verify that an extracted value
+    is supported by the claimed source_span, not just that the span
+    itself is real.
+
+    Accepted forms (tightest → looser):
+      1. `value` is a verbatim substring of `source_span`.
+      2. `value` is a verbatim substring of `direct_quote` AND at
+         least one non-trivial token of `value` appears in
+         `source_span`. This accommodates the common case where
+         the model normalizes whitespace or quotes a clean version
+         of a number ("1879") from a messier span ("N=1879 (95%)").
+
+    Returns False when value cannot be traced to real source text.
+    """
+    if not value or not source_span:
+        return False
+    # Tightest form: value is a verbatim substring of source_span.
+    if value in source_span:
+        return True
+    # Fallback: value is a verbatim substring of direct_quote and
+    # shares at least one non-trivial token with source_span.
+    if value not in direct_quote:
+        return False
+    value_tokens = {
+        t for t in value.replace(",", " ").split() if len(t) >= 2
+    }
+    span_tokens = {
+        t for t in source_span.replace(",", " ").split() if len(t) >= 2
+    }
+    return bool(value_tokens & span_tokens)
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Prompt construction
 # ─────────────────────────────────────────────────────────────────────
@@ -327,7 +362,22 @@ def parse_slot_fill_response(
                 raise SlotFillParseError(
                     f"fields[{fname!r}].source_span is not a verbatim "
                     f"substring of direct_quote (anti-fabrication "
-                    f"check failed)"
+                    f"check 1 failed)"
+                )
+            # Codex M-58 audit Blocker: extracted `value` must itself
+            # be supported by `source_span`. Without this check, the
+            # LLM can emit `value="1880"` + `source_span="N=1879"`,
+            # pass the parser, and fabricate prose. We require `value`
+            # to appear verbatim in `source_span` (exact match) or —
+            # to accommodate the common case where the model emits a
+            # normalized form of a span snippet — appear verbatim in
+            # `direct_quote` AND share tokens with `source_span`.
+            if not _value_supported_by_span(value, source_span, direct_quote):
+                raise SlotFillParseError(
+                    f"fields[{fname!r}].value={value!r} is not "
+                    f"supported by source_span={source_span!r}; "
+                    f"extracted values must be verbatim from the "
+                    f"span (anti-fabrication check 2 failed)"
                 )
         else:
             # not_extractable
@@ -372,7 +422,22 @@ def compose_gap_payload(
     LLM. Every required field is status=gap_unrecoverable.
 
     Used when frame_row.provenance_class == FRAME_GAP_UNRECOVERABLE.
-    M-60 manifest consumes this to emit the explicit gap sentence."""
+    M-60 manifest consumes this to emit the explicit gap sentence.
+
+    Codex M-58 audit Medium fix: symmetric guard with
+    build_slot_fill_prompt. A misrouted non-gap row converted to
+    all-gap would silently erase retrievable evidence, which is
+    worse than a hard failure. Route via the LLM path for non-gap
+    rows; raise here so routing bugs surface.
+    """
+    if frame_row.provenance_class != ProvenanceClass.FRAME_GAP_UNRECOVERABLE:
+        raise ValueError(
+            f"compose_gap_payload called for non-gap row "
+            f"entity_id={frame_row.entity_id!r} with provenance="
+            f"{frame_row.provenance_class.value!r}; use "
+            f"build_slot_fill_prompt + parse_slot_fill_response "
+            f"for non-gap rows"
+        )
     bound_ev_id = frame_row.entity_id
     fills = tuple(
         SlotFieldFill(
@@ -398,6 +463,12 @@ def compose_gap_payload(
 # Prose rendering (deterministic)
 # ─────────────────────────────────────────────────────────────────────
 _NOT_EXTRACTABLE_PHRASE = "not extractable from available primary content"
+# NOTE: the gap-prose template below is a STOPGAP owned by M-58 until
+# M-60 ships. Codex M-58 audit Nit: surface-language policy belongs
+# in M-60 (the manifest/report-surface layer). When M-60 lands it
+# should either pass a `gap_template` parameter to render_slot_prose
+# or subclass the renderer. Until then this string lives here so the
+# pipeline has an honest failure sentence today.
 _GAP_PHRASE = (
     "Primary publication was not retrievable from open-access, "
     "abstract, or metadata sources. All required fields are "
