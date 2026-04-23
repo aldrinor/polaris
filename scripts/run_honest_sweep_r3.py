@@ -1633,6 +1633,80 @@ async def run_one_query(
             "cost_usd": run_cost,
             "budget_cap_usd": PG_MAX_COST_PER_RUN,
         }
+
+        # V30 Report Contract Architecture integration (Phase 1 of
+        # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
+        # no-op. When enabled, runs M-54→M-55→M-56→M-57→M-60→M-61
+        # post-generation: compiles the per-query contract, fetches
+        # deterministic DOI/PMID/Unpaywall content for each
+        # contracted entity, composes the outline, emits the
+        # structured frame_coverage_report + human_gap_tasks.json.
+        #
+        # Phase 2 (separate cycle) will wire M-58 slot-bound prompts
+        # + M-59 validator into the generator. At Phase 1 we only
+        # attach the coverage block to manifest and append the
+        # Methods disclosure to report.md — existing generator
+        # output is untouched.
+        try:
+            from src.polaris_graph.v30_sweep_integration import (
+                run_v30_post_generation,
+            )
+            v30_result = run_v30_post_generation(
+                research_question=q["question"],
+                scope_template=_template,
+                slug=q["slug"],
+                run_dir=run_dir,
+                log=_log,
+            )
+            if v30_result.enabled:
+                manifest["v30_enabled"] = True
+                if v30_result.frame_coverage_report is not None:
+                    manifest["frame_coverage_report"] = (
+                        v30_result.frame_coverage_report
+                    )
+                if v30_result.error is not None:
+                    manifest["v30_error"] = v30_result.error
+                if v30_result.warnings:
+                    manifest["v30_warnings"] = list(
+                        v30_result.warnings
+                    )
+                # Append Methods disclosure to report.md (if the
+                # sweep produced a report — on success paths
+                # report.md exists). Operator/clinician-facing.
+                if v30_result.methods_disclosure_text:
+                    report_path = run_dir / "report.md"
+                    try:
+                        existing = (
+                            report_path.read_text(encoding="utf-8")
+                            if report_path.exists() else ""
+                        )
+                        disclosure_block = (
+                            "\n\n---\n\n"
+                            "## V30 Frame Coverage Disclosure\n\n"
+                            f"{v30_result.methods_disclosure_text}\n"
+                        )
+                        report_path.write_text(
+                            existing + disclosure_block,
+                            encoding="utf-8",
+                        )
+                        _log(
+                            "[V30]         appended frame-coverage "
+                            "disclosure to report.md"
+                        )
+                    except Exception as _report_exc:
+                        _log(
+                            f"[V30]         WARN report.md append "
+                            f"failed: {_report_exc}"
+                        )
+        except Exception as _v30_exc:
+            _log(
+                f"[V30]         ERROR integration exception: "
+                f"{type(_v30_exc).__name__}: {_v30_exc}"
+            )
+            manifest["v30_error"] = (
+                f"{type(_v30_exc).__name__}: {_v30_exc}"
+            )
+
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
