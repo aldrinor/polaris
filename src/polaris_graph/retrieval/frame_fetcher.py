@@ -87,12 +87,19 @@ class ProvenanceClass(str, Enum):
       `not_extractable` for most required_fields.
     frame_gap_unrecoverable: all three sources failed; no locator
       resolved anything. M-60 will emit explicit gap sentence.
+    human_curated: content supplied by M-61 operator via the
+      hybrid-completion Path B. PERMANENT marker — downstream
+      rendering MUST surface the human-curated flag in every
+      citation + Methods disclosure. M-61 supplies the
+      StructuredProvenance audit evidence separately via
+      FrameRow.human_curated_provenance.
     """
 
     OPEN_ACCESS = "open_access"
     ABSTRACT_ONLY = "abstract_only"
     METADATA_ONLY = "metadata_only"
     FRAME_GAP_UNRECOVERABLE = "frame_gap_unrecoverable"
+    HUMAN_CURATED = "human_curated"
 
 
 @dataclass(frozen=True)
@@ -167,6 +174,14 @@ class FrameRow:
     retrieval_timings: tuple[RetrievalTiming, ...] = field(
         default_factory=tuple
     )
+    # M-61 structured provenance for human-curated rows. None for
+    # rows with provenance_class != HUMAN_CURATED. Dict shape —
+    # NOT a typed StructuredProvenance reference — to avoid
+    # circular import between frame_fetcher and
+    # human_gap_completion. Callers can round-trip via
+    # StructuredProvenance.from_dict when needed. Codex M-61
+    # audit Blocker 3 fix.
+    human_curated_provenance: dict[str, str] | None = None
 
     def is_gap(self) -> bool:
         return self.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE

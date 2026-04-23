@@ -212,6 +212,74 @@ class TestParseCompletionFailures:
             parse_completion(bad, 0)
         assert "acquired_at" in exc.value.reason
 
+    def test_non_utc_timezone_raises(self) -> None:
+        """Codex M-61 audit Nit: docstring says UTC but earlier
+        implementation accepted any timezone-aware offset. Fix
+        enforces UTC specifically."""
+        bad = _good_completion(
+            provenance_overrides={
+                "acquired_at": "2026-04-23T12:00:00+05:00",
+            },
+        )
+        with pytest.raises(CompletionSchemaError) as exc:
+            parse_completion(bad, 0)
+        assert "UTC" in exc.value.reason
+
+    def test_legacy_consent_proof_rejected(self) -> None:
+        """Codex M-61 audit Medium: schema closed against legacy
+        free-text channels. Passing `consent_proof` (even alongside
+        a valid provenance object) is rejected."""
+        bad = _good_completion()
+        bad["consent_proof"] = "operator-certified; trust me"
+        with pytest.raises(CompletionSchemaError) as exc:
+            parse_completion(bad, 0)
+        assert "consent_proof" in exc.value.reason or \
+               "unknown keys" in exc.value.reason
+
+    def test_unknown_provenance_key_rejected(self) -> None:
+        bad = _good_completion()
+        bad["provenance"]["sneaky_field"] = "something"
+        with pytest.raises(CompletionSchemaError) as exc:
+            parse_completion(bad, 0)
+        assert "unknown keys" in exc.value.reason.lower()
+
+    def test_other_source_type_requires_justification(self) -> None:
+        """Codex M-61 audit Medium: source_type='other' MUST
+        carry other_justification. The allowlist pressure valve
+        needs an audit hook."""
+        bad = _good_completion(
+            provenance_overrides={"source_type": "other"},
+        )
+        with pytest.raises(CompletionSchemaError) as exc:
+            parse_completion(bad, 0)
+        assert "other_justification" in exc.value.reason
+
+    def test_other_source_type_with_justification_accepted(self) -> None:
+        good = _good_completion(
+            provenance_overrides={
+                "source_type": "other",
+                "other_justification": (
+                    "Source obtained via interlibrary loan with "
+                    "licensed institutional partnership."
+                ),
+            },
+        )
+        record = parse_completion(good, 0)
+        assert record.provenance.source_type == "other"
+        assert "interlibrary" in record.provenance.other_justification
+
+    def test_other_justification_on_non_other_source_type_rejected(self) -> None:
+        """other_justification is only allowed when
+        source_type='other'."""
+        bad = _good_completion(
+            provenance_overrides={
+                "other_justification": "spurious extra field",
+            },
+        )
+        with pytest.raises(CompletionSchemaError) as exc:
+            parse_completion(bad, 0)
+        assert "unknown keys" in exc.value.reason.lower()
+
 
 # ─────────────────────────────────────────────────────────────────────
 # (3) load_completions — file IO
@@ -299,9 +367,60 @@ class TestValidateAgainstTasks:
         _, reason = result.rejected[0]
         assert "doi mismatch" in reason.lower()
 
+    def test_doi_omission_bypass_rejected(self) -> None:
+        """Codex M-61 audit Blocker 1: DOI omission is no longer
+        a valid bypass. task.doi present + completion.doi=None is
+        rejected."""
+        tasks = [{
+            "entity_id": "surpass_4_primary",
+            "doi": "10.1016/S0140-6736(21)01443-4",
+        }]
+        no_doi = parse_completion(
+            _good_completion(doi=None),
+            0,
+        )
+        result = validate_against_tasks((no_doi,), tasks)
+        assert len(result.accepted) == 0
+        assert len(result.rejected) == 1
+        _, reason = result.rejected[0]
+        assert "omitting DOI" in reason
+
+    def test_completion_doi_added_when_task_none_rejected(self) -> None:
+        """Codex M-61 audit Blocker 1 symmetric: task has no DOI,
+        completion adds one — reject. Operator cannot add DOI
+        binding where the contract doesn't require it."""
+        tasks = [{"entity_id": "statute_42_usc_1983", "doi": None}]
+        with_doi = parse_completion(
+            _good_completion(
+                entity_id="statute_42_usc_1983",
+                doi="10.9999/added_by_operator",
+            ),
+            0,
+        )
+        result = validate_against_tasks((with_doi,), tasks)
+        assert len(result.accepted) == 0
+        _, reason = result.rejected[0]
+        assert "no DOI" in reason
+
+    def test_duplicate_completion_rejected(self) -> None:
+        """Codex M-61 audit Blocker 3: only one completion per
+        entity. Duplicates are rejected (audit integrity — the
+        in-memory map keyed by entity_id must not be ambiguous)."""
+        tasks = [{
+            "entity_id": "surpass_4_primary",
+            "doi": "10.1016/S0140-6736(21)01443-4",
+        }]
+        c1 = parse_completion(_good_completion(), 0)
+        c2 = parse_completion(_good_completion(), 1)
+        result = validate_against_tasks((c1, c2), tasks)
+        assert len(result.accepted) == 1
+        assert len(result.rejected) == 1
+        _, reason = result.rejected[0]
+        assert "duplicate completion" in reason
+
     def test_both_null_doi_accepted(self) -> None:
-        """For entities without DOI (statute etc.), entity_id match
-        is sufficient."""
+        """For entities without DOI (statute etc.), both task and
+        completion having doi=None is the only valid match."""
         tasks = [{"entity_id": "statute_42_usc_1983", "doi": None}]
         record = parse_completion(
             _good_completion(
@@ -317,7 +436,10 @@ class TestValidateAgainstTasks:
 # (5) to_frame_rows — pipeline integration
 # ─────────────────────────────────────────────────────────────────────
 class TestToFrameRows:
-    def test_frame_row_carries_human_curated_marker(self) -> None:
+    def test_frame_row_carries_permanent_human_curated_marker(self) -> None:
+        """Codex M-61 audit Blocker 2 fix: provenance_class is
+        now HUMAN_CURATED (new enum value), not ABSTRACT_ONLY.
+        The marker is permanent across downstream handoffs."""
         accepted = (
             parse_completion(_good_completion(), 0),
         )
@@ -330,7 +452,9 @@ class TestToFrameRows:
         rows = to_frame_rows(accepted, metadata)
         assert len(rows) == 1
         row = rows[0]
-        # quote_source marker (Codex rev #6: permanent flag)
+        # Blocker 2 fix: provenance_class enum is HUMAN_CURATED
+        assert row.provenance_class == ProvenanceClass.HUMAN_CURATED
+        # Legacy quote_source marker still set (back-compat)
         assert row.quote_source == HUMAN_CURATED_PROVENANCE
         # Artifact retention path threaded to url for audit
         assert row.url == "/audit/retained/surpass4.pdf"
@@ -339,11 +463,49 @@ class TestToFrameRows:
         assert row.entity_id == "surpass_4_primary"
         assert row.rendering_slot == "efficacy_surpass_4"
         assert row.entity_type == "pivotal_trial"
-        # Provenance class enum for pipeline branching: ABSTRACT_ONLY
-        # (not gap, not full OA) so M-57/M-58 treat it as non-gap
-        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
         # Retrieval attempt log is empty (this wasn't retrieved)
         assert row.retrieval_attempts == ()
+
+    def test_frame_row_carries_structured_provenance_dict(self) -> None:
+        """Codex M-61 audit Blocker 3 fix: every
+        StructuredProvenance field survives the FrameRow boundary
+        via human_curated_provenance dict."""
+        accepted = (
+            parse_completion(_good_completion(), 0),
+        )
+        metadata = {
+            "surpass_4_primary": {
+                "rendering_slot": "efficacy_surpass_4",
+                "entity_type": "pivotal_trial",
+            }
+        }
+        rows = to_frame_rows(accepted, metadata)
+        prov = rows[0].human_curated_provenance
+        assert prov is not None
+        # All 8 required fields present
+        assert prov["curator_id"] == "operator@institution"
+        assert prov["source_type"] == "licensed_institutional_access"
+        assert "surpass4" in prov["source_locator"].lower() or \
+               "0140-6736" in prov["source_locator"]
+        assert prov["acquired_at"] == "2026-04-23T12:00:00+00:00"
+        assert prov["artifact_sha256"] == "a" * 64
+        assert prov["artifact_retention_path"] == "/audit/retained/surpass4.pdf"
+        assert prov["quote_page_range"] == "p.1812"
+        assert "institutional licensed subscription" in prov["attestation"]
+
+    def test_non_human_rows_have_no_provenance(self) -> None:
+        """Sanity: FrameRow.human_curated_provenance defaults to
+        None for rows that didn't come from M-61."""
+        from src.polaris_graph.retrieval.frame_fetcher import FrameRow
+        row = FrameRow(
+            entity_id="x", entity_type="t", rendering_slot="s",
+            provenance_class=ProvenanceClass.ABSTRACT_ONLY,
+            direct_quote="abstract", quote_source="crossref_abstract",
+            doi="10.1/x", pmid=None, oa_pdf_url=None, url=None,
+            title=None, authors=(), journal=None, year=None,
+            failure_reason=None,
+        )
+        assert row.human_curated_provenance is None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -374,8 +536,14 @@ class TestMethodsDisclosure:
         )
         assert "46 retrieved" in text
         assert "3 human-curated" in text
-        assert "licensed sources" in text
+        # Codex M-61 audit Medium: "licensed or attested" since
+        # allowed source_type includes author_communication +
+        # other-with-justification, not strictly subscription
+        assert "licensed or attested sources" in text
         assert "artifact_sha256" in text
+        # Codex M-61 audit Blocker 2: the permanent provenance
+        # class name is surfaced so readers know where to look
+        assert "human_curated" in text
 
 
 # ─────────────────────────────────────────────────────────────────────

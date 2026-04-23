@@ -258,7 +258,10 @@ def _validate_one_entity(
     ev_cited = f"[{entity_id}]" in slot_prose
     observed = payload.completion_count()
 
-    # Gap entity path
+    # Gap entity path — only FRAME_GAP_UNRECOVERABLE counts as
+    # gap. HUMAN_CURATED is NOT a gap (content exists, curator-
+    # supplied), and neither are ABSTRACT_ONLY / OPEN_ACCESS /
+    # METADATA_ONLY.
     if payload.provenance_class == "frame_gap_unrecoverable":
         if _GAP_MARKER not in slot_prose:
             return EntityValidation(

@@ -73,6 +73,13 @@ class SlotCoverageEntry:
     crossed wires). Codex M-60 audit Medium: these entries should
     NOT be routed to human completion — they need engineer
     attention, not curator attention.
+
+    `human_curated_provenance` surfaces the M-61 StructuredProvenance
+    dict (curator_id, artifact_sha256, retention path, attestation,
+    etc.) directly in the manifest entry when the row was supplied
+    via Path B. Codex M-61 audit Blocker 3 — audit evidence must
+    survive the FrameRow → manifest boundary, not live in an
+    in-memory side channel.
     """
 
     slot_id: str
@@ -92,6 +99,8 @@ class SlotCoverageEntry:
     min_fields_for_completion: int
     doi: str | None
     pmid: str | None
+    # M-61 audit evidence passthrough
+    human_curated_provenance: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -276,6 +285,10 @@ def compose_frame_coverage(
                     min_fields_for_completion=min_fields,
                     doi=row.doi,
                     pmid=row.pmid,
+                    # M-61 audit evidence passthrough (Codex M-61
+                    # audit Blocker 3 fix). None for non-human-
+                    # curated rows.
+                    human_curated_provenance=row.human_curated_provenance,
                 ))
 
     return FrameCoverageReport(
@@ -502,7 +515,9 @@ def _available_artifacts(row: FrameRow) -> list[str]:
     for this entity. M-61 operator dashboard shows this so the
     curator sees what's already available (e.g. "oa_pdf_url" means
     the operator can fetch full-text; "metadata_only" means they
-    need to supply everything)."""
+    need to supply everything). For HUMAN_CURATED rows, adds
+    "human_curated_provenance" so auditors see the structured
+    evidence is attached."""
     out: list[str] = []
     if row.oa_pdf_url:
         out.append("oa_url")
@@ -516,6 +531,8 @@ def _available_artifacts(row: FrameRow) -> list[str]:
         out.append("pmid")
     if row.url:
         out.append("url_pattern")
+    if row.human_curated_provenance is not None:
+        out.append("human_curated_provenance")
     return out
 
 
@@ -588,4 +605,5 @@ def _empty_coverage_entry(
         min_fields_for_completion=min_fields_for_completion,
         doi=None,
         pmid=None,
+        human_curated_provenance=None,
     )

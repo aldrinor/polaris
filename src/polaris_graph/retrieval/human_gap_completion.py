@@ -107,7 +107,8 @@ class StructuredProvenance:
       or equivalent stable reference (PMC ID, URL at permanent
       archive, etc). Must uniquely identify the cited passage.
     acquired_at: ISO-8601 UTC timestamp when operator accessed the
-      source.
+      source. Must be timezone-aware AND offset=UTC (+00:00 or 'Z').
+      Codex M-61 audit Nit: non-UTC offsets were silently accepted.
     artifact_sha256: hex digest of the retained file (PDF page
       image / text snippet / screenshot). Independently
       recomputable at audit time. Hex chars only, 64 long.
@@ -119,16 +120,38 @@ class StructuredProvenance:
     attestation: curator's signed statement of licensed access.
       Free-text but structured — "I hereby certify that ..."
       form. Audit-logged.
+    other_justification: required IFF source_type='other'. Codex
+      M-61 audit Medium: the `other` pressure valve needs a
+      justification so it doesn't become an unaudited bucket.
     """
 
     curator_id: str
     source_type: str
     source_locator: str
-    acquired_at: str                    # ISO-8601
+    acquired_at: str                    # ISO-8601 UTC
     artifact_sha256: str                # 64 hex chars
     artifact_retention_path: str
     quote_page_range: str
     attestation: str
+    other_justification: str | None = None
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize to plain dict for FrameRow.human_curated_provenance
+        threading (avoids circular import between frame_fetcher
+        and human_gap_completion)."""
+        out = {
+            "curator_id": self.curator_id,
+            "source_type": self.source_type,
+            "source_locator": self.source_locator,
+            "acquired_at": self.acquired_at,
+            "artifact_sha256": self.artifact_sha256,
+            "artifact_retention_path": self.artifact_retention_path,
+            "quote_page_range": self.quote_page_range,
+            "attestation": self.attestation,
+        }
+        if self.other_justification is not None:
+            out["other_justification"] = self.other_justification
+        return out
 
 
 @dataclass(frozen=True)
@@ -159,18 +182,49 @@ _ALLOWED_SOURCE_TYPES = frozenset({
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
+# Codex M-61 audit Medium: the schema must be closed against
+# legacy free-text channels. An `other` source_type must carry
+# a justification field so the allowlist's pressure valve doesn't
+# become an unaudited bucket. Legacy `consent_proof` key is
+# explicitly rejected at parse.
+_ALLOWED_COMPLETION_KEYS = frozenset({
+    "entity_id", "doi", "direct_quote", "source_span", "provenance",
+})
+_ALLOWED_PROVENANCE_KEYS_BASE = frozenset({
+    "curator_id", "source_type", "source_locator", "acquired_at",
+    "artifact_sha256", "artifact_retention_path",
+    "quote_page_range", "attestation",
+})
+# Extra key permitted ONLY when source_type="other".
+_OTHER_JUSTIFICATION_KEY = "other_justification"
+
 
 def parse_completion(
     raw: dict[str, Any], record_index: int,
 ) -> HumanCompletionRecord:
     """Parse one raw JSON record into HumanCompletionRecord.
 
+    Codex M-61 audit Medium: schema is now CLOSED against legacy
+    free-text channels. Any key outside _ALLOWED_COMPLETION_KEYS
+    (e.g. legacy `consent_proof`) raises CompletionSchemaError.
+
     Raises CompletionSchemaError with record_index on any
-    malformation or missing required provenance field.
+    malformation, missing required provenance field, or
+    unknown key.
     """
     if not isinstance(raw, dict):
         raise CompletionSchemaError(
             record_index, f"expected dict, got {type(raw).__name__}"
+        )
+
+    # Codex M-61 audit Medium: explicit unknown-key rejection.
+    unknown = set(raw.keys()) - _ALLOWED_COMPLETION_KEYS
+    if unknown:
+        raise CompletionSchemaError(
+            record_index,
+            f"unknown keys: {sorted(unknown)}. Legacy free-text "
+            f"channels (e.g. 'consent_proof') are rejected — "
+            f"use the structured `provenance` object.",
         )
 
     entity_id = raw.get("entity_id")
@@ -225,11 +279,20 @@ def parse_completion(
 def _parse_provenance(
     raw: dict[str, Any], record_index: int,
 ) -> StructuredProvenance:
-    required = {
-        "curator_id", "source_type", "source_locator", "acquired_at",
-        "artifact_sha256", "artifact_retention_path",
-        "quote_page_range", "attestation",
-    }
+    # Codex M-61 audit: unknown-key rejection plus conditional
+    # other_justification enforcement.
+    allowed_keys = set(_ALLOWED_PROVENANCE_KEYS_BASE)
+    source_type_raw = raw.get("source_type")
+    if source_type_raw == "other":
+        allowed_keys.add(_OTHER_JUSTIFICATION_KEY)
+    unknown = set(raw.keys()) - allowed_keys
+    if unknown:
+        raise CompletionSchemaError(
+            record_index,
+            f"provenance unknown keys: {sorted(unknown)}",
+        )
+
+    required = set(_ALLOWED_PROVENANCE_KEYS_BASE)
     missing = required - set(raw.keys())
     if missing:
         raise CompletionSchemaError(
@@ -252,6 +315,19 @@ def _parse_provenance(
             f"allowed set {sorted(_ALLOWED_SOURCE_TYPES)}",
         )
 
+    # Codex M-61 audit Medium: source_type='other' MUST carry
+    # other_justification. The pressure valve needs an audit hook.
+    other_justification = None
+    if source_type == "other":
+        oj = raw.get(_OTHER_JUSTIFICATION_KEY)
+        if not isinstance(oj, str) or not oj.strip():
+            raise CompletionSchemaError(
+                record_index,
+                "provenance.other_justification required when "
+                "source_type='other' (non-empty string)",
+            )
+        other_justification = oj
+
     artifact_sha256 = raw["artifact_sha256"].lower()
     if not _SHA256_RE.match(artifact_sha256):
         raise CompletionSchemaError(
@@ -260,22 +336,25 @@ def _parse_provenance(
             "(lowercase)",
         )
 
+    # Codex M-61 audit Nit: enforce UTC offset specifically, not
+    # just timezone-awareness. Non-UTC offsets are rejected so the
+    # audit timeline is consistent.
     acquired_at = raw["acquired_at"]
     try:
-        # datetime.fromisoformat in Python 3.11+ supports most
-        # ISO-8601 variants including trailing 'Z'. For safety
-        # accept 'Z' by normalizing to '+00:00'.
         normalized = acquired_at.replace("Z", "+00:00")
         dt = datetime.fromisoformat(normalized)
-        # Require timezone awareness; naive datetimes are ambiguous
-        # for audit.
         if dt.tzinfo is None:
             raise ValueError("naive datetime not allowed")
+        if dt.utcoffset() != timezone.utc.utcoffset(None):
+            raise ValueError(
+                f"timezone offset must be UTC; got "
+                f"{dt.utcoffset()}"
+            )
     except (ValueError, TypeError) as exc:
         raise CompletionSchemaError(
             record_index,
             f"provenance.acquired_at must be ISO-8601 UTC datetime "
-            f"with timezone; got {acquired_at!r} ({exc})",
+            f"('+00:00' or 'Z'); got {acquired_at!r} ({exc})",
         ) from exc
 
     return StructuredProvenance(
@@ -287,6 +366,7 @@ def _parse_provenance(
         artifact_retention_path=raw["artifact_retention_path"],
         quote_page_range=raw["quote_page_range"],
         attestation=raw["attestation"],
+        other_justification=other_justification,
     )
 
 
@@ -334,24 +414,38 @@ def validate_against_tasks(
     M-60 task. A completion is accepted iff:
 
     1. entity_id matches a task in tasks[].
-    2. DOI matches the task's doi (unless both are None, in which
-       case the entity_id match suffices — covers entities like
-       statute / URL-only regulatory that have no DOI).
+    2. DOI matches the task's doi EXACTLY — including DOI
+       presence. If the task has a DOI, the completion MUST
+       supply the same DOI. DOI omission is NOT a valid bypass
+       (Codex M-61 audit Blocker 1).
+    3. Only one completion per entity_id is accepted. Second
+       and subsequent completions for the same entity are
+       rejected (Codex M-61 audit Blocker 3 — prevents ambiguous
+       audit trail).
 
-    Operator cannot substitute content from a different paper by
-    supplying a matching entity_id + a different DOI.
-
-    Unmatched completions and DOI-mismatched completions are
-    rejected with a reason. Missing tasks (completion for an
-    entity that isn't on the task list) are rejected too — no
-    silent acceptance.
+    Operator cannot:
+      - substitute content from a different paper (DOI mismatch)
+      - bypass the paper-binding by omitting DOI on their side
+      - supply multiple completions for the same entity
+      - supply content for an entity that isn't curator-actionable
     """
     tasks_by_eid: dict[str, dict[str, Any]] = {
         t["entity_id"]: t for t in tasks
     }
     accepted: list[HumanCompletionRecord] = []
     rejected: list[tuple[HumanCompletionRecord, str]] = []
+    seen_entity_ids: set[str] = set()
     for c in completions:
+        if c.entity_id in seen_entity_ids:
+            rejected.append((
+                c,
+                f"duplicate completion for entity_id="
+                f"{c.entity_id!r} — only one completion per "
+                f"entity is accepted (audit integrity)",
+            ))
+            continue
+        seen_entity_ids.add(c.entity_id)
+
         task = tasks_by_eid.get(c.entity_id)
         if task is None:
             rejected.append((
@@ -362,14 +456,39 @@ def validate_against_tasks(
             ))
             continue
         task_doi = task.get("doi")
-        if task_doi and c.doi and task_doi != c.doi:
-            rejected.append((
-                c,
-                f"doi mismatch: task.doi={task_doi!r} vs "
-                f"completion.doi={c.doi!r} — operator cannot "
-                f"substitute content from a different paper",
-            ))
-            continue
+        if task_doi:
+            # Codex M-61 audit Blocker 1: task has a DOI →
+            # completion MUST have the SAME DOI. None on the
+            # completion side is no longer a free pass.
+            if c.doi is None:
+                rejected.append((
+                    c,
+                    f"completion.doi is None but task requires "
+                    f"doi={task_doi!r} — operator cannot bypass "
+                    f"paper-binding by omitting DOI",
+                ))
+                continue
+            if task_doi != c.doi:
+                rejected.append((
+                    c,
+                    f"doi mismatch: task.doi={task_doi!r} vs "
+                    f"completion.doi={c.doi!r} — operator cannot "
+                    f"substitute content from a different paper",
+                ))
+                continue
+        else:
+            # Task has no DOI (statute, URL-only regulatory) —
+            # completion must also have no DOI, to prevent the
+            # operator from claiming a DOI where the contract
+            # doesn't have one.
+            if c.doi is not None:
+                rejected.append((
+                    c,
+                    f"task has no DOI but completion.doi="
+                    f"{c.doi!r} — operator cannot add a DOI "
+                    f"binding that the contract does not require",
+                ))
+                continue
         accepted.append(c)
 
     return CompletionAcceptance(
@@ -381,9 +500,10 @@ def validate_against_tasks(
 # ─────────────────────────────────────────────────────────────────────
 # Convert to FrameRow for pipeline integration
 # ─────────────────────────────────────────────────────────────────────
-# New ProvenanceClass for human-curated content. This value is
-# permanently preserved downstream so every rendering + manifest
-# entry carries the human_curated flag.
+# Legacy string marker kept for back-compat with callers reading
+# row.quote_source. The AUTHORITATIVE permanent flag is now
+# ProvenanceClass.HUMAN_CURATED on row.provenance_class. Codex
+# M-61 audit Blocker 2 fix.
 HUMAN_CURATED_PROVENANCE = "human_curated"
 
 
@@ -393,27 +513,22 @@ def to_frame_rows(
 ) -> tuple[FrameRow, ...]:
     """Produce FrameRow objects for each accepted completion.
 
+    Codex M-61 audit Blocker 2 fix: provenance_class is now
+    ProvenanceClass.HUMAN_CURATED (new enum value). Downstream
+    layers that branch on provenance_class will see the permanent
+    human-curated marker. Legacy quote_source="human_curated"
+    kept for back-compat.
+
+    Codex M-61 audit Blocker 3 fix: structured provenance is now
+    serialized into FrameRow.human_curated_provenance as a dict.
+    Every field of StructuredProvenance survives the FrameRow
+    boundary. Downstream manifest renderers can inline the
+    audit evidence without needing an in-memory side channel.
+
     `entity_metadata` is a map of entity_id → {rendering_slot,
     entity_type, ...} pulled from ReportContract.entities_by_id()
     at integration time. We don't import ReportContract here to
     keep M-61 independent of M-54 schema.
-
-    Returned FrameRow carries:
-      - provenance_class string marker "human_curated" (we use
-        the string directly rather than ProvenanceClass enum to
-        avoid extending that enum; M-58/M-59/M-60 check the
-        string value anyway).
-      - quote_source="human_curated".
-      - direct_quote = operator-provided quote.
-      - url = structured provenance's artifact_retention_path
-        (so manifest can thread the audit pointer).
-      - failure_reason = None (this IS the resolution).
-
-    The structured provenance object is NOT serialized into the
-    FrameRow (FrameRow is frame_fetcher-defined and we don't
-    extend its schema here). Downstream manifest consumption
-    should cross-reference the completion file or an in-memory
-    map keyed by entity_id.
 
     NOTE: M-58 SlotFillPayload + strict_verify still apply. A
     human-curated direct_quote must pass the same value==source_span
@@ -421,14 +536,6 @@ def to_frame_rows(
     (independent of strict_verify) that the quote wasn't
     fabricated.
     """
-    # Use the ABSTRACT_ONLY provenance_class enum value but surface
-    # human_curated in quote_source so downstream branching works.
-    # Actually the cleaner approach is to emit a custom FrameRow
-    # with the HUMAN_CURATED_PROVENANCE string; FrameRow takes
-    # ProvenanceClass enum, so we do need to reuse an enum value.
-    # Use FRAME_GAP_UNRECOVERABLE to OPEN_ACCESS — ABSTRACT_ONLY
-    # best reflects the "direct_quote available but not full-text"
-    # characteristic of curated content.
     rows: list[FrameRow] = []
     for c in accepted:
         meta = entity_metadata.get(c.entity_id, {})
@@ -438,10 +545,7 @@ def to_frame_rows(
             entity_id=c.entity_id,
             entity_type=entity_type,
             rendering_slot=rendering_slot,
-            # Use ABSTRACT_ONLY enum value so existing M-57/M-58
-            # non-gap code paths handle the row; quote_source
-            # carries the human_curated marker for downstream.
-            provenance_class=ProvenanceClass.ABSTRACT_ONLY,
+            provenance_class=ProvenanceClass.HUMAN_CURATED,
             direct_quote=c.direct_quote,
             quote_source=HUMAN_CURATED_PROVENANCE,
             doi=c.doi,
@@ -455,6 +559,7 @@ def to_frame_rows(
             failure_reason=None,
             retrieval_attempts=(),
             retrieval_timings=(),
+            human_curated_provenance=c.provenance.to_dict(),
         ))
     return tuple(rows)
 
@@ -474,13 +579,20 @@ def compose_methods_disclosure_human_curated(
     separately from retrieved rows. Per V30 plan: 'Tier
     disclosure ... counts human-curated rows separately from
     retrieved rows: "46 retrieved + 3 human-curated from
-    licensed sources"'."""
+    licensed sources"'.
+
+    Codex M-61 audit Medium fix: say "licensed or attested
+    sources" since allowed source_type values include
+    author_communication and preprint and other-with-
+    justification, not strictly subscription.
+    """
     if n_human_curated == 0:
         return f"Evidence basis: {n_retrieved} retrieved rows, 0 human-curated."
     return (
         f"Evidence basis: {n_retrieved} retrieved + {n_human_curated} "
-        f"human-curated from licensed sources (see manifest.json "
-        f"frame_coverage_report.entries with "
-        f"provenance_class={HUMAN_CURATED_PROVENANCE!r} for curator "
-        f"attribution + artifact_sha256)."
+        f"human-curated from licensed or attested sources (see "
+        f"manifest.json frame_coverage_report.entries with "
+        f"provenance_class={ProvenanceClass.HUMAN_CURATED.value!r} "
+        f"for curator attribution + artifact_sha256 + "
+        f"retention pointer)."
     )
