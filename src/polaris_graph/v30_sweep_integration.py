@@ -542,15 +542,26 @@ def _synthesize_phase1_validation(
         the entity successfully. Phase-1 makes NO claim about
         whether the legacy generator cited the entity.
 
-    This is narrower than the pass-1 heuristic but honest. The
-    manifest field is renamed `retrieval_coverage_report` (not
-    `frame_coverage_report`) to reflect the narrower semantic.
-    Phase 2 will add true report-coverage when M-58 SlotFillPayloads
-    are wired, and rename accordingly.
+    This is narrower than the pass-1 heuristic but honest.
 
-    A standing manifest warning `phase1_retrieval_coverage_only`
-    is always emitted when non-gap rows pass, so no caller can
-    mistake a PASS for "generator cited this entity".
+    Manifest key naming: the block is shipped as
+    `manifest["frame_coverage_report"]` (key preserved to avoid
+    breaking downstream dashboards + M-60 schema compatibility).
+    The Phase-1 scope boundary is signalled through THREE
+    orthogonal surfaces instead:
+      1. A mandatory `phase1_retrieval_coverage_only` warning
+         in `manifest.v30_warnings[]`.
+      2. The report.md disclosure block is renamed to
+         `## V30 Phase-1 Retrieval Coverage Disclosure` and
+         prefixed with an explicit "does NOT claim ... cited
+         ... in the verified report" preamble.
+      3. Every PASS `EntityValidation.reason` explicitly notes
+         "does NOT claim the legacy generator cited the entity
+         in report.md".
+    Phase 2 (when M-58 + M-59 replace the legacy generator) will
+    populate `frame_coverage_report` with true report-coverage
+    semantics; the manifest key stays stable across the
+    transition.
     """
     from .generator.slot_validator import (
         EntityValidation,
@@ -564,12 +575,14 @@ def _synthesize_phase1_validation(
     contract_entities = compiled.contract.entities_by_id()
 
     warnings.append(
-        "phase1_retrieval_coverage_only: Phase-1 V30 coverage "
-        "reflects retrieval success only, NOT whether the legacy "
-        "generator cited each entity in the verified report. "
-        "Phase-2 (M-58 slot-bound generator integration) will add "
-        "true report-coverage semantics; manifest field is named "
-        "`retrieval_coverage_report` to avoid overclaiming."
+        "phase1_retrieval_coverage_only: Phase-1 V30 "
+        "manifest.frame_coverage_report reflects retrieval "
+        "success only, NOT whether the legacy generator cited "
+        "each entity in the verified report. Phase-2 (M-58 "
+        "slot-bound generator integration) will populate the "
+        "same key with true report-coverage semantics. See "
+        "manifest.frame_coverage_report.entries[*].status = "
+        "'pass' only confirms M-56 fetched the entity."
     )
 
     entity_validations: list[EntityValidation] = []
