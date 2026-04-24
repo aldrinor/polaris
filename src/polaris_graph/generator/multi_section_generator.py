@@ -3266,7 +3266,19 @@ async def generate_multi_section_report(
         """Adapter: one OpenRouter call per M-58 slot prompt.
         Returns (response_text, input_tokens, output_tokens).
         M-58's `parse_slot_fill_response` handles the JSON
-        parsing; we just hand the raw text through."""
+        parsing; we just hand the raw text through.
+
+        V30 Phase-2 M-66 run-5 diagnostic: contract slots with
+        25K-char direct_quote (e.g. FDA Mounjaro label via
+        M-66b-T OA full-text fetch) produced JSON truncation
+        (`Unterminated string starting at pos 10561`) when the
+        LLM tried to echo a long regulatory prose span under the
+        default section_max_tokens=2400 budget. Raise the cap
+        for contract extraction calls — the JSON schema is much
+        terser than legacy section prose (max 10 fields × verbatim
+        quotes × ~500 chars = ~5K tokens), so 6000 gives safe
+        headroom without inviting runaway verbosity.
+        """
         from ..llm.openrouter_client import OpenRouterClient
         client = OpenRouterClient(model=gen_model)
         try:
@@ -3279,7 +3291,7 @@ async def generate_multi_section_report(
                     "code fences, or any text outside the JSON "
                     "object."
                 ),
-                max_tokens=section_max_tokens,
+                max_tokens=max(section_max_tokens, 6000),
                 temperature=section_temperature,
             )
         finally:

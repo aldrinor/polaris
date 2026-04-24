@@ -828,6 +828,123 @@ class TestEntityTypeAgnostic:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# (6b) V30 Phase-2 M-66a-R whitespace-tolerant verbatim check
+# ─────────────────────────────────────────────────────────────────────
+class TestWhitespaceTolerantSubstring:
+    """V30 Phase-2 M-66a-R regression coverage. Codex pass-1 of M-66
+    predicted this fix would become data-indicated after M-66b-T
+    brought full-text OA content into M-58's direct_quote. Run-5
+    confirmed: 5 of 6 regulatory + 1 mechanism entity parse-failed
+    because the LLM echoed source_span with collapsed whitespace
+    against a direct_quote containing newlines.
+
+    The relaxation must BOTH let whitespace-differing matches
+    through AND still reject fabricated content.
+    """
+
+    def test_whitespace_difference_now_accepted(self) -> None:
+        """LLM echoes `Indications: adjunct to diet` but the
+        source has `Indications:\\n\\nadjunct to diet` — used to
+        fail, now passes."""
+        slot = _slot_plan()
+        row = _frame_row(
+            quote=(
+                "HIGHLIGHTS OF PRESCRIBING INFORMATION\n\n"
+                "Indications:\n\nadjunct to diet and exercise to "
+                "improve glycemic control in adults with T2D.\n\n"
+                "WARNING: thyroid C-cell tumors."
+            ),
+            entity_id="fda_mounjaro_label",
+            entity_type="regulatory",
+        )
+        response = json.dumps({
+            "fields": [{
+                "field_name": "indications",
+                "status": "extracted",
+                # Single-space, no newlines
+                "value": "adjunct to diet and exercise to improve "
+                         "glycemic control in adults with T2D",
+                "source_span": "adjunct to diet and exercise to improve "
+                              "glycemic control in adults with T2D",
+            }],
+        })
+        payload = parse_slot_fill_response(
+            response, slot, row, ("indications",),
+        )
+        assert payload.fields[0].status == "extracted"
+
+    def test_fabricated_content_still_rejected(self) -> None:
+        """Anti-fabrication preserved: text NOT in the source
+        still fails regardless of whitespace handling."""
+        slot = _slot_plan()
+        row = _frame_row(
+            quote=(
+                "Indications: adjunct to diet and exercise for T2D."
+            ),
+            entity_id="fda_mounjaro_label",
+            entity_type="regulatory",
+        )
+        response = json.dumps({
+            "fields": [{
+                "field_name": "indications",
+                "status": "extracted",
+                # Content NOT in source quote
+                "value": "cure for all diabetes including type 1",
+                "source_span": "cure for all diabetes including type 1",
+            }],
+        })
+        with pytest.raises(SlotFillParseError, match="anti-fabrication"):
+            parse_slot_fill_response(
+                response, slot, row, ("indications",),
+            )
+
+    def test_case_change_still_rejected(self) -> None:
+        """Case-sensitivity preserved — `ADJUNCT` should not
+        match `adjunct` (prevents case-folding exploits)."""
+        slot = _slot_plan()
+        row = _frame_row(
+            quote="Indications: adjunct to diet for T2D.",
+            entity_id="fda_mounjaro_label",
+            entity_type="regulatory",
+        )
+        response = json.dumps({
+            "fields": [{
+                "field_name": "indications",
+                "status": "extracted",
+                "value": "ADJUNCT TO DIET FOR T2D",
+                "source_span": "ADJUNCT TO DIET FOR T2D",
+            }],
+        })
+        with pytest.raises(SlotFillParseError, match="anti-fabrication"):
+            parse_slot_fill_response(
+                response, slot, row, ("indications",),
+            )
+
+    def test_helper_directly(self) -> None:
+        """Direct-call coverage of the helper."""
+        from src.polaris_graph.generator.slot_fill import (
+            _whitespace_tolerant_substring,
+        )
+        # Exact match
+        assert _whitespace_tolerant_substring("foo", "the foo bar") is True
+        # Whitespace difference
+        assert _whitespace_tolerant_substring(
+            "foo bar", "the foo\n\n  bar baz",
+        ) is True
+        # Content difference
+        assert _whitespace_tolerant_substring(
+            "qux", "the foo bar",
+        ) is False
+        # Case difference
+        assert _whitespace_tolerant_substring(
+            "FOO", "the foo bar",
+        ) is False
+        # Empty
+        assert _whitespace_tolerant_substring("", "anything") is False
+        assert _whitespace_tolerant_substring("foo", "") is False
+
+
+# ─────────────────────────────────────────────────────────────────────
 # (7) End-to-end round trip
 # ─────────────────────────────────────────────────────────────────────
 class TestRoundTrip:

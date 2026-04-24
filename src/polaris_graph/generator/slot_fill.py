@@ -164,6 +164,38 @@ def _whitespace_collapse(s: str) -> str:
     return " ".join(s.split())
 
 
+def _whitespace_tolerant_substring(needle: str, haystack: str) -> bool:
+    """V30 Phase-2 M-66a-R: whitespace-tolerant substring test.
+
+    Returns True iff `needle` appears in `haystack` when both are
+    compared after collapsing runs of whitespace to single spaces.
+    Case-sensitive, character-exact otherwise — no fuzzy matching,
+    no Unicode normalization, no punctuation tolerance.
+
+    Rationale (run-5 diagnostics):
+      Regulatory + mechanism entities fetched as 25K-char markdown
+      (HTML+PDF extracts) have inconsistent whitespace. An LLM
+      naturally echoes "Indications: ... " as a single-space phrase
+      even when the source has "Indications:\\n\\n..." structure.
+      The strict `needle in haystack` check rejected 5 of 6
+      regulatory extractions and 1 mechanism extraction in run-5.
+
+    Anti-fabrication preserved:
+      The function rejects any needle whose non-whitespace content
+      doesn't appear in haystack. Case is preserved. Content
+      insertions/substitutions/deletions all fail.
+    """
+    if not needle or not haystack:
+        return False
+    # Fast path: exact match preserves backwards-compat + cheap.
+    if needle in haystack:
+        return True
+    # Whitespace-tolerant path
+    n = _whitespace_collapse(needle)
+    h = _whitespace_collapse(haystack)
+    return n in h
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Prompt construction
 # ─────────────────────────────────────────────────────────────────────
@@ -390,11 +422,33 @@ def parse_slot_fill_response(
                     f"fields[{fname!r}].source_span must be non-empty "
                     f"string when status=extracted"
                 )
-            if source_span not in direct_quote:
+            # V30 Phase-2 M-66a-R (Codex-predicted verifier relaxation,
+            # now data-indicated after run-5 showed 6 parse failures
+            # on regulatory + mechanism entities when direct_quote is
+            # full-text markdown with non-canonical whitespace):
+            # the verbatim substring check must tolerate whitespace
+            # differences. LLMs naturally normalize whitespace when
+            # echoing content, and HTML/PDF-extracted markdown often
+            # has `\n\n` between tokens that appear as single spaces
+            # in the LLM-quoted source_span. Without this relaxation
+            # virtually no field extracts successfully from a 25K
+            # char regulatory page.
+            #
+            # The relaxation is WHITESPACE-ONLY: source_span and
+            # direct_quote are compared after collapsing consecutive
+            # whitespace (incl newlines) to a single space. It does
+            # NOT tolerate character substitutions, case changes, or
+            # content insertions — those still fail. So the anti-
+            # fabrication guarantee (LLM MUST ground value in source
+            # text) is preserved. Case-sensitivity is also preserved
+            # (prevents adversarial case-folding exploits).
+            if not _whitespace_tolerant_substring(
+                source_span, direct_quote,
+            ):
                 raise SlotFillParseError(
                     f"fields[{fname!r}].source_span is not a verbatim "
                     f"substring of direct_quote (anti-fabrication "
-                    f"check 1 failed)"
+                    f"check 1 failed, whitespace-tolerant comparison)"
                 )
             # Codex M-58 audit Blocker (pass 1→5 final tightening).
             # After five passes of substring-containment exploits,
