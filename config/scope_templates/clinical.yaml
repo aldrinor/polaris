@@ -264,7 +264,7 @@ per_query_report_contract:
         type: pivotal_trial
         anchor: SURPASS-2
         doi: 10.1056/NEJMoa2107519
-        pmid: 34010531
+        pmid: 34170647
         journal: NEJM
         year: 2021
         population_scope: direct
@@ -287,8 +287,8 @@ per_query_report_contract:
       - id: surpass_4_primary
         type: pivotal_trial
         anchor: SURPASS-4
-        doi: 10.1016/S0140-6736(21)01997-1
-        pmid: 34600604
+        doi: 10.1016/S0140-6736(21)02188-7
+        pmid: 34672967
         journal: Lancet
         year: 2021
         population_scope: direct
@@ -300,7 +300,7 @@ per_query_report_contract:
         type: pivotal_trial
         anchor: SURPASS-5
         doi: 10.1001/jama.2022.0078
-        pmid: 35103765
+        pmid: 35133415
         journal: JAMA
         year: 2022
         population_scope: direct
@@ -312,7 +312,7 @@ per_query_report_contract:
         type: pivotal_trial
         anchor: SURPASS-6
         doi: 10.1001/jama.2023.0023
-        pmid: 36744281
+        pmid: 36809318
         journal: JAMA
         year: 2023
         population_scope: direct
@@ -347,8 +347,8 @@ per_query_report_contract:
       - id: thomas_clamp_2022
         type: mechanism_primary
         anchor: Thomas-clamp
-        doi: 10.1016/S2213-8587(22)00041-1
-        pmid: 35364022
+        doi: 10.1016/S2213-8587(22)00085-7
+        pmid: 35468322
         journal: Lancet Diabetes Endocrinol
         year: 2022
         required_fields: [m_value_pct_increase, first_phase_insulin_secretion, second_phase_insulin_secretion, half_life_days, participant_n, clamp_duration_weeks, glucagon_suppression_pct]

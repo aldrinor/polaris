@@ -295,6 +295,21 @@ class TestPubmedParser:
         assert "BACKGROUND:" in parsed["abstract"]
         assert "METHODS:" in parsed["abstract"]
 
+    def test_doi_and_pmid_extracted(self) -> None:
+        """V30 Phase-2 run-1 root-cause guard: the parser must
+        surface PubMed's own DOI + PMID so the fetcher can
+        detect contract DOI↔PMID mismatches before extraction."""
+        xml = """<PubmedArticleSet><PubmedArticle><MedlineCitation>
+        <PMID Version="1">34170647</PMID>
+        <Article>
+          <ELocationID EIdType="doi" ValidYN="Y">10.1056/NEJMoa2107519</ELocationID>
+          <ArticleTitle>Tirzepatide versus Semaglutide</ArticleTitle>
+          <Abstract><AbstractText>SURPASS-2 content.</AbstractText></Abstract>
+        </Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"""
+        parsed = _parse_pubmed_xml(xml)
+        assert parsed["doi"] == "10.1056/nejmoa2107519"
+        assert parsed["pmid"] == "34170647"
+
 
 # ─────────────────────────────────────────────────────────────────────
 # (2) Identifier collection helper

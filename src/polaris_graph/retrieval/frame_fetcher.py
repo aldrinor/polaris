@@ -332,12 +332,34 @@ def _parse_pubmed_xml(xml_text: str) -> dict[str, Any]:
         elif last:
             authors.append(last)
 
+    # V30 Phase-2 sweep run-1 root cause: stale/wrong PMID in the
+    # contract YAML (e.g. PMID 34010531 bound to surpass_2_primary
+    # actually points at the SPRINT blood-pressure trial, not the
+    # Frias tirzepatide paper). The extractor passed anti-fabrication
+    # because SPRINT prose WAS verbatim in the abstract we fetched.
+    # Defense: pull PubMed's own DOI (`<ELocationID EIdType="doi">`)
+    # so the caller can cross-check against the bound DOI and reject
+    # mismatches rather than render wrong content.
+    pubmed_doi: str | None = None
+    for el in root.iter("ELocationID"):
+        if el.get("EIdType") == "doi" and el.text:
+            pubmed_doi = el.text.strip().lower()
+            break
+    # PMID itself (for round-trip consistency checks).
+    pmid_elt = next(root.iter("PMID"), None)
+    pubmed_pmid = (
+        pmid_elt.text.strip() if pmid_elt is not None and pmid_elt.text
+        else None
+    )
+
     return {
         "title": title,
         "authors": tuple(authors),
         "journal": journal,
         "year": year,
         "abstract": abstract,
+        "doi": pubmed_doi,
+        "pmid": pubmed_pmid,
     }
 
 
@@ -774,13 +796,40 @@ def _fetch_frame_entity_inner(
         timings.extend(pm_timings)
         if pm_xml is not None:
             parsed_pm = _parse_pubmed_xml(pm_xml)
-            abstract_pubmed = parsed_pm.get("abstract")
-            # Fill missing metadata from PubMed if CrossRef didn't
-            # provide it.
-            title = title or parsed_pm.get("title")
-            authors = authors or parsed_pm.get("authors") or ()
-            journal = journal or parsed_pm.get("journal")
-            year = year or parsed_pm.get("year")
+            # DOI-consistency guard (V30 Phase-2 sweep run-1 root
+            # cause fix): when the bound entity has BOTH doi and
+            # pmid, require PubMed's returned DOI to match the
+            # bound DOI (case-insensitive). Silent DOI↔PMID
+            # mismatches in the contract YAML otherwise produce
+            # on-topic-looking prose extracted from the WRONG
+            # paper, sailing past M-58's verbatim-substring
+            # anti-fabrication check.
+            pm_doi = parsed_pm.get("doi") or ""
+            bound_doi_l = (doi or "").lower()
+            if doi and pm_doi and pm_doi != bound_doi_l:
+                attempts.append(RetrievalAttempt(
+                    method="pubmed_doi_consistency",
+                    endpoint=f"pmid={pmid}",
+                    status_code=None,
+                    error=(
+                        f"pubmed PMID {pmid} resolves to DOI "
+                        f"{pm_doi!r} which does not match bound "
+                        f"DOI {bound_doi_l!r}; rejecting PubMed "
+                        f"content to avoid wrong-paper extraction"
+                    ),
+                    duration_ms=0,
+                ))
+                # Reject PubMed content entirely for this entity —
+                # we MUST NOT extract from SPRINT when the contract
+                # intended SURPASS-2.
+            else:
+                abstract_pubmed = parsed_pm.get("abstract")
+                # Fill missing metadata from PubMed if CrossRef didn't
+                # provide it.
+                title = title or parsed_pm.get("title")
+                authors = authors or parsed_pm.get("authors") or ()
+                journal = journal or parsed_pm.get("journal")
+                year = year or parsed_pm.get("year")
 
     # Decide provenance_class and direct_quote.
     # OPEN_ACCESS when Unpaywall surfaced ANY OA locator (PDF or
