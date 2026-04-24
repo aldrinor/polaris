@@ -522,42 +522,53 @@ assert GAP_PROSE_MARKER in _GAP_PHRASE, (
 
 
 def render_slot_prose(payload: SlotFillPayload) -> str:
-    """Render the SlotFillPayload into a deterministic prose
-    paragraph with [ev_id] citations.
+    """Render the SlotFillPayload into deterministic BODY-ONLY
+    prose with `[bound_ev_id]` citations INSIDE each sentence
+    (before terminal punctuation).
+
+    Phase-2 revisions (Codex pass-1 rev #2 + rev #3 + pass-2):
+      - Body-only: no `{subsection_title}:` prefix. Subsection
+        heading emission is the caller's responsibility (M-63
+        `_run_contract_section` emits `### {subsection_title}`
+        separately).
+      - Citation attached to sentence: `value [id].` (period
+        AFTER citation). Earlier Phase-1 format `value. [id]`
+        caused strict_verify's sentence splitter to drop the
+        citation into the next sentence.
 
     Format:
-      "<subsection header>: <field1 statement>[bound_ev_id].
-       <field2 statement>[bound_ev_id]. ..."
+      "<field1_name>: <value> [bound_ev_id]. "
+      "<field2_name>: <value> [bound_ev_id]. ..."
 
     Same payload → byte-identical prose. No LLM, no randomness.
 
     Gap slot (all fields gap_unrecoverable): emits the explicit
-    M-60 gap sentence with the bound_ev_id flagged.
+    M-60 gap sentence with citation inside terminal punctuation.
     """
     bound = payload.bound_ev_id
-    subsection = payload.subsection_title
     all_gap = all(
         f.status == "gap_unrecoverable" for f in payload.fields
     )
     if all_gap:
-        return f"{subsection}: {_GAP_PHRASE} [{bound}]"
+        # Strip the trailing period on _GAP_PHRASE so we can
+        # emit citation BEFORE the period.
+        gap_text = _GAP_PHRASE.rstrip(".")
+        return f"{gap_text} [{bound}]."
 
     sentences: list[str] = []
     for field in payload.fields:
         if field.status == "extracted":
-            # "<field_name> = <value>" phrased as short sentence.
             sentences.append(
-                f"{field.field_name}: {field.value}. [{bound}]"
+                f"{field.field_name}: {field.value} [{bound}]."
             )
         elif field.status == "not_extractable":
             sentences.append(
-                f"{field.field_name}: {_NOT_EXTRACTABLE_PHRASE}. [{bound}]"
+                f"{field.field_name}: {_NOT_EXTRACTABLE_PHRASE} "
+                f"[{bound}]."
             )
-        else:  # gap_unrecoverable mixed into partial slot — unusual
-               # but handled.
+        else:  # gap_unrecoverable mixed into partial slot
             sentences.append(
                 f"{field.field_name}: "
-                f"primary source unavailable. [{bound}]"
+                f"primary source unavailable [{bound}]."
             )
-    body = " ".join(sentences)
-    return f"{subsection}: {body}"
+    return " ".join(sentences)

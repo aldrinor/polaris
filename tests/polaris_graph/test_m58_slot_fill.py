@@ -692,11 +692,17 @@ class TestRenderSlotProse:
             response, _slot_plan(), _frame_row(), required,
         )
         prose = render_slot_prose(payload)
-        assert "SURPASS-2" in prose
+        # Phase-2 change: body-only prose — subsection title
+        # no longer prefixed. The `### {subsection_title}`
+        # heading is emitted separately by _run_contract_section
+        # at M-63 integration time.
+        assert "SURPASS-2" not in prose
         # Pass-5 fixture now uses value='N=1879'
         assert "N: N=1879" in prose
         assert "primary_endpoint:" in prose
-        assert "[surpass_2_primary]" in prose
+        # Phase-2 citation format: `[id].` (period AFTER
+        # citation inside sentence)
+        assert "[surpass_2_primary]." in prose
         # Every extracted field has a citation
         assert prose.count("[surpass_2_primary]") == 2
 
@@ -835,7 +841,8 @@ class TestRoundTrip:
         # Parse
         payload = parse_slot_fill_response(response, slot, row, required)
         assert payload.completion_count() == 4
-        # Render
+        # Render (Phase-2 body-only format)
         prose = render_slot_prose(payload)
-        assert "SURPASS-2" in prose
+        assert "SURPASS-2" not in prose  # subsection title not in body
         assert prose.count("[surpass_2_primary]") == 4
+        assert prose.count("[surpass_2_primary].") == 4  # citation-inside-sentence

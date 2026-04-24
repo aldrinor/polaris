@@ -53,7 +53,15 @@ from src.polaris_graph.generator.provenance_generator import (
 logger = logging.getLogger("polaris_graph.live_deepseek_generator")
 
 
-_EV_MARKER_RE = re.compile(r"\[(ev_[A-Za-z0-9_]+)\]")
+# V30 Phase-2 M-63 fix #3 (Codex rev #1 committed path):
+# generalize to Python-identifier grammar so both legacy
+# `[ev_xxx]` markers (from the DeepSeek prompt) AND contract
+# entity ids (from M-58 render_slot_prose, e.g.
+# `[surpass_2_primary]`, `[thomas_clamp_2022]`) are accepted.
+# The rewriter's `evidence_pool.get(id)` lookup resolves either
+# kind since FrameRows are registered by entity_id at M-63 sweep
+# integration time.
+_EV_MARKER_RE = re.compile(r"\[([A-Za-z_][A-Za-z0-9_]*)\]")
 _DECIMAL_RE = re.compile(r"-?\d+\.\d+")
 
 
