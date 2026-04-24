@@ -634,13 +634,20 @@ class TestRealClinicalYaml:
         self, clinical_template: dict
     ) -> None:
         """Regulatory entities without DOI fall through to
-        url_pattern identifier."""
+        url_pattern identifier.
+
+        V30 Phase-2 M-66b-R upgrade: url_pattern now carries the
+        FULL canonical URL (DailyMed for Mounjaro label), not a
+        domain fragment — M-56 _fetch_url_pattern needs a real
+        URL to dispatch AccessBypass.
+        """
         cf = compile_frame(
             "q", clinical_template, "clinical_tirzepatide_t2dm"
         )
         by_id = cf.bindings_by_entity_id()
         b = by_id["fda_mounjaro_label"]
-        assert b.primary_identifier == "url:accessdata.fda.gov"
+        assert b.primary_identifier.startswith("url:https://")
+        assert "dailymed.nlm.nih.gov" in b.primary_identifier
 
     def test_clinical_efficacy_section_ordered(
         self, clinical_template: dict

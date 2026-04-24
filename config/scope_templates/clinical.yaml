@@ -364,11 +364,18 @@ per_query_report_contract:
         min_fields_for_completion: 3
         rendering_slot: mechanism_clamp
 
+      # V30 Phase-2 M-66b-R (commit after run-3 diagnosis):
+      # url_pattern now carries the FULL canonical URL — not a
+      # domain fragment — so M-56 _fetch_url_pattern can resolve
+      # it via AccessBypass. Domain-fragment patterns produced
+      # empty fetches in run-3 because the URL was un-dispatchable.
+      # Each URL below was manually verified to return >2K chars
+      # of relevant regulatory content.
       - id: fda_mounjaro_label
         type: regulatory
         jurisdiction: FDA
         label_name: Mounjaro
-        url_pattern: accessdata.fda.gov
+        url_pattern: https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955f-cf7e355c8cc0
         required_fields: [indications, boxed_warning, contraindications, warnings_and_precautions, dosing]
         min_fields_for_completion: 3
         rendering_slot: regulatory_fda_t2d
@@ -377,7 +384,7 @@ per_query_report_contract:
         type: regulatory
         jurisdiction: FDA
         label_name: Zepbound
-        url_pattern: accessdata.fda.gov
+        url_pattern: https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf
         required_fields: [indications, bmi_thresholds, boxed_warning, contraindications, dosing]
         min_fields_for_completion: 3
         rendering_slot: regulatory_fda_obesity
@@ -386,7 +393,7 @@ per_query_report_contract:
         type: regulatory
         jurisdiction: EMA
         label_name: Mounjaro
-        url_pattern: ema.europa.eu
+        url_pattern: https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro
         required_fields: [indications, pediatric_indication, contraindications, additional_monitoring, osa_extension]
         min_fields_for_completion: 3
         rendering_slot: regulatory_ema
@@ -395,7 +402,7 @@ per_query_report_contract:
         type: regulatory
         jurisdiction: NICE
         label_name: TA924
-        url_pattern: nice.org.uk/guidance/ta924
+        url_pattern: https://www.nice.org.uk/guidance/ta924
         required_fields: [triple_therapy_criteria, bmi_threshold, ethnic_adjusted_thresholds, occupational_implications, commercial_arrangement]
         min_fields_for_completion: 3
         rendering_slot: regulatory_nice_t2d
@@ -404,7 +411,7 @@ per_query_report_contract:
         type: regulatory
         jurisdiction: NICE
         label_name: TA1026
-        url_pattern: nice.org.uk/guidance/ta1026
+        url_pattern: https://www.nice.org.uk/guidance/ta1026
         required_fields: [indication, managed_access_agreement, specialist_services_requirement]
         min_fields_for_completion: 2
         rendering_slot: regulatory_nice_obesity
@@ -413,7 +420,7 @@ per_query_report_contract:
         type: regulatory
         jurisdiction: HC
         label_name: Mounjaro Canadian Product Monograph
-        url_pattern: pdf.hres.ca
+        url_pattern: https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type=prod
         required_fields: [indications, serious_warnings_box, contraindications, dosing]
         min_fields_for_completion: 3
         rendering_slot: regulatory_hc

@@ -443,11 +443,20 @@ class TestM56UrlPatternFetcherIntegration:
     fake httpx.MockTransport so url_pattern entities are routed
     through fetch_frame_entity with zero real network calls."""
 
-    def test_url_pattern_entity_yields_metadata_only_no_network(
-        self, policy_template: dict,
+    def test_url_pattern_entity_fetches_content_via_access_bypass(
+        self, policy_template: dict, monkeypatch,
     ) -> None:
+        """V30 Phase-2 M-66b-R: url-pattern-primary entities now
+        fetch content via _fetch_url_pattern (AccessBypass) and
+        route to OPEN_ACCESS when the fetch succeeds. When the
+        fetch returns empty, they fall back to METADATA_ONLY.
+
+        This test stubs _fetch_url_pattern to avoid real network
+        calls while asserting the new routing logic.
+        """
         import httpx
 
+        from src.polaris_graph.retrieval import frame_fetcher as ff
         from src.polaris_graph.retrieval.frame_fetcher import (
             ProvenanceClass as PC,
             fetch_frame_entity,
@@ -461,8 +470,18 @@ class TestM56UrlPatternFetcherIntegration:
             if b.entity_type == "statute"
         )
 
+        # ── case 1: fetch returns content → OPEN_ACCESS ─────
+        stub_content = (
+            "The Inflation Reduction Act of 2022 was enacted "
+            "August 16, 2022 as Pub. L. 117-169."
+        )
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: (stub_content, url),
+        )
         # Transport that WOULD return 500 on any call — if M-56
-        # calls it for a url-pattern entity, that's a regression.
+        # dispatches HTTP to CrossRef/Unpaywall/PubMed for a
+        # url-pattern entity, that's a regression.
         calls: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -475,13 +494,42 @@ class TestM56UrlPatternFetcherIntegration:
         finally:
             client.close()
 
-        # URL-pattern-primary entities (no DOI, no PMID) must be
-        # routed to METADATA_ONLY placeholder without any HTTP.
-        assert row.provenance_class == PC.METADATA_ONLY
+        assert row.provenance_class == PC.OPEN_ACCESS
+        assert row.direct_quote == stub_content
+        assert row.quote_source == "url_pattern_fetch"
+        # No HTTP calls to CrossRef/Unpaywall/PubMed
         assert calls == [], (
             f"unexpected HTTP calls for url-pattern entity: {calls}"
         )
-        assert row.url == "congress.gov/bill/117th-congress/house-bill/5376"
+
+    def test_url_pattern_entity_falls_back_to_metadata_only_on_empty_fetch(
+        self, policy_template: dict, monkeypatch,
+    ) -> None:
+        """Fallback path: when _fetch_url_pattern returns empty,
+        METADATA_ONLY is preserved (backwards compatible with
+        pre-M-66b behavior)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            ProvenanceClass as PC,
+            fetch_frame_entity,
+        )
+
+        compiled = compile_frame(
+            "q", policy_template, POLICY_SLUG,
+        )
+        statute_binding = next(
+            b for b in compiled.evidence_bindings
+            if b.entity_type == "statute"
+        )
+
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+        row = fetch_frame_entity(statute_binding)
+
+        assert row.provenance_class == PC.METADATA_ONLY
+        assert row.direct_quote == ""
 
 
 class TestM61NonClinicalHumanCompletion:

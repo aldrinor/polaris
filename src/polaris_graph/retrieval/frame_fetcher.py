@@ -676,20 +676,48 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
     boundary for M-66b-R / M-66b-T tests (stub via
     `monkeypatch.setattr("...frame_fetcher._fetch_url_pattern",
     lambda u: ("stubbed content", u))`).
+
+    AccessBypass.fetch_with_bypass is async; M-56 is sync. The
+    helper wraps the async call in asyncio.run(). If an event
+    loop is already running in the caller's thread (live server
+    context), we fall back to a fresh thread + new loop so this
+    helper is safe to invoke from any caller context.
     """
     if not url:
         return "", ""
     try:
+        import asyncio as _asyncio
         from src.tools.access_bypass import AccessBypass
-        ab = AccessBypass()
-        result = ab.fetch(url)
-        if result is None:
-            return "", ""
-        content = result.get("content") if isinstance(result, dict) else None
-        final_url = result.get("url") if isinstance(result, dict) else None
-        if not content or not isinstance(content, str):
-            return "", ""
-        return content[:_M66_CONTENT_CAP], (final_url or url)
+
+        async def _run() -> tuple[str, str]:
+            ab = AccessBypass()
+            result = await ab.fetch_with_bypass(url)
+            if result is None or not getattr(result, "success", False):
+                return "", ""
+            content = getattr(result, "content", "") or ""
+            final_url = getattr(result, "url", "") or url
+            if not content:
+                return "", ""
+            return content[:_M66_CONTENT_CAP], final_url
+
+        try:
+            # Probe for a running loop. asyncio.get_running_loop
+            # raises RuntimeError when no loop is running (normal
+            # sync context); the no-warning way to ask.
+            _asyncio.get_running_loop()
+            # A loop IS running — spin a fresh one in a worker
+            # thread so we don't collide with it (e.g. live-server
+            # FastAPI context).
+            import concurrent.futures as _cf
+
+            def _thread_run() -> tuple[str, str]:
+                return _asyncio.run(_run())
+
+            with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                return ex.submit(_thread_run).result()
+        except RuntimeError:
+            # No running loop — asyncio.run will create one.
+            return _asyncio.run(_run())
     except Exception:  # noqa: BLE001
         # AccessBypass raised — don't propagate; M-56 treats as
         # failed fetch and continues with whatever it has.

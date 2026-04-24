@@ -692,20 +692,34 @@ class TestOrchestratorOaFullTextFetchM66bT:
         self, monkeypatch,
     ) -> None:
         """V30 M-66b-T content cap (25K chars) — prevents prompt
-        bloat from oversized OA PDFs."""
+        bloat from oversized OA PDFs.
+
+        AccessBypass.fetch_with_bypass is async and returns an
+        AccessResult dataclass (url, content, success, ...). Stub
+        the class so we hit the async path + result-shape contract.
+        """
+        import asyncio
         from src.polaris_graph.retrieval import frame_fetcher as ff
+        from src.tools.access_bypass import AccessResult
+
         oversized = "X" * (ff._M66_CONTENT_CAP + 10_000)
-        # Directly verify the cap via the helper API, not through
-        # fetch_frame_entity (which is covered by the tests above).
-        # Stub AccessBypass.fetch to return oversized content.
 
         class _StubAB:
-            def fetch(self, url):  # noqa: ARG002
-                return {"content": oversized, "url": url}
+            def __init__(self, *_a, **_kw) -> None:
+                pass
+
+            async def fetch_with_bypass(
+                self, url: str, prefer_legal: bool = True,
+            ) -> AccessResult:
+                return AccessResult(
+                    url=url, content=oversized,
+                    access_method="stub",
+                    legal_alternative=None,
+                    success=True, metadata={},
+                )
 
         monkeypatch.setattr(
-            "src.tools.access_bypass.AccessBypass",
-            _StubAB,
+            "src.tools.access_bypass.AccessBypass", _StubAB,
         )
 
         content, final_url = ff._fetch_url_pattern("https://example.com")
