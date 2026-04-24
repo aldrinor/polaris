@@ -1021,6 +1021,116 @@ async def run_one_query(
             )
             for tid in completeness.uncovered_topic_ids()
         ]
+
+        # V30 Phase-2 M-63: when PG_V30_PHASE2_ENABLED=1, compile
+        # the contract + fetch frame rows BEFORE the generator so
+        # `generate_multi_section_report` can dispatch contract
+        # sections through the M-58 slot-bound runner. Phase-1
+        # coverage logic already ran post-generation; Phase-2
+        # layers the contract INTO the generator call.
+        _phase2_contract_plans: list[Any] = []
+        _phase2_contract_payloads: list[Any] = []  # threaded OUT later
+        if os.environ.get("PG_V30_PHASE2_ENABLED", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.nodes.frame_compiler import (
+                    compile_frame,
+                )
+                from src.polaris_graph.retrieval.frame_fetcher import (
+                    fetch_compiled_frame,
+                )
+                from src.polaris_graph.nodes.contract_outline import (
+                    compose_outline_from_contract,
+                )
+                from src.polaris_graph.generator.contract_section_runner import (
+                    ContractSectionPlanExt,
+                    register_frame_rows_into_evidence_pool,
+                )
+                _cf = compile_frame(q["question"], _template, q["slug"])
+                if _cf is not None:
+                    _log(
+                        f"[V30-P2]      compiled contract: "
+                        f"entities={len(_cf.evidence_bindings)}"
+                    )
+                    _frame_rows = fetch_compiled_frame(_cf.evidence_bindings)
+                    _log(
+                        f"[V30-P2]      fetched {len(_frame_rows)} "
+                        f"frame rows"
+                    )
+                    _outline_v30 = compose_outline_from_contract(
+                        _cf, _frame_rows,
+                    )
+                    # Register FrameRows into the legacy evidence
+                    # pool keyed by entity_id so the citation-rewrite
+                    # regex (M-63 Fix #3) can resolve
+                    # `[surpass_2_primary]` markers in M-58 prose.
+                    _entity_metadata = _cf.contract.entities_by_id()
+                    _frame_rows_by_eid = {
+                        r.entity_id: r for r in _frame_rows
+                    }
+                    # Build evidence_pool-compatible rows: the
+                    # sweep passes `evidence_rows` into the
+                    # generator as a LIST and the generator
+                    # constructs the dict internally. We inject
+                    # the contract rows into that list so the
+                    # generator's evidence_pool construction
+                    # picks them up.
+                    _contract_evidence_rows: list[dict[str, Any]] = []
+                    for r in _frame_rows:
+                        _contract_evidence_rows.append({
+                            "evidence_id": r.entity_id,
+                            "statement": r.title or r.entity_id,
+                            "direct_quote": r.direct_quote or "",
+                            "source_url": r.oa_pdf_url or r.url or "",
+                            "title": r.title or "",
+                            "authors": list(r.authors),
+                            "journal": r.journal or "",
+                            "year": r.year,
+                            "doi": r.doi or "",
+                            "pmid": r.pmid or "",
+                            "tier": "T1",  # contract primaries are
+                                          # tier-1 by assumption
+                            "v30_frame_row": True,
+                            "v30_entity_id": r.entity_id,
+                        })
+                    # Build one ContractSectionPlanExt per section
+                    for _section in _outline_v30.sections:
+                        _phase2_contract_plans.append(
+                            ContractSectionPlanExt(
+                                title=_section.section,
+                                focus=_section.focus,
+                                ev_ids=list(
+                                    _section.slots[0].entity_ids
+                                ) if _section.slots else [],
+                                slots=_section.slots,
+                                frame_rows_by_entity=_frame_rows_by_eid,
+                                contract_entities_by_id=_entity_metadata,
+                                research_question=q["question"],
+                            )
+                        )
+                    # Prepend the contract rows onto the existing
+                    # evidence list so the generator's evidence_pool
+                    # includes them keyed by entity_id.
+                    evidence_for_gen = (
+                        _contract_evidence_rows + list(evidence_for_gen)
+                    )
+                    _log(
+                        f"[V30-P2]      prepared {len(_phase2_contract_plans)} "
+                        f"contract sections + {len(_contract_evidence_rows)} "
+                        f"contract evidence rows"
+                    )
+                else:
+                    _log(
+                        f"[V30-P2]      no contract for slug="
+                        f"{q['slug']!r}; running legacy generator only"
+                    )
+            except Exception as _p2_exc:
+                _log(
+                    f"[V30-P2]      ERROR: {type(_p2_exc).__name__}: "
+                    f"{_p2_exc} — falling back to legacy generator"
+                )
+
         multi = await generate_multi_section_report(
             research_question=q["question"],
             evidence=evidence_for_gen,
@@ -1070,6 +1180,10 @@ async def run_one_query(
             # anchors, or selector bug). Belt-and-suspenders with
             # M-51. No-op when primary_trial_anchors is empty.
             live_corpus=retrieval.evidence_rows,
+            # V30 Phase-2 M-63: when non-empty, replaces the LLM
+            # outline for contract sections. Built above when
+            # PG_V30_PHASE2_ENABLED=1 AND the slug has a contract.
+            v30_contract_plans=_phase2_contract_plans,
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "

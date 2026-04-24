@@ -160,6 +160,15 @@ class MultiSectionResult:
     # cited_in_verified_prose / citation_count). Orchestrator
     # persists to v29_primary_custody.json.
     v29_primary_custody_log: list[dict[str, Any]] = field(default_factory=list)
+    # V30 Phase-2 M-63: M-58 SlotFillPayloads produced by
+    # `_run_contract_section` calls during this run. Threaded
+    # back to the sweep integration layer so M-64 can run real
+    # M-59 `validate_slot_completion` against actual structured
+    # per-field completion data instead of the Phase-1 synth.
+    # Opaque list typed as Any to avoid circular import between
+    # multi_section_generator and slot_fill; the sweep integration
+    # layer already imports SlotFillPayload and casts.
+    v30_contract_slot_payloads: list[Any] = field(default_factory=list)
     # BUG-M-203 fix (deep-dive R4): outline validation telemetry so
     # the orchestrator can emit partial_outline_fallback when planner
     # output doesn't meet the 3-5 section contract.
@@ -2991,6 +3000,13 @@ async def generate_multi_section_report(
     # primaries into evidence_pool when the selector missed them.
     # When None/empty, M-52 pull is a no-op (backwards-compatible).
     live_corpus: list[dict[str, Any]] | None = None,
+    # V30 Phase-2 M-63: pre-built contract section plans
+    # (ContractSectionPlanExt instances). When non-empty, they
+    # REPLACE the LLM-generated outline for contract sections,
+    # and the legacy outline is still run to supply enrichment
+    # sections (Contradictions, Limitations) if any. When empty
+    # or None, Phase-1 or pre-V30 behavior (legacy outline only).
+    v30_contract_plans: list[Any] | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -3040,6 +3056,25 @@ async def generate_multi_section_report(
             # Leave plans empty so the rest of the pipeline fails into
             # abort_no_verified_sections downstream.
             outline_reason_codes.append("insufficient_evidence_for_fallback")
+
+    # V30 Phase-2 M-63: when contract plans are supplied, REPLACE
+    # the LLM-generated outline with contract sections. Any legacy
+    # section whose title doesn't already have a contract
+    # counterpart can stay as an enrichment section (Contradictions,
+    # Limitations, etc.). Contract sections run via
+    # `_run_contract_section` (M-58 slot-bound). Legacy sections
+    # run via `_run_section` (existing LLM path).
+    if v30_contract_plans:
+        _contract_titles = {p.title for p in v30_contract_plans}
+        _enrichment_plans = [
+            p for p in plans if p.title not in _contract_titles
+        ]
+        plans = list(v30_contract_plans) + _enrichment_plans
+        logger.info(
+            "[multi_section] V30-P2: %d contract sections + %d "
+            "enrichment sections",
+            len(v30_contract_plans), len(_enrichment_plans),
+        )
 
     logger.info(
         "[multi_section] outline: %d sections: %s (ok=%s fallback=%s retry=%s)",
@@ -3110,8 +3145,65 @@ async def generate_multi_section_report(
     # Stage 2: per-section generation (bounded parallelism)
     sem = asyncio.Semaphore(max_parallel_sections)
 
+    # V30 Phase-2 M-63: dispatch contract sections (M-58 slot-bound)
+    # vs legacy LLM sections. ContractSectionPlanExt instances go
+    # through run_contract_section; plain SectionPlan uses _run_section.
+    from .contract_section_runner import (
+        is_contract_section,
+        run_contract_section,
+    )
+    from .live_deepseek_generator import _rewrite_draft_with_spans
+    from .provenance_generator import strict_verify
+
+    # Collected M-58 payloads from contract sections, threaded back
+    # to the sweep integration layer via MultiSectionResult for
+    # M-64 real-validation promotion.
+    contract_slot_payloads: list = []
+
+    async def _m63_llm_call(prompt: str) -> tuple[str, int, int]:
+        """Adapter: one OpenRouter call per M-58 slot prompt.
+        Returns (response_text, input_tokens, output_tokens).
+        M-58's `parse_slot_fill_response` handles the JSON
+        parsing; we just hand the raw text through."""
+        from ..llm.openrouter_client import OpenRouterClient
+        client = OpenRouterClient(model=gen_model)
+        try:
+            response = await client.generate(
+                prompt=prompt,
+                system=(
+                    "You are a JSON-only extraction assistant. "
+                    "Output ONLY the JSON schema the user prompt "
+                    "specifies. Do not include prose, preamble, "
+                    "code fences, or any text outside the JSON "
+                    "object."
+                ),
+                max_tokens=section_max_tokens,
+                temperature=section_temperature,
+            )
+        finally:
+            if hasattr(client, "close"):
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+        return (
+            (response.content or "").strip(),
+            response.input_tokens,
+            response.output_tokens,
+        )
+
     async def _bounded_run(plan: SectionPlan) -> SectionResult:
         async with sem:
+            if is_contract_section(plan):
+                result, payloads = await run_contract_section(
+                    plan, evidence_pool,
+                    llm_call=_m63_llm_call,
+                    section_result_cls=SectionResult,
+                    strict_verify_fn=strict_verify,
+                    rewrite_fn=_rewrite_draft_with_spans,
+                )
+                contract_slot_payloads.extend(payloads)
+                return result
             return await _run_section(
                 plan, evidence_pool,
                 model=gen_model,
@@ -3663,6 +3755,9 @@ async def generate_multi_section_report(
             global_biblio=global_biblio,
             m44_injection_log=m44_injection_log,
         ),
+        # V30 Phase-2 M-63: pass M-58 payloads to sweep integration
+        # for real M-59 validation (M-64).
+        v30_contract_slot_payloads=contract_slot_payloads,
         outline_ok=outline_ok,
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,

@@ -555,20 +555,28 @@ def render_slot_prose(payload: SlotFillPayload) -> str:
         gap_text = _GAP_PHRASE.rstrip(".")
         return f"{gap_text} [{bound}]."
 
+    # Render each field as a sentence that starts with a
+    # Title-cased field name. strict_verify's sentence splitter
+    # matches `.` + whitespace + [A-Z\[], so a leading capital
+    # is needed for each sentence boundary to trigger.
     sentences: list[str] = []
     for field in payload.fields:
+        # Title-case the first character of field_name so the
+        # sentence splitter triggers. Underscore→space for
+        # readability (e.g. "etd_with_uncertainty" →
+        # "Etd with uncertainty").
+        label = field.field_name.replace("_", " ")
+        label = label[:1].upper() + label[1:] if label else label
         if field.status == "extracted":
             sentences.append(
-                f"{field.field_name}: {field.value} [{bound}]."
+                f"{label}: {field.value} [{bound}]."
             )
         elif field.status == "not_extractable":
             sentences.append(
-                f"{field.field_name}: {_NOT_EXTRACTABLE_PHRASE} "
-                f"[{bound}]."
+                f"{label}: {_NOT_EXTRACTABLE_PHRASE} [{bound}]."
             )
         else:  # gap_unrecoverable mixed into partial slot
             sentences.append(
-                f"{field.field_name}: "
-                f"primary source unavailable [{bound}]."
+                f"{label}: primary source unavailable [{bound}]."
             )
     return " ".join(sentences)

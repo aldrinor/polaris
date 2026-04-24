@@ -699,7 +699,9 @@ class TestRenderSlotProse:
         assert "SURPASS-2" not in prose
         # Pass-5 fixture now uses value='N=1879'
         assert "N: N=1879" in prose
-        assert "primary_endpoint:" in prose
+        # Phase-2 change: field_name rendered Title Cased with
+        # underscore→space for sentence-splitter compatibility.
+        assert "Primary endpoint:" in prose
         # Phase-2 citation format: `[id].` (period AFTER
         # citation inside sentence)
         assert "[surpass_2_primary]." in prose
@@ -714,7 +716,8 @@ class TestRenderSlotProse:
         )
         prose = render_slot_prose(payload)
         assert "not extractable from available primary content" in prose
-        assert "baseline_hba1c" in prose
+        # Phase-2: field names Title Cased with underscore→space
+        assert "Baseline hba1c" in prose
 
     def test_gap_payload_prose(self) -> None:
         payload = compose_gap_payload(
@@ -821,7 +824,7 @@ class TestEntityTypeAgnostic:
         )
         assert payload.completion_count() == 3
         prose = render_slot_prose(payload)
-        assert "band_gap: 1.42 eV" in prose
+        assert "Band gap: 1.42 eV" in prose
 
 
 # ─────────────────────────────────────────────────────────────────────
