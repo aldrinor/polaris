@@ -129,11 +129,14 @@ def merge_v30_into_manifest(
 def append_disclosure_to_report(
     report_path: Path, disclosure_text: str,
 ) -> bool:
-    """Append the V30 frame-coverage disclosure to report.md.
+    """Append the V30 Phase-1 retrieval-coverage disclosure to
+    report.md.
 
-    Runner-hook helper (Codex sweep-integration audit Medium).
-    Returns True on successful append, False when report.md is
-    missing (never creates a disclosure-only file, matching the
+    Runner-hook helper (Codex sweep-integration audit Medium +
+    pass-4 Blocker 1: header + disclosure text both reflect
+    retrieval-coverage-only semantics for Phase 1). Returns
+    True on successful append, False when report.md is missing
+    (never creates a disclosure-only file, matching the
     intended boundary).
     """
     if not report_path.exists():
@@ -141,7 +144,7 @@ def append_disclosure_to_report(
     existing = report_path.read_text(encoding="utf-8")
     disclosure_block = (
         "\n\n---\n\n"
-        "## V30 Frame Coverage Disclosure\n\n"
+        "## V30 Phase-1 Retrieval Coverage Disclosure\n\n"
         f"{disclosure_text}\n"
     )
     report_path.write_text(
@@ -366,7 +369,27 @@ def _run_inner(
         f"pipeline_fault={coverage.pipeline_fault_count}"
     )
 
-    methods_disclosure = compose_methods_disclosure(coverage)
+    # Codex pass-4 Blocker 1: the M-60 `compose_methods_disclosure`
+    # prose uses "Frame coverage" and "Fully populated with bound
+    # evidence" which reads as report-coverage. Phase-1 ships
+    # retrieval-coverage semantics only, so wrap the M-60 prose
+    # with an explicit Phase-1 preamble that keeps the reader
+    # honest. M-60 prose format is preserved (its audit chain
+    # doesn't need to change); the preamble makes the semantic
+    # boundary explicit in the report.md surface.
+    _m60_prose = compose_methods_disclosure(coverage)
+    methods_disclosure = (
+        "PHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet "
+        "report-coverage):\n"
+        "  This disclosure reports whether M-56 (deterministic "
+        "DOI / PMID / Unpaywall retrieval) succeeded for each "
+        "contract-required entity. It does NOT claim the legacy "
+        "generator cited each entity in the verified report — "
+        "that validation lands in Phase 2 when M-58 slot-bound "
+        "prompts replace the legacy generator.\n"
+        "\n"
+        f"{_m60_prose}"
+    )
     human_tasks = compose_human_completion_tasks(coverage)
 
     # Write M-61 task file for operator (empty list written too so
@@ -564,6 +587,13 @@ def _synthesize_phase1_validation(
                     == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
                 )
 
+                # Codex pass-4 Blocker 2: rubber-stamping every
+                # non-gap row as PASS is unsafe. M-56 can emit
+                # degraded rows — e.g. METADATA_ONLY with no
+                # direct_quote, or ABSTRACT_ONLY that happens to
+                # have empty content. Enforce a retrieval-evidence
+                # guard: PASS requires row exists AND has
+                # non-empty direct_quote or oa_pdf_url.
                 if is_gap:
                     verdict = ValidationVerdict.FAIL_MIN_FIELDS
                     reason = (
@@ -571,14 +601,35 @@ def _synthesize_phase1_validation(
                         "row → curator-actionable"
                     )
                     ev_cited = False
+                elif row is None:
+                    verdict = ValidationVerdict.FAIL_MISSING_PAYLOAD
+                    reason = (
+                        "phase-1 synth (retrieval-coverage): no "
+                        "FrameRow for contracted entity — pipeline "
+                        "crossed wires"
+                    )
+                    ev_cited = False
+                elif not _row_has_retrieval_evidence(row):
+                    # Row exists + non-gap provenance, but content
+                    # is empty. Degraded retrieval — curator can
+                    # supply licensed content.
+                    verdict = ValidationVerdict.FAIL_MIN_FIELDS
+                    reason = (
+                        "phase-1 synth (retrieval-coverage): "
+                        "non-gap row but direct_quote + oa_pdf_url "
+                        "both empty — degraded retrieval → "
+                        "curator-actionable"
+                    )
+                    ev_cited = False
                 else:
                     verdict = ValidationVerdict.PASS
                     reason = (
                         "phase-1 synth (retrieval-coverage): M-56 "
-                        "retrieved entity successfully. NOTE: "
-                        "this verdict does NOT claim the legacy "
-                        "generator cited the entity in report.md — "
-                        "M-58 integration (Phase 2) will add true "
+                        "retrieved entity successfully with "
+                        "non-empty evidence. NOTE: this verdict "
+                        "does NOT claim the legacy generator "
+                        "cited the entity in report.md — M-58 "
+                        "integration (Phase 2) will add true "
                         "report-coverage validation."
                     )
                     ev_cited = True
@@ -624,6 +675,26 @@ def _synthesize_phase1_validation(
         entity_validations=tuple(entity_validations),
         slot_verdicts=tuple(slot_verdicts),
     )
+
+
+def _row_has_retrieval_evidence(row: Any) -> bool:
+    """Codex pass-4 Blocker 2: guard against degraded non-gap
+    rows. A row PASSes retrieval-coverage only if it has at
+    least one form of fetched content — non-empty direct_quote
+    OR an oa_pdf_url. Human-curated rows always pass (operator
+    supplied content directly).
+
+    Returns True when the row demonstrates retrieved evidence.
+    """
+    if row is None:
+        return False
+    # Human-curated rows carry operator content by definition
+    from .retrieval.frame_fetcher import ProvenanceClass
+    if row.provenance_class == ProvenanceClass.HUMAN_CURATED:
+        return True
+    has_quote = bool(row.direct_quote and row.direct_quote.strip())
+    has_oa = bool(row.oa_pdf_url and row.oa_pdf_url.strip())
+    return has_quote or has_oa
 
 
 def _entity_cited_in_legacy(

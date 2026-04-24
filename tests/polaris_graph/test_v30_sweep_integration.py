@@ -255,46 +255,10 @@ class TestClinicalChain:
                 _FakeCompiled(bindings)
             ),
         )
-        # Codex sweep-integration audit Blocker fix: supply a
-        # legacy report that cites every SURPASS trial so the
-        # phase-1 synth emits PASS verdicts that reflect the
-        # actual report content, not just retrieval success.
-        # Use exact contract anchors/label_names — the pass-2
-        # tightening enforces word-boundary semantics so
-        # paraphrased citations ("Thomas clamp" vs contract
-        # anchor "Thomas-clamp") correctly FAIL the check.
-        _legacy_report = "\n".join(
-            f"SURPASS-{i} was discussed in the efficacy section."
-            for i in range(1, 7)
-        ) + (
-            "\nSURPASS-CVOT assessed cardiovascular outcomes.\n"
-            "SURMOUNT-2 enrolled T2D+obesity patients.\n"
-            # Use hyphenated anchor to match contract exactly
-            "Thomas-clamp study measured M-value.\n"
-        )
-        _legacy_biblio = [
-            {"doi": "10.1016/S0140-6736(21)01324-6"},  # SURPASS-1
-            {"doi": "10.1056/NEJMoa2107519"},          # SURPASS-2
-            {"doi": "10.1016/S0140-6736(21)01443-4"},  # SURPASS-3
-            {"doi": "10.1016/S0140-6736(21)01997-1"},  # SURPASS-4
-            {"doi": "10.1001/jama.2022.0078"},         # SURPASS-5
-            {"doi": "10.1001/jama.2023.0023"},         # SURPASS-6
-            {"doi": "10.1056/NEJMoa2509079"},          # CVOT
-            {"doi": "10.1016/S0140-6736(23)01200-X"},  # SURMOUNT-2
-            {"doi": "10.1016/S2213-8587(22)00041-1"},  # Thomas clamp
-            # Regulatory entities have no DOI; use url+title so
-            # pass-2's label_name disambiguator check succeeds.
-        ]
-        _legacy_report += (
-            "\nFDA Mounjaro label: accessdata.fda.gov\n"
-            "FDA Zepbound: accessdata.fda.gov\n"
-            "EMA Mounjaro EPAR: ema.europa.eu\n"
-            "NICE TA924: nice.org.uk/guidance/ta924\n"
-            "NICE TA1026: nice.org.uk/guidance/ta1026\n"
-            # HC monograph full label_name from contract
-            "Mounjaro Canadian Product Monograph: pdf.hres.ca\n"
-        )
-
+        # Codex pass-4 scope narrow: Phase-1 ships RETRIEVAL-
+        # coverage only. No legacy cross-check. Mandatory
+        # warning always emitted. Disclosure prose carries
+        # explicit Phase-1 preamble.
         from src.polaris_graph.v30_sweep_integration import (
             run_v30_post_generation,
         )
@@ -306,8 +270,6 @@ class TestClinicalChain:
             slug="clinical_tirzepatide_t2dm",
             run_dir=tmp_path,
             log=_log,
-            legacy_report_text=_legacy_report,
-            legacy_bibliography=_legacy_biblio,
         )
 
         assert result.enabled is True
@@ -316,17 +278,22 @@ class TestClinicalChain:
         # Clinical contract has 15 entities
         assert cov["total_entities"] == 15
         assert cov["pipeline_fault_count"] == 0
-        # With legacy cross-check supplied, 9 clinical DOIs + 6
-        # regulatory URL-pattern matches = 15 PASS. All entities
-        # cited in the synthesized legacy output.
+        # Retrieval-coverage: all stub rows are ABSTRACT_ONLY with
+        # non-empty direct_quote → PASS
         assert cov["pass_count"] == 15
-        # No retrieval_only warning (cross-check was available)
-        assert not any(
-            "retrieval_only" in w for w in result.warnings
+        # Mandatory phase-1 warning ALWAYS present (Codex pass-4)
+        assert any(
+            "phase1_retrieval_coverage_only" in w
+            for w in result.warnings
         )
 
-        # Methods disclosure produced
-        assert "Frame coverage" in result.methods_disclosure_text
+        # Disclosure prose includes Phase-1 preamble (Codex
+        # pass-4 Blocker 1: no more "all populated with bound
+        # evidence" overclaim)
+        disclosure = result.methods_disclosure_text
+        assert "PHASE-1 RETRIEVAL COVERAGE" in disclosure
+        assert "does NOT claim" in disclosure
+        assert "Phase 2" in disclosure
 
         # human_gap_tasks.json written (all PASS → zero tasks)
         tasks_path = tmp_path / "human_gap_tasks.json"
@@ -397,6 +364,106 @@ class TestClinicalChain:
             legacy_bibliography=[],
         )
         assert result.frame_coverage_report["pass_count"] == 15
+
+    def test_degraded_non_gap_row_does_not_pass(
+        self, tmp_path: Path, clinical_template: dict,
+        _log, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex pass-4 Blocker 2: a non-gap row with empty
+        direct_quote AND empty oa_pdf_url is degraded retrieval
+        (M-56 might emit this for a METADATA_ONLY row that only
+        resolved CrossRef title but has no abstract text). The
+        entity must NOT PASS phase-1 retrieval-coverage in that
+        state; it must route to curator-actionable."""
+        monkeypatch.setenv("PG_V30_ENABLED", "1")
+        import src.polaris_graph.retrieval.frame_fetcher as ff
+
+        def _degraded_fetch(bindings, **_):
+            """All rows are METADATA_ONLY with empty quotes."""
+            from src.polaris_graph.retrieval.frame_fetcher import (
+                FrameRow, ProvenanceClass,
+            )
+            return tuple(
+                FrameRow(
+                    entity_id=b.entity_id,
+                    entity_type=b.entity_type,
+                    rendering_slot=b.rendering_slot,
+                    provenance_class=ProvenanceClass.METADATA_ONLY,
+                    direct_quote="",
+                    quote_source="none",
+                    doi="10.1/stub",
+                    pmid=None,
+                    oa_pdf_url=None,
+                    url=None,
+                    title=f"Stub {b.entity_id}",
+                    authors=(),
+                    journal=None,
+                    year=2024,
+                    failure_reason=None,
+                    retrieval_attempts=(),
+                    retrieval_timings=(),
+                )
+                for b in bindings
+            )
+        monkeypatch.setattr(
+            ff, "fetch_compiled_frame", _degraded_fetch,
+        )
+        from src.polaris_graph.v30_sweep_integration import (
+            run_v30_post_generation,
+        )
+        result = run_v30_post_generation(
+            research_question="q",
+            scope_template=clinical_template,
+            slug="clinical_tirzepatide_t2dm",
+            run_dir=tmp_path,
+            log=_log,
+        )
+        cov = result.frame_coverage_report
+        # Degraded non-gap rows do NOT PASS — they route to
+        # curator-actionable fail_min_fields (Codex pass-4
+        # Blocker 2 fix).
+        assert cov["pass_count"] == 0
+        assert cov.get("by_status", {}).get("fail_min_fields") == 15
+
+    def test_row_has_retrieval_evidence_unit(self) -> None:
+        """Unit test for the new retrieval-evidence guard."""
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            FrameRow, ProvenanceClass,
+        )
+        from src.polaris_graph.v30_sweep_integration import (
+            _row_has_retrieval_evidence,
+        )
+
+        def _row(provenance, direct_quote, oa_url=None):
+            return FrameRow(
+                entity_id="e", entity_type="t", rendering_slot="s",
+                provenance_class=provenance,
+                direct_quote=direct_quote,
+                quote_source="x", doi=None, pmid=None,
+                oa_pdf_url=oa_url, url=None,
+                title=None, authors=(), journal=None, year=None,
+                failure_reason=None,
+                retrieval_attempts=(), retrieval_timings=(),
+            )
+
+        # Non-gap with non-empty quote → True
+        assert _row_has_retrieval_evidence(
+            _row(ProvenanceClass.ABSTRACT_ONLY, "content"),
+        ) is True
+        # Non-gap with empty quote but OA URL → True
+        assert _row_has_retrieval_evidence(
+            _row(ProvenanceClass.OPEN_ACCESS, "", "https://oa.pdf"),
+        ) is True
+        # Non-gap with empty quote + no OA → False (degraded)
+        assert _row_has_retrieval_evidence(
+            _row(ProvenanceClass.METADATA_ONLY, ""),
+        ) is False
+        # None row → False
+        assert _row_has_retrieval_evidence(None) is False
+        # Human-curated (operator provided content) always True
+        assert _row_has_retrieval_evidence(
+            _row(ProvenanceClass.HUMAN_CURATED, "operator content"),
+        ) is True
 
     def test_entity_cited_in_legacy_stub_returns_false(self) -> None:
         """Pass-4: _entity_cited_in_legacy is deprecated and now
@@ -734,7 +801,7 @@ class TestRunnerHookMergeHelper:
         assert result is True
         final = report.read_text(encoding="utf-8")
         assert final.startswith("# Original Report")
-        assert "V30 Frame Coverage Disclosure" in final
+        assert "V30 Phase-1 Retrieval Coverage Disclosure" in final
         assert "3 of 5 entities populated." in final
 
 
