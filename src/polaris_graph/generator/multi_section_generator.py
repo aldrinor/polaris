@@ -2417,6 +2417,16 @@ def _m44_inject_primaries_into_outline(
     if not plans or not primary_ev_ids_by_anchor:
         return plans, []
 
+    # V30 M-63 Codex REJECT Blocker 1: preserve ContractSectionPlanExt
+    # identity through M-44. Without this guard the rebuild-as-
+    # SectionPlan below erases the contract type and `_bounded_run`
+    # stops dispatching contract plans through `run_contract_section`.
+    # Contract plans already bind entity_ids per slot (M-57); primary-
+    # trial injection is a no-op for them by construction (plan.focus
+    # is contract-synthesized, and contract sections render via M-58
+    # slot-bound prose that cites bound ev_ids directly).
+    from .contract_section_runner import ContractSectionPlanExt
+
     updated: list[SectionPlan] = []
     log: list[dict[str, Any]] = []
 
@@ -2429,6 +2439,17 @@ def _m44_inject_primaries_into_outline(
     ]
 
     for plan in plans:
+        # Contract plans bypass M-44 entirely (type-preserving pass-through).
+        if isinstance(plan, ContractSectionPlanExt):
+            updated.append(plan)
+            log.append({
+                "section": plan.title,
+                "anchor": "*",
+                "ev_id": "*",
+                "action": "skipped_contract_plan",
+            })
+            continue
+
         new_ev_ids = list(plan.ev_ids)  # copy
         if not _m44_section_is_primary_eligible(plan.title):
             # Pass through unchanged.
@@ -2995,6 +3016,14 @@ async def generate_multi_section_report(
     # M-50 max tokens per subsection call
     m50_subsection_max_tokens: int = 400,
     m50_subsection_temperature: float = 0.2,
+    # Codex M-63 REJECT Medium 2 fix: anchors whose primary trial
+    # is already rendered by a V30 Phase-2 contract slot. M-50 MUST
+    # skip these to avoid duplicating per-trial subsections — the
+    # contract section owns the canonical "Trial X primary"
+    # subsection via `render_slot_prose`. When None (default),
+    # M-50 runs unchanged; sweep runner populates this from the
+    # contract plans' entity_ids when `PG_V30_PHASE2_ENABLED=1`.
+    m50_skip_anchors: set[str] | None = None,
     # M-52 (2026-04-23): V29-b. Full live_corpus (pre-selector
     # evidence_rows) so the generator can pull anchor-matched
     # primaries into evidence_pool when the selector missed them.
@@ -3642,6 +3671,18 @@ async def generate_multi_section_report(
         and global_biblio
     ):
         direct_set = set(direct_trial_anchors)
+        # Codex M-63 Medium 2: strip contract-anchored anchors so
+        # M-50 doesn't double-emit the same per-trial subsection
+        # the contract section already rendered.
+        if m50_skip_anchors:
+            skipped_m50 = direct_set & m50_skip_anchors
+            if skipped_m50:
+                logger.info(
+                    "[multi_section] M-50 skipping %d contract-"
+                    "anchored anchors: %s",
+                    len(skipped_m50), sorted(skipped_m50),
+                )
+            direct_set = direct_set - m50_skip_anchors
         candidates = _m50_select_candidate_trials(
             evidence_pool=evidence_pool,
             primary_ev_ids_by_anchor=m44_primary_by_anchor,

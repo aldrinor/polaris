@@ -100,20 +100,38 @@ def register_frame_rows_into_evidence_pool(
     (M-63 Fix #3) can resolve `[entity_id]` markers via
     `evidence_pool.get(entity_id)`.
 
-    In-place mutation. Does NOT overwrite existing keys unless
-    they're duplicates (M-61 curator-supplied row would land
-    here too and we want it to win over any pre-existing stale
-    entry keyed by the same entity_id).
-
-    Each synthesized evidence_pool entry carries:
+    In-place mutation. Each synthesized evidence_pool entry carries:
       - evidence_id: entity_id (what the rewriter expects)
       - direct_quote: FrameRow.direct_quote (what strict_verify
         compares against)
       - url: FrameRow.oa_pdf_url or FrameRow.url (for citation
         resolution)
       - title, authors, journal, year: FrameRow metadata
+      - v30_frame_row: True (marker for this path)
+
+    Codex M-63 REJECT Medium 3 namespace-collision guard:
+
+    Contract entity ids are validated at M-54 load time to NOT
+    match the live-retrieval `^ev_\\d+$` pattern. That's the first
+    line of defense. This registration path adds defense-in-depth:
+    if the incoming evidence_pool already has a row at this key
+    AND that row is NOT a v30_frame_row (i.e., it's a live-
+    retrieval or legacy-pipeline row), raise rather than clobber.
+    A loud error here beats a silent generator misattribution.
+    Pre-existing v30_frame_row entries (e.g., from M-61 curator
+    completions) may be overwritten — that's the intended
+    curator-supplied wins semantics.
     """
     for row in frame_rows:
+        existing = evidence_pool.get(row.entity_id)
+        if existing is not None and not existing.get("v30_frame_row"):
+            raise ValueError(
+                f"evidence_pool collision at entity_id={row.entity_id!r}: "
+                f"a non-v30 pool row already occupies this key. Contract "
+                f"entity ids must not collide with live-retrieval keys. "
+                f"M-54 schema validation should have prevented this; "
+                f"loader may be out of sync."
+            )
         evidence_pool[row.entity_id] = {
             "evidence_id": row.entity_id,
             "direct_quote": row.direct_quote or "",
@@ -131,6 +149,43 @@ def register_frame_rows_into_evidence_pool(
         }
 
 
+def _build_not_extractable_payload(
+    slot: ContractSlotPlan,
+    entity_id: str,
+    frame_row: FrameRow,
+    required_fields: tuple[str, ...],
+) -> SlotFillPayload:
+    """Build an all-not_extractable SlotFillPayload for a non-gap
+    row where the LLM failed (network error, schema parse error,
+    etc.). The payload still cites the bound ev_id so M-59 surfaces
+    it as FAIL_MIN_FIELDS (curator-actionable) rather than silently
+    dropping the entity.
+
+    Cannot use `compose_gap_payload` — that helper hard-raises on
+    non-gap provenance by design (Codex M-58 audit symmetric guard
+    against routing bugs).
+    """
+    from .slot_fill import SlotFieldFill, SlotFillPayload as _SFP
+    fills = tuple(
+        SlotFieldFill(
+            field_name=fname,
+            status="not_extractable",
+            value=None,
+            bound_ev_id=entity_id,
+            source_span=None,
+        )
+        for fname in required_fields
+    )
+    return _SFP(
+        slot_id=slot.slot_id,
+        entity_id=entity_id,
+        subsection_title=slot.subsection_title,
+        bound_ev_id=entity_id,
+        fields=fills,
+        provenance_class=frame_row.provenance_class.value,
+    )
+
+
 async def _fill_one_slot(
     slot: ContractSlotPlan,
     entity_id: str,
@@ -141,10 +196,18 @@ async def _fill_one_slot(
 ) -> tuple[SlotFillPayload, int, int]:
     """Produce a SlotFillPayload for one (slot, entity) pair.
 
-    Gap rows skip the LLM. Non-gap rows call the LLM via the
-    injected `llm_call` closure (so the integration layer
-    controls model + temperature + token limits) and parse
-    the response.
+    Three paths:
+      - gap row (FRAME_GAP_UNRECOVERABLE): `compose_gap_payload`, no LLM call.
+      - non-gap row, LLM raises (network / timeout):
+        `_build_not_extractable_payload`, fail-loud via M-59 FAIL_MIN_FIELDS.
+      - non-gap row, parse raises: `_build_not_extractable_payload`.
+      - non-gap row, happy path: `parse_slot_fill_response`.
+
+    Codex M-63 REJECT Blocker 2 fix: non-gap LLM-exception path
+    previously called `compose_gap_payload`, which hard-raises on
+    non-gap provenance. That turned a planned honest fallback into
+    a hard pipeline failure. Now both exception paths route to
+    `_build_not_extractable_payload` (see its docstring for rationale).
     """
     required_fields = tuple(contract_entity.required_fields)
 
@@ -162,10 +225,9 @@ async def _fill_one_slot(
             "[m63] LLM call failed for entity_id=%r slot_id=%r: %s",
             entity_id, slot.slot_id, exc,
         )
-        # Fall back to a gap payload so the slot still renders
-        # honest content. Strict_verify downstream will drop
-        # nothing; M-59 will flag the entity as FAIL_MIN_FIELDS.
-        payload = compose_gap_payload(slot, frame_row, required_fields)
+        payload = _build_not_extractable_payload(
+            slot, entity_id, frame_row, required_fields,
+        )
         return payload, 0, 0
 
     try:
@@ -177,29 +239,8 @@ async def _fill_one_slot(
             "[m63] slot-fill parse failed for entity_id=%r: %s",
             entity_id, exc,
         )
-        # Build an all-not_extractable payload so the entity
-        # shows up in M-60 coverage as a curator-actionable
-        # FAIL_MIN_FIELDS, not silently dropped. Can't use
-        # `compose_gap_payload` because this isn't a retrieval
-        # gap — it's a parse failure on retrieved content.
-        from .slot_fill import SlotFieldFill, SlotFillPayload
-        fills = tuple(
-            SlotFieldFill(
-                field_name=fname,
-                status="not_extractable",
-                value=None,
-                bound_ev_id=entity_id,
-                source_span=None,
-            )
-            for fname in required_fields
-        )
-        payload = SlotFillPayload(
-            slot_id=slot.slot_id,
-            entity_id=entity_id,
-            subsection_title=slot.subsection_title,
-            bound_ev_id=entity_id,
-            fields=fills,
-            provenance_class=frame_row.provenance_class.value,
+        payload = _build_not_extractable_payload(
+            slot, entity_id, frame_row, required_fields,
         )
         return payload, in_tok, out_tok
 
@@ -220,16 +261,36 @@ async def run_contract_section(
     list[SlotFillPayload]). The payloads are threaded back to
     M-64 for real M-59 validation at sweep integration time.
 
-    Legacy assembly code gets a SectionResult with the same
-    shape it expects: title / focus / ev_ids_assigned /
-    verified_text / biblio_slice / sentence counts / tokens /
-    error.
+    Legacy-compatible output shape (Codex M-63 REJECT Blocker 3):
+
+    - `verified_text` has `[N]` numbered-citation markers (NOT raw
+      `[#ev:...]` span tokens) so report.md renders as a reader
+      expects.
+    - `biblio_slice` is a populated list of
+      {num, evidence_id, url, tier, statement} dicts so the global
+      bibliography merge + per-section [N] remap both work.
+    - `### {subsection_title}` headings are re-injected AFTER
+      strict_verify and citation resolution, grouped by slot, so
+      strict_verify never sees heading prose (it would fail the
+      content-word overlap check).
     """
-    slot_results: list[str] = []
+    from .provenance_generator import resolve_provenance_to_citations
+
     payloads: list[SlotFillPayload] = []
     total_in_tok = 0
     total_out_tok = 0
     all_entity_ids: list[str] = []
+
+    # entity_id -> slot_id so kept sentences can be regrouped into
+    # slot blocks after strict_verify.
+    entity_to_slot_id: dict[str, str] = {}
+    # slot_id -> subsection_title + preserve order from outline
+    slot_order: list[str] = []
+    slot_subsection: dict[str, str] = {}
+
+    # Per-slot raw prose blocks (body-only — no headings) so the
+    # text handed to strict_verify has no non-sentence lines.
+    raw_body_blocks: list[str] = []
 
     for slot in plan.slots:
         if not slot.entity_ids:
@@ -237,20 +298,26 @@ async def run_contract_section(
             # but guard anyway.
             continue
 
-        slot_header = f"### {slot.subsection_title}\n\n"
-        slot_body_blocks: list[str] = []
+        slot_order.append(slot.slot_id)
+        slot_subsection[slot.slot_id] = slot.subsection_title
 
+        slot_body_prose: list[str] = []
         for entity_id in slot.entity_ids:
             all_entity_ids.append(entity_id)
+            entity_to_slot_id[entity_id] = slot.slot_id
             frame_row = plan.frame_rows_by_entity.get(entity_id)
             contract_entity = plan.contract_entities_by_id.get(entity_id)
 
             if frame_row is None or contract_entity is None:
                 # Pipeline fault — shouldn't happen given M-57
-                # validates parallelism. Emit an explicit note.
-                slot_body_blocks.append(
-                    f"Entity {entity_id!r} frame row or contract "
-                    f"entity missing; pipeline fault. Skipping."
+                # validates parallelism. Skip silently; M-59 will
+                # surface the missing entity as FAIL_MISSING_PAYLOAD.
+                logger.warning(
+                    "[m63] pipeline fault: entity_id=%r missing "
+                    "frame_row=%s or contract_entity=%s",
+                    entity_id,
+                    frame_row is None,
+                    contract_entity is None,
                 )
                 continue
 
@@ -266,42 +333,94 @@ async def run_contract_section(
             total_out_tok += out_tok
             payloads.append(payload)
 
-            # Body prose (M-58 body-only format)
             prose = render_slot_prose(payload)
-            slot_body_blocks.append(prose)
+            slot_body_prose.append(prose)
 
-        slot_results.append(slot_header + "\n\n".join(slot_body_blocks))
+        if slot_body_prose:
+            raw_body_blocks.append(" ".join(slot_body_prose))
 
-    # Concatenate all slot blocks into one section body
-    raw_draft = "\n\n".join(slot_results)
+    # Body-only raw draft (no `### headings` — they'd poison
+    # strict_verify's content-overlap check).
+    raw_draft = " ".join(raw_body_blocks)
 
     # Rewrite citation markers to span tokens (M-63 Fix #3
-    # generalized regex picks up contract entity ids)
+    # generalized regex picks up contract entity ids registered
+    # into evidence_pool by the integration layer).
     rewritten_draft, converted, unverifiable = rewrite_fn(
         raw_draft, evidence_pool,
     )
 
-    # Strict verify: keeps only sentences that match their bound
-    # evidence. Because M-58 prose is verbatim from direct_quote
-    # and M-63 pre-registered FrameRows into evidence_pool, every
-    # sentence should pass.
+    # Strict verify — every sentence is `Field: value [#ev:...]`
+    # and the span comes from FrameRow.direct_quote, so the
+    # content-overlap check should trivially pass.
     report = strict_verify_fn(rewritten_draft, evidence_pool)
     kept = report.total_kept
     dropped = report.total_in - kept
 
-    # Reassemble verified text from kept sentences
     kept_sentences = getattr(report, "kept_sentences", None) or []
-    verified_text_parts: list[str] = []
+
+    # ── resolve provenance → [N] citations + biblio_slice ──────
+    # `resolve_provenance_to_citations` flattens into a single
+    # string. We need per-slot grouping AND legacy-shape output,
+    # so we call it first to get the resolved body + biblio, then
+    # re-thread the resolution through the slot boundaries.
+    resolved_body, biblio_slice = resolve_provenance_to_citations(
+        kept_sentences, evidence_pool,
+    )
+
+    # Build a per-sentence resolved list (parallel to
+    # kept_sentences) so we can group by originating slot.
+    # Re-do the per-sentence resolution inline — cheap and keeps
+    # us in lockstep with `resolve_provenance_to_citations`'s
+    # acceptance rules (≥3 content words, ≥15 chars).
+    sentences_by_slot: dict[str, list[str]] = {sid: [] for sid in slot_order}
+    ev_to_num = {b["evidence_id"]: b["num"] for b in biblio_slice}
+    import re as _re
+    _prov_re = _re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
     for sv in kept_sentences:
-        # SentenceVerification has a .text (or similar) attribute
-        text = getattr(sv, "text", None) or getattr(sv, "sentence", None) or str(sv)
-        verified_text_parts.append(text)
-    # If we lost track of structure, fall back to the rewritten
-    # draft verbatim (kept_fraction=100% is the typical path).
-    if verified_text_parts:
-        verified_text = " ".join(verified_text_parts)
+        raw = getattr(sv, "sentence", "") or ""
+        stripped = _prov_re.sub("", raw).strip()
+        stripped = _re.sub(r"\s+([.!?,;])", r"\1", stripped)
+        content_w = _re.findall(r"[A-Za-z]+", stripped)
+        if len(content_w) < 3 or len(stripped) < 15:
+            continue
+        # Determine the slot via the first token's ev_id.
+        tokens = getattr(sv, "tokens", None) or []
+        if not tokens:
+            continue
+        primary_ev = tokens[0].evidence_id
+        slot_id = entity_to_slot_id.get(primary_ev)
+        if slot_id is None:
+            continue
+        # Build citation marker (preserve first-appearance order
+        # within the sentence).
+        used_nums: list[int] = []
+        for tok in tokens:
+            n = ev_to_num.get(tok.evidence_id)
+            if n is not None and n not in used_nums:
+                used_nums.append(n)
+        markers = "".join(f"[{n}]" for n in used_nums)
+        sentences_by_slot.setdefault(slot_id, []).append(stripped + markers)
+
+    # Emit final verified_text with re-injected headings.
+    verified_blocks: list[str] = []
+    for slot_id in slot_order:
+        body_sentences = sentences_by_slot.get(slot_id) or []
+        if not body_sentences:
+            continue
+        heading = f"### {slot_subsection[slot_id]}"
+        body = " ".join(body_sentences)
+        verified_blocks.append(f"{heading}\n\n{body}")
+
+    if verified_blocks:
+        verified_text = "\n\n".join(verified_blocks)
+    elif kept > 0:
+        # All sentences verified but none could be grouped (no
+        # tokens). Fall back to the flat resolved body so prose
+        # isn't lost.
+        verified_text = resolved_body
     else:
-        verified_text = rewritten_draft if kept > 0 else ""
+        verified_text = ""
 
     dropped_due_to_failure = (kept == 0 and len(all_entity_ids) > 0)
 
@@ -312,7 +431,7 @@ async def run_contract_section(
         raw_draft=raw_draft,
         rewritten_draft=rewritten_draft,
         verified_text=verified_text,
-        biblio_slice=[],  # biblio is built globally by caller
+        biblio_slice=biblio_slice,
         sentences_verified=kept,
         sentences_dropped=dropped,
         regen_attempted=False,  # M-63 doesn't regenerate — M-58

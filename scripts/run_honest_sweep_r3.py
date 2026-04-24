@@ -994,6 +994,47 @@ async def run_one_query(
                 # that haven't defined population_scope yet).
                 direct = list(_primary_anchors)
             return direct
+
+        def _compute_m50_skip_anchors(
+            contract_plans: list[Any],
+            primary_anchors: list[str],
+        ) -> set[str]:
+            """Codex M-63 REJECT Medium 2: map contract entity ids
+            to M-50 trial anchor names via a normalized substring
+            match so the sweep can tell M-50 which anchors are
+            already owned by a contract slot.
+
+            Normalization: strip `_`/`-`, lowercase. Match anchor
+            against each entity_id; a normalized-anchor substring
+            hit inside a normalized-entity-id is strong evidence
+            the contract slot renders that trial (e.g.
+            `surpass_2_primary` contains `surpass2` → SURPASS-2).
+
+            Conservative: returns empty set if no contract plans
+            present, or if no match found. False negatives cost
+            one duplicate subsection (reader confusion, not
+            pipeline failure); false positives would SUPPRESS a
+            legitimate per-trial section, which is worse.
+            """
+            if not contract_plans or not primary_anchors:
+                return set()
+            skip: set[str] = set()
+            for plan in contract_plans:
+                slots = getattr(plan, "slots", ())
+                for slot in slots:
+                    for eid in getattr(slot, "entity_ids", ()):
+                        norm_eid = (
+                            eid.lower().replace("_", "").replace("-", "")
+                        )
+                        for anchor in primary_anchors:
+                            norm_anchor = (
+                                anchor.lower()
+                                .replace("_", "").replace("-", "")
+                            )
+                            if norm_anchor and norm_anchor in norm_eid:
+                                skip.add(anchor)
+                                break
+            return skip
         evidence_selection = select_evidence_for_generation(
             research_question=q["question"],
             protocol=protocol,
@@ -1094,15 +1135,26 @@ async def run_one_query(
                             "v30_frame_row": True,
                             "v30_entity_id": r.entity_id,
                         })
-                    # Build one ContractSectionPlanExt per section
+                    # Build one ContractSectionPlanExt per section.
+                    # Codex M-63 Medium 1 fix: ev_ids is the UNION of
+                    # every slot's entity_ids (first-appearance order),
+                    # not just the first slot's. Downstream M-50 skip
+                    # logic + any pre-dispatch `plan.ev_ids` consumer
+                    # needs the full set to avoid referencing missing
+                    # primaries.
                     for _section in _outline_v30.sections:
+                        _section_ev_ids: list[str] = []
+                        _seen: set[str] = set()
+                        for _sl in _section.slots:
+                            for _eid in _sl.entity_ids:
+                                if _eid not in _seen:
+                                    _seen.add(_eid)
+                                    _section_ev_ids.append(_eid)
                         _phase2_contract_plans.append(
                             ContractSectionPlanExt(
                                 title=_section.section,
                                 focus=_section.focus,
-                                ev_ids=list(
-                                    _section.slots[0].entity_ids
-                                ) if _section.slots else [],
+                                ev_ids=_section_ev_ids,
                                 slots=_section.slots,
                                 frame_rows_by_entity=_frame_rows_by_eid,
                                 contract_entities_by_id=_entity_metadata,
@@ -1184,6 +1236,15 @@ async def run_one_query(
             # outline for contract sections. Built above when
             # PG_V30_PHASE2_ENABLED=1 AND the slug has a contract.
             v30_contract_plans=_phase2_contract_plans,
+            # Codex M-63 Medium 2 fix: when contract plans are
+            # active, suppress M-50 for anchors already rendered
+            # by a contract slot. Map contract entity_ids ->
+            # anchor names via normalized substring match
+            # (e.g. `surpass_2_primary` → `SURPASS-2`). No-op when
+            # contract plans are empty.
+            m50_skip_anchors=_compute_m50_skip_anchors(
+                _phase2_contract_plans, _primary_anchors,
+            ) if _phase2_contract_plans else None,
         )
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "

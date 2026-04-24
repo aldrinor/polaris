@@ -54,11 +54,21 @@ Entity types at M-54 level (extensible at M-55 compiler):
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+# Codex M-63 REJECT Medium 3 fix: live retrieval assigns ids of
+# the form `ev_\d+` (see src/polaris_graph/retrieval/live_retriever.py
+# around the `ev_{counter:05d}` format string). Contract entity ids
+# share the evidence_pool keyspace with live retrieval — colliding
+# ids would silently clobber pool rows. M-54 rejects contract ids
+# matching this pattern at schema-load time.
+_EV_LIVE_ID_RE = re.compile(r"^ev_\d+$")
 
 
 class ContractSchemaError(ValueError):
@@ -258,6 +268,41 @@ def load_report_contract_for_slug(
             raise ContractSchemaError(
                 f"{path}.id",
                 f"duplicate entity id: {eid!r}",
+            )
+        # Codex M-63 REJECT Medium 3 fix: contract entity_ids MUST
+        # NOT collide with the live-retrieval `ev_\d+` namespace.
+        # `register_frame_rows_into_evidence_pool` keys by entity_id;
+        # a colliding id would clobber a legitimate live retrieval
+        # pool row. Keep the contract namespace distinct from live
+        # retrieval at schema-load time so the failure fires loudly
+        # before any generator token is billed.
+        if _EV_LIVE_ID_RE.match(eid):
+            raise ContractSchemaError(
+                f"{path}.id",
+                f"entity id {eid!r} matches the reserved "
+                f"live-retrieval namespace `ev_<digits>`; pick a "
+                f"distinct id (e.g. `{eid}_primary`, "
+                f"`{eid}_anchor`) — contract ids share the "
+                f"evidence_pool keyspace with live retrieval and "
+                f"must not collide.",
+            )
+        # ASCII-only: M-58 `render_slot_prose` Title Cases the first
+        # codepoint for strict_verify sentence-boundary compatibility
+        # (splitter only triggers on ASCII `[A-Z]`). A non-ASCII
+        # entity id would propagate into field labels (contract
+        # entities drive required_fields) and risk silent sentence-
+        # boundary failure. Enforce at schema load rather than at
+        # render time so the failure surfaces next to the rest of
+        # contract schema validation.
+        try:
+            eid.encode("ascii")
+        except UnicodeEncodeError:
+            raise ContractSchemaError(
+                f"{path}.id",
+                f"entity id {eid!r} contains non-ASCII characters; "
+                f"contract entity ids must be ASCII (required for "
+                f"M-58 render_slot_prose sentence-splitter "
+                f"compatibility).",
             )
         seen_entity_ids.add(eid)
         # type must be non-empty string (compiler enforces type vocab)
