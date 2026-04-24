@@ -533,6 +533,186 @@ class TestOrchestratorDoiConsistencyGuard:
         assert "content." in row.direct_quote
 
 
+class TestOrchestratorRegulatoryUrlFetchM66bR:
+    """V30 Phase-2 M-66b-R: url_pattern-primary regulatory
+    entities (FDA/EMA/NICE/HC) now fetch content via
+    AccessBypass (`_fetch_url_pattern`) instead of emitting
+    METADATA_ONLY. Codex pass-3 approved test seam is
+    `_fetch_url_pattern` (module-level monkeypatch), not
+    httpx transport mocking.
+    """
+
+    def test_url_pattern_fetch_success_yields_open_access(
+        self, monkeypatch,
+    ) -> None:
+        """Successful AccessBypass fetch produces OPEN_ACCESS
+        with the fetched content as direct_quote."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        stub_content = (
+            "MOUNJARO (tirzepatide) injection, for subcutaneous use. "
+            "INDICATIONS: adjunct to diet and exercise to improve "
+            "glycemic control in adults with T2D. WARNINGS: boxed "
+            "warning for thyroid C-cell tumors." * 10
+        )
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: (stub_content, url),
+        )
+
+        binding = EvidenceBinding(
+            entity_id="fda_mounjaro_label",
+            entity_type="regulatory",
+            primary_identifier="url:https://www.fda.gov/drugs/mounjaro",
+            secondary_identifiers=(),
+            rendering_slot="regulatory_fda_t2d",
+            required_fields=("indications", "boxed_warning"),
+            min_fields_for_completion=2,
+        )
+        row = ff.fetch_frame_entity(binding)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "url_pattern_fetch"
+        assert "MOUNJARO" in row.direct_quote
+        assert "INDICATIONS" in row.direct_quote
+        # Attempt log records the AccessBypass success
+        ab_attempts = [
+            a for a in row.retrieval_attempts if a.source == "access_bypass"
+        ]
+        assert len(ab_attempts) == 1
+        assert ab_attempts[0].outcome == "success"
+
+    def test_url_pattern_fetch_failure_falls_back_to_metadata_only(
+        self, monkeypatch,
+    ) -> None:
+        """AccessBypass fetch returns empty → METADATA_ONLY, not
+        a crash. M-59 surfaces the entity as FAIL_MIN_FIELDS
+        (curator-actionable)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+
+        binding = EvidenceBinding(
+            entity_id="nice_ta924_t2d",
+            entity_type="regulatory",
+            primary_identifier=(
+                "url:https://www.nice.org.uk/guidance/ta924"
+            ),
+            secondary_identifiers=(),
+            rendering_slot="regulatory_nice_t2d",
+            required_fields=("recommendation", "restrictions"),
+            min_fields_for_completion=2,
+        )
+        row = ff.fetch_frame_entity(binding)
+
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""
+        # Attempt log records the failure
+        ab_attempts = [
+            a for a in row.retrieval_attempts if a.source == "access_bypass"
+        ]
+        assert len(ab_attempts) == 1
+        assert "fetch_returned_no_content" in ab_attempts[0].outcome
+
+
+class TestOrchestratorOaFullTextFetchM66bT:
+    """V30 Phase-2 M-66b-T: Unpaywall-surfaced OA URLs now
+    trigger an AccessBypass full-text fetch, enriching
+    direct_quote from ~500-char abstract to up to 25K chars.
+    """
+
+    def test_oa_full_text_fetch_replaces_abstract_when_available(
+        self, monkeypatch,
+    ) -> None:
+        """When OA fetch succeeds, direct_quote is the full text,
+        NOT the crossref abstract."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        full_text = (
+            "SURPASS-2 primary results. N=1879 adults with type 2 "
+            "diabetes on metformin. Tirzepatide 5, 10, 15 mg vs "
+            "semaglutide 1 mg once weekly. Primary endpoint: "
+            "change in HbA1c at 40 weeks. ETD vs semaglutide: "
+            "-0.15 (95% CI -0.28, -0.03; P=0.02); -0.39 "
+            "(-0.51, -0.26; P<0.001); -0.45 (-0.57, -0.32; "
+            "P<0.001). Eli Lilly and Company sponsored." * 5
+        )
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: (full_text, url),
+        )
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200,
+             _unpaywall_response(is_oa=True, pdf_url="https://x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        # M-66b-T: direct_quote is the full text, not the abstract
+        assert row.quote_source == "oa_full_text"
+        assert "ETD vs semaglutide" in row.direct_quote
+        # Truncated at cap
+        assert len(row.direct_quote) <= ff._M66_CONTENT_CAP
+        # Attempt log has the access_bypass success entry
+        ab_attempts = [
+            a for a in row.retrieval_attempts if a.source == "access_bypass"
+        ]
+        assert len(ab_attempts) == 1
+        assert ab_attempts[0].outcome == "success"
+
+    def test_oa_full_text_fetch_failure_falls_back_to_abstract(
+        self, monkeypatch,
+    ) -> None:
+        """When OA fetch returns empty, direct_quote falls back
+        to the crossref abstract (backwards-compatible with
+        pre-M-66b behavior)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200,
+             _unpaywall_response(is_oa=True, pdf_url="https://x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        # Fallback to crossref abstract
+        assert row.quote_source == "crossref_abstract"
+        assert "tirzepatide" in row.direct_quote.lower()
+
+    def test_fetch_url_pattern_truncates_at_cap(
+        self, monkeypatch,
+    ) -> None:
+        """V30 M-66b-T content cap (25K chars) — prevents prompt
+        bloat from oversized OA PDFs."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        oversized = "X" * (ff._M66_CONTENT_CAP + 10_000)
+        # Directly verify the cap via the helper API, not through
+        # fetch_frame_entity (which is covered by the tests above).
+        # Stub AccessBypass.fetch to return oversized content.
+
+        class _StubAB:
+            def fetch(self, url):  # noqa: ARG002
+                return {"content": oversized, "url": url}
+
+        monkeypatch.setattr(
+            "src.tools.access_bypass.AccessBypass",
+            _StubAB,
+        )
+
+        content, final_url = ff._fetch_url_pattern("https://example.com")
+        assert len(content) == ff._M66_CONTENT_CAP
+        assert final_url == "https://example.com"
+
+
 class TestOrchestratorFailurePaths:
     def test_all_404_yields_gap(self) -> None:
         transport = _Transport([
@@ -757,13 +937,25 @@ class TestRetrievalAttemptLog:
 
         sources = {a.source for a in row.retrieval_attempts}
         assert {"crossref", "unpaywall"} <= sources
+        # V30 Phase-2 M-66b-T: the OA full-text fetch adds an
+        # access_bypass RetrievalAttempt that can be success OR
+        # failure depending on whether the test stubs
+        # _fetch_url_pattern. Filter to http-network attempts
+        # (crossref, unpaywall, pubmed) for the 200-success check.
+        http_sources = {"crossref", "unpaywall", "pubmed"}
         for a in row.retrieval_attempts:
             assert isinstance(a, RetrievalAttempt)
-            assert a.http_status == 200
-            assert a.outcome == "success"
-            assert a.attempt_index == 1  # no retry on 200
-        # Timings parallel attempts (Blocker 1 fix)
-        assert len(row.retrieval_timings) == len(row.retrieval_attempts)
+            if a.source in http_sources:
+                assert a.http_status == 200
+                assert a.outcome == "success"
+                assert a.attempt_index == 1  # no retry on 200
+        # Timings only emitted for http sources; access_bypass
+        # attempts don't produce RetrievalTiming entries (M-66b-T
+        # doesn't instrument AccessBypass internals).
+        http_attempts = [
+            a for a in row.retrieval_attempts if a.source in http_sources
+        ]
+        assert len(row.retrieval_timings) == len(http_attempts)
         for t in row.retrieval_timings:
             assert isinstance(t, RetrievalTiming)
             assert t.duration_ms >= 0

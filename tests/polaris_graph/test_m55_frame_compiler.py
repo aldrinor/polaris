@@ -626,7 +626,9 @@ class TestRealClinicalYaml:
         by_id = cf.bindings_by_entity_id()
         b = by_id["surpass_2_primary"]
         assert b.primary_identifier == "doi:10.1056/NEJMoa2107519"
-        assert "pmid:34010531" in b.secondary_identifiers
+        # V30 Phase-2 run-1 root-cause fix (commit bcedd57):
+        # PMID corrected 34010531 (SPRINT) → 34170647 (Frias).
+        assert "pmid:34170647" in b.secondary_identifiers
 
     def test_clinical_fda_mounjaro_uses_url(
         self, clinical_template: dict

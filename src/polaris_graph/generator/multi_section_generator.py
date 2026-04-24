@@ -1292,6 +1292,63 @@ _M42B_PAT_EFFECT_WITH_UNCERTAINTY = re.compile(
 )
 
 
+# V30 Phase-2 M-66 run-3 acceptance — Trial Summary row
+# quality gate. Codex pass-3 CONDITIONAL-no-blockers revision:
+# reject rows containing the observed run-2 bad patterns
+# (fragment comparators and result-field placeholders), but
+# scope narrowly to avoid over-rejecting legitimate rows.
+_M66_FRAGMENT_COMPARATOR_RE = re.compile(
+    r"\s+in\s+adults\s+with\s+type\s*$",  # truncated NEJM/Lancet
+                                           # population boilerplate
+    re.IGNORECASE,
+)
+
+
+def _m66_row_passes_quality_gate(cells: dict[str, str]) -> bool:
+    """V30 Phase-2 M-66 run-3 Trial Summary quality gate.
+
+    Rejects rows whose cells show observed run-2 failure modes:
+
+    1. comparator ends in "in adults with type" (truncated
+       NEJM/Lancet boilerplate like "insulin glargine in adults
+       with type"). Legitimate comparators like "semaglutide 1 mg"
+       or "insulin glargine" pass.
+    2. The effect cell is empty AND the fallback would render as
+       bare "at week N" placeholder with no numeric information.
+       Legitimate rows have either a real effect string (e.g.
+       "-0.45%") OR both a timepoint + some numeric population /
+       baseline info already shown in other cells.
+
+    Returns True to keep the row, False to reject.
+
+    Scoped narrowly per Codex pass-3 guidance so legitimate rows
+    with partial information survive.
+    """
+    comparator = (cells.get("comparator") or "").strip()
+    if _M66_FRAGMENT_COMPARATOR_RE.search(comparator):
+        return False
+
+    effect = (cells.get("effect") or "").strip()
+    timepoint = (cells.get("timepoint") or "").strip()
+    # If effect is missing AND timepoint is the only other non-
+    # empty cell in {baseline, effect, timepoint}, the rendered
+    # result becomes `at week {timepoint}` with no digits, which
+    # is the observed run-2 junk pattern. Legitimate rows with
+    # an effect OR with real baseline info are unaffected.
+    if not effect:
+        baseline = (cells.get("baseline") or "").strip()
+        n = (cells.get("n") or "").strip()
+        # Require at least one other numeric cell for a timepoint-
+        # only row to survive.
+        has_other_numeric = any(
+            bool(re.search(r"\d", cell)) for cell in (baseline, n)
+        )
+        if timepoint and not has_other_numeric:
+            return False
+
+    return True
+
+
 def _m42b_extract_from_quote(quote: str) -> dict[str, str]:
     """Extract 7 frame-element cells from a direct_quote string.
     Returns dict with keys {n, baseline, comparator, dose, endpoint,
@@ -1500,6 +1557,22 @@ def build_trial_summary_and_timeline_from_evidence(
         populated = sum(1 for v in cells.values() if v)
         if populated < 4:
             continue  # row fails 4-of-7 threshold
+
+        # V30 Phase-2 M-66 run-3 acceptance — Trial Summary
+        # row validator (Codex pass-3 CONDITIONAL-no-blockers):
+        # reject rows whose cells contain observed bad patterns
+        # from run-2 ("insulin glargine in adults with type"
+        # truncated comparator, bare "at week N" result without
+        # numeric effect). Guards the downstream table+timeline
+        # integrity without over-rejecting legitimate rows that
+        # legitimately have missing numeric cells.
+        if not _m66_row_passes_quality_gate(cells):
+            logger.info(
+                "[multi_section] M-42b/M-66 rejected trial-row "
+                "anchor=%r cells=%r (fragment or placeholder-only)",
+                anchor, cells,
+            )
+            continue
 
         # Citation marker
         ref_num = _m42b_find_ref_num(best_row, bibliography)

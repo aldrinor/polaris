@@ -470,3 +470,90 @@ class TestResultSchemaExtension:
         sig = inspect.signature(generate_multi_section_report)
         assert "primary_trial_anchors" in sig.parameters
         assert sig.parameters["primary_trial_anchors"].default is None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# V30 Phase-2 M-66 Trial Summary row quality gate
+# ─────────────────────────────────────────────────────────────────────
+class TestM66RowQualityGate:
+    """V30 Phase-2 M-66 run-3 row validator at the M-42b builder
+    surface. Codex pass-3 CONDITIONAL-no-blockers directive: put
+    the filter at the deterministic builder path + one positive
+    keep case so it doesn't drift into over-rejection.
+    """
+
+    def test_rejects_truncated_in_adults_with_type_comparator(self) -> None:
+        """Run-2 rendered `insulin glargine in adults with type`
+        as comparator — truncated NEJM/Lancet population
+        boilerplate bleeding into the cell."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        bad = {
+            "n": "3045", "baseline": "",
+            "comparator": "insulin glargine in adults with type",
+            "dose": "", "endpoint": "", "timepoint": "", "effect": "",
+        }
+        assert _m66_row_passes_quality_gate(bad) is False
+
+    def test_rejects_bare_at_week_n_placeholder_result(self) -> None:
+        """Run-2 rendered result='at week 18' with no numeric
+        effect — placeholder pattern."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        bad = {
+            "n": "", "baseline": "", "comparator": "placebo",
+            "dose": "", "endpoint": "", "timepoint": "18", "effect": "",
+        }
+        assert _m66_row_passes_quality_gate(bad) is False
+
+    def test_keeps_legitimate_row_with_numeric_effect(self) -> None:
+        """Positive keep case (Codex directive): legitimate
+        SURPASS-2 row with real effect passes."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        good = {
+            "n": "1879", "baseline": "8.28%",
+            "comparator": "semaglutide 1 mg", "dose": "15 mg",
+            "endpoint": "HbA1c", "timepoint": "40", "effect": "-0.45%",
+        }
+        assert _m66_row_passes_quality_gate(good) is True
+
+    def test_keeps_row_with_effect_but_no_timepoint(self) -> None:
+        """Legitimate row with ETD but missing timepoint — gate
+        targets PLACEHOLDERS, not legitimately partial rows."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        good = {
+            "n": "", "baseline": "", "comparator": "placebo",
+            "dose": "", "endpoint": "weight", "timepoint": "",
+            "effect": "-11.2 kg",
+        }
+        assert _m66_row_passes_quality_gate(good) is True
+
+    def test_keeps_row_with_baseline_and_timepoint_no_effect(self) -> None:
+        """Row with timepoint + real baseline numeric info kept —
+        gate only rejects timepoint-only placeholders."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        good = {
+            "n": "586", "baseline": "7.0%", "comparator": "placebo",
+            "dose": "", "endpoint": "", "timepoint": "40", "effect": "",
+        }
+        assert _m66_row_passes_quality_gate(good) is True
+
+    def test_rejects_empty_cells_placeholder_row(self) -> None:
+        """Row with only timepoint populated (no numeric fallback
+        anywhere) — rejected."""
+        from src.polaris_graph.generator.multi_section_generator import (
+            _m66_row_passes_quality_gate,
+        )
+        bad = {
+            "n": "", "baseline": "", "comparator": "",
+            "dose": "", "endpoint": "", "timepoint": "18", "effect": "",
+        }
+        assert _m66_row_passes_quality_gate(bad) is False

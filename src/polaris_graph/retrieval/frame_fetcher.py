@@ -650,6 +650,52 @@ def _urlsafe_doi(doi: str) -> str:
     return doi.strip()
 
 
+# V30 Phase-2 M-66b content-fetch helper (Codex pass-3 CONDITIONAL-
+# no-blockers approved). Wraps POLARIS's existing AccessBypass
+# stack (Crawl4AI + Jina Reader + Firecrawl concurrent) used
+# elsewhere for content extraction. Used by M-56 for:
+#
+#   - M-66b-R: url_pattern-primary regulatory entities (FDA, EMA,
+#     NICE, HC landing pages) where no DOI/PMID exists.
+#   - M-66b-T: OA PDF/HTML full-text fetch when Unpaywall
+#     surfaced an OA URL — upgrades direct_quote from abstract
+#     to full text so M-58 can extract 9-field SURPASS rosters.
+#
+# Returns `(content_str, final_url_str)` on success, `("", "")` on
+# failure. Caller decides provenance class + attempt logging.
+# Content is truncated at `_M66_CONTENT_CAP` chars for prompt-
+# budget predictability.
+_M66_CONTENT_CAP = 25000
+
+
+def _fetch_url_pattern(url: str) -> tuple[str, str]:
+    """Fetch content at `url` via AccessBypass. Returns
+    `(content, final_url)` or `("", "")` on failure.
+
+    Deterministic-test seam: this function is the mockable
+    boundary for M-66b-R / M-66b-T tests (stub via
+    `monkeypatch.setattr("...frame_fetcher._fetch_url_pattern",
+    lambda u: ("stubbed content", u))`).
+    """
+    if not url:
+        return "", ""
+    try:
+        from src.tools.access_bypass import AccessBypass
+        ab = AccessBypass()
+        result = ab.fetch(url)
+        if result is None:
+            return "", ""
+        content = result.get("content") if isinstance(result, dict) else None
+        final_url = result.get("url") if isinstance(result, dict) else None
+        if not content or not isinstance(content, str):
+            return "", ""
+        return content[:_M66_CONTENT_CAP], (final_url or url)
+    except Exception:  # noqa: BLE001
+        # AccessBypass raised — don't propagate; M-56 treats as
+        # failed fetch and continues with whatever it has.
+        return "", ""
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Layer 4 — Orchestrator
 # ─────────────────────────────────────────────────────────────────────
@@ -695,13 +741,53 @@ def _fetch_frame_entity_inner(
     """Core dispatch: pick strategy by primary_identifier prefix."""
     identifiers = _collect_identifiers(binding)
 
-    # URL-pattern-primary entities (regulatory): don't try CrossRef /
-    # Unpaywall / PubMed. Emit METADATA_ONLY with url as locator;
-    # full-content fetch deferred to POLARIS existing infrastructure.
+    # URL-pattern-primary entities (regulatory): V30 Phase-2 M-66b-R
+    # lifts these from METADATA_ONLY to OPEN_ACCESS when content can
+    # be fetched via the POLARIS AccessBypass helper. Codex pass-3
+    # CONDITIONAL-no-blockers approved this scope.
     if binding.primary_identifier.startswith("url:") and not (
         identifiers.get("doi") or identifiers.get("pmid")
     ):
         url = identifiers["url"]
+        fetched_content, fetched_url = _fetch_url_pattern(url)
+        url_attempts: list[RetrievalAttempt] = []
+        if fetched_content:
+            url_attempts.append(RetrievalAttempt(
+                source="access_bypass",
+                url=f"url_pattern:{fetched_url or url}",
+                attempt_index=1,
+                http_status=200,
+                outcome="success",
+            ))
+            return FrameRow(
+                entity_id=binding.entity_id,
+                entity_type=binding.entity_type,
+                rendering_slot=binding.rendering_slot,
+                provenance_class=ProvenanceClass.OPEN_ACCESS,
+                direct_quote=fetched_content,
+                quote_source="url_pattern_fetch",
+                doi=None,
+                pmid=None,
+                oa_pdf_url=None,
+                url=fetched_url or url,
+                title=None,
+                authors=(),
+                journal=None,
+                year=None,
+                failure_reason=None,
+                retrieval_attempts=tuple(url_attempts),
+                retrieval_timings=(),
+            )
+        # Fetch produced nothing usable — fall back to METADATA_ONLY
+        # so M-58 emits `not_extractable` (curator-actionable) rather
+        # than crash downstream. Log the attempt.
+        url_attempts.append(RetrievalAttempt(
+            source="access_bypass",
+            url=f"url_pattern:{url}",
+            attempt_index=1,
+            http_status=None,
+            outcome="error:fetch_returned_no_content",
+        ))
         return FrameRow(
             entity_id=binding.entity_id,
             entity_type=binding.entity_type,
@@ -718,7 +804,7 @@ def _fetch_frame_entity_inner(
             journal=None,
             year=None,
             failure_reason=None,
-            retrieval_attempts=(),
+            retrieval_attempts=tuple(url_attempts),
             retrieval_timings=(),
         )
 
@@ -778,6 +864,7 @@ def _fetch_frame_entity_inner(
     # Step 2: Unpaywall for OA URL
     oa_pdf_url: str | None = None
     oa_html_url: str | None = None
+    oa_full_text: str | None = None
     if doi:
         up_data, up_attempts, up_timings = _call_unpaywall(client, doi)
         attempts.extend(up_attempts)
@@ -787,6 +874,32 @@ def _fetch_frame_entity_inner(
             if parsed_up.get("is_oa"):
                 oa_pdf_url = parsed_up.get("oa_pdf_url")
                 oa_html_url = parsed_up.get("oa_html_url")
+
+    # Step 2b: V30 Phase-2 M-66b-T — fetch OA PDF/HTML full text
+    # (Codex pass-3 CONDITIONAL-no-blockers). Upgrades
+    # direct_quote from ~500-char abstract to up to 25K chars of
+    # full text, giving M-58 enough surface to extract SURPASS
+    # 9-field rosters. Falls back to abstract on fetch failure.
+    oa_locator = oa_pdf_url or oa_html_url
+    if oa_locator:
+        full_text, final_url = _fetch_url_pattern(oa_locator)
+        if full_text:
+            oa_full_text = full_text
+            attempts.append(RetrievalAttempt(
+                source="access_bypass",
+                url=f"oa_full_text:{final_url or oa_locator}",
+                attempt_index=1,
+                http_status=200,
+                outcome="success",
+            ))
+        else:
+            attempts.append(RetrievalAttempt(
+                source="access_bypass",
+                url=f"oa_full_text:{oa_locator}",
+                attempt_index=1,
+                http_status=None,
+                outcome="error:fetch_returned_no_content",
+            ))
 
     # Step 3: PubMed EFetch when PMID present and we still lack abstract
     abstract_pubmed: str | None = None
@@ -843,17 +956,20 @@ def _fetch_frame_entity_inner(
     # from ABSTRACT_ONLY is that a full-text source exists.
     any_oa_url = oa_pdf_url or oa_html_url
     if any_oa_url:
-        # Future work: fetch OA full-text via AccessBypass + Crawl4AI.
-        # At M-56 we record the OA URL and use abstract (if available)
-        # as direct_quote placeholder. M-57/M-58 may upgrade to
-        # fetched full-text. Provenance_class is OPEN_ACCESS so
-        # downstream knows the URL exists.
-        direct_quote = abstract_crossref or abstract_pubmed or ""
-        quote_source = (
-            "crossref_abstract"
-            if abstract_crossref
-            else ("pubmed_abstract" if abstract_pubmed else "none")
-        )
+        # V30 Phase-2 M-66b-T: when Step 2b succeeded in fetching
+        # OA full text, use it as direct_quote (rich source for
+        # M-58's 9-field SURPASS extractions). Else fall back to
+        # abstract_crossref / abstract_pubmed (prior behavior).
+        if oa_full_text:
+            direct_quote = oa_full_text
+            quote_source = "oa_full_text"
+        else:
+            direct_quote = abstract_crossref or abstract_pubmed or ""
+            quote_source = (
+                "crossref_abstract"
+                if abstract_crossref
+                else ("pubmed_abstract" if abstract_pubmed else "none")
+            )
         provenance = ProvenanceClass.OPEN_ACCESS
         failure_reason = None
     elif abstract_crossref:

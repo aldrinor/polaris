@@ -674,7 +674,10 @@ class TestRealClinicalYaml:
         )
         e = contract.entities_by_id()["surpass_2_primary"]
         assert e.doi == "10.1056/NEJMoa2107519"
-        assert e.pmid == 34010531
+        # V30 Phase-2 run-1 root-cause fix (commit bcedd57):
+        # was 34010531 (SPRINT) — corrected to 34170647 (Frias
+        # SURPASS-2) via PubMed EUtils DOI-to-PMID verification.
+        assert e.pmid == 34170647
         assert e.journal == "NEJM"
         assert e.anchor == "SURPASS-2"
 
@@ -688,7 +691,10 @@ class TestRealClinicalYaml:
         assert "thomas_clamp_2022" in by_id
         e = by_id["thomas_clamp_2022"]
         assert e.type == "mechanism_primary"
-        assert e.doi == "10.1016/S2213-8587(22)00041-1"
+        # V30 Phase-2 run-1 root-cause fix: corrected from
+        # 00041-1 (not a real DOI) to 00085-7 (Thomas Lancet
+        # D&E 2022 insulin sensitivity paper).
+        assert e.doi == "10.1016/S2213-8587(22)00085-7"
 
     def test_clinical_regulatory_entities_present(
         self, clinical_template: dict

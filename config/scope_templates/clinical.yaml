@@ -351,7 +351,16 @@ per_query_report_contract:
         pmid: 35468322
         journal: Lancet Diabetes Endocrinol
         year: 2022
-        required_fields: [m_value_pct_increase, first_phase_insulin_secretion, second_phase_insulin_secretion, half_life_days, participant_n, clamp_duration_weeks, glucagon_suppression_pct]
+        # Codex M-66 pass-3 — Thomas abstract reports: clamp
+        # disposition index (primary endpoint combining secretion
+        # and sensitivity), M value (insulin sensitivity), total
+        # insulin secretion rate, glucagon concentrations (fasting
+        # + postprandial), glucose control, phase-1 study design,
+        # participants on metformin, 15 mg + semaglutide 1 mg +
+        # placebo 3:3:2 random assignment, week-28 endpoint.
+        # Original fields (first_phase/second_phase_insulin_secretion,
+        # half_life_days) are not reported in the abstract.
+        required_fields: [population, comparator, primary_endpoint, timepoint, m_value_insulin_sensitivity, total_insulin_secretion_rate, glucagon_suppression, study_design, participant_n, sponsor]
         min_fields_for_completion: 3
         rendering_slot: mechanism_clamp
 

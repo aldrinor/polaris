@@ -548,10 +548,13 @@ class TestOperatorCompletionsMerge:
             ),
         )
 
-        # Write a well-formed completion for surpass_4_primary
+        # Write a well-formed completion for surpass_4_primary.
+        # V30 Phase-2 run-1 root-cause fix: DOI corrected from
+        # 01997-1 (not a real DOI) → 02188-7 (real Del Prato
+        # SURPASS-4 DOI) per clinical.yaml commit bcedd57.
         completions = [{
             "entity_id": "surpass_4_primary",
-            "doi": "10.1016/S0140-6736(21)01997-1",
+            "doi": "10.1016/S0140-6736(21)02188-7",
             "direct_quote": (
                 "In SURPASS-4 (Del Prato, Lancet 2021), 1995 T2D "
                 "adults received tirzepatide."
@@ -559,7 +562,7 @@ class TestOperatorCompletionsMerge:
             "provenance": {
                 "curator_id": "operator@inst",
                 "source_type": "licensed_institutional_access",
-                "source_locator": "10.1016/S0140-6736(21)01997-1 pp.1811-1824",
+                "source_locator": "10.1016/S0140-6736(21)02188-7 pp.1811-1824",
                 "acquired_at": "2026-04-23T18:00:00+00:00",
                 "artifact_sha256": "a" * 64,
                 "artifact_retention_path": "/audit/surpass4.pdf",
