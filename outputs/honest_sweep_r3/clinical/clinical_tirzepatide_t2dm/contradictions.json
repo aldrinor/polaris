@@ -1,37 +1,122 @@
 [
   {
-    "absolute_difference": 89.3,
+    "absolute_difference": 96.6,
     "claims": [
       {
         "arm": "treatment",
-        "context_snippet": "53 mmol/mol), \u22646.5% (48 mmol/mol), and <5.7% (39 mmol/mol); mean change from baselin",
-        "dose": "15 mg",
-        "endpoint_phrase": "mean change",
-        "evidence_id": "ev_000",
+        "context_snippet": "ter reductions in hemoglobin A1c (up to 2.4%) and body weight (up to 22%) compared t",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_008",
         "predicate": "weight loss",
-        "source_tier": "T1",
-        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+        "source_tier": "T2",
+        "source_url": "https://doi.org/10.26685/urncst.1029",
         "subject": "tirzepatide",
         "unit": "%",
-        "value": 5.7
+        "value": 2.4
       },
       {
         "arm": "treatment",
-        "context_snippet": "nts with type 2 diabetes lost \u20136.17 kg (95% CI: \u20137.16 to \u20135.17; p < 0.00001) at 5 m",
-        "dose": "15 mg",
-        "endpoint_phrase": "",
-        "evidence_id": "ev_002",
+        "context_snippet": " of 6 months [4-11], TBWL% decreased by 8% [5-14], Hba1c by 1% [0.2-1.8], TDD by 3",
+        "dose": "",
+        "endpoint_phrase": "from baseline",
+        "evidence_id": "ev_005",
         "predicate": "weight loss",
-        "source_tier": "T4",
-        "source_url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full",
+        "source_tier": "T7",
+        "source_url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/1660-P/154615/1660-P-Efficacy-and-Safety-of-Tirzepatide-for-the",
         "subject": "tirzepatide",
         "unit": "%",
-        "value": 95.0
+        "value": 8.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "ted in sustained weight loss and nearly 99% remained diabetes-free at 176 weeks | E",
+        "dose": "",
+        "endpoint_phrase": "at 176 weeks",
+        "evidence_id": "ev_007",
+        "predicate": "weight loss",
+        "source_tier": "T5",
+        "source_url": "https://investor.lilly.com/news-releases/news-release-details/treatment-tirzepatide-adults-pre-diabetes-and-obesity-or",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 99.0
+      }
+    ],
+    "predicate": "weight loss",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 40.25,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 13.9,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "of participants achieving an A1C value <7.0%, \u22646.5%, or <5.7% with tirzepatide acros",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 26",
+        "evidence_id": "ev_000",
+        "predicate": "weight loss",
+        "source_tier": "T4",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 7.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "to mean reductions in body weight up to 20.9% after 72 weeks of treatment.17,18 The a",
+        "dose": "15 mg",
+        "endpoint_phrase": "at week 88",
+        "evidence_id": "ev_016",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://jamanetwork.com/journals/jama/fullarticle/2812936",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 20.9
       }
     ],
     "predicate": "weight loss (15 mg)",
     "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
-    "relative_difference": 15.6667,
+    "relative_difference": 1.9857,
+    "severity": "high",
+    "subject": "tirzepatide"
+  },
+  {
+    "absolute_difference": 3.8,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "he highest dose achieved a reduction of 2.7%, and between 87% and 92% of tirzepatide",
+        "dose": "5 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_004",
+        "predicate": "weight loss",
+        "source_tier": "T6",
+        "source_url": "https://www.pharmacytimes.com/view/tirzepatide-shows-significant-improvements-in-glycemic-control-weight-loss-among-patients-with-type-2-diabetes",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 2.7
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "nment of a glycated hemoglobin level of 6.5% or less and weight loss of at least 5%,",
+        "dose": "5 mg",
+        "endpoint_phrase": "at 40 weeks",
+        "evidence_id": "ev_003",
+        "predicate": "weight loss",
+        "source_tier": "T1",
+        "source_url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519",
+        "subject": "tirzepatide",
+        "unit": "%",
+        "value": 6.5
+      }
+    ],
+    "predicate": "weight loss (5 mg)",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 1.4074,
     "severity": "high",
     "subject": "tirzepatide"
   }

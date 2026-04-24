@@ -1,29 +1,29 @@
 {
-  "input_tokens": 1608,
+  "input_tokens": 1874,
   "model": "qwen/qwen3-8b",
-  "output_tokens": 898,
+  "output_tokens": 1087,
   "parse_ok": true,
-  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Limitations section mentions tier distribution gaps without citation; methods section references expected tier distribution without adjacent citation markers.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Balances confidence with hedging (e.g., 'potential latency', 'no direct contradictions') and acknowledges limitations.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Maintains evidence-grounded tone throughout, avoiding promotional language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy to mechanism to limitations, with clear section demarcation.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Lacks explicit discussion of primary trials, regulatory status, and key safety measures in major evidence rows.\"}\n}",
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing citations in Limitations section (corpus skew, tier distribution) and Methods section (expected vs actual tier distribution)\"},\n  \"hedging_appropriateness\": {\"verdict\": \"acceptable\", \"note\": \"Appropriate hedging in 'no consensus' statement but lacks explicit qualification for claims about FAIR-RAG's 'crucial' role\"},\n  \"tone_consistency\": {\"verdict\": \"needs_revision\", \"note\": \"Promotional language in 'foundational architecture for enterprise AI' and 'industrial best practices'\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy to safety to limitations, with clear section demarcations\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing primary trial evidence and regulatory status information despite checklist claiming 6/6 topics covered\"}\n}",
   "verdicts": {
     "citation_tightness": {
-      "note": "Limitations section mentions tier distribution gaps without citation; methods section references expected tier distribution without adjacent citation markers.",
+      "note": "Missing citations in Limitations section (corpus skew, tier distribution) and Methods section (expected vs actual tier distribution)",
       "verdict": "needs_revision"
     },
     "completeness": {
-      "note": "Lacks explicit discussion of primary trials, regulatory status, and key safety measures in major evidence rows.",
+      "note": "Missing primary trial evidence and regulatory status information despite checklist claiming 6/6 topics covered",
       "verdict": "needs_revision"
     },
     "flow": {
-      "note": "Logical progression from efficacy to mechanism to limitations, with clear section demarcation.",
+      "note": "Logical progression from efficacy to safety to limitations, with clear section demarcations",
       "verdict": "good"
     },
     "hedging_appropriateness": {
-      "note": "Balances confidence with hedging (e.g., 'potential latency', 'no direct contradictions') and acknowledges limitations.",
-      "verdict": "good"
+      "note": "Appropriate hedging in 'no consensus' statement but lacks explicit qualification for claims about FAIR-RAG's 'crucial' role",
+      "verdict": "acceptable"
     },
     "tone_consistency": {
-      "note": "Maintains evidence-grounded tone throughout, avoiding promotional language.",
-      "verdict": "good"
+      "note": "Promotional language in 'foundational architecture for enterprise AI' and 'industrial best practices'",
+      "verdict": "needs_revision"
     }
   }
 }

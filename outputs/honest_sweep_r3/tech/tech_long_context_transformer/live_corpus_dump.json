@@ -86,5 +86,137 @@
     "tier_rule": "R7_preprint_domain",
     "title": "How to Train Long-Context Language Models (Effectively)",
     "url": "https://arxiv.org/html/2410.02660v4"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Data Engineering for Scaling Language Models to 128K Context",
+    "url": "http://arxiv.org/abs/2402.10171v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Proceedings to the 27th Workshop \"What Comes Beyond the Standard Models\" Bled, July 8-17, 2024",
+    "url": "http://arxiv.org/abs/2504.17803v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context",
+    "url": "http://arxiv.org/abs/1901.02860v3"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Vcc: Scaling Transformers to 128K Tokens or More by Prioritizing Important Tokens",
+    "url": "http://arxiv.org/abs/2305.04241v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Exploiting Context to Identify Lexical Atoms -- A Statistical View of Linguistic Context",
+    "url": "http://arxiv.org/abs/cmp-lg/9701001v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Scaling Granite Code Models to 128K Context",
+    "url": "http://arxiv.org/abs/2407.13739v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Which Tokens to Use? Investigating Token Reduction in Vision Transformers",
+    "url": "http://arxiv.org/abs/2308.04657v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "UltraLLaDA: Scaling the Context Length to 128K for Diffusion Large Language Models",
+    "url": "http://arxiv.org/abs/2510.10481v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "On approximation of planar curves by circular arcs with length preservation",
+    "url": "http://arxiv.org/abs/1604.07303v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Black-box language model explanation by context length probing",
+    "url": "http://arxiv.org/abs/2212.14815v3"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Gated Sparse Attention: Combining Computational Efficiency with Training Stability for Long-Context Language Models",
+    "url": "http://arxiv.org/abs/2601.15305v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Focus-dLLM: Accelerating Long-Context Diffusion LLM Inference via Confidence-Guided Context Focusing",
+    "url": "http://arxiv.org/abs/2602.02159v1"
   }
 ]

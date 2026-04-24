@@ -1,20 +1,24 @@
 ========================================================================
 SWEEP domain=due_diligence slug=dd_lilly_tirzepatide_manufacturing
 Question: What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?
-Budget cap: $0.0500
+Budget cap: $0.1000
 ========================================================================
-[scope]       sha256=3e07732f531b38d8... needs_review=False
-[retrieval]   pre_filter=16, fetched=12, failed=4, elapsed=77.6s  api_calls={'serper': 2, 's2': 2, 'openalex': 12, 'fetch': 16}
-[corpus]      total=16  T1=19%, T4=12%, T5=12%, T6=38%, UNKNOWN=19%  material_deviation=True
+[scope]       sha256=9698ea6254661da0... needs_review=False
+[retrieval]   pre_filter=16, fetched=12, failed=4, elapsed=81.1s  api_calls={'serper': 2, 's2': 2, 'openalex': 13, 'fetch': 16}
+[corpus]      total=16  T1=12%, T4=19%, T5=12%, T6=44%, UNKNOWN=12%  material_deviation=True
+[adequacy]    decision=expand  applicable_checks=7  critical=0  warn=1
+                WARN     t1_plus_t2_plus_t3: 2 vs threshold 3
+[completeness] 7/7 topics covered  uncovered=[]
 [contradict]  numeric_claims=2  contradictions=0
 [generation]  multi-section DeepSeek V3.2-Exp, evidence=12...
-              elapsed=31.6s outline=3 sections, words=329, verified=9, dropped=12, limitations_words=75
-[evaluator]   rule_checks=13/13 pass
-[judge]       {'good': 3, 'acceptable': 1, 'needs_revision': 1, 'unknown': 0}
-              [           GOOD] tone_consistency: Tone remains evidence-grounded, avoiding promotional language even in sections a
-              [     ACCEPTABLE] completeness: Covers major evidence rows (investments, market growth, regulatory status) but l
-              [           GOOD] citation_tightness: All factual claims are cited with adjacent markers [1]-[11].
-              [ NEEDS_REVISION] hedging_appropriateness: Overconfident projections (e.g., 'expected to grow significantly', 'now expectin
-              [           GOOD] flow: Logical progression from manufacturing investments to market dynamics to long-te
-[cost]        $0.0037 (cap $0.0500)
-[status]      ok
+              elapsed=33.1s outline=3 sections, words=290, verified=9, dropped=14, limitations_words=56
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 2 unhedged: ['\'best\' in: "# Research report: What is the current state of Eli Lilly\'s tirzepatide
+[judge]       {'good': 3, 'acceptable': 0, 'needs_revision': 2, 'unknown': 0}
+              [           GOOD] hedging_appropriateness: The prose avoids overconfidence by presenting claims with appropriate certainty 
+              [           GOOD] flow: The report follows a logical progression from regulatory context to manufacturin
+              [           GOOD] tone_consistency: The tone remains evidence-grounded throughout, avoiding promotional language and
+              [ NEEDS_REVISION] citation_tightness: The limitations section contains a factual claim about the corpus composition wi
+              [ NEEDS_REVISION] completeness: Major evidence rows such as primary trials, regulatory status, and key safety da
+[cost]        $0.0046 (cap $0.1000)
+[status]      ok_thin_corpus

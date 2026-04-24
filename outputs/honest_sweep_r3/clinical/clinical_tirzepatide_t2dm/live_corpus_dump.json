@@ -1,12 +1,12 @@
 [
   {
     "domain": "pmc.ncbi.nlm.nih.gov",
-    "tier": "T1",
+    "tier": "T4",
     "tier_confidence": 0.8,
     "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+      "OpenAlex: peer-reviewed 'article' in journal; title signals narrative review / commentary / perspective / update. T4."
     ],
-    "tier_rule": "R9_openalex_primary_study",
+    "tier_rule": "R9_openalex_narrative_review",
     "title": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
   },
@@ -23,12 +23,13 @@
   },
   {
     "domain": "frontiersin.org",
-    "tier": "T4",
-    "tier_confidence": 0.7,
+    "tier": "T2",
+    "tier_confidence": 0.85,
     "tier_reasons": [
-      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+      "R8b_body_signal_advisory_only: body=SR_MA (title is diagnostic [article-type]; trusting R9/R10)",
+      "OpenAlex: peer-reviewed 'review' in journal; title signals systematic review / meta-analysis. T2."
     ],
-    "tier_rule": "R9_openalex_pubtype_review",
+    "tier_rule": "R9_openalex_sr_or_ma",
     "title": "Efficacy and safety of tirzepatide for weight loss in patients ... - Frontiers",
     "url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full"
   },
@@ -45,20 +46,32 @@
   },
   {
     "domain": "pharmacytimes.com",
-    "tier": "T4",
-    "tier_confidence": 0.7,
+    "tier": "T6",
+    "tier_confidence": 1.0,
     "tier_reasons": [
-      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+      "Domain 'pharmacytimes.com' is a news / blog / commentary source. T6."
     ],
-    "tier_rule": "R9_openalex_pubtype_review",
+    "tier_rule": "R4_news_blog_domain",
     "title": "Tirzepatide Shows Significant Improvements in Glycemic Control ...",
     "url": "https://www.pharmacytimes.com/view/tirzepatide-shows-significant-improvements-in-glycemic-control-weight-loss-among-patients-with-type-2-diabetes"
+  },
+  {
+    "domain": "diabetesjournals.org",
+    "tier": "T7",
+    "tier_confidence": 0.85,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed journal 'article', but title or URL signals conference abstract / supplement issue. T7."
+    ],
+    "tier_rule": "R9_conference_abstract",
+    "title": "1660-P: Efficacy and Safety of Tirzepatide for the Treatment of ...",
+    "url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/1660-P/154615/1660-P-Efficacy-and-Safety-of-Tirzepatide-for-the"
   },
   {
     "domain": "pubmed.ncbi.nlm.nih.gov",
     "tier": "T1",
     "tier_confidence": 0.8,
     "tier_reasons": [
+      "R8b_body_signal_advisory_only: body=SR_MA (title is diagnostic [primary-study]; trusting R9/R10)",
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
@@ -77,15 +90,15 @@
     "url": "https://investor.lilly.com/news-releases/news-release-details/treatment-tirzepatide-adults-pre-diabetes-and-obesity-or"
   },
   {
-    "domain": "2minutemedicine.com",
-    "tier": "T1",
-    "tier_confidence": 0.8,
+    "domain": "doi.org",
+    "tier": "T2",
+    "tier_confidence": 0.85,
     "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+      "OpenAlex: peer-reviewed 'article' in journal; title signals systematic review / meta-analysis. T2."
     ],
-    "tier_rule": "R9_openalex_primary_study",
-    "title": "Tirzepatide improves glycemic control and weight loss in patients ...",
-    "url": "https://www.2minutemedicine.com/tirzepatide-improves-glycemic-control-and-weight-loss-in-patients-with-type-2-diabetes/"
+    "tier_rule": "R9_openalex_sr_or_ma",
+    "title": "How do Dual GLP-1/GIP Receptor Agonists Differ from GLP-1 Agonists for Diabetes Management: A Systematic Review",
+    "url": "https://doi.org/10.26685/urncst.1029"
   },
   {
     "domain": "nejm.org",
@@ -99,37 +112,37 @@
     "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2206038"
   },
   {
+    "domain": "clinicaltrials.gov",
+    "tier": "T3",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Domain 'clinicaltrials.gov' matches regulatory body list. T3 regulatory/government source."
+    ],
+    "tier_rule": "R2d_regulatory_domain",
+    "title": "NCT04657016 | A Study of Tirzepatide (LY3298176) In Participants ...",
+    "url": "https://clinicaltrials.gov/study/NCT04657016"
+  },
+  {
     "domain": "pubmed.ncbi.nlm.nih.gov",
-    "tier": "T4",
-    "tier_confidence": 0.7,
-    "tier_reasons": [
-      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
-    ],
-    "tier_rule": "R9_openalex_pubtype_review",
-    "title": "Efficacy and Safety of Tirzepatide on Weight Loss in Patients Without ...",
-    "url": "https://pubmed.ncbi.nlm.nih.gov/40510020/"
-  },
-  {
-    "domain": "jamanetwork.com",
     "tier": "T1",
     "tier_confidence": 0.8,
     "tier_reasons": [
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
-    "title": "Continued Treatment With Tirzepatide for Maintenance of Weight ...",
-    "url": "https://jamanetwork.com/journals/jama/fullarticle/2812936"
+    "title": "Tirzepatide and health-related quality of life in adults with obesity or ...",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40365662/"
   },
   {
-    "domain": "diabetesjournals.org",
-    "tier": "T1",
-    "tier_confidence": 0.8,
+    "domain": "trials.lilly.com",
+    "tier": "T5",
+    "tier_confidence": 1.0,
     "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+      "Domain 'trials.lilly.com' is a pharmaceutical-industry HCP portal or brand site. Industry marketing material \u2014 T5 regardless of OpenAlex indexing. (Peer-reviewed papers from the same company published in a journal should be cited via the journal URL, where they classify to T1/T2/T4.)"
     ],
-    "tier_rule": "R9_openalex_primary_study",
-    "title": "Tirzepatide in Adults With Type 1 Diabetes: A Phase 2 Randomized ...",
-    "url": "https://diabetesjournals.org/care/article/49/1/161/163859/Tirzepatide-in-Adults-With-Type-1-Diabetes-A-Phase"
+    "tier_rule": "R3_industry_marketing_domain",
+    "title": "A Study of Tirzepatide (LY3298176) In Participants After ... - Lilly Trials",
+    "url": "https://trials.lilly.com/en-US/trial/265294"
   },
   {
     "domain": "news.vumc.org",
@@ -143,80 +156,69 @@
     "url": "https://news.vumc.org/2023/10/17/tirzepatide-trial-shows-additional-21-1-weight-loss-following-intensive-lifestyle-intervention/"
   },
   {
-    "domain": "nejm.org",
-    "tier": "T4",
-    "tier_confidence": 0.8,
-    "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title signals narrative review / commentary / perspective / update. T4."
-    ],
-    "tier_rule": "R9_openalex_narrative_review",
-    "title": "Tirzepatide as Compared with Semaglutide for the Treatment of ...",
-    "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2416394"
-  },
-  {
-    "domain": "clinicaltrials.gov",
-    "tier": "T3",
-    "tier_confidence": 1.0,
-    "tier_reasons": [
-      "Domain 'clinicaltrials.gov' matches regulatory body list. T3 regulatory/government source."
-    ],
-    "tier_rule": "R2d_regulatory_domain",
-    "title": "Tirzepatide: Reversal of Lipotoxicity and Adipose Tissue Dysfunction ...",
-    "url": "https://clinicaltrials.gov/study/NCT05912621"
-  },
-  {
-    "domain": "sciencedirect.com",
+    "domain": "pubmed.ncbi.nlm.nih.gov",
     "tier": "T1",
     "tier_confidence": 0.8,
     "tier_reasons": [
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
-    "title": "Real-world use and effectiveness of tirzepatide among people ...",
-    "url": "https://www.sciencedirect.com/science/article/pii/S126236362500031X"
+    "title": "Tirzepatide once weekly for the treatment of obesity in people with ...",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/37385275/"
   },
   {
-    "domain": "semanticscholar.org",
-    "tier": "T7",
-    "tier_confidence": 0.95,
+    "domain": "prnewswire.com",
+    "tier": "T6",
+    "tier_confidence": 1.0,
     "tier_reasons": [
-      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+      "Domain 'prnewswire.com' is a news / blog / commentary source. T6."
     ],
-    "tier_rule": "R6_abstract_only_domain",
-    "title": "1994-LB: Effects of Switching Glucagon-Like Peptide 1 Receptor Agonists on HbA1c, Body Weight, and Treatment Satisfaction among Patients with Type 2 Diabetes\u2014A Meta-analysis",
-    "url": "https://www.semanticscholar.org/paper/006dea8542634af190c5e2ec79c4e640ccbd6573"
+    "tier_rule": "R4_news_blog_domain",
+    "title": "Tirzepatide significantly reduced A1C and body weight in people ...",
+    "url": "https://www.prnewswire.com/news-releases/tirzepatide-significantly-reduced-a1c-and-body-weight-in-people-with-type-2-diabetes-in-two-phase-3-trials-from-lillys-surpass-program-301229506.html"
   },
   {
-    "domain": "semanticscholar.org",
-    "tier": "T7",
-    "tier_confidence": 0.95,
+    "domain": "jamanetwork.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
     "tier_reasons": [
-      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
-    "tier_rule": "R6_abstract_only_domain",
-    "title": "Tirzepatide: The Most Effective Drug Therapy for Prevention of Type 2 Diabetes",
-    "url": "https://www.semanticscholar.org/paper/0140009e6bb62b40f0918fe84daeee9379fdad52"
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Continued Treatment With Tirzepatide for Maintenance of Weight ...",
+    "url": "https://jamanetwork.com/journals/jama/fullarticle/2812936"
   },
   {
-    "domain": "semanticscholar.org",
+    "domain": "doi.org",
     "tier": "T7",
-    "tier_confidence": 0.95,
+    "tier_confidence": 1.0,
     "tier_reasons": [
-      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+      "Fetched body is 429 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
     ],
-    "tier_rule": "R6_abstract_only_domain",
-    "title": "Use of Tirzepatida (Mounjaro) as a Therapeutic Agent in Obesity and Type 2 Diabetes: A Systematic Review on Metabolic Control with GLP-1 Agonists",
-    "url": "https://www.semanticscholar.org/paper/014f1e4551915bcf540521e9f41a1de865338560"
+    "tier_rule": "R1_stub_content_length",
+    "title": "Oral glucagon-like peptide-1 receptor agonists and combinations of entero-pancreatic hormones as treatments for adults with type 2 diabetes: where are we now?",
+    "url": "https://doi.org/10.1080/14656566.2024.2356254"
   },
   {
-    "domain": "semanticscholar.org",
-    "tier": "T7",
-    "tier_confidence": 0.95,
+    "domain": "doi.org",
+    "tier": "T4",
+    "tier_confidence": 0.8,
     "tier_reasons": [
-      "Domain 'semanticscholar.org' typically serves abstracts/stubs only without full-text retrieval. T7."
+      "OpenAlex: peer-reviewed 'review' in journal; title signals narrative review / commentary / perspective / update. T4."
     ],
-    "tier_rule": "R6_abstract_only_domain",
-    "title": "Impact of GLP-1 and dual agonists on the incidence of new cases of physician-reported sleep apnoea: A real-world propensity score-matched study",
-    "url": "https://www.semanticscholar.org/paper/0486c37fdd18583eeda1fe652bcb031a37984b26"
+    "tier_rule": "R9_openalex_narrative_review",
+    "title": "Tirzepatide for Weight Loss: Can Medical Therapy \u201cOutweigh\u201d Bariatric Surgery?",
+    "url": "https://doi.org/10.1097/CRD.0000000000000515"
+  },
+  {
+    "domain": "doi.org",
+    "tier": "T4",
+    "tier_confidence": 0.65,
+    "tier_reasons": [
+      "OpenAlex: 'editorial'. T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R11_openalex_editorial",
+    "title": "From needles to pills: oral GLP-1 therapy enters the obesity arena",
+    "url": "https://doi.org/10.1186/s40842-025-00245-5"
   }
 ]

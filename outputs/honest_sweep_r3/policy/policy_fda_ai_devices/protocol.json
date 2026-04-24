@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T16:59:20Z",
-  "created_at_unix": 1776531560.5587707,
+  "created_at_iso": "2026-04-18T20:53:05Z",
+  "created_at_unix": 1776545585.2203147,
   "criteria": {
     "exclusion": [
       "Law-firm commentary used as primary regulatory interpretation (cite the underlying regulation, not the law firm).",
@@ -77,7 +77,7 @@
   "outcome": null,
   "population": null,
   "research_question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
-  "run_id": "SWEEP_policy_policy_fda_ai_devices_1776531560",
+  "run_id": "SWEEP_policy_policy_fda_ai_devices_1776545585",
   "template_used": "config/scope_templates/policy.yaml",
   "user_overrides": {}
 }

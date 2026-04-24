@@ -1,6 +1,0 @@
-{
-  "content": "```mermaid\nflowchart TD\n    A[\"Cochrane IF Review Endpoints [REF:1]\"]\n    A --> B[\"Primary Outcomes (hard clinical) [REF:1]\"]\n    B --> B1[\"Cardiovascular mortality [REF:1]\"]\n    B --> B2[\"Myocardial infarction [REF:1]\"]\n    B --> B3[\"Heart failure [REF:1]\"]\n    A --> C[\"Intermediate Biomarkers (not primary)\"]\n    C --> C1[\"Not yet directly addressed by IF trials [REF:1]\"]\n```\n",
-  "reasoning": "",
-  "input_tokens": 600,
-  "output_tokens": 130
-}

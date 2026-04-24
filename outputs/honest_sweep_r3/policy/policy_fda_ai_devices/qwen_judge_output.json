@@ -1,28 +1,28 @@
 {
-  "input_tokens": 1698,
+  "input_tokens": 1820,
   "model": "qwen/qwen3-8b",
-  "output_tokens": 1094,
+  "output_tokens": 656,
   "parse_ok": true,
-  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"Claims about the FDA's framework and tier distribution lack adjacent citations. For example, the statement about the corpus's tier distribution gap is not cited in the text, despite being a major limitation.\"}, \n  \"hedging_appropriateness\": {\"verdict\": \"acceptable\", \"note\": \"The report presents FDA guidance as definitive without explicit hedging, but this is consistent with regulatory documentation style. Limitations section appropriately acknowledges evidence gaps without overconfidence.\"}, \n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains neutral and evidence-grounded throughout, avoiding promotional language while discussing regulatory frameworks and limitations.\"}, \n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from regulatory framework to mechanism, safety, and limitations. Sections are well-organized with clear transitions between concepts.\"}, \n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing key safety evidence (e.g., specific trial data) and primary trial references. Regulatory status is covered, but core safety and trial evidence rows are underdeveloped.\"}\n}",
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"good\", \"note\": \"All factual claims are directly supported by adjacent citations [1]-[14], with no uncited assertions.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose uses cautious language (e.g., 'intended to ensure', 'noted to benefit') where evidence shows uncertainty, avoiding overconfidence.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains neutral and evidence-grounded throughout, with no promotional or biased language.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from regulatory framework (context) \u2192 mechanism \u2192 limitations, with clear section transitions.\"},\n  \"completeness\": {\"verdict\": \"good\", \"note\": \"Major evidence rows (primary trials [9], regulatory status [6], safety [1][2]) are addressed, with completeness checklist confirming 6/6 topics covered.\"}\n}",
   "verdicts": {
     "citation_tightness": {
-      "note": "Claims about the FDA's framework and tier distribution lack adjacent citations. For example, the statement about the corpus's tier distribution gap is not cited in the text, despite being a major limitation.",
-      "verdict": "needs_revision"
+      "note": "All factual claims are directly supported by adjacent citations [1]-[14], with no uncited assertions.",
+      "verdict": "good"
     },
     "completeness": {
-      "note": "Missing key safety evidence (e.g., specific trial data) and primary trial references. Regulatory status is covered, but core safety and trial evidence rows are underdeveloped.",
-      "verdict": "needs_revision"
+      "note": "Major evidence rows (primary trials [9], regulatory status [6], safety [1][2]) are addressed, with completeness checklist confirming 6/6 topics covered.",
+      "verdict": "good"
     },
     "flow": {
-      "note": "Logical progression from regulatory framework to mechanism, safety, and limitations. Sections are well-organized with clear transitions between concepts.",
+      "note": "Logical progression from regulatory framework (context) \u2192 mechanism \u2192 limitations, with clear section transitions.",
       "verdict": "good"
     },
     "hedging_appropriateness": {
-      "note": "The report presents FDA guidance as definitive without explicit hedging, but this is consistent with regulatory documentation style. Limitations section appropriately acknowledges evidence gaps without overconfidence.",
-      "verdict": "acceptable"
+      "note": "Prose uses cautious language (e.g., 'intended to ensure', 'noted to benefit') where evidence shows uncertainty, avoiding overconfidence.",
+      "verdict": "good"
     },
     "tone_consistency": {
-      "note": "Tone remains neutral and evidence-grounded throughout, avoiding promotional language while discussing regulatory frameworks and limitations.",
+      "note": "Tone remains neutral and evidence-grounded throughout, with no promotional or biased language.",
       "verdict": "good"
     }
   }

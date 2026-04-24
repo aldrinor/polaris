@@ -1,20 +1,23 @@
 ========================================================================
 SWEEP domain=tech slug=tech_rag_architectures_2024
 Question: What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?
-Budget cap: $0.0500
+Budget cap: $0.1000
 ========================================================================
-[scope]       sha256=5c5df4b82279af98... needs_review=False
-[retrieval]   pre_filter=8, fetched=7, failed=1, elapsed=19.7s  api_calls={'serper': 1, 's2': 1, 'openalex': 8, 'fetch': 8}
-[corpus]      total=8  T1=25%, T4=38%, T6=25%, T7=12%  material_deviation=False
+[scope]       sha256=606fcbb07b97f9c7... needs_review=False
+[retrieval]   pre_filter=46, fetched=18, failed=2, elapsed=44.0s  api_calls={'serper': 1, 's2': 1, 'openalex': 19, 'fetch': 20, 'arxiv': 1, 'github': 1}
+[corpus]      total=20  T1=10%, T4=70%, T5=5%, T6=10%, T7=5%  material_deviation=True
+[adequacy]    decision=proceed  applicable_checks=7  critical=0  warn=0
+[completeness] 6/6 topics covered  uncovered=[]
 [contradict]  numeric_claims=0  contradictions=0
-[generation]  multi-section DeepSeek V3.2-Exp, evidence=7...
-              elapsed=21.1s outline=3 sections, words=475, verified=20, dropped=1, limitations_words=58
-[evaluator]   rule_checks=13/13 pass
-[judge]       {'good': 3, 'acceptable': 0, 'needs_revision': 2, 'unknown': 0}
-              [           GOOD] tone_consistency: Maintains evidence-grounded tone throughout, avoiding promotional language.
-              [ NEEDS_REVISION] completeness: Lacks explicit discussion of primary trials, regulatory status, and key safety m
-              [ NEEDS_REVISION] citation_tightness: Limitations section mentions tier distribution gaps without citation; methods se
-              [           GOOD] hedging_appropriateness: Balances confidence with hedging (e.g., 'potential latency', 'no direct contradi
-              [           GOOD] flow: Logical progression from efficacy to mechanism to limitations, with clear sectio
-[cost]        $0.0025 (cap $0.0500)
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=17...
+              elapsed=31.8s outline=4 sections, words=494, verified=16, dropped=11, limitations_words=73
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 4 unhedged: ["'best' in: '# Research report: What are the current best practices for retrieval-augme
+[judge]       {'good': 1, 'acceptable': 1, 'needs_revision': 3, 'unknown': 0}
+              [     ACCEPTABLE] hedging_appropriateness: Appropriate hedging in 'no consensus' statement but lacks explicit qualification
+              [           GOOD] flow: Logical progression from efficacy to safety to limitations, with clear section d
+              [ NEEDS_REVISION] tone_consistency: Promotional language in 'foundational architecture for enterprise AI' and 'indus
+              [ NEEDS_REVISION] citation_tightness: Missing citations in Limitations section (corpus skew, tier distribution) and Me
+              [ NEEDS_REVISION] completeness: Missing primary trial evidence and regulatory status information despite checkli
+[cost]        $0.0040 (cap $0.1000)
 [status]      ok

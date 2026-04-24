@@ -1,17 +1,15 @@
 {
   "approved": true,
   "approved_source_urls": [
+    "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/marketing-submission-recommendations-predetermined-change-control-plan-artificial-intelligence",
     "https://www.fda.gov/medical-devices/software-medical-device-samd/predetermined-change-control-plans-machine-learning-enabled-medical-devices-guiding-principles",
-    "https://www.ketryx.com/blog/understanding-fda-guidance-on-ai-in-medical-devices-and-predetermined-change-control-plans-pccps",
+    "https://www.mcdermottplus.com/insights/fda-issues-final-guidance-on-predetermined-change-control-plans-for-ai-enabled-devices/",
     "https://www.knobbe.com/blog/keeping-up-with-ai-fda-issues-guidance-on-predetermined-change-control-plans-pccps-for-artificial-intelligence-ai-enabled-devices/",
-    "https://members.ecri.org/guidance/understanding-fdas-predetermined-change-control-plans-pccps-for-ai-enabled?utm_campaign=Health%20Devices&__hstc=20521319.a916464c0282ca55d034c7f1675d8cdd.1766534400092.1766534400093.1766534400094.1&__hssc=20521319.1.1766534400095&__hsfp=3006156910",
+    "https://www.ketryx.com/blog/understanding-fda-guidance-on-ai-in-medical-devices-and-predetermined-change-control-plans-pccps",
     "https://www.complizen.ai/post/fda-predetermined-change-control-plan-pccp-implementation-guide-2025",
     "https://ai.jmir.org/2025/1/e76854",
-    "https://bipartisanpolicy.org/issue-brief/fda-oversight-understanding-the-regulation-of-health-ai-tools/",
     "https://www.fda.gov/medical-devices/software-medical-device-samd/artificial-intelligence-software-medical-device",
-    "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/marketing-submission-recommendations-predetermined-change-control-plan-artificial-intelligence",
     "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/predetermined-change-control-plans-medical-devices",
-    "https://www.mcdermottplus.com/insights/fda-issues-final-guidance-on-predetermined-change-control-plans-for-ai-enabled-devices/",
     "https://www.medcrypt.com/blog/understanding-fdas-draft-guidance-for-predetermined-change-control-plans-pccps-for-medical-devices",
     "https://www.intertek.com/blog/2025/03-25-fdas-pccp-framework-and-ai-enabled-medical-devices/",
     "https://www.semanticscholar.org/paper/0006d0ffd36796c07f6bd3fdebc0cc9579b27b04",
@@ -20,25 +18,35 @@
     "https://www.semanticscholar.org/paper/467983b9e9f763d0b52a8a163d0378ca3f168ad6",
     "https://www.semanticscholar.org/paper/8ae94d1e3ff9f2fa3ccd84cf7af45737716d4064",
     "https://www.semanticscholar.org/paper/8c1416bfa020a912dc265cb5764ccef00637d922",
-    "https://www.semanticscholar.org/paper/d0f5f0eeed57a59784b5a899bc77290d3cebba80"
+    "https://www.semanticscholar.org/paper/d0f5f0eeed57a59784b5a899bc77290d3cebba80",
+    "https://www.semanticscholar.org/paper/eda3bc0d19ca164c56da8d754c9c006e2378d319",
+    "https://www.semanticscholar.org/paper/f6318807ad5b51d4f31aa5a201b44340cf9d72aa",
+    "https://members.ecri.org/guidance/understanding-fdas-predetermined-change-control-plans-pccps-for-ai-enabled?utm_campaign=Health%20Devices&__hstc=20521319.a916464c0282ca55d034c7f1675d8cdd.1766534400092.1766534400093.1766534400094.1&__hssc=20521319.1.1766534400095&__hsfp=3006156910",
+    "https://www.fda.gov/medical-devices/medical-devices-news-and-events/cdrh-issues-guiding-principles-predetermined-change-control-plans-machine-learning-enabled-medical",
+    "https://www.fda.gov/medical-devices/software-medical-device-samd/artificial-intelligence-enabled-medical-devices",
+    "https://www.fda.gov/media/166704/download",
+    "https://www.fda.gov/news-events/press-announcements/fda-releases-artificial-intelligencemachine-learning-action-plan",
+    "https://www.federalregister.gov/documents/2023/04/03/2023-06786/marketing-submission-recommendations-for-a-predetermined-change-control-plan-for-artificial",
+    "https://www.fda.gov/news-events/press-announcements/fda-issues-comprehensive-draft-guidance-developers-artificial-intelligence-enabled-medical-devices",
+    "https://www.federalregister.gov/documents/2023/11/01/2023-24283/safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence"
   ],
-  "decision_at_iso": "2026-04-18T17:00:04Z",
-  "decision_at_unix": 1776531604.3984985,
-  "protocol_sha256": "b64b0b4533e3ce7fcfc87e90d3653cd24b28392314914c717053da924c0ea2da",
+  "decision_at_iso": "2026-04-18T20:54:18Z",
+  "decision_at_unix": 1776545658.9050493,
+  "protocol_sha256": "ff273f0a340b5942e6b6ee52d9ee101c55497344b873b01bce9fdecdfbebe72b",
   "rejected_source_urls": [],
   "report": {
     "auto_approve_allowed": false,
     "deviations": [
       {
-        "actual_fraction": 0.2,
-        "deviation_pp": -0.15,
+        "actual_fraction": 0.3214,
+        "deviation_pp": -0.0286,
         "expected_max": 0.7,
         "expected_min": 0.35,
         "is_material": false,
         "tier": "T3"
       },
       {
-        "actual_fraction": 0.25,
+        "actual_fraction": 0.1071,
         "deviation_pp": 0.0,
         "expected_max": 0.3,
         "expected_min": 0.1,
@@ -54,15 +62,15 @@
         "tier": "T2"
       },
       {
-        "actual_fraction": 0.0,
-        "deviation_pp": -0.05,
+        "actual_fraction": 0.0357,
+        "deviation_pp": -0.0143,
         "expected_max": 0.25,
         "expected_min": 0.05,
         "is_material": false,
         "tier": "T6"
       },
       {
-        "actual_fraction": 0.15,
+        "actual_fraction": 0.0714,
         "deviation_pp": 0.0,
         "expected_max": 0.15,
         "expected_min": 0.0,
@@ -70,16 +78,16 @@
         "tier": "T4"
       },
       {
-        "actual_fraction": 0.0,
-        "deviation_pp": 0.0,
+        "actual_fraction": 0.1071,
+        "deviation_pp": 0.0071,
         "expected_max": 0.1,
         "expected_min": 0.0,
         "is_material": false,
         "tier": "T5"
       },
       {
-        "actual_fraction": 0.4,
-        "deviation_pp": 0.35,
+        "actual_fraction": 0.3571,
+        "deviation_pp": 0.3071,
         "expected_max": 0.05,
         "expected_min": 0.0,
         "is_material": true,
@@ -88,19 +96,23 @@
     ],
     "has_material_deviation": true,
     "tier_counts": {
-      "T1": 5,
-      "T3": 4,
-      "T4": 3,
-      "T7": 8
+      "T1": 3,
+      "T3": 9,
+      "T4": 2,
+      "T5": 3,
+      "T6": 1,
+      "T7": 10
     },
     "tier_fractions": {
-      "T1": 0.25,
-      "T3": 0.2,
-      "T4": 0.15,
-      "T7": 0.4
+      "T1": 0.1071,
+      "T3": 0.3214,
+      "T4": 0.0714,
+      "T5": 0.1071,
+      "T6": 0.0357,
+      "T7": 0.3571
     },
-    "total_sources": 20
+    "total_sources": 28
   },
-  "run_id": "SWEEP_policy_policy_fda_ai_devices_1776531560",
+  "run_id": "SWEEP_policy_policy_fda_ai_devices_1776545585",
   "user_note": "R-3 sweep. Domain=policy. Auto-approve on sweep."
 }

@@ -1,36 +1,48 @@
 {
   "approved": true,
   "approved_source_urls": [
-    "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies",
-    "https://medium.com/data-science-collective/rag-architectures-a-complete-guide-for-2025-daf98a2ede8c",
-    "https://www.chitika.com/retrieval-augmented-generation-rag-the-definitive-guide-2025/",
-    "https://www.reddit.com/r/LocalLLaMA/comments/1fluepi/whats_the_best_current_setup_for/",
-    "https://arxiv.org/html/2506.00054v1",
+    "https://medium.com/@kanerika/top-rag-tools-you-should-know-about-in-2025-5ac2ea125275",
+    "https://www.youtube.com/watch?v=TaXhaA76bfA",
+    "https://ragflow.io/blog/rag-review-2025-from-rag-to-context",
+    "https://pub.towardsai.net/9-rag-architectures-every-ai-developer-must-master-in-2025-2f086aea6a58",
+    "https://redwerk.com/blog/rag-best-practices/",
+    "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf",
     "https://www.glean.com/blog/rag-retrieval-augmented-generation",
-    "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i",
-    "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+    "https://www.chitika.com/retrieval-augmented-generation-rag-the-definitive-guide-2025/",
+    "http://arxiv.org/abs/2601.05264v1",
+    "http://arxiv.org/abs/2506.06962v3",
+    "http://arxiv.org/abs/2402.12317v2",
+    "http://arxiv.org/abs/2411.18583v1",
+    "http://arxiv.org/abs/2502.00306v2",
+    "http://arxiv.org/abs/2012.13117v1",
+    "http://arxiv.org/abs/2512.02349v2",
+    "http://arxiv.org/abs/2603.14541v1",
+    "http://arxiv.org/abs/2510.22344v1",
+    "http://arxiv.org/abs/2602.03368v2",
+    "http://arxiv.org/abs/2404.07220v2",
+    "http://arxiv.org/abs/2507.23334v2"
   ],
-  "decision_at_iso": "2026-04-18T17:02:37Z",
-  "decision_at_unix": 1776531757.4735262,
-  "protocol_sha256": "5c5df4b82279af9887fca4c1020c567ab93d0d6fe335302041492011bbfe6194",
+  "decision_at_iso": "2026-04-18T20:57:39Z",
+  "decision_at_unix": 1776545859.478166,
+  "protocol_sha256": "606fcbb07b97f9c7a32dc31ac40053906eb2fc259b794307f8ea4f105ef692b9",
   "rejected_source_urls": [],
   "report": {
-    "auto_approve_allowed": true,
+    "auto_approve_allowed": false,
     "deviations": [
       {
-        "actual_fraction": 0.25,
-        "deviation_pp": 0.0,
+        "actual_fraction": 0.1,
+        "deviation_pp": -0.1,
         "expected_max": 0.5,
         "expected_min": 0.2,
         "is_material": false,
         "tier": "T1"
       },
       {
-        "actual_fraction": 0.375,
-        "deviation_pp": 0.025,
+        "actual_fraction": 0.7,
+        "deviation_pp": 0.35,
         "expected_max": 0.35,
         "expected_min": 0.1,
-        "is_material": false,
+        "is_material": true,
         "tier": "T4"
       },
       {
@@ -42,7 +54,7 @@
         "tier": "T2"
       },
       {
-        "actual_fraction": 0.25,
+        "actual_fraction": 0.1,
         "deviation_pp": 0.0,
         "expected_max": 0.25,
         "expected_min": 0.05,
@@ -58,7 +70,7 @@
         "tier": "T3"
       },
       {
-        "actual_fraction": 0.0,
+        "actual_fraction": 0.05,
         "deviation_pp": 0.0,
         "expected_max": 0.1,
         "expected_min": 0.0,
@@ -66,7 +78,7 @@
         "tier": "T5"
       },
       {
-        "actual_fraction": 0.125,
+        "actual_fraction": 0.05,
         "deviation_pp": 0.0,
         "expected_max": 0.15,
         "expected_min": 0.0,
@@ -74,21 +86,23 @@
         "tier": "T7"
       }
     ],
-    "has_material_deviation": false,
+    "has_material_deviation": true,
     "tier_counts": {
       "T1": 2,
-      "T4": 3,
+      "T4": 14,
+      "T5": 1,
       "T6": 2,
       "T7": 1
     },
     "tier_fractions": {
-      "T1": 0.25,
-      "T4": 0.375,
-      "T6": 0.25,
-      "T7": 0.125
+      "T1": 0.1,
+      "T4": 0.7,
+      "T5": 0.05,
+      "T6": 0.1,
+      "T7": 0.05
     },
-    "total_sources": 8
+    "total_sources": 20
   },
-  "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776531737",
+  "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776545815",
   "user_note": "R-3 sweep. Domain=tech. Auto-approve on sweep."
 }

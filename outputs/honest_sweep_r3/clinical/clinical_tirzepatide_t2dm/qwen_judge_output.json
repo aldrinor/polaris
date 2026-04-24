@@ -1,28 +1,28 @@
 {
-  "input_tokens": 1076,
+  "input_tokens": 2657,
   "model": "qwen/qwen3-8b",
-  "output_tokens": 1297,
+  "output_tokens": 1608,
   "parse_ok": true,
-  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"acceptable\", \"note\": \"All main claims are cited, but the contradiction disclosure lacks specific citations for conflicting data points.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"good\", \"note\": \"Prose avoids overconfidence; statements are supported by evidence without unwarranted certainty.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"Tone remains evidence-grounded, with balanced discussion of efficacy, safety, and limitations.\"},\n  \"flow\": {\"verdict\": \"acceptable\", \"note\": \"Efficacy and safety are presented first, followed by limitations and methods, but the transition between sections could be smoother.\"},\n  \"completeness\": {\"verdict\": \"acceptable\", \"note\": \"Major evidence rows (efficacy, safety) are covered, but regulatory status and broader methodological perspectives are underrepresented.\"}\n}",
+  "raw": "{\n  \"citation_tightness\": {\"verdict\": \"needs_revision\", \"note\": \"The limitations section states 'the corpus has significant tier-distribution gaps' without a citation, and some numeric claims in the body (e.g., weight loss ranges) are not explicitly hedged with citation markers for conflicting sources.\"},\n  \"hedging_appropriateness\": {\"verdict\": \"needs_revision\", \"note\": \"The report presents conflicting numeric ranges (e.g., 'cited values range 2.4 to 99.0%') without hedging language to reflect evidence disagreements, appearing overconfident in specific claims.\"},\n  \"tone_consistency\": {\"verdict\": \"good\", \"note\": \"The tone remains evidence-grounded, avoiding promotional language while presenting findings and limitations objectively.\"},\n  \"flow\": {\"verdict\": \"good\", \"note\": \"Logical progression from efficacy, safety, comparative data, dose response, long-term outcomes, to limitations maintains coherence.\"},\n  \"completeness\": {\"verdict\": \"needs_revision\", \"note\": \"Missing explicit discussion of regulatory status, which is a major evidence row for drug evaluations, despite mentioning trial phases and safety data.\"}\n}",
   "verdicts": {
     "citation_tightness": {
-      "note": "All main claims are cited, but the contradiction disclosure lacks specific citations for conflicting data points.",
-      "verdict": "acceptable"
+      "note": "The limitations section states 'the corpus has significant tier-distribution gaps' without a citation, and some numeric claims in the body (e.g., weight loss ranges) are not explicitly hedged with citation markers for conflicting sources.",
+      "verdict": "needs_revision"
     },
     "completeness": {
-      "note": "Major evidence rows (efficacy, safety) are covered, but regulatory status and broader methodological perspectives are underrepresented.",
-      "verdict": "acceptable"
+      "note": "Missing explicit discussion of regulatory status, which is a major evidence row for drug evaluations, despite mentioning trial phases and safety data.",
+      "verdict": "needs_revision"
     },
     "flow": {
-      "note": "Efficacy and safety are presented first, followed by limitations and methods, but the transition between sections could be smoother.",
-      "verdict": "acceptable"
-    },
-    "hedging_appropriateness": {
-      "note": "Prose avoids overconfidence; statements are supported by evidence without unwarranted certainty.",
+      "note": "Logical progression from efficacy, safety, comparative data, dose response, long-term outcomes, to limitations maintains coherence.",
       "verdict": "good"
     },
+    "hedging_appropriateness": {
+      "note": "The report presents conflicting numeric ranges (e.g., 'cited values range 2.4 to 99.0%') without hedging language to reflect evidence disagreements, appearing overconfident in specific claims.",
+      "verdict": "needs_revision"
+    },
     "tone_consistency": {
-      "note": "Tone remains evidence-grounded, with balanced discussion of efficacy, safety, and limitations.",
+      "note": "The tone remains evidence-grounded, avoiding promotional language while presenting findings and limitations objectively.",
       "verdict": "good"
     }
   }

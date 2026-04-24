@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T17:04:30Z",
-  "created_at_unix": 1776531870.3965054,
+  "created_at_iso": "2026-04-18T20:59:12Z",
+  "created_at_unix": 1776545952.430986,
   "criteria": {
     "exclusion": [
       "Anonymous forum posts.",
@@ -81,7 +81,7 @@
   "outcome": "mace",
   "population": "obesity",
   "research_question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
-  "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776531870",
+  "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776545952",
   "template_used": "config/scope_templates/due_diligence.yaml",
   "user_overrides": {}
 }

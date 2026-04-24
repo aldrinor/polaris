@@ -3,12 +3,12 @@
   "approved_source_urls": [
     "https://www.ahajournals.org/doi/10.1161/CIR.0000000000001193",
     "https://www.uptodate.com/contents/atrial-fibrillation-in-adults-use-of-oral-anticoagulants",
-    "https://pmc.ncbi.nlm.nih.gov/articles/PMC11256238/",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC12566413/",
     "https://www.escardio.org/guidelines/scientific-documents/recommended-reading/heart-rhythm/Novel-Oral-Anticoagulants-for-Atrial-Fibrillation/",
+    "https://www.sciencedirect.com/science/article/pii/S2667036422000218",
     "https://www.aafp.org/pubs/afp/issues/2019/1001/p426.html",
-    "https://www.droracle.ai/articles/952301/what-are-the-dosing-recommendations-and-contraindications-for-direct",
-    "https://australianprescriber.tg.org.au/articles/oral-anticoagulation-for-adults-with-atrial-fibrillation-or-venous-thromboembolism.html",
-    "https://apps.nhslothian.scot/refhelp/guidelines/cardiology/atrial-fibrillation-and-anticoagulation-for-non-valvular-af-nvaf/",
+    "https://www.derbyshiremedicinesmanagement.org.uk/assets/Clinical_Guidelines/Formulary_by_BNF_chapter_prescribing_guidelines/BNF_chapter_2/Atrial_fibrillation.pdf",
+    "https://www.uptodate.com/contents/atrial-fibrillation-in-adults-selection-of-candidates-for-long-term-anticoagulation",
     "https://www.ahajournals.org/doi/10.1161/JAHA.120.017559",
     "https://pmc.ncbi.nlm.nih.gov/articles/PMC12240022/",
     "https://www.acc.org/-/media/Non-Clinical/Images/Tools-and-Practice-Support/Information-Graphics/2018/10/DOAC-Dosing-for-Atrial-Fibrillation-AFib-UPDATED-Feb-19-19.pdf?la=en&hash=88C84210681FE03A2561ADB9C8967F0E64F54B02",
@@ -22,15 +22,15 @@
     "https://www.semanticscholar.org/paper/0acf03f98eec475a64b0597379d2380e2354a5c6",
     "https://www.semanticscholar.org/paper/0ad1285b883ebc6ded183eea4b8480829d103f00"
   ],
-  "decision_at_iso": "2026-04-18T16:58:22Z",
-  "decision_at_unix": 1776531502.5647998,
-  "protocol_sha256": "6ff224a76a90325ba0b8196b533ea2308e335f94e494ad33eb5cca3e00f3107b",
+  "decision_at_iso": "2026-04-18T20:51:57Z",
+  "decision_at_unix": 1776545517.7611523,
+  "protocol_sha256": "f81f6c4345f21a33e339dd44849d83d3590099fce41dcd2f7376a83206372d41",
   "rejected_source_urls": [],
   "report": {
     "auto_approve_allowed": false,
     "deviations": [
       {
-        "actual_fraction": 0.4,
+        "actual_fraction": 0.45,
         "deviation_pp": 0.0,
         "expected_max": 0.6,
         "expected_min": 0.3,
@@ -54,8 +54,8 @@
         "tier": "T3"
       },
       {
-        "actual_fraction": 0.3,
-        "deviation_pp": 0.1,
+        "actual_fraction": 0.25,
+        "deviation_pp": 0.05,
         "expected_max": 0.2,
         "expected_min": 0.0,
         "is_material": false,
@@ -88,17 +88,17 @@
     ],
     "has_material_deviation": true,
     "tier_counts": {
-      "T1": 8,
-      "T4": 6,
+      "T1": 9,
+      "T4": 5,
       "T7": 6
     },
     "tier_fractions": {
-      "T1": 0.4,
-      "T4": 0.3,
+      "T1": 0.45,
+      "T4": 0.25,
       "T7": 0.3
     },
     "total_sources": 20
   },
-  "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776531447",
+  "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776545473",
   "user_note": "R-3 sweep. Domain=clinical. Auto-approve on sweep."
 }

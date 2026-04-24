@@ -1,21 +1,25 @@
 ========================================================================
 SWEEP domain=policy slug=policy_medicare_drug_price
 Question: What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?
-Budget cap: $0.0500
+Budget cap: $0.1000
 ========================================================================
-[scope]       sha256=db2debfddaa057a6... needs_review=False
-[retrieval]   pre_filter=85, fetched=7, failed=13, elapsed=46.7s  api_calls={'serper': 3, 's2': 3, 'openalex': 18, 'fetch': 20}
-[corpus]      total=20  T1=45%, T4=15%, T7=30%, UNKNOWN=10%  material_deviation=True
+[scope]       sha256=395241ce4de9535a... needs_review=False
+[retrieval]   pre_filter=95, fetched=7, failed=13, elapsed=41.5s  api_calls={'serper': 3, 's2': 3, 'openalex': 17, 'fetch': 20, 'serper_policy': 1}
+[corpus]      total=20  T1=35%, T4=20%, T7=35%, UNKNOWN=10%  material_deviation=True
+[adequacy]    decision=proceed  applicable_checks=7  critical=0  warn=0
+[completeness] 4/6 topics covered  uncovered=['enforcement', 'precedent_or_history']
+[expansion]   triggering 2 expansion queries
+[expansion]   fetched=13 new evidence rows
+[expansion]   post: total=28 covered=6/6
 [contradict]  numeric_claims=0  contradictions=0
-[generation]  multi-section DeepSeek V3.2-Exp, evidence=7...
-              elapsed=32.7s outline=2 sections, words=223, verified=6, dropped=7, limitations_words=54
-[evaluator]   rule_checks=12/13 pass
-                FAIL PT13: 3 unhedged: ["'top' in: '# Research report: What is the impact of Medicare drug-price negotiation un
-[judge]       {'good': 2, 'acceptable': 1, 'needs_revision': 2, 'unknown': 0}
-              [           GOOD] tone_consistency: Maintains evidence-grounded tone throughout, avoiding promotional language or un
-              [ NEEDS_REVISION] completeness: Missing key evidence rows including primary trial data, comprehensive safety ana
-              [ NEEDS_REVISION] citation_tightness: Limitations section discusses tier distribution gaps and evidence horizon withou
-              [           GOOD] hedging_appropriateness: Prose appropriately acknowledges uncertainty in efficacy analysis with phrases l
-              [     ACCEPTABLE] flow: Moves from regulatory context to efficacy analysis to limitations, but methods s
-[cost]        $0.0024 (cap $0.0500)
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=15...
+              elapsed=34.0s outline=3 sections, words=291, verified=9, dropped=12, limitations_words=65
+[evaluator]   rule_checks=13/13 pass
+[judge]       {'good': 4, 'acceptable': 1, 'needs_revision': 0, 'unknown': 0}
+              [           GOOD] hedging_appropriateness: Prose uses hedging language like 'projected', 'estimated', and 'may omit' to ref
+              [     ACCEPTABLE] flow: Sections follow logical order but Comparative and Efficacy sections overlap in C
+              [           GOOD] tone_consistency: Tone remains evidence-grounded with no promotional language detected.
+              [           GOOD] citation_tightness: All factual claims have adjacent citations [1]-[8].
+              [           GOOD] completeness: Major evidence rows (regulatory status, cost savings, limitations) are addressed
+[cost]        $0.0046 (cap $0.1000)
 [status]      ok

@@ -1,16 +1,51 @@
 [
   {
-    "evidence_id": "ev_000",
+    "evidence_id": "ev_003",
     "num": 1,
-    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "statement": "Tirzepatide versus Semaglutide Once Weekly in Patients with Type ...",
     "tier": "T1",
-    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+    "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2107519"
   },
   {
     "evidence_id": "ev_002",
     "num": 2,
     "statement": "Efficacy and safety of tirzepatide for weight loss in patients ... - Frontiers",
-    "tier": "T4",
+    "tier": "T2",
     "url": "https://www.frontiersin.org/journals/endocrinology/articles/10.3389/fendo.2025.1593134/full"
+  },
+  {
+    "evidence_id": "ev_008",
+    "num": 3,
+    "statement": "How do Dual GLP-1/GIP Receptor Agonists Differ from GLP-1 Agonists for Diabetes Management: A Systematic Review",
+    "tier": "T2",
+    "url": "https://doi.org/10.26685/urncst.1029"
+  },
+  {
+    "evidence_id": "ev_001",
+    "num": 4,
+    "statement": "The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ...",
+    "tier": "T1",
+    "url": "https://www.mdpi.com/1424-8247/18/5/668"
+  },
+  {
+    "evidence_id": "ev_000",
+    "num": 5,
+    "statement": "Efficacy and Safety of Tirzepatide in Adults With Type 2 Diabetes",
+    "tier": "T4",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10115620/"
+  },
+  {
+    "evidence_id": "ev_016",
+    "num": 6,
+    "statement": "Continued Treatment With Tirzepatide for Maintenance of Weight ...",
+    "tier": "T1",
+    "url": "https://jamanetwork.com/journals/jama/fullarticle/2812936"
+  },
+  {
+    "evidence_id": "ev_006",
+    "num": 7,
+    "statement": "The Efficacy and Safety of Tirzepatide in Patients with Diabetes and ...",
+    "tier": "T1",
+    "url": "https://pubmed.ncbi.nlm.nih.gov/40430487/"
   }
 ]

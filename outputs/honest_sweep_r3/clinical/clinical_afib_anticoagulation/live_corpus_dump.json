@@ -29,8 +29,8 @@
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
-    "title": "Oral anticoagulation use in non-valvular atrial fibrillation patients in ...",
-    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11256238/"
+    "title": "Oral anticoagulation for adults with atrial fibrillation or venous ... - PMC",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12566413/"
   },
   {
     "domain": "escardio.org",
@@ -44,6 +44,17 @@
     "url": "https://www.escardio.org/guidelines/scientific-documents/recommended-reading/heart-rhythm/Novel-Oral-Anticoagulants-for-Atrial-Fibrillation/"
   },
   {
+    "domain": "sciencedirect.com",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "Oral anticoagulation use in non-valvular atrial fibrillation patients in ...",
+    "url": "https://www.sciencedirect.com/science/article/pii/S2667036422000218"
+  },
+  {
     "domain": "aafp.org",
     "tier": "T4",
     "tier_confidence": 0.7,
@@ -55,37 +66,26 @@
     "url": "https://www.aafp.org/pubs/afp/issues/2019/1001/p426.html"
   },
   {
-    "domain": "droracle.ai",
-    "tier": "T7",
-    "tier_confidence": 1.0,
-    "tier_reasons": [
-      "Fetched body is 171 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
-    ],
-    "tier_rule": "R1_stub_content_length",
-    "title": "NOAC Dosing and Contraindications in Non-Valvular Atrial ...",
-    "url": "https://www.droracle.ai/articles/952301/what-are-the-dosing-recommendations-and-contraindications-for-direct"
-  },
-  {
-    "domain": "australianprescriber.tg.org.au",
+    "domain": "derbyshiremedicinesmanagement.org.uk",
     "tier": "T1",
     "tier_confidence": 0.8,
     "tier_reasons": [
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
-    "title": "Oral anticoagulation for adults with atrial fibrillation or venous ...",
-    "url": "https://australianprescriber.tg.org.au/articles/oral-anticoagulation-for-adults-with-atrial-fibrillation-or-venous-thromboembolism.html"
+    "title": "[PDF] Management of Non-valvular Atrial Fibrillation",
+    "url": "https://www.derbyshiremedicinesmanagement.org.uk/assets/Clinical_Guidelines/Formulary_by_BNF_chapter_prescribing_guidelines/BNF_chapter_2/Atrial_fibrillation.pdf"
   },
   {
-    "domain": "apps.nhslothian.scot",
-    "tier": "T4",
-    "tier_confidence": 0.65,
+    "domain": "uptodate.com",
+    "tier": "T7",
+    "tier_confidence": 1.0,
     "tier_reasons": [
-      "OpenAlex: 'letter'. T4 narrative/unreviewed."
+      "Fetched body is 8 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
     ],
-    "tier_rule": "R11_openalex_letter",
-    "title": "Atrial Fibrillation and Anticoagulation for Non-Valvular AF (NVAF)",
-    "url": "https://apps.nhslothian.scot/refhelp/guidelines/cardiology/atrial-fibrillation-and-anticoagulation-for-non-valvular-af-nvaf/"
+    "tier_rule": "R1_stub_content_length",
+    "title": "Atrial fibrillation in adults: Selection of candidates for long-term ...",
+    "url": "https://www.uptodate.com/contents/atrial-fibrillation-in-adults-selection-of-candidates-for-long-term-anticoagulation"
   },
   {
     "domain": "ahajournals.org",

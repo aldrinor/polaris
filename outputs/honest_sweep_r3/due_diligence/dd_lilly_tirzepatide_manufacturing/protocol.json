@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T17:07:32Z",
-  "created_at_unix": 1776532052.5521932,
+  "created_at_iso": "2026-04-18T21:02:32Z",
+  "created_at_unix": 1776546152.8938546,
   "criteria": {
     "exclusion": [
       "Anonymous forum posts.",
@@ -81,7 +81,7 @@
   "outcome": null,
   "population": null,
   "research_question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
-  "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776532052",
+  "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776546152",
   "template_used": "config/scope_templates/due_diligence.yaml",
   "user_overrides": {}
 }

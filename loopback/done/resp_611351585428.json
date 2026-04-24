@@ -1,1 +1,0 @@
-{"content": "flowchart TD\n    A[Topic] --> B[Finding 1]\n    A --> C[Finding 2]\n    B --> D[Implication]\n    C --> D", "input_tokens": 429, "output_tokens": 50}

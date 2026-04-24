@@ -12,9 +12,9 @@
     "https://www.novomedlink.com/obesity/products/treatments/wegovy/efficacy.html",
     "https://medicine.washu.edu/news/study-identifies-benefits-risks-semaglutide"
   ],
-  "decision_at_iso": "2026-04-18T07:10:23Z",
-  "decision_at_unix": 1776496223.9549289,
-  "protocol_sha256": "9de5a3f195fe76de6d682ced578705ab7a5781a80a676fe98661ea6f9cd04b4c",
+  "decision_at_iso": "2026-04-18T07:12:04Z",
+  "decision_at_unix": 1776496324.8623521,
+  "protocol_sha256": "09c4148516101a1a862c97a4ab157d62a192f6f5773777833ac99c94849fc5d4",
   "rejected_source_urls": [],
   "report": {
     "auto_approve_allowed": true,

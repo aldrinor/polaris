@@ -2,34 +2,45 @@
 
 ### Efficacy
 
-A proven strategy is implementing a hybrid retrieval approach, combining keyword and semantic search; a typical implementation might weight BM25 at 0.3 and dense embeddings at 0.7 for general queries, dynamically adjusting based on query characteristics.[1] For performance, embedding cached vectors for frequently accessed content can cut p95 response time from 2.1 seconds to 450 milliseconds.[1] Key performance metrics include Precision@K, with targets of ≥0.85 for regulated content and ≥0.65 for exploratory queries, and an Answer Rate target of ≥0.90.[1] The economic case is compelling, as embedding new documents costs roughly $0.001-$0.01 per document, allowing a typical 10,000-document knowledge base to be indexed for under $100, a fraction of the cost of fine-tuning.[1] This approach enables systems to adapt to specific domains and provide source-backed answers without extensive retraining.[2] Effective deployment also utilizes open-source tools, such as those with built-in evaluation and enterprise connectors, to build production-ready systems.[1]
-
-### Comparative
-
-The quality of the data ingestion pipeline, particularly document parsing and semantic chunking, is identified as the primary determinant of overall RAG system performance.[3] For retrieval, production systems now require a sophisticated, multi-stage funnel that mandates a hybrid search approach combining sparse keyword-based and dense semantic vectors to maximize recall.[3] When comparing embedding models, a clear trade-off exists between managed services and open-source options.[3] Managed services like OpenAI's API offer ease of use and reliability but incur costs, such as $0.00002 per 1,000 tokens for text-embedding-3-small, and introduce potential latency and data privacy concerns.[3] In contrast, open-source models such as bge-base-en-v1.5 or jina-embeddings-v2-base-en provide greater control and privacy by enabling local deployment.[3] The industry trajectory is moving away from simple prototypes toward complex, multimodal, and agentic systems that form the core of modern AI applications.[3]
+The Blended RAG method, which leverages semantic search techniques and hybrid query strategies, achieved better retrieval results and set new benchmarks for Information Retrieval datasets like NQ and TREC-COVID.[1] In the specialized domain of music question answering, the MusT-RAG framework significantly outperformed traditional fine-tuning approaches in enhancing LLMs' adaptation capabilities, showing consistent improvements across both in-domain and out-of-domain benchmarks.[2] This demonstrates that adaptive, iterative frameworks like FAIR-RAG, which use explicit gap analysis to refine queries, are crucial for complex, multi-hop queries.[3] Similarly, hybrid retrieval strategies that blend different search techniques can substantially improve accuracy as document corpora scale.[1]
 
 ### Mechanism
 
-RAG systems consist of three core modules: a query encoder, a retriever, and a generator.[4] Architecturally, they can be categorized into retriever-centric, generator-centric, hybrid, and robustness-oriented designs.[4] Retriever-centric systems delegate primary responsibility to the retriever, treating the generator as a passive decoder.[4] Generator-centric systems concentrate innovation on the decoding process, shifting the burden of factual grounding and integration to the language model.[4] Hybrid systems tightly couple the retriever and generator, treating them as co-adaptive reasoning agents with iterative feedback.[4] The generation process formally models a conditional distribution where the output depends on the input and retrieved documents.[4] The architecture integrates dense retrieval mechanisms and transformer-based generation models to condition generation on retrieved information.[5] Enhancements include adaptive retrieval, which can reduce redundant retrievals by 14.9% in short-form tasks, and query refinement techniques like perplexity-driven decomposition.[4]
+Research and engineering practices have become fragmented due to the increasing diversity of RAG methodologies, which encompass a variety of fusion mechanisms, retrieval strategies, and orchestration approaches.[4] RAG offers a modular architecture for integrating external knowledge without increasing the underlying model's capacity, and it has matured from a specialized technique into a foundational architecture for enterprise AI.[4][5]
+
+### Comparative
+
+RAG implementations must be designed as core product components rather than bolted-on integrations to avoid failure, with one source noting over 70% of new LLM features quietly fail in production otherwise.[6] In the medical domain, there is no consensus on best practices for building RAG systems, necessitating careful analysis of components and systematic evaluations to reveal optimal trade-offs between performance and efficiency.[7] For the energy sector, a proposed system called Expert Mind adapts RAG to preserve tacit knowledge from an aging workforce, addressing the domain-specific challenge of irreversible knowledge loss through structured interviews and multimodal capture.[8] While the medical domain pursues industrial best practices through component evaluation, the energy sector's adaptation focuses on knowledge elicitation and ethical frameworks as first-class design constraints.[7][8] In software, best practices for registries and repositories focus on improving discoverability and transparency, which are distilled from the experiences of existing resources.[9]
+
+### Safety
+
+A stealthy membership inference technique called the Interrogation Attack (IA) targets documents in the RAG datastore by crafting natural-text queries answerable only with a target document's presence, demonstrating successful inference with just 30 queries.[10] The attack also shows a 2x improvement in TPR@1%FPR over prior inference attacks across diverse RAG configurations, costing less than $0.02 per document inference.[10] For faithful generation, advanced RAG methods often lack a robust mechanism to systematically identify and fill evidence gaps, which can propagate noise.[3] The FAIR-RAG framework addresses this with an Iterative Refinement Cycle and a Structured Evidence Assessment (SEA) module that audits aggregated evidence to identify confirmed facts and explicit informational gaps.[3] This evidence-driven process ensures a comprehensive context for final, strictly faithful generation.[3]
 
 ### Limitations
 
-Limitations: The corpus has significant tier-distribution gaps, with only 25% of sources being T1 primary studies and a substantial 38% classified as T4 expert opinion. No direct contradictions between sources were detected by the pipeline. The evidence horizon is narrow, with all included sources published from 2018 to the present, which may exclude foundational research from earlier periods.
+Limitations: The corpus is heavily skewed toward lower-tier sources, with only 10% of sources being T1 primary studies, while 70% are T4 (news and media). This imbalance may introduce a recency or popular-science bias into the synthesized conclusions. The evidence horizon spans from 2018 to the present, capturing recent developments but potentially missing foundational work from earlier periods. The pipeline did not detect any explicit contradictions in the extracted claims for this report.
 
 ## Methods
-Pre-registered protocol.json (SHA-256 5c5df4b82279af98...).
-Corpus: Serper + Semantic Scholar + OpenAlex live retrieval.
-Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 3 parallel sections + strict_verify + regen-on-failure).
+Pre-registered protocol.json (SHA-256 606fcbb07b97f9c7...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (tech: domain_backends(tech): {'arxiv': 20, 'github': 22}).
+Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 4 parallel sections + strict_verify + regen-on-failure).
 Evaluator model: qwen/qwen3-8b (different family).
 Sources classified using T1-T7 tier taxonomy.
 Inclusion / exclusion per tech template. Sponsor / conflict-of-interest review per source.
 Prompt-injection sanitization enabled. Retrieved 2026-04-18.
-Expected tier distribution: T1 20-50%, T4 10-35%, T2 5-25%, T6 5-25%, T3 0-15%, T5 0-10%, T7 0-15%. Actual distribution: T1=25%, T4=38%, T6=25%, T7=12%.
+Expected tier distribution: T1 20-50%, T4 10-35%, T2 5-25%, T6 5-25%, T3 0-15%, T5 0-10%, T7 0-15%. Actual distribution: T1=10%, T4=70%, T5=5%, T6=10%, T7=5%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 6/6 topics covered.
 
 
 ## Bibliography
-[1] RAG in 2025: 7 Proven Strategies to Deploy Retrieval- ... — https://www.morphik.ai/blog/retrieval-augmented-generation-strategies (tier T4)
-[2] Retrieval-Augmented Generation in 2025: Solving LLM's ... — https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i (tier T6)
-[3] RAG: An Architectural Review and Strategic Outlook for 2025 — https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf (tier T4)
-[4] Retrieval-Augmented Generation: A Comprehensive ... — https://arxiv.org/html/2506.00054v1 (tier T4)
-[5] What is Retrieval Augmented Generation(RAG) in 2025? — https://www.glean.com/blog/rag-retrieval-augmented-generation (tier T1)
+[1] Blended RAG: Improving RAG (Retriever-Augmented Generation) Accuracy with Semantic Search and Hybrid Query-Based Retrievers — http://arxiv.org/abs/2404.07220v2 (tier T4)
+[2] MUST-RAG: MUSical Text Question Answering with Retrieval Augmented Generation — http://arxiv.org/abs/2507.23334v2 (tier T4)
+[3] FAIR-RAG: Faithful Adaptive Iterative Refinement for Retrieval-Augmented Generation — http://arxiv.org/abs/2510.22344v1 (tier T4)
+[4] Engineering the RAG Stack: A Comprehensive Review of the Architecture and Trust Frameworks for Retrieval-Augmented Generation Systems — http://arxiv.org/abs/2601.05264v1 (tier T4)
+[5] RAG: An Architectural Review and Strategic Outlook for 2025 — https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf (tier T6)
+[6] RAG Best Practices: Rethinking Knowledge Management for AI — https://redwerk.com/blog/rag-best-practices/ (tier T4)
+[7] Pursuing Best Industrial Practices for Retrieval-Augmented Generation in the Medical Domain — http://arxiv.org/abs/2602.03368v2 (tier T4)
+[8] Expert Mind: A Retrieval-Augmented Architecture for Expert Knowledge Preservation in the Energy Sector — http://arxiv.org/abs/2603.14541v1 (tier T4)
+[9] Nine Best Practices for Research Software Registries and Repositories: A Concise Guide — http://arxiv.org/abs/2012.13117v1 (tier T4)
+[10] Riddle Me This! Stealthy Membership Inference for Retrieval-Augmented Generation — http://arxiv.org/abs/2502.00306v2 (tier T4)

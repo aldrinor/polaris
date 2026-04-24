@@ -1,5 +1,16 @@
 [
   {
+    "domain": "simplywall.st",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: publication_type == 'review' but title does not signal systematic review. Defaulting to T4 narrative review; manual review recommended if this paper is actually a network-meta-analysis or scoping review with a non-standard title."
+    ],
+    "tier_rule": "R9_openalex_pubtype_review",
+    "title": "Eli Lilly's Future Growth Driven by Tirzepatide and Favorable Market ...",
+    "url": "https://simplywall.st/community/narratives/us/pharmaceuticals-biotech/nyse-lly/eli-lilly/o8ms54ra-update-for-eli-lilly"
+  },
+  {
     "domain": "cnbc.com",
     "tier": "T6",
     "tier_confidence": 1.0,
@@ -41,7 +52,7 @@
     ],
     "tier_rule": "R9_openalex_primary_study",
     "title": "Eli Lilly - Statistics & Facts - Statista",
-    "url": "https://www.statista.com/topics/12144/eli-lilly/?srsltid=AfmBOoq2eufoTbZK7uyHpBH-10D17HkpTJ0y2Go94I4sGM6UufD76uS_"
+    "url": "https://www.statista.com/topics/12144/eli-lilly/?srsltid=AfmBOoqbym2tdeQ7qir-JMoeH7brlqR90oyURgIaLS_r-ZViyzE_Aysb"
   },
   {
     "domain": "biopharmadive.com",
@@ -77,17 +88,6 @@
     "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/eli-lilly-plans-launch-mounjaro-china-india-brazil-mexico-by-2026-cfo-says-2025-03-10/"
   },
   {
-    "domain": "pharmaphorum.com",
-    "tier": "UNKNOWN",
-    "tier_confidence": 0.0,
-    "tier_reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
-    ],
-    "tier_rule": "no_rule_matched",
-    "title": "Lilly says tirzepatide supply issues are resolving - pharmaphorum",
-    "url": "https://pharmaphorum.com/news/lilly-says-tirzepatide-supply-issues-are-resolving"
-  },
-  {
     "domain": "investor.lilly.com",
     "tier": "T5",
     "tier_confidence": 1.0,
@@ -121,17 +121,6 @@
     "url": "https://www.fiercepharma.com/manufacturing/lillys-manufacturing-splurge-continues-200m-expansion-china"
   },
   {
-    "domain": "bioprocessintl.com",
-    "tier": "UNKNOWN",
-    "tier_confidence": 0.0,
-    "tier_reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
-    ],
-    "tier_rule": "no_rule_matched",
-    "title": "Lilly injects another $5.3b in Indiana plant to up tirzepatide ...",
-    "url": "https://www.bioprocessintl.com/facilities-capacity/lilly-injects-another-5-3bn-in-indiana-plant-to-up-tirzepatide-production"
-  },
-  {
     "domain": "cnbc.com",
     "tier": "T6",
     "tier_confidence": 1.0,
@@ -141,6 +130,17 @@
     "tier_rule": "R4_news_blog_domain",
     "title": "Lilly invests $3 billion to expand Wisconsin plant as obesity ...",
     "url": "https://www.cnbc.com/2024/12/05/lilly-invests-3-billion-to-expand-wisconsin-plant-as-obesity-drug-demand-soars-.html"
+  },
+  {
+    "domain": "bioprocessintl.com",
+    "tier": "UNKNOWN",
+    "tier_confidence": 0.0,
+    "tier_reasons": [
+      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+    ],
+    "tier_rule": "no_rule_matched",
+    "title": "Lilly injects another $5.3b in Indiana plant to up tirzepatide ...",
+    "url": "https://www.bioprocessintl.com/facilities-capacity/lilly-injects-another-5-3bn-in-indiana-plant-to-up-tirzepatide-production"
   },
   {
     "domain": "biospace.com",
@@ -166,12 +166,12 @@
   },
   {
     "domain": "linkedin.com",
-    "tier": "T1",
-    "tier_confidence": 0.8,
+    "tier": "T6",
+    "tier_confidence": 0.9,
     "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+      "URL 'https://www.linkedin.com/pulse/eli-lillys-us-manufacturing-build-out-playbook-win-varenas-mba-gqdjc' matches a self-publishing path marker (LinkedIn Pulse, personal profile). T6 commentary."
     ],
-    "tier_rule": "R9_openalex_primary_study",
+    "tier_rule": "R4b_self_publish_path",
     "title": "Eli Lilly's U.S. Manufacturing Build-Out: A Playbook for ...",
     "url": "https://www.linkedin.com/pulse/eli-lillys-us-manufacturing-build-out-playbook-win-varenas-mba-gqdjc"
   }

@@ -1,6 +1,0 @@
-{
-  "content": "{\"verifications\": [{\"claim\": \"Alternate-day fasting is defined as complete fasting for 24 hours followed by ad libitum feeding for 24 hours.\", \"verdict\": \"SUPPORTED\", \"confidence\": 0.95, \"supporting_evidence\": []}, {\"claim\": \"Time-restricted feeding is defined as complete fasting for at least 12 hours per day with ad libitum feeding.\", \"verdict\": \"SUPPORTED\", \"confidence\": 0.95, \"supporting_evidence\": []}, {\"claim\": \"Primary outcomes for the review are cardiovascular mortality, myocardial infarction, and heart failure.\", \"verdict\": \"SUPPORTED\", \"confidence\": 0.9, \"supporting_evidence\": []}], \"overall_faithfulness\": 0.93}",
-  "reasoning": "",
-  "input_tokens": 17000,
-  "output_tokens": 200
-}

@@ -32,6 +32,23 @@
   - Same max-capacity knobs
   - Output will be at `outputs/full_scale_v5/`
 
+### Iteration 6 update (V6-V10, 2026-04-19 PM)
+
+V5-V9 completed. Each was MATERIAL-GAPS per DR audits pass 2-6.
+
+V10 LAUNCHED at commit `6c015ea` via `scripts/run_full_scale_v10.py`:
+- M-23 access-bypass fixes (Unpaywall + strip-before-paywall +
+  quality-scored winner + HTTP-error stub detection + paywall
+  regex tightening) committed at `6c999e8` and `ff68b86`.
+- M-24 outline/section prompt changes (allow overlap, raise
+  sentence+citation targets) committed at `6c999e8`.
+- Reproducible launcher: `scripts/run_full_scale_v10.py`
+  exports all capacity knobs explicitly.
+- DR audit brief: `.codex/dr_output_audit_pass_4_v10_brief.md`
+  requires live-DOI fetch for 25+ citations, verbatim comparison.
+- Output will be at `outputs/full_scale_v10/`.
+- Suite: 654 passed at `ff68b86`.
+
 ## Next actions after V5 completes
 
 1. Verify V5 manifest (success status, tier distribution improved)

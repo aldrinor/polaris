@@ -1,5 +1,5 @@
 {
-  "contradictions_disclosed": 1,
+  "contradictions_disclosed": 0,
   "contradictions_missing": [],
   "evaluator_family": "qwen",
   "evaluator_model": "qwen/qwen3-8b",
@@ -81,10 +81,10 @@
       "passed": true
     },
     {
-      "details": "4 unhedged: [\"'worse than' in: 'Over the past year, both stocks have lagged broader equities, though Novo Nordisk has perf'\", '\\'highest\\' in: \"The company is in direct competition with Eli Lilly\\'s daily pill orforglipron, which in a \"', \"'largest' in: 'In the United States, which is the largest pharmaceutical market globally and accounts for'\"]",
+      "details": "",
       "item_id": "PT13",
       "name": "Superlative / comparative claims are hedged to sources",
-      "passed": false
+      "passed": true
     }
   ]
 }

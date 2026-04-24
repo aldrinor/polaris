@@ -81,10 +81,10 @@
       "passed": true
     },
     {
-      "details": "",
+      "details": "2 unhedged: ['\\'best\\' in: \"# Research report: What is the current state of Eli Lilly\\'s tirzepatide manufacturing capa\"', \"'largest' in: 'Lilly has also invested $3 billion to expand the injectable manufacturing facility it acqu'\"]",
       "item_id": "PT13",
       "name": "Superlative / comparative claims are hedged to sources",
-      "passed": true
+      "passed": false
     }
   ]
 }

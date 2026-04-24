@@ -1,6 +1,0 @@
-{
-  "content": "```mermaid\nflowchart TD\n    A[\"Methodological Evidence Base\"]\n    A --> B[\"RDIF Meta-analysis [REF:4]\"]\n    A --> C[\"Network Meta-analysis [REF:5]\"]\n    A --> D[\"Comparator PA Meta-analysis [REF:6]\"]\n    B --> B1[\"Exposure: 29-30 days [REF:4]\"]\n    B --> B2[\"Population: healthy adults [REF:4]\"]\n    B --> B3[\"Outcome: CMRF changes [REF:4]\"]\n    C --> C1[\"Eligibility: RCT-only [REF:5]\"]\n    C --> C2[\"Comparators: CER + ad-libitum [REF:5]\"]\n    C --> C3[\"Outcome: intermediate cardiometabolic [REF:5]\"]\n    D --> D1[\"Endpoint: daily steps at 24 mo [REF:6]\"]\n    D --> D2[\"SMD 0.15 (95% CI 0.02-0.28) [REF:6]\"]\n    D --> D3[\"Pooled studies: 4 [REF:6]\"]\n```\n",
-  "reasoning": "",
-  "input_tokens": 900,
-  "output_tokens": 220
-}

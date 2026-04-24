@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T16:57:27Z",
-  "created_at_unix": 1776531447.6489065,
+  "created_at_iso": "2026-04-18T20:51:13Z",
+  "created_at_unix": 1776545473.5417676,
   "criteria": {
     "exclusion": [
       "Blog posts and law-firm commentary used as primary evidence (allowed as supplementary context only).",
@@ -80,7 +80,7 @@
   "outcome": null,
   "population": "adults",
   "research_question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
-  "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776531447",
+  "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776545473",
   "template_used": "config/scope_templates/clinical.yaml",
   "user_overrides": {}
 }

@@ -1,16 +1,5 @@
 [
   {
-    "domain": "morphik.ai",
-    "tier": "T4",
-    "tier_confidence": 0.7,
-    "tier_reasons": [
-      "OpenAlex: 'preprint' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
-    ],
-    "tier_rule": "R11_openalex_preprint_or_repo",
-    "title": "RAG in 2025: 7 Proven Strategies to Deploy Retrieval- ...",
-    "url": "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies"
-  },
-  {
     "domain": "medium.com",
     "tier": "T6",
     "tier_confidence": 1.0,
@@ -18,8 +7,74 @@
       "Domain 'medium.com' is a news / blog / commentary source. T6."
     ],
     "tier_rule": "R4_news_blog_domain",
-    "title": "RAG Architectures: A Complete Guide for 2025",
-    "url": "https://medium.com/data-science-collective/rag-architectures-a-complete-guide-for-2025-daf98a2ede8c"
+    "title": "Top RAG Tools You Should Know About in 2025 | by Kanerika Inc",
+    "url": "https://medium.com/@kanerika/top-rag-tools-you-should-know-about-in-2025-5ac2ea125275"
+  },
+  {
+    "domain": "youtube.com",
+    "tier": "T7",
+    "tier_confidence": 1.0,
+    "tier_reasons": [
+      "Fetched body is 159 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
+    ],
+    "tier_rule": "R1_stub_content_length",
+    "title": "RAG: The 2025 Best-Practice Stack, Prototype to Production",
+    "url": "https://www.youtube.com/watch?v=TaXhaA76bfA"
+  },
+  {
+    "domain": "ragflow.io",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: 'article' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
+    ],
+    "tier_rule": "R11_openalex_preprint_or_repo",
+    "title": "From RAG to Context - A 2025 year-end review of RAG - RAGFlow",
+    "url": "https://ragflow.io/blog/rag-review-2025-from-rag-to-context"
+  },
+  {
+    "domain": "pub.towardsai.net",
+    "tier": "T1",
+    "tier_confidence": 0.8,
+    "tier_reasons": [
+      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
+    ],
+    "tier_rule": "R9_openalex_primary_study",
+    "title": "9 RAG Architectures Every AI Developer Must Master in 2025",
+    "url": "https://pub.towardsai.net/9-rag-architectures-every-ai-developer-must-master-in-2025-2f086aea6a58"
+  },
+  {
+    "domain": "redwerk.com",
+    "tier": "T4",
+    "tier_confidence": 0.7,
+    "tier_reasons": [
+      "OpenAlex: 'preprint' / 'repository' \u2014 preprint or repository; not peer-reviewed. T4."
+    ],
+    "tier_rule": "R11_openalex_preprint_or_repo",
+    "title": "RAG Best Practices: Rethinking Knowledge Management for AI",
+    "url": "https://redwerk.com/blog/rag-best-practices/"
+  },
+  {
+    "domain": "linkedin.com",
+    "tier": "T6",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "URL 'https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf' matches a self-publishing path marker (LinkedIn Pulse, personal profile). T6 commentary."
+    ],
+    "tier_rule": "R4b_self_publish_path",
+    "title": "RAG: An Architectural Review and Strategic Outlook for 2025",
+    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+  },
+  {
+    "domain": "glean.com",
+    "tier": "T5",
+    "tier_confidence": 0.95,
+    "tier_reasons": [
+      "Domain 'glean.com' is a vendor / SaaS product blog. Benchmark numbers and product claims originate from the vendor; treat as industry-adjacent (T5), not peer-reviewed."
+    ],
+    "tier_rule": "R4a_vendor_blog_domain",
+    "title": "RAG, or Retrieval Augmented Generation: Revolutionizing AI in 2025",
+    "url": "https://www.glean.com/blog/rag-retrieval-augmented-generation"
   },
   {
     "domain": "chitika.com",
@@ -29,19 +84,8 @@
       "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
     ],
     "tier_rule": "R9_openalex_primary_study",
-    "title": "Retrieval-Augmented Generation (RAG): 2025 Definitive ...",
+    "title": "Retrieval-Augmented Generation (RAG): The Definitive Guide [2025]",
     "url": "https://www.chitika.com/retrieval-augmented-generation-rag-the-definitive-guide-2025/"
-  },
-  {
-    "domain": "reddit.com",
-    "tier": "T7",
-    "tier_confidence": 1.0,
-    "tier_reasons": [
-      "Fetched body is 37 chars (< 1000 threshold) \u2014 classified T7 stub regardless of venue. Full-text retrieval would be needed to upgrade."
-    ],
-    "tier_rule": "R1_stub_content_length",
-    "title": "What's the Best Current Setup for Retrieval-Augmented ...",
-    "url": "https://www.reddit.com/r/LocalLLaMA/comments/1fluepi/whats_the_best_current_setup_for/"
   },
   {
     "domain": "arxiv.org",
@@ -51,40 +95,128 @@
       "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
     ],
     "tier_rule": "R7_preprint_domain",
-    "title": "Retrieval-Augmented Generation: A Comprehensive ...",
-    "url": "https://arxiv.org/html/2506.00054v1"
+    "title": "Engineering the RAG Stack: A Comprehensive Review of the Architecture and Trust Frameworks for Retrieval-Augmented Generation Systems",
+    "url": "http://arxiv.org/abs/2601.05264v1"
   },
   {
-    "domain": "glean.com",
-    "tier": "T1",
-    "tier_confidence": 0.8,
-    "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title does not signal review. Classified as T1 primary study. (A stronger classifier would inspect study-design keywords in the title / abstract.)"
-    ],
-    "tier_rule": "R9_openalex_primary_study",
-    "title": "What is Retrieval Augmented Generation(RAG) in 2025?",
-    "url": "https://www.glean.com/blog/rag-retrieval-augmented-generation"
-  },
-  {
-    "domain": "dev.to",
-    "tier": "T6",
-    "tier_confidence": 1.0,
-    "tier_reasons": [
-      "Domain 'dev.to' is a news / blog / commentary source. T6."
-    ],
-    "tier_rule": "R4_news_blog_domain",
-    "title": "Retrieval-Augmented Generation in 2025: Solving LLM's ...",
-    "url": "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i"
-  },
-  {
-    "domain": "linkedin.com",
+    "domain": "arxiv.org",
     "tier": "T4",
-    "tier_confidence": 0.8,
+    "tier_confidence": 0.9,
     "tier_reasons": [
-      "OpenAlex: peer-reviewed 'article' in journal; title signals narrative review / commentary / perspective / update. T4."
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
     ],
-    "tier_rule": "R9_openalex_narrative_review",
-    "title": "RAG: An Architectural Review and Strategic Outlook for 2025",
-    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+    "tier_rule": "R7_preprint_domain",
+    "title": "AR-RAG: Autoregressive Retrieval Augmentation for Image Generation",
+    "url": "http://arxiv.org/abs/2506.06962v3"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "EVOR: Evolving Retrieval for Code Generation",
+    "url": "http://arxiv.org/abs/2402.12317v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Automated Literature Review Using NLP Techniques and LLM-Based Retrieval-Augmented Generation",
+    "url": "http://arxiv.org/abs/2411.18583v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Riddle Me This! Stealthy Membership Inference for Retrieval-Augmented Generation",
+    "url": "http://arxiv.org/abs/2502.00306v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Nine Best Practices for Research Software Registries and Repositories: A Concise Guide",
+    "url": "http://arxiv.org/abs/2012.13117v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "ACM COMPUTE 2025 Best Practices Track Proceedings",
+    "url": "http://arxiv.org/abs/2512.02349v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Expert Mind: A Retrieval-Augmented Architecture for Expert Knowledge Preservation in the Energy Sector",
+    "url": "http://arxiv.org/abs/2603.14541v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "FAIR-RAG: Faithful Adaptive Iterative Refinement for Retrieval-Augmented Generation",
+    "url": "http://arxiv.org/abs/2510.22344v1"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Pursuing Best Industrial Practices for Retrieval-Augmented Generation in the Medical Domain",
+    "url": "http://arxiv.org/abs/2602.03368v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "Blended RAG: Improving RAG (Retriever-Augmented Generation) Accuracy with Semantic Search and Hybrid Query-Based Retrievers",
+    "url": "http://arxiv.org/abs/2404.07220v2"
+  },
+  {
+    "domain": "arxiv.org",
+    "tier": "T4",
+    "tier_confidence": 0.9,
+    "tier_reasons": [
+      "Domain 'arxiv.org' is a preprint server. Not peer-reviewed (yet); T4 narrative/unreviewed."
+    ],
+    "tier_rule": "R7_preprint_domain",
+    "title": "MUST-RAG: MUSical Text Question Answering with Retrieval Augmented Generation",
+    "url": "http://arxiv.org/abs/2507.23334v2"
   }
 ]

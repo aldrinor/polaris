@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T16:55:25Z",
-  "created_at_unix": 1776531325.116806,
+  "created_at_iso": "2026-04-21T12:30:16Z",
+  "created_at_unix": 1776774616.9082365,
   "criteria": {
     "exclusion": [
       "Blog posts and law-firm commentary used as primary evidence (allowed as supplementary context only).",
@@ -78,7 +78,11 @@
   "outcome": "weight loss",
   "population": "adults",
   "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
-  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776531325",
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776774616",
+  "scope_decision": "proceed",
+  "scope_reasons": [],
+  "scope_rejected": false,
+  "scope_rejection_code": null,
   "template_used": "config/scope_templates/clinical.yaml",
   "user_overrides": {}
 }

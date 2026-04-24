@@ -1,58 +1,16 @@
 [
   {
-    "evidence_id": "ev_006",
-    "num": 1,
-    "statement": "Oral anticoagulation for adults with atrial fibrillation or venous ...",
-    "tier": "T1",
-    "url": "https://australianprescriber.tg.org.au/articles/oral-anticoagulation-for-adults-with-atrial-fibrillation-or-venous-thromboembolism.html"
-  },
-  {
-    "evidence_id": "ev_007",
-    "num": 2,
-    "statement": "Atrial Fibrillation and Anticoagulation for Non-Valvular AF (NVAF)",
-    "tier": "T4",
-    "url": "https://apps.nhslothian.scot/refhelp/guidelines/cardiology/atrial-fibrillation-and-anticoagulation-for-non-valvular-af-nvaf/"
-  },
-  {
     "evidence_id": "ev_009",
-    "num": 3,
+    "num": 1,
     "statement": "2025 Guidelines for direct oral anticoagulants: a practical guidance ...",
     "tier": "T1",
     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12240022/"
   },
   {
-    "evidence_id": "ev_010",
-    "num": 4,
-    "statement": "[PDF] DOAC Dosing for Atrial Fibrillation (AFib)",
-    "tier": "T4",
-    "url": "https://www.acc.org/-/media/Non-Clinical/Images/Tools-and-Practice-Support/Information-Graphics/2018/10/DOAC-Dosing-for-Atrial-Fibrillation-AFib-UPDATED-Feb-19-19.pdf?la=en&hash=88C84210681FE03A2561ADB9C8967F0E64F54B02"
-  },
-  {
-    "evidence_id": "ev_012",
-    "num": 5,
-    "statement": "[PDF] Direct Oral Anticoagulants in Atrial Fibrillation -November 2024",
-    "tier": "T1",
-    "url": "https://www.ihs.gov/sites/nptc/themes/responsive2017/display_objects/documents/guidance/NPTC-Formulary-Brief-DOACs.pdf"
-  },
-  {
-    "evidence_id": "ev_017",
-    "num": 6,
-    "statement": "Atrial Fibrillation in Patients with End-stage Kidney Disease on Dialysis",
-    "tier": "T4",
-    "url": "https://www.jstage.jst.go.jp/article/internalmedicine/57/16/57_0735-17/_pdf"
-  },
-  {
     "evidence_id": "ev_002",
-    "num": 7,
-    "statement": "Oral anticoagulation use in non-valvular atrial fibrillation patients in ...",
+    "num": 2,
+    "statement": "Oral anticoagulation for adults with atrial fibrillation or venous ... - PMC",
     "tier": "T1",
-    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11256238/"
-  },
-  {
-    "evidence_id": "ev_004",
-    "num": 8,
-    "statement": "Anticoagulation: Updated Guidelines for Outpatient Management",
-    "tier": "T4",
-    "url": "https://www.aafp.org/pubs/afp/issues/2019/1001/p426.html"
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12566413/"
   }
 ]

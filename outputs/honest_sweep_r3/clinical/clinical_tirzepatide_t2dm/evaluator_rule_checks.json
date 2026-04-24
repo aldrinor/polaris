@@ -1,5 +1,5 @@
 {
-  "contradictions_disclosed": 1,
+  "contradictions_disclosed": 3,
   "contradictions_missing": [],
   "evaluator_family": "qwen",
   "evaluator_model": "qwen/qwen3-8b",
@@ -81,10 +81,10 @@
       "passed": true
     },
     {
-      "details": "",
+      "details": "2 unhedged: [\"'greatest' in: 'The efficacy profile is dose-dependent, as illustrated by data from multiple trials showin'\", \"'leading' in: 'Adverse events leading to discontinuation occurred in 6.0%, 8.5%, and 8.5% of the tirzepat'\"]",
       "item_id": "PT13",
       "name": "Superlative / comparative claims are hedged to sources",
-      "passed": true
+      "passed": false
     }
   ]
 }

@@ -2,45 +2,42 @@
 
 ### Comparative
 
-Eli Lilly and Novo Nordisk are the two clear market leaders in the obesity drug market, being the only pharmaceutical companies with approved GLP-1 medications for weight loss.[1] Consequently, Zepbound has been gaining significant traction and now holds the lead in this market despite Wegovy's earlier approval.[2] Over the past year, both stocks have lagged broader equities, though Novo Nordisk has performed substantially worse than Eli Lilly.[2] One analysis concludes that Eli Lilly remains the more attractive stock, citing a better weight-loss portfolio and pipeline.[2]
+However, another source positions Novo Nordisk's ability to deliver strong efficacy, consistent availability, and improved affordability as positioning it ahead of Eli Lilly in the obesity treatment market.[1] Eli Lilly's pipeline includes retatrutide, which in a phase 3 study led to a 28.7% mean weight loss after 68 weeks, a performance described as one no other drug has come close to.[2] Novo Nordisk is countering with pipeline candidates like CagriSema and a high-dose 7.2 mg formulation of semaglutide, which demonstrated significantly greater weight loss compared to placebo in a Phase IIIb trial.[1] From a stock performance perspective, over the past year both leaders have lagged broader equities, though Novo Nordisk has performed substantially worse than Eli Lilly.[2] Strategically, Novo Nordisk gained an early lead with Wegovy, but Eli Lilly is described as having rapidly caught up and even overtaken Novo in some areas, with one analysis framing Lilly as the "tortoise" to Novo's "hare".[3]
 
 ### Regulatory
 
-Novo Nordisk's once-daily oral version of Wegovy achieved an average weight loss of 16.6% of body weight in a 64-week late-stage trial involving 307 adults, with close to one in three participants losing 20% or more of their weight.[3] The company is in direct competition with Eli Lilly's daily pill orforglipron, which in a separate trial resulted in one in five participants losing 20% or more of their weight over 72 weeks and an average weight loss of 12.4% at the highest dose.[3]
+In that 64-week trial involving 307 obese or overweight adults, patients on average lost 16.6% of their body weight.[4] The company launched the oral version of Wegovy in the U.S. market, pricing the 1.5 mg and 4 mg doses at $149 a month, with the 4 mg dose set to rise to $199 after April 15.[5] This launch occurs as Novo Nordisk battles challenges in the key U.S. market, where it has seen declining market share contributing to significant share price declines.[6]
 
 ### Efficacy
 
-The drug's blockbuster potential is supported by a large addressable population, as the global population that is obese or overweight is estimated to increase from 2.6 billion individuals in 2020 to over four billion by 2035.[4] In the United States, which is the largest pharmaceutical market globally and accounts for the largest market share for Wegovy in 2025, more than 36 percent of adult Americans are obese.[4][5] Wegovy seems to cut the risks of certain conditions that usually come with being overweight and obese, like stroke and heart attack.[4] The economic impact of overweight and obesity is projected to reach USD 4.32 trillion annually by 2035, comparable to the impact of COVID-19 in 2020, which underscores the significant market need.[5]
+Novo Nordisk stated this study added to evidence suggesting the heart-protective benefits are specific to the semaglutide molecule.[6]
 
 ### Safety
 
-Novo Nordisk faces intensifying competition in the obesity drug market, with Eli Lilly's Zepbound achieving an average weight loss of 25.5% compared to Novo Nordisk's CagriSema at 23% in a comparative trial.[6] Further competitive pressure comes from Eli Lilly's retatrutide, which achieved a best-in-class weight loss of 28.7% in a phase 3 study.[6] While Novo Nordisk and Eli Lilly currently lead the market, smaller competitors such as Roche, Pfizer, Amgen, and Viking are ramping up efforts to develop weight-loss treatments.[7] Research on the candidate UBT251 in China indicates a mean weight loss of up to 19.7% over 24 weeks, which may allow it to carve out a niche, though reclaiming market leadership may remain elusive.[6] A patient data analysis also highlights tirzepatide's significant advantage in weight reduction over semaglutide.[6]
+A trial miss for another candidate, CagriSema, was seen as a significant setback that could curb demand for it and temper long-term sales hopes, leaving Novo struggling to win back market share.[7] This has contributed to investor worries about competition and a decline in Novo Nordisk's U.S. market share, which was cited as a factor in Denmark more than halving its annual economic growth forecast.[6]
 
 ### Limitations
 
-Limitations: The corpus is heavily skewed toward lower-tier sources, with only 45% of sources classified as T1 primary studies and 20% as T5 preprints. A high-severity contradiction was detected, where sources disagree on the magnitude of retatrutide's effect on weight loss by a relative difference of 26.2%. Furthermore, the evidence is limited to publications from January 2019 onward, which may exclude foundational studies from prior years.
+Limitations: The corpus exhibits significant tier-distribution gaps, with only 25% of sources classified as T1 primary studies, while a combined 25% are from lower-tier T5 and T6 sources, and another 25% are of unknown quality. The evidence horizon is limited to publications from 2019 to the present, which may exclude foundational research from earlier periods. This recent and unevenly tiered evidence base constrains the historical depth and methodological robustness of the synthesized conclusions.
 
 ## Methods
-Pre-registered protocol.json (SHA-256 9d25a855a06c2b2b...).
-Corpus: Serper + Semantic Scholar + OpenAlex live retrieval.
+Pre-registered protocol.json (SHA-256 d43444b23ace4365...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (due_diligence: scope_query_validator: 3 kept / 1 dropped).
 Generator model: deepseek/deepseek-v3.2-exp (multi-section: outline + 4 parallel sections + strict_verify + regen-on-failure).
 Evaluator model: qwen/qwen3-8b (different family).
 Sources classified using T1-T7 tier taxonomy.
 Inclusion / exclusion per due_diligence template. Sponsor / conflict-of-interest review per source.
 Prompt-injection sanitization enabled. Retrieved 2026-04-18.
-Expected tier distribution: T3 20-50%, T5 10-35%, T1 5-30%, T6 5-30%, T4 0-20%, T2 0-15%, T7 0-10%. Actual distribution: T1=45%, T4=5%, T5=20%, T6=15%, T7=5%, UNKNOWN=10%.
-
-## Contradiction disclosures
-1 contradictions detected:
-
-- retatrutide / weight loss: values [20.2, 25.5] %, rel diff 26.2%.
+Expected tier distribution: T3 20-50%, T5 10-35%, T1 5-30%, T6 5-30%, T4 0-20%, T2 0-15%, T7 0-10%. Actual distribution: T1=25%, T5=25%, T6=15%, T7=10%, UNKNOWN=25%.
+Corpus adequacy: decision=proceed, 7/7 thresholds met.
+Completeness checklist: 7/7 topics covered.
 
 
 ## Bibliography
-[1] Can anything threaten Novo and Lilly's obesity market dominance? — https://www.pharmavoice.com/news/novo-nordisk-eli-lilly-obesity-market-dominance-glp1/745823/ (tier T1)
-[2] Eli Lilly vs Novo Nordisk: Which Obesity Drug Stock Is the Better Buy? — https://finance.yahoo.com/sectors/healthcare/articles/eli-lilly-vs-novo-nordisk-152000933.html (tier T1)
-[3] Novo Nordisk shares climb after positive anti-obesity pill ... — https://www.theguardian.com/business/2025/sep/18/novo-nordisk-shares-shoot-up-amid-promising-results-for-anti-obesity-pill (tier T6)
-[4] Novo Nordisk: Wegovy sales by quarter 2025 — https://www.statista.com/statistics/1416998/sales-wegovy-novo-nordisk-by-quarter/?srsltid=AfmBOooXuWCHG5veGlpXsneRtkBaztRKmAbbt3SHiiLQhqGoFShWEMpf (tier T1)
-[5] Wegovy Market Size, Share & Growth Outlook to 2030 — https://www.mordorintelligence.com/industry-reports/wegovy-market (tier UNKNOWN)
-[6] Novo Nordisk Faces Intensifying Competition in Obesity Drug Market — https://intellectia.ai/news/stock/novo-nordisk-faces-intensifying-competition-in-obesity-drug-market (tier T1)
-[7] Weight loss market: Eli Lilly and Novo Nordisk's rivals muscle in — https://www.euronews.com/business/2024/09/17/weight-loss-market-smaller-rivals-muscle-in-on-eli-lilly-and-novo-nordisk (tier T1)
+[1] Novo Nordisk vs Eli Lilly: Who's Winning the Obesity Drug Race? — https://www.delveinsight.com/blog/novo-vs-eli-lilly-in-anti-obesity-drug-market (tier UNKNOWN)
+[2] Eli Lilly vs Novo Nordisk: Which Obesity Drug Stock Is the Better Buy? — https://finance.yahoo.com/sectors/healthcare/articles/eli-lilly-vs-novo-nordisk-152000933.html (tier T5)
+[3] Novo Nordisk vs. Eli Lilly: A Tale of Two Strategies in the Obesity ... — https://www.linkedin.com/pulse/novo-nordisk-vs-eli-lilly-tale-two-strategies-obesity-vibhu-jain-phd-5dcxe (tier T6)
+[4] Novo Nordisk shares climb after positive anti-obesity pill results — https://www.theguardian.com/business/2025/sep/18/novo-nordisk-shares-shoot-up-amid-promising-results-for-anti-obesity-pill (tier T6)
+[5] Novo Nordisk Stock Rises as Wegovy Pill Hits the U.S. Market — https://finance.yahoo.com/news/novo-nordisk-stock-rises-wegovy-172805913.html (tier T7)
+[6] Wegovy trial result gives boost to Novo Nordisk amid U.S. market woes — https://www.cnbc.com/2025/09/01/wegovy-heart-disease-trial-gives-boost-to-novo-nordisk-amid-us-woes.html (tier T6)
+[7] Novo Nordisk's $475-billion rise and fall as Wegovy-era gains wiped ... — https://m.economictimes.com/news/international/business/novo-nordisks-475-billion-rise-and-fall-as-wegovy-era-gains-wiped-out/articleshow/128723524.cms (tier UNKNOWN)

@@ -1,37 +1,72 @@
 [
   {
-    "evidence_id": "ev_000",
+    "evidence_id": "ev_018",
     "num": 1,
-    "statement": "RAG in 2025: 7 Proven Strategies to Deploy Retrieval- ...",
+    "statement": "Blended RAG: Improving RAG (Retriever-Augmented Generation) Accuracy with Semantic Search and Hybrid Query-Based Retrievers",
     "tier": "T4",
-    "url": "https://www.morphik.ai/blog/retrieval-augmented-generation-strategies"
+    "url": "http://arxiv.org/abs/2404.07220v2"
   },
   {
-    "evidence_id": "ev_006",
+    "evidence_id": "ev_019",
     "num": 2,
-    "statement": "Retrieval-Augmented Generation in 2025: Solving LLM's ...",
-    "tier": "T6",
-    "url": "https://dev.to/genezio/retrieval-augmented-generation-in-2025-solving-llms-biggest-challenges-4d4i"
+    "statement": "MUST-RAG: MUSical Text Question Answering with Retrieval Augmented Generation",
+    "tier": "T4",
+    "url": "http://arxiv.org/abs/2507.23334v2"
   },
   {
-    "evidence_id": "ev_007",
+    "evidence_id": "ev_016",
     "num": 3,
-    "statement": "RAG: An Architectural Review and Strategic Outlook for 2025",
+    "statement": "FAIR-RAG: Faithful Adaptive Iterative Refinement for Retrieval-Augmented Generation",
     "tier": "T4",
-    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+    "url": "http://arxiv.org/abs/2510.22344v1"
   },
   {
-    "evidence_id": "ev_004",
+    "evidence_id": "ev_008",
     "num": 4,
-    "statement": "Retrieval-Augmented Generation: A Comprehensive ...",
+    "statement": "Engineering the RAG Stack: A Comprehensive Review of the Architecture and Trust Frameworks for Retrieval-Augmented Generation Systems",
     "tier": "T4",
-    "url": "https://arxiv.org/html/2506.00054v1"
+    "url": "http://arxiv.org/abs/2601.05264v1"
   },
   {
     "evidence_id": "ev_005",
     "num": 5,
-    "statement": "What is Retrieval Augmented Generation(RAG) in 2025?",
-    "tier": "T1",
-    "url": "https://www.glean.com/blog/rag-retrieval-augmented-generation"
+    "statement": "RAG: An Architectural Review and Strategic Outlook for 2025",
+    "tier": "T6",
+    "url": "https://www.linkedin.com/pulse/rag-architectural-review-strategic-outlook-2025-bal%C3%A1zs-feh%C3%A9r-bwzpf"
+  },
+  {
+    "evidence_id": "ev_004",
+    "num": 6,
+    "statement": "RAG Best Practices: Rethinking Knowledge Management for AI",
+    "tier": "T4",
+    "url": "https://redwerk.com/blog/rag-best-practices/"
+  },
+  {
+    "evidence_id": "ev_017",
+    "num": 7,
+    "statement": "Pursuing Best Industrial Practices for Retrieval-Augmented Generation in the Medical Domain",
+    "tier": "T4",
+    "url": "http://arxiv.org/abs/2602.03368v2"
+  },
+  {
+    "evidence_id": "ev_015",
+    "num": 8,
+    "statement": "Expert Mind: A Retrieval-Augmented Architecture for Expert Knowledge Preservation in the Energy Sector",
+    "tier": "T4",
+    "url": "http://arxiv.org/abs/2603.14541v1"
+  },
+  {
+    "evidence_id": "ev_013",
+    "num": 9,
+    "statement": "Nine Best Practices for Research Software Registries and Repositories: A Concise Guide",
+    "tier": "T4",
+    "url": "http://arxiv.org/abs/2012.13117v1"
+  },
+  {
+    "evidence_id": "ev_012",
+    "num": 10,
+    "statement": "Riddle Me This! Stealthy Membership Inference for Retrieval-Augmented Generation",
+    "tier": "T4",
+    "url": "http://arxiv.org/abs/2502.00306v2"
   }
 ]

@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T17:00:49Z",
-  "created_at_unix": 1776531649.5427153,
+  "created_at_iso": "2026-04-18T20:54:53Z",
+  "created_at_unix": 1776545693.8100412,
   "criteria": {
     "exclusion": [
       "Law-firm commentary used as primary regulatory interpretation (cite the underlying regulation, not the law firm).",
@@ -77,7 +77,7 @@
   "outcome": null,
   "population": null,
   "research_question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
-  "run_id": "SWEEP_policy_policy_medicare_drug_price_1776531649",
+  "run_id": "SWEEP_policy_policy_medicare_drug_price_1776545693",
   "template_used": "config/scope_templates/policy.yaml",
   "user_overrides": {}
 }

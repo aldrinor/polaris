@@ -1,51 +1,66 @@
 {
-  "budget_cap_usd": 0.05,
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 7,
+    "findings_total": 7
+  },
+  "budget_cap_usd": 0.1,
+  "completeness": {
+    "covered_fraction": 1.0,
+    "total_applicable": 6,
+    "total_covered": 6,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
   "contradictions_found": 0,
   "corpus": {
     "approved": true,
-    "count": 20,
+    "count": 28,
     "material_deviation": true,
     "tier_fractions": {
-      "T1": 0.45,
-      "T4": 0.15,
-      "T7": 0.3,
-      "UNKNOWN": 0.1
+      "T1": 0.3929,
+      "T4": 0.2143,
+      "T7": 0.25,
+      "UNKNOWN": 0.1429
     }
   },
-  "cost_usd": 0.002380789,
+  "cost_usd": 0.00461165,
   "domain": "policy",
-  "evaluator_rule_fail": 1,
-  "evaluator_rule_pass": 12,
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
   "generator": {
-    "limitations_words": 54,
+    "limitations_words": 65,
     "outline_sections": [
       "Regulatory",
-      "Efficacy"
+      "Efficacy",
+      "Comparative"
     ],
-    "sections_kept": 2,
-    "sentences_dropped": 7,
-    "sentences_verified": 6,
-    "words": 223
+    "sections_kept": 3,
+    "sentences_dropped": 12,
+    "sentences_verified": 9,
+    "words": 291
   },
-  "protocol_sha256": "db2debfddaa057a6083593bf5c0e81b4faa6c1978abd38e4f1c97f6cf2ba719f",
+  "protocol_sha256": "395241ce4de9535adc351109cb7aef9038bec4813f1b8688ef1f47a6fb00159d",
   "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
   "qwen_verdicts": {
     "acceptable": 1,
-    "good": 2,
-    "needs_revision": 2,
+    "good": 4,
+    "needs_revision": 0,
     "unknown": 0
   },
   "retrieval": {
     "api_calls": {
       "fetch": 20,
-      "openalex": 18,
+      "openalex": 17,
       "s2": 3,
-      "serper": 3
+      "serper": 3,
+      "serper_policy": 1
     },
     "failed": 13,
     "fetched": 7,
-    "pre_filter": 85
+    "pre_filter": 95
   },
-  "run_id": "SWEEP_policy_policy_medicare_drug_price_1776531649",
+  "run_id": "SWEEP_policy_policy_medicare_drug_price_1776545693",
   "slug": "policy_medicare_drug_price"
 }

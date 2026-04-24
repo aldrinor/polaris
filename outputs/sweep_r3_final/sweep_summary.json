@@ -1,98 +1,115 @@
 [
   {
-    "cost_ledger_entries": 7,
-    "cost_usd": 0.0013046540000000001,
+    "cost_usd": 0.0,
     "domain": "clinical",
-    "error": "",
+    "error": "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
-        "critical_count": 0,
-        "decision": "expand",
-        "findings_ok": 4,
-        "findings_total": 7
+        "decision": "abort",
+        "evidence_rows": 15,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 10
+          },
+          {
+            "name": "t1_count",
+            "observed": 1,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 3
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 2,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 5
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 3,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 6
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 15,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 6
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.1,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.5
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.4,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.4
+          }
+        ],
+        "notes": [
+          "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.5,
+          "max_t7_fraction": 0.4,
+          "min_evidence_rows": 6,
+          "min_t1_count": 3,
+          "min_t1_plus_t2": 5,
+          "min_t1_plus_t2_plus_t3": 6,
+          "min_total_sources": 10
+        },
+        "tier_counts": {
+          "T1": 1,
+          "T2": 1,
+          "T3": 1,
+          "T4": 5,
+          "T5": 1,
+          "T6": 1,
+          "T7": 8,
+          "UNKNOWN": 2
+        },
+        "total_sources": 20
       },
       "budget_cap_usd": 0.1,
       "completeness": {
-        "covered_fraction": 1.0,
         "total_applicable": 7,
         "total_covered": 7,
         "total_uncovered": 0,
         "uncovered_topic_ids": []
       },
-      "contradictions_found": 1,
       "corpus": {
-        "approved": true,
         "count": 20,
-        "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.2,
+          "T1": 0.05,
+          "T2": 0.05,
           "T3": 0.05,
-          "T4": 0.2,
+          "T4": 0.25,
           "T5": 0.05,
-          "T7": 0.5
+          "T6": 0.05,
+          "T7": 0.4,
+          "UNKNOWN": 0.1
         }
       },
-      "cost_usd": 0.0013046540000000001,
+      "cost_usd": 0.0,
       "domain": "clinical",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 0,
-      "evaluator_rule_pass": 13,
-      "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 14,
-        "evidence_total": 14,
-        "full_tier_counts": {
-          "T1": 4,
-          "T3": 1,
-          "T4": 4,
-          "T5": 1,
-          "T7": 4
-        },
-        "notes": [
-          "pool_size<=max_rows (14/20)"
-        ],
-        "selected_tier_counts": {
-          "T1": 4,
-          "T3": 1,
-          "T4": 4,
-          "T5": 1,
-          "T7": 4
-        },
-        "selection_strategy": "tier_balanced_v1_all"
-      },
-      "generator": {
-        "limitations_words": 71,
-        "outline_sections": [
-          "Efficacy",
-          "Comparative",
-          "Safety",
-          "Long-term Outcomes"
-        ],
-        "sections_kept": 4,
-        "sentences_dropped": 6,
-        "sentences_verified": 22,
-        "words": 634
-      },
-      "protocol_sha256": "3fbea6c7ead2c381266b9295e8a08985d2787e7b1894891b587201dfb4b5f598",
       "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
-      "qwen_verdicts": {
-        "acceptable": 0,
-        "good": 5,
-        "needs_revision": 0,
-        "unknown": 0
-      },
-      "release_allowed": true,
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 20,
+          "openalex": 4,
           "s2": 3,
           "serper": 3
         },
@@ -100,20 +117,20 @@
         "fetched": 16,
         "pre_filter": 300
       },
-      "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776587054",
+      "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776600679",
       "slug": "clinical_tirzepatide_t2dm",
-      "status": "partial_thin_corpus"
+      "status": "abort_corpus_inadequate"
     },
     "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
     "run_dir": "outputs\\sweep_r3_final\\clinical\\clinical_tirzepatide_t2dm",
-    "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776587054",
+    "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1776600679",
     "slug": "clinical_tirzepatide_t2dm",
-    "status": "ok_thin_corpus",
-    "wall_time_seconds": 231.6
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 168.2
   },
   {
-    "cost_ledger_entries": 6,
-    "cost_usd": 0.0013170249999999999,
+    "cost_ledger_entries": 7,
+    "cost_usd": 0.00101691,
     "domain": "clinical",
     "error": "",
     "manifest": {
@@ -135,98 +152,108 @@
       "corpus": {
         "approved": true,
         "count": 20,
-        "material_deviation": true,
+        "material_deviation": false,
         "tier_fractions": {
           "T1": 0.15,
-          "T3": 0.05,
-          "T4": 0.45,
-          "T7": 0.35
+          "T3": 0.1,
+          "T4": 0.3,
+          "T7": 0.2,
+          "UNKNOWN": 0.25
         }
       },
-      "cost_usd": 0.0013170249999999999,
+      "cost_usd": 0.00101691,
       "domain": "clinical",
       "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
+        "gate_class": "partial",
+        "qwen_critical_axes": [
+          "citation_tightness",
+          "completeness"
+        ],
         "qwen_parse_ok": true,
-        "reasons": [],
-        "release_allowed": true,
+        "reasons": [
+          "qwen_citation_tightness_needs_revision",
+          "qwen_multi_axis_needs_revision"
+        ],
+        "release_allowed": false,
         "rule_blockers": []
       },
       "evaluator_rule_fail": 0,
       "evaluator_rule_pass": 13,
       "evidence_selection": {
         "dropped_count": 0,
-        "evidence_selected": 15,
-        "evidence_total": 15,
+        "evidence_selected": 19,
+        "evidence_total": 19,
         "full_tier_counts": {
           "T1": 3,
-          "T3": 1,
-          "T4": 8,
-          "T7": 3
+          "T3": 2,
+          "T4": 6,
+          "T7": 3,
+          "UNKNOWN": 5
         },
         "notes": [
-          "pool_size<=max_rows (15/20)"
+          "pool_size<=max_rows (19/20)"
         ],
         "selected_tier_counts": {
           "T1": 3,
-          "T3": 1,
-          "T4": 8,
-          "T7": 3
+          "T3": 2,
+          "T4": 6,
+          "T7": 3,
+          "UNKNOWN": 5
         },
         "selection_strategy": "tier_balanced_v1_all"
       },
       "generator": {
-        "limitations_words": 65,
+        "limitations_words": 55,
         "outline_sections": [
           "Regulatory",
           "Comparative",
-          "Efficacy"
+          "Dose Response",
+          "Population Subgroups"
         ],
-        "sections_kept": 3,
+        "sections_kept": 4,
         "sentences_dropped": 3,
-        "sentences_verified": 17,
-        "words": 535
+        "sentences_verified": 21,
+        "words": 632
       },
-      "protocol_sha256": "693e7c773234220dea59d3caec7e808671f410bbd70f22da1abb5a9357e9b039",
+      "protocol_sha256": "9f32b3976b7b28b3739a91cf53524e835c6767a9bfc4c6effcf6ea12ea09a23f",
       "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
       "qwen_verdicts": {
         "acceptable": 0,
-        "good": 4,
-        "needs_revision": 1,
+        "good": 3,
+        "needs_revision": 2,
         "unknown": 0
       },
-      "release_allowed": true,
+      "release_allowed": false,
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 20,
+          "openalex": 4,
           "s2": 3,
           "serper": 3
         },
-        "failed": 5,
-        "fetched": 15,
-        "pre_filter": 657
+        "failed": 0,
+        "fetched": 20,
+        "pre_filter": 459
       },
-      "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776587286",
+      "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776600847",
       "slug": "clinical_afib_anticoagulation",
-      "status": "partial_thin_corpus"
+      "status": "partial_qwen_advisory"
     },
     "question": "What are current clinical guidelines for oral anticoagulation in adults with non-valvular atrial fibrillation?",
     "run_dir": "outputs\\sweep_r3_final\\clinical\\clinical_afib_anticoagulation",
-    "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776587286",
+    "run_id": "SWEEP_clinical_clinical_afib_anticoagulation_1776600847",
     "slug": "clinical_afib_anticoagulation",
-    "status": "ok_thin_corpus",
-    "wall_time_seconds": 315.9
+    "status": "ok_qwen_advisory",
+    "wall_time_seconds": 382.7
   },
   {
     "cost_usd": 0.0,
     "domain": "policy",
-    "error": "Corpus fails 1 critical threshold(s): ['t1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
+    "error": "Corpus fails 2 critical threshold(s): ['t1_count', 't1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
         "decision": "abort",
-        "evidence_rows": 28,
+        "evidence_rows": 27,
         "findings": [
           {
             "name": "total_sources",
@@ -237,28 +264,28 @@
           },
           {
             "name": "t1_count",
-            "observed": 1,
-            "ok": true,
-            "severity": "ok",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
             "threshold": 1
           },
           {
             "name": "t1_plus_t2",
-            "observed": 1,
+            "observed": 0,
             "ok": false,
             "severity": "critical",
             "threshold": 2
           },
           {
             "name": "t1_plus_t2_plus_t3",
-            "observed": 10,
+            "observed": 9,
             "ok": true,
             "severity": "ok",
             "threshold": 5
           },
           {
             "name": "evidence_rows",
-            "observed": 28,
+            "observed": 27,
             "ok": true,
             "severity": "ok",
             "threshold": 5
@@ -272,14 +299,14 @@
           },
           {
             "name": "t7_fraction",
-            "observed": 0.25925925925925924,
+            "observed": 0.2962962962962963,
             "ok": true,
             "severity": "ok",
             "threshold": 0.4
           }
         ],
         "notes": [
-          "Corpus fails 1 critical threshold(s): ['t1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+          "Corpus fails 2 critical threshold(s): ['t1_count', 't1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
         ],
         "thresholds": {
           "abort_if_below_fraction": 0.5,
@@ -292,12 +319,11 @@
           "min_total_sources": 8
         },
         "tier_counts": {
-          "T1": 1,
           "T3": 9,
-          "T4": 5,
           "T5": 3,
           "T6": 2,
-          "T7": 7
+          "T7": 8,
+          "UNKNOWN": 5
         },
         "total_sources": 27
       },
@@ -311,12 +337,11 @@
       "corpus": {
         "count": 27,
         "tier_fractions": {
-          "T1": 0.037,
           "T3": 0.3333,
-          "T4": 0.1852,
           "T5": 0.1111,
           "T6": 0.0741,
-          "T7": 0.2593
+          "T7": 0.2963,
+          "UNKNOWN": 0.1852
         }
       },
       "cost_usd": 0.0,
@@ -325,139 +350,149 @@
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 20,
+          "openalex": 0,
           "s2": 2,
           "serper": 2,
           "serper_policy": 1
         },
         "failed": 7,
         "fetched": 13,
-        "pre_filter": 32
+        "pre_filter": 31
       },
-      "run_id": "SWEEP_policy_policy_fda_ai_devices_1776587602",
+      "run_id": "SWEEP_policy_policy_fda_ai_devices_1776601230",
       "slug": "policy_fda_ai_devices",
       "status": "abort_corpus_inadequate"
     },
     "question": "How is the FDA regulating AI-enabled medical devices under the current Predetermined Change Control Plan framework?",
     "run_dir": "outputs\\sweep_r3_final\\policy\\policy_fda_ai_devices",
-    "run_id": "SWEEP_policy_policy_fda_ai_devices_1776587602",
+    "run_id": "SWEEP_policy_policy_fda_ai_devices_1776601230",
     "slug": "policy_fda_ai_devices",
     "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 203.4
+    "wall_time_seconds": 194.9
   },
   {
-    "cost_ledger_entries": 6,
-    "cost_usd": 0.00144422,
+    "cost_usd": 0.0,
     "domain": "policy",
-    "error": "",
+    "error": "Corpus fails 2 critical threshold(s): ['t1_count', 't1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
-        "critical_count": 0,
-        "decision": "proceed",
-        "findings_ok": 7,
-        "findings_total": 7
+        "decision": "abort",
+        "evidence_rows": 14,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 8
+          },
+          {
+            "name": "t1_count",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 1
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 3,
+            "ok": false,
+            "severity": "warn",
+            "threshold": 5
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 14,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 5
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.05,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.6
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.5,
+            "ok": false,
+            "severity": "warn",
+            "threshold": 0.4
+          }
+        ],
+        "notes": [
+          "Corpus fails 2 critical threshold(s): ['t1_count', 't1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.6,
+          "max_t7_fraction": 0.4,
+          "min_evidence_rows": 5,
+          "min_t1_count": 1,
+          "min_t1_plus_t2": 2,
+          "min_t1_plus_t2_plus_t3": 5,
+          "min_total_sources": 8
+        },
+        "tier_counts": {
+          "T3": 3,
+          "T4": 5,
+          "T5": 1,
+          "T7": 10,
+          "UNKNOWN": 1
+        },
+        "total_sources": 20
       },
       "budget_cap_usd": 0.1,
       "completeness": {
-        "covered_fraction": 1.0,
         "total_applicable": 6,
         "total_covered": 6,
         "total_uncovered": 0,
         "uncovered_topic_ids": []
       },
-      "contradictions_found": 1,
       "corpus": {
-        "approved": true,
         "count": 20,
-        "material_deviation": true,
         "tier_fractions": {
-          "T1": 0.2,
           "T3": 0.15,
           "T4": 0.25,
-          "T7": 0.35,
+          "T5": 0.05,
+          "T7": 0.5,
           "UNKNOWN": 0.05
         }
       },
-      "cost_usd": 0.00144422,
+      "cost_usd": 0.0,
       "domain": "policy",
-      "evaluator_gate": {
-        "gate_class": "pass",
-        "qwen_critical_axes": [],
-        "qwen_parse_ok": true,
-        "reasons": [
-          "advisory_pt13_unhedged_superlatives"
-        ],
-        "release_allowed": true,
-        "rule_blockers": []
-      },
-      "evaluator_rule_fail": 1,
-      "evaluator_rule_pass": 12,
-      "evidence_selection": {
-        "dropped_count": 0,
-        "evidence_selected": 15,
-        "evidence_total": 15,
-        "full_tier_counts": {
-          "T1": 4,
-          "T3": 3,
-          "T4": 4,
-          "T7": 3,
-          "UNKNOWN": 1
-        },
-        "notes": [
-          "pool_size<=max_rows (15/20)"
-        ],
-        "selected_tier_counts": {
-          "T1": 4,
-          "T3": 3,
-          "T4": 4,
-          "T7": 3,
-          "UNKNOWN": 1
-        },
-        "selection_strategy": "tier_balanced_v1_all"
-      },
-      "generator": {
-        "limitations_words": 66,
-        "outline_sections": [
-          "Efficacy",
-          "Regulatory",
-          "Long-term Outcomes"
-        ],
-        "sections_kept": 3,
-        "sentences_dropped": 2,
-        "sentences_verified": 17,
-        "words": 581
-      },
-      "protocol_sha256": "20626fc913ac9a0ceb4393637f2972391332c62c4fb8c5a8f785c3f8e03b1ba5",
       "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
-      "qwen_verdicts": {
-        "acceptable": 0,
-        "good": 5,
-        "needs_revision": 0,
-        "unknown": 0
-      },
-      "release_allowed": true,
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 17,
+          "openalex": 1,
           "s2": 3,
           "serper": 3,
           "serper_policy": 1
         },
         "failed": 5,
         "fetched": 15,
-        "pre_filter": 96
+        "pre_filter": 97
       },
-      "run_id": "SWEEP_policy_policy_medicare_drug_price_1776587805",
+      "run_id": "SWEEP_policy_policy_medicare_drug_price_1776601425",
       "slug": "policy_medicare_drug_price",
-      "status": "success"
+      "status": "abort_corpus_inadequate"
     },
     "question": "What is the impact of Medicare drug-price negotiation under the Inflation Reduction Act on drug list prices and access?",
     "run_dir": "outputs\\sweep_r3_final\\policy\\policy_medicare_drug_price",
-    "run_id": "SWEEP_policy_policy_medicare_drug_price_1776587805",
+    "run_id": "SWEEP_policy_policy_medicare_drug_price_1776601425",
     "slug": "policy_medicare_drug_price",
-    "status": "ok",
-    "wall_time_seconds": 211.0
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 139.9
   },
   {
     "cost_usd": 0.0,
@@ -532,131 +567,9 @@
           "min_total_sources": 6
         },
         "tier_counts": {
-          "T4": 14,
+          "T4": 13,
           "T5": 1,
-          "T6": 5
-        },
-        "total_sources": 20
-      },
-      "budget_cap_usd": 0.1,
-      "completeness": {
-        "total_applicable": 6,
-        "total_covered": 6,
-        "total_uncovered": 0,
-        "uncovered_topic_ids": []
-      },
-      "corpus": {
-        "count": 20,
-        "tier_fractions": {
-          "T4": 0.7,
-          "T5": 0.05,
-          "T6": 0.25
-        }
-      },
-      "cost_usd": 0.0,
-      "domain": "tech",
-      "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
-      "retrieval": {
-        "api_calls": {
-          "arxiv": 1,
-          "fetch": 20,
-          "github": 1,
-          "openalex": 20,
-          "s2": 1,
-          "serper": 1
-        },
-        "failed": 2,
-        "fetched": 18,
-        "pre_filter": 46
-      },
-      "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776588016",
-      "slug": "tech_rag_architectures_2024",
-      "status": "abort_corpus_inadequate"
-    },
-    "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
-    "run_dir": "outputs\\sweep_r3_final\\tech\\tech_rag_architectures_2024",
-    "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776588016",
-    "slug": "tech_rag_architectures_2024",
-    "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 128.8
-  },
-  {
-    "cost_usd": 0.0,
-    "domain": "tech",
-    "error": "Corpus fails 2 critical threshold(s): ['t1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
-    "manifest": {
-      "adequacy": {
-        "decision": "abort",
-        "evidence_rows": 20,
-        "findings": [
-          {
-            "name": "total_sources",
-            "observed": 20,
-            "ok": true,
-            "severity": "ok",
-            "threshold": 6
-          },
-          {
-            "name": "t1_count",
-            "observed": 1,
-            "ok": true,
-            "severity": "ok",
-            "threshold": 1
-          },
-          {
-            "name": "t1_plus_t2",
-            "observed": 1,
-            "ok": false,
-            "severity": "critical",
-            "threshold": 2
-          },
-          {
-            "name": "t1_plus_t2_plus_t3",
-            "observed": 1,
-            "ok": false,
-            "severity": "critical",
-            "threshold": 2
-          },
-          {
-            "name": "evidence_rows",
-            "observed": 20,
-            "ok": true,
-            "severity": "ok",
-            "threshold": 4
-          },
-          {
-            "name": "low_quality_fraction",
-            "observed": 0.1,
-            "ok": true,
-            "severity": "ok",
-            "threshold": 0.6
-          },
-          {
-            "name": "t7_fraction",
-            "observed": 0.05,
-            "ok": true,
-            "severity": "ok",
-            "threshold": 0.5
-          }
-        ],
-        "notes": [
-          "Corpus fails 2 critical threshold(s): ['t1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
-        ],
-        "thresholds": {
-          "abort_if_below_fraction": 0.5,
-          "max_t5_plus_t6_fraction": 0.6,
-          "max_t7_fraction": 0.5,
-          "min_evidence_rows": 4,
-          "min_t1_count": 1,
-          "min_t1_plus_t2": 2,
-          "min_t1_plus_t2_plus_t3": 2,
-          "min_total_sources": 6
-        },
-        "tier_counts": {
-          "T1": 1,
-          "T4": 15,
-          "T6": 2,
-          "T7": 1,
+          "T6": 5,
           "UNKNOWN": 1
         },
         "total_sources": 20
@@ -671,11 +584,131 @@
       "corpus": {
         "count": 20,
         "tier_fractions": {
-          "T1": 0.05,
-          "T4": 0.75,
-          "T6": 0.1,
-          "T7": 0.05,
+          "T4": 0.65,
+          "T5": 0.05,
+          "T6": 0.25,
           "UNKNOWN": 0.05
+        }
+      },
+      "cost_usd": 0.0,
+      "domain": "tech",
+      "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+      "retrieval": {
+        "api_calls": {
+          "arxiv": 1,
+          "fetch": 20,
+          "github": 1,
+          "openalex": 0,
+          "s2": 1,
+          "serper": 1
+        },
+        "failed": 2,
+        "fetched": 18,
+        "pre_filter": 46
+      },
+      "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776601565",
+      "slug": "tech_rag_architectures_2024",
+      "status": "abort_corpus_inadequate"
+    },
+    "question": "What are the current best practices for retrieval-augmented generation architectures as of 2024-2025?",
+    "run_dir": "outputs\\sweep_r3_final\\tech\\tech_rag_architectures_2024",
+    "run_id": "SWEEP_tech_tech_rag_architectures_2024_1776601565",
+    "slug": "tech_rag_architectures_2024",
+    "status": "abort_corpus_inadequate",
+    "wall_time_seconds": 143.1
+  },
+  {
+    "cost_usd": 0.0,
+    "domain": "tech",
+    "error": "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
+    "manifest": {
+      "adequacy": {
+        "decision": "abort",
+        "evidence_rows": 20,
+        "findings": [
+          {
+            "name": "total_sources",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 6
+          },
+          {
+            "name": "t1_count",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 1
+          },
+          {
+            "name": "t1_plus_t2",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "t1_plus_t2_plus_t3",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
+            "threshold": 2
+          },
+          {
+            "name": "evidence_rows",
+            "observed": 20,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 4
+          },
+          {
+            "name": "low_quality_fraction",
+            "observed": 0.2,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.6
+          },
+          {
+            "name": "t7_fraction",
+            "observed": 0.0,
+            "ok": true,
+            "severity": "ok",
+            "threshold": 0.5
+          }
+        ],
+        "notes": [
+          "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+        ],
+        "thresholds": {
+          "abort_if_below_fraction": 0.5,
+          "max_t5_plus_t6_fraction": 0.6,
+          "max_t7_fraction": 0.5,
+          "min_evidence_rows": 4,
+          "min_t1_count": 1,
+          "min_t1_plus_t2": 2,
+          "min_t1_plus_t2_plus_t3": 2,
+          "min_total_sources": 6
+        },
+        "tier_counts": {
+          "T4": 13,
+          "T6": 4,
+          "UNKNOWN": 3
+        },
+        "total_sources": 20
+      },
+      "budget_cap_usd": 0.1,
+      "completeness": {
+        "total_applicable": 6,
+        "total_covered": 6,
+        "total_uncovered": 0,
+        "uncovered_topic_ids": []
+      },
+      "corpus": {
+        "count": 20,
+        "tier_fractions": {
+          "T4": 0.65,
+          "T6": 0.2,
+          "UNKNOWN": 0.15
         }
       },
       "cost_usd": 0.0,
@@ -686,7 +719,7 @@
           "arxiv": 1,
           "fetch": 20,
           "github": 1,
-          "openalex": 19,
+          "openalex": 0,
           "s2": 1,
           "serper": 1
         },
@@ -694,16 +727,16 @@
         "fetched": 20,
         "pre_filter": 30
       },
-      "run_id": "SWEEP_tech_tech_long_context_transformer_1776588145",
+      "run_id": "SWEEP_tech_tech_long_context_transformer_1776601708",
       "slug": "tech_long_context_transformer",
       "status": "abort_corpus_inadequate"
     },
     "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
     "run_dir": "outputs\\sweep_r3_final\\tech\\tech_long_context_transformer",
-    "run_id": "SWEEP_tech_tech_long_context_transformer_1776588145",
+    "run_id": "SWEEP_tech_tech_long_context_transformer_1776601708",
     "slug": "tech_long_context_transformer",
     "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 137.2
+    "wall_time_seconds": 170.0
   },
   {
     "cost_usd": 0.0,
@@ -712,7 +745,7 @@
     "manifest": {
       "adequacy": {
         "decision": "abort",
-        "evidence_rows": 17,
+        "evidence_rows": 18,
         "findings": [
           {
             "name": "total_sources",
@@ -737,21 +770,21 @@
           },
           {
             "name": "t1_plus_t2_plus_t3",
-            "observed": 0,
+            "observed": 1,
             "ok": false,
             "severity": "critical",
             "threshold": 3
           },
           {
             "name": "evidence_rows",
-            "observed": 17,
+            "observed": 18,
             "ok": true,
             "severity": "ok",
             "threshold": 5
           },
           {
             "name": "low_quality_fraction",
-            "observed": 0.85,
+            "observed": 0.8,
             "ok": false,
             "severity": "warn",
             "threshold": 0.7
@@ -778,10 +811,10 @@
           "min_total_sources": 8
         },
         "tier_counts": {
-          "T4": 1,
-          "T5": 10,
-          "T6": 7,
-          "UNKNOWN": 2
+          "T3": 1,
+          "T5": 8,
+          "T6": 8,
+          "UNKNOWN": 3
         },
         "total_sources": 20
       },
@@ -795,10 +828,10 @@
       "corpus": {
         "count": 20,
         "tier_fractions": {
-          "T4": 0.05,
-          "T5": 0.5,
-          "T6": 0.35,
-          "UNKNOWN": 0.1
+          "T3": 0.05,
+          "T5": 0.4,
+          "T6": 0.4,
+          "UNKNOWN": 0.15
         }
       },
       "cost_usd": 0.0,
@@ -807,33 +840,33 @@
       "retrieval": {
         "api_calls": {
           "fetch": 20,
-          "openalex": 15,
+          "openalex": 0,
           "s2": 3,
           "serper": 3
         },
-        "failed": 3,
-        "fetched": 17,
+        "failed": 2,
+        "fetched": 18,
         "pre_filter": 24
       },
-      "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776588282",
+      "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776601878",
       "slug": "dd_novo_nordisk_obesity_position",
       "status": "abort_corpus_inadequate"
     },
     "question": "What is Novo Nordisk's competitive position in the obesity pharmaceutical market relative to Eli Lilly and newer entrants?",
     "run_dir": "outputs\\sweep_r3_final\\due_diligence\\dd_novo_nordisk_obesity_position",
-    "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776588282",
+    "run_id": "SWEEP_due_diligence_dd_novo_nordisk_obesity_position_1776601878",
     "slug": "dd_novo_nordisk_obesity_position",
     "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 311.9
+    "wall_time_seconds": 239.2
   },
   {
     "cost_usd": 0.0,
     "domain": "due_diligence",
-    "error": "Corpus fails 1 critical threshold(s): ['t1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
+    "error": "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT.",
     "manifest": {
       "adequacy": {
         "decision": "abort",
-        "evidence_rows": 13,
+        "evidence_rows": 12,
         "findings": [
           {
             "name": "total_sources",
@@ -844,37 +877,37 @@
           },
           {
             "name": "t1_count",
-            "observed": 1,
-            "ok": true,
-            "severity": "ok",
+            "observed": 0,
+            "ok": false,
+            "severity": "critical",
             "threshold": 1
           },
           {
             "name": "t1_plus_t2",
-            "observed": 1,
+            "observed": 0,
             "ok": false,
             "severity": "critical",
             "threshold": 2
           },
           {
             "name": "t1_plus_t2_plus_t3",
-            "observed": 2,
+            "observed": 0,
             "ok": false,
-            "severity": "warn",
+            "severity": "critical",
             "threshold": 3
           },
           {
             "name": "evidence_rows",
-            "observed": 13,
+            "observed": 12,
             "ok": true,
             "severity": "ok",
             "threshold": 5
           },
           {
             "name": "low_quality_fraction",
-            "observed": 0.625,
-            "ok": true,
-            "severity": "ok",
+            "observed": 0.75,
+            "ok": false,
+            "severity": "warn",
             "threshold": 0.7
           },
           {
@@ -886,7 +919,7 @@
           }
         ],
         "notes": [
-          "Corpus fails 1 critical threshold(s): ['t1_plus_t2']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+          "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
         ],
         "thresholds": {
           "abort_if_below_fraction": 0.5,
@@ -899,12 +932,9 @@
           "min_total_sources": 8
         },
         "tier_counts": {
-          "T1": 1,
-          "T3": 1,
-          "T4": 3,
           "T5": 4,
-          "T6": 6,
-          "UNKNOWN": 1
+          "T6": 8,
+          "UNKNOWN": 4
         },
         "total_sources": 16
       },
@@ -918,12 +948,9 @@
       "corpus": {
         "count": 16,
         "tier_fractions": {
-          "T1": 0.0625,
-          "T3": 0.0625,
-          "T4": 0.1875,
           "T5": 0.25,
-          "T6": 0.375,
-          "UNKNOWN": 0.0625
+          "T6": 0.5,
+          "UNKNOWN": 0.25
         }
       },
       "cost_usd": 0.0,
@@ -932,23 +959,23 @@
       "retrieval": {
         "api_calls": {
           "fetch": 16,
-          "openalex": 13,
+          "openalex": 0,
           "s2": 2,
           "serper": 2
         },
-        "failed": 3,
-        "fetched": 13,
+        "failed": 4,
+        "fetched": 12,
         "pre_filter": 16
       },
-      "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776588594",
+      "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776602117",
       "slug": "dd_lilly_tirzepatide_manufacturing",
       "status": "abort_corpus_inadequate"
     },
     "question": "What is the current state of Eli Lilly's tirzepatide manufacturing capacity and supply outlook?",
     "run_dir": "outputs\\sweep_r3_final\\due_diligence\\dd_lilly_tirzepatide_manufacturing",
-    "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776588594",
+    "run_id": "SWEEP_due_diligence_dd_lilly_tirzepatide_manufacturing_1776602117",
     "slug": "dd_lilly_tirzepatide_manufacturing",
     "status": "abort_corpus_inadequate",
-    "wall_time_seconds": 230.0
+    "wall_time_seconds": 203.8
   }
 ]

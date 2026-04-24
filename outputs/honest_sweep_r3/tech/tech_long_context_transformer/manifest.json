@@ -1,50 +1,96 @@
 {
-  "budget_cap_usd": 0.05,
-  "contradictions_found": 0,
+  "adequacy": {
+    "decision": "abort",
+    "evidence_rows": 17,
+    "findings": [
+      {
+        "name": "total_sources",
+        "observed": 20,
+        "ok": true,
+        "severity": "ok",
+        "threshold": 6
+      },
+      {
+        "name": "t1_count",
+        "observed": 0,
+        "ok": false,
+        "severity": "critical",
+        "threshold": 1
+      },
+      {
+        "name": "t1_plus_t2",
+        "observed": 0,
+        "ok": false,
+        "severity": "critical",
+        "threshold": 2
+      },
+      {
+        "name": "t1_plus_t2_plus_t3",
+        "observed": 0,
+        "ok": false,
+        "severity": "critical",
+        "threshold": 2
+      },
+      {
+        "name": "evidence_rows",
+        "observed": 17,
+        "ok": true,
+        "severity": "ok",
+        "threshold": 4
+      },
+      {
+        "name": "low_quality_fraction",
+        "observed": 0.1,
+        "ok": true,
+        "severity": "ok",
+        "threshold": 0.6
+      },
+      {
+        "name": "t7_fraction",
+        "observed": 0.0,
+        "ok": true,
+        "severity": "ok",
+        "threshold": 0.5
+      }
+    ],
+    "notes": [
+      "Corpus fails 3 critical threshold(s): ['t1_count', 't1_plus_t2', 't1_plus_t2_plus_t3']. Refusing to synthesize a confident report; caller should expand retrieval substantially or ABORT."
+    ],
+    "thresholds": {
+      "abort_if_below_fraction": 0.5,
+      "max_t5_plus_t6_fraction": 0.6,
+      "max_t7_fraction": 0.5,
+      "min_evidence_rows": 4,
+      "min_t1_count": 1,
+      "min_t1_plus_t2": 2,
+      "min_t1_plus_t2_plus_t3": 2,
+      "min_total_sources": 6
+    },
+    "tier_counts": {
+      "T4": 16,
+      "T6": 2,
+      "UNKNOWN": 2
+    },
+    "total_sources": 20
+  },
+  "completeness": {
+    "total_applicable": 6,
+    "total_covered": 6,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
   "corpus": {
-    "approved": true,
-    "count": 8,
-    "material_deviation": true,
+    "count": 20,
     "tier_fractions": {
-      "T4": 0.5,
-      "T6": 0.25,
-      "UNKNOWN": 0.25
+      "T4": 0.8,
+      "T6": 0.1,
+      "UNKNOWN": 0.1
     }
   },
-  "cost_usd": 0.00405495,
+  "cost_usd": 0.0,
   "domain": "tech",
-  "evaluator_rule_fail": 0,
-  "evaluator_rule_pass": 13,
-  "generator": {
-    "limitations_words": 55,
-    "outline_sections": [
-      "Efficacy",
-      "Mechanism"
-    ],
-    "sections_kept": 2,
-    "sentences_dropped": 3,
-    "sentences_verified": 11,
-    "words": 335
-  },
-  "protocol_sha256": "a167fbdae72db098b271b4d621933257199ca72c9d0a0c4c3ea9197d750da144",
   "question": "What techniques extend transformer context length beyond 128K tokens while preserving recall quality?",
-  "qwen_verdicts": {
-    "acceptable": 1,
-    "good": 3,
-    "needs_revision": 1,
-    "unknown": 0
-  },
-  "retrieval": {
-    "api_calls": {
-      "fetch": 8,
-      "openalex": 8,
-      "s2": 1,
-      "serper": 1
-    },
-    "failed": 2,
-    "fetched": 6,
-    "pre_filter": 8
-  },
-  "run_id": "SWEEP_tech_tech_long_context_transformer_1776531796",
-  "slug": "tech_long_context_transformer"
+  "run_id": "SWEEP_tech_tech_long_context_transformer_1776545905",
+  "slug": "tech_long_context_transformer",
+  "status": "abort_corpus_inadequate"
 }

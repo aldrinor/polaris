@@ -81,10 +81,10 @@
       "passed": true
     },
     {
-      "details": "3 unhedged: [\"'top' in: '# Research report: What is the impact of Medicare drug-price negotiation under the Inflati'\", \"'largest' in: 'This acceleration was broad-based, with products that had a medium starting inflation tier'\", \"'highest' in: 'The Part D data shows a compression pattern where products with lower pre-policy growth ac'\"]",
+      "details": "",
       "item_id": "PT13",
       "name": "Superlative / comparative claims are hedged to sources",
-      "passed": false
+      "passed": true
     }
   ]
 }

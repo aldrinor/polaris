@@ -1,6 +1,0 @@
-{
-  "content": "```mermaid\nflowchart TD\n    A[\"IF Protocols Taxonomy [REF:1][REF:2]\"]\n    A --> B[\"Alternate-Day Fasting (ADF)\"]\n    A --> C[\"Time-Restricted Feeding (TRE)\"]\n    A --> D[\"5:2 Diet\"]\n    B --> B1[\"Fast duration: 24 hours complete [REF:1]\"]\n    B --> B2[\"Feeding window: 24 hours ad libitum [REF:1]\"]\n    B --> B3[\"Trial count: k=10 of 28 [REF:2]\"]\n    C --> C1[\"Fast duration: >=12 hours daily [REF:1]\"]\n    C --> C2[\"Feeding window: remainder of day [REF:1]\"]\n    C --> C3[\"Trial count: k=7 of 28 [REF:2]\"]\n    D --> D1[\"Trial count: k=11 of 28 [REF:2]\"]\n    D --> D2[\"Definition: not routed to this section\"]\n    A --> E[\"Pooled trial duration: 2-52 weeks [REF:2]\"]\n```\n",
-  "reasoning": "",
-  "input_tokens": 900,
-  "output_tokens": 220
-}

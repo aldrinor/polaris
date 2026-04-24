@@ -1,7 +1,7 @@
 {
   "comparator": null,
-  "created_at_iso": "2026-04-18T07:10:23Z",
-  "created_at_unix": 1776496223.934354,
+  "created_at_iso": "2026-04-18T07:12:04Z",
+  "created_at_unix": 1776496324.8529544,
   "criteria": {
     "exclusion": [
       "Blog posts and law-firm commentary used as primary evidence (allowed as supplementary context only).",
