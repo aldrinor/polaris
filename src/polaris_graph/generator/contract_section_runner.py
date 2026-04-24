@@ -403,26 +403,61 @@ async def run_contract_section(
         sentences_by_slot.setdefault(slot_id, []).append(stripped + markers)
 
     # Emit final verified_text with re-injected headings.
+    # V30 Phase-2 M-68 Fix #1 (Codex run-7 audit directive):
+    # a slot MUST NEVER silently drop from the body — even when
+    # strict_verify kept zero sentences for it, emit the heading
+    # plus an explicit gap-disclosure sentence. Pre-fix behaviour
+    # silently omitted SURPASS-6, FDA Mounjaro, EMA EPAR, HC
+    # Mounjaro in run-7 despite frame_coverage=pass for all four,
+    # producing a structural LB vs both competitors.
+    _GAP_DISCLOSURE = (
+        "Contract-bound content did not survive strict verification "
+        "against retrieved primary source text; this slot is a "
+        "curator-actionable gap. See manifest.frame_coverage_report "
+        "and human_gap_tasks.json for per-entity detail."
+    )
     verified_blocks: list[str] = []
+    slot_drop_log: list[dict[str, Any]] = []  # M-66a-T telemetry
     for slot_id in slot_order:
         body_sentences = sentences_by_slot.get(slot_id) or []
-        if not body_sentences:
-            continue
         heading = f"### {slot_subsection[slot_id]}"
-        body = " ".join(body_sentences)
-        verified_blocks.append(f"{heading}\n\n{body}")
+        if body_sentences:
+            body = " ".join(body_sentences)
+            verified_blocks.append(f"{heading}\n\n{body}")
+            slot_drop_log.append({
+                "slot_id": slot_id,
+                "kept_sentences": len(body_sentences),
+                "disposition": "rendered_with_content",
+            })
+        else:
+            # Always emit at least the heading + gap disclosure.
+            verified_blocks.append(
+                f"{heading}\n\n{_GAP_DISCLOSURE}"
+            )
+            slot_drop_log.append({
+                "slot_id": slot_id,
+                "kept_sentences": 0,
+                "disposition": "rendered_as_gap_disclosure",
+            })
+            logger.info(
+                "[m63] slot %r rendered as gap disclosure "
+                "(strict_verify kept 0 sentences)", slot_id,
+            )
 
     if verified_blocks:
         verified_text = "\n\n".join(verified_blocks)
-    elif kept > 0:
-        # All sentences verified but none could be grouped (no
-        # tokens). Fall back to the flat resolved body so prose
-        # isn't lost.
-        verified_text = resolved_body
     else:
+        # No slots at all — genuine empty-section fallback.
         verified_text = ""
 
-    dropped_due_to_failure = (kept == 0 and len(all_entity_ids) > 0)
+    # Only flag dropped_due_to_failure when there are literally
+    # no verified_blocks (no slots or no headings emitted). With
+    # the gap-disclosure fallback, every slot renders at minimum
+    # a heading, so this should only fire on plan.slots being
+    # empty — which M-57 shouldn't emit.
+    dropped_due_to_failure = (
+        not verified_blocks and len(all_entity_ids) > 0
+    )
 
     result = section_result_cls(
         title=plan.title,
