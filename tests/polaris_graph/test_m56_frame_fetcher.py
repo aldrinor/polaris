@@ -120,12 +120,26 @@ def _pubmed_xml(
     *, abstract: str = "Tirzepatide reduced HbA1c by 2.3%.",
     title: str = "Tirzepatide versus semaglutide",
     year: int = 2021,
+    doi: str | None = "10.1056/NEJMoa2107519",
+    pmid: str = "34010531",
 ) -> str:
+    """Build a PubMed efetch-style XML fixture.
+
+    The optional `doi` parameter emits an
+    `<ELocationID EIdType="doi">` so M-56's DOI-consistency guard
+    (V30 Phase-2 run-1 root-cause fix) can be exercised in tests.
+    """
+    doi_elt = (
+        f'<ELocationID EIdType="doi" ValidYN="Y">{doi}</ELocationID>'
+        if doi is not None else ""
+    )
     return f"""<?xml version="1.0"?>
 <PubmedArticleSet>
   <PubmedArticle>
     <MedlineCitation>
+      <PMID Version="1">{pmid}</PMID>
       <Article>
+        {doi_elt}
         <ArticleTitle>{title}</ArticleTitle>
         <Abstract>
           <AbstractText>{abstract}</AbstractText>
@@ -422,6 +436,101 @@ class TestOrchestratorOpenAccessPath:
         assert row.direct_quote == ""
         assert row.title  # we got metadata
         assert row.year == 2021
+
+
+class TestOrchestratorDoiConsistencyGuard:
+    """V30 Phase-2 run-1 root cause: contract had wrong PMID bound
+    to SURPASS-2 (actually SPRINT). NEJM blocked the DOI fetch,
+    M-56 fell back to PubMed, PubMed returned SPRINT abstract,
+    M-58 extracted wrong-paper content that passed anti-fabrication
+    (prose was verbatim in direct_quote). The guard rejects PubMed
+    content when its ELocationID DOI does not match the bound DOI.
+
+    Codex M-66 plan review Medium #4: regression coverage on this
+    path + the RetrievalAttempt constructor shape for the mismatch
+    branch.
+    """
+
+    def test_doi_mismatch_rejects_pubmed_abstract(self) -> None:
+        """When PubMed returns a DOI different from the bound DOI,
+        abstract_pubmed is NOT used. Combined with no crossref
+        abstract + no OA, this yields METADATA_ONLY."""
+        cr_no_abs = _crossref_response(abstract=None)
+        # PubMed XML returns a totally unrelated DOI — simulates
+        # the contract having the wrong PMID for the bound DOI.
+        pm_wrong = _pubmed_xml(
+            abstract="SPRINT prose about blood pressure.",
+            title="Final Report of a Trial of Intensive BP Control",
+            doi="10.1056/NEJMoa1901281",  # SPRINT's real DOI
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("eutils.ncbi.nlm.nih.gov", 200, pm_wrong),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        # PubMed abstract MUST NOT leak into direct_quote
+        assert "SPRINT" not in (row.direct_quote or "")
+        assert "blood pressure" not in (row.direct_quote or "").lower()
+        # With no OA and no extractable abstract → METADATA_ONLY
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        # Mismatch must be recorded in the attempt log for M-60
+        mismatch_attempts = [
+            a for a in row.retrieval_attempts
+            if "doi_mismatch" in (a.outcome or "")
+        ]
+        assert len(mismatch_attempts) == 1, (
+            f"expected 1 doi_mismatch attempt, got "
+            f"{[(a.source, a.outcome) for a in row.retrieval_attempts]}"
+        )
+        # The RetrievalAttempt constructor must accept the
+        # canonical kwargs (source/url/attempt_index/http_status/
+        # outcome). If the code ever regressed to the legacy
+        # (method/endpoint/status_code/error/duration_ms) shape,
+        # this branch would TypeError at runtime.
+        a = mismatch_attempts[0]
+        assert a.source == "pubmed"
+        assert a.http_status is None
+        assert "bound=" in a.outcome
+
+    def test_doi_match_accepts_pubmed_abstract(self) -> None:
+        """When PubMed's DOI matches the bound DOI, the abstract
+        IS used — guard must not break the happy path."""
+        cr_no_abs = _crossref_response(abstract=None)
+        pm_correct = _pubmed_xml(
+            abstract="Tirzepatide reduced HbA1c.",
+            doi="10.1056/NEJMoa2107519",  # matches bound DOI
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("eutils.ncbi.nlm.nih.gov", 200, pm_correct),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert "Tirzepatide" in row.direct_quote
+        assert row.quote_source == "pubmed_abstract"
+
+    def test_pubmed_without_doi_element_still_works(self) -> None:
+        """If the PubMed XML lacks <ELocationID>, we can't verify
+        consistency but we can't reject either. Accept the
+        abstract (backwards compat with pre-guard behavior)."""
+        cr_no_abs = _crossref_response(abstract=None)
+        pm_no_doi = _pubmed_xml(abstract="content.", doi=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("eutils.ncbi.nlm.nih.gov", 200, pm_no_doi),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert "content." in row.direct_quote
 
 
 class TestOrchestratorFailurePaths:

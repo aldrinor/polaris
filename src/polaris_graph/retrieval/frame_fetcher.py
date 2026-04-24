@@ -807,17 +807,22 @@ def _fetch_frame_entity_inner(
             pm_doi = parsed_pm.get("doi") or ""
             bound_doi_l = (doi or "").lower()
             if doi and pm_doi and pm_doi != bound_doi_l:
+                # Codex M-66 plan review Medium #4: emit a real
+                # RetrievalAttempt (source/url/attempt_index/
+                # http_status/outcome) so M-60 manifest telemetry
+                # shows the DOI-mismatch rejection. Earlier draft
+                # used the legacy (method/endpoint/status_code/
+                # error/duration_ms) constructor which would have
+                # raised TypeError if triggered.
                 attempts.append(RetrievalAttempt(
-                    method="pubmed_doi_consistency",
-                    endpoint=f"pmid={pmid}",
-                    status_code=None,
-                    error=(
-                        f"pubmed PMID {pmid} resolves to DOI "
-                        f"{pm_doi!r} which does not match bound "
-                        f"DOI {bound_doi_l!r}; rejecting PubMed "
-                        f"content to avoid wrong-paper extraction"
+                    source="pubmed",
+                    url=f"pubmed:pmid={pmid}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome=(
+                        f"error:doi_mismatch bound={bound_doi_l} "
+                        f"pubmed_returned={pm_doi}"
                     ),
-                    duration_ms=0,
                 ))
                 # Reject PubMed content entirely for this entity —
                 # we MUST NOT extract from SPRINT when the contract
