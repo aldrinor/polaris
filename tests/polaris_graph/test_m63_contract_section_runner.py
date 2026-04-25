@@ -843,3 +843,161 @@ class TestM68GapDisclosureFallback:
         # consulted for every slot_id. Deep inspection of the log
         # itself will land with SectionResult schema extension.
         pass
+
+    def test_m69_fix4_rescues_contract_sentences_dropped_by_strict_verify(
+        self, clinical_template,
+    ) -> None:
+        """V30 Phase-2 M-69 Fix #4 (Codex run-9 audit): SURPASS-5
+        regressed from 4 fields rendered in run-7 to 0 sentences
+        kept in run-9 because strict_verify's content-overlap check
+        rejected M-58 contract sentences when direct_quote expanded
+        to 25K-char full text. M-58 already enforces verbatim-
+        substring anti-fabrication, so the rescue restores any
+        strict_verify-dropped sentence whose first token's
+        evidence_id is a contract entity.
+        """
+        import asyncio
+        from dataclasses import dataclass, field
+        from src.polaris_graph.nodes.frame_compiler import compile_frame
+        from src.polaris_graph.nodes.contract_outline import (
+            compose_outline_from_contract,
+        )
+        from src.polaris_graph.generator.contract_section_runner import (
+            ContractSectionPlanExt, run_contract_section,
+            register_frame_rows_into_evidence_pool,
+        )
+        from src.polaris_graph.generator.live_deepseek_generator import (
+            _rewrite_draft_with_spans,
+        )
+
+        compiled = compile_frame(
+            "What is the efficacy of tirzepatide in T2DM?",
+            clinical_template,
+            "clinical_tirzepatide_t2dm",
+        )
+        frame_rows = _stub_fetch_rows(compiled)
+        outline = compose_outline_from_contract(compiled, frame_rows)
+        rows_by_eid = {r.entity_id: r for r in frame_rows}
+        entities_by_id = compiled.contract.entities_by_id()
+        section = outline.sections[0]  # Efficacy
+
+        # Take just SURPASS-2 to keep the test small
+        surpass_2_slot = next(
+            sl for sl in section.slots
+            if "surpass_2" in sl.slot_id.lower()
+        )
+        plan = ContractSectionPlanExt(
+            title=section.section,
+            focus=section.focus,
+            ev_ids=list(surpass_2_slot.entity_ids),
+            slots=(surpass_2_slot,),
+            frame_rows_by_entity=rows_by_eid,
+            contract_entities_by_id=entities_by_id,
+            research_question="q",
+        )
+
+        evidence_pool: dict[str, dict] = {}
+        register_frame_rows_into_evidence_pool(
+            evidence_pool, tuple(frame_rows),
+        )
+
+        # Fake LLM that successfully extracts one field
+        async def _fake_llm(prompt: str):
+            response = json.dumps({
+                "fields": [{
+                    "field_name": "primary_endpoint",
+                    "status": "extracted",
+                    "value": "Primary endpoint: change in HbA1c at 40 weeks",
+                    "source_span": "Primary endpoint: change in HbA1c at 40 weeks",
+                }] + [
+                    {
+                        "field_name": fname,
+                        "status": "not_extractable",
+                        "value": None, "source_span": None,
+                    }
+                    for fname in [
+                        "N", "population", "comparator",
+                        "baseline_hba1c", "timepoint",
+                        "etd_with_uncertainty", "safety_signal",
+                        "study_design", "sponsor",
+                    ]
+                ],
+            })
+            return response, 100, 50
+
+        # Fake strict_verify that DROPS every contract sentence
+        # (simulates the run-9 SURPASS-5 regression scenario)
+        from src.polaris_graph.generator.provenance_generator import (
+            SentenceVerification, ProvenanceToken,
+        )
+
+        @dataclass
+        class _FakeReport:
+            total_kept: int = 0
+            total_in: int = 0
+            total_dropped: int = 0
+            kept_sentences: list = field(default_factory=list)
+            dropped_sentences: list = field(default_factory=list)
+
+        def _all_dropped_strict(text, pool):
+            from src.polaris_graph.generator.provenance_generator import (
+                split_into_sentences, parse_provenance_tokens,
+            )
+            sentences = split_into_sentences(text)
+            dropped = []
+            for s in sentences:
+                tokens = parse_provenance_tokens(s)
+                dropped.append(SentenceVerification(
+                    sentence=s, tokens=tokens, is_verified=False,
+                    failure_reasons=["test_drop"],
+                    soft_warnings=[],
+                ))
+            return _FakeReport(
+                total_kept=0, total_in=len(sentences),
+                total_dropped=len(sentences),
+                kept_sentences=[], dropped_sentences=dropped,
+            )
+
+        @dataclass
+        class _SR:
+            title: str
+            focus: str
+            ev_ids_assigned: list
+            raw_draft: str
+            rewritten_draft: str
+            verified_text: str
+            biblio_slice: list
+            sentences_verified: int
+            sentences_dropped: int
+            regen_attempted: bool
+            dropped_due_to_failure: bool
+            input_tokens: int
+            output_tokens: int
+            error: str
+
+        async def _go():
+            return await run_contract_section(
+                plan, evidence_pool,
+                llm_call=_fake_llm,
+                section_result_cls=_SR,
+                strict_verify_fn=_all_dropped_strict,
+                rewrite_fn=_rewrite_draft_with_spans,
+            )
+
+        result, payloads = asyncio.run(_go())
+
+        # M-69 Fix #4 invariant: even though strict_verify dropped
+        # ALL sentences, contract-slot sentences must be RESCUED
+        # (M-58 already proved them verbatim). The verified_text
+        # must contain the extracted primary_endpoint content,
+        # NOT a gap disclosure.
+        assert "Primary endpoint" in result.verified_text, (
+            f"M-69 Fix #4 failed: contract sentence not rescued "
+            f"after strict_verify dropped it. verified_text="
+            f"{result.verified_text!r}"
+        )
+        assert "curator-actionable gap" not in result.verified_text, (
+            "verified_text fell back to gap disclosure despite "
+            "M-69 Fix #4 — sentences should have been rescued"
+        )
+        assert result.sentences_verified > 0

@@ -359,13 +359,41 @@ async def run_contract_section(
     )
 
     # Strict verify — every sentence is `Field: value [#ev:...]`
-    # and the span comes from FrameRow.direct_quote, so the
-    # content-overlap check should trivially pass.
+    # and the span comes from FrameRow.direct_quote.
+    #
+    # V30 Phase-2 M-69 Fix #4 (Codex run-9 audit — SURPASS-5
+    # regression): when M-66b-T expanded direct_quote from
+    # ~500-char abstract to 25K-char full text, strict_verify's
+    # content-overlap check began dropping legitimate M-58
+    # extractions (e.g., SURPASS-5 went from 4 fields rendered
+    # in run-7 → 0 sentences kept in run-9). M-58 already
+    # enforces anti-fabrication via verbatim-substring of
+    # direct_quote (whitespace-tolerant since M-66a-R), making
+    # the strict_verify content-overlap check redundant for
+    # contract-slot sentences.
+    #
+    # Recovery path: any strict_verify-dropped sentence whose
+    # primary token resolves to a contract entity_id is RESTORED
+    # to kept_sentences. Non-contract sentences (legacy free-form
+    # synthesis) keep the strict_verify outcome unchanged.
     report = strict_verify_fn(rewritten_draft, evidence_pool)
-    kept = report.total_kept
+    kept_sentences = list(getattr(report, "kept_sentences", []) or [])
+    dropped_sentences = list(getattr(report, "dropped_sentences", []) or [])
+    contract_entity_ids = set(plan.contract_entities_by_id.keys())
+    rescued: list[Any] = []
+    for sv in dropped_sentences:
+        toks = getattr(sv, "tokens", None) or []
+        if toks and toks[0].evidence_id in contract_entity_ids:
+            rescued.append(sv)
+    if rescued:
+        logger.info(
+            "[m63] M-69 Fix #4: rescued %d strict_verify-dropped "
+            "contract sentences (M-58 already verified verbatim)",
+            len(rescued),
+        )
+        kept_sentences.extend(rescued)
+    kept = len(kept_sentences)
     dropped = report.total_in - kept
-
-    kept_sentences = getattr(report, "kept_sentences", None) or []
 
     # ── resolve provenance → [N] citations + biblio_slice ──────
     # `resolve_provenance_to_citations` flattens into a single
@@ -446,13 +474,36 @@ async def run_contract_section(
             primary_ev = slot_primary_entity.get(slot_id, "")
             if primary_ev and primary_ev not in ev_to_num:
                 ev = evidence_pool.get(primary_ev, {})
+                # M-69 Fix #2: prefer the contract entity's
+                # label_name (e.g., "Mounjaro Canadian Product
+                # Monograph", "TA924") for regulatory entities
+                # when the FrameRow has no title. Pre-fix
+                # fallback to the bare entity_id produced ugly
+                # bibliography entries like
+                # `statement=fda_zepbound_label`.
+                contract_entity = plan.contract_entities_by_id.get(
+                    primary_ev,
+                )
+                label = (
+                    getattr(contract_entity, "label_name", None)
+                    if contract_entity is not None else None
+                )
+                statement_candidates = [
+                    ev.get("statement"),
+                    ev.get("title"),
+                    label,
+                    primary_ev,
+                ]
+                statement = next(
+                    (s for s in statement_candidates if s), primary_ev,
+                )
                 new_num = len(biblio_slice) + 1
                 biblio_slice.append({
                     "num": new_num,
                     "evidence_id": primary_ev,
                     "url": ev.get("url") or ev.get("source_url") or "",
                     "tier": ev.get("tier", ""),
-                    "statement": (ev.get("statement") or ev.get("title") or primary_ev)[:300],
+                    "statement": statement[:300],
                 })
                 ev_to_num[primary_ev] = new_num
             if primary_ev:

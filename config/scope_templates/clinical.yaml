@@ -311,8 +311,16 @@ per_query_report_contract:
       - id: surpass_6_primary
         type: pivotal_trial
         anchor: SURPASS-6
-        doi: 10.1001/jama.2023.0023
-        pmid: 36809318
+        # M-69 Fix #1 (Codex run-9 audit): both DOI and PMID
+        # were wrong — pointed at "Glioblastoma and Other
+        # Primary Brain Malignancies in Adults" (JAMA review),
+        # not Rosenstock SURPASS-6. Verified via PubMed
+        # title-search for "Rosenstock SURPASS-6 tirzepatide
+        # insulin lispro": correct PMID 37786396, DOI
+        # 10.1001/jama.2023.20294. Run-9 [7] was misbound to
+        # the glioblastoma paper because of this.
+        doi: 10.1001/jama.2023.20294
+        pmid: 37786396
         journal: JAMA
         year: 2023
         population_scope: direct
