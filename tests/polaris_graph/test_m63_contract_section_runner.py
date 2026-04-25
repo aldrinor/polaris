@@ -804,6 +804,31 @@ class TestM68GapDisclosureFallback:
         # Not flagged as dropped_due_to_failure (headings are content)
         assert result.dropped_due_to_failure is False
 
+        # M-68 Fix #1b: gap-disclosure must carry a [N] citation
+        # marker (Qwen citation_tightness rule). Each slot with
+        # zero kept sentences should produce ≥1 [N] marker in its
+        # disclosure prose.
+        import re as _re
+        gap_blocks = [
+            blk for blk in result.verified_text.split("\n\n")
+            if "curator-actionable gap" in blk
+        ]
+        for gap in gap_blocks:
+            assert _re.search(r"\[\d+\]", gap), (
+                f"gap disclosure missing [N] citation marker: {gap[:200]!r}"
+            )
+
+        # biblio_slice must include entries for every entity whose
+        # slot rendered as a gap disclosure (synthesized on demand).
+        biblio_evids = {b["evidence_id"] for b in result.biblio_slice}
+        for slot in efficacy_section.slots:
+            primary_ev = slot.entity_ids[0] if slot.entity_ids else ""
+            if primary_ev:
+                assert primary_ev in biblio_evids, (
+                    f"primary entity {primary_ev!r} of gap-rendered "
+                    f"slot {slot.slot_id!r} missing from biblio_slice"
+                )
+
     def test_slot_drop_log_records_dispositions(
         self, clinical_template,
     ) -> None:
