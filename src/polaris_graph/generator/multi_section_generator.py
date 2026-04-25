@@ -757,6 +757,7 @@ async def _call_section(
     max_tokens: int,
     tighter_retry: bool = False,
     contradictions: list[dict[str, Any]] | None = None,
+    cross_trial_block: Any = None,
 ) -> tuple[str, int, int]:
     """Single LLM call for one section. Returns (raw_draft, in_tok, out_tok).
 
@@ -766,6 +767,10 @@ async def _call_section(
     section-local hedging instruction block into the system prompt
     asking the LLM to acknowledge high-severity disagreements
     in the body rather than only the appendix.
+
+    V33 (M-72): when `cross_trial_block` is non-None, inject the
+    per-section cross-trial synthesis suggestions block. The LLM
+    integrates 1-2 of these inferences into the body narrative.
     """
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
@@ -801,6 +806,23 @@ async def _call_section(
                 len(hints), section.title,
             )
             system += hedging_block
+
+    # V33 M-72: inject cross-trial synthesis suggestions.
+    if cross_trial_block is not None:
+        from .cross_trial_synthesis import (
+            render_cross_trial_synthesis_block,
+        )
+        synthesis_block = render_cross_trial_synthesis_block(
+            section.title, cross_trial_block,
+        )
+        if synthesis_block:
+            patterns = cross_trial_block.get_for_section(section.title)
+            logger.info(
+                "[multi_section] M-72 injected %d cross-trial "
+                "synthesis patterns into section %r",
+                len(patterns), section.title,
+            )
+            system += synthesis_block
 
     if tighter_retry:
         system += (
@@ -1026,6 +1048,7 @@ async def _run_section(
     max_tokens_per_section: int,
     min_kept_fraction: float,
     contradictions: list[dict[str, Any]] | None = None,
+    cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -1035,6 +1058,14 @@ async def _run_section(
     high-severity contradictions. Codex strategic review 2026-04-25:
     Qwen flags hedging_appropriateness because explicit contradictions
     live only in the appendix; M-71 routes them into the body prose.
+
+    V33 (M-72) addition: when `cross_trial_block` is non-None, this
+    function injects per-section CROSS-TRIAL SYNTHESIS suggestions
+    derived from already-rendered contract slot payloads. Codex
+    run-12 verdict: V31+V32 lifted slot quality but Narrative depth
+    stayed LB because Efficacy + Mechanism were slot-stacked. M-72
+    generates 1-2 connective inferences (dose-response, comparator
+    progression, safety class) per body section.
     """
     # Build evidence subset
     ev_subset = [
@@ -1060,6 +1091,7 @@ async def _run_section(
         section, ev_subset, model, temperature, max_tokens_per_section,
         tighter_retry=False,
         contradictions=contradictions,
+        cross_trial_block=cross_trial_block,
     )
     total_in_tok += in_tok
     total_out_tok += out_tok
@@ -1099,6 +1131,7 @@ async def _run_section(
             section, ev_subset, model, temperature, max_tokens_per_section,
             tighter_retry=True,
             contradictions=contradictions,
+            cross_trial_block=cross_trial_block,
         )
         total_in_tok += in_tok2
         total_out_tok += out_tok2
@@ -3345,18 +3378,40 @@ async def generate_multi_section_report(
             response.output_tokens,
         )
 
-    async def _bounded_run(plan: SectionPlan) -> SectionResult:
+    # V33 (M-72) cross-trial synthesis: contract sections must
+    # render BEFORE legacy sections so the synthesis block has
+    # access to extracted slot payloads. Pre-V33 ordering ran
+    # everything concurrently; post-V33, contract runs first,
+    # then legacy runs with the synthesis block.
+    contract_plans = [p for p in plans if is_contract_section(p)]
+    legacy_plans = [p for p in plans if not is_contract_section(p)]
+
+    async def _run_contract_bounded(plan: SectionPlan) -> SectionResult:
         async with sem:
-            if is_contract_section(plan):
-                result, payloads = await run_contract_section(
-                    plan, evidence_pool,
-                    llm_call=_m63_llm_call,
-                    section_result_cls=SectionResult,
-                    strict_verify_fn=strict_verify,
-                    rewrite_fn=_rewrite_draft_with_spans,
-                )
-                contract_slot_payloads.extend(payloads)
-                return result
+            result, payloads = await run_contract_section(
+                plan, evidence_pool,
+                llm_call=_m63_llm_call,
+                section_result_cls=SectionResult,
+                strict_verify_fn=strict_verify,
+                rewrite_fn=_rewrite_draft_with_spans,
+            )
+            contract_slot_payloads.extend(payloads)
+            return result
+
+    contract_results = await asyncio.gather(*[
+        _run_contract_bounded(p) for p in contract_plans
+    ])
+
+    # V33 M-72: build the cross-trial synthesis block AFTER contract
+    # payloads land. Empty block when fewer than 2 trial frames
+    # have extracted content.
+    from .cross_trial_synthesis import build_cross_trial_synthesis
+    cross_trial_block = build_cross_trial_synthesis(
+        contract_slot_payloads,
+    )
+
+    async def _run_legacy_bounded(plan: SectionPlan) -> SectionResult:
+        async with sem:
             return await _run_section(
                 plan, evidence_pool,
                 model=gen_model,
@@ -3364,9 +3419,25 @@ async def generate_multi_section_report(
                 max_tokens_per_section=section_max_tokens,
                 min_kept_fraction=min_kept_fraction,
                 contradictions=contradictions,
+                cross_trial_block=cross_trial_block,
             )
 
-    section_results = await asyncio.gather(*[_bounded_run(p) for p in plans])
+    legacy_results = await asyncio.gather(*[
+        _run_legacy_bounded(p) for p in legacy_plans
+    ])
+
+    # Merge results back in original `plans` order so downstream
+    # assembly is unchanged.
+    contract_idx = 0
+    legacy_idx = 0
+    section_results: list[SectionResult] = []
+    for plan in plans:
+        if is_contract_section(plan):
+            section_results.append(contract_results[contract_idx])
+            contract_idx += 1
+        else:
+            section_results.append(legacy_results[legacy_idx])
+            legacy_idx += 1
 
     # M-44 (2026-04-22): post-generation same-sentence validator +
     # one-shot regeneration. For each primary-eligible section, scan
