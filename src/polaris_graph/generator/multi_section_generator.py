@@ -756,8 +756,17 @@ async def _call_section(
     temperature: float,
     max_tokens: int,
     tighter_retry: bool = False,
+    contradictions: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int, int]:
-    """Single LLM call for one section. Returns (raw_draft, in_tok, out_tok)."""
+    """Single LLM call for one section. Returns (raw_draft, in_tok, out_tok).
+
+    V32 (M-71): when `contradictions` is non-None and the section's
+    title matches one of the relevant body sections (Safety,
+    Comparative, Population Subgroups, Efficacy), inject a
+    section-local hedging instruction block into the system prompt
+    asking the LLM to acknowledge high-severity disagreements
+    in the body rather than only the appendix.
+    """
     from src.polaris_graph.llm.openrouter_client import OpenRouterClient
 
     blocks = []
@@ -774,6 +783,25 @@ async def _call_section(
     system = SECTION_SYSTEM_PROMPT_TEMPLATE.format(
         title=section.title, focus=section.focus,
     )
+
+    # V32 M-71: inject section-local contradiction-hedging hints.
+    if contradictions:
+        from .contradiction_hedging import (
+            filter_section_contradictions,
+            render_section_hedging_block,
+        )
+        hints = filter_section_contradictions(
+            section.title, contradictions,
+        )
+        hedging_block = render_section_hedging_block(hints)
+        if hedging_block:
+            logger.info(
+                "[multi_section] M-71 injected %d contradiction "
+                "hedging hints into section %r",
+                len(hints), section.title,
+            )
+            system += hedging_block
+
     if tighter_retry:
         system += (
             "\n\nREGEN NOTE: the previous draft had multiple sentences "
@@ -997,8 +1025,17 @@ async def _run_section(
     temperature: float,
     max_tokens_per_section: int,
     min_kept_fraction: float,
+    contradictions: list[dict[str, Any]] | None = None,
 ) -> SectionResult:
-    """Run one section: generate, rewrite, verify, optionally regenerate."""
+    """Run one section: generate, rewrite, verify, optionally regenerate.
+
+    V32 (M-71) addition: when `contradictions` is non-None, this
+    function injects a SECTION-LOCAL hedging instruction block into
+    the prompt for sections whose subject/predicate keywords match
+    high-severity contradictions. Codex strategic review 2026-04-25:
+    Qwen flags hedging_appropriateness because explicit contradictions
+    live only in the appendix; M-71 routes them into the body prose.
+    """
     # Build evidence subset
     ev_subset = [
         evidence_pool[ev_id] for ev_id in section.ev_ids
@@ -1022,6 +1059,7 @@ async def _run_section(
     raw, in_tok, out_tok = await _call_section(
         section, ev_subset, model, temperature, max_tokens_per_section,
         tighter_retry=False,
+        contradictions=contradictions,
     )
     total_in_tok += in_tok
     total_out_tok += out_tok
@@ -1060,6 +1098,7 @@ async def _run_section(
         raw2, in_tok2, out_tok2 = await _call_section(
             section, ev_subset, model, temperature, max_tokens_per_section,
             tighter_retry=True,
+            contradictions=contradictions,
         )
         total_in_tok += in_tok2
         total_out_tok += out_tok2
@@ -3324,6 +3363,7 @@ async def generate_multi_section_report(
                 temperature=section_temperature,
                 max_tokens_per_section=section_max_tokens,
                 min_kept_fraction=min_kept_fraction,
+                contradictions=contradictions,
             )
 
     section_results = await asyncio.gather(*[_bounded_run(p) for p in plans])
