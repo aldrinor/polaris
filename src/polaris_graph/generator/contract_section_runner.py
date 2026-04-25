@@ -196,7 +196,14 @@ async def _fill_one_slot(
 ) -> tuple[SlotFillPayload, int, int]:
     """Produce a SlotFillPayload for one (slot, entity) pair.
 
-    Three paths:
+    V31 (M-70) dispatch: regulatory entities (FDA, EMA, NICE, HC)
+    route through `regulatory_synthesizer` instead of M-58 contract
+    slot extraction. Codex strategic review 2026-04-25: M-58's
+    verbatim-substring contract is too rigid for page-scale prose
+    synthesis; regulatory entities need PROSE synthesis from
+    segmented page sections, not field-level extraction.
+
+    Three paths for non-regulatory:
       - gap row (FRAME_GAP_UNRECOVERABLE): `compose_gap_payload`, no LLM call.
       - non-gap row, LLM raises (network / timeout):
         `_build_not_extractable_payload`, fail-loud via M-59 FAIL_MIN_FIELDS.
@@ -215,6 +222,67 @@ async def _fill_one_slot(
         payload = compose_gap_payload(slot, frame_row, required_fields)
         return payload, 0, 0
 
+    # V31 dispatch: regulatory entities go through M-70 prose
+    # synthesis instead of M-58 field extraction.
+    from .regulatory_synthesizer import (
+        is_regulatory_entity,
+        build_regulatory_synthesis_prompt,
+        parse_regulatory_synthesis_response,
+        RegulatorySynthesisError,
+        _segment_regulatory_text,
+    )
+    if is_regulatory_entity(contract_entity):
+        segments = _segment_regulatory_text(
+            frame_row.direct_quote or "",
+            required_fields,
+            contract_entity.jurisdiction,
+        )
+        if not segments:
+            # No headings matched — fall back to all not_extractable.
+            # M-68 gap-disclosure fallback at the section level
+            # will still render the heading + cited gap.
+            logger.info(
+                "[m70] no regulatory segments matched for "
+                "entity_id=%r jurisdiction=%r — degrading to "
+                "all not_extractable",
+                entity_id, contract_entity.jurisdiction,
+            )
+            payload = _build_not_extractable_payload(
+                slot, entity_id, frame_row, required_fields,
+            )
+            return payload, 0, 0
+        prompt = build_regulatory_synthesis_prompt(
+            slot, frame_row, contract_entity, segments,
+            research_question,
+        )
+        try:
+            response_text, in_tok, out_tok = await llm_call(prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[m70] LLM call failed for entity_id=%r: %s",
+                entity_id, exc,
+            )
+            payload = _build_not_extractable_payload(
+                slot, entity_id, frame_row, required_fields,
+            )
+            return payload, 0, 0
+        try:
+            payload = parse_regulatory_synthesis_response(
+                response_text, slot, frame_row, required_fields,
+                segments,
+            )
+        except RegulatorySynthesisError as exc:
+            logger.warning(
+                "[m70] regulatory synthesis parse failed for "
+                "entity_id=%r: %s", entity_id, exc,
+            )
+            payload = _build_not_extractable_payload(
+                slot, entity_id, frame_row, required_fields,
+            )
+            return payload, in_tok, out_tok
+        return payload, in_tok, out_tok
+
+    # Non-regulatory: legacy M-58 path.
     prompt = build_slot_fill_prompt(
         slot, frame_row, required_fields, research_question,
     )
@@ -341,7 +409,17 @@ async def run_contract_section(
             total_out_tok += out_tok
             payloads.append(payload)
 
-            prose = render_slot_prose(payload)
+            # V31 dispatch: regulatory entities use prose render
+            # (multi-sentence paragraphs per field), not the
+            # M-58 `Field: value [id].` slot prose.
+            from .regulatory_synthesizer import (
+                is_regulatory_entity,
+                render_regulatory_prose,
+            )
+            if is_regulatory_entity(contract_entity):
+                prose = render_regulatory_prose(payload)
+            else:
+                prose = render_slot_prose(payload)
             slot_body_prose.append(prose)
 
         if slot_body_prose:

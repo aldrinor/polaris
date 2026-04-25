@@ -782,11 +782,21 @@ class TestOrchestratorFailurePaths:
 
 
 class TestOrchestratorRegulatoryPath:
-    def test_url_pattern_primary_yields_metadata_only(self) -> None:
+    def test_url_pattern_primary_yields_metadata_only_when_fetch_empty(
+        self, monkeypatch,
+    ) -> None:
+        """V30 Phase-2 M-66b-R: url-pattern entities now route
+        through `_fetch_url_pattern` (AccessBypass). When the
+        fetch returns empty, METADATA_ONLY is preserved
+        (backwards-compat with pre-M-66b)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern", lambda url: ("", ""),
+        )
         binding = EvidenceBinding(
             entity_id="fda_mounjaro_label",
             entity_type="regulatory",
-            primary_identifier="url:accessdata.fda.gov",
+            primary_identifier="url:https://www.accessdata.fda.gov/.../mounjaro",
             secondary_identifiers=(),
             rendering_slot="regulatory_fda_t2d",
             required_fields=("indications", "boxed_warning"),
@@ -797,11 +807,11 @@ class TestOrchestratorRegulatoryPath:
             row = fetch_frame_entity(binding, client=client)
 
         assert row.provenance_class == ProvenanceClass.METADATA_ONLY
-        assert row.url == "accessdata.fda.gov"
+        assert "accessdata.fda.gov" in (row.url or "")
         assert row.quote_source == "url_pattern_placeholder"
-        assert row.failure_reason is None
-        # No network calls fired (regulatory route deferred to
-        # existing POLARIS fetch infrastructure)
+        # No CrossRef/Unpaywall/PubMed network fired (regulatory
+        # has no DOI/PMID; only AccessBypass is consulted, which
+        # is mocked here)
         assert transport.call_log == []
 
 
