@@ -306,9 +306,10 @@ class TestParseFailures:
             )
         assert "status" in str(exc.value)
 
-    def test_source_span_not_in_quote_raises(self) -> None:
-        """Anti-fabrication guard: LLM claimed to extract but
-        source_span is not actually in direct_quote."""
+    def test_source_span_not_in_quote_degrades_to_not_extractable(self) -> None:
+        """Anti-fabrication preserved: LLM source_span not in
+        direct_quote → field downgraded to not_extractable
+        (M-69 Fix #5)."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
@@ -316,11 +317,12 @@ class TestParseFailures:
                  "source_span": "this phrase is not in the quote"},
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), _frame_row(), ("N",),
-            )
-        assert "substring" in str(exc.value).lower()
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), _frame_row(), ("N",),
+        )
+        f = payload.fields_by_name()["N"]
+        assert f.status == "not_extractable"
+        assert f.value is None
 
     def test_extracted_empty_value_raises(self) -> None:
         response = json.dumps({
@@ -348,13 +350,11 @@ class TestParseFailures:
             )
         assert "must be null" in str(exc.value)
 
-    def test_fabricated_value_with_real_span_raises(self) -> None:
+    def test_fabricated_value_with_real_span_degrades_to_not_extractable(self) -> None:
         """Codex M-58 audit Blocker: anti-fabrication check 2.
-
-        LLM can claim to extract `value="1880"` while citing a real
-        `source_span="N=1879"` (the span IS in direct_quote, but the
-        value is fabricated). Without check 2 this passed; now it
-        must raise SlotFillParseError."""
+        Fabricated value with real source_span downgrades to
+        not_extractable (M-69 Fix #5) — anti-fabrication preserved
+        because the fabricated value never lands in payload."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
@@ -362,21 +362,16 @@ class TestParseFailures:
                  "source_span": "N=1879"},  # real span
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), _frame_row(), ("N",),
-            )
-        msg = str(exc.value).lower()
-        assert "not supported" in msg or "anti-fabrication" in msg
-        assert "1880" in str(exc.value)
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), _frame_row(), ("N",),
+        )
+        f = payload.fields_by_name()["N"]
+        assert f.status == "not_extractable"
+        assert f.value is None  # 1880 never made it through
 
-    def test_value_substring_of_span_raises(self) -> None:
+    def test_value_substring_of_span_degrades_to_not_extractable(self) -> None:
         """Pass-5 contract: value and source_span must be IDENTICAL.
-        value='1879' + span='N=1879' was legitimate under pass-3/4
-        policies, but pass-5 rejects ALL substring drift (including
-        legitimate ones) to close the exploit class. The LLM must
-        quote either '1879' OR 'N=1879' for BOTH value and span —
-        never a subset of one in the other."""
+        Subset drift downgrades to not_extractable (M-69 Fix #5)."""
         response = json.dumps({
             "fields": [
                 {"field_name": "N", "status": "extracted",
@@ -384,20 +379,14 @@ class TestParseFailures:
                  "source_span": "N=1879"},
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), _frame_row(), ("N",),
-            )
-        assert "identical" in str(exc.value).lower() or (
-            "does not match" in str(exc.value).lower()
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), _frame_row(), ("N",),
         )
+        assert payload.fields_by_name()["N"].status == "not_extractable"
 
-    def test_value_case_mismatch_raises(self) -> None:
-        """Codex M-58 pass-3 regression: lowercasing in
-        normalization conflates case-sensitive scientific tokens.
-        span='HbA1c' with value='hba1c' must RAISE now — the LLM
-        must emit the verbatim casing from direct_quote. Case drift
-        is a contract violation, not a tolerable LLM quirk."""
+    def test_value_case_mismatch_degrades_to_not_extractable(self) -> None:
+        """Pass-3: case drift between value and source_span fails.
+        M-69 Fix #5 downgrade preserves anti-fabrication."""
         quote = "Baseline HbA1c was 8.3%."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -407,16 +396,54 @@ class TestParseFailures:
                  "source_span": "HbA1c"},
             ]
         })
-        with pytest.raises(SlotFillParseError):
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("marker",),
-            )
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("marker",),
+        )
+        assert payload.fields_by_name()["marker"].status == "not_extractable"
 
-    def test_molarity_meter_case_raises(self) -> None:
+    def test_m69_fix5_one_bad_field_does_not_kill_siblings(self) -> None:
+        """V30 Phase-2 M-69 Fix #5 (Codex run-10 audit — SURMOUNT-2
+        regression): when ONE field fails anti-fabrication, the
+        remaining VALID fields must still extract. Pre-fix
+        behaviour raised SlotFillParseError → caller fell back to
+        all-not_extractable payload, killing 9 valid fields."""
+        quote = (
+            "SURPASS-2 enrolled N=1879 participants. Primary "
+            "endpoint: HbA1c at 40 weeks."
+        )
+        row = _frame_row(quote=quote)
+        response = json.dumps({
+            "fields": [
+                # Valid: source_span and value both verbatim
+                {"field_name": "N", "status": "extracted",
+                 "value": "N=1879", "source_span": "N=1879"},
+                # Invalid: value not in source_span (subset drift)
+                {"field_name": "primary_endpoint", "status": "extracted",
+                 "value": "HbA1c at 40 weeks",
+                 "source_span": "Primary endpoint: HbA1c at 40 weeks"},
+            ]
+        })
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row,
+            ("N", "primary_endpoint"),
+        )
+        # Sibling field survives
+        n_field = payload.fields_by_name()["N"]
+        assert n_field.status == "extracted"
+        assert n_field.value == "N=1879"
+        # Broken field downgraded
+        pe_field = payload.fields_by_name()["primary_endpoint"]
+        assert pe_field.status == "not_extractable"
+        assert pe_field.value is None
+
+    def test_molarity_meter_case_degrades_to_not_extractable(self) -> None:
         """Codex M-58 pass-3 exact exploit repro: span='5 M' (molar
         concentration) with value='5 m' (meter) are semantically
-        distinct units. The pass-2 lowercase normalization accepted
-        this; pass-3 whitespace-only normalization rejects it."""
+        distinct units. Pass-3 whitespace-only normalization rejects
+        the semantic mismatch, but M-69 Fix #5 (Codex run-10 audit)
+        downgrades single-field anti-fabrication failures to
+        not_extractable instead of raising — preserving anti-
+        fabrication while letting the rest of the payload survive."""
         quote = "The compound was prepared at 5 M concentration."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -427,12 +454,15 @@ class TestParseFailures:
                  "source_span": "5 M"},
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("concentration",),
-            )
-        msg = str(exc.value).lower()
-        assert "not supported" in msg or "does not match" in msg
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("concentration",),
+        )
+        # Anti-fabrication preserved: the broken field is NOT
+        # rendered as extracted; downgraded to not_extractable.
+        f = payload.fields_by_name()["concentration"]
+        assert f.status == "not_extractable"
+        assert f.value is None
+        assert f.source_span is None
 
     def test_whitespace_only_normalization_still_accepted(self) -> None:
         """Whitespace variation is the ONE form pass-3 still accepts.
@@ -451,11 +481,11 @@ class TestParseFailures:
         )
         assert payload.fields_by_name()["dose"].value == "5 mg"
 
-    def test_partial_number_substring_raises(self) -> None:
-        """Codex M-58 pass-4 regression: span='1879' value='879'
-        must raise. Pass-3 substring containment accepted this
-        (879 IS a substring of 1879); pass-4 word-boundary check
-        rejects it (no \\b between '1' and '879')."""
+    def test_partial_number_substring_degrades_to_not_extractable(self) -> None:
+        """Codex M-58 pass-4: span='1879' value='879' is a truncation
+        exploit. M-69 Fix #5 downgrades the single bad field to
+        not_extractable instead of raising — preserves anti-
+        fabrication, lets sibling fields survive."""
         quote = "N was 1879 at baseline."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -465,35 +495,33 @@ class TestParseFailures:
                  "source_span": "1879"},
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("N",),
-            )
-        msg = str(exc.value).lower()
-        assert "not supported" in msg or "does not match" in msg
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("N",),
+        )
+        f = payload.fields_by_name()["N"]
+        assert f.status == "not_extractable"
+        assert f.value is None
 
-    def test_partial_dose_unit_substring_raises(self) -> None:
-        """Codex M-58 pass-4 exact repro: span='15 mg' with
-        value='5 mg'. Pass-3 accepted (5 mg IS a raw substring of
-        15 mg); pass-4 rejects (no \\b between '1' and '5')."""
+    def test_partial_dose_unit_substring_degrades_to_not_extractable(self) -> None:
+        """Pass-4: span='15 mg' value='5 mg' truncation exploit.
+        M-69 Fix #5 downgrade."""
         quote = "Dose escalated to 15 mg weekly."
         row = _frame_row(quote=quote)
         response = json.dumps({
             "fields": [
                 {"field_name": "dose", "status": "extracted",
-                 "value": "5 mg",  # truncation exploit
+                 "value": "5 mg",
                  "source_span": "15 mg"},
             ]
         })
-        with pytest.raises(SlotFillParseError):
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("dose",),
-            )
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("dose",),
+        )
+        assert payload.fields_by_name()["dose"].status == "not_extractable"
 
-    def test_punctuation_drift_raises(self) -> None:
-        """Pass-5: span='(5 mg)' with value='5 mg' drops the
-        punctuation — raises. LLM must quote the same string for
-        both fields."""
+    def test_punctuation_drift_degrades_to_not_extractable(self) -> None:
+        """Pass-5: span='(5 mg)' with value='5 mg' drops punctuation.
+        M-69 Fix #5 downgrade."""
         quote = "Initial dose (5 mg) weekly."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -503,10 +531,10 @@ class TestParseFailures:
                  "source_span": "(5 mg)"},
             ]
         })
-        with pytest.raises(SlotFillParseError):
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("dose",),
-            )
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("dose",),
+        )
+        assert payload.fields_by_name()["dose"].status == "not_extractable"
 
     def test_value_equal_to_span_accepted(self) -> None:
         """The ONE accepted form under pass-5: value == source_span,
@@ -563,29 +591,26 @@ class TestParseFailures:
         # affects the MATCHING check, not the stored payload.
         assert payload.fields_by_name()["N"].value == "N=1879 participants"
 
-    def test_sign_truncation_raises(self) -> None:
-        """Codex M-58 pass-5 exploit: value='0.47%' from
-        source_span='-0.47%' drops the sign. Pass-4 lookaround
-        accepted this ('-' is non-word, so lookaround permitted
-        '0.47%' inside '-0.47%'); pass-5 strict equality rejects."""
+    def test_sign_truncation_degrades_to_not_extractable(self) -> None:
+        """Pass-5: value='0.47%' from span='-0.47%' drops sign.
+        M-69 Fix #5 downgrade."""
         quote = "ETD vs semaglutide 1mg was -0.47% (95% CI)."
         row = _frame_row(quote=quote)
         response = json.dumps({
             "fields": [
                 {"field_name": "etd", "status": "extracted",
-                 "value": "0.47%",  # sign stripped
+                 "value": "0.47%",
                  "source_span": "-0.47%"},
             ]
         })
-        with pytest.raises(SlotFillParseError):
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("etd",),
-            )
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("etd",),
+        )
+        assert payload.fields_by_name()["etd"].status == "not_extractable"
 
-    def test_ionic_state_truncation_raises(self) -> None:
-        """Codex M-58 pass-5 exploit: value='Ca2' from
-        source_span='Ca2+' drops the ionic charge. Different
-        chemical entity. Pass-5 rejects."""
+    def test_ionic_state_truncation_degrades_to_not_extractable(self) -> None:
+        """Pass-5: value='Ca2' from span='Ca2+' drops ionic charge.
+        M-69 Fix #5 downgrade."""
         quote = "Ca2+ signaling was upregulated."
         row = _frame_row(quote=quote)
         response = json.dumps({
@@ -595,12 +620,12 @@ class TestParseFailures:
                  "source_span": "Ca2+"},
             ]
         })
-        with pytest.raises(SlotFillParseError):
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("ion",),
-            )
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("ion",),
+        )
+        assert payload.fields_by_name()["ion"].status == "not_extractable"
 
-    def test_value_misbound_to_wrong_span_raises(self) -> None:
+    def test_value_misbound_to_wrong_span_degrades_to_not_extractable(self) -> None:
         """Codex M-58 pass-2 regression: value '10 mg' with
         source_span='5 mg' must be rejected even though '10 mg' IS
         in direct_quote elsewhere AND shares token 'mg' with the
@@ -619,12 +644,14 @@ class TestParseFailures:
                  "source_span": "5 mg"},  # real span, wrong value
             ]
         })
-        with pytest.raises(SlotFillParseError) as exc:
-            parse_slot_fill_response(
-                response, _slot_plan(), row, ("initial_dose",),
-            )
-        msg = str(exc.value).lower()
-        assert "not supported" in msg or "anti-fabrication" in msg
+        payload = parse_slot_fill_response(
+            response, _slot_plan(), row, ("initial_dose",),
+        )
+        # M-69 Fix #5 surgical degrade — broken field
+        # downgraded, not raised.
+        f = payload.fields_by_name()["initial_dose"]
+        assert f.status == "not_extractable"
+        assert f.value is None
 
     def test_duplicate_field_raises(self) -> None:
         response = json.dumps({
@@ -873,9 +900,12 @@ class TestWhitespaceTolerantSubstring:
         )
         assert payload.fields[0].status == "extracted"
 
-    def test_fabricated_content_still_rejected(self) -> None:
+    def test_fabricated_content_still_rejected_via_degrade(self) -> None:
         """Anti-fabrication preserved: text NOT in the source
-        still fails regardless of whitespace handling."""
+        still fails regardless of whitespace handling. M-69 Fix #5
+        downgrades the broken field to not_extractable instead
+        of raising — the fabricated content does NOT make it
+        into the rendered payload (anti-fabrication intact)."""
         slot = _slot_plan()
         row = _frame_row(
             quote=(
@@ -893,14 +923,17 @@ class TestWhitespaceTolerantSubstring:
                 "source_span": "cure for all diabetes including type 1",
             }],
         })
-        with pytest.raises(SlotFillParseError, match="anti-fabrication"):
-            parse_slot_fill_response(
-                response, slot, row, ("indications",),
-            )
+        payload = parse_slot_fill_response(
+            response, slot, row, ("indications",),
+        )
+        f = payload.fields_by_name()["indications"]
+        assert f.status == "not_extractable"
+        assert f.value is None
+        assert "cure for all diabetes" not in (f.value or "")
 
-    def test_case_change_still_rejected(self) -> None:
+    def test_case_change_still_rejected_via_degrade(self) -> None:
         """Case-sensitivity preserved — `ADJUNCT` should not
-        match `adjunct` (prevents case-folding exploits)."""
+        match `adjunct`. M-69 Fix #5 downgrade applies."""
         slot = _slot_plan()
         row = _frame_row(
             quote="Indications: adjunct to diet for T2D.",
@@ -915,10 +948,10 @@ class TestWhitespaceTolerantSubstring:
                 "source_span": "ADJUNCT TO DIET FOR T2D",
             }],
         })
-        with pytest.raises(SlotFillParseError, match="anti-fabrication"):
-            parse_slot_fill_response(
-                response, slot, row, ("indications",),
-            )
+        payload = parse_slot_fill_response(
+            response, slot, row, ("indications",),
+        )
+        assert payload.fields_by_name()["indications"].status == "not_extractable"
 
     def test_helper_directly(self) -> None:
         """Direct-call coverage of the helper."""

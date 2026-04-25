@@ -53,9 +53,12 @@ from the payload so downstream layers see byte-identical prose.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Literal
+
+logger = logging.getLogger("polaris_graph.slot_fill")
 
 from ..nodes.contract_outline import ContractSlotPlan
 from ..retrieval.frame_fetcher import FrameRow, ProvenanceClass
@@ -442,28 +445,41 @@ def parse_slot_fill_response(
             # fabrication guarantee (LLM MUST ground value in source
             # text) is preserved. Case-sensitivity is also preserved
             # (prevents adversarial case-folding exploits).
+            # V30 Phase-2 M-69 Fix #5 (Codex run-10 audit —
+            # SURMOUNT-2 regression): per-field anti-fabrication
+            # failures used to nuke the WHOLE payload via
+            # SlotFillParseError → _build_not_extractable_payload
+            # (all-fields not_extractable). Run-10 SURMOUNT-2 lost
+            # 9 valid fields because etd_with_uncertainty alone
+            # failed verbatim-substring. Surgical degrade: convert
+            # this single field to not_extractable instead of
+            # killing the entire payload. Anti-fabrication
+            # guarantee preserved — the broken field is excluded
+            # from output; the legitimate fields survive.
             if not _whitespace_tolerant_substring(
                 source_span, direct_quote,
             ):
-                raise SlotFillParseError(
-                    f"fields[{fname!r}].source_span is not a verbatim "
-                    f"substring of direct_quote (anti-fabrication "
-                    f"check 1 failed, whitespace-tolerant comparison)"
+                logger.warning(
+                    "[m58] field %r failed source_span verbatim "
+                    "check; degrading to not_extractable "
+                    "(M-69 Fix #5)", fname,
                 )
-            # Codex M-58 audit Blocker (pass 1→5 final tightening).
-            # After five passes of substring-containment exploits,
-            # the exploit surface is closed by collapsing the
-            # value/source_span distinction: they must denote the
-            # SAME verbatim text. See _value_matches_span docstring
-            # for the full five-pass history.
-            if not _value_matches_span(value, source_span):
-                raise SlotFillParseError(
-                    f"fields[{fname!r}].value={value!r} does not "
-                    f"match source_span={source_span!r}; value and "
-                    f"source_span must denote the identical verbatim "
-                    f"substring of direct_quote (anti-fabrication "
-                    f"check 2 failed)"
+                status = "not_extractable"
+                value = None
+                source_span = None
+            elif not _value_matches_span(value, source_span):
+                # Codex M-58 audit Blocker (pass 1→5): value and
+                # source_span must denote the identical verbatim
+                # text. M-69 Fix #5 surgical degrade applies here
+                # too — broken fields salvaged as not_extractable.
+                logger.warning(
+                    "[m58] field %r failed value/span identity "
+                    "check; degrading to not_extractable "
+                    "(M-69 Fix #5)", fname,
                 )
+                status = "not_extractable"
+                value = None
+                source_span = None
         else:
             # not_extractable
             if value is not None:
