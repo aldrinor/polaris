@@ -1117,11 +1117,41 @@ async def run_one_query(
                     # the contract rows into that list so the
                     # generator's evidence_pool construction
                     # picks them up.
+                    # M-69 Fix #2 (Codex run-9 audit): when r.title
+                    # is empty (regulatory entities without CrossRef
+                    # title), prefer the contract entity's
+                    # label_name + jurisdiction over the bare
+                    # entity_id. Pre-fix bibliography rendered
+                    # ugly entries like
+                    #   [10] fda_mounjaro_label — https://...
+                    # Now reads as
+                    #   [10] FDA Mounjaro Label — https://...
                     _contract_evidence_rows: list[dict[str, Any]] = []
                     for r in _frame_rows:
+                        _ce = _entity_metadata.get(r.entity_id)
+                        _label_name = (
+                            getattr(_ce, "label_name", None)
+                            if _ce is not None else None
+                        )
+                        _jurisdiction = (
+                            getattr(_ce, "jurisdiction", None)
+                            if _ce is not None else None
+                        )
+                        if r.title:
+                            _statement = r.title
+                        elif _label_name and _jurisdiction:
+                            _statement = (
+                                f"{_jurisdiction} {_label_name} Label"
+                                if "label" not in _label_name.lower()
+                                else f"{_jurisdiction} {_label_name}"
+                            )
+                        elif _label_name:
+                            _statement = _label_name
+                        else:
+                            _statement = r.entity_id
                         _contract_evidence_rows.append({
                             "evidence_id": r.entity_id,
-                            "statement": r.title or r.entity_id,
+                            "statement": _statement,
                             "direct_quote": r.direct_quote or "",
                             "source_url": r.oa_pdf_url or r.url or "",
                             "title": r.title or "",
