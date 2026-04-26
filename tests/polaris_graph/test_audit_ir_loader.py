@@ -2,21 +2,34 @@
 
 Loads the canonical run-14 V30 Phase-2 artifact and verifies the AuditIR
 object exposes everything the Evidence Inspector renderers need.
+
+Codex M-1 review (PARTIAL → 8 fixes integrated): each Codex finding has
+a dedicated test asserting the fix.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from src.polaris_graph.audit_ir import (
+    IR_SCHEMA_VERSION,
     AuditIR,
+    AuditIRSchemaError,
     BibliographyEntry,
     ContradictionCluster,
+    EvaluatorGate,
+    EvidenceSpanToken,
     FrameCoverageReport,
+    ReportSection,
+    ReportSentence,
+    RetrievalAttempt,
+    RetrievalStats,
     RunManifest,
     TierMix,
+    VerifiedReport,
     load_audit_ir,
 )
 
@@ -32,13 +45,28 @@ RUN_14_DIR = (
 
 @pytest.fixture(scope="module")
 def ir() -> AuditIR:
-    """Load run-14 once for all tests in this module."""
     return load_audit_ir(RUN_14_DIR)
+
+
+# ---------------------------------------------------------------------------
+# Top-level + schema versioning (Codex fix #6)
+# ---------------------------------------------------------------------------
 
 
 def test_loader_returns_audit_ir_instance(ir: AuditIR) -> None:
     assert isinstance(ir, AuditIR)
     assert ir.artifact_dir == RUN_14_DIR
+
+
+def test_ir_schema_version_present(ir: AuditIR) -> None:
+    """Codex fix #6: top-level IR versioning so V31/V32/V34 can evolve safely."""
+    assert ir.ir_schema_version == IR_SCHEMA_VERSION
+    assert ir.ir_schema_version  # non-empty
+
+
+# ---------------------------------------------------------------------------
+# Manifest (Codex fix #2: completeness, fix #4: evaluator gate richness)
+# ---------------------------------------------------------------------------
 
 
 def test_manifest_top_level_fields(ir: AuditIR) -> None:
@@ -50,14 +78,64 @@ def test_manifest_top_level_fields(ir: AuditIR) -> None:
     assert m.cost_usd > 0.0
     assert m.cost_usd < m.budget_cap_usd
     assert m.v30_enabled is True
-    assert m.evaluator_gate == "pass"
     assert m.release_allowed is True
+
+
+def test_completeness_percent_correctly_parsed(ir: AuditIR) -> None:
+    """Codex fix #2: run-14 has 7/7 covered_fraction=1.0, must read as 100.0%.
+
+    The pre-fix code looked for `covered_topics` / `total_topics` keys that
+    don't exist in V30 manifests, silently returning 0.0.
+    """
+    assert ir.manifest.completeness_percent == 100.0
+
+
+def test_evaluator_gate_is_rich_object(ir: AuditIR) -> None:
+    """Codex fix #4: evaluator_gate must preserve reasons + rule_blockers."""
+    gate = ir.manifest.evaluator_gate
+    assert isinstance(gate, EvaluatorGate)
+    assert gate.gate_class == "pass"
+    assert gate.release_allowed is True
+    # run-14 has one advisory reason
+    assert len(gate.reasons) >= 1
+    assert "advisory_pt13_unhedged_superlatives" in gate.reasons
+    assert isinstance(gate.rule_blockers, tuple)
+    assert isinstance(gate.qwen_critical_axes, tuple)
+
+
+def test_v30_warnings_preserved(ir: AuditIR) -> None:
+    """Codex fix #4: v30_warnings must be preserved (frame-coverage semantics)."""
+    assert len(ir.manifest.v30_warnings) >= 1
+    assert any(
+        "phase1_retrieval_coverage_only" in w for w in ir.manifest.v30_warnings
+    )
+
+
+def test_retrieval_stats_present(ir: AuditIR) -> None:
+    """Codex fix #4: retrieval stats (counts) must be captured."""
+    stats = ir.manifest.retrieval_stats
+    assert isinstance(stats, RetrievalStats)
+    assert stats.pre_filter > 0
+    assert stats.fetched > 0
+    # run-14 has openalex/s2/serper providers
+    assert "openalex" in stats.by_provider
+    assert stats.by_provider["openalex"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Report markdown
+# ---------------------------------------------------------------------------
 
 
 def test_report_md_loaded(ir: AuditIR) -> None:
     assert isinstance(ir.report_md, str)
     assert len(ir.report_md) > 1000
     assert "[1]" in ir.report_md  # has at least one inline citation
+
+
+# ---------------------------------------------------------------------------
+# Bibliography
+# ---------------------------------------------------------------------------
 
 
 def test_bibliography_loaded(ir: AuditIR) -> None:
@@ -88,31 +166,50 @@ def test_bibliography_lookup_misses_return_none(ir: AuditIR) -> None:
     assert ir.get_bibliography_by_evidence_id("nonexistent_id") is None
 
 
+# ---------------------------------------------------------------------------
+# Contradictions (Codex fix #5: severity, relative_difference, subject, action)
+# ---------------------------------------------------------------------------
+
+
 def test_contradictions_loaded(ir: AuditIR) -> None:
-    # Manifest claims 14 contradictions; the file should match.
     assert len(ir.contradictions) == 14
     cluster = ir.contradictions[0]
     assert isinstance(cluster, ContradictionCluster)
     assert cluster.cluster_id == 0
     assert cluster.predicate
     assert cluster.absolute_difference >= 0.0
-    assert len(cluster.claims) >= 2  # contradiction needs at least 2 claims
+    assert len(cluster.claims) >= 2
+
+
+def test_contradiction_cluster_metadata_preserved(ir: AuditIR) -> None:
+    """Codex fix #5: severity, relative_difference, subject, recommended_action."""
+    cluster = ir.contradictions[0]
+    assert cluster.severity in {"low", "medium", "high", "critical", "unknown"}
+    # run-14 first cluster is 'high' severity
+    assert cluster.severity == "high"
+    assert cluster.subject == "tirzepatide"
+    assert cluster.relative_difference > 0.0
+    assert "Disclose both values" in cluster.recommended_action
 
 
 def test_contradiction_claims_have_evidence_ids(ir: AuditIR) -> None:
     for cluster in ir.contradictions:
         for claim in cluster.claims:
-            assert claim.evidence_id  # every claim must back-link to evidence
+            assert claim.evidence_id
             assert claim.source_tier
             assert claim.value is not None
 
 
 def test_get_contradictions_for_evidence(ir: AuditIR) -> None:
-    # ev_001 appears in run-14 contradictions.json
     clusters = ir.get_contradictions_for_evidence("ev_001")
     assert len(clusters) >= 1
     for cluster in clusters:
         assert any(c.evidence_id == "ev_001" for c in cluster.claims)
+
+
+# ---------------------------------------------------------------------------
+# Frame coverage (Codex fix #5: section, slot_id, subsection_title, etc.)
+# ---------------------------------------------------------------------------
 
 
 def test_frame_coverage_loaded(ir: AuditIR) -> None:
@@ -121,24 +218,48 @@ def test_frame_coverage_loaded(ir: AuditIR) -> None:
     assert fc.pass_count == 14
     assert fc.frame_gap_count >= 0
     assert fc.partial_count >= 0
-    assert len(fc.entries) == 15  # run-14 has 15 entities
+    assert len(fc.entries) == 15
     assert fc.research_question
 
 
-def test_frame_coverage_entry_lookup(ir: AuditIR) -> None:
+def test_frame_coverage_semantics_warning_preserved(ir: AuditIR) -> None:
+    """Codex fix #5: V30 retrieval-coverage caveat must be on the report."""
+    assert ir.frame_coverage.semantics_warning is not None
+    assert "phase1_retrieval_coverage_only" in ir.frame_coverage.semantics_warning
+
+
+def test_frame_coverage_entry_metadata_preserved(ir: AuditIR) -> None:
+    """Codex fix #5: section, slot_id, subsection_title, min_fields, human_curated."""
     entry = ir.get_frame_coverage_for_entity("surpass_1_primary")
     assert entry is not None
-    assert entry.entity_id == "surpass_1_primary"
-    assert entry.entity_type == "pivotal_trial"
-    assert entry.doi  # SURPASS-1 has a DOI in run-14
-    assert entry.pmid
+    assert entry.section == "Efficacy"
+    assert entry.slot_id == "efficacy_surpass_1"
+    assert "SURPASS-1" in entry.subsection_title
+    assert entry.min_fields_for_completion > 0
+    # run-14 surpass_1 has no human-curated provenance
+    assert entry.human_curated_provenance is None
+
+
+def test_frame_coverage_retrieval_attempts_typed(ir: AuditIR) -> None:
+    """Codex fix #3: retrieval_attempt_log entries are frozen RetrievalAttempt objects."""
+    entry = ir.get_frame_coverage_for_entity("surpass_1_primary")
+    assert entry is not None
+    assert len(entry.retrieval_attempt_log) > 0
+    for attempt in entry.retrieval_attempt_log:
+        assert isinstance(attempt, RetrievalAttempt)
+        assert attempt.source
+        assert attempt.outcome
+
+
+# ---------------------------------------------------------------------------
+# Tier mix
+# ---------------------------------------------------------------------------
 
 
 def test_tier_mix_loaded(ir: AuditIR) -> None:
     tm = ir.tier_mix
     assert isinstance(tm, TierMix)
     assert tm.corpus_count > 0
-    # Tier fractions should sum approximately to 1.0
     assert abs(sum(tm.fractions.values()) - 1.0) < 0.01
     assert "T1" in tm.fractions
 
@@ -147,8 +268,119 @@ def test_tier_counts_derive_from_fractions(ir: AuditIR) -> None:
     counts = ir.get_tier_counts()
     assert "T1" in counts
     assert sum(counts.values()) > 0
-    # T7 is the largest fraction in run-14 (28.18%)
     assert counts["T7"] > counts["T5"]
+
+
+# ---------------------------------------------------------------------------
+# Verified report (Codex fix #1: verification_details.json must be loaded)
+# ---------------------------------------------------------------------------
+
+
+def test_verified_report_loaded(ir: AuditIR) -> None:
+    """Codex fix #1: verification_details.json was not loaded — M-3 was blocked."""
+    vr = ir.verified_report
+    assert isinstance(vr, VerifiedReport)
+    assert len(vr.sections) == 6  # run-14 has 6 sections
+    assert vr.sentences_verified == 98
+    assert vr.sentences_dropped == 51
+    assert sum(vr.drop_reason_counts.values()) > 0
+
+
+def test_verified_report_section_structure(ir: AuditIR) -> None:
+    section = ir.verified_report.sections[0]
+    assert isinstance(section, ReportSection)
+    assert section.title
+    assert section.kept_count >= 0
+    assert section.dropped_count >= 0
+    assert len(section.sentences) == section.kept_count + section.dropped_count
+
+
+def test_verified_report_sentences_have_tokens(ir: AuditIR) -> None:
+    """View 1 prerequisite: every sentence must have evidence span tokens."""
+    found_with_tokens = 0
+    for section in ir.verified_report.sections:
+        for sentence in section.sentences:
+            assert isinstance(sentence, ReportSentence)
+            assert sentence.claim_id
+            for token in sentence.tokens:
+                assert isinstance(token, EvidenceSpanToken)
+                assert token.evidence_id
+                assert token.start <= token.end
+            if sentence.tokens:
+                found_with_tokens += 1
+    assert found_with_tokens > 0
+
+
+def test_get_sentence_by_claim_id(ir: AuditIR) -> None:
+    """View 1 prerequisite: stable claim_id lookup must work."""
+    section = ir.verified_report.sections[0]
+    if section.sentences:
+        first = section.sentences[0]
+        sentence = ir.get_sentence_by_claim_id(first.claim_id)
+        assert sentence is not None
+        assert sentence.claim_id == first.claim_id
+
+
+def test_get_evidence_spans_for_claim(ir: AuditIR) -> None:
+    """View 1 prerequisite: claim_id -> evidence span tokens lookup."""
+    # find any claim with at least one token
+    found = False
+    for section in ir.verified_report.sections:
+        for sentence in section.sentences:
+            if sentence.tokens:
+                spans = ir.get_evidence_spans_for_claim(sentence.claim_id)
+                assert len(spans) == len(sentence.tokens)
+                found = True
+                break
+        if found:
+            break
+    assert found
+
+
+def test_dropped_sentences_have_failure_reasons(ir: AuditIR) -> None:
+    """Dropped sentences must surface why they failed (Inspector view 1 disclosure)."""
+    dropped_with_reasons = 0
+    for section in ir.verified_report.sections:
+        for sentence in section.sentences:
+            if not sentence.is_verified and sentence.failure_reasons:
+                dropped_with_reasons += 1
+    assert dropped_with_reasons > 0
+
+
+def test_get_sentence_by_unknown_claim_id_returns_none(ir: AuditIR) -> None:
+    assert ir.get_sentence_by_claim_id("nonexistent:kept:9999") is None
+
+
+# ---------------------------------------------------------------------------
+# Deep immutability (Codex fix #3)
+# ---------------------------------------------------------------------------
+
+
+def test_audit_ir_top_level_frozen(ir: AuditIR) -> None:
+    with pytest.raises((AttributeError, Exception)):
+        ir.run_id = "tampered"  # type: ignore[misc]
+
+
+def test_tier_mix_fractions_is_read_only(ir: AuditIR) -> None:
+    """Codex fix #3: nested dicts must not be mutable through the IR."""
+    with pytest.raises(TypeError):
+        ir.tier_mix.fractions["T1"] = 99.9  # type: ignore[index]
+
+
+def test_drop_reason_counts_is_read_only(ir: AuditIR) -> None:
+    with pytest.raises(TypeError):
+        ir.verified_report.drop_reason_counts["fake"] = 1  # type: ignore[index]
+
+
+def test_retrieval_stats_by_provider_is_read_only(ir: AuditIR) -> None:
+    if ir.manifest.retrieval_stats is not None:
+        with pytest.raises(TypeError):
+            ir.manifest.retrieval_stats.by_provider["x"] = 1  # type: ignore[index]
+
+
+# ---------------------------------------------------------------------------
+# Fail-loud semantics (Codex fix #4)
+# ---------------------------------------------------------------------------
 
 
 def test_loader_fails_loudly_on_missing_dir(tmp_path: Path) -> None:
@@ -164,7 +396,104 @@ def test_loader_fails_loudly_on_missing_manifest(tmp_path: Path) -> None:
         load_audit_ir(empty)
 
 
-def test_audit_ir_is_frozen(ir: AuditIR) -> None:
-    """AuditIR is immutable — renderers can't mutate the canonical IR."""
-    with pytest.raises((AttributeError, Exception)):
-        ir.run_id = "tampered"  # type: ignore[misc]
+def _scaffold_minimal_run(base: Path) -> Path:
+    """Build a minimal-but-valid run dir for negative tests."""
+    run = base / "run"
+    run.mkdir()
+    (run / "report.md").write_text("# stub", encoding="utf-8")
+    (run / "bibliography.json").write_text("[]", encoding="utf-8")
+    (run / "contradictions.json").write_text("[]", encoding="utf-8")
+    (run / "verification_details.json").write_text(
+        json.dumps({"sections": [], "totals": {}, "drop_reason_counts": {}}),
+        encoding="utf-8",
+    )
+    minimal_manifest = {
+        "run_id": "stub",
+        "slug": "stub",
+        "status": "ok",
+        "question": "stub",
+        "protocol_sha256": "0",
+        "evaluator_gate": {"gate_class": "pass", "release_allowed": True},
+        "completeness": {"covered_fraction": 1.0},
+        "frame_coverage_report": {
+            "by_status": {"pass": 0},
+            "entries": [],
+        },
+        "corpus": {"tier_fractions": {"T1": 1.0}, "count": 1},
+    }
+    (run / "manifest.json").write_text(json.dumps(minimal_manifest), encoding="utf-8")
+    return run
+
+
+def test_minimal_valid_run_loads(tmp_path: Path) -> None:
+    """Sanity check: minimal-but-valid scaffold loads without error."""
+    run = _scaffold_minimal_run(tmp_path)
+    ir = load_audit_ir(run)
+    assert ir.run_id == "stub"
+
+
+def test_loader_fails_loudly_on_missing_frame_coverage(tmp_path: Path) -> None:
+    """Codex fix #4: missing required schema block must raise, not zero-fill."""
+    run = _scaffold_minimal_run(tmp_path)
+    manifest = json.loads((run / "manifest.json").read_text())
+    del manifest["frame_coverage_report"]
+    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(AuditIRSchemaError, match="frame_coverage_report"):
+        load_audit_ir(run)
+
+
+def test_loader_fails_loudly_on_missing_corpus_tier_fractions(tmp_path: Path) -> None:
+    run = _scaffold_minimal_run(tmp_path)
+    manifest = json.loads((run / "manifest.json").read_text())
+    del manifest["corpus"]
+    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(AuditIRSchemaError, match="corpus"):
+        load_audit_ir(run)
+
+
+def test_loader_fails_loudly_on_missing_evaluator_gate(tmp_path: Path) -> None:
+    run = _scaffold_minimal_run(tmp_path)
+    manifest = json.loads((run / "manifest.json").read_text())
+    del manifest["evaluator_gate"]
+    (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(AuditIRSchemaError, match="evaluator_gate"):
+        load_audit_ir(run)
+
+
+def test_loader_fails_loudly_on_contradiction_with_too_few_claims(tmp_path: Path) -> None:
+    """A contradiction cluster needs >= 2 claims; otherwise it's not a contradiction."""
+    run = _scaffold_minimal_run(tmp_path)
+    bad = [
+        {
+            "predicate": "x",
+            "claims": [
+                {"evidence_id": "ev_1", "predicate": "x", "value": 1.0}
+            ],
+        }
+    ]
+    (run / "contradictions.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(AuditIRSchemaError, match=">=2"):
+        load_audit_ir(run)
+
+
+def test_loader_fails_loudly_on_contradiction_claim_missing_evidence_id(tmp_path: Path) -> None:
+    run = _scaffold_minimal_run(tmp_path)
+    bad = [
+        {
+            "predicate": "x",
+            "claims": [
+                {"predicate": "x", "value": 1.0},
+                {"predicate": "x", "value": 2.0},
+            ],
+        }
+    ]
+    (run / "contradictions.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(AuditIRSchemaError, match="evidence_id"):
+        load_audit_ir(run)
+
+
+def test_loader_fails_loudly_on_missing_verification_details(tmp_path: Path) -> None:
+    run = _scaffold_minimal_run(tmp_path)
+    (run / "verification_details.json").unlink()
+    with pytest.raises(FileNotFoundError, match="verification_details"):
+        load_audit_ir(run)
