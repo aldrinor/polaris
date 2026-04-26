@@ -3422,6 +3422,14 @@ async def generate_multi_section_report(
                 cross_trial_block=cross_trial_block,
             )
 
+    # V33 unified dispatch helper for downstream (M-44 regen) callers
+    # that need to re-run a single SectionPlan and don't care whether
+    # it's a contract section or a legacy section.
+    async def _bounded_run(plan: SectionPlan) -> SectionResult:
+        if is_contract_section(plan):
+            return await _run_contract_bounded(plan)
+        return await _run_legacy_bounded(plan)
+
     legacy_results = await asyncio.gather(*[
         _run_legacy_bounded(p) for p in legacy_plans
     ])
