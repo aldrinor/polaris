@@ -576,3 +576,27 @@ def test_model_provenance_optional_for_legacy_runs(tmp_path: Path) -> None:
     ir = load_audit_ir(run)
     assert ir.model_provenance is None
     assert ir.protocol is None
+
+
+def test_partial_model_provenance_fails_loud(tmp_path: Path) -> None:
+    """Codex M-1 v3 edge case: if exactly ONE of the provenance files is present,
+    fail loud rather than zero-fill the missing half."""
+    run = _scaffold_minimal_run(tmp_path)
+    (run / "evaluator_rule_checks.json").write_text(
+        json.dumps({"generator_family": "x", "generator_model": "y"}),
+        encoding="utf-8",
+    )
+    # qwen_judge_output.json deliberately absent
+    with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
+        load_audit_ir(run)
+
+
+def test_partial_model_provenance_fails_loud_other_direction(tmp_path: Path) -> None:
+    run = _scaffold_minimal_run(tmp_path)
+    (run / "qwen_judge_output.json").write_text(
+        json.dumps({"model": "x", "parse_ok": True}),
+        encoding="utf-8",
+    )
+    # evaluator_rule_checks.json deliberately absent
+    with pytest.raises(AuditIRSchemaError, match="Partial model provenance"):
+        load_audit_ir(run)

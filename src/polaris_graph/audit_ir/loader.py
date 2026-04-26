@@ -813,12 +813,20 @@ def _parse_model_provenance(
 ) -> ModelProvenance | None:
     """Codex M-1 v2 review fix: load model/version provenance from runtime artifacts.
 
-    Returns None if both files are absent (some legacy runs predate them).
+    Returns None if BOTH files are absent (legacy runs predate them).
+    Raises AuditIRSchemaError if exactly one is present, since partial
+    provenance silently zero-filling the missing half violates audit-grade
+    discipline (Codex M-1 v3 review edge case).
     """
     if eval_rules_raw is None and qwen_judge_raw is None:
         return None
-    eval_rules_raw = eval_rules_raw or {}
-    qwen_judge_raw = qwen_judge_raw or {}
+    if eval_rules_raw is None or qwen_judge_raw is None:
+        present = "evaluator_rule_checks.json" if eval_rules_raw else "qwen_judge_output.json"
+        missing = "qwen_judge_output.json" if eval_rules_raw else "evaluator_rule_checks.json"
+        raise AuditIRSchemaError(
+            f"Partial model provenance: {present} present but {missing} missing. "
+            f"Both must be present together or both absent."
+        )
     rule_checks = tuple(
         _parse_rule_check(rc) for rc in eval_rules_raw.get("rule_checks", [])
     )
