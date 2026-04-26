@@ -46,56 +46,62 @@ from src.polaris_graph.audit_ir.job_runner import JobControl, JobRunner
 logger = logging.getLogger(__name__)
 
 
-# Canonical phase milestones the V30 sweep emits to run_log.txt. The
-# runner uses these to derive progress_pct and progress_message per
-# checkpoint. Order matches the sweep's actual execution.
+# Canonical phase milestones the V30 sweep emits to run_log.txt.
+#
+# Codex M-9 review fix: order + percentages now reflect the ACTUAL run-14
+# emission order, not the imagined one. Run-14 log shows:
+#   [scope] -> [M-28] -> [M-35] -> [retrieval] -> [m48] -> [corpus]
+#   -> [adequacy] -> [completeness] -> [contradict] -> [select]
+#   -> [generation] -> [V30-P2] (3 lines) -> [m44/m47/m53]
+#   -> [evaluator] -> [judge] -> [eval_gate] -> [V30] (5 lines)
+#   -> [cost] -> [status]
 V30_PHASES = (
-    ("scope_gate",          5.0,  "Scope gate"),
-    ("retrieval_started",   10.0, "Live retrieval"),
-    ("retrieval_done",      55.0, "Retrieval complete"),
-    ("adequacy_gate",       60.0, "Corpus adequacy gate"),
-    ("approval_gate",       65.0, "Corpus approval gate"),
-    ("generation_started",  70.0, "Generation"),
-    ("strict_verify",       80.0, "Strict-verify provenance"),
-    ("evaluator_gate",      85.0, "Evaluator gate"),
-    ("v30_phase1",          90.0, "V30 Phase-1 frame coverage"),
-    ("v30_phase2",          95.0, "V30 Phase-2 slot-bound generation"),
-    ("qwen_judge",          98.0, "Qwen judge"),
-    ("complete",            100.0, "Sweep complete"),
+    ("scope",              5.0,   "Scope gate"),
+    ("retrieval",          50.0,  "Live retrieval (corpus assembly)"),
+    ("corpus",             55.0,  "Corpus tier classification"),
+    ("adequacy",           58.0,  "Corpus adequacy gate"),
+    ("completeness",       60.0,  "Topic completeness check"),
+    ("contradict",         62.0,  "Contradiction detection"),
+    ("select",             65.0,  "Evidence selection"),
+    ("generation",         75.0,  "Multi-section generation"),
+    ("v30_phase2",         85.0,  "V30 Phase-2 slot-bound generation"),
+    ("evaluator",          90.0,  "Evaluator rule checks"),
+    ("judge",              92.0,  "Qwen judge"),
+    ("eval_gate",          94.0,  "Evaluator gate decision"),
+    ("v30_phase1",         97.0,  "V30 Phase-1 frame coverage"),
+    ("cost",               99.0,  "Cost ledger finalized"),
+    ("status",             100.0, "Sweep complete"),
 )
 
 
 # Run_log.txt patterns map to phase keys above. Patterns are loose
 # substring matches on log lines.
 #
-# Order matters: more-specific patterns (M-XX, V30 Phase N) come BEFORE
-# generic substring ones (e.g. "generation"), so a line like
-# "V30 Phase 2: M-58 slot-bound generation" classifies as v30_phase2,
-# not generation_started.
+# Codex M-9 review fix: patterns now match the actual canonical bracketed
+# tags emitted by run_honest_sweep_r3.py. Order is checked sequentially
+# (first match wins) so more specific tags come first.
 _PHASE_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("v30_phase2",          "v30 phase 2"),
-    ("v30_phase2",          "m-58"),
-    ("v30_phase1",          "v30 phase 1"),
-    ("v30_phase1",          "m-56"),
-    ("complete",            "sweep complete"),
-    ("complete",            "wall time:"),
-    ("qwen_judge",          "live_qwen_judge"),
-    ("qwen_judge",          "qwen_judge"),
-    ("evaluator_gate",      "evaluator_gate"),
-    ("evaluator_gate",      "phase 5"),
-    ("strict_verify",       "strict_verify"),
-    ("strict_verify",       "phase 4"),
-    ("retrieval_done",      "phase 2 complete"),
-    ("retrieval_started",   "phase 2: live retrieval"),
-    ("retrieval_started",   "phase 2: starting"),
-    ("approval_gate",       "corpus_approval"),
-    ("approval_gate",       "approval_gate"),
-    ("adequacy_gate",       "corpus_adequacy"),
-    ("adequacy_gate",       "adequacy_gate"),
-    ("scope_gate",          "scope_gate"),
-    ("scope_gate",          "scope decision"),
-    ("generation_started",  "phase 3"),
-    ("generation_started",  "generation"),
+    # Terminal markers checked first.
+    ("status",       "[status]"),
+    ("cost",         "[cost]"),
+    # V30 Phase-1 (post-eval-gate) and Phase-2 (during generation) are
+    # tagged distinctly: [V30] vs [V30-P2].
+    ("v30_phase1",   "[v30]"),
+    ("v30_phase2",   "[v30-p2]"),
+    # Eval pipeline.
+    ("eval_gate",    "[eval_gate]"),
+    ("judge",        "[judge]"),
+    ("evaluator",    "[evaluator]"),
+    # Generation + selection.
+    ("select",       "[select]"),
+    ("generation",   "[generation]"),
+    # Pre-generation gates.
+    ("contradict",   "[contradict]"),
+    ("completeness", "[completeness]"),
+    ("adequacy",     "[adequacy]"),
+    ("corpus",       "[corpus]"),
+    ("retrieval",    "[retrieval]"),
+    ("scope",        "[scope]"),
 )
 
 _PHASE_PCT: dict[str, float] = {key: pct for key, pct, _ in V30_PHASES}
@@ -138,6 +144,12 @@ class V30JobRunner(JobRunner):
         if not cfg.sweep_script.exists():
             raise FileNotFoundError(f"Sweep script missing: {cfg.sweep_script}")
 
+        # Codex M-9 review fix: per-job output root so concurrent or
+        # sequential reruns of the same slug never overwrite each other.
+        # Layout becomes out_root/<job_id>/<domain>/<slug>/.
+        per_job_out_root = cfg.out_root / job.job_id
+        per_job_out_root.mkdir(parents=True, exist_ok=True)
+
         # Subprocess env: inherit + add V30 env extras.
         env = dict(os.environ)
         if cfg.extra_env:
@@ -147,7 +159,7 @@ class V30JobRunner(JobRunner):
             cfg.python_bin,
             str(cfg.sweep_script),
             "--only", slug,
-            "--out-root", str(cfg.out_root),
+            "--out-root", str(per_job_out_root),
         ]
 
         # Initial checkpoint so the queue shows progress immediately.
@@ -207,9 +219,15 @@ class V30JobRunner(JobRunner):
                                     "log_line": line.strip()[:300],
                                 },
                             )
-                        except (JobControl.Cancelled, JobControl.Paused):
+                        except JobControl.Cancelled:
                             cancelled = True
                             raise
+                        except JobControl.Paused:
+                            cancelled = True
+                            raise RuntimeError(
+                                "Pause is not supported for template_id='v30_clinical' "
+                                "in Phase B. Use cancel + re-enqueue instead."
+                            ) from None
 
                 # Periodic checkpoint even when no new phase fires
                 # (so cancel/pause requests are detected within
@@ -220,9 +238,22 @@ class V30JobRunner(JobRunner):
                         message=_PHASE_MSG.get(last_phase, last_phase),
                         state={"slug": slug, "phase": last_phase},
                     )
-                except (JobControl.Cancelled, JobControl.Paused):
+                except JobControl.Cancelled:
                     cancelled = True
                     raise
+                except JobControl.Paused:
+                    # Codex M-9 review fix: pause is not supported for
+                    # V30 in Phase B. Convert to a hard failure so the
+                    # user sees "Pause unsupported for v30_clinical"
+                    # rather than ending up in a paused/resumable state
+                    # that re-runs from scratch on resume.
+                    cancelled = True  # ensure subprocess gets terminated
+                    raise RuntimeError(
+                        "Pause is not supported for template_id='v30_clinical' "
+                        "in Phase B. Use cancel + re-enqueue instead. "
+                        "(Phase C M-13 progressive surfaces will enable "
+                        "real pause via SSE streaming.)"
+                    ) from None
 
                 # Subprocess done?
                 rc = proc.poll()
@@ -230,9 +261,17 @@ class V30JobRunner(JobRunner):
                     break
                 time.sleep(cfg.poll_interval_s)
 
-        except (JobControl.Cancelled, JobControl.Paused):
+        except JobControl.Cancelled:
             self._terminate_subprocess(proc, cfg.cancel_grace_s)
             raise
+        except JobControl.Paused:
+            # Safety net: if Paused escapes through to the outer scope
+            # (neither inner except converted it), convert here.
+            self._terminate_subprocess(proc, cfg.cancel_grace_s)
+            raise RuntimeError(
+                "Pause is not supported for template_id='v30_clinical' "
+                "in Phase B. Use cancel + re-enqueue instead."
+            ) from None
         finally:
             drain_thread.join(timeout=2.0)
 
@@ -242,10 +281,10 @@ class V30JobRunner(JobRunner):
                 f"V30 sweep failed (rc={proc.returncode}). Tail:\n{tail}"
             )
 
-        # Resolve the artifact dir. The sweep's domain layout is
-        # out_root/<domain>/<slug>/. We don't have a deterministic
-        # domain map up here, so we glob.
-        artifact_dir = self._resolve_artifact_dir(cfg.out_root, slug)
+        # Resolve the artifact dir. Per-job out_root means there's
+        # exactly one valid <domain>/<slug>/ underneath; no mtime
+        # tie-breaking needed.
+        artifact_dir = self._resolve_artifact_dir(per_job_out_root, slug)
         return str(artifact_dir) if artifact_dir else None
 
     # ------------------------------------------------------------------

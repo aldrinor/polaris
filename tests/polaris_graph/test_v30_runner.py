@@ -46,23 +46,49 @@ def _clean_state():
 
 
 def test_classify_phase_recognizes_canonical_lines() -> None:
+    """Codex M-9 review fix: patterns now match the actual canonical
+    bracketed tags emitted by run_honest_sweep_r3.py — verified against
+    outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm/run_log.txt"""
     cases = [
-        ("[2026-04-26 12:00:00] scope_gate: decision=accept", "scope_gate"),
-        ("Phase 2: live retrieval starting (476 sources expected)", "retrieval_started"),
-        ("Phase 2 complete: 472 fetched / 16 failed", "retrieval_done"),
-        ("corpus_adequacy: decision=proceed", "adequacy_gate"),
-        ("corpus_approval: approved=True", "approval_gate"),
-        ("Phase 3: generation starting", "generation_started"),
-        ("Phase 4: strict_verify pass", "strict_verify"),
-        ("Phase 5: evaluator_gate=pass", "evaluator_gate"),
-        ("V30 Phase 1: M-56 deterministic fetch", "v30_phase1"),
-        ("V30 Phase 2: M-58 slot-bound generation", "v30_phase2"),
-        ("live_qwen_judge: parse_ok=True", "qwen_judge"),
-        ("Wall time: 8696.7 seconds", "complete"),
+        ("[scope]       sha256=5c07417053cfe56e... decision=proceed", "scope"),
+        ("[retrieval]   pre_filter=472, fetched=456, failed=16", "retrieval"),
+        ("[corpus]      total=472  T1=13%, T2=10%", "corpus"),
+        ("[adequacy]    decision=proceed  applicable_checks=7", "adequacy"),
+        ("[completeness] 7/7 topics covered  uncovered=[]", "completeness"),
+        ("[contradict]  numeric_claims=159  contradictions=14", "contradict"),
+        ("[select]      strategy=tier_balanced_v1 selected=300", "select"),
+        ("[generation]  multi-section DeepSeek V3.2-Exp, evidence=300", "generation"),
+        ("[V30-P2]      compiled contract: entities=15", "v30_phase2"),
+        ("[evaluator]   rule_checks=12/13 pass", "evaluator"),
+        ("[judge]       {'good': 1, 'acceptable': 3, 'needs_revision': 1}", "judge"),
+        ("[eval_gate]   class=pass release_allowed=True", "eval_gate"),
+        ("[V30]         compiled frame: slug='clinical_tirzepatide_t2dm'", "v30_phase1"),
+        ("[cost]        $0.0074 (cap $10.0000)", "cost"),
+        ("[status]      ok (manifest.status=success)", "status"),
+        ("[M-28]        regulatory_anchors: +11 queries", None),  # not a milestone
         ("Random unrelated line", None),
     ]
     for line, expected in cases:
         assert V30JobRunner._classify_phase(line) == expected, line
+
+
+def test_classify_phase_real_run14_log() -> None:
+    """Regression test against the checked-in run-14 log to prevent
+    pattern drift if the sweep changes its emission format."""
+    repo_root = Path(__file__).resolve().parents[2]
+    run_log = (repo_root / "outputs" / "full_scale_v30_phase2_run14"
+               / "clinical" / "clinical_tirzepatide_t2dm" / "run_log.txt")
+    if not run_log.exists():
+        pytest.skip("run-14 log not available")
+    detected: set[str] = set()
+    for line in run_log.read_text(encoding="utf-8").splitlines():
+        phase = V30JobRunner._classify_phase(line)
+        if phase:
+            detected.add(phase)
+    # All canonical milestones must be detected in run-14.
+    expected = {key for key, _, _ in V30_PHASES}
+    missing = expected - detected
+    assert not missing, f"Phase patterns missed in run-14 log: {missing}"
 
 
 def test_phase_pct_monotonic() -> None:
@@ -79,8 +105,8 @@ def test_phase_pct_monotonic() -> None:
 
 
 def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float = 0.05) -> Path:
-    """Build a fake sweep script that emits V30 phase markers then exits."""
-    out_root_arg = tmp_path / "out"
+    """Build a fake sweep script that emits the canonical V30 phase
+    markers (matching the real run-14 log format) then exits."""
     script = tmp_path / "stub_sweep.py"
     script.write_text(dedent(f"""
         import argparse, sys, time, os, json
@@ -94,18 +120,21 @@ def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float
         slug_dir = os.path.join(out_root, domain, slug)
         os.makedirs(slug_dir, exist_ok=True)
         markers = [
-            "scope_gate: decision=accept",
-            "Phase 2: live retrieval starting",
-            "Phase 2 complete",
-            "corpus_adequacy: decision=proceed",
-            "corpus_approval: approved=True",
-            "Phase 3: generation starting",
-            "Phase 4: strict_verify pass",
-            "Phase 5: evaluator_gate=pass",
-            "V30 Phase 1: M-56",
-            "V30 Phase 2: M-58",
-            "live_qwen_judge: parse_ok=True",
-            "Wall time: 1.0 seconds",
+            "[scope]       sha256=stub decision=proceed",
+            "[retrieval]   pre_filter=10, fetched=10, failed=0",
+            "[corpus]      total=10  T1=50%",
+            "[adequacy]    decision=proceed",
+            "[completeness] 7/7 topics covered",
+            "[contradict]  numeric_claims=0  contradictions=0",
+            "[select]      selected=10",
+            "[generation]  stub generation",
+            "[V30-P2]      compiled contract: entities=1",
+            "[evaluator]   rule_checks=13/13 pass",
+            "[judge]       parse_ok=True",
+            "[eval_gate]   class=pass",
+            "[V30]         coverage: pass=1",
+            "[cost]        $0.00",
+            "[status]      ok",
         ]
         for m in markers:
             print(m, flush=True)
@@ -145,6 +174,29 @@ def test_runner_completes_and_returns_artifact_dir(tmp_path: Path) -> None:
     assert artifact_dir.is_dir()
     assert (artifact_dir / "manifest.json").exists()
     assert artifact_dir.name == "test_slug"
+    # Codex M-9 review fix: artifact path must be under the per-job
+    # output root (out_root/<job_id>/<domain>/<slug>/) so concurrent
+    # or sequential reruns of the same slug don't collide.
+    assert job.job_id in str(artifact_dir)
+
+
+def test_concurrent_same_slug_jobs_get_isolated_artifact_dirs(tmp_path: Path) -> None:
+    """Codex M-9 review fix: same-slug reruns must not overwrite each
+    other's artifacts. Per-job output root makes the path job-unique."""
+    queue = JobQueue(tmp_path / "jobs.sqlite")
+    runner = _make_runner(tmp_path, _write_stub_sweep(tmp_path))
+    register_runner(runner)
+
+    job_a = queue.enqueue("v30_clinical", {"slug": "shared_slug"})
+    job_b = queue.enqueue("v30_clinical", {"slug": "shared_slug"})
+    worker = JobWorker(queue, poll_interval_s=0.05)
+    a = worker.run_one()
+    b = worker.run_one()
+    assert a is not None and a.status == "completed"
+    assert b is not None and b.status == "completed"
+    assert a.artifact_dir != b.artifact_dir
+    assert a.job_id in (a.artifact_dir or "")
+    assert b.job_id in (b.artifact_dir or "")
 
 
 def test_runner_emits_progress_checkpoints(tmp_path: Path) -> None:
@@ -284,3 +336,41 @@ def test_v30_runner_registers_in_inspector_router_listing() -> None:
     from src.polaris_graph.audit_ir import list_runners
     assert "v30_clinical" in list_runners()
     assert "mock" in list_runners()
+
+
+def test_pause_request_fails_loudly_for_v30_clinical(tmp_path: Path) -> None:
+    """Codex M-9 review fix: V30 has no clean mid-sweep pause point.
+    Pause requests must surface as an explicit failure with a clear
+    message, not silently mark the job paused/resumable."""
+    queue = JobQueue(tmp_path / "jobs.sqlite")
+    runner = _make_runner(tmp_path, _write_stub_sweep(tmp_path, sleep_per_phase=0.5))
+    register_runner(runner)
+
+    job = queue.enqueue("v30_clinical", {"slug": "pause_slug"})
+
+    worker = JobWorker(queue, poll_interval_s=0.02)
+    worker.start()
+    try:
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            current = queue.get(job.job_id)
+            if current and current.status == "running" and current.progress_pct > 0:
+                break
+            time.sleep(0.02)
+        assert current.status == "running"
+
+        queue.request_pause(job.job_id)
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            current = queue.get(job.job_id)
+            if current and current.status in {"failed", "paused", "completed", "cancelled"}:
+                break
+            time.sleep(0.05)
+        # Codex M-9 mandate: pause must FAIL LOUD, not result in 'paused'.
+        assert current.status == "failed", (
+            f"Pause should fail loud for V30 (no clean pause point); "
+            f"got status={current.status}"
+        )
+        assert "Pause is not supported" in (current.error or "")
+    finally:
+        worker.stop(join_timeout=5.0)
