@@ -23,11 +23,15 @@ from src.polaris_graph.audit_ir import (
     EvaluatorGate,
     EvidenceSpanToken,
     FrameCoverageReport,
+    ModelProvenance,
+    ProtocolMetadata,
     ReportSection,
     ReportSentence,
     RetrievalAttempt,
     RetrievalStats,
+    RuleCheck,
     RunManifest,
+    TierExpectation,
     TierMix,
     VerifiedReport,
     load_audit_ir,
@@ -497,3 +501,78 @@ def test_loader_fails_loudly_on_missing_verification_details(tmp_path: Path) -> 
     (run / "verification_details.json").unlink()
     with pytest.raises(FileNotFoundError, match="verification_details"):
         load_audit_ir(run)
+
+
+# ---------------------------------------------------------------------------
+# Model provenance + Protocol metadata (Codex M-1 v2 review fix: View 4 prereq)
+# ---------------------------------------------------------------------------
+
+
+def test_model_provenance_loaded(ir: AuditIR) -> None:
+    """Codex M-1 v2 fix: model/version provenance must be on the canonical IR."""
+    mp = ir.model_provenance
+    assert isinstance(mp, ModelProvenance)
+    # Run-14 used deepseek generator and qwen evaluator (two-family invariant)
+    assert mp.generator_family == "deepseek"
+    assert mp.generator_model == "deepseek/deepseek-v3.2-exp"
+    assert mp.evaluator_family == "qwen"
+    assert mp.evaluator_model == "qwen/qwen3-8b"
+    # Two-family invariant: generator and evaluator must be from different lineages
+    assert mp.generator_family != mp.evaluator_family
+
+
+def test_model_provenance_judge_metadata(ir: AuditIR) -> None:
+    mp = ir.model_provenance
+    assert mp is not None
+    assert mp.judge_model == "qwen/qwen3-8b"
+    assert mp.judge_parse_ok is True
+    assert mp.judge_input_tokens > 0
+    assert mp.judge_output_tokens > 0
+
+
+def test_model_provenance_rule_checks(ir: AuditIR) -> None:
+    """Run-14 has 13 rule checks; Inspector View 4 surfaces pass/fail per rule."""
+    mp = ir.model_provenance
+    assert mp is not None
+    assert len(mp.rule_checks) >= 12  # run-14 has 13 rule checks
+    for rc in mp.rule_checks:
+        assert isinstance(rc, RuleCheck)
+        assert rc.item_id  # PT01..PT13 in run-14
+        assert rc.name
+
+
+def test_model_provenance_contradictions_disclosed(ir: AuditIR) -> None:
+    mp = ir.model_provenance
+    assert mp is not None
+    # Run-14 disclosed all 14 contradictions
+    assert mp.contradictions_disclosed == 14
+    assert isinstance(mp.contradictions_missing, tuple)
+
+
+def test_protocol_metadata_loaded(ir: AuditIR) -> None:
+    """Protocol metadata enables expected-vs-actual tier comparison in View 5."""
+    proto = ir.protocol
+    assert isinstance(proto, ProtocolMetadata)
+    assert "tirzepatide" in proto.research_question.lower()
+    assert proto.created_at_iso  # ISO timestamp string
+    assert proto.created_at_unix > 0
+    assert proto.scope_decision  # e.g. "scope_accepted"
+
+
+def test_protocol_expected_tier_distribution(ir: AuditIR) -> None:
+    proto = ir.protocol
+    assert proto is not None
+    assert len(proto.expected_tier_distribution) >= 5  # T1..T5+ at minimum
+    for exp in proto.expected_tier_distribution:
+        assert isinstance(exp, TierExpectation)
+        assert exp.tier
+        assert 0.0 <= exp.min_fraction <= exp.max_fraction <= 1.0
+
+
+def test_model_provenance_optional_for_legacy_runs(tmp_path: Path) -> None:
+    """Loader must not require model-provenance files (some legacy runs lack them)."""
+    run = _scaffold_minimal_run(tmp_path)
+    # No evaluator_rule_checks.json or qwen_judge_output.json or protocol.json
+    ir = load_audit_ir(run)
+    assert ir.model_provenance is None
+    assert ir.protocol is None

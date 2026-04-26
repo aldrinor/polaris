@@ -209,6 +209,78 @@ class FrameCoverageReport:
 
 
 # ---------------------------------------------------------------------------
+# Model & rule provenance (Codex M-1 v2 review fix: View 4 prerequisites)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RuleCheck:
+    """One pre-commit rule check from evaluator_rule_checks.json."""
+
+    item_id: str
+    name: str
+    passed: bool
+    details: str
+
+
+@dataclass(frozen=True)
+class ModelProvenance:
+    """Model and rule-check provenance for the Methods + Provenance Bundle.
+
+    Sources:
+      - evaluator_rule_checks.json: generator_family/model, evaluator_family/model,
+        and the per-rule pass/fail audit trail
+      - qwen_judge_output.json: judge model + parse_ok + I/O token counts
+
+    The two-family invariant (generator and evaluator from different lineages)
+    is captured here for Inspector View 4 to surface.
+    """
+
+    generator_family: str
+    generator_model: str
+    evaluator_family: str
+    evaluator_model: str
+    judge_model: str
+    judge_parse_ok: bool
+    judge_input_tokens: int
+    judge_output_tokens: int
+    contradictions_disclosed: int
+    contradictions_missing: tuple[str, ...]
+    rule_checks: tuple[RuleCheck, ...]
+
+
+# ---------------------------------------------------------------------------
+# Protocol metadata (research question, criteria, tier expectations)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TierExpectation:
+    """Expected fraction band for a single tier from the scope protocol."""
+
+    tier: str
+    min_fraction: float
+    max_fraction: float
+    rationale: str
+
+
+@dataclass(frozen=True)
+class ProtocolMetadata:
+    """Research-question protocol — created_at + tier expectations + scope decision.
+
+    Inspector View 5 (Source Tier Mix) uses `expected_tier_distribution` to
+    show expected vs actual tier bands. View 4 surfaces created_at_iso for
+    the audit-bundle header.
+    """
+
+    research_question: str
+    created_at_iso: str
+    created_at_unix: float
+    scope_decision: str
+    expected_tier_distribution: tuple[TierExpectation, ...]
+
+
+# ---------------------------------------------------------------------------
 # Tier mix
 # ---------------------------------------------------------------------------
 
@@ -313,6 +385,8 @@ class AuditIR:
     frame_coverage: FrameCoverageReport
     tier_mix: TierMix
     verified_report: VerifiedReport
+    model_provenance: ModelProvenance | None
+    protocol: ProtocolMetadata | None
 
     def get_bibliography_by_num(self, num: int) -> BibliographyEntry | None:
         for entry in self.bibliography:
@@ -724,6 +798,81 @@ def _parse_verified_report(raw: Mapping[str, Any]) -> VerifiedReport:
     )
 
 
+def _parse_rule_check(raw: Mapping[str, Any]) -> RuleCheck:
+    return RuleCheck(
+        item_id=str(raw.get("item_id", "")),
+        name=str(raw.get("name", "")),
+        passed=bool(raw.get("passed", False)),
+        details=str(raw.get("details", "")),
+    )
+
+
+def _parse_model_provenance(
+    eval_rules_raw: Mapping[str, Any] | None,
+    qwen_judge_raw: Mapping[str, Any] | None,
+) -> ModelProvenance | None:
+    """Codex M-1 v2 review fix: load model/version provenance from runtime artifacts.
+
+    Returns None if both files are absent (some legacy runs predate them).
+    """
+    if eval_rules_raw is None and qwen_judge_raw is None:
+        return None
+    eval_rules_raw = eval_rules_raw or {}
+    qwen_judge_raw = qwen_judge_raw or {}
+    rule_checks = tuple(
+        _parse_rule_check(rc) for rc in eval_rules_raw.get("rule_checks", [])
+    )
+    return ModelProvenance(
+        generator_family=str(eval_rules_raw.get("generator_family", "")),
+        generator_model=str(eval_rules_raw.get("generator_model", "")),
+        evaluator_family=str(eval_rules_raw.get("evaluator_family", "")),
+        evaluator_model=str(eval_rules_raw.get("evaluator_model", "")),
+        judge_model=str(qwen_judge_raw.get("model", "")),
+        judge_parse_ok=bool(qwen_judge_raw.get("parse_ok", False)),
+        judge_input_tokens=int(qwen_judge_raw.get("input_tokens", 0)),
+        judge_output_tokens=int(qwen_judge_raw.get("output_tokens", 0)),
+        contradictions_disclosed=int(eval_rules_raw.get("contradictions_disclosed", 0)),
+        contradictions_missing=tuple(
+            str(c) for c in eval_rules_raw.get("contradictions_missing", [])
+        ),
+        rule_checks=rule_checks,
+    )
+
+
+def _parse_tier_expectation(raw: Mapping[str, Any]) -> TierExpectation:
+    return TierExpectation(
+        tier=str(raw.get("tier", "")),
+        min_fraction=float(raw.get("min_fraction", 0.0)),
+        max_fraction=float(raw.get("max_fraction", 1.0)),
+        rationale=str(raw.get("rationale", "")),
+    )
+
+
+def _parse_protocol(raw: Mapping[str, Any] | None) -> ProtocolMetadata | None:
+    """Load protocol.json. Returns None if file is absent."""
+    if raw is None:
+        return None
+    expected_tiers = tuple(
+        _parse_tier_expectation(t)
+        for t in raw.get("expected_tier_distribution", [])
+    )
+    return ProtocolMetadata(
+        research_question=str(raw.get("research_question", "")),
+        created_at_iso=str(raw.get("created_at_iso", "")),
+        created_at_unix=float(raw.get("created_at_unix", 0.0)),
+        scope_decision=str(raw.get("scope_decision", "")),
+        expected_tier_distribution=expected_tiers,
+    )
+
+
+def _read_optional_json(path: Path) -> Any:
+    """Read a JSON file but return None if it doesn't exist (vs failing loud)."""
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -762,6 +911,11 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
     contradictions_raw = _read_json(artifact_dir / "contradictions.json")
     verification_raw = _read_json(artifact_dir / "verification_details.json")
 
+    # Optional provenance files — present in V30 Phase-2 runs, absent in legacy.
+    eval_rules_raw = _read_optional_json(artifact_dir / "evaluator_rule_checks.json")
+    qwen_judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
+    protocol_raw = _read_optional_json(artifact_dir / "protocol.json")
+
     manifest = _parse_manifest(manifest_raw)
     bibliography = _parse_bibliography(bibliography_raw)
     contradictions = _parse_contradictions(contradictions_raw)
@@ -771,6 +925,8 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
     )
     tier_mix = _parse_tier_mix(manifest_raw.get("corpus"))
     verified_report = _parse_verified_report(verification_raw)
+    model_provenance = _parse_model_provenance(eval_rules_raw, qwen_judge_raw)
+    protocol = _parse_protocol(protocol_raw)
 
     return AuditIR(
         ir_schema_version=IR_SCHEMA_VERSION,
@@ -783,4 +939,6 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
         frame_coverage=frame_coverage,
         tier_mix=tier_mix,
         verified_report=verified_report,
+        model_provenance=model_provenance,
+        protocol=protocol,
     )
