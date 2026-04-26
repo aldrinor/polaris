@@ -72,3 +72,28 @@ def test_to_json_dict_preserves_model_provenance(ir: object = None) -> None:
     assert mp["generator_family"] == "deepseek"
     assert mp["evaluator_family"] == "qwen"
     assert len(mp["rule_checks"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Codex M-2 review low #4: unsupported leaf types must raise TypeError
+# ---------------------------------------------------------------------------
+
+
+def test_serializer_raises_on_unsupported_leaf_type() -> None:
+    """Codex M-2 review low #4: future fragility — datetime/Enum/Decimal must raise."""
+    import datetime
+    import pytest
+
+    with pytest.raises(TypeError, match="Unsupported leaf type"):
+        to_json_dict({"now": datetime.datetime(2026, 4, 26, 12, 0, 0)})
+
+
+def test_serializer_raises_on_custom_object() -> None:
+    """Custom non-dataclass objects must raise rather than silently pass through."""
+    import pytest
+
+    class Custom:
+        pass
+
+    with pytest.raises(TypeError, match="Unsupported leaf type"):
+        to_json_dict({"x": Custom()})

@@ -90,3 +90,28 @@ def test_inspector_page_unknown_returns_404() -> None:
     client = _make_client()
     resp = client.get("/inspector/does_not_exist")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Codex M-2 review (high #1, #2): list/detail round-trip + uniqueness
+# ---------------------------------------------------------------------------
+
+
+def test_list_to_detail_round_trip_for_every_listed_run() -> None:
+    """Every run from /api/inspector/runs must be fetchable at /api/inspector/runs/{slug}.
+
+    Before the fix: list reported 90 runs, but 75 of them returned 500 on detail.
+    """
+    client = _make_client()
+    list_resp = client.get("/api/inspector/runs")
+    assert list_resp.status_code == 200
+    body = list_resp.json()
+    for run in body["runs"]:
+        slug = run["slug"]
+        listed_run_id = run["run_id"]
+        detail_resp = client.get(f"/api/inspector/runs/{slug}")
+        assert detail_resp.status_code == 200, f"Detail 404/500 for slug={slug}"
+        detail = detail_resp.json()
+        assert detail["run_id"] == listed_run_id, (
+            f"run_id drift: list={listed_run_id} detail={detail['run_id']}"
+        )

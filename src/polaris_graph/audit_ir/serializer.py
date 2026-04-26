@@ -14,7 +14,13 @@ from typing import Any, Mapping
 
 
 def _coerce(value: Any) -> Any:
-    """Recursively coerce IR-specific types to JSON-friendly equivalents."""
+    """Recursively coerce IR-specific types to JSON-friendly equivalents.
+
+    Codex M-2 review fix #4: raises TypeError on unsupported leaf types
+    rather than silently passing them through. This catches future fragility
+    if the IR gains datetime/Enum/Decimal-like fields without an explicit
+    coercion path.
+    """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Path):
@@ -28,7 +34,10 @@ def _coerce(value: Any) -> Any:
             f.name: _coerce(getattr(value, f.name))
             for f in dataclasses.fields(value)
         }
-    return value
+    raise TypeError(
+        f"Unsupported leaf type for AuditIR serialization: "
+        f"{type(value).__name__}; add an explicit coercion in serializer._coerce"
+    )
 
 
 def to_json_dict(ir_object: Any) -> Any:

@@ -11,9 +11,11 @@ Routes:
   GET  /inspector                                -> redirect to canonical demo
   GET  /inspector/{slug}                         -> HTML shell (5-view scaffold)
 
-Phase A intentionally serves controlled-access traffic only (no auth on
-this router yet; the live_server existing auth will gate access in
-Phase B once queue+concurrency lands).
+Trust boundary (Codex M-2 review correction):
+  This router does NOT enforce auth. The trust boundary in Phase A is
+  DEPLOYMENT-LEVEL (controlled-access invite-only environment), NOT
+  application-level. Anyone who can reach the live_server can reach the
+  inspector. Phase B adds queue + per-route auth + workspace isolation.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from src.polaris_graph.audit_ir.loader import (
 )
 from src.polaris_graph.audit_ir.registry import (
     CANONICAL_DEMO_SLUG,
+    find_run_by_id,
     find_run_by_slug,
     list_available_runs,
 )

@@ -1,8 +1,20 @@
-"""Discover available V30 Phase-2 audit artifacts under outputs/.
+"""Discover available V30 Phase-2 audit artifacts.
 
-The Evidence Inspector needs a small registry to list runs the user can
-inspect. Phase A scope: scan known canonical demo paths. Phase C will
-replace this with a per-workspace database-backed registry.
+Phase A scope discipline (per Codex M-2 review): the registry exposes
+ONLY a curated allowlist of canonical artifacts that successfully load
+through the strict AuditIR loader. The previous broad `outputs/**/manifest.json`
+scan picked up 90 directories with 9 slug collisions and 75 of them
+failed `load_audit_ir()`'s strict schema. Phase A returns exactly the
+curated set; Phase B/C will replace this with a per-workspace database-
+backed registry.
+
+Each registered run is identified by both:
+  - `run_id`: the canonical unique identifier (used for routing)
+  - `slug`: a friendly slug derived from artifact_dir (URL-safe label)
+
+`run_id` is the unique key. `slug` may collide if Phase B operators
+load multiple runs with the same template; the registry detects this
+at startup and raises.
 """
 
 from __future__ import annotations
@@ -23,6 +35,10 @@ CANONICAL_DEMO_DIR = (
     / "clinical_tirzepatide_t2dm"
 )
 
+# Phase A curated allowlist. Each entry is an absolute artifact directory.
+# Phase B replaces this with a database-backed per-workspace registry.
+_PHASE_A_ALLOWLIST: tuple[Path, ...] = (CANONICAL_DEMO_DIR,)
+
 
 @dataclass(frozen=True)
 class RunSummary:
@@ -40,8 +56,16 @@ class RunSummary:
     created_at_iso: str | None
 
 
+class RegistryError(RuntimeError):
+    """Raised when the curated allowlist contains a malformed or duplicate run."""
+
+
 def _load_run_summary(artifact_dir: Path) -> RunSummary | None:
-    """Read just manifest.json + protocol.json for the lightweight summary."""
+    """Read just manifest.json + protocol.json for the lightweight summary.
+
+    Returns None if the directory cannot be summarized — but for a curated
+    allowlist this should never happen (and the caller raises).
+    """
     manifest_path = artifact_dir / "manifest.json"
     if not manifest_path.exists():
         return None
@@ -78,33 +102,85 @@ def _load_run_summary(artifact_dir: Path) -> RunSummary | None:
     )
 
 
-def list_available_runs() -> list[RunSummary]:
-    """Return every V30 Phase-2 audit artifact discoverable under outputs/.
+def _validate_loadable(artifact_dir: Path) -> None:
+    """Verify the artifact loads through the strict AuditIR loader.
 
-    A directory is considered an artifact if it contains both manifest.json
-    and report.md.
+    Raises RegistryError if loading fails. Done at registry init time
+    so the inspector router never lists a run it can't actually serve.
+    Imported lazily to avoid a circular import with loader.py.
     """
-    runs: list[RunSummary] = []
-    if not OUTPUTS_DIR.exists():
-        return runs
+    from src.polaris_graph.audit_ir.loader import (
+        AuditIRSchemaError,
+        load_audit_ir,
+    )
+    try:
+        load_audit_ir(artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError, NotADirectoryError) as exc:
+        raise RegistryError(
+            f"Allowlisted artifact failed strict load: {artifact_dir}: {exc}"
+        ) from exc
 
-    for candidate in OUTPUTS_DIR.glob("**/manifest.json"):
-        artifact_dir = candidate.parent
-        if not (artifact_dir / "report.md").exists():
-            continue
+
+def _build_runs() -> tuple[RunSummary, ...]:
+    """Build the registry by validating each allowlisted artifact."""
+    summaries: list[RunSummary] = []
+    seen_slugs: dict[str, str] = {}
+    seen_run_ids: set[str] = set()
+
+    for artifact_dir in _PHASE_A_ALLOWLIST:
+        if not artifact_dir.is_dir():
+            raise RegistryError(
+                f"Allowlisted artifact directory missing: {artifact_dir}"
+            )
+        _validate_loadable(artifact_dir)
         summary = _load_run_summary(artifact_dir)
-        if summary is not None:
-            runs.append(summary)
+        if summary is None:
+            raise RegistryError(
+                f"Allowlisted artifact failed lightweight summary: {artifact_dir}"
+            )
+        if summary.run_id in seen_run_ids:
+            raise RegistryError(
+                f"Duplicate run_id in allowlist: {summary.run_id}"
+            )
+        if summary.slug in seen_slugs and seen_slugs[summary.slug] != summary.run_id:
+            raise RegistryError(
+                f"Duplicate slug across distinct run_ids: {summary.slug} "
+                f"({seen_slugs[summary.slug]} vs {summary.run_id})"
+            )
+        seen_slugs[summary.slug] = summary.run_id
+        seen_run_ids.add(summary.run_id)
+        summaries.append(summary)
 
-    runs.sort(key=lambda r: (r.created_at_iso or "", r.slug), reverse=True)
-    return runs
+    summaries.sort(key=lambda r: (r.created_at_iso or "", r.slug), reverse=True)
+    return tuple(summaries)
+
+
+# Built once at module import. If the curated allowlist is malformed, this
+# raises immediately and the inspector route fails to mount — which is what
+# we want (fail loud, not silent).
+_RUNS: tuple[RunSummary, ...] = _build_runs()
+
+
+def list_available_runs() -> list[RunSummary]:
+    """Return every Phase-A-allowlisted V30 audit artifact (already validated)."""
+    return list(_RUNS)
 
 
 def find_run_by_slug(slug: str) -> RunSummary | None:
-    """Find a run by its slug. Used by the inspector router for direct lookup."""
+    """Find a run by slug. Slugs are guaranteed unique within the registry."""
     if not slug:
         return None
-    for run in list_available_runs():
+    for run in _RUNS:
         if run.slug == slug:
+            return run
+    return None
+
+
+def find_run_by_id(run_id: str) -> RunSummary | None:
+    """Find a run by its canonical unique run_id."""
+    if not run_id:
+        return None
+    for run in _RUNS:
+        if run.run_id == run_id:
             return run
     return None
