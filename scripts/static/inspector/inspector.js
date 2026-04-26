@@ -1444,8 +1444,12 @@
     const flag = inBand
       ? `<span class="methods-rule-pass">in band</span>`
       : `<span class="methods-rule-fail">out of band</span>`;
-    const bracketLeft = (Math.max(0, minF) * 100).toFixed(2) + "%";
-    const bracketWidth = (Math.max(0, Math.min(maxF, 1) - Math.max(0, minF)) * 100).toFixed(2) + "%";
+    // Codex M-7 v2 review fix: bracket-left also needs upper clamp to [0,1]
+    // so a malformed min_fraction>1 doesn't render at left:150%.
+    const clampedMin = Math.max(0, Math.min(minF, 1));
+    const clampedMax = Math.max(clampedMin, Math.min(maxF, 1));
+    const bracketLeft = (clampedMin * 100).toFixed(2) + "%";
+    const bracketWidth = ((clampedMax - clampedMin) * 100).toFixed(2) + "%";
     const markerLeft = _bandMarkerLeftPct(actualFrac);
     const markerCls = inBand ? "tier-mix-band-actual-in" : "tier-mix-band-actual-out";
     const graphic =

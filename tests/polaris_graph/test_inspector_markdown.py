@@ -568,6 +568,18 @@ def test_band_marker_clamps_to_visible_range() -> None:
         assert result["pass"], f"Marker clamp failed: {result}"
 
 
+def test_band_bracket_position_clamps_min_and_max() -> None:
+    """Codex M-7 v2 review: bracket left/width must clamp BOTH minF and maxF
+    to [0, 1] so malformed min_fraction>1 doesn't render at left:150%."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # Both directions of clamp must be present in renderTierBandRow
+    assert "Math.min(minF, 1)" in js
+    assert "Math.min(maxF, 1)" in js
+    # Width formula uses the clamped values, not raw maxF/minF
+    assert "clampedMax - clampedMin" in js
+
+
 @pytest.mark.skipif(NODE_BIN is None, reason="node not available")
 def test_strip_tables_and_bibliography_removes_pipe_rows() -> None:
     """Codex M-7 review: promo counting must be narrative-only — table rows
