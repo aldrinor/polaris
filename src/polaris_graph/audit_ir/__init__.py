@@ -31,6 +31,21 @@ from src.polaris_graph.audit_ir.v30_runner import (
     V30RunnerConfig,
     make_default_v30_runner,
 )
+from src.polaris_graph.audit_ir.template_catalog import (
+    CuratedTemplate,
+    TEMPLATE_CATALOG,
+    get_template,
+    list_catalog,
+)
+from src.polaris_graph.audit_ir.template_classifier import (
+    DEFAULT_FLOOR_HIGH,
+    DEFAULT_FLOOR_REVIEW,
+    RouterConfig,
+    RoutingCandidate,
+    RoutingResult,
+    RoutingVerdict,
+    classify_query,
+)
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,
@@ -60,9 +75,13 @@ from src.polaris_graph.audit_ir.loader import (
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
+    "DEFAULT_FLOOR_HIGH",
+    "DEFAULT_FLOOR_REVIEW",
     "IR_SCHEMA_VERSION",
     "JOB_STATUSES",
+    "TEMPLATE_CATALOG",
     "TERMINAL_STATUSES",
+    "CuratedTemplate",
     "Job",
     "JobControl",
     "JobQueue",
@@ -70,8 +89,15 @@ __all__ = [
     "JobRunner",
     "JobWorker",
     "MockJobRunner",
+    "RouterConfig",
+    "RoutingCandidate",
+    "RoutingResult",
+    "RoutingVerdict",
     "V30JobRunner",
     "V30RunnerConfig",
+    "classify_query",
+    "get_template",
+    "list_catalog",
     "make_default_v30_runner",
     "get_runner",
     "job_to_dict",

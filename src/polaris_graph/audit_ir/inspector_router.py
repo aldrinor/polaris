@@ -461,6 +461,75 @@ async def cancel_job(job_id: str) -> dict:
     return job_to_dict(job)
 
 
+# ---------------------------------------------------------------------------
+# Curated template router (M-10)
+# ---------------------------------------------------------------------------
+
+
+class RouteQueryRequest(BaseModel):
+    question: str = Field(..., description="User's free-form audit question.")
+
+
+@router.get("/api/inspector/templates/catalog")
+async def list_template_catalog() -> dict:
+    """Return the curated template catalog for the scope page.
+
+    Phase B M-10: doubles as the scope-page data source so the UI
+    can show users which kinds of questions are supported and what's
+    not yet in scope. Per FINAL_PLAN scope-page reinforcement
+    mitigation for Risk #13.
+    """
+    from src.polaris_graph.audit_ir.template_catalog import list_catalog
+    return {
+        "templates": [
+            {
+                "template_id": t.template_id,
+                "display_name": t.display_name,
+                "description": t.description,
+                "scope_summary": t.scope_summary,
+                "scope_examples": list(t.scope_examples),
+            }
+            for t in list_catalog()
+        ],
+    }
+
+
+@router.post("/api/inspector/templates/route")
+async def route_query(req: RouteQueryRequest) -> dict:
+    """Classify a user query against the curated template catalog.
+
+    Advisory only — does NOT enqueue a job. UI flow: call this, surface
+    the verdict + rationale to the user, on confirmation call
+    /api/inspector/jobs to actually enqueue.
+
+    Returns:
+      verdict: one of 'routed' / 'operator_review_required' /
+               'unsupported_scope'
+      template_id: candidate template (None when unsupported)
+      confidence: float in [0, 1]
+      candidates: list of {template_id, score, keyword_hits,
+                  example_jaccard}
+      rationale: human-readable explanation
+    """
+    from src.polaris_graph.audit_ir.template_classifier import classify_query
+    result = classify_query(req.question)
+    return {
+        "verdict": result.verdict.value,
+        "template_id": result.template_id,
+        "confidence": result.confidence,
+        "candidates": [
+            {
+                "template_id": c.template_id,
+                "score": c.score,
+                "keyword_hits": list(c.keyword_hits),
+                "example_jaccard": c.example_jaccard,
+            }
+            for c in result.candidates
+        ],
+        "rationale": result.rationale,
+    }
+
+
 @router.post("/api/inspector/jobs/{job_id}/resume")
 async def resume_job(job_id: str) -> dict:
     """Resume a paused job by transitioning it to 'pending'.
