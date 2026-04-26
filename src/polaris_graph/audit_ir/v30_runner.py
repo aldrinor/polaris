@@ -196,7 +196,6 @@ class V30JobRunner(JobRunner):
         seen_phases: set[str] = set()
         last_phase = "launch"
         last_pct = 1.0
-        cancelled = False
         # Tail the subprocess stdout in a thread so we can poll the
         # control surface in the main thread.
         log_lines: list[str] = []
@@ -211,6 +210,19 @@ class V30JobRunner(JobRunner):
         drain_thread = threading.Thread(target=_drain, daemon=True, name="v30-stdout-drain")
         drain_thread.start()
 
+        # Codex M-9 v3 review fix: subprocess termination MUST happen
+        # in `finally`, not in individual `except` blocks. Earlier
+        # iterations called `_terminate_subprocess` only inside
+        # `except JobControl.Cancelled` / `except JobControl.Paused`.
+        # That left a hole: when the inner per-phase or periodic
+        # checkpoint converted Paused → RuntimeError, the RuntimeError
+        # propagated past the outer Cancelled/Paused excepts (no match)
+        # and the V30 child kept running in the background while the
+        # job was marked failed. Centralizing termination in `finally`
+        # closes that gap for ALL exit paths (Cancelled, Paused,
+        # Paused→RuntimeError, any other RuntimeError, normal exit).
+        # `_terminate_subprocess` is idempotent — it no-ops if the
+        # process has already exited (proc.poll() is not None).
         try:
             while True:
                 # Detect new phase boundaries from the latest log lines.
@@ -234,10 +246,8 @@ class V30JobRunner(JobRunner):
                                 },
                             )
                         except JobControl.Cancelled:
-                            cancelled = True
                             raise
                         except JobControl.Paused:
-                            cancelled = True
                             raise RuntimeError(
                                 "Pause is not supported for template_id='v30_clinical' "
                                 "in Phase B. Use cancel + re-enqueue instead."
@@ -253,7 +263,6 @@ class V30JobRunner(JobRunner):
                         state={"slug": slug, "phase": last_phase},
                     )
                 except JobControl.Cancelled:
-                    cancelled = True
                     raise
                 except JobControl.Paused:
                     # Codex M-9 review fix: pause is not supported for
@@ -261,7 +270,6 @@ class V30JobRunner(JobRunner):
                     # user sees "Pause unsupported for v30_clinical"
                     # rather than ending up in a paused/resumable state
                     # that re-runs from scratch on resume.
-                    cancelled = True  # ensure subprocess gets terminated
                     raise RuntimeError(
                         "Pause is not supported for template_id='v30_clinical' "
                         "in Phase B. Use cancel + re-enqueue instead. "
@@ -275,18 +283,15 @@ class V30JobRunner(JobRunner):
                     break
                 time.sleep(cfg.poll_interval_s)
 
-        except JobControl.Cancelled:
-            self._terminate_subprocess(proc, cfg.cancel_grace_s)
-            raise
         except JobControl.Paused:
             # Safety net: if Paused escapes through to the outer scope
             # (neither inner except converted it), convert here.
-            self._terminate_subprocess(proc, cfg.cancel_grace_s)
             raise RuntimeError(
                 "Pause is not supported for template_id='v30_clinical' "
                 "in Phase B. Use cancel + re-enqueue instead."
             ) from None
         finally:
+            self._terminate_subprocess(proc, cfg.cancel_grace_s)
             drain_thread.join(timeout=2.0)
 
         if proc.returncode != 0:

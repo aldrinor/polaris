@@ -106,7 +106,11 @@ def test_phase_pct_monotonic() -> None:
 
 def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float = 0.05) -> Path:
     """Build a fake sweep script that emits the canonical V30 phase
-    markers (matching the real run-14 log format) then exits."""
+    markers (matching the real run-14 log format) then exits.
+
+    Codex M-9 v3 review fix: also writes its own PID to <out_root>/stub.pid
+    at startup so tests can verify subprocess termination on cancel/pause.
+    """
     script = tmp_path / "stub_sweep.py"
     script.write_text(dedent(f"""
         import argparse, sys, time, os, json
@@ -116,6 +120,11 @@ def _write_stub_sweep(tmp_path: Path, exit_code: int = 0, sleep_per_phase: float
         a = ap.parse_args()
         slug = a.only
         out_root = a.out_root
+        os.makedirs(out_root, exist_ok=True)
+        # Write our PID early so the test can detect whether the
+        # subprocess survives a pause/cancel.
+        with open(os.path.join(out_root, "stub.pid"), "w") as f:
+            f.write(str(os.getpid()))
         domain = "stubdomain"
         slug_dir = os.path.join(out_root, domain, slug)
         os.makedirs(slug_dir, exist_ok=True)
@@ -341,9 +350,18 @@ def test_v30_runner_registers_in_inspector_router_listing() -> None:
 def test_pause_request_fails_loudly_for_v30_clinical(tmp_path: Path) -> None:
     """Codex M-9 review fix: V30 has no clean mid-sweep pause point.
     Pause requests must surface as an explicit failure with a clear
-    message, not silently mark the job paused/resumable."""
+    message, not silently mark the job paused/resumable.
+
+    Codex M-9 v3 review fix: when pause→fail fires, the V30 child
+    subprocess MUST also be terminated. Earlier iterations left the
+    sweep running in the background while marking the job failed.
+    """
+    import psutil
+
     queue = JobQueue(tmp_path / "jobs.sqlite")
-    runner = _make_runner(tmp_path, _write_stub_sweep(tmp_path, sleep_per_phase=0.5))
+    # Long sleep so the stub stays alive past the pause→fail trigger
+    # — we need the subprocess still running when we assert on PID.
+    runner = _make_runner(tmp_path, _write_stub_sweep(tmp_path, sleep_per_phase=2.0))
     register_runner(runner)
 
     job = queue.enqueue("v30_clinical", {"slug": "pause_slug"})
@@ -351,13 +369,24 @@ def test_pause_request_fails_loudly_for_v30_clinical(tmp_path: Path) -> None:
     worker = JobWorker(queue, poll_interval_s=0.02)
     worker.start()
     try:
-        deadline = time.time() + 5.0
+        # Wait for the stub to write its PID file (signals subprocess
+        # is up). Per-job out_root is tmp_path/"out"/<job_id>/.
+        per_job_root = tmp_path / "out" / job.job_id
+        pid_file = per_job_root / "stub.pid"
+        deadline = time.time() + 8.0
         while time.time() < deadline:
-            current = queue.get(job.job_id)
-            if current and current.status == "running" and current.progress_pct > 0:
+            if pid_file.exists():
                 break
             time.sleep(0.02)
-        assert current.status == "running"
+        assert pid_file.exists(), "stub didn't write PID file in time"
+        stub_pid = int(pid_file.read_text().strip())
+        assert psutil.pid_exists(stub_pid), (
+            f"stub process pid={stub_pid} should be alive at this point"
+        )
+
+        # Sanity: status should be running by now.
+        current = queue.get(job.job_id)
+        assert current is not None and current.status == "running"
 
         queue.request_pause(job.job_id)
         deadline = time.time() + 10.0
@@ -372,5 +401,18 @@ def test_pause_request_fails_loudly_for_v30_clinical(tmp_path: Path) -> None:
             f"got status={current.status}"
         )
         assert "Pause is not supported" in (current.error or "")
+
+        # Codex M-9 v3 mandate: pause→fail must terminate the V30
+        # subprocess. Allow up to cancel_grace_s (2.0) + small buffer
+        # for SIGTERM/TerminateProcess to propagate.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if not psutil.pid_exists(stub_pid):
+                break
+            time.sleep(0.05)
+        assert not psutil.pid_exists(stub_pid), (
+            f"V30 subprocess (pid={stub_pid}) still alive after pause→fail; "
+            f"runner did not terminate the child process"
+        )
     finally:
         worker.stop(join_timeout=5.0)
