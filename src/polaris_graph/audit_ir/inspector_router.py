@@ -108,15 +108,22 @@ def get_or_start_job_worker():
 
 
 def _set_job_queue_for_tests(queue: JobQueue | None) -> None:
-    """Test helper: replace the singleton queue."""
-    global _job_queue
+    """Test helper: replace the singleton queue.
+
+    Also stops any active worker bound to the old queue, since workers
+    hold a queue reference and would keep polling the wrong db.
+    """
+    global _job_queue, _job_worker
+    if _job_worker is not None:
+        _job_worker.stop(join_timeout=2.0)
+        _job_worker = None
     _job_queue = queue
 
 
 def _set_job_worker_for_tests(worker) -> None:
     """Test helper: replace the singleton worker (or None to disable)."""
     global _job_worker
-    if _job_worker is not None and worker is None:
+    if _job_worker is not None and _job_worker is not worker:
         _job_worker.stop(join_timeout=2.0)
     _job_worker = worker
 
@@ -442,6 +449,13 @@ async def cancel_job(job_id: str) -> dict:
 
 @router.post("/api/inspector/jobs/{job_id}/resume")
 async def resume_job(job_id: str) -> dict:
+    """Resume a paused job by transitioning it to 'pending'.
+
+    Codex M-8 v2 review fix: also ensure a worker is running so the
+    reclaim happens promptly (even after a cold restart, where no
+    worker exists until something requests one).
+    """
+    _ensure_runners_registered()
     queue = get_job_queue()
     try:
         job = queue.resume_paused(job_id)
@@ -450,6 +464,9 @@ async def resume_job(job_id: str) -> dict:
         if "unknown job" in msg:
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=409, detail=msg)
+    # Codex M-8 v2 fix: start the worker so the resumed job actually
+    # gets reclaimed. Idempotent.
+    get_or_start_job_worker()
     return job_to_dict(job)
 
 
