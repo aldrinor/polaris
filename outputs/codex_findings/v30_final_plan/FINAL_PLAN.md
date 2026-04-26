@@ -1,8 +1,12 @@
 # V30 Phase-2 → Top-Tier Internet Player — FINAL PLAN
 
 **Date:** 2026-04-26
-**Plan version:** v3 (Claude pass-3 with Codex pass-3 single straggler ETA fix)
-**Codex agreement status:** **GREEN-IMMINENT** — Codex pass-3 returned STILL-PARTIAL with 1 remaining edit: a single Phase-B-local ETA line still restated `70-110 eng days = 7-11 weeks` without the "combined Phase A→B bundle" qualifier. Fixed in v3. Codex confirmed: "no new issues introduced." Awaiting Codex pass-4 GREEN.
+**Plan version:** v3 FINAL (Claude pass-3 + Codex pass-4 GREEN sign-off)
+**Codex agreement status:** ✅ **GREEN — JOINTLY AGREED**
+
+**Codex pass-4 verbatim final word (2026-04-26):** *"Ship as canonical jointly-agreed plan. YES, Claude and Codex both agree."*
+
+This is the canonical V30 commercialization plan. Both Claude and Codex (gpt-5.4 xhigh) have signed off across 4 review passes (1 substantive review on `JOINT_ANALYSIS.md`, 3 review passes on `FINAL_PLAN.md`). No remaining structural disagreements. No remaining consolidation edits. Ready to ship from.
 
 **Pass-2 changes (Codex pass-2 review fixes):**
 1. **Phase A access gating** — clarified as controlled-access / invite-only / pilot, NOT open internet beta. Resolves the conflict between "internet-facing" framing and queue-backed concurrency landing in Phase B.
@@ -510,10 +514,13 @@ That discipline IS the product.
 | `JOINT_ANALYSIS.md` pass-2 (7 fixes integrated) | NOT re-reviewed |
 | `FINAL_PLAN.md` v1 | reviewed → **PARTIAL — 3 edits, no structural disagreement** |
 | `FINAL_PLAN.md` v2 (3 edits integrated) | reviewed → **STILL-PARTIAL — 1 ETA-label straggler, no new issues** |
-| **This `FINAL_PLAN.md` v3 (4th edit integrated)** | **GREEN-IMMINENT — sent for pass-4 sign-off** |
+| `FINAL_PLAN.md` v3 (4th edit integrated) | reviewed → ✅ **GREEN** |
+| **This `FINAL_PLAN.md` v3 FINAL** | ✅ **JOINTLY AGREED CLAUDE+CODEX** |
 
 **Codex's verbatim pass-2 verdict:** *"PARTIAL with specific edits listed. If those three consolidation edits land, I would move this to GREEN. There is no remaining structural disagreement on audit-only, Evidence Inspector primacy, memory split, or the 7-wish triage."*
 
 **Codex's verbatim pass-3 verdict:** *"STILL-PARTIAL with 1 remaining consolidation fix: relabel or remove the Phase B-local `70-110 eng days = 7-11 weeks` line so every occurrence states this is the combined Phase A→B bundle, not Phase B alone."* + *"new issues introduced: none."*
 
-The 4th edit has been integrated in this v3. Pass-4 sign-off pending.
+**Codex's verbatim pass-4 verdict:** *"GREEN. Ship as canonical jointly-agreed plan. YES, Claude and Codex both agree."*
+
+The 4th edit was integrated in v3. Codex pass-4 returned GREEN. **This is the canonical, jointly-agreed plan. No further edits required.**
