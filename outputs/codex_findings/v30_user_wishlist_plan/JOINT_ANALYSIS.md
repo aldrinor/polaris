@@ -1,27 +1,41 @@
 # V30 Phase-2 — Joint User-Wishlist Analysis (7 user-named wishes)
 
 **Date:** 2026-04-26
+**Status:** Pass-2 — Codex cross-review integrated (verdict: PARTIAL → green after fixes below)
 **Source documents:**
 - Codex (gpt-5.4 xhigh): `outputs/codex_findings/v30_user_wishlist_plan/findings.md`
 - Claude framing (initial): `.codex/v30_user_wishlist_brief.md`
 - Real-user research (35 + 32 primary sources): `outputs/codex_findings/v30_real_user_wishlist/SYNTHESIS.md`
 - Joint commercialization plan: `outputs/codex_findings/v30_phase2_to_production_plan/JOINT_PLAN.md`
+- **Codex cross-review** (PARTIAL verdict): `outputs/codex_findings/v30_joint_analysis_review/findings.md`
 
 This document is the joint Claude+Codex analysis of the 7 user-named wishes.
 
+## Pass-2 changes (Codex review integrated)
+
+Codex returned PARTIAL with 7 specific edit recommendations. All 7 integrated:
+
+1. **Wish #1 renamed** from "Workspace Brief" to "Question-Bound Corpus Brief" — the broader label over-promised. Living-wiki behavior remains Phase D.
+2. **Wish #2 estimate raised** from 15-25 to 25-40 eng days. The 15-25 figure was parser/glue work; real Phase B work is workspace data model + permissions + retention + deletion + provenance mapping.
+3. **Composition section rewritten** — canonical object is an "audit graph / claim-evidence IR" with Evidence Inspector as primary renderer; all other outputs are derivative projections with back-links to claim IDs.
+4. **Memory split into 3 layers**: session memory / workspace memory / global-system memory. Only workspace memory may participate in the audit lane by default, with user-visible lineage + delete controls.
+5. **1-click UX rewritten** — "immediate progress surface" was too weak. Audit-native progressive surfaces specified: pre-flight estimate, parse progress, live source discovery with tier mix, frame coverage filling in, contradiction queue before final synthesis, first verified claim cards.
+6. **PRD bundle scope raised** from 52-86 to 70-110 eng days = 7-11 weeks. The lower range is only feasible if wish #1 stays extremely narrow.
+7. **Sequencing note added**: if one derivative artifact moves into late Phase B, citation-bound deck beta is the better candidate than broader corpus-brief promise.
+
 ---
 
-## TL;DR — the 7 verdicts at a glance
+## TL;DR — the 7 verdicts at a glance (pass-2)
 
 | # | Wish | V30 today | Trap? | Moat impact | Phase | In next ship? |
 |--:|------|:---------:|:----:|:------------:|:-----:|:------:|
-| 1 | WikiLLM (wiki-style internal-corpus synthesis) | partial | trap if free-form | amplify if bounded / dilute if open | B (bounded) / D (living) | NO — Phase B as "Workspace Brief", not Phase A |
-| 2 | Massive data upload + analysis | partial | trap if 300+ PDFs/session | amplify if first-class evidence / dilute if fuzzy RAG | B (10-50 docs) / D (300+) | YES — bounded form |
-| 3 | Snowball memory + knowledge accumulation | partial | trap if silent latent | neutral-to-amplify if user-governed / dilute if invisible | C (visible) / D (autonomous) | NO — Phase C |
-| 4 | Chart / table / artifact | partial | NO | amplify | B | YES — structured tables + cited charts |
-| 5 | Infographic | none | **TRAP** | **dilute** | D | NO |
-| 6 | 1-click slide deck | none | conditional | amplify if citation-bound + appendix | C (late B beta possible) | NO — Phase C |
-| 7 | 1-click video/audio | none | **TRAP** | **dilute** | D | NO |
+| 1 | WikiLLM → renamed **Question-Bound Corpus Brief** | partial | trap if free-form | amplify if bounded / dilute if open | B (narrow brief) / D (living wiki) | YES — narrow form, dependent on #2 |
+| 2 | Massive data upload + analysis | partial | trap if 300+ PDFs/session | amplify if first-class evidence / dilute if fuzzy RAG | B (10-50 docs) / D (300+) | YES — bounded form, **25-40d (raised)** |
+| 3 | Snowball memory — split into **passive notes** vs **retrieval-active memory** | partial | trap if silent latent | neutral-to-amplify if user-governed / dilute if invisible | B (passive notes) / C (retrieval-active) | PARTIAL — passive notes only |
+| 4 | Chart / table / artifact | partial | NO | amplify | B | YES — cited tables + numeric charts (core) |
+| 5 | Infographic | none | **TRAP** | **dilute** | D (or never) | NO |
+| 6 | 1-click slide deck | none | conditional | amplify if citation-bound + appendix | C (late-B beta = better candidate than broad #1) | NO unless one slot opens |
+| 7 | 1-click video/audio | none | **TRAP** | **dilute** | D (derivative only) | NO |
 
 **Three explicit traps converged across both runs:** infographic, video/audio, massive-upload-at-scale.
 
@@ -31,7 +45,7 @@ This document is the joint Claude+Codex analysis of the 7 user-named wishes.
 
 ## Per-wish deep dive
 
-### Wish 1 — WikiLLM (wiki-style synthesis from internal corpus)
+### Wish 1 — WikiLLM → renamed "Question-Bound Corpus Brief" (Codex correction)
 
 **User expectation (NotebookLM/Perplexity Spaces bar):**
 - Dump sources in, get a living knowledge page with clean summaries, FAQs, timelines
@@ -39,30 +53,38 @@ This document is the joint Claude+Codex analysis of the 7 user-named wishes.
 - Wiki updates as new sources arrive
 - System remembers corpus without manual prompt choreography
 
+**Codex's naming correction (accepted):** "Workspace Brief" over-promised.
+Users hear "living notebook/wiki summary of my corpus." V30 today can
+plausibly support "answer one bounded question over this selected corpus
+and emit a cited brief." That is narrower. Renamed accordingly.
+
 **V30 today: PARTIAL**
 - `src/polaris_graph/wiki/wiki_composer.py` exists
 - Mesh compose/artifact rendering in `src/polaris_graph/wiki/mesh/compose/`
-- BUT: V30 Phase-2 is contract-anchored and report-centric, not corpus-wiki-centric
+- BUT: product is still query/report-centric, not workspace-corpus-centric
+- Uploaded docs currently injected into session state and chunked into ad-hoc GOLD evidence — NOT a persistent inspectable corpus-brief product
 
 **Trap flag: CONDITIONAL**
-- Free-form / unconstrained = TRAP. NotebookLM-style prose tolerates uncited connective tissue and loose synthesis. V30's strict-verify discipline cannot tolerate that.
-- Citation-bound workspace BRIEF = SAFE. Every paragraph either inline-cited or labeled "insufficient support."
+- Free-form / unconstrained = TRAP
+- Question-bound corpus brief = SAFE (every paragraph inline-cited OR labeled "insufficient support")
+- Living-wiki framing = TRAP for now (Phase D)
 
 **Moat impact:**
-- AMPLIFY if shipped as "citation-bound workspace brief / wiki page"
-- DILUTE if shipped as open-ended ambient knowledge prose
+- AMPLIFY if shipped as "citation-bound question-bound corpus brief"
+- DILUTE if shipped as open-ended ambient knowledge prose or framed as living wiki
 
-**Phase: B (bounded brief), D (living corpus wiki)**
-- 12-20 eng days for narrow citation-bound brief on top of existing upload + compose primitives
-- 30-45 eng days for true NotebookLM-class living corpus wiki
+**Phase: B (narrow question-bound brief), D (living corpus wiki)**
+- 12-20 eng days for narrow citation-bound brief — **but explicitly dependent on wish #2 landing first**
+- 30-45 eng days for true NotebookLM-class living corpus wiki (Phase D)
 
 **Acceptance criteria:**
-- Corpus is explicit and user-visible; no hidden web mixing unless requested
+- Corpus is explicit, user-selected, user-visible; no hidden web mixing unless requested
+- Brief is BOUND TO ONE USER QUESTION over that corpus (not autonomous summary)
 - Every paragraph has inline citations OR explicit "insufficient support" language
 - Clicking a citation shows document/page/span, not just URL (Evidence Inspector view 1)
 - Regeneration after adding sources preserves prior source boundaries and contradiction disclosures
 
-**Joint verdict:** SHIP AS "WORKSPACE BRIEF" IN PHASE B. Defer the unconstrained living-wiki version to Phase D.
+**Joint verdict (pass-2):** SHIP AS "QUESTION-BOUND CORPUS BRIEF" IN PHASE B, dependent on wish #2 (bounded upload) landing first. Defer the unconstrained living-wiki version to Phase D. Do NOT use "Workspace Brief" or "WikiLLM" labels in product copy — they import the wrong expectation.
 
 ---
 
@@ -87,54 +109,77 @@ This document is the joint Claude+Codex analysis of the 7 user-named wishes.
 - DILUTE if uploads are just fuzzy vector context with weak traceability
 
 **Phase: B (bounded), D (massive)**
-- 15-25 eng days for solid beta corpus layer (10-50 docs/workspace, persistent indexing, provenance UI, retry/parse status, workspace filters)
+- **25-40 eng days (raised from 15-25 per Codex)** for solid beta corpus layer
+  — 30-45 if page/slide/sheet lineage and delete semantics are included honestly
 - 40-70 eng days for 300-500 PDFs/session with durable indexing, backpressure, dedupe, retention, ops safety
+
+**Why the estimate was raised (Codex correction):**
+- Current upload path is NOT workspace-scoped — repo stores docs globally under `data/documents/{doc_id}` with global list/detail/delete endpoints. This is a data-model change, not "more polish."
+- Current retrieval is `LocalDocumentRAG("docs_{session_id}")` — session-scoped, not persistent workspace corpus retrieval.
+- Uploaded docs are chopped into ~2000-char chunks and injected as GOLD evidence. That is materially weaker than "page/span/parser-version-grade corpus provenance" the audit-grade label requires.
+- No real workspace manifest, permission model, parser-status pipeline, or uploaded-doc provenance map at product grade exists yet.
+- The real Phase-B work = workspace scoping + auth + deletion semantics + provenance mapping + parser status UX. NOT just parser support.
 
 **Acceptance criteria:**
 - Upload status is per-document and per-parser-step, with failures surfaced
 - Every retrieved chunk maps to document + page/slide/sheet/timecode + parser version
 - User can filter analysis to uploaded corpus only / web only / blended mode
 - Workspace persistence exists; session-only Chroma not enough
+- Documents are deletable with audit trail (who/when/why)
+- Per-workspace storage isolation enforced
 
-**Joint verdict:** SHIP BOUNDED FORM (10-50 docs/workspace) IN PHASE B. The Evidence Inspector views naturally extend to uploaded corpora — a clinical brief drawing from uploaded SAP/CSR/protocol PDFs is a winning V30 demo. Defer 300+ to Phase D or treat as separate ingestion product.
+**Joint verdict (pass-2):** SHIP BOUNDED FORM (10-50 docs/workspace) IN PHASE B at 25-40 eng-day budget. The Evidence Inspector views naturally extend to uploaded corpora — a clinical brief drawing from uploaded SAP/CSR/protocol PDFs is a winning V30 demo. Defer 300+ to Phase D or treat as separate ingestion product.
 
 ---
 
-### Wish 3 — Snowball memory + knowledge accumulation
+### Wish 3 — Snowball memory: split into PASSIVE NOTES vs RETRIEVAL-ACTIVE MEMORY (Codex correction)
+
+**Codex's split (accepted):** "Memory" was conflated. There are two
+distinct features here with different risk profiles:
+
+| Feature | Phase | Risk | Description |
+|---------|:----:|:----:|-------------|
+| **Passive saved workspace notes** | B | low | User pins a source, saves a note, bookmarks a claim. Does NOT silently steer synthesis. |
+| **Retrieval-active memory** | C | high | Prior facts retrieved into future runs, labeled as memory-derived, with inspect/delete controls. |
+| **Global/system memory** | quarantined | severe if leaks | Operator/product priors. Should NOT silently influence the audit lane by default. |
 
 **User expectation:**
 - System remembers prior sources, notes, decisions, context across sessions
 - No re-uploading or re-explaining
 - Persistence + reuse + inspectability + edit/delete controls + low drift
 
-**V30 today: PARTIAL — primitives exist, UX does not**
-- `src/polaris_graph/memory/cross_vector.py` promotes high-quality evidence to global LTM in Chroma
-- `src/polaris_graph/memory/session_feedback.py` records strategy outcomes
-- `src/polaris_graph/memory/evidence_hierarchy.py` stores L0/L1/L2 evidence summaries
-- `src/agents/analyst_agent.py` enriches facts into a knowledge graph
-- `scripts/static/js/memory_dashboard.js` shows there's already a UI concept
+**V30 today: PARTIAL — primitives exist, UX does not, AND multiple memory layers blur together**
+- `src/polaris_graph/memory/cross_vector.py` promotes high-quality evidence to GLOBAL LTM in Chroma — this is global/system memory and is currently NOT quarantined from audit-lane runs
+- `src/polaris_graph/memory/session_feedback.py` records strategy outcomes — session memory
+- `src/polaris_graph/memory/evidence_hierarchy.py` stores L0/L1/L2 evidence summaries — session memory
+- `src/agents/analyst_agent.py` enriches facts into a knowledge graph — currently mixed
+- `scripts/static/js/memory_dashboard.js` UI concept exists but doesn't enforce the split
 
 **Trap flag: CONDITIONAL — silent memory is the trap**
 - USER-VISIBLE + LABELED + WORKSPACE-SCOPED + USER-GOVERNED = SAFE
-- Silent latent bias mutating future outputs without provenance trail = TRAP. V30 loses its core trust property if memory becomes invisible.
+- Silent latent bias mutating future outputs without provenance trail = TRAP
+- Global/system memory bleeding into audit lane = SEVERE TRAP
 
 **Real-user research convergence:** The wishlist sweep found wish #18 (cross-notebook / cross-workspace memory) is high-frequency. Atlasworkspace.ai users explicitly named the issue. Critical UX constraint: **must be USER-VISIBLE and DELETABLE**.
 
 **Moat impact:**
-- NEUTRAL-TO-AMPLIFY if memory is retrieval-only, labeled, workspace-scoped, user-governed
+- AMPLIFY if memory is split, labeled, workspace-scoped, user-governed, with global memory quarantined
 - DILUTE if memory becomes silent latent bias
+- DESTROYS MOAT if global/system memory silently injects priors into audit-lane runs
 
-**Phase: C (user-visible workspace memory), D (autonomous accumulation)**
-- 10-18 eng days for workspace-scoped saved notes, pinned prior sources, inspect/delete controls
-- 25-40 eng days for real persistent workspace knowledge graph with freshness, invalidation, collaborative editing
+**Phase split:**
+- **Phase B**: passive saved workspace notes only (5-10 eng days). User explicitly pins/saves; no synthesis influence.
+- **Phase C**: retrieval-active workspace memory (10-18 eng days). User-visible, labeled in Evidence Inspector view 1 as "memory-derived."
+- **Phase D**: autonomous accumulation (25-40 eng days). With freshness, invalidation, collaborative editing.
 
-**Acceptance criteria:**
-- Memory items are visible, attributable, and removable by user
-- Retrieved priors are LABELED as memory-derived, not blended invisibly into primary evidence
-- Workspace boundaries strict; no cross-customer leakage
+**Acceptance criteria (per layer):**
+- *Passive notes (B)*: pins/notes/bookmarks visible in workspace UI, do not feed retrieval, never appear in audit-lane synthesis
+- *Retrieval-active (C)*: every memory-derived retrieval is LABELED, attributable, removable; never blended invisibly
+- *Global/system memory*: quarantined from audit lane by default; explicit user opt-in required to use; clearly labeled as operator-curated
+- Workspace boundaries strict across all layers; no cross-customer leakage
 - Freshness/staleness rules for time-sensitive topics
 
-**Joint verdict:** PHASE C. Visible workspace memory with explicit "memory-derived" provenance flag, integrated into Evidence Inspector view 1 (when a claim cites memory, show the memory item's lineage). Phase D for autonomous accumulation.
+**Joint verdict (pass-2):** SHIP PASSIVE NOTES IN PHASE B (low risk). RETRIEVAL-ACTIVE MEMORY IN PHASE C (high risk, needs careful UX). GLOBAL/SYSTEM MEMORY QUARANTINED FROM AUDIT LANE BY DEFAULT — explicit opt-in required. This split closes the silent-memory-contamination risk Codex flagged.
 
 ---
 
@@ -283,92 +328,143 @@ This document is the joint Claude+Codex analysis of the 7 user-named wishes.
 
 ---
 
-## Composition-layer architecture (joint, per Codex)
+## Composition-layer architecture (pass-2, REWRITTEN per Codex review)
 
-**Recommendation: ONE composition core, MULTIPLE renderers.**
+**Codex correction (accepted):** The pass-1 framing — "report markdown
+plus some exports" — was wrong. Under the audit-only + Evidence Inspector
+pivot, the canonical product surface is NOT the report. It's the
+**audit graph / claim-evidence IR rendered through the Evidence Inspector**.
+Everything else is a derivative projection.
 
-Do NOT build separate end-to-end stacks for chart, infographic, deck, audio. Build a single `artifact_composer` that consumes verified report state and emits a normalized intermediate representation:
+**Revised recommendation: ONE canonical audit IR, ONE primary renderer (Evidence Inspector), MANY derivative renderers — all with back-links to claim IDs.**
 
 ```
-artifact_composer (input: V30 verified report + manifest)
-├── normalized intermediate representation
-│   ├── sections
-│   ├── claim blocks (with evidence_id bindings)
-│   ├── contradiction blocks
-│   ├── structured data tables
-│   ├── chart specs
-│   ├── diagram specs
-│   ├── bibliography map
-│   └── citation-to-span map
-└── renderers (per format)
-    ├── markdown/html report ← Phase A (already exists)
-    ├── docx ← Phase A (already exists, polish)
-    ├── pdf audit bundle ← Phase A
-    ├── structured tables (CSV/XLSX) ← Phase B
-    ├── chart pack ← Phase B
-    ├── workspace brief (bounded wiki) ← Phase B
-    ├── deck ← Phase C
-    ├── infographic / fact poster ← Phase D (constrained)
-    └── audio script ← Phase D (constrained)
+audit_graph_ir (canonical, downstream of verification)
+├── Stable claim IDs
+├── Evidence-span bindings (page/sheet/timecode/parser-version)
+├── Contradiction edges (tier-labeled)
+├── Frame / contract coverage mappings
+├── Artifact element lineage (every chart point, deck bullet, brief
+│   paragraph holds back-link to claim ID + evidence ID)
+├── Bibliography map
+└── Citation-to-span map
+
+PRIMARY renderer:
+└── Evidence Inspector (5 views) ← Phase A
+    The canonical audit surface. Everything else is derivative.
+
+DERIVATIVE renderers (must retain back-links to claim IDs):
+├── markdown report ← Phase A (already exists, polish)
+├── docx ← Phase A (already exists, polish)
+├── pdf audit bundle ← Phase A
+├── structured tables (CSV/XLSX) ← Phase B
+├── chart pack ← Phase B
+├── question-bound corpus brief ← Phase B (narrow form)
+├── citation-bound deck (with appendix slides) ← late-B beta or Phase C
+├── infographic / evidence poster ← Phase D (constrained, if at all)
+└── audio script (chaptered transcript only) ← Phase D (constrained)
 ```
+
+**Why this matters under the audit-only pivot:**
+- Without artifact lineage, "round-trip back to inspector views" stays aspirational
+- Every chart point, deck bullet, brief paragraph needs a stable pointer back to the same claim/evidence objects the Inspector renders
+- This is what makes the Evidence Inspector the unifier across all output formats
 
 **Why this fits the repo:**
 - `report_assembler.py` and `report_assembler_v2.py` already prove assembly is a separate concern
 - `docx_exporter.py` is already a renderer
-- `smart_art_generator.py` is a renderer input producer
+- `smart_art_generator.py` is a renderer input producer (but Codex flagged: may not be wired into final report path — `anti_tunnel_view_test.py` confirms this gap)
 - `visual_generator.py` and `data_analyzer.py` already generate visual artifacts
 - `wiki/mesh/compose/artifact_directives.py` already models a directive-based artifact surface
+- BUT: `src/agents/citefirst/report_composition.py` is missing despite audit-doc references — composition layer is conceptually present but not product-hardened
 
-**Guardrail (non-negotiable):**
-- Composition must be downstream of verification
-- No renderer gets to invent facts
+**Guardrails (non-negotiable):**
+- Composition strictly downstream of verification
+- No renderer invents facts
+- Every renderer output element retains back-link to claim IDs in the audit IR
 - Renderers may only compress, reorder, or visualize already-approved content
+- Evidence Inspector is the canonical audit surface — every derivative output must be navigable BACK to inspector views
 
 ---
 
-## Snowball + upload architecture (joint, per Codex)
+## Snowball + upload architecture (pass-2, REVISED per Codex review)
 
-For wishes 2 + 3 combined, the recommended layered architecture:
+**Codex correction (accepted):** Pass-1 layering conflated different
+kinds of memory and treated governance as a terminal layer when it's
+really cross-cutting. Revised stack below.
 
 ```
-1. Ingestion service
+1. Ingestion / parser orchestration
    ├── file upload, URL import, text import
    ├── parse, OCR, transcription, metadata capture
    └── content hashing, dedupe, retry, failure states
 
-2. Corpus store
+2. Document store + provenance map
    ├── workspace-scoped document manifests
-   ├── extracted text + page/span offsets
-   └── parser version + artifact retention metadata
+   ├── extracted text + page/sheet/slide/timecode offsets
+   ├── parser version + artifact retention metadata
+   └── per-document permission model
 
-3. Index layer
+3. Retrieval indexes
    ├── vector index PLUS lexical/doc filters
    ├── persistent workspace collections (NOT session-only)
    └── provenance-preserving chunk IDs
 
-4. Memory layer
-   ├── promote verified evidence to workspace memory
-   ├── support pins, notes, approvals, expiry, delete
-   └── keep global/system LTM separate from workspace memory
+4. Run / session state (ephemeral)
+   ├── current query context, scratch notes, partial progress
+   └── garbage-collected at run completion
 
-5. Retrieval layer
+5. Workspace memory (user-visible, user-deletable)
+   ├── pins, saved notes, bookmarks (passive — Phase B)
+   ├── retrieval-active memory with explicit labels (Phase C)
+   └── never blends invisibly with primary evidence
+
+6. Retrieval / synthesis orchestration
    ├── uploaded corpus only / web only / blended retrieval modes
+   ├── memory-derived retrieval explicitly labeled (Phase C)
    └── contradiction-aware synthesis treating uploaded docs as first-class evidence
 
-6. Governance layer
-   ├── retention, deletion, permissioning, audit log
-   └── stale-memory invalidation
+7. Governance / auth / retention / audit (CROSS-CUTTING — not terminal)
+   ├── per-workspace permissioning at every layer above
+   ├── per-document deletion with audit trail
+   ├── PHI gating + intended-use enforcement
+   ├── retention policy
+   └── audit log of who did what, when, why
+
+QUARANTINED LAYER (separate from audit lane by default):
+   Global / system memory
+   ├── operator-curated priors
+   ├── product-level memory
+   ├── may NOT silently influence audit lane
+   └── explicit user opt-in required to consult; clearly labeled
 ```
+
+**Why the changes matter:**
+- Splitting memory into session / workspace / global closes the silent-prior-injection risk Codex flagged
+- Treating governance as cross-cutting (not terminal) is correct — every layer above needs permissioning, audit logs, retention rules
+- Document store + provenance map is its own layer because that's where page/sheet/slide/timecode offsets live, and that's the audit-grade requirement
 
 **Scope call:**
 - IN-SCOPE for V30 Phase-2 era: persistent workspace upload + bounded corpus analysis (Phase B)
+- IN-SCOPE Phase B: passive workspace notes layer (5-10 eng days)
 - OUT-OF-SCOPE for V30 Phase-2 era: 300-500 PDFs/session as default behavior (Phase D or separate product)
+- OUT-OF-SCOPE Phase B: retrieval-active memory (Phase C)
 
-**Codex risk Claude missed:** Once customers expect document uploads, **PHI creep is likely** unless the product blocks or strictly gates it. Deletion + access control + document lineage become product-critical, not future enterprise polish.
+**Critical risks Codex flagged:**
+1. **PHI creep** — once customers expect document uploads, PHI creep is likely unless the product blocks or strictly gates it. Deletion + access control + document lineage become product-critical, not future enterprise polish.
+2. **Hidden global memory contamination** — once uploads and memory coexist, silent prior injection from global/system memory becomes a trust problem, not just a UX issue. One incident can damage the whole product story. This is why the global memory layer must be quarantined from the audit lane by default.
+3. **Uploaded-document provenance gap** — current upload handling has char offsets and extracted HTML/text, but NOT product-ready provenance map for PDF page coordinates, slide references, sheet references, timecodes. Closing this gap is core Phase B work.
 
 ---
 
-## "1-click magic" UX call (joint)
+## "1-click magic" UX call (pass-2, EXPANDED per Codex review)
+
+**Codex correction (accepted):** Pass-1 said "immediate progress surface"
+which was directionally right but too weak. Under the audit-only
+single-lane pivot, if the Evidence Inspector only appears at the END
+of a 2h25m run, you have a real **2h25m blank-stare problem**. Time-to-first-value
+cannot be a prose preview anymore — it has to be **progressive
+audit-native surfaces**.
 
 **Compatible with audit-grade ONLY in a split sense:**
 
@@ -377,18 +473,40 @@ For wishes 2 + 3 combined, the recommended layered architecture:
 | Kickoff (user describes outcome, system runs) | **YES** |
 | Blind trust (output good without inspection) | **NO** — system must expose scope, source set, confidence, contradictions |
 
-**Recommended UX pattern:**
+**Progressive audit-native surfaces (NEW — REPLACES the Preview lane):**
+
+The Evidence Inspector must come ALIVE during the run, not just at the end. Time-to-first-value milestones, in order:
+
+| t (min) | Audit-native surface available |
+|--------:|--------------------------------|
+| 0 | **Pre-flight estimate**: scope, template, time, cost, source-count |
+| 0-2 | **Upload/parse progress** per document (if upload step exists) |
+| 2-15 | **Live source discovery** with tier mix (T1/T2/T3 bar fills in) |
+| 15-45 | **Frame coverage manifest** fills in as evidence arrives — "Endpoint Y: 3/5 sources found" |
+| 45-90 | **Contradiction queue** appears — disagreements visible BEFORE final synthesis |
+| 90-120 | **First verified claim cards / evidence cards** as soon as they pass strict-verify |
+| 120-145 | **Final synthesis + complete Evidence Inspector** |
+
+**Why this matters:**
+- The product goal is `first inspectable evidence state`, not `first draft prose`
+- Users see the moat being built in real time — that's the demo
+- Activation and trust are visible before completion
+- Cancellation/redirection (top wishlist demand) is meaningful only if there's something to inspect
+
+**Recommended UX pattern (pass-2):**
 - One compose box (audit-grade input)
 - Auto-template / auto-corpus selection in background
-- Immediate progress surface + time-to-first-artifact display
-- Final output **always** routes through Evidence Inspector
-- No "preview vs audit" toggle (we cut the dual-lane per quality mandate)
+- Pre-flight scope/cost/time estimate before Run button enables
+- Progressive Evidence Inspector state with named milestones above
+- Cancel/pause/save-state at any milestone (top user-wishlist demand)
+- Final output IS the Evidence Inspector at full state — no separate "result" page
+- No "preview vs audit" toggle (cut per quality mandate)
 
-**Short version:** "1 click to start" is good. "1 click to trust" is not. The Evidence Inspector is what makes the trust visible, not just claimed.
+**Short version:** "1 click to start" is good. "1 click to trust" is not. **Progressive Evidence Inspector state is what makes the trust visible at every milestone, not just at the end.** This is a core UX requirement, not polish.
 
 ---
 
-## Recommended PRD bundle for next ship (Phase A → B, 5-9 weeks)
+## Recommended PRD bundle for next ship (Phase A → B, 7-11 weeks — RAISED per Codex)
 
 **Convergent across:**
 - Codex's user-wishlist plan (this doc)
@@ -399,44 +517,84 @@ For wishes 2 + 3 combined, the recommended layered architecture:
 
 From the 7 user-named wishes, ship these forms:
 
-1. **Wish 4 — Chart / table / artifact generation (FULL form)**
+1. **Wish 4 — Chart / table / artifact generation (CORE Phase B scope)**
    - Phase B
    - 8-15 eng days
-   - Cited tables + numeric charts + Mermaid diagrams
+   - **Core scope = cited tables + numeric charts + export bundle**
+   - Mermaid/flow polish = secondary (Codex correction)
    - Every chart fails closed when evidence not numerically extractable
-   - Round-trips to Evidence Inspector view 4
+   - Back-links to claim IDs in audit IR
 
 2. **Wish 2 — Massive upload (BOUNDED form: 10-50 docs/workspace)**
    - Phase B
-   - 15-25 eng days
-   - Persistent workspace corpus
-   - Page/span provenance UI
+   - **25-40 eng days (raised from 15-25 per Codex)**
+   - Persistent workspace corpus + workspace data model + permissions + retention + deletion semantics + provenance mapping
+   - Page/sheet/slide/timecode provenance UI (NOT just char offsets)
    - Filter modes: uploaded-only / web-only / blended
    - Integrates with Evidence Inspector views 1, 3, 4
 
-3. **Wish 1 — Workspace Brief (BOUNDED form: citation-bound brief, NOT free-form wiki)**
-   - Phase B
+3. **Wish 1 — Question-Bound Corpus Brief (NARROW form, dependent on #2)**
+   - Phase B, **explicitly dependent on wish #2 landing first**
    - 12-20 eng days
    - Per-paragraph inline citations OR explicit "insufficient support" labels
    - Built on top of bounded upload primitive (wish 2)
-   - Round-trips to Evidence Inspector view 1
+   - **NOT a "Workspace Brief" — that label over-promises (Codex correction)**
+   - Back-links to claim IDs in audit IR
+
+4. **Wish 3 — Passive workspace notes (THIN form, NOT retrieval-active)**
+   - Phase B (NEW — Codex's split distinguishes this from full memory)
+   - 5-10 eng days
+   - User pins/saves/bookmarks; does NOT silently steer synthesis
+   - Retrieval-active memory remains Phase C
 
 ### OUT of the bundle (deferred or trap)
 
-4. **Wish 3 — Snowball memory** → Phase C (user-visible workspace memory)
-5. **Wish 6 — 1-click slide deck** → Phase C (citation-bound deck with appendix slides)
-6. **Wish 5 — Infographic** → Phase D (TRAP) — only as constrained evidence poster if at all
-7. **Wish 7 — Video / audio** → Phase D (TRAP) — only as derivative chaptered transcript if at all
+5. **Wish 3 — Retrieval-active memory** → Phase C (10-18 eng days)
+6. **Wish 6 — 1-click slide deck** → Phase C (better candidate than broader #1 for late-B beta if a slot opens)
+7. **Wish 5 — Infographic** → Phase D (TRAP) — only as constrained evidence poster if at all
+8. **Wish 7 — Video / audio** → Phase D (TRAP) — only as derivative chaptered transcript if at all
 
-### Scope sanity check (joint)
+### Sequencing note (Codex addition)
 
-The next-ship bundle = wishes 1-2-4 in their bounded forms + the Evidence Inspector centerpiece. Total Phase B work = 35-60 eng days for the wishlist contribution + 17-26 days for the Evidence Inspector = **52-86 eng days = 5-9 weeks for a small team**. Matches the joint plan ETA.
+If one additional derivative artifact is pulled forward into late Phase B, **citation-bound deck beta is the better candidate than a broader corpus-brief promise**. The deck is more bounded once a stable composition IR exists; the brief expansion is open-ended.
 
-**The bundle deliberately defers wishes 3, 5, 6, 7.** That's not a hedge — it's the moat-amplification discipline. Every deferred wish is either a trap or premature.
+### Scope sanity check (pass-2, REVISED per Codex)
+
+The next-ship bundle includes wishes 1-2-3(passive)-4 in their bounded forms + the Evidence Inspector centerpiece + progressive audit-native surfaces.
+
+**Pass-1 estimate was 52-86 eng days = 5-9 weeks.** Codex flagged this as optimistic lower bound, not realistic planning number.
+
+**Why pass-1 was low:**
+- Wish #2 priced like parser/glue work, but real work is workspace data model + permissions + retention + deletion + provenance mapping
+- Wish #1 not free once #2 exists — another synthesis surface with own QA burden
+- Wish #4 trustworthy charting still needs source-table binding + refusal behavior + export integration
+- Evidence Inspector in audit-only product needs progressive/live behavior, not just static final-state renderer (NEW UX requirement above)
+- Editorial/template QA starts biting earlier than pass-1 admits — once you add brief/deck/chart surfaces, output QA is not only model QA anymore
+
+**Pass-2 revised total:**
+
+| Component | Eng days |
+|-----------|---------:|
+| Evidence Inspector (5 views, Phase A) | 17-26 |
+| Evidence Inspector progressive surfaces (during-run state) | 8-12 |
+| Wish 4 — chart/table/artifact (core scope) | 8-15 |
+| Wish 2 — bounded upload (with workspace data model) | 25-40 |
+| Wish 1 — Question-Bound Corpus Brief (narrow) | 12-20 |
+| Wish 3 — Passive workspace notes | 5-10 |
+| Queue + pause/resume + template router | 10-15 |
+| **Total** | **85-138 eng days** |
+
+**Realistic planning number: 70-110 eng days = 7-11 weeks for a small strong team.**
+
+The lower range (~70 days) is achievable only if wish #1 stays extremely narrow and progressive Inspector behavior slips. To stay in the lower range, cut or narrow wish #1 first.
+
+**The bundle deliberately defers wishes 5, 6, 7 and the retrieval-active half of #3.** That's not a hedge — it's the moat-amplification discipline. Every deferred wish is either a trap or premature.
 
 ---
 
-## Risks Codex flagged that Claude missed
+## Risks Codex flagged that Claude missed (pass-1 + pass-2 review combined)
+
+### Pass-1 risks (architectural)
 
 1. **Existing UI/API may overpromise.** The repo already has partial UI/API for NotebookLM-style source import and source briefing. Users may assume full corpus intelligence already exists when the audit lane is still report-centric. Clear scope-limitation messaging is required.
 
@@ -450,20 +608,59 @@ The next-ship bundle = wishes 1-2-4 in their bounded forms + the Evidence Inspec
 
 6. **Audio/video adds tone risk + certainty inflation,** not just compute cost. Output is harder to inspect sentence-by-sentence than text.
 
+### Pass-2 risks (Codex review of pass-1 framing)
+
+7. **Workspace scoping is a data-model change, not polish.** The pass-1 estimate for wish #2 (15-25 days) priced parser/glue work; the real work is workspace data model + permissions + retention + deletion + provenance mapping. Estimate raised to 25-40 days.
+
+8. **Page/span-grade provenance for uploads is not solved.** Current system has char offsets and extracted HTML/text, NOT product-ready provenance map for PDF page coordinates, slide references, sheet references, timecodes. This gap will make audit-grade claims ring hollow.
+
+9. **Evidence Inspector should be the canonical renderer, not just another consumer.** Pass-1 framed it as a viewer over the report. Pass-2 framing: it IS the audit surface; everything else is a derivative projection with back-links to claim IDs.
+
+10. **"Workspace Brief" label over-promises.** Users hear "living wiki summary." Realistic Phase-B form is question-bound and derivative. Renamed to "Question-Bound Corpus Brief."
+
+11. **Passive notes vs retrieval-active memory are different products.** Pass-1 conflated them. Passive notes can ship Phase B (low risk); retrieval-active memory is Phase C (high risk, needs careful UX).
+
+12. **Non-wishlist features from real-user research are closer to requirements than some named wishes.** Pause/save mid-run, pre-flight cost/time, locked evidence scopes, checkpoint/resume, human review queue — these are nearer-to-must-have than wishes 5/6/7.
+
+13. **Hidden global/system memory is an audit-lane risk.** Once uploads and memory coexist, silent prior injection becomes a trust problem. Global/system memory must be quarantined from audit lane by default.
+
+### Risk register with probability + impact (Codex pass-2)
+
+| Risk | Probability | Impact | Phase |
+|------|:----------:|:------:|:-----:|
+| PHI creep once uploads ship | 70-90% | Severe | B |
+| Editorial QA throughput becomes the bottleneck | 60-80% | High | B-C |
+| Single-lane 2h25m blank-stare UX gap | 50-70% | High | A-B |
+| Uploaded-document provenance gap | 70-85% | High | B |
+| Hidden memory contamination (global → audit lane) | 30-50% | Severe | B-C |
+
 ---
 
-## Joint bottom line
+## Joint bottom line (pass-2)
 
-The 7 user-named wishes split cleanly into three groups:
+The 7 user-named wishes split cleanly into FOUR groups (pass-2 added the passive-notes split):
 
-**Ship now (Phase B, bounded forms):** wishes 1 (Workspace Brief), 2 (10-50 docs upload), 4 (chart/table/artifact)
+**Ship now (Phase B, bounded forms):**
+- Wish 4 (cited tables + numeric charts — core scope)
+- Wish 2 (10-50 docs bounded upload, with workspace data model)
+- Wish 1 (Question-Bound Corpus Brief — narrow, dependent on #2)
+- Wish 3 partial (passive workspace notes only)
 
-**Ship later (Phase C, when audit lane proven):** wishes 3 (visible memory), 6 (citation-bound deck)
+**Ship later (Phase C, when audit lane proven):**
+- Wish 3 retrieval-active (user-visible memory with explicit labels)
+- Wish 6 (citation-bound deck with appendix slides) — better candidate than broader #1 if a slot opens late Phase B
 
-**Trap — defer or never:** wishes 5 (infographic), 7 (video/audio)
+**Trap — defer or never:**
+- Wish 5 (infographic) — Phase D, only as constrained evidence poster if at all
+- Wish 7 (video/audio) — Phase D, derivative chaptered transcript only if at all
+
+**Quarantined (NEW — Codex correction):**
+- Global/system memory — must NOT silently influence audit-lane runs by default; explicit user opt-in required
 
 The audit-grade moat survives only if every shipped wish is constrained to the moat-amplifying form. Free-form wikis, fuzzy massive RAG, silent latent memory, polished infographics, conversational podcasts — all dilute. Citation-bound briefs, persistent workspace evidence, user-visible memory, citation-bound decks, evidence-grounded charts — all amplify.
 
-**The user's seed message named 7 wishes. The joint analysis says ship 3, defer 2, treat 2 as traps.** That discipline IS the product.
+**The user's seed message named 7 wishes. The pass-2 analysis says ship 3.5, defer 1.5, treat 2 as traps, quarantine 1 (the silent global memory).** That discipline IS the product.
 
-The Evidence Inspector UI is the unifier — every wish that ships in any form must round-trip back to inspector views, so the moat stays visible in every output format.
+**The Evidence Inspector is the canonical audit renderer**, not just a viewer over the report. Every wish that ships in any form is a derivative projection of the audit graph IR with back-links to claim IDs. **Progressive Inspector state during the run** (not just at the end) is what makes the moat visible in real time and closes the 2h25m blank-stare problem.
+
+**Realistic Phase B ETA (raised from pass-1):** 7-11 weeks (70-110 eng days). Lower range only feasible if wish #1 stays extremely narrow.
