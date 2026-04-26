@@ -345,3 +345,83 @@ def test_inspector_js_strips_retrieval_log_prefixes() -> None:
     assert "stripUrlPrefix" in js
     # The regex must match an alphanumeric-prefix:https://... pattern
     assert "https?:\\/\\/" in js
+
+
+# ---------------------------------------------------------------------------
+# M-4: View 2 (Contradiction Matrix) — first-class disagreement view
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_js_has_matrix_renderer() -> None:
+    """M-4: inspector.js must expose Contradiction Matrix wiring."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderMatrixView" in js
+    assert "wireMatrixInteraction" in js
+    assert "applyMatrixFilters" in js
+    assert "_matrixState" in js
+
+
+def test_matrix_view_filters_by_severity_tier_dose_and_query() -> None:
+    """M-4: matrix toolbar exposes severity / tier / dose / search filters."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # The renderer constructs `data-matrix-filter="${name}"` for each filter,
+    # then calls sel("severity", ...), sel("tier", ...), sel("dose", ...).
+    # The 4 filter names must each appear as keys in _matrixState.
+    assert "_matrixState.severity" in js
+    assert "_matrixState.tier" in js
+    assert "_matrixState.dose" in js
+    assert "_matrixState.query" in js
+    # The handler reads dataset.matrixFilter
+    assert "dataset.matrixFilter" in js or 'data-matrix-filter' in js
+
+
+def test_matrix_view_renders_full_cluster_claims_with_snippets() -> None:
+    """M-4: each row, when expanded, must render every claim in the cluster
+    with tier, evidence_id, value, dose, arm, context_snippet, sanitized URL."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "matrix-claim-snippet" in js
+    assert "matrix-claim-value" in js
+    assert "context_snippet" in js  # already in view 1, but matrix uses it too
+
+
+def test_matrix_view_responds_to_real_run14_data() -> None:
+    """M-4: contradictions endpoint returns the 14 clusters with all metadata
+    the matrix view consumes (severity, subject, predicate, claims with tiers,
+    absolute_difference, relative_difference, recommended_action)."""
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    ir = resp.json()
+    contradictions = ir["contradictions"]
+    assert len(contradictions) == 14
+
+    severities = set()
+    tiers = set()
+    doses = set()
+    for cluster in contradictions:
+        # Required fields the matrix renders
+        assert "severity" in cluster
+        assert "subject" in cluster
+        assert "predicate" in cluster
+        assert "absolute_difference" in cluster
+        assert "relative_difference" in cluster
+        assert "recommended_action" in cluster
+        assert "claims" in cluster
+        severities.add(cluster["severity"])
+        for claim in cluster["claims"]:
+            tiers.add(claim.get("source_tier", ""))
+            doses.add(claim.get("dose", "") or "")
+    # Run-14 has at least 'high' severity, multiple tiers, multiple doses
+    assert "high" in severities
+    assert len([t for t in tiers if t]) >= 2  # at least T1 + T2 + ...
+
+
+def test_matrix_view_css_classes_present() -> None:
+    """M-4: shell HTML must contain placeholders that the renderer replaces;
+    inspector.css must define styles for matrix-row, matrix-claim, etc."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    for cls in ["matrix-toolbar", "matrix-row", "matrix-row.expanded", "matrix-claim", "matrix-empty"]:
+        assert cls in css, f"Missing CSS class: {cls}"

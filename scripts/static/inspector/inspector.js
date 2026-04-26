@@ -524,6 +524,199 @@
   }
 
   // ---------------------------------------------------------------------
+  // M-4: View 2 — Contradiction Matrix
+  //
+  // First-class disagreement-disclosure view (FINAL_PLAN.md): renders all
+  // tier-labeled clusters as a filterable matrix. No competitor surfaces
+  // contradictions as their own primary view — this is the moat.
+  // ---------------------------------------------------------------------
+
+  function uniqueSorted(values) {
+    return Array.from(new Set(values)).filter((v) => v !== undefined && v !== null && v !== "").sort();
+  }
+
+  function clusterTiers(cluster) {
+    return uniqueSorted((cluster.claims || []).map((c) => validateTier(c.source_tier)));
+  }
+
+  function clusterDoses(cluster) {
+    return uniqueSorted((cluster.claims || []).map((c) => String(c.dose || "").trim()));
+  }
+
+  function clusterValues(cluster) {
+    const vs = (cluster.claims || [])
+      .map((c) => Number(c.value))
+      .filter((v) => Number.isFinite(v));
+    if (vs.length === 0) return null;
+    return { min: Math.min(...vs), max: Math.max(...vs) };
+  }
+
+  function clusterMatchesQuery(cluster, q) {
+    if (!q) return true;
+    const needle = q.toLowerCase();
+    if (cluster.subject && cluster.subject.toLowerCase().includes(needle)) return true;
+    if (cluster.predicate && cluster.predicate.toLowerCase().includes(needle)) return true;
+    if (cluster.recommended_action && cluster.recommended_action.toLowerCase().includes(needle)) return true;
+    for (const claim of cluster.claims || []) {
+      if (claim.evidence_id && claim.evidence_id.toLowerCase().includes(needle)) return true;
+      if (claim.source_url && claim.source_url.toLowerCase().includes(needle)) return true;
+      if (claim.context_snippet && claim.context_snippet.toLowerCase().includes(needle)) return true;
+    }
+    return false;
+  }
+
+  const _matrixState = {
+    severity: "all",
+    tier: "all",
+    dose: "all",
+    query: "",
+    expanded: new Set(),
+  };
+
+  function applyMatrixFilters(clusters) {
+    return clusters.filter((cluster) => {
+      if (
+        _matrixState.severity !== "all" &&
+        validateSeverity(cluster.severity) !== _matrixState.severity
+      ) return false;
+      if (_matrixState.tier !== "all" && !clusterTiers(cluster).includes(_matrixState.tier)) return false;
+      if (_matrixState.dose !== "all" && !clusterDoses(cluster).includes(_matrixState.dose)) return false;
+      if (!clusterMatchesQuery(cluster, _matrixState.query)) return false;
+      return true;
+    });
+  }
+
+  function renderMatrixRow(cluster) {
+    const id = `matrix-row-${cluster.cluster_id}`;
+    const expanded = _matrixState.expanded.has(cluster.cluster_id);
+    const tiers = clusterTiers(cluster);
+    const valueRange = clusterValues(cluster);
+    let html = `<li class="matrix-row ${expanded ? "expanded" : ""}" id="${id}" data-cluster-id="${cluster.cluster_id}" tabindex="0" role="button" aria-expanded="${expanded ? "true" : "false"}">`;
+    html += `<div class="matrix-row-header">`;
+    html += `  ${severityBadgeHtml(cluster.severity)}`;
+    html += `  <span class="matrix-row-predicate">${escHtml(cluster.subject || "")} · ${escHtml(cluster.predicate)}</span>`;
+    if (valueRange) {
+      html += `  <span class="matrix-row-spread">range ${escHtml(valueRange.min)} → ${escHtml(valueRange.max)}</span>`;
+    }
+    html += `  <span class="matrix-row-tiers">${tiers.map((t) => tierBadgeHtml(t)).join("")}</span>`;
+    html += `  <span class="matrix-row-meta"><span>Δ ${escHtml(cluster.absolute_difference)}</span><span>rel ${escHtml(cluster.relative_difference)}%</span><span>${escHtml((cluster.claims || []).length)} claims</span></span>`;
+    html += `</div>`;
+    if (cluster.recommended_action) {
+      html += `<p class="matrix-row-action">${escHtml(cluster.recommended_action)}</p>`;
+    }
+    html += `<ol class="matrix-row-claims">`;
+    (cluster.claims || []).forEach((claim) => {
+      const url = sanitizeUrl(claim.source_url);
+      html += `<li class="matrix-claim">`;
+      html += `  <div class="matrix-claim-meta">`;
+      html += `    ${tierBadgeHtml(claim.source_tier)}`;
+      html += `    <span>${escHtml(claim.evidence_id || "—")}</span>`;
+      html += `    <span class="matrix-claim-value">${escHtml(claim.value)} ${escHtml(claim.unit || "")}</span>`;
+      if (claim.dose) html += `    <span>dose ${escHtml(claim.dose)}</span>`;
+      if (claim.arm) html += `    <span>arm ${escHtml(claim.arm)}</span>`;
+      html += `  </div>`;
+      if (claim.context_snippet) {
+        html += `  <p class="matrix-claim-snippet">${escHtml(claim.context_snippet)}</p>`;
+      }
+      if (url) {
+        html += `  <p class="matrix-claim-url"><a href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(url)}</a></p>`;
+      }
+      html += `</li>`;
+    });
+    html += `</ol>`;
+    html += `</li>`;
+    return html;
+  }
+
+  function renderMatrixView(ir) {
+    const root = document.getElementById("view-contradictions");
+    if (!root) return;
+    const shell = root.querySelector(".view-shell");
+    if (!shell) return;
+
+    const clusters = ir.contradictions || [];
+    const allSeverities = uniqueSorted(clusters.map((c) => validateSeverity(c.severity)));
+    const allTiers = uniqueSorted(clusters.flatMap((c) => clusterTiers(c)));
+    const allDoses = uniqueSorted(clusters.flatMap((c) => clusterDoses(c)));
+
+    function sel(name, current, options) {
+      let html = `<select data-matrix-filter="${name}" aria-label="Filter by ${name}">`;
+      html += `<option value="all">${escHtml(name)} = all</option>`;
+      options.forEach((opt) => {
+        html += `<option value="${escHtml(opt)}" ${current === opt ? "selected" : ""}>${escHtml(opt)}</option>`;
+      });
+      html += `</select>`;
+      return html;
+    }
+
+    const filtered = applyMatrixFilters(clusters);
+
+    let html = "";
+    html += `<div class="matrix-toolbar">`;
+    html += `  <label class="matrix-filter">severity ${sel("severity", _matrixState.severity, allSeverities)}</label>`;
+    html += `  <label class="matrix-filter">tier ${sel("tier", _matrixState.tier, allTiers)}</label>`;
+    html += `  <label class="matrix-filter">dose ${sel("dose", _matrixState.dose, allDoses)}</label>`;
+    html += `  <label class="matrix-filter">search <input type="search" data-matrix-filter="query" placeholder="subject / predicate / source / snippet" value="${escHtml(_matrixState.query)}"></label>`;
+    html += `  <button class="matrix-clear" type="button">clear</button>`;
+    html += `  <span class="matrix-summary">${filtered.length} / ${clusters.length} clusters</span>`;
+    html += `</div>`;
+    if (filtered.length === 0) {
+      html += `<p class="matrix-empty">No clusters match the current filters.</p>`;
+    } else {
+      html += `<ul class="matrix-list" role="list">`;
+      filtered.forEach((cluster) => {
+        html += renderMatrixRow(cluster);
+      });
+      html += `</ul>`;
+    }
+    shell.innerHTML = html;
+    wireMatrixInteraction(ir);
+  }
+
+  function wireMatrixInteraction(ir) {
+    const root = document.getElementById("view-contradictions");
+    if (!root) return;
+    root.querySelectorAll("select[data-matrix-filter], input[data-matrix-filter]").forEach((el) => {
+      const handler = () => {
+        const name = el.dataset.matrixFilter;
+        _matrixState[name] = el.value;
+        renderMatrixView(ir);
+      };
+      el.addEventListener("change", handler);
+      if (el.tagName === "INPUT") el.addEventListener("input", handler);
+    });
+    const clearBtn = root.querySelector(".matrix-clear");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        _matrixState.severity = "all";
+        _matrixState.tier = "all";
+        _matrixState.dose = "all";
+        _matrixState.query = "";
+        renderMatrixView(ir);
+      });
+    }
+    root.querySelectorAll(".matrix-row").forEach((row) => {
+      const toggle = (event) => {
+        if (event.target.closest("a")) return;  // don't toggle when clicking a link
+        if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+        if (event.type === "keydown") event.preventDefault();
+        const id = Number(row.dataset.clusterId);
+        if (_matrixState.expanded.has(id)) {
+          _matrixState.expanded.delete(id);
+          row.classList.remove("expanded");
+          row.setAttribute("aria-expanded", "false");
+        } else {
+          _matrixState.expanded.add(id);
+          row.classList.add("expanded");
+          row.setAttribute("aria-expanded", "true");
+        }
+      };
+      row.addEventListener("click", toggle);
+      row.addEventListener("keydown", toggle);
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   fetchJSON(`/api/inspector/runs/${encodeURIComponent(slug)}`)
@@ -531,6 +724,7 @@
       window.POLARIS_IR = ir;
       renderTierStrip(ir);
       renderTabCounts(ir);
+      renderMatrixView(ir);
       return renderReportView(ir);
     })
     .catch((err) => {

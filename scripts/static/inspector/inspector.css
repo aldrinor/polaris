@@ -592,6 +592,220 @@ html, body {
   margin: 22px 0;
 }
 
+/* M-4: Contradiction Matrix view ---------------------------------------- */
+
+.matrix-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.matrix-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.matrix-filter select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.matrix-filter input[type="search"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  min-width: 200px;
+}
+
+.matrix-summary {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.matrix-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.matrix-clear:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.matrix-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.matrix-row {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.matrix-row:hover {
+  border-color: var(--accent);
+}
+
+.matrix-row.expanded {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+}
+
+.matrix-row-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.matrix-row-meta {
+  display: flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-wrap: wrap;
+}
+
+.matrix-row-predicate {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.matrix-row-spread {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.matrix-row-tiers {
+  display: flex;
+  gap: 4px;
+}
+
+.matrix-row-tiers .tier-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.matrix-row-action {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  font-family: var(--serif);
+  line-height: 1.55;
+}
+
+.matrix-row-claims {
+  display: none;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.matrix-row.expanded .matrix-row-claims {
+  display: flex;
+}
+
+.matrix-claim {
+  background: var(--bg);
+  border-left: 3px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.matrix-claim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.matrix-claim-value {
+  color: var(--text);
+  font-weight: 600;
+  text-transform: none;
+  font-size: 12px;
+}
+
+.matrix-claim-snippet {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--serif);
+  line-height: 1.5;
+}
+
+.matrix-claim-url {
+  margin: 6px 0 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.matrix-claim-url a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.matrix-empty {
+  color: var(--text-mute);
+  font-style: italic;
+  text-align: center;
+  padding: 28px 0;
+}
+
 .severity {
   display: inline-block;
   padding: 2px 8px;
