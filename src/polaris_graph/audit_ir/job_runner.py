@@ -127,3 +127,10 @@ def list_runners() -> list[str]:
 
 def _reset_runners_for_tests() -> None:
     _RUNNERS.clear()
+    # Reset the inspector_router's deterministic-registration flag so the
+    # next get_job_queue() call re-registers default runners.
+    try:
+        from src.polaris_graph.audit_ir import inspector_router as _ir
+        _ir._runners_registered = False
+    except ImportError:
+        pass

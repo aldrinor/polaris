@@ -170,14 +170,43 @@ def test_mark_paused_after_request(queue: JobQueue) -> None:
     assert paused.pause_requested is False  # cleared on transition
 
 
-def test_resume_paused_transitions_to_running(queue: JobQueue) -> None:
+def test_resume_paused_transitions_to_pending(queue: JobQueue) -> None:
+    """Codex M-8 review fix: paused -> pending so a fresh worker can claim it."""
     queue.enqueue("mock", {})
     job = queue.claim_pending()
     queue.request_pause(job.job_id)
     queue.mark_paused(job.job_id)
     resumed = queue.resume_paused(job.job_id)
-    assert resumed.status == "running"
+    assert resumed.status == "pending"
     assert resumed.paused_at is None
+    assert resumed.pause_requested is False
+    # Checkpoint preserved so the runner can resume from where it paused.
+    # (set when we started running in this test? It's None here because
+    # the worker never called record_progress.)
+
+
+def test_resume_paused_preserves_checkpoint(queue: JobQueue) -> None:
+    queue.enqueue("mock", {})
+    job = queue.claim_pending()
+    queue.record_progress(job.job_id, 50.0, "halfway", checkpoint={"step": 5})
+    queue.request_pause(job.job_id)
+    queue.mark_paused(job.job_id)
+    resumed = queue.resume_paused(job.job_id)
+    assert resumed.checkpoint == {"step": 5}
+
+
+def test_resume_paused_makes_job_reclaimable(queue: JobQueue) -> None:
+    """End-to-end: a fresh worker MUST be able to claim a resumed job."""
+    queue.enqueue("mock", {})
+    job = queue.claim_pending()
+    queue.request_pause(job.job_id)
+    queue.mark_paused(job.job_id)
+    queue.resume_paused(job.job_id)
+    # A fresh claim_pending() picks it up.
+    reclaimed = queue.claim_pending()
+    assert reclaimed is not None
+    assert reclaimed.job_id == job.job_id
+    assert reclaimed.status == "running"
 
 
 def test_resume_paused_rejects_non_paused(queue: JobQueue) -> None:
@@ -202,14 +231,17 @@ def test_request_cancel_on_running_sets_flag(queue: JobQueue) -> None:
     assert cancelled.cancel_requested is True
 
 
-def test_request_cancel_on_paused_sets_flag(queue: JobQueue) -> None:
+def test_request_cancel_on_paused_directly_cancels(queue: JobQueue) -> None:
+    """Codex M-8 review fix: paused jobs are quiescent (no live worker), so
+    cancel transitions directly to terminal cancelled rather than just
+    setting a flag that nothing will ever honor."""
     queue.enqueue("mock", {})
     job = queue.claim_pending()
     queue.request_pause(job.job_id)
     queue.mark_paused(job.job_id)
     cancelled = queue.request_cancel(job.job_id)
-    assert cancelled.status == "paused"
-    assert cancelled.cancel_requested is True
+    assert cancelled.status == "cancelled"
+    assert cancelled.completed_at is not None
 
 
 def test_request_cancel_on_terminal_raises(queue: JobQueue) -> None:

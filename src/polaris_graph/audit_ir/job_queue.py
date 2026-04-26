@@ -55,10 +55,19 @@ JOB_STATUSES = (
 TERMINAL_STATUSES = frozenset({"completed", "cancelled", "failed"})
 
 # Canonical state-transition graph. Other transitions raise.
+#
+# Codex M-8 review fix: paused -> running is NOT a real edge under the
+# current "no worker heartbeat" design. After JobControl.Paused exits
+# runner.run(), the worker thread returns and no live executor is
+# attached to the paused row. Resume therefore goes paused -> pending
+# so a fresh worker can claim it via claim_pending() and re-enter
+# runner.run(job, control) with job.checkpoint providing the resume
+# state. This also makes paused -> cancelled direct (paused jobs are
+# quiescent, so no need to ask a non-existent worker to honor a flag).
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "pending": frozenset({"running", "cancelled"}),
     "running": frozenset({"paused", "completed", "cancelled", "failed"}),
-    "paused": frozenset({"running", "cancelled", "failed"}),
+    "paused": frozenset({"pending", "cancelled"}),
     "completed": frozenset(),  # terminal
     "cancelled": frozenset(),
     "failed": frozenset(),
@@ -252,25 +261,27 @@ class JobQueue:
         return self._must_get(job_id)
 
     def request_cancel(self, job_id: str) -> Job:
-        """Set the cancel_requested flag. Worker terminates at next checkpoint.
+        """Cancel a job.
 
-        If the job is still 'pending' (worker hasn't claimed it), we transition
-        directly to 'cancelled'.
+        Codex M-8 review fix: pending and paused jobs are quiescent (no
+        live worker), so we transition them directly to 'cancelled'.
+        Running jobs get the cancel_requested flag and the worker
+        cooperatively yields at the next checkpoint.
         """
         with self._connect() as conn:
             now = time.time()
-            # Cancelled-while-pending: directly mark cancelled.
+            # Pending or paused -> directly mark cancelled (no live worker).
             cursor = conn.execute(
                 "UPDATE jobs SET status='cancelled', cancel_requested=1, completed_at=? "
-                "WHERE job_id=? AND status='pending'",
+                "WHERE job_id=? AND status IN ('pending', 'paused')",
                 (now, job_id),
             )
             if cursor.rowcount == 1:
                 return self._must_get(job_id)
-            # Cancelled-while-running-or-paused: set the flag.
+            # Running -> set the flag; worker yields at next checkpoint.
             cursor = conn.execute(
                 "UPDATE jobs SET cancel_requested=1 "
-                "WHERE job_id=? AND status IN ('running', 'paused')",
+                "WHERE job_id=? AND status='running'",
                 (job_id,),
             )
             if cursor.rowcount == 0:
@@ -283,10 +294,17 @@ class JobQueue:
         return self._must_get(job_id)
 
     def resume_paused(self, job_id: str) -> Job:
-        """Transition paused -> running. Clears pause_requested."""
+        """Transition paused -> pending so a fresh worker can claim it.
+
+        Codex M-8 review fix: under the cooperative-yield design, the
+        original worker exited runner.run() when Paused fired. To resume,
+        we put the job back in the pending queue with the checkpoint
+        intact; claim_pending() will pick it up and the runner re-enters
+        from job.checkpoint.
+        """
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE jobs SET status='running', pause_requested=0, paused_at=NULL "
+                "UPDATE jobs SET status='pending', pause_requested=0, paused_at=NULL "
                 "WHERE job_id=? AND status='paused'",
                 (job_id,),
             )
@@ -324,12 +342,17 @@ class JobQueue:
         return self._must_get(job_id)
 
     def mark_cancelled(self, job_id: str) -> Job:
-        """Worker calls this after honoring a cancel request."""
+        """Worker calls this after honoring a cancel request mid-run.
+
+        Pending/paused jobs are cancelled atomically via request_cancel()
+        (no live worker needed). This path only fires when a worker
+        catches JobControl.Cancelled mid-run.
+        """
         with self._connect() as conn:
             now = time.time()
             cursor = conn.execute(
                 "UPDATE jobs SET status='cancelled', completed_at=? "
-                "WHERE job_id=? AND status IN ('running', 'paused')",
+                "WHERE job_id=? AND status='running'",
                 (now, job_id),
             )
             if cursor.rowcount == 0:
@@ -337,7 +360,7 @@ class JobQueue:
                 if job is None:
                     raise JobQueueError(f"mark_cancelled: unknown job {job_id}")
                 raise JobQueueError(
-                    f"mark_cancelled: job {job_id} status={job.status} not active"
+                    f"mark_cancelled: job {job_id} status={job.status} not running"
                 )
         return self._must_get(job_id)
 
@@ -346,7 +369,7 @@ class JobQueue:
             now = time.time()
             cursor = conn.execute(
                 "UPDATE jobs SET status='failed', completed_at=?, error=? "
-                "WHERE job_id=? AND status IN ('running', 'paused')",
+                "WHERE job_id=? AND status='running'",
                 (now, error, job_id),
             )
             if cursor.rowcount == 0:
@@ -354,7 +377,7 @@ class JobQueue:
                 if job is None:
                     raise JobQueueError(f"mark_failed: unknown job {job_id}")
                 raise JobQueueError(
-                    f"mark_failed: job {job_id} status={job.status} not active"
+                    f"mark_failed: job {job_id} status={job.status} not running"
                 )
         return self._must_get(job_id)
 

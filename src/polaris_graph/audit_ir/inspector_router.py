@@ -63,6 +63,22 @@ INSPECTOR_HTML_PATH = TEMPLATES_DIR / "inspector_shell.html"
 # to a shared queue + multi-worker pool.
 _JOB_DB_PATH = REPO_ROOT / "state" / "polaris_jobs.sqlite"
 _job_queue: JobQueue | None = None
+_job_worker = None  # type: ignore[var-annotated]
+_runners_registered: bool = False
+
+
+def _ensure_runners_registered() -> None:
+    """Codex M-8 review fix: deterministic runner registration runs
+    independently of get_job_queue() so cold-start enqueues with no
+    prior route hit still validate template_id correctly."""
+    global _runners_registered
+    if _runners_registered:
+        return
+    # Register the mock runner so tests + the live demo have something
+    # to enqueue against without a full V30 sweep. M-9 will register
+    # the V30JobRunner on top of this.
+    register_runner(MockJobRunner(template_id="mock", total_seconds=2.0, step_seconds=0.2))
+    _runners_registered = True
 
 
 def get_job_queue() -> JobQueue:
@@ -70,17 +86,39 @@ def get_job_queue() -> JobQueue:
     global _job_queue
     if _job_queue is None:
         _job_queue = JobQueue(_JOB_DB_PATH)
-        # Register the mock runner so tests + the live demo have something
-        # to enqueue against without a full V30 sweep. M-9 will register
-        # the V30JobRunner on top of this.
-        register_runner(MockJobRunner(template_id="mock", total_seconds=2.0, step_seconds=0.2))
+    _ensure_runners_registered()
     return _job_queue
+
+
+def get_or_start_job_worker():
+    """Codex M-8 review fix: wire a singleton JobWorker so enqueued jobs
+    actually run. The worker polls the queue every 0.5s and dispatches to
+    registered JobRunners.
+
+    Idempotent: safe to call multiple times. Tests can call
+    `_set_job_worker_for_tests(None)` to disable.
+    """
+    global _job_worker
+    if _job_worker is not None and _job_worker.is_alive():
+        return _job_worker
+    from src.polaris_graph.audit_ir.job_worker import JobWorker
+    _job_worker = JobWorker(get_job_queue(), poll_interval_s=0.5)
+    _job_worker.start()
+    return _job_worker
 
 
 def _set_job_queue_for_tests(queue: JobQueue | None) -> None:
     """Test helper: replace the singleton queue."""
     global _job_queue
     _job_queue = queue
+
+
+def _set_job_worker_for_tests(worker) -> None:
+    """Test helper: replace the singleton worker (or None to disable)."""
+    global _job_worker
+    if _job_worker is not None and worker is None:
+        _job_worker.stop(join_timeout=2.0)
+    _job_worker = worker
 
 
 @router.get("/api/inspector/runs")
@@ -332,7 +370,11 @@ async def enqueue_job(req: EnqueueJobRequest) -> dict:
 
     Phase A: only `mock` template_id is supported. M-9 adds `v30_clinical`
     + the rest of the curated template library.
+
+    Codex M-8 review fix: ensure runners are registered BEFORE template
+    validation so cold-start enqueues see the registry populated.
     """
+    _ensure_runners_registered()
     available = set(list_runners())
     if req.template_id not in available:
         raise HTTPException(
@@ -340,12 +382,16 @@ async def enqueue_job(req: EnqueueJobRequest) -> dict:
             detail=f"Unknown template_id={req.template_id!r}. Available: {sorted(available)}",
         )
     queue = get_job_queue()
+    # Codex M-8 fix: ensure the worker is running so enqueued jobs actually
+    # progress. Idempotent.
+    get_or_start_job_worker()
     job = queue.enqueue(req.template_id, req.params)
     return job_to_dict(job)
 
 
 @router.get("/api/inspector/jobs")
 async def list_jobs(status: str | None = None, limit: int = 100) -> dict:
+    _ensure_runners_registered()
     queue = get_job_queue()
     try:
         jobs = queue.list_by_status(status=status, limit=limit)

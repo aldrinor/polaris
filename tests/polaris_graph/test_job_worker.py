@@ -25,9 +25,17 @@ from src.polaris_graph.audit_ir.job_runner import _reset_runners_for_tests
 
 @pytest.fixture(autouse=True)
 def _clear_runners():
-    """Each test gets a clean runner registry."""
+    """Each test gets a clean runner registry + queue + worker singletons."""
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _set_job_queue_for_tests,
+        _set_job_worker_for_tests,
+    )
     _reset_runners_for_tests()
+    _set_job_worker_for_tests(None)
+    _set_job_queue_for_tests(None)
     yield
+    _set_job_worker_for_tests(None)
+    _set_job_queue_for_tests(None)
     _reset_runners_for_tests()
 
 
@@ -145,19 +153,23 @@ def test_cancel_request_honored_at_checkpoint(queue: JobQueue) -> None:
         worker.stop(join_timeout=2.0)
 
 
-def test_resume_after_pause_completes(queue: JobQueue) -> None:
+def test_resume_after_pause_reaches_terminal(queue: JobQueue) -> None:
+    """Codex M-8 review fix: end-to-end resume must actually progress to a
+    terminal state. resume_paused puts the job back in 'pending', the
+    worker re-claims it, and the runner re-enters from checkpoint."""
     register_runner(_SlowMockRunner(total_seconds=1.0, step_seconds=0.05))
     job = queue.enqueue("slow_mock", {})
 
     worker = JobWorker(queue, poll_interval_s=0.02)
     worker.start()
     try:
-        # Wait for run + pause cycle.
+        # Wait for the worker to claim + start running.
         for _ in range(50):
             time.sleep(0.02)
             current = queue.get(job.job_id)
             if current and current.status == "running" and current.progress_pct > 0:
                 break
+        # Pause and wait for the worker to honor the request.
         queue.request_pause(job.job_id)
         for _ in range(100):
             time.sleep(0.02)
@@ -165,14 +177,20 @@ def test_resume_after_pause_completes(queue: JobQueue) -> None:
             if current and current.status == "paused":
                 break
         assert current.status == "paused"
-        # Resume by transitioning back to pending. Workers pick up pending
-        # jobs; in a real Phase B build we'd have a dedicated re-queue
-        # mechanism that resumes from checkpoint. For this smoke test we
-        # just verify the queue exposes the resume-paused transition.
+
+        # Resume: paused -> pending. The same worker (still polling) will
+        # pick the job back up and run it through to completion.
         resumed = queue.resume_paused(job.job_id)
-        assert resumed.status == "running"
-        # The original worker thread already exited the runner; the resume
-        # transition is the API surface, not a re-entrant runner.
+        assert resumed.status == "pending"
+
+        # Wait for the resumed job to reach a terminal state.
+        for _ in range(200):
+            time.sleep(0.02)
+            current = queue.get(job.job_id)
+            if current and current.status in {"completed", "cancelled", "failed"}:
+                break
+        assert current.status == "completed", f"expected completed, got {current.status}"
+        assert current.progress_pct == 100.0
     finally:
         worker.stop(join_timeout=2.0)
 
