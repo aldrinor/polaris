@@ -381,7 +381,8 @@ def test_methods_view_export_button_links_to_audit_bundle(browser_page) -> None:
 
 
 def test_tier_mix_view_renders_headline_cards_and_bar(browser_page) -> None:
-    """M-7: switching to Tier Mix shows 4 headline cards + visual bar + band table."""
+    """M-7: switching to Tier Mix shows 4 headline cards + visual bar +
+    band-comparison table + per-section breakdown table."""
     page = browser_page
     page.click('.tab-btn[data-view="tier-mix"]')
     page.wait_for_selector(".tier-mix-bar-large", timeout=3000)
@@ -389,12 +390,12 @@ def test_tier_mix_view_renders_headline_cards_and_bar(browser_page) -> None:
     assert page.locator(".tier-headline-card").count() == 4
     # Big visual bar (M-7 specific class, not the small header strip)
     assert page.locator(".tier-mix-bar-large").count() == 1
-    # Band-comparison table for the 7 tiers
-    table = page.locator(".tier-mix-table")
-    assert table.count() == 1
-    # At least 7 rows (T1..T7)
-    rows = page.locator(".tier-mix-table tbody tr")
-    assert rows.count() >= 7
+    # Two tables: band-comparison + per-section breakdown
+    tables = page.locator(".tier-mix-table")
+    assert tables.count() == 2
+    # First table is the band-comparison: at least 7 rows (T1..T7)
+    band_rows = tables.first.locator("tbody tr")
+    assert band_rows.count() >= 7
 
 
 def test_tier_mix_view_renders_promo_calibration_badge(browser_page) -> None:
@@ -435,3 +436,58 @@ def test_tier_mix_view_renders_material_deviation_banner(browser_page) -> None:
     if "Material tier deviation" in banner_text:
         cls = banner.get_attribute("class")
         assert "tier-mix-deviation-warning" in cls
+
+
+# ---------------------------------------------------------------------------
+# Codex M-7 review: live DOM assertions for residual rows + per-section breakdown
+# ---------------------------------------------------------------------------
+
+
+def test_tier_mix_view_renders_unknown_residual_row(browser_page) -> None:
+    """Codex M-7 review: UNKNOWN tier (2.3% in run-14) must appear as a
+    residual row because the protocol's expected_tier_distribution does
+    not include it."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-table", timeout=3000)
+    residual_rows = page.locator(".tier-mix-row-residual")
+    assert residual_rows.count() >= 1
+    # At least one residual row must be the UNKNOWN tier
+    text = residual_rows.first.text_content()
+    assert "UNKNOWN" in text or "unexpected" in text.lower()
+
+
+def test_tier_mix_view_renders_per_section_breakdown(browser_page) -> None:
+    """Codex M-7 review: FINAL_PLAN says per-section tier breakdown. Must
+    render as a separate table under the band-comparison table."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-section-stats", timeout=3000)
+    section_block = page.locator(".tier-mix-section-stats")
+    assert section_block.count() == 1
+    block_text = section_block.text_content()
+    assert "Per-section tier breakdown" in block_text
+    # Run-14's verified report has Efficacy, Mechanism, Regulatory, etc.
+    # At least one section name should appear in the breakdown table.
+    page_text = section_block.inner_text()
+    found_section = any(
+        s.lower() in page_text.lower()
+        for s in ["Efficacy", "Mechanism", "Regulatory", "Safety", "Comparative", "Population"]
+    )
+    assert found_section, f"Expected at least one verified-report section name in breakdown; got: {page_text[:300]}"
+
+
+def test_tier_mix_view_promo_count_is_one_in_run14(browser_page) -> None:
+    """Codex M-7 review: the rendered promo count must be exactly 1 for
+    run-14 (the FINAL_PLAN '1 vs 58' calibration story)."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-promo-badge", timeout=3000)
+    # The third headline card holds the promo count + badge.
+    promo_card = page.locator(".tier-headline-card").nth(3)
+    card_text = promo_card.text_content()
+    # The headline value is "1" and the badge says "well-calibrated"
+    assert "well-calibrated" in card_text
+    # The big number should be 1
+    big_value = promo_card.locator(".tier-headline-value")
+    assert big_value.text_content().strip() == "1"

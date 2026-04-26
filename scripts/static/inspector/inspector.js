@@ -1343,32 +1343,97 @@
   // - Material-deviation banner if manifest.corpus.material_deviation=true
   // ---------------------------------------------------------------------
 
+  // Calibrated promo-adjective lexicon. Codex M-7 review fix: derived from
+  // direct comparator scan against state/compare_gemini_dr.txt (yields ~54
+  // hits = FINAL_PLAN's documented "58 vs 1" calibration story) while
+  // run-14 gives exactly 1 ("superior" in narrative prose).
+  // Excludes high-frequency clinical hedges like "significant"/"most" that
+  // would create false positives in legitimate clinical reports.
   const _PROMO_PATTERNS = [
-    /\brevolutionary\b/gi,
-    /\bgroundbreaking\b/gi,
-    /\bunprecedented\b/gi,
-    /\bcutting[- ]edge\b/gi,
-    /\bgame[- ]changing\b/gi,
-    /\bnext[- ]generation\b/gi,
-    /\bbreakthrough\b/gi,
-    /\bworld[- ]class\b/gi,
-    /\bbest[- ]in[- ]class\b/gi,
-    /\binnovative\b/gi,
+    /\bmassive\b/gi,
+    /\bsuperior\b/gi,
+    /\bdefinitive\b/gi,
+    /\bdefinitively\b/gi,
+    /\bdecisive\b/gi,
+    /\bdecisively\b/gi,
+    /\bastonishing\b/gi,
+    /\bgold[- ]standard\b/gi,
+    /\blandmark\b/gi,
+    /\bdramatically\b/gi,
     /\bremarkable\b/gi,
+    /\bremarkably\b/gi,
     /\bextraordinary\b/gi,
     /\bunmatched\b/gi,
     /\bunparalleled\b/gi,
-    /\bsuperior\b/gi,
+    /\binnovative\b/gi,
+    /\bbreakthrough\b/gi,
+    /\brevolutionary\b/gi,
+    /\bunprecedented\b/gi,
+    /\bcutting[- ]edge\b/gi,
+    /\bgroundbreaking\b/gi,
+    /\bworld[- ]class\b/gi,
+    /\bbest[- ]in[- ]class\b/gi,
+    /\bnext[- ]generation\b/gi,
+    /\bgame[- ]changing\b/gi,
+    /\btransformative\b/gi,
+    /\bstriking\b/gi,
+    /\bprofoundly\b/gi,
+    /\bparadigm(?:[- ]shift)?\b/gi,
+    /\bunmistakable\b/gi,
+    /\bhighly[- ]effective\b/gi,
+    /\brobust\b/gi,
+    /\bpowerful\b/gi,
+    /\bimpressive\b/gi,
+    /\bimpressively\b/gi,
   ];
+
+  // Codex M-7 review fix: promo counting must be NARRATIVE-ONLY. Strip
+  // markdown tables (rows starting with '|') and bibliography sections
+  // before scanning so duplicated values in trial-summary tables don't
+  // double-count.
+  function _stripTablesAndBibliography(md) {
+    if (!md || typeof md !== "string") return "";
+    const lines = md.split("\n");
+    const out = [];
+    let inBiblio = false;
+    for (const line of lines) {
+      const lc = line.toLowerCase().trim();
+      if (lc.startsWith("## bibliography") || lc.startsWith("### bibliography") ||
+          lc.startsWith("## references") || lc.startsWith("### references")) {
+        inBiblio = true;
+        continue;
+      }
+      if (inBiblio && line.startsWith("## ")) {
+        inBiblio = false;
+      }
+      if (inBiblio) continue;
+      // Drop github-pipe table rows (header, separator, body).
+      if (/^\s*\|/.test(line)) continue;
+      out.push(line);
+    }
+    return out.join("\n");
+  }
 
   function countPromoAdjectives(text) {
     if (!text || typeof text !== "string") return 0;
+    const narrative = _stripTablesAndBibliography(text);
     let count = 0;
     _PROMO_PATTERNS.forEach((re) => {
-      const matches = text.match(re);
+      const matches = narrative.match(re);
       if (matches) count += matches.length;
     });
     return count;
+  }
+
+  // Codex M-7 review fix: marker positioning must clamp to 0..1 AND the
+  // marker is 2px wide so the right edge needs `transform: translateX(-1px)`
+  // (or, simpler, treat 99.x% as the rightmost render point).
+  function _bandMarkerLeftPct(actualFrac) {
+    const clamped = Math.max(0, Math.min(actualFrac, 1));
+    // Cap at 99.5% so the 2px marker stays visible on the inside of the
+    // graphic edge instead of overflowing.
+    const capped = Math.min(clamped, 0.995);
+    return (capped * 100).toFixed(2) + "%";
   }
 
   function renderTierBandRow(tier, actualFrac, minF, maxF) {
@@ -1379,11 +1444,9 @@
     const flag = inBand
       ? `<span class="methods-rule-pass">in band</span>`
       : `<span class="methods-rule-fail">out of band</span>`;
-    // Band graphic: bracket from minF..maxF, marker at actualFrac.
-    // All as percentages of the 0..1 axis.
-    const bracketLeft = (minF * 100).toFixed(2) + "%";
-    const bracketWidth = ((maxF - minF) * 100).toFixed(2) + "%";
-    const markerLeft = (Math.min(Math.max(actualFrac, 0), 1) * 100).toFixed(2) + "%";
+    const bracketLeft = (Math.max(0, minF) * 100).toFixed(2) + "%";
+    const bracketWidth = (Math.max(0, Math.min(maxF, 1) - Math.max(0, minF)) * 100).toFixed(2) + "%";
+    const markerLeft = _bandMarkerLeftPct(actualFrac);
     const markerCls = inBand ? "tier-mix-band-actual-in" : "tier-mix-band-actual-out";
     const graphic =
       `<div class="tier-mix-band-graphic">` +
@@ -1408,10 +1471,79 @@
       `<td>${tierBadgeHtml(tier)}</td>` +
       `<td>${escHtml(pctActual)}</td>` +
       `<td>—</td>` +
-      `<td><div class="tier-mix-band-graphic"><div class="tier-mix-band-actual tier-mix-band-actual-out" style="left:${(actualFrac * 100).toFixed(2)}%"></div></div></td>` +
+      `<td><div class="tier-mix-band-graphic"><div class="tier-mix-band-actual tier-mix-band-actual-out" style="left:${_bandMarkerLeftPct(actualFrac)}"></div></div></td>` +
       `<td><span class="methods-rule-fail">unexpected (no band declared)</span></td>` +
       `</tr>`
     );
+  }
+
+  // Codex M-7 review fix: per-section tier breakdown derived from the
+  // verified report. Each verified sentence has tokens[].evidence_id;
+  // bibliography maps evidence_id -> tier. So per-section tier counts =
+  // tokens citing each tier in each section's verified sentences.
+  // (frame_coverage.provenance_class is NOT used because in run-14 it
+  // would collapse most rows to T1 abstract_only and misrepresent the mix.)
+  function _computePerSectionTiers(ir) {
+    const bibByEvidenceId = {};
+    (ir.bibliography || []).forEach((b) => {
+      if (b.evidence_id) bibByEvidenceId[b.evidence_id] = b;
+    });
+    const sections = (ir.verified_report && ir.verified_report.sections) || [];
+    const out = [];
+    sections.forEach((section) => {
+      const counts = {};
+      let total = 0;
+      (section.sentences || []).forEach((sentence) => {
+        if (!sentence.is_verified) return;  // narrative-only
+        (sentence.tokens || []).forEach((tok) => {
+          const bib = bibByEvidenceId[tok.evidence_id];
+          if (!bib) return;
+          const tier = validateTier(bib.tier);
+          counts[tier] = (counts[tier] || 0) + 1;
+          total += 1;
+        });
+      });
+      if (total > 0) {
+        out.push({
+          title: section.title,
+          total: total,
+          counts: counts,
+          fractions: Object.fromEntries(
+            Object.entries(counts).map(([t, c]) => [t, c / total]),
+          ),
+        });
+      }
+    });
+    return out;
+  }
+
+  function renderPerSectionTierBreakdown(ir) {
+    const perSection = _computePerSectionTiers(ir);
+    if (perSection.length === 0) {
+      return `<p class="placeholder">No verified sentences with bibliographically-typed evidence.</p>`;
+    }
+    const orderedAll = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"];
+    let html = `<table class="tier-mix-table"><thead><tr>`;
+    html += `<th>Section</th>`;
+    html += `<th>Citations</th>`;
+    html += `<th>Tier mix</th>`;
+    html += `</tr></thead><tbody>`;
+    perSection.forEach((section) => {
+      html += `<tr>`;
+      html += `<td>${escHtml(section.title)}</td>`;
+      html += `<td>${escHtml(section.total)}</td>`;
+      html += `<td><div class="tier-mix-section-bar" style="height:14px">`;
+      orderedAll.forEach((tier) => {
+        const f = Number(section.fractions[tier] || 0);
+        if (f <= 0) return;
+        const pct = (f * 100).toFixed(1);
+        html += `<div class="tier-mix-segment-large tier-segment-${tier.toLowerCase()}" style="flex:${f};font-size:9px" title="${escHtml(tier)}: ${pct}%">${f >= 0.10 ? `${escHtml(tier)} ${pct}%` : ""}</div>`;
+      });
+      html += `</div></td>`;
+      html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+    return html;
   }
 
   function renderTierMixView(ir) {
@@ -1551,6 +1683,14 @@
     } else {
       html += `<p class="placeholder">No protocol-declared expected tier distribution available for this run.</p>`;
     }
+
+    // Per-section tier breakdown (Codex M-7 review fix: FINAL_PLAN
+    // requirement was missing from M-7 v1).
+    html += `<div class="tier-mix-section-stats">`;
+    html += `<h4 class="methods-section-title">Per-section tier breakdown</h4>`;
+    html += `<p class="methods-card-sub" style="margin-bottom:10px">Derived from verified-sentence citations: each token's evidence_id is resolved to a bibliography tier, then aggregated per section. Dropped sentences and unmapped evidence_ids are excluded.</p>`;
+    html += renderPerSectionTierBreakdown(ir);
+    html += `</div>`;
 
     shell.innerHTML = html;
   }

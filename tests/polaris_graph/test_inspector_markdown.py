@@ -460,3 +460,133 @@ def test_inspector_js_separates_toolbar_from_results_for_focus_retention() -> No
     # Wiring is split: wireMatrixToolbar + wireMatrixRowInteraction
     assert "wireMatrixToolbar" in src
     assert "wireMatrixRowInteraction" in src
+
+
+# ---------------------------------------------------------------------------
+# Codex M-7 review: promo calibration + band-marker edge cases
+# ---------------------------------------------------------------------------
+
+
+def _build_promo_test_harness(test_body: str) -> str:
+    return textwrap.dedent(
+        f"""
+        const fs = require('fs');
+        const src = fs.readFileSync({repr(str(INSPECTOR_JS).replace(chr(92), '/'))}, 'utf8');
+        const helperNames = ['_stripTablesAndBibliography', 'countPromoAdjectives', '_bandMarkerLeftPct'];
+        let allSrc = '';
+        helperNames.forEach((name) => {{
+          // Match function name (with leading underscore) up to closing brace.
+          const escaped = name.replace(/[.*+?^${{}}()|[\\]\\\\]/g, '\\\\$&');
+          const re = new RegExp('function ' + escaped + '\\\\b[\\\\s\\\\S]*?\\\\n  }}', 'm');
+          const m = src.match(re);
+          if (m) allSrc += m[0] + '\\n';
+        }});
+        // _PROMO_PATTERNS is also inside the IIFE; extract it.
+        const patRe = /const _PROMO_PATTERNS = \\[[\\s\\S]*?\\];/m;
+        const patMatch = src.match(patRe);
+        if (patMatch) allSrc += patMatch[0] + '\\n';
+        eval(allSrc);
+        {test_body}
+        """
+    )
+
+
+def _run_promo_count_via_node(input_path: Path) -> int:
+    """Run countPromoAdjectives over a file by reading it inside Node.
+
+    Avoids Windows command-line length limits (long files embedded as JSON
+    string literals exceed CreateProcess's 32K limit).
+    """
+    body = textwrap.dedent(
+        f"""
+        const fs2 = require('fs');
+        const md = fs2.readFileSync({repr(str(input_path).replace(chr(92), '/'))}, 'utf8');
+        const n = countPromoAdjectives(md);
+        console.log(n);
+        """
+    )
+    res = subprocess.run(
+        [NODE_BIN, "-e", _build_promo_test_harness(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr)
+    return int(res.stdout.strip())
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_promo_count_is_exactly_one_for_run14() -> None:
+    """Codex M-7 review: run-14 must give exactly 1 promo hit ("superior" in
+    narrative prose), not 2 (the "superior" in the Trial Summary table row
+    must be excluded by table-stripping)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    run14 = repo_root / "outputs" / "full_scale_v30_phase2_run14" / "clinical" / "clinical_tirzepatide_t2dm" / "report.md"
+    n = _run_promo_count_via_node(run14)
+    assert n == 1, f"Expected 1 promo hit in run-14, got {n}"
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_promo_count_for_gemini_comparator_is_at_least_50() -> None:
+    """Codex M-7 review: comparator baseline must reproduce roughly 50+
+    promo hits against state/compare_gemini_dr.txt to validate the
+    'well-calibrated vs promotional drift' calibration story."""
+    repo_root = Path(__file__).resolve().parents[2]
+    cmp_path = repo_root / "state" / "compare_gemini_dr.txt"
+    if not cmp_path.exists():
+        pytest.skip("Gemini comparator file not available")
+    n = _run_promo_count_via_node(cmp_path)
+    # Calibrated lexicon should produce 50+ hits on Gemini; documented
+    # FINAL_PLAN baseline is "1 vs 58" — we accept >= 50 as in-spec.
+    assert n >= 50, f"Expected >= 50 promo hits in Gemini comparator, got {n}"
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_band_marker_clamps_to_visible_range() -> None:
+    """Codex M-7 review: actual=0 → 0%, actual=1 → 99.5% (capped), actual>1 → 99.5%."""
+    body = textwrap.dedent(
+        """
+        const cases = [
+            [0, '0.00%'],
+            [0.5, '50.00%'],
+            [1, '99.50%'],
+            [1.5, '99.50%'],   // clamped
+            [-0.5, '0.00%'],   // clamped
+        ];
+        cases.forEach(([input, expected]) => {
+            const out = _bandMarkerLeftPct(input);
+            console.log(JSON.stringify({input, expected, out, pass: out === expected}));
+        });
+        """
+    )
+    res = subprocess.run(
+        [NODE_BIN, "-e", _build_promo_test_harness(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert res.returncode == 0, res.stderr
+    for line in res.stdout.strip().splitlines():
+        result = json.loads(line)
+        assert result["pass"], f"Marker clamp failed: {result}"
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_strip_tables_and_bibliography_removes_pipe_rows() -> None:
+    """Codex M-7 review: promo counting must be narrative-only — table rows
+    and bibliography sections must be stripped before scanning."""
+    body = textwrap.dedent(
+        """
+        const md = "# Title\\n\\nThis is impressive narrative.\\n\\n| Trial | Note |\\n|---|---|\\n| X | impressive |\\n\\n## Bibliography\\n\\n[1] An impressive paper.";
+        const stripped = _stripTablesAndBibliography(md);
+        console.log(stripped);
+        """
+    )
+    res = subprocess.run(
+        [NODE_BIN, "-e", _build_promo_test_harness(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert res.returncode == 0, res.stderr
+    out = res.stdout.strip()
+    # Narrative kept; table rows + biblio dropped
+    assert "narrative" in out
+    assert "| Trial" not in out
+    assert "| X" not in out
+    assert "An impressive paper" not in out

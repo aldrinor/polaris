@@ -1524,6 +1524,15 @@ html, body {
   color: var(--warn);
 }
 
+.tier-mix-section-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
 .severity {
   display: inline-block;
   padding: 2px 8px;
