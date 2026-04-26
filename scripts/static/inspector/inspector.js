@@ -75,18 +75,58 @@
     return VALID_SEVERITIES.has(lo) ? lo : "unknown";
   }
 
-  // Normalize a URL to a comparison stem: scheme dropped, www. dropped,
-  // trailing slash trimmed, lowercased. Used for the URL-secondary
-  // contradiction resolver. doi.org/10.x and figshare/jamanetwork-style
-  // URLs all collapse to comparable stems.
+  // Normalize a URL for comparison. Preserves query string (Codex M-3 v2
+  // review fix: stripping query was too lossy and over-joined distinct URLs).
+  // Only drops scheme, www. prefix, trailing slash, and lowercases.
   function urlStem(url) {
     const s = String(url == null ? "" : url).trim().toLowerCase();
     if (!s) return "";
     return s
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
-      .replace(/[?#].*$/, "")
+      .replace(/#.*$/, "")
       .replace(/\/+$/, "");
+  }
+
+  // Extract canonical identifiers (DOI, PMID, full URL stem) from a URL.
+  // Used to bridge bibliography (surpass_X / entity-anchored) and
+  // contradiction (ev_NNN / corpus-anchored) namespaces in run-14 by
+  // matching on shared DOI/PMID even when evidence_ids differ.
+  function extractIdentifiers(url) {
+    const out = new Set();
+    const s = String(url == null ? "" : url).trim();
+    if (!s) return out;
+    // DOI: 10.NNNN/anything (case-insensitive)
+    const doiMatch = s.match(/\b10\.\d{4,9}\/[^\s?#&]+/i);
+    if (doiMatch) out.add("doi:" + doiMatch[0].toLowerCase());
+    // PMID via pubmed URL
+    const pmidUrlMatch = s.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i);
+    if (pmidUrlMatch) out.add("pmid:" + pmidUrlMatch[1]);
+    // PMID via efetch query string
+    const pmidEfetchMatch = s.match(/efetch\.fcgi[^\s]*[?&]id=(\d+)/i);
+    if (pmidEfetchMatch) out.add("pmid:" + pmidEfetchMatch[1]);
+    // Full URL stem
+    const stem = urlStem(s);
+    if (stem) out.add("url:" + stem);
+    return out;
+  }
+
+  // Identifiers bound to a bibliography entry. Pulls DOI/PMID directly
+  // from frame_coverage_report entries (entity-anchored citations like
+  // surpass_1_primary have empty bib.url but a DOI in frame_coverage).
+  function bibIdentifiers(bib, ir) {
+    const ids = new Set();
+    const fcEntries = (ir.frame_coverage && ir.frame_coverage.entries) || [];
+    const fcEntry = fcEntries.find((e) => e.entity_id === bib.evidence_id);
+    if (fcEntry) {
+      if (fcEntry.doi) ids.add("doi:" + String(fcEntry.doi).toLowerCase());
+      if (fcEntry.pmid) ids.add("pmid:" + String(fcEntry.pmid));
+      (fcEntry.retrieval_attempt_log || []).forEach((att) => {
+        extractIdentifiers(att.url).forEach((id) => ids.add(id));
+      });
+    }
+    extractIdentifiers(bib.url).forEach((id) => ids.add(id));
+    return ids;
   }
 
   // ---------------------------------------------------------------------
@@ -167,28 +207,28 @@
 
     // Primary index: cluster matches by exact evidence_id of any of its claims
     const clustersByEvidenceId = {};
-    // Secondary index: cluster matches by URL stem of any claim's source_url
-    const clustersByUrlStem = {};
+    // Secondary index: cluster matches by canonical identifier (DOI/PMID/URL)
+    // of any claim's source_url. Bridges entity-anchored (surpass_X) ↔
+    // corpus-anchored (ev_NNN) namespaces in run-14.
+    const clustersByIdentifier = {};
     (ir.contradictions || []).forEach((cluster) => {
       (cluster.claims || []).forEach((claim) => {
         if (claim.evidence_id) {
           if (!clustersByEvidenceId[claim.evidence_id]) {
             clustersByEvidenceId[claim.evidence_id] = [];
           }
-          // Avoid pushing the same cluster twice if multiple claims share evidence_id.
           if (!clustersByEvidenceId[claim.evidence_id].includes(cluster)) {
             clustersByEvidenceId[claim.evidence_id].push(cluster);
           }
         }
-        const stem = urlStem(claim.source_url);
-        if (stem) {
-          if (!clustersByUrlStem[stem]) {
-            clustersByUrlStem[stem] = [];
+        extractIdentifiers(claim.source_url).forEach((id) => {
+          if (!clustersByIdentifier[id]) {
+            clustersByIdentifier[id] = [];
           }
-          if (!clustersByUrlStem[stem].includes(cluster)) {
-            clustersByUrlStem[stem].push(cluster);
+          if (!clustersByIdentifier[id].includes(cluster)) {
+            clustersByIdentifier[id].push(cluster);
           }
-        }
+        });
       });
     });
 
@@ -196,18 +236,17 @@
       bibByNum,
       sentencesByEvidenceId,
       clustersByEvidenceId,
-      clustersByUrlStem,
+      clustersByIdentifier,
     };
   }
 
-  function findClustersForBibEntry(bib, idx) {
+  function findClustersForBibEntry(bib, ir, idx) {
     const bySet = new Set();
     const eid = bib.evidence_id || "";
     (idx.clustersByEvidenceId[eid] || []).forEach((c) => bySet.add(c));
-    const stem = urlStem(bib.url);
-    if (stem) {
-      (idx.clustersByUrlStem[stem] || []).forEach((c) => bySet.add(c));
-    }
+    bibIdentifiers(bib, ir).forEach((id) => {
+      (idx.clustersByIdentifier[id] || []).forEach((c) => bySet.add(c));
+    });
     return Array.from(bySet);
   }
 
@@ -236,7 +275,8 @@
 
     const eid = bib.evidence_id;
     const sentences = idx.sentencesByEvidenceId[eid] || [];
-    const clusters = findClustersForBibEntry(bib, idx);
+    const clusters = findClustersForBibEntry(bib, ir, idx);
+    const bibIds = bibIdentifiers(bib, ir);
 
     header.textContent = `Citation [${num}] — ${eid}`;
 
@@ -292,7 +332,6 @@
     } else {
       html += `<ul class="evidence-contradictions">`;
       clusters.forEach((cluster) => {
-        const activeStem = urlStem(bib.url);
         html += `<li class="contradiction-cluster">`;
         html += `  <div class="evidence-contradiction-meta">`;
         html += `    ${severityBadgeHtml(cluster.severity)}`;
@@ -303,9 +342,10 @@
         }
         html += `<ol class="cluster-claims">`;
         (cluster.claims || []).forEach((claim) => {
+          const claimIds = extractIdentifiers(claim.source_url);
+          const idIntersect = Array.from(bibIds).some((id) => claimIds.has(id));
           const isActive =
-            (claim.evidence_id && claim.evidence_id === eid) ||
-            (activeStem && urlStem(claim.source_url) === activeStem);
+            (claim.evidence_id && claim.evidence_id === eid) || idIntersect;
           const claimUrl = sanitizeUrl(claim.source_url);
           html += `<li class="cluster-claim ${isActive ? "cluster-claim-active" : ""}">`;
           html += `  <div class="cluster-claim-meta">`;
