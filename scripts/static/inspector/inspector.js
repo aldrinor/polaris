@@ -1332,6 +1332,230 @@
   }
 
   // ---------------------------------------------------------------------
+  // M-7: View 5 — Source Tier Mix
+  //
+  // Visualizes corpus-level tier distribution per FINAL_PLAN.md:
+  // - Visual T1/T2/T3/... bar (large, segments labeled with %)
+  // - Headline cards: corpus count, dominant tier, T1 share, deviation flag
+  // - Promo-adjective count badge (V30 run-14 = 1 vs Gemini = 58)
+  // - Per-tier expected-vs-actual band table with band-bracket SVG-like
+  //   visual showing min, max, and where actual falls
+  // - Material-deviation banner if manifest.corpus.material_deviation=true
+  // ---------------------------------------------------------------------
+
+  const _PROMO_PATTERNS = [
+    /\brevolutionary\b/gi,
+    /\bgroundbreaking\b/gi,
+    /\bunprecedented\b/gi,
+    /\bcutting[- ]edge\b/gi,
+    /\bgame[- ]changing\b/gi,
+    /\bnext[- ]generation\b/gi,
+    /\bbreakthrough\b/gi,
+    /\bworld[- ]class\b/gi,
+    /\bbest[- ]in[- ]class\b/gi,
+    /\binnovative\b/gi,
+    /\bremarkable\b/gi,
+    /\bextraordinary\b/gi,
+    /\bunmatched\b/gi,
+    /\bunparalleled\b/gi,
+    /\bsuperior\b/gi,
+  ];
+
+  function countPromoAdjectives(text) {
+    if (!text || typeof text !== "string") return 0;
+    let count = 0;
+    _PROMO_PATTERNS.forEach((re) => {
+      const matches = text.match(re);
+      if (matches) count += matches.length;
+    });
+    return count;
+  }
+
+  function renderTierBandRow(tier, actualFrac, minF, maxF) {
+    const inBand = actualFrac >= minF && actualFrac <= maxF;
+    const pctActual = (actualFrac * 100).toFixed(1) + "%";
+    const pctMin = (minF * 100).toFixed(0) + "%";
+    const pctMax = (maxF * 100).toFixed(0) + "%";
+    const flag = inBand
+      ? `<span class="methods-rule-pass">in band</span>`
+      : `<span class="methods-rule-fail">out of band</span>`;
+    // Band graphic: bracket from minF..maxF, marker at actualFrac.
+    // All as percentages of the 0..1 axis.
+    const bracketLeft = (minF * 100).toFixed(2) + "%";
+    const bracketWidth = ((maxF - minF) * 100).toFixed(2) + "%";
+    const markerLeft = (Math.min(Math.max(actualFrac, 0), 1) * 100).toFixed(2) + "%";
+    const markerCls = inBand ? "tier-mix-band-actual-in" : "tier-mix-band-actual-out";
+    const graphic =
+      `<div class="tier-mix-band-graphic">` +
+      `  <div class="tier-mix-band-bracket" style="left:${bracketLeft};width:${bracketWidth}"></div>` +
+      `  <div class="tier-mix-band-actual ${markerCls}" style="left:${markerLeft}" title="${escHtml(tier)} actual ${pctActual}"></div>` +
+      `</div>`;
+    return (
+      `<tr>` +
+      `<td>${tierBadgeHtml(tier)}</td>` +
+      `<td>${escHtml(pctActual)}</td>` +
+      `<td>${escHtml(pctMin)} – ${escHtml(pctMax)}</td>` +
+      `<td>${graphic}</td>` +
+      `<td>${flag}</td>` +
+      `</tr>`
+    );
+  }
+
+  function renderTierResidualRow(tier, actualFrac) {
+    const pctActual = (actualFrac * 100).toFixed(1) + "%";
+    return (
+      `<tr class="tier-mix-row-residual">` +
+      `<td>${tierBadgeHtml(tier)}</td>` +
+      `<td>${escHtml(pctActual)}</td>` +
+      `<td>—</td>` +
+      `<td><div class="tier-mix-band-graphic"><div class="tier-mix-band-actual tier-mix-band-actual-out" style="left:${(actualFrac * 100).toFixed(2)}%"></div></div></td>` +
+      `<td><span class="methods-rule-fail">unexpected (no band declared)</span></td>` +
+      `</tr>`
+    );
+  }
+
+  function renderTierMixView(ir) {
+    const root = document.getElementById("view-tier-mix");
+    if (!root) return;
+    const shell = root.querySelector(".view-shell");
+    if (!shell) return;
+
+    const tm = ir.tier_mix || { fractions: {} };
+    const proto = ir.protocol;
+    const fractions = tm.fractions || {};
+    const orderedAll = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"];
+    const ordered = orderedAll.filter((t) => Number(fractions[t] || 0) > 0);
+
+    // Dominant tier
+    let dominantTier = "—";
+    let dominantFrac = 0;
+    Object.entries(fractions).forEach(([t, v]) => {
+      const num = Number(v);
+      if (Number.isFinite(num) && num > dominantFrac) {
+        dominantFrac = num;
+        dominantTier = t;
+      }
+    });
+
+    // T1 share
+    const t1Frac = Number(fractions.T1 || 0);
+
+    // Promo-adjective count from the rendered report.md (loaded into POLARIS_IR.report_md)
+    const promoCount = countPromoAdjectives(ir.report_md || "");
+    let promoCls = "tier-mix-promo-badge-good";
+    let promoLabel = "well-calibrated";
+    if (promoCount >= 5) {
+      promoCls = "tier-mix-promo-badge-warn";
+      promoLabel = "elevated";
+    }
+    if (promoCount >= 15) {
+      promoCls = "tier-mix-promo-badge-bad";
+      promoLabel = "promotional drift";
+    }
+
+    let html = "";
+
+    // Material-deviation banner (if applicable)
+    if (tm.material_deviation) {
+      html += `<div class="tier-mix-banner tier-mix-deviation-warning" role="note">`;
+      html += `<strong>Material tier deviation flagged.</strong> The corpus tier distribution deviates materially from the protocol's expected band. The corpus_approval gate evaluated this and accepted; see Methods + Provenance for the operator note.`;
+      html += `</div>`;
+    } else {
+      html += `<div class="tier-mix-banner" role="note">`;
+      html += `Tier distribution is the corpus-level provenance audit. Each tier slot carries an expected band from the protocol; bars show where actual falls. Distinct tier hierarchy: T1 (RCTs / primary trials) > T2 (systematic reviews) > T3 (regulatory) > T4 (narrative review) > T5 (industry HCP) > T6 (other) > T7 (general) > UNKNOWN.`;
+      html += `</div>`;
+    }
+
+    // Headline cards
+    html += `<div class="tier-headline">`;
+    html += `<div class="tier-headline-card">`;
+    html += `  <div class="tier-headline-label">Corpus size</div>`;
+    html += `  <div class="tier-headline-value">${escHtml(tm.corpus_count || 0)}</div>`;
+    html += `  <div class="tier-headline-sub">sources retrieved</div>`;
+    html += `</div>`;
+
+    html += `<div class="tier-headline-card">`;
+    html += `  <div class="tier-headline-label">Dominant tier</div>`;
+    html += `  <div class="tier-headline-value">${escHtml(dominantTier)} (${(dominantFrac * 100).toFixed(1)}%)</div>`;
+    html += `  <div class="tier-headline-sub">largest fraction in corpus</div>`;
+    html += `</div>`;
+
+    html += `<div class="tier-headline-card">`;
+    html += `  <div class="tier-headline-label">T1 share</div>`;
+    html += `  <div class="tier-headline-value">${(t1Frac * 100).toFixed(1)}%</div>`;
+    html += `  <div class="tier-headline-sub">primary RCT / pivotal trial sources</div>`;
+    html += `</div>`;
+
+    html += `<div class="tier-headline-card">`;
+    html += `  <div class="tier-headline-label">Promotional adjectives</div>`;
+    html += `  <div class="tier-mix-headline-row">`;
+    html += `    <div class="tier-headline-value">${escHtml(promoCount)}</div>`;
+    html += `    <span class="tier-mix-promo-badge ${promoCls}">${escHtml(promoLabel)}</span>`;
+    html += `  </div>`;
+    html += `  <div class="tier-headline-sub">in report.md (calibration signal)</div>`;
+    html += `</div>`;
+    html += `</div>`;
+
+    // Visual tier bar (large)
+    html += `<div class="tier-mix-bar-large" role="img" aria-label="Tier distribution: ${ordered.map((t) => `${t} ${(Number(fractions[t]) * 100).toFixed(1)}%`).join(", ")}">`;
+    ordered.forEach((tier) => {
+      const f = Number(fractions[tier] || 0);
+      const pct = (f * 100).toFixed(1);
+      html += `<div class="tier-mix-segment-large tier-segment-${tier.toLowerCase()}" style="flex:${f}" title="${escHtml(tier)}: ${pct}%">${f >= 0.05 ? `${escHtml(tier)} ${pct}%` : ""}</div>`;
+    });
+    html += `</div>`;
+
+    // Tick-row labels for tiers that fell below 5% (couldn't show in segment)
+    html += `<div class="tier-mix-bar-tick-row">`;
+    ordered.forEach((tier) => {
+      const f = Number(fractions[tier] || 0);
+      const pct = (f * 100).toFixed(1);
+      html += `<div class="tier-mix-tick" style="flex:${f}">${f < 0.05 ? `${escHtml(tier)} ${pct}%` : ""}</div>`;
+    });
+    html += `</div>`;
+
+    // Expected-vs-actual table
+    if (proto && Array.isArray(proto.expected_tier_distribution) && proto.expected_tier_distribution.length > 0) {
+      html += `<table class="tier-mix-table"><thead><tr>`;
+      html += `<th>Tier</th><th>Actual</th><th>Expected</th><th>Band</th><th>Status</th>`;
+      html += `</tr></thead><tbody>`;
+
+      const expectedTiers = new Set();
+      const numOrZero = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const numOrOne = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 1;
+      };
+      proto.expected_tier_distribution.forEach((exp) => {
+        const tier = exp.tier;
+        expectedTiers.add(tier);
+        const actual = numOrZero(fractions[tier]);
+        const minF = exp.min_fraction == null ? 0 : numOrZero(exp.min_fraction);
+        const maxF = exp.max_fraction == null ? 1 : numOrOne(exp.max_fraction);
+        html += renderTierBandRow(tier, actual, minF, maxF);
+      });
+      // Residual rows for unexpected tiers
+      Object.keys(fractions)
+        .filter((t) => !expectedTiers.has(t))
+        .filter((t) => Number(fractions[t] || 0) > 0)
+        .sort()
+        .forEach((tier) => {
+          const actual = numOrZero(fractions[tier]);
+          html += renderTierResidualRow(tier, actual);
+        });
+
+      html += `</tbody></table>`;
+    } else {
+      html += `<p class="placeholder">No protocol-declared expected tier distribution available for this run.</p>`;
+    }
+
+    shell.innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   fetchJSON(`/api/inspector/runs/${encodeURIComponent(slug)}`)
@@ -1342,6 +1566,7 @@
       renderMatrixView(ir);
       renderCoverageView(ir);
       renderMethodsView(ir);
+      renderTierMixView(ir);
       return renderReportView(ir);
     })
     .catch((err) => {

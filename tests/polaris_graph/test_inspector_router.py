@@ -844,3 +844,102 @@ def test_audit_ir_loads_adequacy_and_corpus_approval() -> None:
     assert ir.get("corpus_approval") is not None
     assert ir["corpus_approval"]["approved"] is True
     assert ir["corpus_approval"]["approved_count"] > 0
+
+
+# ---------------------------------------------------------------------------
+# M-7: View 5 (Source Tier Mix) — corpus tier audit + promo calibration
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_js_has_tier_mix_renderer() -> None:
+    """M-7: inspector.js must expose Source Tier Mix wiring."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderTierMixView" in js
+    assert "countPromoAdjectives" in js
+    assert "renderTierBandRow" in js
+    assert "renderTierResidualRow" in js
+    assert "_PROMO_PATTERNS" in js
+
+
+def test_tier_mix_view_renders_promo_adjective_count() -> None:
+    """M-7: promo adjective count must be derived from report.md and surface
+    a calibration badge (good/warn/bad)."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # Patterns covering "revolutionary", "groundbreaking", etc.
+    for word in ["revolutionary", "groundbreaking", "unprecedented", "breakthrough"]:
+        assert word in js
+    # Three calibration thresholds
+    assert "tier-mix-promo-badge-good" in js
+    assert "tier-mix-promo-badge-warn" in js
+    assert "tier-mix-promo-badge-bad" in js
+
+
+def test_tier_mix_view_css_classes_present() -> None:
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    for cls in [
+        "tier-headline",
+        "tier-headline-card",
+        "tier-mix-bar-large",
+        "tier-mix-segment-large",
+        "tier-mix-table",
+        "tier-mix-band-graphic",
+        "tier-mix-band-bracket",
+        "tier-mix-band-actual",
+        "tier-mix-band-actual-in",
+        "tier-mix-band-actual-out",
+        "tier-mix-promo-badge",
+        "tier-mix-row-residual",
+        "tier-mix-deviation-warning",
+    ]:
+        assert cls in css, f"Missing CSS class: {cls}"
+
+
+def test_tier_mix_view_uses_nullish_safe_band_parsing() -> None:
+    """M-7: same nullish-safe parsing as Methods view (zero max_fraction must
+    not be coerced to 1)."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # The renderTierBandRow path itself doesn't parse exp; the renderTierMixView
+    # body parses each `exp` with the same nullish-safe pattern as M-6.
+    # Two occurrences of "exp.max_fraction == null" exist in the file (M-6 and M-7 each).
+    assert js.count("exp.max_fraction == null") >= 2
+    assert js.count("exp.min_fraction == null") >= 2
+
+
+def test_tier_mix_view_emits_residual_rows_for_unexpected_tiers() -> None:
+    """M-7: tiers in actual but not in protocol must surface as residual rows."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderTierResidualRow" in js
+    assert "tier-mix-row-residual" in js
+
+
+def test_tier_mix_view_handles_material_deviation() -> None:
+    """M-7: when manifest.corpus.material_deviation=true, surface a banner."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "tier-mix-deviation-warning" in js
+    assert "Material tier deviation" in js
+    assert "tm.material_deviation" in js
+
+
+def test_tier_mix_data_exposed_via_api() -> None:
+    """End-to-end: the API must expose tier_mix.fractions + corpus_count +
+    material_deviation flag + report_md (for promo counting) + protocol."""
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    ir = resp.json()
+    tm = ir["tier_mix"]
+    assert tm["corpus_count"] > 0
+    assert isinstance(tm["fractions"], dict)
+    assert "T1" in tm["fractions"]
+    assert "material_deviation" in tm
+    # Report markdown is in the IR (renderer reads it for promo counting)
+    assert isinstance(ir["report_md"], str)
+    assert len(ir["report_md"]) > 100
+    # Protocol (with expected_tier_distribution) for the band-comparison table
+    assert ir["protocol"] is not None
+    assert len(ir["protocol"]["expected_tier_distribution"]) > 0

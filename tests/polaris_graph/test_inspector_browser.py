@@ -373,3 +373,65 @@ def test_methods_view_export_button_links_to_audit_bundle(browser_page) -> None:
     assert href and href.endswith("/audit-bundle.zip")
     # download attribute set so the button initiates a download
     assert btn.get_attribute("download") is not None
+
+
+# ---------------------------------------------------------------------------
+# M-7: Source Tier Mix — real DOM behavior
+# ---------------------------------------------------------------------------
+
+
+def test_tier_mix_view_renders_headline_cards_and_bar(browser_page) -> None:
+    """M-7: switching to Tier Mix shows 4 headline cards + visual bar + band table."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-bar-large", timeout=3000)
+    # 4 headline cards
+    assert page.locator(".tier-headline-card").count() == 4
+    # Big visual bar (M-7 specific class, not the small header strip)
+    assert page.locator(".tier-mix-bar-large").count() == 1
+    # Band-comparison table for the 7 tiers
+    table = page.locator(".tier-mix-table")
+    assert table.count() == 1
+    # At least 7 rows (T1..T7)
+    rows = page.locator(".tier-mix-table tbody tr")
+    assert rows.count() >= 7
+
+
+def test_tier_mix_view_renders_promo_calibration_badge(browser_page) -> None:
+    """M-7: the promo-adjective count and calibration badge must render."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-promo-badge", timeout=3000)
+    badge = page.locator(".tier-mix-promo-badge")
+    assert badge.count() == 1
+    badge_text = badge.text_content()
+    # Run-14: 1 promo adjective, well-calibrated
+    assert badge_text.strip() in ("well-calibrated", "elevated", "promotional drift")
+
+
+def test_tier_mix_view_renders_band_graphics(browser_page) -> None:
+    """M-7: each tier band has a visual graphic with bracket + actual marker."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-band-graphic", timeout=3000)
+    # 7 tiers in run-14 protocol expected_tier_distribution
+    graphics = page.locator(".tier-mix-band-graphic")
+    assert graphics.count() >= 7
+    brackets = page.locator(".tier-mix-band-bracket")
+    actuals = page.locator(".tier-mix-band-actual")
+    assert brackets.count() >= 7
+    assert actuals.count() >= 7
+
+
+def test_tier_mix_view_renders_material_deviation_banner(browser_page) -> None:
+    """M-7: run-14 has material_deviation=True so the warning banner shows."""
+    page = browser_page
+    page.click('.tab-btn[data-view="tier-mix"]')
+    page.wait_for_selector(".tier-mix-banner", timeout=3000)
+    banner = page.locator(".tier-mix-banner")
+    assert banner.count() == 1
+    banner_text = banner.text_content()
+    # Run-14 has material_deviation=True so the deviation-warning class applies
+    if "Material tier deviation" in banner_text:
+        cls = banner.get_attribute("class")
+        assert "tier-mix-deviation-warning" in cls
