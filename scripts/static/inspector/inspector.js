@@ -88,17 +88,52 @@
       .replace(/\/+$/, "");
   }
 
+  // Strip known non-URL prefixes from retrieval_attempt_log entries.
+  // Codex M-3 v3 review fix: some retrieval URLs are stored as
+  // "oa_full_text:https://...", "url_pattern:https://...", "pdf:https://...".
+  // Without stripping the prefix, urlStem produces "oa_full_text:https://..."
+  // which never matches a real source_url.
+  function stripUrlPrefix(url) {
+    const s = String(url == null ? "" : url).trim();
+    if (!s) return "";
+    const m = s.match(/^[A-Za-z][A-Za-z0-9_]+:(https?:\/\/.+)$/);
+    if (m) return m[1];
+    return s;
+  }
+
+  // Trim publisher suffixes from a captured DOI so distinct publisher
+  // URLs that share the same DOI canonicalize to one key.
+  // Codex M-3 v3 review fix: e.g. "10.3389/fphar.2022.998816/pdf" and
+  // "10.3389/fphar.2022.998816" should collapse to one DOI key.
+  function canonicalizeDoi(doi) {
+    if (!doi) return "";
+    let d = String(doi).toLowerCase().trim();
+    // Repeatedly strip trailing publisher artefacts
+    let prev = "";
+    while (d !== prev) {
+      prev = d;
+      d = d.replace(/\/(pdf|full|abstract|html|epdf|metrics|references)$/, "");
+      d = d.replace(/\.(pdf|html|xml|epub)$/, "");
+      d = d.replace(/\/+$/, "");
+    }
+    return d;
+  }
+
   // Extract canonical identifiers (DOI, PMID, full URL stem) from a URL.
   // Used to bridge bibliography (surpass_X / entity-anchored) and
   // contradiction (ev_NNN / corpus-anchored) namespaces in run-14 by
   // matching on shared DOI/PMID even when evidence_ids differ.
   function extractIdentifiers(url) {
     const out = new Set();
-    const s = String(url == null ? "" : url).trim();
-    if (!s) return out;
-    // DOI: 10.NNNN/anything (case-insensitive)
-    const doiMatch = s.match(/\b10\.\d{4,9}\/[^\s?#&]+/i);
-    if (doiMatch) out.add("doi:" + doiMatch[0].toLowerCase());
+    const raw = String(url == null ? "" : url).trim();
+    if (!raw) return out;
+    const s = stripUrlPrefix(raw);
+    // DOI: 10.NNNN/anything, then trim publisher suffixes for canonicalization
+    const doiMatch = s.match(/\b10\.\d{4,9}\/\S+/i);
+    if (doiMatch) {
+      const canonical = canonicalizeDoi(doiMatch[0]);
+      if (canonical) out.add("doi:" + canonical);
+    }
     // PMID via pubmed URL
     const pmidUrlMatch = s.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i);
     if (pmidUrlMatch) out.add("pmid:" + pmidUrlMatch[1]);
@@ -119,7 +154,10 @@
     const fcEntries = (ir.frame_coverage && ir.frame_coverage.entries) || [];
     const fcEntry = fcEntries.find((e) => e.entity_id === bib.evidence_id);
     if (fcEntry) {
-      if (fcEntry.doi) ids.add("doi:" + String(fcEntry.doi).toLowerCase());
+      if (fcEntry.doi) {
+        const canonical = canonicalizeDoi(fcEntry.doi);
+        if (canonical) ids.add("doi:" + canonical);
+      }
       if (fcEntry.pmid) ids.add("pmid:" + String(fcEntry.pmid));
       (fcEntry.retrieval_attempt_log || []).forEach((att) => {
         extractIdentifiers(att.url).forEach((id) => ids.add(id));

@@ -323,3 +323,25 @@ def test_resolver_could_bridge_doi_namespaces_in_run14() -> None:
     # both reachable from the API. Real bridging count is data-dependent.
     assert len(bib_dois) > 0, "Expected at least one biblio DOI in run-14"
     assert isinstance(bridged, int)
+
+
+def test_inspector_js_canonicalizes_doi_publisher_suffixes() -> None:
+    """Codex M-3 v3 review: DOI suffixes like /pdf, /full, .pdf must be
+    stripped so distinct publisher URLs sharing a DOI canonicalize."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "canonicalizeDoi" in js
+    # Check the suffix-stripping regex covers the publisher artefacts
+    # Codex flagged: /pdf (Frontiers), .pdf (Springer), /full
+    assert "pdf|full|abstract|html|epdf|metrics|references" in js
+
+
+def test_inspector_js_strips_retrieval_log_prefixes() -> None:
+    """Codex M-3 v3 review: retrieval_attempt_log URLs sometimes have
+    pseudo-URL prefixes (oa_full_text:, url_pattern:, pdf:) that must be
+    stripped before identifier extraction."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "stripUrlPrefix" in js
+    # The regex must match an alphanumeric-prefix:https://... pattern
+    assert "https?:\\/\\/" in js
