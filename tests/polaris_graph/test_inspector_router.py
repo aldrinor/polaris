@@ -115,3 +115,98 @@ def test_list_to_detail_round_trip_for_every_listed_run() -> None:
         assert detail["run_id"] == listed_run_id, (
             f"run_id drift: list={listed_run_id} detail={detail['run_id']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# M-3: View 1 (Report click-to-inspect) prerequisites in API surface
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_page_loads_markdown_renderer_and_inspector_js() -> None:
+    """M-3: HTML shell must include both scripts in correct order."""
+    client = _make_client()
+    resp = client.get(f"/inspector/{CANONICAL_DEMO_SLUG}")
+    assert resp.status_code == 200
+    body = resp.text
+    md_idx = body.find("/static/inspector/markdown.js")
+    insp_idx = body.find("/static/inspector/inspector.js")
+    assert md_idx > 0
+    assert insp_idx > md_idx, "markdown.js must load before inspector.js"
+    assert "evidence-pane" in body
+    assert "report-shell" in body
+
+
+def test_detail_response_has_data_for_click_to_inspect() -> None:
+    """View 1 click handler needs: bibliography by num, verified sentences with
+    tokens.evidence_id, contradiction claims with evidence_id."""
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    assert resp.status_code == 200
+    ir = resp.json()
+
+    # 1. Bibliography numerically indexable
+    biblio = ir["bibliography"]
+    assert len(biblio) >= 5
+    nums = {b["num"] for b in biblio}
+    assert 1 in nums
+    eids = {b["evidence_id"] for b in biblio}
+    assert "surpass_1_primary" in eids
+
+    # 2. Verified sentences with tokens that point to evidence_ids
+    sections = ir["verified_report"]["sections"]
+    assert len(sections) > 0
+    found_token = False
+    for sec in sections:
+        for sent in sec["sentences"]:
+            for tok in sent["tokens"]:
+                assert "evidence_id" in tok
+                assert "start" in tok
+                assert "end" in tok
+                if tok["evidence_id"] == "surpass_1_primary":
+                    found_token = True
+    assert found_token
+
+    # 3. Contradictions index by claim.evidence_id
+    contra = ir["contradictions"]
+    assert len(contra) == 14
+    found_claim = False
+    for cluster in contra:
+        for claim in cluster["claims"]:
+            if claim["evidence_id"]:
+                found_claim = True
+                break
+        if found_claim:
+            break
+    assert found_claim
+
+
+def test_report_md_has_inline_citations_to_render() -> None:
+    """The report markdown must contain [N] tokens for the renderer to overlay."""
+    import re
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/report.md")
+    assert resp.status_code == 200
+    md = resp.text
+    citations = re.findall(r"\[(\d+)\]", md)
+    assert len(citations) > 50  # run-14 has 100+ inline citations
+    # Every citation N must have a bibliography entry
+    detail = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}").json()
+    biblio_nums = {b["num"] for b in detail["bibliography"]}
+    cited_nums = {int(c) for c in citations}
+    unresolved = cited_nums - biblio_nums
+    assert not unresolved, f"Unresolved citations: {unresolved}"
+
+
+def test_inspector_page_serves_static_inspector_assets() -> None:
+    """The static assets must be reachable through live_server's static route.
+
+    M-3 ships markdown.js + inspector.js + inspector.css. Mounting the actual
+    /static endpoint requires the real live_server, not the minimal test app.
+    Here we just confirm the files exist on disk so the live_server's static
+    handler will find them.
+    """
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    static_dir = REPO_ROOT / "scripts" / "static" / "inspector"
+    assert (static_dir / "inspector.js").exists()
+    assert (static_dir / "markdown.js").exists()
+    assert (static_dir / "inspector.css").exists()
