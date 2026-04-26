@@ -353,11 +353,19 @@ def test_inspector_js_strips_retrieval_log_prefixes() -> None:
 
 
 def test_inspector_js_has_matrix_renderer() -> None:
-    """M-4: inspector.js must expose Contradiction Matrix wiring."""
+    """M-4: inspector.js must expose Contradiction Matrix wiring.
+
+    Updated post-Codex review: renderMatrixView delegates to
+    renderMatrixToolbar + renderMatrixResults to preserve input focus
+    on filter changes. wireMatrixToolbar + wireMatrixRowInteraction
+    are the two interaction wirers."""
     from src.polaris_graph.audit_ir.registry import REPO_ROOT
     js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
     assert "renderMatrixView" in js
-    assert "wireMatrixInteraction" in js
+    assert "renderMatrixToolbar" in js
+    assert "renderMatrixResults" in js
+    assert "wireMatrixToolbar" in js
+    assert "wireMatrixRowInteraction" in js
     assert "applyMatrixFilters" in js
     assert "_matrixState" in js
 

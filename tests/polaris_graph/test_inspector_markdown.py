@@ -9,6 +9,7 @@ Skipped if `node` is not on PATH.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import textwrap
@@ -320,3 +321,142 @@ def test_extract_identifiers_unwraps_oa_full_text_and_extracts_doi() -> None:
     )
     assert res.returncode == 0, res.stderr
     assert res.stdout.strip() == "doi:10.3389/fphar.2022.998816"
+
+
+# ---------------------------------------------------------------------------
+# Codex M-4 review: clusterMatchesQuery behavior tests
+# ---------------------------------------------------------------------------
+
+
+def _build_matrix_test_harness(test_body: str) -> str:
+    """Splice clusterMatchesQuery + helpers out of inspector.js IIFE.
+
+    Note: eval() inside a forEach callback creates locally-scoped bindings.
+    To make helpers visible at the top level, we eval them at module scope
+    via direct concatenation, then bind explicitly.
+    """
+    return textwrap.dedent(
+        f"""
+        const fs = require('fs');
+        const src = fs.readFileSync({repr(str(INSPECTOR_JS).replace(chr(92), '/'))}, 'utf8');
+        // VALID_TIERS / VALID_SEVERITIES used by validateTier/Severity
+        const VALID_TIERS = new Set(['T1','T2','T3','T4','T5','T6','T7','UNKNOWN']);
+        const VALID_SEVERITIES = new Set(['low','medium','high','critical','unknown']);
+        // _matrixState used by applyMatrixFilters
+        const _matrixState = {{ severity: 'all', tier: 'all', dose: 'all', query: '' }};
+        const helperNames = [
+          'validateTier', 'validateSeverity', 'uniqueSorted', 'clusterTiers',
+          'clusterDoses', 'clusterMatchesQuery', 'applyMatrixFilters',
+        ];
+        let allSrc = '';
+        helperNames.forEach((name) => {{
+          const re = new RegExp('function ' + name + '\\\\b[\\\\s\\\\S]*?\\\\n  }}', 'm');
+          const m = src.match(re);
+          if (m) allSrc += m[0] + '\\n';
+        }});
+        // Eval all extracted helper sources together at top level so they
+        // bind in this scope (forEach + eval would scope-trap them).
+        eval(allSrc);
+        {test_body}
+        """
+    )
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_cluster_matches_query_searches_all_visible_claim_fields() -> None:
+    """Codex M-4 review: search must cover dose, arm, value, unit, source_tier."""
+    body = """
+        const cluster = {
+            subject: 'tirzepatide',
+            predicate: 'body weight',
+            recommended_action: 'Disclose both values.',
+            claims: [
+                { evidence_id: 'ev_1', source_url: 'https://x.com/a', context_snippet: 'context here',
+                  dose: '10 mg', arm: 'treatment', value: 25.3, unit: '%', source_tier: 'T1' },
+            ],
+        };
+        const cases = [
+            ['10 mg', true],
+            ['treatment', true],
+            ['25.3', true],
+            ['T1', true],
+            ['%', true],
+            ['nonsense_string', false],
+            ['', true],     // empty matches everything
+            ['   ', true],  // whitespace trimmed -> empty -> matches
+        ];
+        cases.forEach(([q, expected]) => {
+            const result = clusterMatchesQuery(cluster, q);
+            console.log(JSON.stringify({q, expected, result, pass: result === expected}));
+        });
+    """
+    res = subprocess.run(
+        [NODE_BIN, "-e", _build_matrix_test_harness(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert res.returncode == 0, res.stderr
+    for line in res.stdout.strip().splitlines():
+        result = json.loads(line)
+        assert result["pass"], f"clusterMatchesQuery failed for q={result['q']!r}: {result}"
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_apply_matrix_filters_composes_severity_tier_dose_and_query() -> None:
+    """AND-composition: severity AND tier AND dose AND query."""
+    body = """
+        const clusters = [
+            { cluster_id: 0, severity: 'high', subject: 'x', predicate: 'body weight',
+              claims: [{ evidence_id: 'a', source_tier: 'T1', dose: '10 mg', value: 5 }] },
+            { cluster_id: 1, severity: 'low', subject: 'y', predicate: 'mortality',
+              claims: [{ evidence_id: 'b', source_tier: 'T2', dose: '15 mg', value: 6 }] },
+            { cluster_id: 2, severity: 'high', subject: 'z', predicate: 'mortality',
+              claims: [{ evidence_id: 'c', source_tier: 'T1', dose: '15 mg', value: 7 }] },
+        ];
+        // 1. All filters = all -> all 3
+        _matrixState.severity = 'all'; _matrixState.tier = 'all'; _matrixState.dose = 'all'; _matrixState.query = '';
+        let r = applyMatrixFilters(clusters);
+        console.log('all:' + r.length);
+        // 2. severity=high
+        _matrixState.severity = 'high';
+        r = applyMatrixFilters(clusters);
+        console.log('high:' + r.map((c)=>c.cluster_id).join(','));
+        // 3. severity=high AND tier=T1 -> clusters 0 and 2
+        _matrixState.tier = 'T1';
+        r = applyMatrixFilters(clusters);
+        console.log('high+T1:' + r.map((c)=>c.cluster_id).join(','));
+        // 4. add dose=15 mg -> only cluster 2
+        _matrixState.dose = '15 mg';
+        r = applyMatrixFilters(clusters);
+        console.log('high+T1+15mg:' + r.map((c)=>c.cluster_id).join(','));
+        // 5. add query that doesn't match cluster 2
+        _matrixState.query = 'nonsense';
+        r = applyMatrixFilters(clusters);
+        console.log('high+T1+15mg+nonsense:' + r.length);
+    """
+    res = subprocess.run(
+        [NODE_BIN, "-e", _build_matrix_test_harness(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert res.returncode == 0, res.stderr
+    lines = res.stdout.strip().splitlines()
+    assert "all:3" in lines
+    assert "high:0,2" in lines
+    assert "high+T1:0,2" in lines
+    assert "high+T1+15mg:2" in lines
+    assert "high+T1+15mg+nonsense:0" in lines
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_inspector_js_separates_toolbar_from_results_for_focus_retention() -> None:
+    """Codex M-4 review: live search must not destroy the input on each
+    keystroke. The toolbar and results are rendered by separate functions;
+    only renderMatrixResults runs on filter change."""
+    src = INSPECTOR_JS.read_text(encoding="utf-8")
+    assert "renderMatrixToolbar" in src
+    assert "renderMatrixResults" in src
+    # The change handler calls renderMatrixResults, NOT renderMatrixView
+    # (which would re-render the toolbar and destroy the focused input).
+    assert "renderMatrixResults(ir)" in src
+    # Wiring is split: wireMatrixToolbar + wireMatrixRowInteraction
+    assert "wireMatrixToolbar" in src
+    assert "wireMatrixRowInteraction" in src

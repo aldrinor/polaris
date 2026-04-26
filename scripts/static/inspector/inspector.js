@@ -552,15 +552,25 @@
   }
 
   function clusterMatchesQuery(cluster, q) {
-    if (!q) return true;
-    const needle = q.toLowerCase();
-    if (cluster.subject && cluster.subject.toLowerCase().includes(needle)) return true;
-    if (cluster.predicate && cluster.predicate.toLowerCase().includes(needle)) return true;
-    if (cluster.recommended_action && cluster.recommended_action.toLowerCase().includes(needle)) return true;
+    // Trim whitespace; "   " behaves like empty (Codex M-4 review fix).
+    const trimmed = String(q == null ? "" : q).trim();
+    if (!trimmed) return true;
+    const needle = trimmed.toLowerCase();
+    const hasMatch = (s) => typeof s === "string" && s.toLowerCase().includes(needle);
+    if (hasMatch(cluster.subject)) return true;
+    if (hasMatch(cluster.predicate)) return true;
+    if (hasMatch(cluster.recommended_action)) return true;
     for (const claim of cluster.claims || []) {
-      if (claim.evidence_id && claim.evidence_id.toLowerCase().includes(needle)) return true;
-      if (claim.source_url && claim.source_url.toLowerCase().includes(needle)) return true;
-      if (claim.context_snippet && claim.context_snippet.toLowerCase().includes(needle)) return true;
+      // All visibly-rendered claim fields are searchable per Codex M-4 fix.
+      if (hasMatch(claim.evidence_id)) return true;
+      if (hasMatch(claim.source_url)) return true;
+      if (hasMatch(claim.context_snippet)) return true;
+      if (hasMatch(claim.dose)) return true;
+      if (hasMatch(claim.arm)) return true;
+      if (hasMatch(claim.unit)) return true;
+      if (hasMatch(claim.source_tier)) return true;
+      // Numeric value: stringify so "25.3" matches "25.3 %" snippets too.
+      if (claim.value != null && hasMatch(String(claim.value))) return true;
     }
     return false;
   }
@@ -628,59 +638,81 @@
     return html;
   }
 
-  function renderMatrixView(ir) {
-    const root = document.getElementById("view-contradictions");
-    if (!root) return;
-    const shell = root.querySelector(".view-shell");
-    if (!shell) return;
+  // Codex M-4 review fix: split the matrix view into a stable toolbar
+  // (rendered ONCE) and a results region (re-rendered on filter change).
+  // Previously every keystroke replaced the whole shell, including the
+  // active <input>, dropping focus/caret mid-search.
 
+  function _renderSelect(name, current, options) {
+    let html = `<select data-matrix-filter="${name}" aria-label="Filter by ${name}">`;
+    html += `<option value="all">${escHtml(name)} = all</option>`;
+    options.forEach((opt) => {
+      html += `<option value="${escHtml(opt)}" ${current === opt ? "selected" : ""}>${escHtml(opt)}</option>`;
+    });
+    html += `</select>`;
+    return html;
+  }
+
+  function renderMatrixToolbar(ir, shell) {
     const clusters = ir.contradictions || [];
     const allSeverities = uniqueSorted(clusters.map((c) => validateSeverity(c.severity)));
     const allTiers = uniqueSorted(clusters.flatMap((c) => clusterTiers(c)));
     const allDoses = uniqueSorted(clusters.flatMap((c) => clusterDoses(c)));
 
-    function sel(name, current, options) {
-      let html = `<select data-matrix-filter="${name}" aria-label="Filter by ${name}">`;
-      html += `<option value="all">${escHtml(name)} = all</option>`;
-      options.forEach((opt) => {
-        html += `<option value="${escHtml(opt)}" ${current === opt ? "selected" : ""}>${escHtml(opt)}</option>`;
-      });
-      html += `</select>`;
-      return html;
-    }
-
-    const filtered = applyMatrixFilters(clusters);
-
     let html = "";
-    html += `<div class="matrix-toolbar">`;
-    html += `  <label class="matrix-filter">severity ${sel("severity", _matrixState.severity, allSeverities)}</label>`;
-    html += `  <label class="matrix-filter">tier ${sel("tier", _matrixState.tier, allTiers)}</label>`;
-    html += `  <label class="matrix-filter">dose ${sel("dose", _matrixState.dose, allDoses)}</label>`;
+    html += `<div class="matrix-toolbar" id="matrix-toolbar">`;
+    html += `  <label class="matrix-filter">severity ${_renderSelect("severity", _matrixState.severity, allSeverities)}</label>`;
+    html += `  <label class="matrix-filter">tier ${_renderSelect("tier", _matrixState.tier, allTiers)}</label>`;
+    html += `  <label class="matrix-filter">dose ${_renderSelect("dose", _matrixState.dose, allDoses)}</label>`;
     html += `  <label class="matrix-filter">search <input type="search" data-matrix-filter="query" placeholder="subject / predicate / source / snippet" value="${escHtml(_matrixState.query)}"></label>`;
     html += `  <button class="matrix-clear" type="button">clear</button>`;
-    html += `  <span class="matrix-summary">${filtered.length} / ${clusters.length} clusters</span>`;
+    html += `  <span class="matrix-summary" id="matrix-summary"></span>`;
     html += `</div>`;
+    html += `<div id="matrix-results"></div>`;
+    shell.innerHTML = html;
+  }
+
+  function renderMatrixResults(ir) {
+    const clusters = ir.contradictions || [];
+    const filtered = applyMatrixFilters(clusters);
+    const results = document.getElementById("matrix-results");
+    const summary = document.getElementById("matrix-summary");
+    if (!results) return;
+    let html = "";
     if (filtered.length === 0) {
-      html += `<p class="matrix-empty">No clusters match the current filters.</p>`;
+      html = `<p class="matrix-empty">No clusters match the current filters.</p>`;
     } else {
-      html += `<ul class="matrix-list" role="list">`;
+      html = `<ul class="matrix-list" role="list">`;
       filtered.forEach((cluster) => {
         html += renderMatrixRow(cluster);
       });
       html += `</ul>`;
     }
-    shell.innerHTML = html;
-    wireMatrixInteraction(ir);
+    results.innerHTML = html;
+    if (summary) summary.textContent = `${filtered.length} / ${clusters.length} clusters`;
+    wireMatrixRowInteraction();
   }
 
-  function wireMatrixInteraction(ir) {
+  function renderMatrixView(ir) {
+    const root = document.getElementById("view-contradictions");
+    if (!root) return;
+    const shell = root.querySelector(".view-shell");
+    if (!shell) return;
+    renderMatrixToolbar(ir, shell);
+    wireMatrixToolbar(ir);
+    renderMatrixResults(ir);
+  }
+
+  function wireMatrixToolbar(ir) {
     const root = document.getElementById("view-contradictions");
     if (!root) return;
     root.querySelectorAll("select[data-matrix-filter], input[data-matrix-filter]").forEach((el) => {
       const handler = () => {
         const name = el.dataset.matrixFilter;
         _matrixState[name] = el.value;
-        renderMatrixView(ir);
+        // Only re-render results; the toolbar and its <input> stay stable
+        // so focus/caret are preserved (Codex M-4 review fix).
+        renderMatrixResults(ir);
       };
       el.addEventListener("change", handler);
       if (el.tagName === "INPUT") el.addEventListener("input", handler);
@@ -692,9 +724,20 @@
         _matrixState.tier = "all";
         _matrixState.dose = "all";
         _matrixState.query = "";
-        renderMatrixView(ir);
+        // Reflect cleared state in the toolbar inputs.
+        root.querySelectorAll("select[data-matrix-filter]").forEach((s) => {
+          s.value = "all";
+        });
+        const queryInput = root.querySelector('input[data-matrix-filter="query"]');
+        if (queryInput) queryInput.value = "";
+        renderMatrixResults(ir);
       });
     }
+  }
+
+  function wireMatrixRowInteraction() {
+    const root = document.getElementById("view-contradictions");
+    if (!root) return;
     root.querySelectorAll(".matrix-row").forEach((row) => {
       const toggle = (event) => {
         if (event.target.closest("a")) return;  // don't toggle when clicking a link
