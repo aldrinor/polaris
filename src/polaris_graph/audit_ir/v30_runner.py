@@ -163,11 +163,25 @@ class V30JobRunner(JobRunner):
         ]
 
         # Initial checkpoint so the queue shows progress immediately.
-        control.checkpoint(
-            progress_pct=1.0,
-            message="Launching V30 sweep subprocess",
-            state={"slug": slug, "phase": "launch"},
-        )
+        # Codex M-9 v2 review fix: guard this with the same Paused →
+        # RuntimeError conversion as the loop checkpoints. Without this
+        # guard, a request_pause that lands between the very first
+        # claim and the first iteration of the while-loop would cause
+        # raw JobControl.Paused to escape to the worker, which marks
+        # the job 'paused' instead of 'failed'.
+        try:
+            control.checkpoint(
+                progress_pct=1.0,
+                message="Launching V30 sweep subprocess",
+                state={"slug": slug, "phase": "launch"},
+            )
+        except JobControl.Cancelled:
+            raise
+        except JobControl.Paused:
+            raise RuntimeError(
+                "Pause is not supported for template_id='v30_clinical' "
+                "in Phase B. Use cancel + re-enqueue instead."
+            ) from None
 
         logger.info("V30JobRunner: launching %s", " ".join(cmd))
         proc = subprocess.Popen(
