@@ -12,88 +12,174 @@ This document is the joint Claude+Codex reconciliation.
 
 ## TL;DR
 
+**REVISED 2026-04-26 per user direction: best-of-the-best quality + maximum-differentiation UI.**
+
+**Two strategic pivots from the prior version of this plan:**
+
+1. **Single-lane AUDIT only.** Cut the dual-lane Preview+Audit recommendation. Preview was a concession to competitor latency — but for "best quality" positioning it dilutes the brand and creates the Preview/Audit confusion risk (was risk #2). The audit artifact IS the product. 2h25m honest, framed as "evidence-grade research" not "deep research."
+
+2. **UI centerpiece: Evidence Inspector.** Provenance-native split-pane viewer that shows the literal evidence-id-to-span binding for every claim. No competitor (ChatGPT DR / Gemini DR / Perplexity / NotebookLM / Manus) can build this without rebuilding their core. The product IS the UI.
+
 **Phase ETAs (joint):**
 
 | Grade | Joint ETA | Claude said | Codex said | Diff |
 |---|---:|---:|---:|---|
-| Demo | 1-2 weeks | 2 weeks | 1-2 weeks | agree |
-| Beta | 4-8 weeks | 6-8 weeks | 4-8 weeks | Codex earlier floor |
-| Production | 12-24 weeks | 16-24 weeks | 12-24 weeks | Codex earlier floor |
-| Top-tier | 24-52 weeks | 36-48 weeks | 24-52 weeks | Codex wider range |
+| Demo | 2-3 weeks | 2 weeks | 1-2 weeks | extended for Evidence Inspector |
+| Beta | 5-9 weeks | 6-8 weeks | 4-8 weeks | extended for full inspector + contradiction matrix view |
+| Production | 12-24 weeks | 16-24 weeks | 12-24 weeks | unchanged |
+| Top-tier | 24-52 weeks | 36-48 weeks | 24-52 weeks | unchanged |
 
-**Two structural disagreements with my original framing, both Codex-correct:**
+**Two structural Codex corrections, both accepted:**
 
-1. **Distribution layer is NOT starting from zero.** The repo already has FastAPI app, custom query intake, SSE streaming, history, campaigns, exports, optional auth, and a `graph_v4` bridge. The work is "make V30 Phase-2 the first-class product path + add concurrency + package safely," not "build SaaS plumbing." This pulls Phase B floor down to 4 weeks.
+1. **Distribution layer is NOT starting from zero.** Repo already has FastAPI + intake + SSE + history + campaigns + exports + auth + graph_v4 bridge. The work is "make V30 Phase-2 the first-class product path + add concurrency + package safely," not "build SaaS plumbing."
 
-2. **Dual-lane is non-negotiable.** I proposed fast-path-preview OR parallel-batch OR both. Codex says **both, sequenced asymmetrically**, and crucially: **never dilute the audit lane to chase preview latency.** Preview is for acquisition, audit is for monetization. They are distinct artifacts with distinct quality bars.
+2. **Audit lane is non-negotiable.** Codex's call to never dilute the audit lane is reinforced by the user's "best quality" mandate — we drop the preview lane entirely.
 
-**One sharper-than-Claude call:** $20/mo is a trap. Even $200/mo may be too low. Start with workspace/pilot pricing for regulated buyers; add a self-serve analyst tier later if the workflow stabilizes.
+**One sharper-than-Claude call:** $20/mo is a trap. Even $200/mo may be too low. Start with workspace/pilot pricing for regulated buyers.
 
 ---
 
-## Phase sequencing (joint)
+## The Evidence Inspector — UI centerpiece (NEW, replaces multi-lane UX)
 
-### Phase A — Demo-grade (T+0 to T+2 weeks)
+The differentiating UI element. Built once in Phase A, deepened through Phase B-D.
 
-**Scope:** internet-facing `AUDIT_GRADE_PREVIEW` for narrow supported clinical templates. Productized proof, not full parity, not "any question."
+### Why this is the UI that wins
+
+Every competitor (ChatGPT DR, Gemini DR, Perplexity, NotebookLM, Manus) hides the evidence chain. Their UIs are prose-first, sources-as-footer. They cannot expose provenance because they don't have strict-verify provenance binding to expose. V30 has it. The UI that wins is the one that makes that visible at every layer.
+
+### The 5 views (Evidence Inspector workspace)
+
+**View 1 — Report (with click-to-inspect on every claim)**
+- Rendered V30 report.md with inline `[N]` citations highlighted as interactive
+- Click any claim → split-pane opens to right
+- Left pane: claim sentence highlighted
+- Right pane: exact evidence span (PDF page + character offsets) that strict-verify bound it to
+- Below: tier label (T1/T2/T3 + journal/regulator/manufacturer name)
+- Below that: any contradicting evidence from the contradiction matrix, each with its own clickable span
+
+**View 2 — Contradiction Matrix (first-class view, sibling to Report)**
+- Renders the 14 tier-labeled disagreement clusters from V30 run-14
+- Each row: claim A vs claim B + populations + doses + endpoints + sources + tier
+- Filterable by endpoint / population / tier / contradiction strength
+- Click a row → opens both sources side-by-side with span highlights
+- **No competitor has this view at all**
+
+**View 3 — Frame Coverage Manifest (sibling view)**
+- Live render of `frame_coverage_report` (`pass=14, partial=0, gap=1`)
+- Each contract slot row: which entity, which evidence, verified/gap status
+- Gap rows: "no T1 source available" with operator-action button
+- This is the literal antidote to ChatGPT DR's silent omissions
+- Visual: green/yellow/red coverage bar at top
+
+**View 4 — Methods + Provenance Bundle**
+- Run hash, model versions, retrieval queries used, source-tier distribution
+- Abort-gates passed, budget consumed, wall time, reproducibility hash
+- One-click export as PDF audit bundle (procurement-grade)
+- Reproducibility statement: same input → same output verifiable
+
+**View 5 — Source Tier Mix (always visible at report header)**
+- Visual bar: e.g. 65% T1 / 25% T2 / 10% T3
+- Per-section tier breakdown
+- Click a tier → see which sources contributed to that tier
+- Promotional adjective count (V30 run-14 = 1 vs Gemini = 58) — make it a badge
+
+### Why this UI wins (the 30-second demo)
+
+> "Watch what happens when I click this citation."
+> *Click → split-pane reveals exact PDF page + span + tier*
+> "Now click 'Contradictions'."
+> *Tier-labeled matrix appears — 14 disagreement clusters, each with both spans*
+> "ChatGPT can't show you any of this. Neither can Gemini, Perplexity, NotebookLM, or Manus. The reason isn't UI work — it's that they don't bind claims to spans. We do."
+
+This is what regulated buyers (medical writers, regulatory affairs, payer evidence) currently do BY HAND in spreadsheets. The Evidence Inspector turns 8 hours of manual provenance work into 8 seconds of clicking.
+
+### Build cost
+
+| View | Phase | Eng days | Notes |
+|---|:---:|:---:|---|
+| 1 — Report click-to-inspect | A | 4-6 | Reuses V30 evidence_id binding |
+| 2 — Contradiction Matrix | A→B | 5-8 | Renders existing contradiction_clusters |
+| 3 — Frame Coverage Manifest | A | 2-3 | Renders existing frame_coverage_report |
+| 4 — Methods + Provenance Bundle | A→B | 4-6 | Renders existing manifest.json |
+| 5 — Source Tier Mix | A | 2-3 | Renders existing tier distribution |
+| **Total Phase A subset** | A | **17-26** | All five views shippable in 2-3 weeks |
+
+---
+
+## Phase sequencing (joint, REVISED)
+
+### Phase A — Demo-grade (T+0 to T+3 weeks)
+
+**Scope:** internet-facing `AUDIT_GRADE_PREVIEW` for narrow supported clinical templates with the **Evidence Inspector** as the centerpiece UI. Productized proof, not full parity, not "any question."
 
 **Deliverables:**
 - Make V30 artifact the canonical rendered UI result (not offline markdown buried in `outputs/`).
-- V30-native result viewer: rendered report + inline citation hover + contradiction panel + methods/manifest panel + export buttons + run metadata.
-- Honest UX labeling: `Preview`, `Audit lane`, `Estimated completion`, `Known limitations`.
+- **Evidence Inspector** as centerpiece UI — all 5 views (Report click-to-inspect, Contradiction Matrix, Frame Coverage Manifest, Methods + Provenance Bundle, Source Tier Mix).
+- Honest UX labeling: `Evidence-grade research` (not "deep research"), `Estimated completion ~2h25m`, `Known limitations`.
+- Pre-flight cost + time + source-count estimate before run starts.
 - Minimal operator workflow for `human_gap_tasks.json`.
 - Public supported-scope page: which templates supported, what's not, why.
 
 **Wishlist integration (from real user research):**
-- Wish #4 (citation-preserving export): include in Phase A — PDF/DOCX/BibTeX/RIS at minimum.
-- Wish #1 (real citations): V30 already does this; surface it loudly in viewer UX.
-- Wish #19 (contradiction disclosure): V30 already runs 14 clusters in run-14; first-class artifact in Phase A.
+- Wish #1 (real citations): Evidence Inspector View 1 makes this the centerpiece, not buried.
+- Wish #4 (citation-preserving export): Methods + Provenance Bundle one-click PDF/DOCX/BibTeX/RIS.
+- Wish #7 (cost transparency BEFORE run): pre-flight estimate.
+- Wish #19 (contradiction disclosure): Evidence Inspector View 2 is the first-class artifact.
 
 **Blockers:**
 - V30 Phase-2 is not yet the first-class UI contract.
-- `PipelineRunner` is single-concurrency — even a demo will hit this fast.
+- `PipelineRunner` is single-concurrency — needs queue-backed worker pool.
 - Query-to-template routing does not exist; queries map to specific templates manually.
 
 **Acceptance criteria (Phase A ship):**
 - 3-5 supported clinical templates render via V30 path
-- Result viewer shows citations, contradictions, methods, exports
-- Pre-flight cost preview before run starts (real user wishlist top-7 demand)
+- All 5 Evidence Inspector views functional
+- Click any inline `[N]` citation → split-pane reveals exact span + tier in <500ms
+- Contradiction Matrix view renders all 14 clusters from run-14 with both-source side-by-side
+- Frame Coverage Manifest renders pass/partial/gap status for every contract slot
+- Pre-flight cost preview before run starts
+- One-click export of audit bundle (PDF + manifest + bibliography)
 - Operator can resolve gap tasks from UI
 
 ---
 
-### Phase B — Beta (T+2 to T+8 weeks)
+### Phase B — Beta (T+3 to T+9 weeks)
 
-**Scope:** narrow clinical beta with custom queries, but only inside curated template library, with dual-lane UX.
+**Scope:** narrow clinical beta with custom queries, only inside curated template library. Single audit lane, deeper Evidence Inspector.
 
 **Deliverables:**
-- **Preview lane** (≤10 min): deterministic fetch + abstract/metadata-first synthesis + strong citation traceability + explicit "not final audit" labeling.
-- **Audit lane** (≤150 min p90): full V30/V34-class artifact with strict-verify, contradiction disclosure, complete exports.
-- Curated template router: 10-20 clinical templates with query matching + confidence scoring + operator-review fallback.
-- Workspace auth, run history, saved reports, cost preview, budget guard, lightweight versioning.
+- **Audit lane only** (≤150 min p90): full V30/V34-class artifact with strict-verify, contradiction disclosure, complete exports. NO preview lane.
+- **Evidence Inspector deepening:**
+  - View 1: hover-preview before click (instant tier + 1-line claim summary)
+  - View 2: cross-cluster filter (show me all dose-related contradictions)
+  - View 3: gap-resolution operator queue with assignment workflow
+  - View 4: comparative reproducibility (re-run same query, diff the manifests)
+  - View 5: per-section tier mix breakdown
+- Curated template router: 10-20 clinical templates with query matching + confidence scoring + operator-review fallback for low-confidence queries.
+- Workspace auth, run history, saved reports, budget guard, lightweight versioning.
 - Multi-query campaigns + exports reuse existing campaign primitives.
-- Replace single-run lock with real queue: 3-5 concurrent audit jobs + 10+ previews.
+- Replace single-run lock with queue: 3-5 concurrent audit jobs.
+- **Pause/cancel/save-state mid-run** (top-2 unspoken wishlist demand).
 
 **Wishlist integration:**
 - Wish #2 (pause/cancel/redirect mid-run): SHIP IN PHASE B — biggest unspoken user pain.
 - Wish #8 (durable long-running jobs / resume): ship as part of queue work.
 - Wish #5 (source organization: search/folders/tags): basic version.
 - Wish #16 (structured tables / CSV/XLSX export): ship.
-- Wish #7 (cost transparency BEFORE the run): already in Phase A.
 - Wish #11 (source-tier control / hard floors): ship as filter.
 
 **Blockers:**
 - Template library throughput becomes dominant bottleneck (not model cost).
-- Preview quality needs its own benchmark — otherwise judged against wrong artifact.
 - PHI / clinical-use guardrails must be in place before beta access broadens.
 
 **Acceptance criteria (Phase B ship):**
-- Preview ≤10 min for supported templates
-- Audit ≤150 min p90 on same supported set
-- 3+ concurrent audit + 10+ concurrent preview without manual babysitting
+- Audit ≤150 min p90 on supported set
+- 3+ concurrent audit jobs without manual babysitting
 - Every audit result: inline citations + contradiction disclosure + methods + exports
+- Evidence Inspector functional across all 5 views with deepening features
 - Low-confidence queries route to "template review required" not silent wrong-contract
 - Clinical mode rejects/warns on PHI inputs
+- Pause/resume mid-run with no data loss
 
 ---
 
@@ -335,18 +421,21 @@ Ship this bundle as Phase A → Phase B over 4-8 weeks.
 
 ---
 
-## Joint bottom line
+## Joint bottom line (REVISED)
 
-The joint plan is **clinical-first + dual-lane + audit-grade pricing + curated-template-library + simple-durable-infra + intended-use-discipline.**
+The joint plan is **clinical-first + AUDIT-LANE-ONLY + Evidence-Inspector-UI + audit-grade pricing + curated-template-library + simple-durable-infra + intended-use-discipline.**
 
 **ETAs:**
-- **Demo (A): 1-2 weeks** — feasible, mostly UX work on existing FastAPI
-- **Beta (B): 4-8 weeks** — feasible if dual-lane Preview/Audit + queue-backed concurrency lands
-- **Production (C): 12-24 weeks** — depends on V34 closure + curator operations + compliance posture
-- **Top-tier (D): 24-52 weeks** — depends on auto-induction quality + distribution + governance
+- **Demo (A): 2-3 weeks** — Evidence Inspector 5 views + V30-as-canonical UI
+- **Beta (B): 5-9 weeks** — audit-only beta with pause/resume + template router + queue
+- **Production (C): 12-24 weeks** — V34 closure + curator operations + compliance posture
+- **Top-tier (D): 24-52 weeks** — auto-induction quality + distribution + governance
 
-**The wedge bundle for the next 4-8 weeks** = 10 product-layer features above + dual-lane infra + intended-use policy. This is what users have been asking for in forums for years that no incumbent currently ships, AND it amplifies the audit-grade moat instead of diluting it.
+**The wedge bundle for the next 5-9 weeks** = Evidence Inspector centerpiece + audit-only V30 lane + queue-backed concurrency + pause/resume + 10-20 curated templates + intended-use policy. This is what users have been asking for in forums for years that no incumbent currently ships, AND it amplifies the audit-grade moat instead of diluting it.
 
-**The single biggest call:** $20/mo tier is wrong-axis. Workspace/pilot pricing for regulated buyers is the path. Self-serve analyst tier is a Phase D add, not a launch positioning.
+**The biggest calls:**
+1. **Quality-first means audit-only.** No preview lane. The 2h25m wall time is a positioning asset, not a liability — frame it as evidence-grade, not deep research.
+2. **Evidence Inspector is the UI moat.** Every competitor hides the evidence chain because they don't have strict-verify provenance binding. V30 has it. The UI that wins is the one that exposes it.
+3. **Pricing.** $20/mo tier is wrong-axis. Workspace/pilot pricing for regulated buyers is the path. Self-serve tier is Phase D add, not launch positioning.
 
-**The single biggest risk:** confusing Preview and Audit artifacts. Distinct UX, distinct URLs, distinct quality bars, distinct pricing tiers. Never co-mingle.
+**The biggest risk:** auto-induction hallucinating anchors in Phase D. Mandatory human review on every new template until measurable precision proves out. NEVER attempt before Phase D.
