@@ -1,8 +1,8 @@
 # V30 Phase-2 → Top-Tier Internet Player — FINAL PLAN
 
 **Date:** 2026-04-26
-**Plan version:** v2 (Claude pass-2 with Codex pass-2 review fixes integrated)
-**Codex agreement status:** **GREEN-PENDING** — Codex pass-2 returned PARTIAL with 3 specific consolidation edits (no structural disagreement); all 3 integrated below; awaiting final Codex pass-3 GREEN sign-off.
+**Plan version:** v3 (Claude pass-3 with Codex pass-3 single straggler ETA fix)
+**Codex agreement status:** **GREEN-IMMINENT** — Codex pass-3 returned STILL-PARTIAL with 1 remaining edit: a single Phase-B-local ETA line still restated `70-110 eng days = 7-11 weeks` without the "combined Phase A→B bundle" qualifier. Fixed in v3. Codex confirmed: "no new issues introduced." Awaiting Codex pass-4 GREEN.
 
 **Pass-2 changes (Codex pass-2 review fixes):**
 1. **Phase A access gating** — clarified as controlled-access / invite-only / pilot, NOT open internet beta. Resolves the conflict between "internet-facing" framing and queue-backed concurrency landing in Phase B.
@@ -145,7 +145,7 @@
 
 11. **Clinical-use policy layer:** intended-use statement, PHI warning/block, professional-use attestation, no patient-facing mode, supported-scope page.
 
-**Pass-2 ETA (Codex review): 70-110 eng days = 7-11 weeks** for a small strong team. Lower range only feasible if wish #1 stays extremely narrow.
+**Pass-2 ETA (Codex review): 70-110 eng days = 7-11 weeks** for the **combined Phase A → B bundle** (NOT Phase B alone) for a small strong team. Lower range only feasible if wish #1 stays extremely narrow.
 
 **Acceptance criteria:**
 - Audit ≤150 min p90 on supported set
@@ -509,8 +509,11 @@ That discipline IS the product.
 | `JOINT_ANALYSIS.md` pass-1 | reviewed → PARTIAL |
 | `JOINT_ANALYSIS.md` pass-2 (7 fixes integrated) | NOT re-reviewed |
 | `FINAL_PLAN.md` v1 | reviewed → **PARTIAL — 3 edits, no structural disagreement** |
-| **This `FINAL_PLAN.md` v2 (3 edits integrated)** | **GREEN-PENDING — sent for pass-3 final sign-off** |
+| `FINAL_PLAN.md` v2 (3 edits integrated) | reviewed → **STILL-PARTIAL — 1 ETA-label straggler, no new issues** |
+| **This `FINAL_PLAN.md` v3 (4th edit integrated)** | **GREEN-IMMINENT — sent for pass-4 sign-off** |
 
 **Codex's verbatim pass-2 verdict:** *"PARTIAL with specific edits listed. If those three consolidation edits land, I would move this to GREEN. There is no remaining structural disagreement on audit-only, Evidence Inspector primacy, memory split, or the 7-wish triage."*
 
-The 3 edits have been integrated in this v2. Pass-3 sign-off pending.
+**Codex's verbatim pass-3 verdict:** *"STILL-PARTIAL with 1 remaining consolidation fix: relabel or remove the Phase B-local `70-110 eng days = 7-11 weeks` line so every occurrence states this is the combined Phase A→B bundle, not Phase B alone."* + *"new issues introduced: none."*
+
+The 4th edit has been integrated in this v3. Pass-4 sign-off pending.
