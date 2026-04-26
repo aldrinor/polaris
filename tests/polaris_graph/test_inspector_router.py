@@ -1,0 +1,92 @@
+"""Tests for src/polaris_graph/audit_ir/inspector_router.py.
+
+Spins up a minimal FastAPI app with just the inspector router mounted, to
+keep tests independent of the full live_server.py surface area.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from src.polaris_graph.audit_ir.inspector_router import router
+from src.polaris_graph.audit_ir.registry import CANONICAL_DEMO_SLUG
+
+
+def _make_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(router)
+    return TestClient(app)
+
+
+def test_list_runs_endpoint() -> None:
+    client = _make_client()
+    resp = client.get("/api/inspector/runs")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["canonical_demo_slug"] == CANONICAL_DEMO_SLUG
+    assert body["count"] >= 1
+    slugs = [r["slug"] for r in body["runs"]]
+    assert CANONICAL_DEMO_SLUG in slugs
+
+
+def test_get_run_returns_full_ir() -> None:
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"]
+    assert body["manifest"]["contradictions_found"] == 14
+    assert len(body["contradictions"]) == 14
+    assert body["frame_coverage"]["pass_count"] == 14
+    assert body["ir_schema_version"]
+
+
+def test_get_run_unknown_slug_returns_404() -> None:
+    client = _make_client()
+    resp = client.get("/api/inspector/runs/does_not_exist")
+    assert resp.status_code == 404
+
+
+def test_get_report_markdown_endpoint() -> None:
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/report.md")
+    assert resp.status_code == 200
+    assert "[1]" in resp.text  # has inline citations
+
+
+def test_get_report_markdown_unknown_returns_404() -> None:
+    client = _make_client()
+    resp = client.get("/api/inspector/runs/does_not_exist/report.md")
+    assert resp.status_code == 404
+
+
+def test_inspector_root_redirects_to_canonical_demo() -> None:
+    client = _make_client()
+    resp = client.get("/inspector", follow_redirects=False)
+    assert resp.status_code in (302, 307, 308)
+    assert resp.headers["location"].endswith(CANONICAL_DEMO_SLUG)
+
+
+def test_inspector_page_renders_html() -> None:
+    client = _make_client()
+    resp = client.get(f"/inspector/{CANONICAL_DEMO_SLUG}")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    body = resp.text
+    # The 5-view scaffold tabs must be present
+    assert 'data-view="report"' in body
+    assert 'data-view="contradictions"' in body
+    assert 'data-view="frame-coverage"' in body
+    assert 'data-view="methods"' in body
+    assert 'data-view="tier-mix"' in body
+    # The slug must be substituted into the template
+    assert CANONICAL_DEMO_SLUG in body
+    # JS must be linked
+    assert "/static/inspector/inspector.js" in body
+
+
+def test_inspector_page_unknown_returns_404() -> None:
+    client = _make_client()
+    resp = client.get("/inspector/does_not_exist")
+    assert resp.status_code == 404

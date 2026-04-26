@@ -1429,6 +1429,20 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# Evidence Inspector routes (M-2 — Phase A controlled-access demo)
+# Per FINAL_PLAN.md (jointly Claude+Codex GREEN): Evidence Inspector is the
+# canonical primary renderer over the AuditIR. Phase A serves controlled-
+# access demo traffic only; Phase B adds queue + auth gating.
+# ---------------------------------------------------------------------------
+try:
+    from src.polaris_graph.audit_ir.inspector_router import router as inspector_router
+    app.include_router(inspector_router)
+    logger.info("Evidence Inspector routes enabled at /inspector and /api/inspector/*")
+except ImportError as exc:
+    logger.warning(f"Evidence Inspector routes disabled: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Authenticated research history endpoint (2B.1)
 # ---------------------------------------------------------------------------
 @app.get("/api/auth/history")

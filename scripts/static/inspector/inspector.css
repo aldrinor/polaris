@@ -1,0 +1,308 @@
+/* POLARIS Evidence Inspector — Phase A scaffold (M-2).
+ * Views 1-5 wire in M-3..M-7. The audit-grade visual language
+ * favors density, calibration, and provenance over polish.
+ */
+
+:root {
+  --bg: #0e1116;
+  --bg-elev: #161b22;
+  --bg-elev-2: #1c2230;
+  --border: #2a3142;
+  --text: #d8def0;
+  --text-dim: #8a93a8;
+  --text-mute: #5b6377;
+  --accent: #5db8ff;
+  --accent-soft: #1e3a52;
+  --tier-t1: #4ade80;
+  --tier-t2: #93c5fd;
+  --tier-t3: #fcd34d;
+  --tier-t4: #fb923c;
+  --tier-t5: #f87171;
+  --tier-t6: #c084fc;
+  --tier-t7: #94a3b8;
+  --tier-unk: #475569;
+  --warn: #fbbf24;
+  --pass: #4ade80;
+  --gap: #f87171;
+  --serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Header ----------------------------------------------------------------- */
+
+.inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.brand-mark {
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.brand-product {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.inspector-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.meta-label {
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.meta-value {
+  color: var(--text-dim);
+  margin-right: 14px;
+}
+
+/* Tabs ------------------------------------------------------------------- */
+
+.inspector-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  overflow-x: auto;
+}
+
+.tab-btn {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 14px 18px;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+}
+
+.tab-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tab-hint {
+  color: var(--text-mute);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.tab-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
+/* Tier strip ------------------------------------------------------------- */
+
+.tier-bar-strip {
+  display: flex;
+  height: 6px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tier-bar-loading {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-mute);
+  padding: 0;
+}
+
+.tier-segment {
+  height: 100%;
+  position: relative;
+}
+
+.tier-segment-t1 { background: var(--tier-t1); }
+.tier-segment-t2 { background: var(--tier-t2); }
+.tier-segment-t3 { background: var(--tier-t3); }
+.tier-segment-t4 { background: var(--tier-t4); }
+.tier-segment-t5 { background: var(--tier-t5); }
+.tier-segment-t6 { background: var(--tier-t6); }
+.tier-segment-t7 { background: var(--tier-t7); }
+.tier-segment-unknown { background: var(--tier-unk); }
+
+/* Main + views ----------------------------------------------------------- */
+
+.inspector-main {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: calc(100vh - 180px);
+}
+
+body.evidence-pane-open .inspector-main {
+  grid-template-columns: 1fr 480px;
+}
+
+.view {
+  padding: 28px 36px;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.view[hidden] { display: none; }
+
+.view-shell {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px;
+}
+
+.loading,
+.placeholder {
+  color: var(--text-mute);
+  font-style: italic;
+  text-align: center;
+  padding: 48px 0;
+}
+
+/* Report view (M-3 wires interaction) ------------------------------------ */
+
+.report-prose {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.report-prose h1 { font-size: 24px; margin-top: 0; color: var(--text); }
+.report-prose h2 { font-size: 19px; margin-top: 28px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.report-prose h3 { font-size: 16px; margin-top: 22px; color: var(--text-dim); }
+
+.report-prose .citation {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: none;
+  margin: 0 1px;
+  transition: background 120ms ease;
+}
+
+.report-prose .citation:hover {
+  background: var(--accent);
+  color: #0a0e15;
+}
+
+.report-prose .citation.active {
+  background: var(--accent);
+  color: #0a0e15;
+}
+
+/* Evidence pane (right split) ------------------------------------------- */
+
+.evidence-pane {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: calc(100vh - 100px);
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.evidence-pane[hidden] { display: none; }
+
+.evidence-pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.evidence-pane-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.evidence-pane-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.evidence-pane-close:hover { color: var(--text); }
+
+.evidence-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+/* Footer ---------------------------------------------------------------- */
+
+.inspector-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-mute);
+  font-family: var(--mono);
+}

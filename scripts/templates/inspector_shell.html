@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POLARIS Evidence Inspector — {{ run_slug }}</title>
+<link rel="stylesheet" href="/static/inspector/inspector.css">
+</head>
+<body>
+<header class="inspector-header">
+  <div class="inspector-brand">
+    <span class="brand-mark">POLARIS</span>
+    <span class="brand-product">Evidence Inspector</span>
+  </div>
+  <div class="inspector-meta">
+    <span class="meta-label">Run</span>
+    <span class="meta-value" id="meta-run-slug">{{ run_slug }}</span>
+    <span class="meta-label">Run ID</span>
+    <span class="meta-value" id="meta-run-id">{{ run_id }}</span>
+  </div>
+</header>
+
+<nav class="inspector-tabs" role="tablist" aria-label="Evidence Inspector views">
+  <button class="tab-btn active" data-view="report" role="tab" aria-selected="true">
+    Report
+    <span class="tab-hint">click any [N] to inspect</span>
+  </button>
+  <button class="tab-btn" data-view="contradictions" role="tab" aria-selected="false">
+    Contradictions
+    <span class="tab-count" id="contradictions-count">—</span>
+  </button>
+  <button class="tab-btn" data-view="frame-coverage" role="tab" aria-selected="false">
+    Frame Coverage
+    <span class="tab-count" id="frame-coverage-count">—</span>
+  </button>
+  <button class="tab-btn" data-view="methods" role="tab" aria-selected="false">
+    Methods + Provenance
+  </button>
+  <button class="tab-btn" data-view="tier-mix" role="tab" aria-selected="false">
+    Source Tier Mix
+  </button>
+</nav>
+
+<section class="tier-bar-strip" id="tier-bar-strip">
+  <div class="tier-bar-loading">Loading tier mix…</div>
+</section>
+
+<main class="inspector-main">
+  <section class="view view-report active" id="view-report" role="tabpanel">
+    <div class="view-shell" id="report-shell">
+      <p class="loading">Loading verified report…</p>
+    </div>
+  </section>
+
+  <section class="view view-contradictions" id="view-contradictions" role="tabpanel" hidden>
+    <div class="view-shell">
+      <p class="placeholder">Contradiction Matrix view (M-4 — pending)</p>
+    </div>
+  </section>
+
+  <section class="view view-frame-coverage" id="view-frame-coverage" role="tabpanel" hidden>
+    <div class="view-shell">
+      <p class="placeholder">Frame Coverage Manifest view (M-5 — pending)</p>
+    </div>
+  </section>
+
+  <section class="view view-methods" id="view-methods" role="tabpanel" hidden>
+    <div class="view-shell">
+      <p class="placeholder">Methods + Provenance Bundle view (M-6 — pending)</p>
+    </div>
+  </section>
+
+  <section class="view view-tier-mix" id="view-tier-mix" role="tabpanel" hidden>
+    <div class="view-shell">
+      <p class="placeholder">Source Tier Mix view (M-7 — pending)</p>
+    </div>
+  </section>
+</main>
+
+<aside class="evidence-pane" id="evidence-pane" hidden aria-hidden="true">
+  <header class="evidence-pane-header">
+    <h3>Evidence span</h3>
+    <button class="evidence-pane-close" type="button" aria-label="Close evidence pane">×</button>
+  </header>
+  <div class="evidence-pane-body">
+    <p class="placeholder">Click any [N] in the Report view to reveal the bound evidence span. (M-3 — pending)</p>
+  </div>
+</aside>
+
+<footer class="inspector-footer">
+  <span>POLARIS Evidence Inspector — Phase A demo</span>
+  <span id="footer-status">audit-grade · single-lane · click-to-inspect</span>
+</footer>
+
+<script>window.POLARIS_RUN_SLUG = "{{ run_slug }}";</script>
+<script src="/static/inspector/inspector.js" defer></script>
+</body>
+</html>
