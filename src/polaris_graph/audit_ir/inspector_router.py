@@ -25,12 +25,25 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
+from pydantic import BaseModel, Field
+
+from src.polaris_graph.audit_ir.job_queue import (
+    JobQueue,
+    JobQueueError,
+    job_to_dict,
+)
+from src.polaris_graph.audit_ir.job_runner import (
+    MockJobRunner,
+    list_runners,
+    register_runner,
+)
 from src.polaris_graph.audit_ir.loader import (
     AuditIRSchemaError,
     load_audit_ir,
 )
 from src.polaris_graph.audit_ir.registry import (
     CANONICAL_DEMO_SLUG,
+    REPO_ROOT,
     find_run_by_id,
     find_run_by_slug,
     list_available_runs,
@@ -41,6 +54,33 @@ router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "scripts" / "templates"
 INSPECTOR_HTML_PATH = TEMPLATES_DIR / "inspector_shell.html"
+
+# ---------------------------------------------------------------------------
+# Job queue lifecycle (Phase B M-8)
+# ---------------------------------------------------------------------------
+
+# In-process JobQueue + worker. Phase A scope: single worker. Phase C upgrades
+# to a shared queue + multi-worker pool.
+_JOB_DB_PATH = REPO_ROOT / "state" / "polaris_jobs.sqlite"
+_job_queue: JobQueue | None = None
+
+
+def get_job_queue() -> JobQueue:
+    """Lazy-init the JobQueue. Tests patch this with a tmp_path queue."""
+    global _job_queue
+    if _job_queue is None:
+        _job_queue = JobQueue(_JOB_DB_PATH)
+        # Register the mock runner so tests + the live demo have something
+        # to enqueue against without a full V30 sweep. M-9 will register
+        # the V30JobRunner on top of this.
+        register_runner(MockJobRunner(template_id="mock", total_seconds=2.0, step_seconds=0.2))
+    return _job_queue
+
+
+def _set_job_queue_for_tests(queue: JobQueue | None) -> None:
+    """Test helper: replace the singleton queue."""
+    global _job_queue
+    _job_queue = queue
 
 
 @router.get("/api/inspector/runs")
@@ -274,6 +314,97 @@ async def get_audit_bundle(slug: str):
 async def inspector_root() -> RedirectResponse:
     """Redirect to the canonical demo run for Phase A."""
     return RedirectResponse(url=f"/inspector/{CANONICAL_DEMO_SLUG}")
+
+
+# ---------------------------------------------------------------------------
+# Job lifecycle endpoints (M-8)
+# ---------------------------------------------------------------------------
+
+
+class EnqueueJobRequest(BaseModel):
+    template_id: str = Field(..., description="Job template, e.g. 'mock' (M-8) or 'v30_clinical' (M-9)")
+    params: dict = Field(default_factory=dict)
+
+
+@router.post("/api/inspector/jobs")
+async def enqueue_job(req: EnqueueJobRequest) -> dict:
+    """Create a new pending job.
+
+    Phase A: only `mock` template_id is supported. M-9 adds `v30_clinical`
+    + the rest of the curated template library.
+    """
+    available = set(list_runners())
+    if req.template_id not in available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown template_id={req.template_id!r}. Available: {sorted(available)}",
+        )
+    queue = get_job_queue()
+    job = queue.enqueue(req.template_id, req.params)
+    return job_to_dict(job)
+
+
+@router.get("/api/inspector/jobs")
+async def list_jobs(status: str | None = None, limit: int = 100) -> dict:
+    queue = get_job_queue()
+    try:
+        jobs = queue.list_by_status(status=status, limit=limit)
+    except JobQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "count": len(jobs),
+        "available_templates": list_runners(),
+        "jobs": [job_to_dict(j) for j in jobs],
+    }
+
+
+@router.get("/api/inspector/jobs/{job_id}")
+async def get_job(job_id: str) -> dict:
+    queue = get_job_queue()
+    job = queue.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Unknown job_id={job_id}")
+    return job_to_dict(job)
+
+
+@router.post("/api/inspector/jobs/{job_id}/pause")
+async def pause_job(job_id: str) -> dict:
+    queue = get_job_queue()
+    try:
+        job = queue.request_pause(job_id)
+    except JobQueueError as exc:
+        # Surface clearly: 404 for unknown, 409 for state conflict.
+        msg = str(exc)
+        if "unknown job" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
+    return job_to_dict(job)
+
+
+@router.post("/api/inspector/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str) -> dict:
+    queue = get_job_queue()
+    try:
+        job = queue.request_cancel(job_id)
+    except JobQueueError as exc:
+        msg = str(exc)
+        if "unknown job" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
+    return job_to_dict(job)
+
+
+@router.post("/api/inspector/jobs/{job_id}/resume")
+async def resume_job(job_id: str) -> dict:
+    queue = get_job_queue()
+    try:
+        job = queue.resume_paused(job_id)
+    except JobQueueError as exc:
+        msg = str(exc)
+        if "unknown job" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
+    return job_to_dict(job)
 
 
 @router.get("/inspector/{slug}", response_class=HTMLResponse)

@@ -8,6 +8,24 @@ This module loads a V30 Phase-2 run artifact directory and emits a
 unified, immutable AuditIR object.
 """
 
+from src.polaris_graph.audit_ir.job_queue import (
+    ALLOWED_TRANSITIONS,
+    JOB_STATUSES,
+    TERMINAL_STATUSES,
+    Job,
+    JobQueue,
+    JobQueueError,
+    job_to_dict,
+)
+from src.polaris_graph.audit_ir.job_runner import (
+    JobControl,
+    JobRunner,
+    MockJobRunner,
+    get_runner,
+    list_runners,
+    register_runner,
+)
+from src.polaris_graph.audit_ir.job_worker import JobWorker
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,
@@ -36,7 +54,21 @@ from src.polaris_graph.audit_ir.loader import (
 )
 
 __all__ = [
+    "ALLOWED_TRANSITIONS",
     "IR_SCHEMA_VERSION",
+    "JOB_STATUSES",
+    "TERMINAL_STATUSES",
+    "Job",
+    "JobControl",
+    "JobQueue",
+    "JobQueueError",
+    "JobRunner",
+    "JobWorker",
+    "MockJobRunner",
+    "get_runner",
+    "job_to_dict",
+    "list_runners",
+    "register_runner",
     "AdequacyGate",
     "AuditIR",
     "AuditIRSchemaError",
