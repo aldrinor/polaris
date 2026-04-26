@@ -1,6 +1,14 @@
 // POLARIS Evidence Inspector — Phase A.
 // M-2 wired the shell + tabs + tier strip.
 // M-3 wires View 1: rendered report with click-to-inspect citations.
+//
+// Codex M-3 review fixes integrated:
+// - real split-pane layout (HTML restructured to put pane in flex row)
+// - full cluster rendering (all claims, active claim highlighted)
+// - URL-stem resolver as secondary contradiction match
+// - URL protocol sanitization (only http/https in href)
+// - tier/severity validated against an enum before injection
+// - aria-controls / aria-expanded / focus management
 
 (function () {
   "use strict";
@@ -10,6 +18,9 @@
     console.error("POLARIS_RUN_SLUG not set; cannot load run");
     return;
   }
+
+  const VALID_TIERS = new Set(["T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"]);
+  const VALID_SEVERITIES = new Set(["low", "medium", "high", "critical", "unknown"]);
 
   const tabs = document.querySelectorAll(".tab-btn");
   const views = document.querySelectorAll(".view");
@@ -30,6 +41,53 @@
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => activateView(tab.dataset.view));
   });
+
+  // ---------------------------------------------------------------------
+  // Helpers (XSS hardening + value validation)
+  // ---------------------------------------------------------------------
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // Only http/https URLs are allowed in href. Anything else (javascript:,
+  // data:, file:, mailto:, etc.) collapses to "" so the link is rendered
+  // inert. Codex M-3 fix: protocol sanitization.
+  function sanitizeUrl(url) {
+    const s = String(url == null ? "" : url).trim();
+    if (!s) return "";
+    if (/^https?:\/\//i.test(s)) return s;
+    return "";
+  }
+
+  function validateTier(t) {
+    const up = String(t == null ? "" : t).toUpperCase();
+    return VALID_TIERS.has(up) ? up : "UNKNOWN";
+  }
+
+  function validateSeverity(sev) {
+    const lo = String(sev == null ? "" : sev).toLowerCase();
+    return VALID_SEVERITIES.has(lo) ? lo : "unknown";
+  }
+
+  // Normalize a URL to a comparison stem: scheme dropped, www. dropped,
+  // trailing slash trimmed, lowercased. Used for the URL-secondary
+  // contradiction resolver. doi.org/10.x and figshare/jamanetwork-style
+  // URLs all collapse to comparable stems.
+  function urlStem(url) {
+    const s = String(url == null ? "" : url).trim().toLowerCase();
+    if (!s) return "";
+    return s
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, "");
+  }
 
   // ---------------------------------------------------------------------
   // Data fetch
@@ -84,12 +142,12 @@
   // ---------------------------------------------------------------------
 
   function buildEvidenceIndex(ir) {
-    // Indexes for click-to-inspect lookups.
     const bibByNum = {};
     (ir.bibliography || []).forEach((b) => {
       bibByNum[String(b.num)] = b;
     });
 
+    // sentencesByEvidenceId: claim_id -> sentences
     const sentencesByEvidenceId = {};
     (ir.verified_report?.sections || []).forEach((section) => {
       (section.sentences || []).forEach((sent) => {
@@ -107,34 +165,60 @@
       });
     });
 
-    const contradictionsByEvidenceId = {};
+    // Primary index: cluster matches by exact evidence_id of any of its claims
+    const clustersByEvidenceId = {};
+    // Secondary index: cluster matches by URL stem of any claim's source_url
+    const clustersByUrlStem = {};
     (ir.contradictions || []).forEach((cluster) => {
       (cluster.claims || []).forEach((claim) => {
-        if (!claim.evidence_id) return;
-        if (!contradictionsByEvidenceId[claim.evidence_id]) {
-          contradictionsByEvidenceId[claim.evidence_id] = [];
+        if (claim.evidence_id) {
+          if (!clustersByEvidenceId[claim.evidence_id]) {
+            clustersByEvidenceId[claim.evidence_id] = [];
+          }
+          // Avoid pushing the same cluster twice if multiple claims share evidence_id.
+          if (!clustersByEvidenceId[claim.evidence_id].includes(cluster)) {
+            clustersByEvidenceId[claim.evidence_id].push(cluster);
+          }
         }
-        contradictionsByEvidenceId[claim.evidence_id].push({
-          cluster: cluster,
-          claim: claim,
-        });
+        const stem = urlStem(claim.source_url);
+        if (stem) {
+          if (!clustersByUrlStem[stem]) {
+            clustersByUrlStem[stem] = [];
+          }
+          if (!clustersByUrlStem[stem].includes(cluster)) {
+            clustersByUrlStem[stem].push(cluster);
+          }
+        }
       });
     });
 
-    return { bibByNum, sentencesByEvidenceId, contradictionsByEvidenceId };
+    return {
+      bibByNum,
+      sentencesByEvidenceId,
+      clustersByEvidenceId,
+      clustersByUrlStem,
+    };
   }
 
-  function tierBadge(tier) {
-    const t = String(tier || "UNKNOWN").toUpperCase();
-    return `<span class="tier-badge tier-badge-${t.toLowerCase()}">${t}</span>`;
+  function findClustersForBibEntry(bib, idx) {
+    const bySet = new Set();
+    const eid = bib.evidence_id || "";
+    (idx.clustersByEvidenceId[eid] || []).forEach((c) => bySet.add(c));
+    const stem = urlStem(bib.url);
+    if (stem) {
+      (idx.clustersByUrlStem[stem] || []).forEach((c) => bySet.add(c));
+    }
+    return Array.from(bySet);
   }
 
-  function escHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  function tierBadgeHtml(tier) {
+    const t = validateTier(tier);
+    return `<span class="tier-badge tier-badge-${t.toLowerCase()}">${escHtml(t)}</span>`;
+  }
+
+  function severityBadgeHtml(sev) {
+    const s = validateSeverity(sev);
+    return `<span class="severity severity-${escHtml(s)}">${escHtml(s)}</span>`;
   }
 
   function renderEvidencePane(num, ir, idx) {
@@ -145,33 +229,35 @@
 
     if (!bib) {
       header.textContent = `Citation [${num}] — unresolved`;
-      body.innerHTML = `<p class="placeholder">No bibliography entry for [${num}].</p>`;
-      pane.hidden = false;
-      pane.setAttribute("aria-hidden", "false");
-      document.body.classList.add("evidence-pane-open");
+      body.innerHTML = `<p class="placeholder">No bibliography entry for [${escHtml(num)}].</p>`;
+      openPane();
       return;
     }
 
     const eid = bib.evidence_id;
     const sentences = idx.sentencesByEvidenceId[eid] || [];
-    const contradictions = idx.contradictionsByEvidenceId[eid] || [];
+    const clusters = findClustersForBibEntry(bib, idx);
 
     header.textContent = `Citation [${num}] — ${eid}`;
 
     let html = "";
+
+    // Bibliography block
     html += `<section class="evidence-block evidence-bib">`;
     html += `  <div class="evidence-block-row">`;
-    html += `    ${tierBadge(bib.tier)}`;
+    html += `    ${tierBadgeHtml(bib.tier)}`;
     html += `    <span class="evidence-eid">${escHtml(eid)}</span>`;
     html += `  </div>`;
     html += `  <p class="evidence-statement">${escHtml(bib.statement)}</p>`;
-    if (bib.url) {
-      html += `  <p class="evidence-url"><a href="${escHtml(
-        bib.url
-      )}" target="_blank" rel="noopener">${escHtml(bib.url)}</a></p>`;
+    const safeUrl = sanitizeUrl(bib.url);
+    if (safeUrl) {
+      html += `  <p class="evidence-url"><a href="${escHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(safeUrl)}</a></p>`;
+    } else if (bib.url) {
+      html += `  <p class="evidence-url evidence-url-blocked">URL omitted (non-http(s) scheme blocked)</p>`;
     }
     html += `</section>`;
 
+    // Verified sentences citing this evidence
     html += `<section class="evidence-block">`;
     html += `  <h4 class="evidence-block-title">Sentences citing this evidence (${sentences.length})</h4>`;
     if (sentences.length === 0) {
@@ -185,14 +271,12 @@
         html += `<li class="evidence-sentence evidence-sentence-${cls}">`;
         html += `  <div class="evidence-sentence-meta">`;
         html += `    <span class="evidence-sentence-section">${escHtml(s.section)}</span>`;
-        html += `    <span class="evidence-sentence-status status-${cls}">${label}</span>`;
-        html += `    <span class="evidence-sentence-span">span ${s.token.start}–${s.token.end}</span>`;
+        html += `    <span class="evidence-sentence-status status-${cls}">${escHtml(label)}</span>`;
+        html += `    <span class="evidence-sentence-span">span ${Number(s.token.start)}–${Number(s.token.end)}</span>`;
         html += `  </div>`;
         html += `  <p class="evidence-sentence-text">${escHtml(s.sentence.text)}</p>`;
         if (!verified && (s.sentence.failure_reasons || []).length > 0) {
-          html += `<p class="evidence-sentence-fail">drop: ${escHtml(
-            s.sentence.failure_reasons.join("; ")
-          )}</p>`;
+          html += `<p class="evidence-sentence-fail">drop: ${escHtml(s.sentence.failure_reasons.join("; "))}</p>`;
         }
         html += `</li>`;
       });
@@ -200,22 +284,46 @@
     }
     html += `</section>`;
 
+    // Contradiction clusters — all claims, active claim highlighted
     html += `<section class="evidence-block">`;
-    html += `  <h4 class="evidence-block-title">Contradictions involving this evidence (${contradictions.length})</h4>`;
-    if (contradictions.length === 0) {
-      html += `<p class="placeholder">No contradiction clusters reference this evidence.</p>`;
+    html += `  <h4 class="evidence-block-title">Contradictions involving this evidence (${clusters.length})</h4>`;
+    if (clusters.length === 0) {
+      html += `<p class="placeholder">No contradiction clusters reference this evidence directly. See the Contradictions tab for the corpus-wide matrix.</p>`;
     } else {
       html += `<ul class="evidence-contradictions">`;
-      contradictions.forEach((c) => {
-        html += `<li>`;
+      clusters.forEach((cluster) => {
+        const activeStem = urlStem(bib.url);
+        html += `<li class="contradiction-cluster">`;
         html += `  <div class="evidence-contradiction-meta">`;
-        html += `    <span class="severity severity-${escHtml(c.cluster.severity)}">${escHtml(c.cluster.severity)}</span>`;
-        html += `    <span class="cluster-predicate">${escHtml(c.cluster.subject || "")} · ${escHtml(c.cluster.predicate)}</span>`;
+        html += `    ${severityBadgeHtml(cluster.severity)}`;
+        html += `    <span class="cluster-predicate">${escHtml(cluster.subject || "")} · ${escHtml(cluster.predicate)}</span>`;
         html += `  </div>`;
-        html += `  <p class="evidence-contradiction-claim">value=${escHtml(c.claim.value)} ${escHtml(c.claim.unit)} (arm ${escHtml(c.claim.arm)}, dose ${escHtml(c.claim.dose)})</p>`;
-        if (c.cluster.recommended_action) {
-          html += `<p class="evidence-contradiction-action">${escHtml(c.cluster.recommended_action)}</p>`;
+        if (cluster.recommended_action) {
+          html += `<p class="evidence-contradiction-action">${escHtml(cluster.recommended_action)}</p>`;
         }
+        html += `<ol class="cluster-claims">`;
+        (cluster.claims || []).forEach((claim) => {
+          const isActive =
+            (claim.evidence_id && claim.evidence_id === eid) ||
+            (activeStem && urlStem(claim.source_url) === activeStem);
+          const claimUrl = sanitizeUrl(claim.source_url);
+          html += `<li class="cluster-claim ${isActive ? "cluster-claim-active" : ""}">`;
+          html += `  <div class="cluster-claim-meta">`;
+          html += `    ${tierBadgeHtml(claim.source_tier)}`;
+          html += `    <span class="cluster-claim-eid">${escHtml(claim.evidence_id || "—")}</span>`;
+          html += `    <span class="cluster-claim-value">${escHtml(claim.value)} ${escHtml(claim.unit || "")}</span>`;
+          if (claim.dose) html += `    <span class="cluster-claim-dose">dose ${escHtml(claim.dose)}</span>`;
+          if (claim.arm) html += `    <span class="cluster-claim-arm">arm ${escHtml(claim.arm)}</span>`;
+          html += `  </div>`;
+          if (claim.context_snippet) {
+            html += `  <p class="cluster-claim-snippet">${escHtml(claim.context_snippet)}</p>`;
+          }
+          if (claimUrl) {
+            html += `  <p class="cluster-claim-url"><a href="${escHtml(claimUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(claimUrl)}</a></p>`;
+          }
+          html += `</li>`;
+        });
+        html += `</ol>`;
         html += `</li>`;
       });
       html += `</ul>`;
@@ -223,19 +331,48 @@
     html += `</section>`;
 
     body.innerHTML = html;
+    openPane();
+  }
+
+  function openPane() {
+    const pane = document.getElementById("evidence-pane");
     pane.hidden = false;
     pane.setAttribute("aria-hidden", "false");
     document.body.classList.add("evidence-pane-open");
+    // Mark all citations as not expanded; we update the active one separately.
+    document.querySelectorAll("a.citation").forEach((a) => a.setAttribute("aria-expanded", "false"));
+    const active = document.querySelector("a.citation.active");
+    if (active) active.setAttribute("aria-expanded", "true");
+    // Move focus to the pane body so screen readers announce it.
+    const body = document.getElementById("evidence-pane-body");
+    if (body) body.focus();
   }
 
-  function closeEvidencePane() {
+  function closeEvidencePane(returnFocus) {
     const pane = document.getElementById("evidence-pane");
     pane.hidden = true;
     pane.setAttribute("aria-hidden", "true");
     document.body.classList.remove("evidence-pane-open");
-    document.querySelectorAll(".citation.active").forEach((el) =>
-      el.classList.remove("active")
-    );
+    document.querySelectorAll(".citation.active").forEach((el) => {
+      el.classList.remove("active");
+      el.setAttribute("aria-expanded", "false");
+    });
+    if (returnFocus) returnFocus.focus();
+  }
+
+  let _wired = false;
+  let _lastFocused = null;
+  function wireGlobalListeners() {
+    if (_wired) return;
+    _wired = true;
+    const closeBtn = document.querySelector(".evidence-pane-close");
+    if (closeBtn) closeBtn.addEventListener("click", () => closeEvidencePane(_lastFocused));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        const pane = document.getElementById("evidence-pane");
+        if (pane && !pane.hidden) closeEvidencePane(_lastFocused);
+      }
+    });
   }
 
   function wireCitationInteraction(ir, idx) {
@@ -250,9 +387,9 @@
         el.classList.remove("active")
       );
       target.classList.add("active");
+      _lastFocused = target;
       renderEvidencePane(num, ir, idx);
     });
-    // Keyboard activation for citations
     shell.addEventListener("keydown", (event) => {
       const target = event.target.closest("a.citation");
       if (!target) return;
@@ -261,11 +398,24 @@
         target.click();
       }
     });
-    const closeBtn = document.querySelector(".evidence-pane-close");
-    if (closeBtn) closeBtn.addEventListener("click", closeEvidencePane);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeEvidencePane();
+    // Add a11y attributes to every citation in the rendered prose.
+    shell.querySelectorAll("a.citation").forEach((a) => {
+      a.setAttribute("aria-controls", "evidence-pane");
+      a.setAttribute("aria-expanded", "false");
+      const num = a.dataset.num;
+      const bib = idx.bibByNum[num];
+      if (bib) {
+        a.setAttribute(
+          "aria-label",
+          `Citation ${num}: ${bib.tier || "UNKNOWN"} source — ${
+            bib.statement ? bib.statement.slice(0, 80) : bib.evidence_id
+          }`
+        );
+      } else {
+        a.setAttribute("aria-label", `Citation ${num} (unresolved)`);
+      }
     });
+    wireGlobalListeners();
   }
 
   async function renderReportView(ir) {
@@ -308,7 +458,7 @@
     .catch((err) => {
       const shell = document.getElementById("report-shell");
       if (shell) {
-        shell.innerHTML = `<p class="placeholder">Failed to load run: ${err.message}</p>`;
+        shell.innerHTML = `<p class="placeholder">Failed to load run: ${escHtml(err.message)}</p>`;
       }
     });
 })();

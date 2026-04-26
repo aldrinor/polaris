@@ -210,3 +210,74 @@ def test_inspector_page_serves_static_inspector_assets() -> None:
     assert (static_dir / "inspector.js").exists()
     assert (static_dir / "markdown.js").exists()
     assert (static_dir / "inspector.css").exists()
+
+
+# ---------------------------------------------------------------------------
+# Codex M-3 review fixes — layout structure + a11y attributes in shell
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_page_has_split_pane_layout_structure() -> None:
+    """Codex M-3 high: evidence-pane was OUTSIDE inspector-main; the grid never
+    actually split. Now the pane lives INSIDE main, beside .inspector-views."""
+    client = _make_client()
+    resp = client.get(f"/inspector/{CANONICAL_DEMO_SLUG}")
+    body = resp.text
+    main_idx = body.find('class="inspector-main"')
+    views_idx = body.find('class="inspector-views"', main_idx)
+    pane_idx = body.find('class="evidence-pane"', main_idx)
+    main_close = body.find("</main>")
+    assert views_idx > main_idx
+    assert pane_idx > main_idx
+    assert pane_idx < main_close
+    assert views_idx < pane_idx
+
+
+def test_inspector_page_has_a11y_attributes_on_pane() -> None:
+    """Codex M-3 medium: pane needs aria-labelledby + body has tabindex for focus."""
+    client = _make_client()
+    resp = client.get(f"/inspector/{CANONICAL_DEMO_SLUG}")
+    body = resp.text
+    assert 'aria-labelledby="evidence-pane-title"' in body
+    assert 'id="evidence-pane-title"' in body
+    assert 'id="evidence-pane-body"' in body
+    assert 'tabindex="-1"' in body
+
+
+def test_inspector_js_validates_tier_and_severity_against_enum() -> None:
+    """Codex M-3 medium: tier/severity must be validated before HTML injection."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "VALID_TIERS" in js
+    assert "VALID_SEVERITIES" in js
+    assert "validateTier" in js
+    assert "validateSeverity" in js
+
+
+def test_inspector_js_sanitizes_url_protocols() -> None:
+    """Codex M-3 medium: only http/https URLs may go into href."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "sanitizeUrl" in js
+    assert "/^https?:\\/\\//i" in js
+
+
+def test_inspector_js_renders_full_cluster_not_just_active_claim() -> None:
+    """Codex M-3 high: contradiction drilldown must render every claim in the
+    cluster, not only the matching one."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # The cluster.claims iteration is the contract
+    assert "cluster.claims" in js
+    assert "cluster-claim-active" in js
+    assert "context_snippet" in js
+
+
+def test_inspector_js_has_url_stem_resolver() -> None:
+    """Codex M-3 medium: ID drift between bibliography and contradiction
+    namespaces is bridged by URL-stem secondary matching."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "urlStem" in js
+    assert "clustersByUrlStem" in js
+    assert "findClustersForBibEntry" in js

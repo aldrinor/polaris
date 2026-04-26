@@ -74,6 +74,14 @@
         continue;
       }
 
+      // Horizontal rule (---/***/___ on its own line).
+      if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        flushParagraph();
+        out.push("<hr>");
+        i += 1;
+        continue;
+      }
+
       // Headings.
       const heading = /^(#{1,6})\s+(.*)$/.exec(line);
       if (heading) {
@@ -111,6 +119,9 @@
         i += 2; // skip header + separator
         const rows = [];
         while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+          // A new table starts when this line is followed by a separator —
+          // stop consuming rows so the next iteration sees a fresh table.
+          if (i + 1 < lines.length && isTableSeparator(lines[i + 1])) break;
           rows.push(lines[i]);
           i += 1;
         }

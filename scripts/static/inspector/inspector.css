@@ -174,13 +174,17 @@ html, body {
 /* Main + views ----------------------------------------------------------- */
 
 .inspector-main {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   min-height: calc(100vh - 180px);
 }
 
-body.evidence-pane-open .inspector-main {
-  grid-template-columns: 1fr 480px;
+.inspector-views {
+  flex: 1;
+  min-width: 0;  /* allow flex shrink */
+  display: flex;
+  flex-direction: column;
 }
 
 .view {
@@ -247,17 +251,24 @@ body.evidence-pane-open .inspector-main {
 /* Evidence pane (right split) ------------------------------------------- */
 
 .evidence-pane {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: calc(100vh - 100px);
+  width: 480px;
+  flex: 0 0 480px;
   background: var(--bg-elev);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 0;
+  align-self: stretch;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .evidence-pane[hidden] { display: none; }
+
+@media (max-width: 1100px) {
+  .evidence-pane { width: 380px; flex-basis: 380px; }
+}
 
 .evidence-pane-header {
   display: flex;
@@ -492,10 +503,74 @@ body.evidence-pane-open .inspector-main {
   gap: 12px;
 }
 
-.evidence-contradictions li {
+.contradiction-cluster {
   background: var(--bg-elev-2);
   border-radius: 4px;
   padding: 10px 12px;
+}
+
+.cluster-claims {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  counter-reset: claim;
+}
+
+.cluster-claim {
+  background: var(--bg-elev);
+  border-left: 3px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.cluster-claim-active {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cluster-claim-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cluster-claim-eid { color: var(--text-dim); }
+
+.cluster-claim-value {
+  color: var(--text);
+  font-weight: 600;
+  text-transform: none;
+  font-size: 12px;
+}
+
+.cluster-claim-snippet {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--serif);
+  line-height: 1.5;
+}
+
+.cluster-claim-url {
+  margin: 6px 0 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.cluster-claim-url a {
+  color: var(--accent);
+  text-decoration: none;
 }
 
 .evidence-contradiction-meta {
@@ -503,6 +578,18 @@ body.evidence-pane-open .inspector-main {
   gap: 10px;
   align-items: center;
   margin-bottom: 6px;
+}
+
+.evidence-url-blocked {
+  color: var(--gap);
+  font-style: italic;
+  font-size: 11px;
+}
+
+.report-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 22px 0;
 }
 
 .severity {

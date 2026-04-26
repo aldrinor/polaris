@@ -46,46 +46,48 @@
 </section>
 
 <main class="inspector-main">
-  <section class="view view-report active" id="view-report" role="tabpanel">
-    <div class="view-shell" id="report-shell">
-      <p class="loading">Loading verified report…</p>
-    </div>
-  </section>
+  <div class="inspector-views" id="inspector-views">
+    <section class="view view-report active" id="view-report" role="tabpanel">
+      <div class="view-shell" id="report-shell">
+        <p class="loading">Loading verified report…</p>
+      </div>
+    </section>
 
-  <section class="view view-contradictions" id="view-contradictions" role="tabpanel" hidden>
-    <div class="view-shell">
-      <p class="placeholder">Contradiction Matrix view (M-4 — pending)</p>
-    </div>
-  </section>
+    <section class="view view-contradictions" id="view-contradictions" role="tabpanel" hidden>
+      <div class="view-shell">
+        <p class="placeholder">Contradiction Matrix view (M-4 — pending)</p>
+      </div>
+    </section>
 
-  <section class="view view-frame-coverage" id="view-frame-coverage" role="tabpanel" hidden>
-    <div class="view-shell">
-      <p class="placeholder">Frame Coverage Manifest view (M-5 — pending)</p>
-    </div>
-  </section>
+    <section class="view view-frame-coverage" id="view-frame-coverage" role="tabpanel" hidden>
+      <div class="view-shell">
+        <p class="placeholder">Frame Coverage Manifest view (M-5 — pending)</p>
+      </div>
+    </section>
 
-  <section class="view view-methods" id="view-methods" role="tabpanel" hidden>
-    <div class="view-shell">
-      <p class="placeholder">Methods + Provenance Bundle view (M-6 — pending)</p>
-    </div>
-  </section>
+    <section class="view view-methods" id="view-methods" role="tabpanel" hidden>
+      <div class="view-shell">
+        <p class="placeholder">Methods + Provenance Bundle view (M-6 — pending)</p>
+      </div>
+    </section>
 
-  <section class="view view-tier-mix" id="view-tier-mix" role="tabpanel" hidden>
-    <div class="view-shell">
-      <p class="placeholder">Source Tier Mix view (M-7 — pending)</p>
-    </div>
-  </section>
-</main>
-
-<aside class="evidence-pane" id="evidence-pane" hidden aria-hidden="true">
-  <header class="evidence-pane-header">
-    <h3>Evidence span</h3>
-    <button class="evidence-pane-close" type="button" aria-label="Close evidence pane">×</button>
-  </header>
-  <div class="evidence-pane-body">
-    <p class="placeholder">Click any [N] in the Report view to reveal the bound evidence span. (M-3 — pending)</p>
+    <section class="view view-tier-mix" id="view-tier-mix" role="tabpanel" hidden>
+      <div class="view-shell">
+        <p class="placeholder">Source Tier Mix view (M-7 — pending)</p>
+      </div>
+    </section>
   </div>
-</aside>
+
+  <aside class="evidence-pane" id="evidence-pane" hidden aria-hidden="true" aria-labelledby="evidence-pane-title">
+    <header class="evidence-pane-header">
+      <h3 id="evidence-pane-title">Evidence span</h3>
+      <button class="evidence-pane-close" type="button" aria-label="Close evidence pane">×</button>
+    </header>
+    <div class="evidence-pane-body" id="evidence-pane-body" tabindex="-1">
+      <p class="placeholder">Click any [N] in the Report view to reveal the bound evidence span.</p>
+    </div>
+  </aside>
+</main>
 
 <footer class="inspector-footer">
   <span>POLARIS Evidence Inspector — Phase A demo</span>

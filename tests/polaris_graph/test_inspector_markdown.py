@@ -145,3 +145,54 @@ def test_markdown_js_renders_bullet_list() -> None:
     assert "<ul>" in out
     assert "<li>alpha</li>" in out
     assert 'data-num="4"' in out
+
+
+# ---------------------------------------------------------------------------
+# Codex M-3 review fixes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_markdown_js_renders_horizontal_rule() -> None:
+    """Codex M-3 review low: --- separator must render as <hr>, not literal text."""
+    js = textwrap.dedent(
+        """
+        const window = {};
+        require(%s);
+        const out = window.PolarisMarkdown.render("Before.\\n\\n---\\n\\nAfter.");
+        console.log(out);
+        """
+        % repr(str(MARKDOWN_JS).replace("\\", "/"))
+    )
+    res = subprocess.run(
+        [NODE_BIN, "-e", js], capture_output=True, text=True, timeout=15
+    )
+    assert res.returncode == 0, res.stderr
+    out = res.stdout
+    assert "<hr>" in out
+    # The literal "---" must NOT appear as paragraph text
+    assert "<p>---</p>" not in out
+
+
+@pytest.mark.skipif(NODE_BIN is None, reason="node not available")
+def test_markdown_js_renders_adjacent_tables_without_blank_line() -> None:
+    """Codex M-3 review medium: adjacent tables must not bleed into each other."""
+    js = textwrap.dedent(
+        """
+        const window = {};
+        require(%s);
+        const md = "| A | B |\\n|---|---|\\n| 1 | 2 |\\n| C | D |\\n|---|---|\\n| 3 | 4 |";
+        const out = window.PolarisMarkdown.render(md);
+        console.log(out);
+        """
+        % repr(str(MARKDOWN_JS).replace("\\", "/"))
+    )
+    res = subprocess.run(
+        [NODE_BIN, "-e", js], capture_output=True, text=True, timeout=15
+    )
+    assert res.returncode == 0, res.stderr
+    out = res.stdout
+    # Two distinct tables, not one merged table
+    assert out.count("<table>") == 2
+    assert "<th>A</th>" in out
+    assert "<th>C</th>" in out
