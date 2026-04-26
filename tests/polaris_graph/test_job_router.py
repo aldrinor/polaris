@@ -442,17 +442,38 @@ def test_resume_endpoint_routes_paused_to_pending_for_reclaim(tmp_path: Path) ->
         _reset_runners_for_tests()
 
 
-def test_cancel_paused_job_via_endpoint_terminates_directly(client_with_isolated_queue) -> None:
+def test_cancel_paused_job_via_endpoint_terminates_directly(tmp_path: Path) -> None:
     """Codex M-8 review fix #4: cancelling a paused job (no live worker) must
-    transition directly to 'cancelled', not just set a flag."""
-    client, queue = client_with_isolated_queue
-    job_id = client.post("/api/inspector/jobs", json={"template_id": "mock", "params": {}}).json()["job_id"]
-    queue.claim_pending()
-    queue.request_pause(job_id)
-    queue.mark_paused(job_id)
-    resp = client.post(f"/api/inspector/jobs/{job_id}/cancel")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "cancelled"
+    transition directly to 'cancelled', not just set a flag.
+
+    Codex M-8 v3 review fix: bypass the auto-start enqueue endpoint
+    so queue.claim_pending() doesn't race with the singleton worker.
+    """
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _set_job_queue_for_tests,
+        _set_job_worker_for_tests,
+    )
+    _reset_runners_for_tests()
+    register_runner(MockJobRunner(template_id="mock", total_seconds=0.3, step_seconds=0.05))
+    queue = JobQueue(tmp_path / "cancel_paused_jobs.sqlite")
+    _set_job_queue_for_tests(queue)
+    _set_job_worker_for_tests(None)
+    try:
+        app = FastAPI()
+        app.include_router(router)
+        client = TestClient(app)
+        # Drive pending → running → paused deterministically.
+        job = queue.enqueue("mock", {})
+        queue.claim_pending()
+        queue.request_pause(job.job_id)
+        queue.mark_paused(job.job_id)
+        resp = client.post(f"/api/inspector/jobs/{job.job_id}/cancel")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+    finally:
+        _set_job_worker_for_tests(None)
+        _set_job_queue_for_tests(None)
+        _reset_runners_for_tests()
 
 
 def test_resume_endpoint_starts_worker_after_cold_restart(tmp_path: Path) -> None:
