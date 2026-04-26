@@ -26,6 +26,11 @@ from src.polaris_graph.audit_ir.job_runner import (
     register_runner,
 )
 from src.polaris_graph.audit_ir.job_worker import JobWorker
+from src.polaris_graph.audit_ir.v30_runner import (
+    V30JobRunner,
+    V30RunnerConfig,
+    make_default_v30_runner,
+)
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,
@@ -65,6 +70,9 @@ __all__ = [
     "JobRunner",
     "JobWorker",
     "MockJobRunner",
+    "V30JobRunner",
+    "V30RunnerConfig",
+    "make_default_v30_runner",
     "get_runner",
     "job_to_dict",
     "list_runners",

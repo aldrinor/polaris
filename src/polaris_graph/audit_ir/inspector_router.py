@@ -70,14 +70,28 @@ _runners_registered: bool = False
 def _ensure_runners_registered() -> None:
     """Codex M-8 review fix: deterministic runner registration runs
     independently of get_job_queue() so cold-start enqueues with no
-    prior route hit still validate template_id correctly."""
+    prior route hit still validate template_id correctly.
+
+    M-9: also registers V30JobRunner under template_id 'v30_clinical'
+    so the sweep can be launched as an asynchronous job.
+    """
     global _runners_registered
     if _runners_registered:
         return
-    # Register the mock runner so tests + the live demo have something
-    # to enqueue against without a full V30 sweep. M-9 will register
-    # the V30JobRunner on top of this.
+    # Mock runner for tests + demo.
     register_runner(MockJobRunner(template_id="mock", total_seconds=2.0, step_seconds=0.2))
+    # V30 sweep runner — wraps scripts/run_full_scale_v30_phase2.py
+    # as a subprocess and emits cooperative checkpoints per phase.
+    try:
+        from src.polaris_graph.audit_ir.v30_runner import make_default_v30_runner
+        register_runner(make_default_v30_runner())
+    except Exception:
+        # If the V30 runner can't be constructed (missing script,
+        # bad repo layout, etc.), don't crash the queue — just skip.
+        # Operators see "v30_clinical not in available_templates" and
+        # know to investigate.
+        import logging
+        logging.getLogger(__name__).warning("V30JobRunner registration failed", exc_info=True)
     _runners_registered = True
 
 
