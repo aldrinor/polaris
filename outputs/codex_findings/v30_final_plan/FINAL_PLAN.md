@@ -1,8 +1,13 @@
 # V30 Phase-2 → Top-Tier Internet Player — FINAL PLAN
 
 **Date:** 2026-04-26
-**Plan version:** v1 (Claude pass-1 of consolidated plan)
-**Codex agreement status:** PENDING — sent for review parallel to this commit
+**Plan version:** v2 (Claude pass-2 with Codex pass-2 review fixes integrated)
+**Codex agreement status:** **GREEN-PENDING** — Codex pass-2 returned PARTIAL with 3 specific consolidation edits (no structural disagreement); all 3 integrated below; awaiting final Codex pass-3 GREEN sign-off.
+
+**Pass-2 changes (Codex pass-2 review fixes):**
+1. **Phase A access gating** — clarified as controlled-access / invite-only / pilot, NOT open internet beta. Resolves the conflict between "internet-facing" framing and queue-backed concurrency landing in Phase B.
+2. **70-110 eng days = 7-11 weeks labeled correctly** as the COMBINED Phase A → B bundle figure, not Phase B alone.
+3. **Risk #13 added** — Query-to-template misrouting / unsupported-query overclaim. Distinct from Phase D auto-induction. Phase B trust risk requiring confidence-floor + "unsupported scope" guardrail + operator review on ambiguity.
 
 **Source documents consolidated:**
 - `outputs/codex_findings/v30_phase2_to_production_plan/findings.md` (Codex strategic plan)
@@ -33,18 +38,22 @@
 
 | Phase | ETA | Outcome |
 |---|---:|---------|
-| A Demo | 2-3 wk | Internet-facing AUDIT_GRADE_PREVIEW with Evidence Inspector 5 views |
-| B Beta | 7-11 wk | Audit-only beta with progressive Inspector + bounded upload + Question-Bound Corpus Brief + cited charts |
+| A Demo | 2-3 wk | **Controlled-access** AUDIT_GRADE_PREVIEW with Evidence Inspector 5 views (NOT open internet beta) |
+| B Beta | 5-9 wk after A | Audit-only beta with progressive Inspector + bounded upload + Question-Bound Corpus Brief + cited charts |
 | C Production | 12-24 wk | V34 cross-jurisdiction + 50-100 templates + RBAC + audit bundle export + pilot SOC2 |
 | D Top-tier | 24-52 wk | Auto-induction (with mandatory human review) + faster audit + governance + cross-domain |
 
-**Pass-2 realistic Phase B planning number: 70-110 eng days = 7-11 weeks** for a small strong team.
+**Pass-2 realistic combined Phase A → B bundle planning number: 70-110 eng days = 7-11 weeks total** for a small strong team (Codex pass-2 review clarification: this is the COMBINED A+B figure, not Phase B alone).
+
+**Phase A access gating (NEW per Codex pass-2 review):** Phase A is **controlled-access demo traffic** (invite-only, low throughput) — it is NOT open internet beta. This resolves the apparent conflict between "internet-facing" framing and the queue-backed concurrency landing in Phase B. Open access begins in Phase B once queue + concurrency + progressive surfaces are live.
 
 ---
 
 ## Phase A — Demo-grade (T+0 to T+3 weeks)
 
-**Scope:** Internet-facing `AUDIT_GRADE_PREVIEW` for narrow supported clinical templates with the Evidence Inspector centerpiece. Productized proof, not full parity, not "any question."
+**Scope:** **Controlled-access** `AUDIT_GRADE_PREVIEW` (invite-only, low-throughput demo traffic — NOT open internet beta) for narrow supported clinical templates with the Evidence Inspector centerpiece. Productized proof, not full parity, not "any question."
+
+**Access gating (Codex pass-2 clarification):** Phase A intentionally runs at low throughput on the existing single-concurrency `PipelineRunner` because queue-backed concurrency is a Phase B deliverable. To make this safe, Phase A access is invite-only / pilot-customer-only / investor-demo-only — NOT public-internet open. Open access begins Phase B once queue + concurrency + progressive surfaces are live.
 
 **Deliverables:**
 
@@ -356,7 +365,7 @@ DERIVATIVE renderers (must retain back-links to claim IDs):
 
 ---
 
-## Risk register (12 items, prioritized)
+## Risk register (13 items, prioritized — Codex pass-2 added #13)
 
 | # | Risk | P | Impact | Phase | Mitigation |
 |--:|------|:-:|:-:|:-:|------------|
@@ -370,8 +379,9 @@ DERIVATIVE renderers (must retain back-links to claim IDs):
 | 8 | Summary tables / reference binding silent regression | Medium | High | B-C | Dedicated product tests, citation health monitoring, run diff alerts. |
 | 9 | Commodity DR positioning (marketing slip) | Medium-High | High | B-D | Audit-grade-for-regulated positioning. Refuse $20/mo. |
 | 10 | Marketing language pulls toward medical-device scrutiny | Medium | High | A-D | FDA CDS non-device criteria, professional-use attestation, no patient-specific outputs. |
-| 11 | Single-run concurrency lock | High | High | A | Replace `PipelineRunner` lock with queue-backed worker pools. |
+| 11 | Single-run concurrency lock | High | High | A→B | Phase A runs invite-only / controlled-access on existing `PipelineRunner` lock. Phase B replaces lock with queue-backed worker pools. |
 | 12 | Distribution remains incumbent advantage | Medium | High | D | Audit-grade moat is defensible; mainstream consumer distribution may always trail. Accept this. |
+| **13** | **Query-to-template misrouting / unsupported-query overclaim (NEW per Codex pass-2)** | **Medium-High** | **High** | **B** | **Conservative confidence thresholds; medium-confidence wrong routing produces polished-but-misframed audit which is a real Phase-B trust risk distinct from Phase-D auto-induction. Mitigations: confidence floor + explicit "unsupported scope" result for ambiguous queries + operator review on ambiguity + scope-page reinforcement.** |
 
 ---
 
@@ -435,21 +445,22 @@ All 5 land in Phase A or Phase B.
 
 ---
 
-## The next ship — Phase A → B (7-11 weeks total)
+## The next ship — Phase A → B (7-11 weeks total combined)
 
-**Phase A (2-3 weeks):**
+**Phase A (2-3 weeks, controlled-access only):**
 - V30 artifact = canonical UI result
 - Evidence Inspector 5 views (17-26 eng days)
 - Pre-flight estimate
 - Citation-preserving export stack
 - Operator workflow for gap tasks
 - Public supported-scope page
+- Invite-only / pilot access (NOT open beta)
 
-**Phase B (5-9 weeks after A):**
+**Phase B (5-9 weeks after A — open access begins here):**
 - Audit-only single lane (no preview)
 - Progressive Inspector surfaces during run (8-12 eng days)
 - Pause/cancel/save-state mid-run
-- Curated template router (10-15 days)
+- Curated template router with confidence-floor + "unsupported scope" guardrail (10-15 days)
 - Bounded upload with workspace data model (25-40 days)
 - Question-Bound Corpus Brief (12-20 days)
 - Cited tables + numeric charts (8-15 days)
@@ -458,7 +469,7 @@ All 5 land in Phase A or Phase B.
 - Workspace auth + run history + budget guard
 - Clinical-use policy layer
 
-**Total Phase B eng work: 70-110 eng days = 7-11 weeks for a small strong team.**
+**Total combined Phase A → B eng work: 70-110 eng days = 7-11 weeks for a small strong team** (Codex pass-2 review clarification: this is the COMBINED A+B figure, not Phase B alone).
 
 ---
 
@@ -486,7 +497,7 @@ That discipline IS the product.
 
 ---
 
-## Codex agreement state (HONEST)
+## Codex agreement state (HONEST, pass-2)
 
 | Element | Codex sign-off |
 |---------|:--------------:|
@@ -497,6 +508,9 @@ That discipline IS the product.
 | `SYNTHESIS.md` (50-source convergence) | NOT reviewed |
 | `JOINT_ANALYSIS.md` pass-1 | reviewed → PARTIAL |
 | `JOINT_ANALYSIS.md` pass-2 (7 fixes integrated) | NOT re-reviewed |
-| **This `FINAL_PLAN.md`** | **Sent for review parallel to commit** |
+| `FINAL_PLAN.md` v1 | reviewed → **PARTIAL — 3 edits, no structural disagreement** |
+| **This `FINAL_PLAN.md` v2 (3 edits integrated)** | **GREEN-PENDING — sent for pass-3 final sign-off** |
 
-**Per autoloop V2 protocol, true joint GREEN requires Codex sign-off on this consolidated plan.** Sent for review.
+**Codex's verbatim pass-2 verdict:** *"PARTIAL with specific edits listed. If those three consolidation edits land, I would move this to GREEN. There is no remaining structural disagreement on audit-only, Evidence Inspector primacy, memory split, or the 7-wish triage."*
+
+The 3 edits have been integrated in this v2. Pass-3 sign-off pending.
