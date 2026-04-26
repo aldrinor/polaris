@@ -773,12 +773,26 @@
     "pass", "partial", "fail_min_fields", "frame_gap", "pipeline_fault",
   ];
 
-  function classifyCoverageStatus(status) {
+  // Codex M-5 review fix #1: backend semantics distinguish "fail_min_fields
+  // + provenance_class=frame_gap_unrecoverable" (true gap) from
+  // "fail_min_fields + non-gap row" (partial). The view must reflect that
+  // distinction so the summary bar and per-row severity stay consistent.
+  function classifyCoverageStatus(status, entry) {
     const s = String(status || "").toLowerCase();
     if (s === "pass") return "pass";
     if (s === "partial") return "partial";
-    if (s === "fail_min_fields" || s === "frame_gap" || s === "gap") return "gap";
     if (s === "pipeline_fault") return "pipeline-fault";
+    if (s === "frame_gap" || s === "gap") return "gap";
+    if (s === "fail_min_fields") {
+      // Aggregate semantics: only a hard gap when retrieval also reports
+      // an unrecoverable frame gap or zero usable artifacts.
+      const provClass = String((entry && entry.provenance_class) || "").toLowerCase();
+      const hasArtifacts = Array.isArray(entry && entry.available_artifacts) &&
+        entry.available_artifacts.length > 0;
+      if (provClass === "frame_gap_unrecoverable" || provClass === "gap") return "gap";
+      if (!hasArtifacts) return "gap";
+      return "partial";
+    }
     return "gap";
   }
 
@@ -825,12 +839,18 @@
   }
 
   function renderCoverageRow(entry) {
-    const cls = classifyCoverageStatus(entry.status);
+    const cls = classifyCoverageStatus(entry.status, entry);
     const status = String(entry.status || "");
-    let html = `<li class="coverage-row coverage-row-${cls}" data-entity-id="${escHtml(entry.entity_id || "")}">`;
+    let html = `<li class="coverage-row coverage-row-${cls}" data-entity-id="${escHtml(entry.entity_id || "")}" data-slot-id="${escHtml(entry.slot_id || "")}">`;
     html += `<div class="coverage-row-header">`;
     html += `  <span class="coverage-status-badge coverage-status-${escHtml(status.toLowerCase())}">${escHtml(status)}</span>`;
     html += `  <span class="coverage-row-entity">${escHtml(entry.entity_id || "")}</span>`;
+    if (entry.slot_id) {
+      // Codex M-5 review fix #2: surface slot_id (canonical contract-slot
+      // key) so Phase B cross-view linking has a stable handle and the
+      // manifest is explicitly per-slot, not just per-entity.
+      html += `  <span class="coverage-row-slot">slot ${escHtml(entry.slot_id)}</span>`;
+    }
     if (entry.section) {
       html += `  <span class="coverage-row-section">${escHtml(entry.section)}</span>`;
     }
@@ -862,19 +882,27 @@
       html += `<p class="coverage-row-failure">${escHtml(entry.failure_reason)}</p>`;
     }
 
-    // Required fields and available artifacts as chips
+    // Codex M-5 review fix #3: visibly differentiate "what the contract
+    // required" from "what retrieval produced". Both rows now carry a
+    // visible label + distinct chip styling.
     if (Array.isArray(entry.required_fields) && entry.required_fields.length > 0) {
+      html += `<div class="coverage-row-fields-block">`;
+      html += `<span class="coverage-fields-label">required</span>`;
       html += `<div class="coverage-row-fields" aria-label="Required fields">`;
       entry.required_fields.forEach((f) => {
-        html += `<span class="coverage-field-chip">${escHtml(f)}</span>`;
+        html += `<span class="coverage-field-chip coverage-chip-required">${escHtml(f)}</span>`;
       });
+      html += `</div>`;
       html += `</div>`;
     }
     if (Array.isArray(entry.available_artifacts) && entry.available_artifacts.length > 0) {
+      html += `<div class="coverage-row-fields-block">`;
+      html += `<span class="coverage-fields-label">retrieved</span>`;
       html += `<div class="coverage-row-fields" aria-label="Available artifacts">`;
       entry.available_artifacts.forEach((f) => {
-        html += `<span class="coverage-field-chip">${escHtml(f)}</span>`;
+        html += `<span class="coverage-field-chip coverage-chip-retrieved">${escHtml(f)}</span>`;
       });
+      html += `</div>`;
       html += `</div>`;
     }
 
@@ -963,12 +991,25 @@
     root.querySelectorAll('button[data-action="resolve-gap"]').forEach((btn) => {
       btn.addEventListener("click", (event) => {
         event.preventDefault();
-        const entityId = btn.dataset.entityId;
-        // Phase A wiring: clicks emit a custom event that operator tooling
-        // can listen for. Phase B replaces this with a proper modal +
-        // human_gap_tasks.json POST flow.
+        const row = btn.closest(".coverage-row");
+        // Codex M-5 review fix #2: emit the full row context so operator
+        // tooling has stable handles. Phase A still passes entity_id;
+        // Phase B can rely on slot_id + section + subsection_title.
+        const detail = {
+          entity_id: btn.dataset.entityId,
+          slot_id: row && row.dataset.slotId ? row.dataset.slotId : "",
+          status: row && row.querySelector(".coverage-status-badge")
+            ? row.querySelector(".coverage-status-badge").textContent.trim()
+            : "",
+          section: row && row.querySelector(".coverage-row-section")
+            ? row.querySelector(".coverage-row-section").textContent.trim()
+            : "",
+          subsection_title: row && row.querySelector(".coverage-row-subsection")
+            ? row.querySelector(".coverage-row-subsection").textContent.trim()
+            : "",
+        };
         document.dispatchEvent(
-          new CustomEvent("polaris:resolve-gap", { detail: { entity_id: entityId } })
+          new CustomEvent("polaris:resolve-gap", { detail: detail })
         );
         const original = btn.textContent;
         btn.textContent = "queued";

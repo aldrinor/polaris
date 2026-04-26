@@ -506,3 +506,57 @@ def test_coverage_view_consumes_run14_payload() -> None:
     assert any(e.get("retrieval_attempt_log") for e in entries)
     # The semantics_warning is preserved
     assert fc.get("semantics_warning") and "phase1_retrieval_coverage_only" in fc["semantics_warning"]
+
+
+def test_coverage_view_renders_slot_id() -> None:
+    """Codex M-5 review fix #2: slot_id (canonical contract-slot key) must
+    be rendered, not just entity_id."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "coverage-row-slot" in js
+    assert "data-slot-id" in js
+    assert "entry.slot_id" in js
+
+
+def test_coverage_view_differentiates_required_vs_retrieved_chips() -> None:
+    """Codex M-5 review fix #3: required_fields and available_artifacts must
+    have visible labels and distinct chip styling."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    # Distinct chip classes
+    assert "coverage-chip-required" in js
+    assert "coverage-chip-retrieved" in js
+    assert "coverage-chip-required" in css
+    assert "coverage-chip-retrieved" in css
+    # Visible label markup
+    assert "coverage-fields-label" in js
+    assert "coverage-fields-label" in css
+    # Visible label text
+    assert ">required<" in js
+    assert ">retrieved<" in js
+
+
+def test_coverage_status_classifier_distinguishes_partial_from_gap() -> None:
+    """Codex M-5 review fix #1: fail_min_fields with non-gap provenance and
+    non-empty available_artifacts should classify as partial, not gap."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # Classifier is now entry-aware
+    assert "function classifyCoverageStatus(status, entry)" in js
+    # Hard-gap path keys
+    assert "frame_gap_unrecoverable" in js
+    assert "available_artifacts" in js
+    # Partial path is reachable from fail_min_fields
+    assert 'fail_min_fields' in js
+
+
+def test_resolve_gap_event_includes_slot_context() -> None:
+    """Codex M-5 review fix #2: polaris:resolve-gap CustomEvent must include
+    slot_id + status + section + subsection_title in addition to entity_id."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "slot_id:" in js or "slot_id :" in js
+    assert "status:" in js or "status :" in js
+    assert "section:" in js or "section :" in js
+    assert "subsection_title:" in js or "subsection_title :" in js

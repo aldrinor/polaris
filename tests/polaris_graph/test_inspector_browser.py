@@ -245,7 +245,9 @@ def test_coverage_view_groups_rows_by_section(browser_page) -> None:
 
 
 def test_coverage_view_offers_resolve_button_on_gap_rows(browser_page) -> None:
-    """Gap rows expose a resolve-gap button that emits the custom event."""
+    """Gap rows expose a resolve-gap button that emits the custom event with
+    full slot context (slot_id, status, section, subsection_title) per Codex
+    M-5 fix #2."""
     page = browser_page
     page.click('.tab-btn[data-view="frame-coverage"]')
     page.wait_for_selector(".coverage-summary", timeout=3000)
@@ -254,7 +256,7 @@ def test_coverage_view_offers_resolve_button_on_gap_rows(browser_page) -> None:
         """() => {
             window.__resolveGapEvents = [];
             document.addEventListener('polaris:resolve-gap', (e) => {
-                window.__resolveGapEvents.push(e.detail.entity_id);
+                window.__resolveGapEvents.push(e.detail);
             });
         }"""
     )
@@ -265,4 +267,43 @@ def test_coverage_view_offers_resolve_button_on_gap_rows(browser_page) -> None:
         entity_id = first.get_attribute("data-entity-id")
         first.click()
         events = page.evaluate("window.__resolveGapEvents")
-        assert entity_id in events
+        assert len(events) >= 1
+        evt = events[-1]
+        # Entity id is the legacy handle; it must still be present.
+        assert evt["entity_id"] == entity_id
+        # Slot context per Codex M-5 review fix #2.
+        assert "slot_id" in evt
+        assert "status" in evt
+        assert "section" in evt
+        assert "subsection_title" in evt
+
+
+def test_coverage_view_renders_slot_id_label_visibly(browser_page) -> None:
+    """Codex M-5 fix #2: slot_id is rendered as a visible label on every row
+    that has one. Run-14: every entry has a slot_id."""
+    page = browser_page
+    page.click('.tab-btn[data-view="frame-coverage"]')
+    page.wait_for_selector(".coverage-summary", timeout=3000)
+    slots = page.locator(".coverage-row-slot")
+    # 15 entries in run-14; every one has slot_id
+    assert slots.count() == 15
+    first_slot_text = slots.first.text_content()
+    assert "slot " in first_slot_text  # "slot efficacy_surpass_1" etc.
+
+
+def test_coverage_view_required_and_retrieved_chips_are_labeled(browser_page) -> None:
+    """Codex M-5 fix #3: required vs retrieved chips have visible labels
+    and distinct visual treatment."""
+    page = browser_page
+    page.click('.tab-btn[data-view="frame-coverage"]')
+    page.wait_for_selector(".coverage-summary", timeout=3000)
+    labels = page.locator(".coverage-fields-label").all_text_contents()
+    labels_lower = [l.strip().lower() for l in labels]
+    # Both labels appear
+    assert "required" in labels_lower
+    assert "retrieved" in labels_lower
+    # Distinct chip classes are applied
+    required_chips = page.locator(".coverage-chip-required")
+    retrieved_chips = page.locator(".coverage-chip-retrieved")
+    assert required_chips.count() > 0
+    assert retrieved_chips.count() > 0
