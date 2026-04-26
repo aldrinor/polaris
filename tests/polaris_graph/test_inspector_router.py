@@ -560,3 +560,99 @@ def test_resolve_gap_event_includes_slot_context() -> None:
     assert "status:" in js or "status :" in js
     assert "section:" in js or "section :" in js
     assert "subsection_title:" in js or "subsection_title :" in js
+
+
+# ---------------------------------------------------------------------------
+# M-6: View 4 (Methods + Provenance Bundle) — audit-bundle header + export
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_js_has_methods_renderer() -> None:
+    """M-6: inspector.js must expose Methods + Provenance rendering."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderMethodsView" in js
+    assert "renderTwoFamilyBanner" in js
+    assert "methods-export-btn" in js
+    assert "Pre-commit rule checks" in js
+    assert "Expected vs actual tier distribution" in js
+
+
+def test_methods_view_has_export_button_to_audit_bundle() -> None:
+    """M-6: the export button must point at /api/inspector/runs/{slug}/audit-bundle.zip."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "/audit-bundle.zip" in js
+
+
+def test_methods_view_renders_two_family_invariant() -> None:
+    """M-6: the two-family invariant (generator family != evaluator family)
+    is core to V30's audit-grade discipline. Must be visible in this view."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "Two-family invariant" in js
+    assert "generator_family" in js
+    assert "evaluator_family" in js
+
+
+def test_methods_view_css_classes_present() -> None:
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    for cls in [
+        "methods-grid",
+        "methods-card",
+        "methods-section",
+        "methods-kv-table",
+        "methods-rule-list",
+        "methods-rule-pass",
+        "methods-rule-fail",
+        "methods-export-btn",
+        "methods-two-family-banner",
+    ]:
+        assert cls in css, f"Missing CSS class: {cls}"
+
+
+def test_audit_bundle_export_endpoint() -> None:
+    """M-6: /api/inspector/runs/{slug}/audit-bundle.zip returns a valid ZIP
+    with all canonical artifact files."""
+    import io
+    import zipfile
+
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert "polaris-audit-bundle" in resp.headers.get("content-disposition", "")
+
+    buf = io.BytesIO(resp.content)
+    with zipfile.ZipFile(buf) as zf:
+        names = zf.namelist()
+        # INDEX.txt is the human-readable header
+        assert "INDEX.txt" in names
+        # Canonical V30 artifacts
+        for required in [
+            "report.md",
+            "manifest.json",
+            "bibliography.json",
+            "contradictions.json",
+            "verification_details.json",
+        ]:
+            assert required in names, f"Bundle missing {required}"
+        # Optional artifacts present in run-14
+        for optional in [
+            "protocol.json",
+            "evaluator_rule_checks.json",
+            "qwen_judge_output.json",
+        ]:
+            assert optional in names, f"Bundle missing optional {optional}"
+        # INDEX.txt must mention the run_id and the protocol_sha256
+        index_content = zf.read("INDEX.txt").decode("utf-8")
+        assert "POLARIS V30 Phase-2 Audit Bundle" in index_content
+        assert "Run ID:" in index_content
+        assert "Run slug:" in index_content
+
+
+def test_audit_bundle_export_404_for_unknown_slug() -> None:
+    client = _make_client()
+    resp = client.get("/api/inspector/runs/does_not_exist/audit-bundle.zip")
+    assert resp.status_code == 404

@@ -1023,6 +1023,235 @@
   }
 
   // ---------------------------------------------------------------------
+  // M-6: View 4 — Methods + Provenance Bundle
+  //
+  // The audit-bundle header per FINAL_PLAN.md: run hash, model versions,
+  // retrieval stats, abort gates, two-family invariant disclosure,
+  // 13 rule checks, evaluator reasons, expected vs actual tier
+  // distribution, one-click PDF audit-bundle export.
+  // ---------------------------------------------------------------------
+
+  function renderMethodsCard(title, valueHtml, sub) {
+    let html = `<div class="methods-card">`;
+    html += `<h4 class="methods-card-title">${escHtml(title)}</h4>`;
+    html += `<div class="methods-card-value">${valueHtml}</div>`;
+    if (sub) html += `<div class="methods-card-sub">${escHtml(sub)}</div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  function renderMethodsKv(rows) {
+    let html = `<table class="methods-kv-table"><tbody>`;
+    rows.forEach((row) => {
+      const [k, v] = row;
+      html += `<tr><th>${escHtml(k)}</th><td>${v}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    return html;
+  }
+
+  function renderTwoFamilyBanner(mp) {
+    if (!mp) return "";
+    const sameFamily = mp.generator_family && mp.generator_family === mp.evaluator_family;
+    const className = sameFamily
+      ? "methods-two-family-banner methods-two-family-banner-violation"
+      : "methods-two-family-banner";
+    const title = sameFamily
+      ? "Two-family invariant: VIOLATED"
+      : "Two-family invariant: holds";
+    const detail = sameFamily
+      ? `generator (${escHtml(mp.generator_family)}) and evaluator (${escHtml(mp.evaluator_family)}) share a family — provenance discipline broken.`
+      : `generator family <strong>${escHtml(mp.generator_family || "—")}</strong> + evaluator family <strong>${escHtml(mp.evaluator_family || "—")}</strong> are distinct training lineages, so the evaluator is independent of the generator.`;
+    return (
+      `<div class="${className}" role="note">` +
+      `<div class="methods-two-family-banner-title">${title}</div>` +
+      detail +
+      `</div>`
+    );
+  }
+
+  function renderMethodsView(ir) {
+    const root = document.getElementById("view-methods");
+    if (!root) return;
+    const shell = root.querySelector(".view-shell");
+    if (!shell) return;
+
+    const m = ir.manifest || {};
+    const mp = ir.model_provenance;
+    const proto = ir.protocol;
+    const tierMix = ir.tier_mix || {};
+
+    let html = "";
+
+    // Export bar
+    html += `<div class="methods-export-bar">`;
+    html += `<a class="methods-export-btn" href="/api/inspector/runs/${encodeURIComponent(slug)}/audit-bundle.zip" download>Export audit bundle (.zip)</a>`;
+    html += `<span class="methods-card-sub">Procurement-grade reproducibility artifact</span>`;
+    html += `</div>`;
+
+    // Two-family invariant banner
+    html += renderTwoFamilyBanner(mp);
+
+    // Top-line cards
+    html += `<div class="methods-grid">`;
+    html += renderMethodsCard(
+      "Run ID",
+      `<span class="methods-card-value-large">${escHtml(m.run_id || "—")}</span>`,
+      m.created_at_iso || (proto && proto.created_at_iso) || "",
+    );
+    html += renderMethodsCard(
+      "Protocol SHA-256",
+      `<span class="methods-card-value-large">${escHtml((m.protocol_sha256 || "").slice(0, 16))}…</span>`,
+      `Reproducibility hash`,
+    );
+    html += renderMethodsCard(
+      "Cost",
+      `<span class="methods-card-value-large">$${Number(m.cost_usd || 0).toFixed(6)}</span>`,
+      `of $${Number(m.budget_cap_usd || 0).toFixed(2)} cap`,
+    );
+    html += renderMethodsCard(
+      "Verified / Dropped",
+      `<span class="methods-card-value-large">${escHtml(ir.verified_report?.sentences_verified ?? "—")} / ${escHtml(ir.verified_report?.sentences_dropped ?? "—")}</span>`,
+      `${escHtml(m.word_count || 0)} words`,
+    );
+    html += renderMethodsCard(
+      "Evaluator gate",
+      `<span class="methods-card-value-large">${escHtml((m.evaluator_gate && m.evaluator_gate.gate_class) || "—")}</span>`,
+      `release_allowed=${escHtml(m.release_allowed)}`,
+    );
+    html += renderMethodsCard(
+      "Contradictions",
+      `<span class="methods-card-value-large">${escHtml(m.contradictions_found || 0)}</span>`,
+      `disclosed in report`,
+    );
+    html += `</div>`;
+
+    // Models section
+    html += `<div class="methods-section">`;
+    html += `<h4 class="methods-section-title">Model provenance</h4>`;
+    if (mp) {
+      const rows = [
+        ["Generator family", escHtml(mp.generator_family)],
+        ["Generator model", escHtml(mp.generator_model)],
+        ["Evaluator family", escHtml(mp.evaluator_family)],
+        ["Evaluator model", escHtml(mp.evaluator_model)],
+        ["Judge model", escHtml(mp.judge_model)],
+        ["Judge parse OK", escHtml(mp.judge_parse_ok)],
+        ["Judge tokens (in/out)", `${escHtml(mp.judge_input_tokens)} / ${escHtml(mp.judge_output_tokens)}`],
+        ["Contradictions disclosed", escHtml(mp.contradictions_disclosed)],
+      ];
+      html += renderMethodsKv(rows);
+    } else {
+      html += `<p class="placeholder">No model provenance recorded.</p>`;
+    }
+    html += `</div>`;
+
+    // Retrieval stats
+    if (m.retrieval_stats) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Retrieval</h4>`;
+      const rs = m.retrieval_stats;
+      const rows = [
+        ["Pre-filter", escHtml(rs.pre_filter)],
+        ["Fetched", escHtml(rs.fetched)],
+        ["Failed", escHtml(rs.failed)],
+      ];
+      const byProvider = rs.by_provider || {};
+      Object.keys(byProvider).sort().forEach((k) => {
+        rows.push([`provider · ${k}`, escHtml(byProvider[k])]);
+      });
+      html += renderMethodsKv(rows);
+      html += `</div>`;
+    }
+
+    // Evaluator gate detail
+    if (m.evaluator_gate) {
+      const eg = m.evaluator_gate;
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Evaluator gate detail</h4>`;
+      const rows = [
+        ["Gate class", escHtml(eg.gate_class)],
+        ["Release allowed", escHtml(eg.release_allowed)],
+        ["Reasons", (eg.reasons || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
+        ["Rule blockers", (eg.rule_blockers || []).map((r) => `<div>${escHtml(r)}</div>`).join("") || "—"],
+        ["Qwen critical axes", (eg.qwen_critical_axes || []).map((a) => `<div>${escHtml(a)}</div>`).join("") || "—"],
+        ["Qwen parse OK", escHtml(eg.qwen_parse_ok)],
+      ];
+      html += renderMethodsKv(rows);
+      html += `</div>`;
+    }
+
+    // V30 warnings
+    if (Array.isArray(m.v30_warnings) && m.v30_warnings.length > 0) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">V30 warnings</h4>`;
+      const rows = m.v30_warnings.map((w, i) => [`warning ${i + 1}`, escHtml(w)]);
+      html += renderMethodsKv(rows);
+      html += `</div>`;
+    }
+
+    // Pre-commit rule checks
+    if (mp && Array.isArray(mp.rule_checks) && mp.rule_checks.length > 0) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Pre-commit rule checks (${mp.rule_checks.length})</h4>`;
+      html += `<ul class="methods-rule-list">`;
+      mp.rule_checks.forEach((rc) => {
+        const status = rc.passed ? "pass" : "fail";
+        const cls = rc.passed ? "methods-rule-pass" : "methods-rule-fail";
+        html += `<li class="methods-rule-row">`;
+        html += `<span class="methods-rule-id">${escHtml(rc.item_id)}</span>`;
+        html += `<span class="methods-rule-name">${escHtml(rc.name)}</span>`;
+        html += `<span class="methods-rule-status ${cls}">${status}</span>`;
+        html += `</li>`;
+        if (rc.details) {
+          html += `<li class="methods-rule-row" style="margin-left:10px"><span class="methods-rule-name" style="font-style:italic;color:var(--text-mute)">${escHtml(rc.details)}</span></li>`;
+        }
+      });
+      html += `</ul>`;
+      html += `</div>`;
+    }
+
+    // Protocol metadata
+    if (proto) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Protocol</h4>`;
+      const rows = [
+        ["Research question", escHtml(proto.research_question || "—")],
+        ["Created at (ISO)", escHtml(proto.created_at_iso || "—")],
+        ["Scope decision", escHtml(proto.scope_decision || "—")],
+      ];
+      html += renderMethodsKv(rows);
+      html += `</div>`;
+    }
+
+    // Expected vs actual tier distribution
+    if (proto && Array.isArray(proto.expected_tier_distribution) && proto.expected_tier_distribution.length > 0) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Expected vs actual tier distribution</h4>`;
+      let kvRows = [];
+      proto.expected_tier_distribution.forEach((exp) => {
+        const tier = exp.tier;
+        const actual = Number((tierMix.fractions || {})[tier] || 0);
+        const minF = Number(exp.min_fraction || 0);
+        const maxF = Number(exp.max_fraction || 1);
+        const inBand = actual >= minF && actual <= maxF;
+        const pctActual = (actual * 100).toFixed(1) + "%";
+        const pctMin = (minF * 100).toFixed(0) + "%";
+        const pctMax = (maxF * 100).toFixed(0) + "%";
+        const flag = inBand ? `<span class="methods-rule-pass">in band</span>` : `<span class="methods-rule-fail">out of band</span>`;
+        kvRows.push([
+          escHtml(tier),
+          `actual ${pctActual}, expected ${pctMin}–${pctMax} &nbsp;·&nbsp; ${flag}`,
+        ]);
+      });
+      html += renderMethodsKv(kvRows);
+      html += `</div>`;
+    }
+
+    shell.innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   fetchJSON(`/api/inspector/runs/${encodeURIComponent(slug)}`)
@@ -1032,6 +1261,7 @@
       renderTabCounts(ir);
       renderMatrixView(ir);
       renderCoverageView(ir);
+      renderMethodsView(ir);
       return renderReportView(ir);
     })
     .catch((err) => {

@@ -96,6 +96,92 @@ async def get_report_markdown(slug: str) -> str:
     return report_path.read_text(encoding="utf-8")
 
 
+@router.get("/api/inspector/runs/{slug}/audit-bundle.zip")
+async def get_audit_bundle(slug: str):
+    """Return a procurement-grade audit bundle as a zip file.
+
+    The bundle contains report.md + manifest.json + bibliography.json +
+    contradictions.json + verification_details.json + frame_coverage_report
+    (extracted from manifest) + protocol.json + evaluator_rule_checks.json
+    + qwen_judge_output.json + a top-level INDEX.txt with run hashes.
+
+    Phase A: streams a zip from the artifact directory at request time.
+    Phase B: pre-builds + caches per-run bundles in object storage.
+    """
+    import io
+    import zipfile
+
+    from fastapi.responses import StreamingResponse
+
+    summary = find_run_by_slug(slug)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run slug: {slug}")
+    artifact_dir = summary.artifact_dir
+
+    # Files included in the audit bundle, in canonical order.
+    bundle_files = [
+        "report.md",
+        "manifest.json",
+        "bibliography.json",
+        "contradictions.json",
+        "verification_details.json",
+        "protocol.json",
+        "evaluator_rule_checks.json",
+        "qwen_judge_output.json",
+        "completeness.json",
+        "corpus_adequacy.json",
+        "corpus_approval.json",
+        "human_gap_tasks.json",
+    ]
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # INDEX.txt: human-readable provenance header
+        index_lines = [
+            f"POLARIS V30 Phase-2 Audit Bundle",
+            f"================================",
+            f"Run slug:           {summary.slug}",
+            f"Run ID:             {summary.run_id}",
+            f"Status:             {summary.status}",
+            f"Created at (ISO):   {summary.created_at_iso or '—'}",
+            f"Word count:         {summary.word_count}",
+            f"Cost (USD):         {summary.cost_usd:.6f}",
+            f"Contradictions:     {summary.contradictions_found}",
+            f"Release allowed:    {summary.release_allowed}",
+            f"",
+            f"Files in this bundle:",
+        ]
+        for fname in bundle_files:
+            path = artifact_dir / fname
+            if path.exists():
+                index_lines.append(f"  - {fname} ({path.stat().st_size} bytes)")
+        index_lines.append("")
+        index_lines.append(
+            "This bundle is the procurement-grade reproducibility artifact. "
+            "Every claim in report.md is bound to an evidence_id in "
+            "verification_details.json; bibliography.json maps [N] -> "
+            "evidence_id; contradictions.json declares disagreements; "
+            "manifest.json carries gates, costs, and the protocol_sha256."
+        )
+        zf.writestr("INDEX.txt", "\n".join(index_lines))
+        for fname in bundle_files:
+            path = artifact_dir / fname
+            if path.exists():
+                zf.write(path, arcname=fname)
+
+    buf.seek(0)
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="polaris-audit-bundle-{summary.slug}.zip"'
+        ),
+    }
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers=headers,
+    )
+
+
 @router.get("/inspector", response_class=HTMLResponse)
 async def inspector_root() -> RedirectResponse:
     """Redirect to the canonical demo run for Phase A."""

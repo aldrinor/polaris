@@ -307,3 +307,69 @@ def test_coverage_view_required_and_retrieved_chips_are_labeled(browser_page) ->
     retrieved_chips = page.locator(".coverage-chip-retrieved")
     assert required_chips.count() > 0
     assert retrieved_chips.count() > 0
+
+
+# ---------------------------------------------------------------------------
+# M-6: Methods + Provenance Bundle — real DOM behavior
+# ---------------------------------------------------------------------------
+
+
+def test_methods_view_renders_top_line_cards(browser_page) -> None:
+    """M-6: switching to Methods shows the 6-card grid + 13 rule checks."""
+    page = browser_page
+    page.click('.tab-btn[data-view="methods"]')
+    page.wait_for_selector(".methods-grid", timeout=3000)
+    cards = page.locator(".methods-card")
+    # 6 top-line cards: Run ID, Protocol SHA, Cost, Verified/Dropped,
+    # Evaluator gate, Contradictions
+    assert cards.count() == 6
+    # Two-family invariant banner present (run-14: deepseek vs qwen)
+    banner = page.locator(".methods-two-family-banner")
+    assert banner.count() == 1
+    banner_text = banner.text_content()
+    assert "holds" in banner_text.lower()
+    assert "deepseek" in banner_text.lower()
+    assert "qwen" in banner_text.lower()
+
+
+def test_methods_view_renders_rule_checks(browser_page) -> None:
+    """M-6: pre-commit rule checks (PT01..PT13) all listed with pass/fail status."""
+    page = browser_page
+    page.click('.tab-btn[data-view="methods"]')
+    page.wait_for_selector(".methods-rule-list", timeout=3000)
+    # Run-14 has 13 rule checks; each rule emits 1-2 rows (header + optional details)
+    rule_rows = page.locator(".methods-rule-row")
+    assert rule_rows.count() >= 13
+    # PT01 pre-registered protocol present should be in run-14
+    pt01_id = page.locator(".methods-rule-id:has-text('PT01')")
+    assert pt01_id.count() >= 1
+
+
+def test_methods_view_renders_expected_vs_actual_tier_distribution(browser_page) -> None:
+    """M-6: the protocol's expected tier bands must be compared against
+    the actual corpus distribution, with in-band/out-of-band flags."""
+    page = browser_page
+    page.click('.tab-btn[data-view="methods"]')
+    page.wait_for_selector(".methods-section", timeout=3000)
+    # Find the section title for tier distribution
+    title = page.locator(".methods-section-title:has-text('Expected vs actual')")
+    assert title.count() >= 1
+    # The tier-distribution table should mention 'actual' and 'expected'
+    page_text = page.content()
+    assert "actual" in page_text.lower()
+    assert "expected" in page_text.lower()
+    # Either 'in band' or 'out of band' should appear
+    assert "in band" in page_text.lower() or "out of band" in page_text.lower()
+
+
+def test_methods_view_export_button_links_to_audit_bundle(browser_page) -> None:
+    """M-6: the export button links to /api/inspector/runs/{slug}/audit-bundle.zip."""
+    page = browser_page
+    page.click('.tab-btn[data-view="methods"]')
+    page.wait_for_selector(".methods-export-btn", timeout=3000)
+    btn = page.locator(".methods-export-btn")
+    assert btn.count() == 1
+    href = btn.get_attribute("href")
+    assert href and href.endswith("/audit-bundle.zip")
+    # download attribute set so the button initiates a download
+    assert btn.get_attribute("download") is not None

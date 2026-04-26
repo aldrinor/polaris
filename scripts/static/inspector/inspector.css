@@ -1111,6 +1111,189 @@ html, body {
 .coverage-retrieval-attempt-success { color: var(--pass); }
 .coverage-retrieval-attempt-error { color: var(--gap); }
 
+/* M-6: Methods + Provenance Bundle view --------------------------------- */
+
+.methods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.methods-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+
+.methods-card-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+  margin: 0 0 8px 0;
+}
+
+.methods-card-value {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.methods-card-value-large {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.methods-card-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.methods-section {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.methods-section:last-child {
+  border-bottom: none;
+}
+
+.methods-section-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 0 0 12px 0;
+}
+
+.methods-kv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.methods-kv-table th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--text-mute);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  width: 160px;
+}
+
+.methods-kv-table td {
+  padding: 6px 10px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.methods-rule-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.methods-rule-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  background: var(--bg-elev-2);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.methods-rule-id {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  width: 50px;
+}
+
+.methods-rule-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.methods-rule-status {
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.methods-rule-pass { color: var(--pass); }
+.methods-rule-fail { color: var(--gap); }
+
+.methods-export-bar {
+  margin-bottom: 18px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.methods-export-btn {
+  background: var(--accent);
+  color: #0a0e15;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.methods-export-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.methods-two-family-banner {
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid var(--pass);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--pass);
+  font-family: var(--serif);
+}
+
+.methods-two-family-banner-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-family: var(--mono);
+  margin-bottom: 4px;
+}
+
 .severity {
   display: inline-block;
   padding: 2px 8px;
