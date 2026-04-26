@@ -656,3 +656,191 @@ def test_audit_bundle_export_404_for_unknown_slug() -> None:
     client = _make_client()
     resp = client.get("/api/inspector/runs/does_not_exist/audit-bundle.zip")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Codex M-6 review fixes — bundle hardening + missing-provenance + tier edges
+# ---------------------------------------------------------------------------
+
+
+def test_audit_bundle_index_contains_full_provenance_header() -> None:
+    """Codex M-6 fix: INDEX.txt must include protocol_sha256, model IDs,
+    gate decisions, and per-file digests."""
+    import io
+    import zipfile
+
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+    assert resp.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        index = zf.read("INDEX.txt").decode("utf-8")
+        # Headers per Codex M-6 review
+        assert "RUN IDENTITY" in index
+        assert "MODEL PROVENANCE" in index
+        assert "GATE DECISIONS" in index
+        assert "BUNDLE FILES + DIGESTS" in index
+        # Run-14 specifics
+        assert "Protocol SHA-256:" in index
+        assert "Generator family:" in index
+        assert "deepseek" in index
+        assert "Evaluator family:" in index
+        assert "qwen" in index
+        # Adequacy + corpus + evaluator gate decisions
+        assert "Adequacy:" in index
+        assert "Corpus approved:" in index
+        assert "Evaluator gate:" in index
+        # Verification instructions
+        assert "MANIFEST.SHA256" in index
+
+
+def test_audit_bundle_includes_sha256_manifest() -> None:
+    """Codex M-6 fix: tamper-evident MANIFEST.SHA256 with per-file digests."""
+    import hashlib
+    import io
+    import re
+    import zipfile
+
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/audit-bundle.zip")
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        names = zf.namelist()
+        assert "MANIFEST.SHA256" in names
+        manifest_text = zf.read("MANIFEST.SHA256").decode("utf-8")
+        # Each line: "<64-hex-digest>  <filename>"
+        line_re = re.compile(r"^[0-9a-f]{64}\s{2}.+$")
+        non_empty = [ln for ln in manifest_text.splitlines() if ln.strip()]
+        assert len(non_empty) > 0
+        for line in non_empty:
+            assert line_re.match(line), f"Malformed digest line: {line}"
+        # Sample digest verification: report.md
+        first_digest_line = next((ln for ln in non_empty if ln.endswith("  report.md")), None)
+        assert first_digest_line is not None
+        expected_digest = first_digest_line.split("  ", 1)[0]
+        actual_digest = hashlib.sha256(zf.read("report.md")).hexdigest()
+        assert expected_digest == actual_digest
+
+
+def test_audit_bundle_fails_loud_on_missing_required_files(tmp_path) -> None:
+    """Codex M-6 fix: missing canonical-required artifact files must return 500,
+    not silently produce a stripped-down ZIP."""
+    # Build a stub allowlist run that only has manifest.json (missing report.md)
+    import json as _json
+
+    incomplete = tmp_path / "incomplete_run"
+    incomplete.mkdir()
+    minimal_manifest = {
+        "run_id": "stub_incomplete",
+        "slug": "stub_incomplete",
+        "status": "ok",
+        "question": "stub",
+        "protocol_sha256": "0",
+        "evaluator_gate": {"gate_class": "pass", "release_allowed": True},
+        "completeness": {"covered_fraction": 1.0},
+        "frame_coverage_report": {"by_status": {"pass": 0}, "entries": []},
+        "corpus": {"tier_fractions": {"T1": 1.0}, "count": 1},
+    }
+    (incomplete / "manifest.json").write_text(_json.dumps(minimal_manifest), encoding="utf-8")
+    # Deliberately omit report.md, bibliography.json, etc.
+
+    # Patch the registry to point at our incomplete run for the duration of this test
+    from src.polaris_graph.audit_ir import inspector_router as ir_router_mod
+    from src.polaris_graph.audit_ir.registry import RunSummary
+    fake_summary = RunSummary(
+        slug="stub_incomplete",
+        run_id="stub_incomplete",
+        domain="",
+        status="ok",
+        artifact_dir=incomplete,
+        cost_usd=0.0,
+        word_count=0,
+        contradictions_found=0,
+        release_allowed=True,
+        created_at_iso=None,
+    )
+    original_finder = ir_router_mod.find_run_by_slug
+    ir_router_mod.find_run_by_slug = lambda s: fake_summary if s == "stub_incomplete" else original_finder(s)
+    try:
+        client = _make_client()
+        resp = client.get("/api/inspector/runs/stub_incomplete/audit-bundle.zip")
+        assert resp.status_code == 500
+        detail = resp.json().get("detail", "")
+        assert "missing" in detail.lower()
+        assert "report.md" in detail
+    finally:
+        ir_router_mod.find_run_by_slug = original_finder
+
+
+def test_methods_view_warns_when_model_provenance_missing() -> None:
+    """Codex M-6 review: missing model_provenance must surface as a warning
+    state, not silence the banner entirely."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # The "missing" branch must explicitly emit a warning class
+    assert "methods-two-family-banner-warning" in js
+    assert "NOT RECORDED" in js
+
+
+def test_methods_view_two_family_violation_has_distinct_style() -> None:
+    """Codex M-6 review low: same-family pair must render with a distinct
+    visible style (not just a class name)."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    assert "methods-two-family-banner-violation" in css
+    # The violation style must declare its own background or border
+    violation_block = css[css.index("methods-two-family-banner-violation"):]
+    violation_block = violation_block[: violation_block.index("}")]
+    assert "background" in violation_block or "border-color" in violation_block
+
+
+def test_methods_view_renders_retrieval_queries_section() -> None:
+    """Codex M-6 review: retrieval queries must be surfaced (not just counts)."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "rs.queries" in js
+    assert "methods-query-line" in js
+    assert "not persisted by this run" in js  # explicit fallback when absent
+
+
+def test_methods_view_renders_pre_generation_gates() -> None:
+    """Codex M-6 review: adequacy + corpus_approval gates surfaced as
+    structured UI alongside the evaluator gate."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "Pre-generation gates" in js
+    assert "ir.adequacy" in js
+    assert "ir.corpus_approval" in js
+
+
+def test_methods_view_handles_zero_max_fraction_correctly() -> None:
+    """Codex M-6 medium: explicit max_fraction=0 should mean 'tier forbidden',
+    not be coerced to default 1."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    # The new nullish-safe parser uses `== null` checks rather than `||`.
+    assert "exp.max_fraction == null" in js
+    assert "exp.min_fraction == null" in js
+
+
+def test_methods_view_emits_residual_rows_for_unexpected_tiers() -> None:
+    """Codex M-6 medium: tiers present in actual distribution but absent from
+    expected_tier_distribution must surface as 'unexpected (no band declared)'."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "residualTiers" in js
+    assert "unexpected (no band declared)" in js
+
+
+def test_audit_ir_loads_adequacy_and_corpus_approval() -> None:
+    """The IR loader must persist adequacy + corpus_approval so the view
+    can render them."""
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    ir = resp.json()
+    # Adequacy in run-14
+    assert ir.get("adequacy") is not None
+    assert ir["adequacy"]["decision"] == "proceed"
+    assert ir["adequacy"]["findings_ok"] == 7
+    # Corpus approval in run-14
+    assert ir.get("corpus_approval") is not None
+    assert ir["corpus_approval"]["approved"] is True
+    assert ir["corpus_approval"]["approved_count"] > 0

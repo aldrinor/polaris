@@ -299,6 +299,37 @@ class TierMix:
 
 
 # ---------------------------------------------------------------------------
+# Adequacy / Approval gates (Codex M-6 review fix: non-evaluator gate detail)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdequacyGate:
+    """Corpus adequacy gate verdict (manifest.adequacy)."""
+
+    decision: str
+    findings_ok: int
+    findings_total: int
+    critical_count: int
+
+
+@dataclass(frozen=True)
+class CorpusApprovalGate:
+    """Corpus approval gate (corpus_approval.json).
+
+    Captures the operator/auto approval decision + counts. Per V30
+    audit-grade discipline, a corpus with material tier deviation plus
+    a rubber-stamp note aborts before generation.
+    """
+
+    approved: bool
+    decision_at_iso: str
+    user_note: str
+    approved_count: int
+    rejected_count: int
+
+
+# ---------------------------------------------------------------------------
 # Evaluator gate
 # ---------------------------------------------------------------------------
 
@@ -322,12 +353,18 @@ class EvaluatorGate:
 
 @dataclass(frozen=True)
 class RetrievalStats:
-    """Top-level retrieval counts for the run."""
+    """Top-level retrieval counts for the run.
+
+    `queries` lists the canonical retrieval query strings issued during
+    the sweep (Codex M-6 review fix: surface retrieval queries, not just
+    counts). Empty if the run did not persist them.
+    """
 
     pre_filter: int
     fetched: int
     failed: int
     by_provider: Mapping[str, int]
+    queries: tuple[str, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +424,8 @@ class AuditIR:
     verified_report: VerifiedReport
     model_provenance: ModelProvenance | None
     protocol: ProtocolMetadata | None
+    adequacy: AdequacyGate | None
+    corpus_approval: CorpusApprovalGate | None
 
     def get_bibliography_by_num(self, num: int) -> BibliographyEntry | None:
         for entry in self.bibliography:
@@ -656,11 +695,44 @@ def _parse_retrieval_stats(raw: Any) -> RetrievalStats | None:
             by_provider[str(k)] = int(v)
         except (TypeError, ValueError):
             continue
+    queries_raw = raw.get("queries") or raw.get("query_log") or []
+    queries: list[str] = []
+    if isinstance(queries_raw, list):
+        for q in queries_raw:
+            if isinstance(q, str):
+                queries.append(q)
+            elif isinstance(q, Mapping) and "query" in q:
+                queries.append(str(q["query"]))
     return RetrievalStats(
         pre_filter=int(raw.get("pre_filter", 0)),
         fetched=int(raw.get("fetched", 0)),
         failed=int(raw.get("failed", 0)),
         by_provider=MappingProxyType(by_provider),
+        queries=tuple(queries),
+    )
+
+
+def _parse_adequacy(raw: Any) -> AdequacyGate | None:
+    if not isinstance(raw, Mapping):
+        return None
+    return AdequacyGate(
+        decision=str(raw.get("decision", "")),
+        findings_ok=int(raw.get("findings_ok", 0)),
+        findings_total=int(raw.get("findings_total", 0)),
+        critical_count=int(raw.get("critical_count", 0)),
+    )
+
+
+def _parse_corpus_approval(raw: Any) -> CorpusApprovalGate | None:
+    """Load corpus_approval.json. Returns None if file is absent."""
+    if not isinstance(raw, Mapping):
+        return None
+    return CorpusApprovalGate(
+        approved=bool(raw.get("approved", False)),
+        decision_at_iso=str(raw.get("decision_at_iso", "")),
+        user_note=str(raw.get("user_note", "")),
+        approved_count=len(raw.get("approved_source_urls") or []),
+        rejected_count=len(raw.get("rejected_source_urls") or []),
     )
 
 
@@ -923,6 +995,7 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
     eval_rules_raw = _read_optional_json(artifact_dir / "evaluator_rule_checks.json")
     qwen_judge_raw = _read_optional_json(artifact_dir / "qwen_judge_output.json")
     protocol_raw = _read_optional_json(artifact_dir / "protocol.json")
+    corpus_approval_raw = _read_optional_json(artifact_dir / "corpus_approval.json")
 
     manifest = _parse_manifest(manifest_raw)
     bibliography = _parse_bibliography(bibliography_raw)
@@ -935,6 +1008,8 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
     verified_report = _parse_verified_report(verification_raw)
     model_provenance = _parse_model_provenance(eval_rules_raw, qwen_judge_raw)
     protocol = _parse_protocol(protocol_raw)
+    adequacy = _parse_adequacy(manifest_raw.get("adequacy"))
+    corpus_approval = _parse_corpus_approval(corpus_approval_raw)
 
     return AuditIR(
         ir_schema_version=IR_SCHEMA_VERSION,
@@ -949,4 +1024,6 @@ def load_audit_ir(artifact_dir: Path | str) -> AuditIR:
         verified_report=verified_report,
         model_provenance=model_provenance,
         protocol=protocol,
+        adequacy=adequacy,
+        corpus_approval=corpus_approval,
     )

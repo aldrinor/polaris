@@ -100,15 +100,25 @@ async def get_report_markdown(slug: str) -> str:
 async def get_audit_bundle(slug: str):
     """Return a procurement-grade audit bundle as a zip file.
 
-    The bundle contains report.md + manifest.json + bibliography.json +
-    contradictions.json + verification_details.json + frame_coverage_report
-    (extracted from manifest) + protocol.json + evaluator_rule_checks.json
-    + qwen_judge_output.json + a top-level INDEX.txt with run hashes.
+    The bundle contains the canonical V30 artifact files + INDEX.txt
+    (human-readable header with run identity, model provenance, gate
+    decisions) + MANIFEST.SHA256 (per-file digests for tamper-evidence).
 
-    Phase A: streams a zip from the artifact directory at request time.
-    Phase B: pre-builds + caches per-run bundles in object storage.
+    Phase A: builds the ZIP in-memory from the artifact directory.
+    Phase B: pre-builds + caches per-run bundles in object storage with
+    detached signatures.
+
+    Codex M-6 review fixes integrated:
+    - Fails loud (500) if any canonical-required file is missing
+    - INDEX.txt includes protocol_sha256, model IDs, gate decisions,
+      file digests
+    - MANIFEST.SHA256 carries SHA-256 of each bundled file
+    - Adds run_log.txt + live_corpus_dump.json + cost_ledger.jsonl
+      (optional, included if present)
     """
+    import hashlib
     import io
+    import json
     import zipfile
 
     from fastapi.responses import StreamingResponse
@@ -118,13 +128,17 @@ async def get_audit_bundle(slug: str):
         raise HTTPException(status_code=404, detail=f"Unknown run slug: {slug}")
     artifact_dir = summary.artifact_dir
 
-    # Files included in the audit bundle, in canonical order.
-    bundle_files = [
+    # Canonical-required files: must be present for the bundle to be valid.
+    # Codex M-6 fix: fail loud if any are missing.
+    required_files = [
         "report.md",
         "manifest.json",
         "bibliography.json",
         "contradictions.json",
         "verification_details.json",
+    ]
+    # Optional canonical artifacts: included if present.
+    optional_files = [
         "protocol.json",
         "evaluator_rule_checks.json",
         "qwen_judge_output.json",
@@ -132,29 +146,107 @@ async def get_audit_bundle(slug: str):
         "corpus_adequacy.json",
         "corpus_approval.json",
         "human_gap_tasks.json",
+        # Codex M-6 fix: add scope SHA + stage trail + corpus provenance.
+        "run_log.txt",
+        "live_corpus_dump.json",
+        "cost_ledger.jsonl",
     ]
+
+    missing_required = [f for f in required_files if not (artifact_dir / f).exists()]
+    if missing_required:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Audit bundle cannot be built: required artifact files "
+                f"missing for run {summary.run_id}: {missing_required}"
+            ),
+        )
+
+    # Pull additional provenance fields from manifest for the INDEX header.
+    try:
+        with (artifact_dir / "manifest.json").open("r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail=f"manifest.json unreadable: {exc}")
+
+    eval_rules = {}
+    eval_rules_path = artifact_dir / "evaluator_rule_checks.json"
+    if eval_rules_path.exists():
+        try:
+            with eval_rules_path.open("r", encoding="utf-8") as f:
+                eval_rules = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            eval_rules = {}
+
+    eval_gate = manifest.get("evaluator_gate", {})
+    if not isinstance(eval_gate, dict):
+        eval_gate = {"gate_class": str(eval_gate)}
+    adequacy = manifest.get("adequacy", {}) or {}
+    corpus = manifest.get("corpus", {}) or {}
+
+    bundle_files = required_files + optional_files
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # INDEX.txt: human-readable provenance header
+        # First pass: compute digests + write each file
+        digests: list[tuple[str, int, str]] = []
+        for fname in bundle_files:
+            path = artifact_dir / fname
+            if not path.exists():
+                continue
+            data = path.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            digests.append((fname, len(data), digest))
+            zf.writestr(fname, data)
+
+        # MANIFEST.SHA256 — per-file digests for tamper-evidence.
+        sha_lines = [f"{digest}  {fname}" for (fname, _size, digest) in digests]
+        zf.writestr("MANIFEST.SHA256", "\n".join(sha_lines) + "\n")
+
+        # INDEX.txt — comprehensive procurement header.
         index_lines = [
-            f"POLARIS V30 Phase-2 Audit Bundle",
-            f"================================",
+            "POLARIS V30 Phase-2 Audit Bundle",
+            "================================",
+            "",
+            "RUN IDENTITY",
+            "------------",
             f"Run slug:           {summary.slug}",
             f"Run ID:             {summary.run_id}",
+            f"Protocol SHA-256:   {manifest.get('protocol_sha256', '—')}",
             f"Status:             {summary.status}",
             f"Created at (ISO):   {summary.created_at_iso or '—'}",
             f"Word count:         {summary.word_count}",
             f"Cost (USD):         {summary.cost_usd:.6f}",
             f"Contradictions:     {summary.contradictions_found}",
             f"Release allowed:    {summary.release_allowed}",
-            f"",
-            f"Files in this bundle:",
+            "",
+            "MODEL PROVENANCE",
+            "----------------",
+            f"Generator family:   {eval_rules.get('generator_family', '—')}",
+            f"Generator model:    {eval_rules.get('generator_model', '—')}",
+            f"Evaluator family:   {eval_rules.get('evaluator_family', '—')}",
+            f"Evaluator model:    {eval_rules.get('evaluator_model', '—')}",
+            "",
+            "GATE DECISIONS",
+            "--------------",
+            f"Adequacy:           decision={adequacy.get('decision', '—')}, "
+            f"findings_ok={adequacy.get('findings_ok', '—')}/{adequacy.get('findings_total', '—')}",
+            f"Corpus approved:    {corpus.get('approved', '—')} "
+            f"(material_deviation={corpus.get('material_deviation', '—')}, count={corpus.get('count', '—')})",
+            f"Evaluator gate:     class={eval_gate.get('gate_class', '—')}, "
+            f"release_allowed={eval_gate.get('release_allowed', '—')}",
+            f"Reasons:            {', '.join(str(r) for r in eval_gate.get('reasons', [])) or '—'}",
+            f"Rule blockers:      {', '.join(str(r) for r in eval_gate.get('rule_blockers', [])) or '—'}",
+            "",
+            "BUNDLE FILES + DIGESTS (SHA-256)",
+            "--------------------------------",
         ]
-        for fname in bundle_files:
-            path = artifact_dir / fname
-            if path.exists():
-                index_lines.append(f"  - {fname} ({path.stat().st_size} bytes)")
+        for fname, size, digest in digests:
+            index_lines.append(f"  {digest}  {size:>10} bytes  {fname}")
+        index_lines.append("")
+        index_lines.append(
+            "Verify: sha256sum -c MANIFEST.SHA256"
+        )
         index_lines.append("")
         index_lines.append(
             "This bundle is the procurement-grade reproducibility artifact. "
@@ -164,10 +256,6 @@ async def get_audit_bundle(slug: str):
             "manifest.json carries gates, costs, and the protocol_sha256."
         )
         zf.writestr("INDEX.txt", "\n".join(index_lines))
-        for fname in bundle_files:
-            path = artifact_dir / fname
-            if path.exists():
-                zf.write(path, arcname=fname)
 
     buf.seek(0)
     headers = {

@@ -10,11 +10,13 @@ unified, immutable AuditIR object.
 
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
+    AdequacyGate,
     AuditIR,
     AuditIRSchemaError,
     BibliographyEntry,
     ContradictionClaim,
     ContradictionCluster,
+    CorpusApprovalGate,
     EvaluatorGate,
     EvidenceSpanToken,
     FrameCoverageEntry,
@@ -35,11 +37,13 @@ from src.polaris_graph.audit_ir.loader import (
 
 __all__ = [
     "IR_SCHEMA_VERSION",
+    "AdequacyGate",
     "AuditIR",
     "AuditIRSchemaError",
     "BibliographyEntry",
     "ContradictionClaim",
     "ContradictionCluster",
+    "CorpusApprovalGate",
     "EvaluatorGate",
     "EvidenceSpanToken",
     "FrameCoverageEntry",

@@ -1051,7 +1051,17 @@
   }
 
   function renderTwoFamilyBanner(mp) {
-    if (!mp) return "";
+    // Codex M-6 review fix: missing model_provenance is a warning state,
+    // not silence. Same-family violation gets a distinct red style.
+    if (!mp) {
+      return (
+        `<div class="methods-two-family-banner methods-two-family-banner-warning" role="note">` +
+        `<div class="methods-two-family-banner-title">Two-family invariant: NOT RECORDED</div>` +
+        `Model provenance was not persisted with this run (legacy artifact). ` +
+        `The audit-grade two-family invariant cannot be verified.` +
+        `</div>`
+      );
+    }
     const sameFamily = mp.generator_family && mp.generator_family === mp.evaluator_family;
     const className = sameFamily
       ? "methods-two-family-banner methods-two-family-banner-violation"
@@ -1060,7 +1070,7 @@
       ? "Two-family invariant: VIOLATED"
       : "Two-family invariant: holds";
     const detail = sameFamily
-      ? `generator (${escHtml(mp.generator_family)}) and evaluator (${escHtml(mp.evaluator_family)}) share a family — provenance discipline broken.`
+      ? `generator (<strong>${escHtml(mp.generator_family)}</strong>) and evaluator (<strong>${escHtml(mp.evaluator_family)}</strong>) share a family — provenance discipline broken.`
       : `generator family <strong>${escHtml(mp.generator_family || "—")}</strong> + evaluator family <strong>${escHtml(mp.evaluator_family || "—")}</strong> are distinct training lineages, so the evaluator is independent of the generator.`;
     return (
       `<div class="${className}" role="note">` +
@@ -1083,10 +1093,10 @@
 
     let html = "";
 
-    // Export bar
+    // Export bar — Codex M-6 fix: clarify that the bundle is ZIP, not PDF.
     html += `<div class="methods-export-bar">`;
-    html += `<a class="methods-export-btn" href="/api/inspector/runs/${encodeURIComponent(slug)}/audit-bundle.zip" download>Export audit bundle (.zip)</a>`;
-    html += `<span class="methods-card-sub">Procurement-grade reproducibility artifact</span>`;
+    html += `<a class="methods-export-btn" href="/api/inspector/runs/${encodeURIComponent(slug)}/audit-bundle.zip" download>Download audit bundle (ZIP)</a>`;
+    html += `<span class="methods-card-sub">Procurement-grade reproducibility artifact (canonical V30 files + SHA-256 manifest)</span>`;
     html += `</div>`;
 
     // Two-family invariant banner
@@ -1146,7 +1156,7 @@
     }
     html += `</div>`;
 
-    // Retrieval stats
+    // Retrieval stats + queries (Codex M-6 fix: surface queries, not just counts)
     if (m.retrieval_stats) {
       html += `<div class="methods-section">`;
       html += `<h4 class="methods-section-title">Retrieval</h4>`;
@@ -1160,6 +1170,41 @@
       Object.keys(byProvider).sort().forEach((k) => {
         rows.push([`provider · ${k}`, escHtml(byProvider[k])]);
       });
+      const queries = Array.isArray(rs.queries) ? rs.queries : [];
+      if (queries.length > 0) {
+        const queryHtml = queries
+          .map((q) => `<div class="methods-query-line">${escHtml(q)}</div>`)
+          .join("");
+        rows.push([`queries (${queries.length})`, queryHtml]);
+      } else {
+        rows.push(["queries", `<span class="methods-card-sub">not persisted by this run</span>`]);
+      }
+      html += renderMethodsKv(rows);
+      html += `</div>`;
+    }
+
+    // Adequacy + corpus approval gates (Codex M-6 fix: surface non-evaluator gates)
+    if (ir.adequacy || ir.corpus_approval) {
+      html += `<div class="methods-section">`;
+      html += `<h4 class="methods-section-title">Pre-generation gates</h4>`;
+      const rows = [];
+      if (ir.adequacy) {
+        const a = ir.adequacy;
+        rows.push([
+          "Corpus adequacy",
+          `decision=<strong>${escHtml(a.decision)}</strong>, findings_ok=${escHtml(a.findings_ok)}/${escHtml(a.findings_total)}, critical=${escHtml(a.critical_count)}`,
+        ]);
+      }
+      if (ir.corpus_approval) {
+        const ca = ir.corpus_approval;
+        rows.push([
+          "Corpus approval",
+          `approved=<strong>${escHtml(ca.approved)}</strong>, decided ${escHtml(ca.decision_at_iso)}, ${escHtml(ca.approved_count)} approved / ${escHtml(ca.rejected_count)} rejected sources`,
+        ]);
+        if (ca.user_note) {
+          rows.push(["Operator note", `<em>${escHtml(ca.user_note)}</em>`]);
+        }
+      }
       html += renderMethodsKv(rows);
       html += `</div>`;
     }
@@ -1224,26 +1269,61 @@
       html += `</div>`;
     }
 
-    // Expected vs actual tier distribution
+    // Expected vs actual tier distribution (Codex M-6 fix: nullish-safe
+    // parsing for explicit 0 max_fraction; residual rows for unexpected
+    // actual tiers absent from the protocol).
     if (proto && Array.isArray(proto.expected_tier_distribution) && proto.expected_tier_distribution.length > 0) {
       html += `<div class="methods-section">`;
       html += `<h4 class="methods-section-title">Expected vs actual tier distribution</h4>`;
-      let kvRows = [];
+      const kvRows = [];
+      const expectedTiers = new Set();
+      const numOrZero = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      const numOrOne = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 1;
+      };
+
       proto.expected_tier_distribution.forEach((exp) => {
         const tier = exp.tier;
-        const actual = Number((tierMix.fractions || {})[tier] || 0);
-        const minF = Number(exp.min_fraction || 0);
-        const maxF = Number(exp.max_fraction || 1);
+        expectedTiers.add(tier);
+        const actual = numOrZero((tierMix.fractions || {})[tier]);
+        // Use nullish-safe parsing: explicit min_fraction=0 must stay 0
+        // (not be coerced to a default), and max_fraction=0 must mean
+        // "this tier is forbidden" rather than max=1.
+        const minF = exp.min_fraction == null ? 0 : numOrZero(exp.min_fraction);
+        const maxF = exp.max_fraction == null ? 1 : numOrOne(exp.max_fraction);
         const inBand = actual >= minF && actual <= maxF;
         const pctActual = (actual * 100).toFixed(1) + "%";
         const pctMin = (minF * 100).toFixed(0) + "%";
         const pctMax = (maxF * 100).toFixed(0) + "%";
-        const flag = inBand ? `<span class="methods-rule-pass">in band</span>` : `<span class="methods-rule-fail">out of band</span>`;
+        const flag = inBand
+          ? `<span class="methods-rule-pass">in band</span>`
+          : `<span class="methods-rule-fail">out of band</span>`;
         kvRows.push([
           escHtml(tier),
           `actual ${pctActual}, expected ${pctMin}–${pctMax} &nbsp;·&nbsp; ${flag}`,
         ]);
       });
+
+      // Residual rows: tiers present in actual distribution but absent
+      // from the protocol's expected list — silent drift would be
+      // invisible without this row.
+      const residualTiers = Object.keys(tierMix.fractions || {})
+        .filter((t) => !expectedTiers.has(t))
+        .filter((t) => Number((tierMix.fractions || {})[t] || 0) > 0)
+        .sort();
+      residualTiers.forEach((tier) => {
+        const actual = numOrZero((tierMix.fractions || {})[tier]);
+        const pctActual = (actual * 100).toFixed(1) + "%";
+        kvRows.push([
+          escHtml(tier),
+          `actual ${pctActual} &nbsp;·&nbsp; <span class="methods-rule-fail">unexpected (no band declared)</span>`,
+        ]);
+      });
+
       html += renderMethodsKv(kvRows);
       html += `</div>`;
     }
