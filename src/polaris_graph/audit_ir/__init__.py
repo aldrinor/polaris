@@ -1,0 +1,33 @@
+"""Audit Graph IR — canonical claim-evidence-contradiction representation.
+
+The Audit IR is the single source of truth that the Evidence Inspector
+renders. Every derivative renderer (PDF, DOCX, CSV, charts, brief, deck)
+must project from this IR and retain back-links to claim IDs.
+
+This module loads a V30 Phase-2 run artifact directory and emits a
+unified, immutable AuditIR object.
+"""
+
+from src.polaris_graph.audit_ir.loader import (
+    AuditIR,
+    BibliographyEntry,
+    ContradictionClaim,
+    ContradictionCluster,
+    FrameCoverageEntry,
+    FrameCoverageReport,
+    RunManifest,
+    TierMix,
+    load_audit_ir,
+)
+
+__all__ = [
+    "AuditIR",
+    "BibliographyEntry",
+    "ContradictionClaim",
+    "ContradictionCluster",
+    "FrameCoverageEntry",
+    "FrameCoverageReport",
+    "RunManifest",
+    "TierMix",
+    "load_audit_ir",
+]
