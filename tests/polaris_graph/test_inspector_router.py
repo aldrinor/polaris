@@ -433,3 +433,76 @@ def test_matrix_view_css_classes_present() -> None:
     css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
     for cls in ["matrix-toolbar", "matrix-row", "matrix-row.expanded", "matrix-claim", "matrix-empty"]:
         assert cls in css, f"Missing CSS class: {cls}"
+
+
+# ---------------------------------------------------------------------------
+# M-5: View 3 (Frame Coverage Manifest) — pass/partial/gap visual + per-slot
+# ---------------------------------------------------------------------------
+
+
+def test_inspector_js_has_coverage_renderer() -> None:
+    """M-5: inspector.js must expose Frame Coverage rendering."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderCoverageView" in js
+    assert "renderCoverageSummaryBar" in js
+    assert "renderCoverageRow" in js
+    assert "wireCoverageInteraction" in js
+    assert "classifyCoverageStatus" in js
+
+
+def test_coverage_view_has_visual_segments_per_status() -> None:
+    """M-5: visual coverage bar must have segments for pass/partial/gap/pipeline-fault."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    css = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.css").read_text(encoding="utf-8")
+    for cls in [
+        "coverage-summary",
+        "coverage-bar",
+        "coverage-segment-pass",
+        "coverage-segment-partial",
+        "coverage-segment-gap",
+        "coverage-warning",
+        "coverage-row",
+        "coverage-status-badge",
+        "coverage-action-btn",
+    ]:
+        assert cls in css, f"Missing CSS class: {cls}"
+
+
+def test_coverage_view_renders_v30_semantics_warning() -> None:
+    """M-5: V30 retrieval-coverage caveat must surface in the view (FINAL_PLAN
+    requirement: surface 'phase1_retrieval_coverage_only' warning)."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert "renderCoverageWarning" in js
+    assert "semantics_warning" in js
+
+
+def test_coverage_view_offers_operator_action_on_gap_rows() -> None:
+    """M-5: gap rows expose an operator-action button hooked to a custom event."""
+    from src.polaris_graph.audit_ir.registry import REPO_ROOT
+    js = (REPO_ROOT / "scripts" / "static" / "inspector" / "inspector.js").read_text(encoding="utf-8")
+    assert 'data-action="resolve-gap"' in js
+    assert "polaris:resolve-gap" in js
+    assert "human_completion_eligible" in js
+
+
+def test_coverage_view_consumes_run14_payload() -> None:
+    """End-to-end: API returns the 15-entity frame_coverage payload the
+    renderer needs (status, section, slot_id, doi, pmid, retrieval_attempt_log,
+    required_fields, etc.)."""
+    client = _make_client()
+    resp = client.get(f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}")
+    fc = resp.json()["frame_coverage"]
+    entries = fc["entries"]
+    assert len(entries) == 15
+    statuses = set(e["status"] for e in entries)
+    assert "pass" in statuses
+    sections = set(e.get("section", "") for e in entries)
+    # run-14 has at least Efficacy, Mechanism, Regulatory sections
+    assert any(s for s in sections), "Expected at least one populated section"
+    # At least one entry must have a DOI and a retrieval_attempt_log
+    assert any(e.get("doi") for e in entries)
+    assert any(e.get("retrieval_attempt_log") for e in entries)
+    # The semantics_warning is preserved
+    assert fc.get("semantics_warning") and "phase1_retrieval_coverage_only" in fc["semantics_warning"]

@@ -760,6 +760,228 @@
   }
 
   // ---------------------------------------------------------------------
+  // M-5: View 3 — Frame Coverage Manifest
+  //
+  // Renders frame_coverage_report (15 entities in run-14) with visual
+  // pass/partial/gap coverage bar + V30 retrieval-coverage semantics
+  // warning + per-section grouping + per-slot detail rows + operator-
+  // action button on rows that are operator-completion-eligible.
+  // Per FINAL_PLAN.md: this is the antidote to ChatGPT DR's silent omissions.
+  // ---------------------------------------------------------------------
+
+  const _coverageStatusOrder = [
+    "pass", "partial", "fail_min_fields", "frame_gap", "pipeline_fault",
+  ];
+
+  function classifyCoverageStatus(status) {
+    const s = String(status || "").toLowerCase();
+    if (s === "pass") return "pass";
+    if (s === "partial") return "partial";
+    if (s === "fail_min_fields" || s === "frame_gap" || s === "gap") return "gap";
+    if (s === "pipeline_fault") return "pipeline-fault";
+    return "gap";
+  }
+
+  function renderCoverageWarning(fc) {
+    if (!fc.semantics_warning) return "";
+    return (
+      `<div class="coverage-warning" role="note">` +
+      `  <div class="coverage-warning-title">Coverage semantics</div>` +
+      `  ${escHtml(fc.semantics_warning)}` +
+      `</div>`
+    );
+  }
+
+  function renderCoverageSummaryBar(fc, total) {
+    const pass = Number(fc.pass_count || 0);
+    const partial = Number(fc.partial_count || 0);
+    const gap = Number(fc.frame_gap_count || 0);
+    const pipelineFault = Number(fc.pipeline_fault_count || 0);
+    const denom = total || pass + partial + gap + pipelineFault || 1;
+
+    let html = `<div class="coverage-summary">`;
+    html += `<div class="coverage-bar" role="img" aria-label="Coverage: ${pass} pass, ${partial} partial, ${gap} gap, ${pipelineFault} pipeline-fault">`;
+    [
+      ["pass", pass],
+      ["partial", partial],
+      ["gap", gap],
+      ["pipeline-fault", pipelineFault],
+    ].forEach(([key, count]) => {
+      if (count <= 0) return;
+      const flex = count / denom;
+      html += `<div class="coverage-segment coverage-segment-${key}" style="flex:${flex}" title="${escHtml(key)}: ${count}">${count > 0 ? count : ""}</div>`;
+    });
+    html += `</div>`;
+    html += `<div class="coverage-counts">`;
+    html += `  <span class="coverage-count-pass">${pass} pass</span>`;
+    html += `  <span class="coverage-count-partial">${partial} partial</span>`;
+    html += `  <span class="coverage-count-gap">${gap} gap</span>`;
+    if (pipelineFault > 0) {
+      html += `  <span>${pipelineFault} pipeline-fault</span>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  function renderCoverageRow(entry) {
+    const cls = classifyCoverageStatus(entry.status);
+    const status = String(entry.status || "");
+    let html = `<li class="coverage-row coverage-row-${cls}" data-entity-id="${escHtml(entry.entity_id || "")}">`;
+    html += `<div class="coverage-row-header">`;
+    html += `  <span class="coverage-status-badge coverage-status-${escHtml(status.toLowerCase())}">${escHtml(status)}</span>`;
+    html += `  <span class="coverage-row-entity">${escHtml(entry.entity_id || "")}</span>`;
+    if (entry.section) {
+      html += `  <span class="coverage-row-section">${escHtml(entry.section)}</span>`;
+    }
+    html += `</div>`;
+    if (entry.subsection_title) {
+      html += `<p class="coverage-row-subsection">${escHtml(entry.subsection_title)}</p>`;
+    }
+
+    // Identifiers row (DOI / PMID / type)
+    const metaParts = [];
+    if (entry.entity_type) metaParts.push(`<span>type ${escHtml(entry.entity_type)}</span>`);
+    if (entry.doi) {
+      const doiUrl = sanitizeUrl(`https://doi.org/${entry.doi}`);
+      metaParts.push(`<span>doi ${doiUrl ? `<a href="${escHtml(doiUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(entry.doi)}</a>` : escHtml(entry.doi)}</span>`);
+    }
+    if (entry.pmid) {
+      const pmUrl = sanitizeUrl(`https://pubmed.ncbi.nlm.nih.gov/${entry.pmid}/`);
+      metaParts.push(`<span>pmid ${pmUrl ? `<a href="${escHtml(pmUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(entry.pmid)}</a>` : escHtml(entry.pmid)}</span>`);
+    }
+    if (entry.provenance_class) metaParts.push(`<span>provenance ${escHtml(entry.provenance_class)}</span>`);
+    if (entry.min_fields_for_completion) {
+      metaParts.push(`<span>min fields ${escHtml(entry.min_fields_for_completion)}</span>`);
+    }
+    if (metaParts.length > 0) {
+      html += `<div class="coverage-row-meta">${metaParts.join("")}</div>`;
+    }
+
+    if (entry.failure_reason) {
+      html += `<p class="coverage-row-failure">${escHtml(entry.failure_reason)}</p>`;
+    }
+
+    // Required fields and available artifacts as chips
+    if (Array.isArray(entry.required_fields) && entry.required_fields.length > 0) {
+      html += `<div class="coverage-row-fields" aria-label="Required fields">`;
+      entry.required_fields.forEach((f) => {
+        html += `<span class="coverage-field-chip">${escHtml(f)}</span>`;
+      });
+      html += `</div>`;
+    }
+    if (Array.isArray(entry.available_artifacts) && entry.available_artifacts.length > 0) {
+      html += `<div class="coverage-row-fields" aria-label="Available artifacts">`;
+      entry.available_artifacts.forEach((f) => {
+        html += `<span class="coverage-field-chip">${escHtml(f)}</span>`;
+      });
+      html += `</div>`;
+    }
+
+    // Operator-action bar on rows that are gap-eligible
+    const isGap = cls === "gap" || cls === "partial";
+    if (isGap) {
+      const eligible = entry.human_completion_eligible !== false;
+      const hasCurated = entry.human_curated_provenance != null;
+      html += `<div class="coverage-action-bar">`;
+      html += `<button type="button" class="coverage-action-btn" data-action="resolve-gap" data-entity-id="${escHtml(entry.entity_id || "")}" ${eligible ? "" : "disabled"} aria-label="Resolve gap for ${escHtml(entry.entity_id || "")}">resolve gap</button>`;
+      if (!eligible) {
+        html += `<span class="coverage-action-note">Not operator-completion-eligible at this stage.</span>`;
+      } else if (hasCurated) {
+        html += `<span class="coverage-action-note">Curator provenance present.</span>`;
+      }
+      html += `</div>`;
+    }
+
+    // Retrieval log preview (first 4 attempts)
+    if (Array.isArray(entry.retrieval_attempt_log) && entry.retrieval_attempt_log.length > 0) {
+      html += `<ul class="coverage-retrieval-log" aria-label="Retrieval attempts">`;
+      entry.retrieval_attempt_log.slice(0, 4).forEach((att) => {
+        const outcome = String(att.outcome || "").toLowerCase();
+        const cls = outcome === "success" ? "success" : outcome === "error" ? "error" : "";
+        const url = sanitizeUrl(att.url);
+        html += `<li class="coverage-retrieval-attempt coverage-retrieval-attempt-${cls}">`;
+        html += `  <span>${escHtml(att.source || "")}</span>`;
+        html += `  <span>HTTP ${escHtml(att.http_status == null ? "—" : att.http_status)}</span>`;
+        html += `  <span>${escHtml(att.outcome || "")}</span>`;
+        if (url) {
+          html += `  <a href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(url)}</a>`;
+        }
+        html += `</li>`;
+      });
+      if (entry.retrieval_attempt_log.length > 4) {
+        html += `<li class="coverage-retrieval-attempt"><span>+ ${entry.retrieval_attempt_log.length - 4} more attempts</span></li>`;
+      }
+      html += `</ul>`;
+    }
+
+    html += `</li>`;
+    return html;
+  }
+
+  function renderCoverageView(ir) {
+    const root = document.getElementById("view-frame-coverage");
+    if (!root) return;
+    const shell = root.querySelector(".view-shell");
+    if (!shell) return;
+    const fc = ir.frame_coverage || {};
+    const entries = Array.isArray(fc.entries) ? fc.entries : [];
+
+    let html = "";
+    html += renderCoverageSummaryBar(fc, entries.length);
+    html += renderCoverageWarning(fc);
+
+    // Group entries by section, preserving original order within each group
+    const bySection = new Map();
+    entries.forEach((entry) => {
+      const sec = entry.section || "(no section)";
+      if (!bySection.has(sec)) bySection.set(sec, []);
+      bySection.get(sec).push(entry);
+    });
+
+    if (bySection.size === 0) {
+      html += `<p class="matrix-empty">No frame-coverage entries.</p>`;
+    } else {
+      bySection.forEach((rows, section) => {
+        html += `<div class="coverage-section-group">`;
+        html += `<h4 class="coverage-section-title">${escHtml(section)} (${rows.length})</h4>`;
+        html += `<ul class="coverage-list">`;
+        rows.forEach((entry) => {
+          html += renderCoverageRow(entry);
+        });
+        html += `</ul>`;
+        html += `</div>`;
+      });
+    }
+    shell.innerHTML = html;
+    wireCoverageInteraction();
+  }
+
+  function wireCoverageInteraction() {
+    const root = document.getElementById("view-frame-coverage");
+    if (!root) return;
+    root.querySelectorAll('button[data-action="resolve-gap"]').forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const entityId = btn.dataset.entityId;
+        // Phase A wiring: clicks emit a custom event that operator tooling
+        // can listen for. Phase B replaces this with a proper modal +
+        // human_gap_tasks.json POST flow.
+        document.dispatchEvent(
+          new CustomEvent("polaris:resolve-gap", { detail: { entity_id: entityId } })
+        );
+        const original = btn.textContent;
+        btn.textContent = "queued";
+        btn.disabled = true;
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.disabled = false;
+        }, 1500);
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   fetchJSON(`/api/inspector/runs/${encodeURIComponent(slug)}`)
@@ -768,6 +990,7 @@
       renderTierStrip(ir);
       renderTabCounts(ir);
       renderMatrixView(ir);
+      renderCoverageView(ir);
       return renderReportView(ir);
     })
     .catch((err) => {

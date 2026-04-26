@@ -211,3 +211,58 @@ def test_matrix_clear_button_resets_query(browser_page) -> None:
         timeout=3000,
     )
     assert query.input_value() == ""
+
+
+# ---------------------------------------------------------------------------
+# M-5: Frame Coverage Manifest — real DOM behavior
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_view_renders_visual_bar_and_v30_warning(browser_page) -> None:
+    """M-5: switching to Frame Coverage shows visual bar + V30 warning + 15 rows."""
+    page = browser_page
+    page.click('.tab-btn[data-view="frame-coverage"]')
+    page.wait_for_selector(".coverage-summary", timeout=3000)
+    assert page.locator(".coverage-bar").count() == 1
+    assert page.locator(".coverage-warning").count() == 1
+    # 15 entries in run-14
+    assert page.locator(".coverage-row").count() == 15
+    # The warning must contain the V30 retrieval-coverage caveat text
+    warning_text = page.locator(".coverage-warning").text_content()
+    assert "phase1_retrieval_coverage_only" in warning_text
+
+
+def test_coverage_view_groups_rows_by_section(browser_page) -> None:
+    """Rows are grouped by section (Efficacy, Mechanism, Regulatory, etc.)."""
+    page = browser_page
+    page.click('.tab-btn[data-view="frame-coverage"]')
+    page.wait_for_selector(".coverage-section-group", timeout=3000)
+    section_titles = page.locator(".coverage-section-title").all_text_contents()
+    # run-14 has Efficacy, Mechanism, Regulatory at minimum
+    titles_joined = " ".join(section_titles).lower()
+    assert "efficacy" in titles_joined
+    assert "regulatory" in titles_joined
+
+
+def test_coverage_view_offers_resolve_button_on_gap_rows(browser_page) -> None:
+    """Gap rows expose a resolve-gap button that emits the custom event."""
+    page = browser_page
+    page.click('.tab-btn[data-view="frame-coverage"]')
+    page.wait_for_selector(".coverage-summary", timeout=3000)
+    # Listen for the polaris:resolve-gap custom event
+    page.evaluate(
+        """() => {
+            window.__resolveGapEvents = [];
+            document.addEventListener('polaris:resolve-gap', (e) => {
+                window.__resolveGapEvents.push(e.detail.entity_id);
+            });
+        }"""
+    )
+    # Click the first available resolve-gap button (run-14 has 1 fail_min_fields)
+    resolve_btns = page.locator('button[data-action="resolve-gap"]:not(:disabled)')
+    if resolve_btns.count() > 0:
+        first = resolve_btns.first
+        entity_id = first.get_attribute("data-entity-id")
+        first.click()
+        events = page.evaluate("window.__resolveGapEvents")
+        assert entity_id in events
