@@ -467,6 +467,35 @@ async def get_audit_bundle(slug: str):
     )
 
 
+@router.get("/api/inspector/runs/{slug}/health")
+async def get_run_citation_health(slug: str) -> dict:
+    """M-17: synchronous citation health check for one run.
+
+    Returns the full health report (issues + summary). Designed to
+    be polled by the Inspector UI (header badge: green/yellow/red)
+    and embedded in M-23 review-queue triage. Pure check over the
+    loaded IR — no network, no source-content load.
+
+    Like the rest of the run-* surface, this endpoint is currently
+    unauthenticated; org-scoped retrofit deferred to M-15c.
+    """
+    from src.polaris_graph.audit_ir.citation_health import (
+        check_citation_health,
+        report_to_dict,
+    )
+    summary = find_run_by_slug(slug)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run slug: {slug}")
+    try:
+        ir = load_audit_ir(summary.artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load IR: {exc}"
+        )
+    report = check_citation_health(ir)
+    return report_to_dict(report)
+
+
 @router.get("/inspector", response_class=HTMLResponse)
 async def inspector_root() -> RedirectResponse:
     """Redirect to the canonical demo run for Phase A."""
