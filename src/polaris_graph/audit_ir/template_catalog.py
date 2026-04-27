@@ -101,32 +101,42 @@ _V30_CLINICAL = CuratedTemplate(
         "will surface medical-but-non-drug queries to operator review; "
         "v30_clinical is not the right template for them."
     ),
-    # Codex M-10 review fix: drug_keywords are the STRONG gate. Only
-    # specific regulated drugs and drug classes qualify. Generic
-    # words like "drug" / "medication" / "therapy" are NOT here —
-    # they belong in medical_keywords (review-only).
+    # Codex M-10 v2 review fix: drug_keywords are the STRONG gate;
+    # ONLY entries here can cross the ROUTED threshold. v1 left
+    # umbrella class terms (biologic, biosimilar, monoclonal
+    # antibody, receptor agonist) in this list, which let
+    # exemplar-shape queries auto-route without a specific named
+    # drug — e.g. "Phase 3 trial of biologic for psoriasis" routed
+    # at 0.72. v2 demotes those umbrellas to medical_keywords;
+    # only specific drug names + sufficiently narrow class
+    # abbreviations (GLP-1, SGLT2, DPP-4 — each identifies a small
+    # set of known drugs) remain in the STRONG gate.
     drug_keywords=(
         # Specific drug names (small Phase B set; expanded as the
         # template library grows in Phase C).
         "tirzepatide", "semaglutide", "liraglutide", "dulaglutide",
-        "metformin", "empagliflozin", "dapagliflozin", "sitagliptin",
-        "atorvastatin", "rosuvastatin",
-        # Drug classes (multi-word entries match as token sets).
-        "glp-1", "sglt2", "dpp-4",
-        "monoclonal antibody", "monoclonal antibodies",
-        "receptor agonist",
-        # Regulated biologic / antibody umbrella terms — these only
-        # matter as drug-keywords when paired with a real exemplar
-        # match, so they are conservative.
-        "biologic", "biosimilar",
+        "exenatide",
+        "metformin", "empagliflozin", "dapagliflozin", "canagliflozin",
+        "sitagliptin", "saxagliptin",
+        "atorvastatin", "rosuvastatin", "simvastatin",
+        # Narrow class abbreviations (each identifies a small known
+        # set of marketed drugs; a query naming the class is
+        # specific enough to audit).
+        "glp-1", "sglt2", "sglt-2", "dpp-4",
     ),
     # Codex M-10 review fix: medical_keywords cover the broad medical
     # domain — clinical-trial terminology, regulatory framing,
-    # conditions, and generic outcomes. A medical_keyword hit is
-    # NEVER sufficient on its own for ROUTED; it can only push the
-    # verdict up to OPERATOR_REVIEW (the operator decides whether
-    # v30_clinical is the right template).
+    # conditions, generic outcomes, AND the umbrella drug-class
+    # terms that are too generic for the STRONG gate. A
+    # medical_keyword hit is NEVER sufficient on its own for ROUTED;
+    # it can only push the verdict up to OPERATOR_REVIEW (the
+    # operator decides whether v30_clinical is the right template).
     medical_keywords=(
+        # Umbrella drug-class terms (Codex M-10 v2 demote — too
+        # generic to anchor ROUTED on their own).
+        "biologic", "biologics", "biosimilar", "biosimilars",
+        "monoclonal antibody", "monoclonal antibodies",
+        "receptor agonist", "receptor antagonist",
         # Trial methodology
         "randomized", "double-blind", "placebo", "placebo-controlled",
         "phase 1", "phase 2", "phase 3", "phase 4",
@@ -149,6 +159,10 @@ _V30_CLINICAL = CuratedTemplate(
         "disease", "syndrome", "condition", "study", "studies",
         "clinical", "pharmacology", "pharmacokinetic",
     ),
+    # Codex M-10 v2 review fix: every exemplar names a specific drug
+    # from drug_keywords. Removed "Phase 3 trial of monoclonal
+    # antibody for hypertension" — it had no specific drug and
+    # doubled as a routing hazard via the demoted umbrella terms.
     scope_examples=(
         "What is the efficacy of tirzepatide for type 2 diabetes?",
         "Safety profile of semaglutide for obesity",
@@ -157,7 +171,7 @@ _V30_CLINICAL = CuratedTemplate(
         "Adverse event rates of liraglutide in obesity trials",
         "Empagliflozin cardiovascular outcomes meta-analysis in heart failure",
         "Atorvastatin efficacy for hypercholesterolemia in adults",
-        "Phase 3 trial of monoclonal antibody for hypertension",
+        "Dulaglutide phase 3 trial outcomes for type 2 diabetes",
     ),
 )
 

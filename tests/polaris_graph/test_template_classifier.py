@@ -263,6 +263,14 @@ def test_candidates_for_unsupported_still_present() -> None:
         # Wellness / non-clinical.
         "Mediterranean diet for cardiovascular health",
         "Yoga benefits for back pain",
+        # Codex M-10 v2 review regression: umbrella drug-class terms
+        # without a specific named drug must not auto-route.
+        "Phase 3 trial of biologic for psoriasis",
+        "Phase 3 trial of biosimilar for rheumatoid arthritis",
+        "Phase 3 trial of monoclonal antibody for eczema",
+        "Phase 3 trial of receptor agonist for dermatitis",
+        "Meta-analysis of biologics in inflammatory bowel disease",
+        "Adverse events of monoclonal antibodies in oncology",
     ],
 )
 def test_off_scope_with_exemplar_shape_does_not_route(query: str) -> None:
