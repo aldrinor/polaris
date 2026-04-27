@@ -617,6 +617,28 @@ class ContractDraftStore:
             raise ContractDraftStateError(
                 "actor_user_id must be non-empty"
             )
+        # Codex M-26 v2 review fix: caller-supplied from_states
+        # could be used to resurrect terminal states. v3 ENFORCES
+        # the canonical from_states for terminal transitions
+        # regardless of caller input. APPROVED and REJECTED can
+        # ONLY be reached from AWAITING_APPROVAL.
+        if to_state in (
+            ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
+        ):
+            from_states = (ContractDraftStatus.AWAITING_APPROVAL,)
+        # Codex M-26 v2 review fix: caller-supplied mark_decided /
+        # set_approver / set_rejecter could be False for an
+        # APPROVED transition, leaving status=approved with
+        # approved_by=NULL, decided_at=NULL, rationale=NULL. v3
+        # ENFORCES the canonical bookkeeping flags by to_state.
+        if to_state == ContractDraftStatus.APPROVED:
+            mark_decided = True
+            set_approver = True
+            set_rejecter = False
+        elif to_state == ContractDraftStatus.REJECTED:
+            mark_decided = True
+            set_approver = False
+            set_rejecter = True
         from_values = tuple(s.value for s in from_states)
         now = time.time()
         with self._connect() as conn:

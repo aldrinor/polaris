@@ -776,6 +776,112 @@ def test_cross_org_decide_clause_uniform_error(
         )
 
 
+# ---------------------------------------------------------------------------
+# Codex M-26 v2 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_direct_transition_cannot_resurrect_rejected_to_approved(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v2: caller-supplied from_states could let a
+    direct caller pass `from_states=(REJECTED,)` and resurrect a
+    terminal-rejected draft to APPROVED. v3 ignores caller-supplied
+    from_states for APPROVED/REJECTED transitions and enforces
+    AWAITING_APPROVAL as the canonical from-state."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Land the draft in REJECTED (terminal).
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    snap = store.get_draft(draft_id=d.draft_id, org_id="org_a")
+    assert snap is not None
+    assert snap.status == ContractDraftStatus.REJECTED
+
+    # Direct call passing from_states=(REJECTED,) must still fail
+    # because v3 forces from_states=(AWAITING_APPROVAL,) for an
+    # APPROVED transition.
+    with pytest.raises(ContractDraftStateError, match="awaiting_approval"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.REJECTED,),  # bypass attempt
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="resurrecting rejected",
+            mark_decided=True, set_approver=True,
+        )
+
+
+def test_direct_transition_cannot_approve_with_mark_decided_false(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v2: passing mark_decided=False / set_approver=False
+    on an APPROVED transition would leave status=approved with
+    approved_by=NULL, decided_at=NULL, rationale=NULL. v3 ignores
+    caller-supplied bookkeeping flags and forces canonical values
+    for terminal transitions."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # Direct call with mark_decided=False, set_approver=False
+    # should NOT produce a NULL-bookkeeping APPROVED row.
+    approved = store._transition_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        actor_user_id="bob",
+        from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+        to_state=ContractDraftStatus.APPROVED,
+        rationale="reviewed",
+        mark_decided=False,  # bypass attempt
+        set_approver=False,  # bypass attempt
+    )
+    # Despite caller passing False, the row is fully populated.
+    assert approved.status == ContractDraftStatus.APPROVED
+    assert approved.approved_by == "bob"
+    assert approved.decided_at is not None
+    assert approved.decision_rationale == "reviewed"
+
+
+def test_direct_transition_cannot_reject_without_bookkeeping(
+    store: ContractDraftStore,
+) -> None:
+    """Symmetric to the APPROVED case: a direct caller passing
+    mark_decided=False / set_rejecter=False on a REJECTED
+    transition cannot produce a NULL-bookkeeping rejection row."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    rejected = store._transition_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        actor_user_id="bob",
+        from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+        to_state=ContractDraftStatus.REJECTED,
+        rationale="not a fit",
+        mark_decided=False,  # bypass attempt
+        set_rejecter=False,  # bypass attempt
+    )
+    assert rejected.status == ContractDraftStatus.REJECTED
+    assert rejected.rejected_by == "bob"
+    assert rejected.decided_at is not None
+    assert rejected.decision_rationale == "not a fit"
+
+
 def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
     d = _create_basic(store)
     c = _add_clause(store, d)
