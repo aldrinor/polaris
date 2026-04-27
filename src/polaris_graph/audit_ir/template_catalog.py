@@ -372,6 +372,13 @@ _V30_CLINICAL_ONCOLOGY = CuratedTemplate(
         "Nivolumab adverse event rates in advanced melanoma",
         "Bevacizumab progression-free survival in metastatic colorectal cancer",
         "Rituximab efficacy in follicular lymphoma front-line therapy",
+        # Codex M-20 v2 review fix: class-only exemplars so queries
+        # naming a narrow drug-class abbreviation route via Tier A
+        # (high jaccard) instead of falling to operator_review at
+        # the drug-anchored Tier B floor.
+        "PD-1 inhibitors efficacy in melanoma",
+        "PARP inhibitors maintenance in ovarian cancer",
+        "Checkpoint inhibitors in metastatic non-small cell lung cancer",
     ),
 )
 
@@ -496,6 +503,16 @@ _V30_CLINICAL_CARDIO = CuratedTemplate(
         "Evolocumab LDL reduction and cardiovascular outcomes",
         "Spironolactone in chronic heart failure HFpEF outcomes",
         "Amiodarone safety profile in chronic atrial fibrillation",
+        # Codex M-20 v2 review fix: class-only exemplars so plural
+        # class-abbreviation queries (DOACs, statins, ARBs, etc.)
+        # route via Tier A instead of stalling at the Tier B
+        # (drug named, exemplar shape unmatched) floor.
+        "DOACs efficacy in atrial fibrillation",
+        "Statins for primary prevention in adults",
+        "ARBs outcomes in hypertension",
+        "Calcium channel blockers efficacy in hypertension",
+        "Beta blockers in heart failure",
+        "PCSK9 inhibitors LDL reduction outcomes",
     ),
 )
 

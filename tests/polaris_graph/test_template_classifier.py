@@ -689,19 +689,26 @@ def test_real_catalog_has_no_unexpected_ties() -> None:
 def test_plural_drug_class_forms_route_correctly(
     query: str, expected_template: str,
 ) -> None:
-    """Plural class-abbreviation surface forms must route to the
-    correct specialty template. Codex M-20 review found that
-    "PD-1 inhibitors", "DOACs", "ARBs", "calcium channel blockers"
-    all dropped to operator_review because only the singular form
-    was present in drug_keywords."""
+    """Plural class-abbreviation surface forms must ROUTE to the
+    correct specialty template (Codex M-20 v2 review tightening:
+    not just rank correctly but verdict == ROUTED).
+
+    Codex M-20 v1 review found that "PD-1 inhibitors", "DOACs",
+    "ARBs", "calcium channel blockers" all dropped to
+    operator_review because only the singular form was present in
+    drug_keywords. M-20 v2 added plural drug_keywords; v3 added
+    class-only scope_examples so jaccard hits Tier A and the
+    queries route at score >= floor_high."""
     r = classify_query(query)
-    # Either the query routes (best case) or it lands in operator_
-    # review for some other reason — but it MUST score the expected
-    # template at the top with a reasonable score (>= floor_review).
-    top = r.candidates[0]
-    assert top.template_id == expected_template, (
-        f"query {query!r} expected to score {expected_template!r} "
-        f"highest but got {top.template_id!r} at score {top.score:.2f}"
+    assert r.verdict == RoutingVerdict.ROUTED, (
+        f"query {query!r} expected to ROUTE to {expected_template!r} "
+        f"but got verdict={r.verdict} at confidence {r.confidence:.2f}; "
+        f"top candidate: {r.candidates[0].template_id!r} score "
+        f"{r.candidates[0].score:.2f}; rationale={r.rationale!r}"
+    )
+    assert r.template_id == expected_template, (
+        f"query {query!r} ROUTED but to wrong template "
+        f"{r.template_id!r} (expected {expected_template!r})"
     )
 
 
