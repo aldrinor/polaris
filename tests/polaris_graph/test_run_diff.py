@@ -227,7 +227,6 @@ def test_added_claim_surfaces_in_diff() -> None:
     assert len(d.claim_deltas) == 1
     delta = d.claim_deltas[0]
     assert delta.direction == "added"
-    assert delta.claim_id == "findings:verified:1"
     assert "nausea" in delta.text
 
 
@@ -242,6 +241,7 @@ def test_removed_claim_surfaces_in_diff() -> None:
     d = diff_runs(ir_a, ir_b)
     assert len(d.claim_deltas) == 1
     assert d.claim_deltas[0].direction == "removed"
+    assert "Second claim" in d.claim_deltas[0].text
 
 
 def test_unchanged_claims_do_not_surface() -> None:
@@ -256,16 +256,38 @@ def test_unchanged_claims_do_not_surface() -> None:
 
 
 def test_whitespace_only_change_is_noise_not_material() -> None:
-    """Identical claim_id + token-level whitespace difference =
-    not a delta. The claim_id key is what matters."""
+    """Codex M-16 v2 review fix: claims keyed by stable
+    content handle (section + normalized text). Whitespace
+    differences in the same claim normalize away → no delta."""
     ir_a = _make_minimal_ir(sentences=[
         _sentence("findings:verified:0", "tirzepatide   is effective"),
     ])
     ir_b = _make_minimal_ir(sentences=[
-        _sentence("findings:verified:0", "tirzepatide is effective"),
+        _sentence("findings:verified:9", "tirzepatide is effective"),
     ])
     d = diff_runs(ir_a, ir_b)
+    # Same content, different run-local idx → no delta.
     assert d.claim_deltas == ()
+
+
+def test_claim_idx_renumber_does_not_surface() -> None:
+    """Codex M-16 v2 review regression: claim_id was run-local
+    `<section>:<status>:<idx>`. Re-running the audit could shift
+    idx and produce false add/remove deltas. v2 keys by stable
+    content handle (section + normalized text)."""
+    ir_a = _make_minimal_ir(sentences=[
+        _sentence("findings:verified:0", "Claim A."),
+        _sentence("findings:verified:1", "Claim B."),
+    ])
+    # Same two claims in B but with shifted idx (re-run reorder).
+    ir_b = _make_minimal_ir(sentences=[
+        _sentence("findings:verified:5", "Claim B."),  # was idx 1
+        _sentence("findings:verified:7", "Claim A."),  # was idx 0
+    ])
+    d = diff_runs(ir_a, ir_b)
+    assert d.claim_deltas == (), (
+        "claim_id idx renumber must not surface as a delta"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -275,29 +297,80 @@ def test_whitespace_only_change_is_noise_not_material() -> None:
 
 def test_added_evidence_surfaces() -> None:
     ir_a = _make_minimal_ir(bibliography=(
-        _bib(1, "ev_x", "Smith 2023"),
+        _bib(1, "ev_x", "Smith 2023", url="https://example.com/smith"),
     ))
     ir_b = _make_minimal_ir(bibliography=(
-        _bib(1, "ev_x", "Smith 2023"),
-        _bib(2, "ev_y", "Jones 2024"),
+        _bib(1, "ev_x", "Smith 2023", url="https://example.com/smith"),
+        _bib(2, "ev_y", "Jones 2024", url="https://example.com/jones"),
     ))
     d = diff_runs(ir_a, ir_b)
     assert len(d.evidence_deltas) == 1
     assert d.evidence_deltas[0].direction == "added"
-    assert d.evidence_deltas[0].evidence_id == "ev_y"
+    assert "Jones" in d.evidence_deltas[0].statement
 
 
 def test_removed_evidence_surfaces() -> None:
     ir_a = _make_minimal_ir(bibliography=(
-        _bib(1, "ev_x", "Smith 2023"),
-        _bib(2, "ev_y", "Jones 2024"),
+        _bib(1, "ev_x", "Smith 2023", url="https://example.com/smith"),
+        _bib(2, "ev_y", "Jones 2024", url="https://example.com/jones"),
     ))
     ir_b = _make_minimal_ir(bibliography=(
-        _bib(1, "ev_x", "Smith 2023"),
+        _bib(1, "ev_x", "Smith 2023", url="https://example.com/smith"),
     ))
     d = diff_runs(ir_a, ir_b)
     assert len(d.evidence_deltas) == 1
     assert d.evidence_deltas[0].direction == "removed"
+    assert "Jones" in d.evidence_deltas[0].statement
+
+
+def test_evidence_id_renumber_does_not_surface() -> None:
+    """Codex M-16 v2 review regression: evidence_id is run-local
+    sequential. Re-runs of the same retrieval may produce ev_001
+    in one run and ev_017 in another for the same source. v2
+    keys evidence by canonical-source handle (DOI / PMID /
+    normalized URL / statement) so renumbering doesn't produce
+    false add/remove deltas."""
+    ir_a = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_001", "Smith 2023", url="https://example.com/smith"),
+        _bib(2, "ev_002", "Jones 2024", url="https://example.com/jones"),
+    ))
+    # Same two sources, different run-local ev_ids.
+    ir_b = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_017", "Jones 2024", url="https://example.com/jones"),
+        _bib(2, "ev_018", "Smith 2023", url="https://example.com/smith"),
+    ))
+    d = diff_runs(ir_a, ir_b)
+    assert d.evidence_deltas == (), (
+        "evidence_id renumber must not surface as a delta"
+    )
+
+
+def test_evidence_doi_collapses_url_variants() -> None:
+    """Same DOI, different URL strings → same source → no delta."""
+    ir_a = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_a", "Trial 2023 (doi 10.1056/NEJMoa2107931)",
+             url="https://www.example.com/trial?utm_source=x"),
+    ))
+    ir_b = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_b", "Trial 2023 (doi 10.1056/NEJMoa2107931)",
+             url="http://example.com/trial/"),
+    ))
+    d = diff_runs(ir_a, ir_b)
+    assert d.evidence_deltas == ()
+
+
+def test_evidence_normalized_url_collapses_tracking_params() -> None:
+    """Same URL with/without UTM params → same source → no delta."""
+    ir_a = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_a", "Smith 2023",
+             url="https://www.example.com/study/abc?utm_source=mail&utm_campaign=x"),
+    ))
+    ir_b = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_b", "Smith 2023",
+             url="http://example.com/study/abc/"),
+    ))
+    d = diff_runs(ir_a, ir_b)
+    assert d.evidence_deltas == ()
 
 
 # ---------------------------------------------------------------------------
@@ -349,47 +422,62 @@ def test_contradiction_cluster_id_renumber_does_not_surface() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_tier_shift_below_threshold_does_not_surface() -> None:
+def test_tier_shift_uses_real_v30_tier_keys() -> None:
+    """Codex M-16 v2 review fix: real V30 manifests use T1..T7 +
+    UNKNOWN, not tier1..tier4. v1 hardcoded the wrong keys and
+    silently missed every tier shift on real data."""
     ir_a = _make_minimal_ir(tier_fractions={
-        "tier1": 0.40, "tier2": 0.30, "tier3": 0.20, "tier4": 0.10,
+        "T1": 0.50, "T2": 0.30, "T3": 0.10, "T4": 0.10,
     })
     ir_b = _make_minimal_ir(tier_fractions={
-        "tier1": 0.42, "tier2": 0.28, "tier3": 0.20, "tier4": 0.10,
+        "T1": 0.20, "T2": 0.30, "T3": 0.40, "T4": 0.10,
+    })
+    d = diff_runs(ir_a, ir_b)
+    surfaced = {s.tier for s in d.tier_shifts}
+    assert "T1" in surfaced
+    assert "T3" in surfaced
+    assert "T2" not in surfaced  # unchanged
+
+
+def test_tier_shift_below_threshold_does_not_surface() -> None:
+    ir_a = _make_minimal_ir(tier_fractions={
+        "T1": 0.40, "T2": 0.30, "T3": 0.20, "T4": 0.10,
+    })
+    ir_b = _make_minimal_ir(tier_fractions={
+        "T1": 0.42, "T2": 0.28, "T3": 0.20, "T4": 0.10,
     })
     # Default threshold 10pp; 2pp shift is below.
     d = diff_runs(ir_a, ir_b)
     assert d.tier_shifts == ()
 
 
-def test_tier_shift_above_threshold_surfaces() -> None:
-    ir_a = _make_minimal_ir(tier_fractions={
-        "tier1": 0.50, "tier2": 0.30, "tier3": 0.10, "tier4": 0.10,
-    })
-    ir_b = _make_minimal_ir(tier_fractions={
-        "tier1": 0.20, "tier2": 0.30, "tier3": 0.40, "tier4": 0.10,
-    })
-    # tier1 dropped 30pp; tier3 gained 30pp. Both surface.
-    d = diff_runs(ir_a, ir_b)
-    surfaced_tiers = {s.tier for s in d.tier_shifts}
-    assert "tier1" in surfaced_tiers
-    assert "tier3" in surfaced_tiers
-    # tier2 unchanged.
-    assert "tier2" not in surfaced_tiers
-
-
 def test_tier_shift_threshold_env_overridable(monkeypatch) -> None:
     monkeypatch.setenv("PG_RUN_DIFF_TIER_PP", "1.0")
     ir_a = _make_minimal_ir(tier_fractions={
-        "tier1": 0.40, "tier2": 0.30, "tier3": 0.20, "tier4": 0.10,
+        "T1": 0.40, "T2": 0.30, "T3": 0.20, "T4": 0.10,
     })
     ir_b = _make_minimal_ir(tier_fractions={
-        "tier1": 0.42, "tier2": 0.28, "tier3": 0.20, "tier4": 0.10,
+        "T1": 0.42, "T2": 0.28, "T3": 0.20, "T4": 0.10,
     })
-    # With 1pp threshold, the 2pp shift does surface.
     d = diff_runs(ir_a, ir_b)
     surfaced = {s.tier for s in d.tier_shifts}
-    assert "tier1" in surfaced
-    assert "tier2" in surfaced
+    assert "T1" in surfaced
+    assert "T2" in surfaced
+
+
+def test_tier_shift_with_extended_keys() -> None:
+    """V30 sometimes emits T5/T6/T7 + UNKNOWN. Diff must support
+    arbitrary tier labels."""
+    ir_a = _make_minimal_ir(tier_fractions={
+        "T1": 0.30, "T5": 0.30, "T7": 0.30, "UNKNOWN": 0.10,
+    })
+    ir_b = _make_minimal_ir(tier_fractions={
+        "T1": 0.30, "T5": 0.10, "T7": 0.50, "UNKNOWN": 0.10,
+    })
+    d = diff_runs(ir_a, ir_b)
+    surfaced = {s.tier for s in d.tier_shifts}
+    assert "T5" in surfaced
+    assert "T7" in surfaced
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +526,36 @@ def test_diff_to_dict_round_trip() -> None:
 # ---------------------------------------------------------------------------
 # Determinism — same input, same output
 # ---------------------------------------------------------------------------
+
+
+def test_run_diff_endpoint_route_order(tmp_path) -> None:
+    """Codex M-16 v2 review regression: the /api/inspector/runs/
+    diff endpoint MUST be declared before /api/inspector/runs/
+    {slug}, otherwise FastAPI's path matching treats "diff" as a
+    slug and 404s. v1 had this exact bug — the endpoint was
+    unreachable. v2 moved it above."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from src.polaris_graph.audit_ir.inspector_router import router
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    # Hit the /diff endpoint with two unknown slugs. Should
+    # return 404 with detail starting "unknown run slug" — NOT
+    # routed to /runs/{slug}=diff.
+    resp = client.get(
+        "/api/inspector/runs/diff?a_slug=does_not_exist_a&b_slug=does_not_exist_b"
+    )
+    # 404 with "unknown run slug: does_not_exist_a" → endpoint
+    # reached. If route order is broken, we'd see "Unknown run
+    # slug: diff" instead.
+    assert resp.status_code == 404
+    detail = resp.json().get("detail", "")
+    assert "does_not_exist_a" in detail or "does_not_exist_b" in detail, (
+        f"endpoint not reached; got detail={detail!r}"
+    )
+    assert "diff" not in detail or "does_not_exist" in detail
 
 
 def test_diff_is_deterministic() -> None:

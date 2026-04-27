@@ -39,6 +39,7 @@ Per LAW II:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
@@ -154,24 +155,116 @@ def _normalize_claim_text(text: str) -> str:
     return " ".join((text or "").split()).strip()
 
 
-def _claims_by_id(ir: AuditIR) -> dict[str, Any]:
-    """Map claim_id → ReportSentence across all sections.
+_CLAIM_TEXT_RE = re.compile(r"\s+")
 
-    AuditIR's verified_report.sections is a tuple of ReportSection,
-    each with a `sentences` tuple of ReportSentence. claim_id is
-    stable per (artifact_dir, section, status, idx)."""
+
+def _claim_handle(section_title: str, text: str) -> str:
+    """Codex M-16 v2 review fix: claim_id (`<section>:<status>:
+    <idx>`) is run-local — sentence reorder/insertion changes
+    `idx` and produces false add/remove deltas. v2 keys claims
+    by a stable content handle: (section_title, normalized_text).
+
+    Whitespace is collapsed; case is preserved (medical content
+    is case-sensitive: 'mg' != 'Mg').
+    """
+    norm = _CLAIM_TEXT_RE.sub(" ", text or "").strip()
+    return f"{section_title}|{norm}"
+
+
+def _claims_by_handle(ir: AuditIR) -> dict[str, Any]:
+    """Map content-handle → ReportSentence across all sections.
+
+    Codex M-16 v2 review fix: keys by stable (section_title,
+    normalized_text) instead of run-local claim_id. Re-ordering
+    sentences in a section no longer surfaces as add/remove.
+    """
     out: dict[str, Any] = {}
     for section in ir.verified_report.sections:
         for sentence in section.sentences:
-            out[sentence.claim_id] = sentence
+            handle = _claim_handle(section.title, sentence.text)
+            # Two sentences with identical text in the same
+            # section is rare; if it happens, keep the first
+            # (deterministic).
+            out.setdefault(handle, (section.title, sentence))
     return out
 
 
-def _evidence_by_id(ir: AuditIR) -> dict[str, Any]:
-    """Map evidence_id → BibliographyEntry."""
+_DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
+_PMID_RE = re.compile(r"\bpmid[:\s]*(\d+)\b", re.IGNORECASE)
+_TRACKING_PARAM_RE = re.compile(
+    r"[?&](utm_[^=]+|fbclid|gclid|mc_[^=]+|ref|source)=[^&#]*"
+)
+
+
+def _normalize_url(url: str) -> str:
+    """Lowercase host, strip scheme/www/trailing slash/fragments
+    and tracking params, so `HTTPS://Example.com/foo/` and
+    `http://example.com/foo?utm_source=x#bar` collapse."""
+    if not url:
+        return ""
+    u = url.strip().lower()
+    # Strip scheme.
+    for sch in ("https://", "http://"):
+        if u.startswith(sch):
+            u = u[len(sch):]
+            break
+    # Strip www.
+    if u.startswith("www."):
+        u = u[4:]
+    # Strip fragment.
+    if "#" in u:
+        u = u.split("#", 1)[0]
+    # Strip tracking params (best-effort regex; keeps other
+    # query params intact).
+    u = _TRACKING_PARAM_RE.sub("", u)
+    # If the query is now empty, strip the trailing ?.
+    u = u.rstrip("?&")
+    # Strip trailing slash.
+    u = u.rstrip("/")
+    return u
+
+
+def _evidence_handle(entry: Any) -> str:
+    """Codex M-16 v2 review fix: evidence_id (ev_xxx) is
+    run-local; live retriever assigns sequential ids and the
+    sweep can renumber merged rows. v2 keys evidence by a
+    stable canonical-source handle:
+
+      1. DOI from the URL or statement (most stable).
+      2. PMID from the statement or URL.
+      3. Normalized URL (scheme/host/path, tracking params off).
+      4. Fallback: normalized statement text.
+
+    Curated IDs (e.g. `surpass_1_primary`) are stable across
+    runs and survive — but we still hash on canonical source so
+    a curated entry and an auto-extracted entry pointing to the
+    same DOI collapse to one handle.
+    """
+    statement = (getattr(entry, "statement", "") or "")
+    url = (getattr(entry, "url", "") or "")
+    # DOI
+    haystack = f"{statement} {url}"
+    m = _DOI_RE.search(haystack)
+    if m:
+        return f"doi:{m.group(0).lower()}"
+    # PMID
+    m = _PMID_RE.search(haystack)
+    if m:
+        return f"pmid:{m.group(1)}"
+    # Normalized URL
+    if url:
+        return f"url:{_normalize_url(url)}"
+    # Fallback: normalized statement
+    norm_stmt = _CLAIM_TEXT_RE.sub(" ", statement).strip().lower()
+    return f"stmt:{norm_stmt}"
+
+
+def _evidence_by_handle(ir: AuditIR) -> dict[str, Any]:
+    """Map canonical-source handle → BibliographyEntry."""
     out: dict[str, Any] = {}
     for entry in ir.bibliography:
-        out[entry.evidence_id] = entry
+        handle = _evidence_handle(entry)
+        out.setdefault(handle, entry)
     return out
 
 
@@ -195,57 +288,65 @@ def _contradictions_by_subject(ir: AuditIR) -> dict[str, Any]:
 
 
 def _diff_claims(ir_a: AuditIR, ir_b: AuditIR) -> tuple[ClaimDelta, ...]:
-    a_map = _claims_by_id(ir_a)
-    b_map = _claims_by_id(ir_b)
+    """Codex M-16 v2 review fix: claims are diffed by stable
+    content handle (section_title + normalized text) instead of
+    run-local claim_id. The ClaimDelta surfaces the run-local
+    claim_id for renderer use, but does NOT use it as the diff
+    key.
+    """
+    a_map = _claims_by_handle(ir_a)
+    b_map = _claims_by_handle(ir_b)
     deltas: list[ClaimDelta] = []
-    # In A not B → removed.
-    for cid, sa in a_map.items():
-        if cid not in b_map:
+    for handle, (sec_title, sa) in a_map.items():
+        if handle not in b_map:
             deltas.append(ClaimDelta(
                 direction="removed",
-                claim_id=cid,
-                section=sa.section,
+                claim_id=sa.claim_id,
+                section=sec_title,
                 text=_normalize_claim_text(sa.text),
                 is_verified=sa.is_verified,
             ))
-    # In B not A → added.
-    for cid, sb in b_map.items():
-        if cid not in a_map:
+    for handle, (sec_title, sb) in b_map.items():
+        if handle not in a_map:
             deltas.append(ClaimDelta(
                 direction="added",
-                claim_id=cid,
-                section=sb.section,
+                claim_id=sb.claim_id,
+                section=sec_title,
                 text=_normalize_claim_text(sb.text),
                 is_verified=sb.is_verified,
             ))
-    # Stable order for deterministic output.
-    deltas.sort(key=lambda d: (d.direction, d.section, d.claim_id))
+    deltas.sort(key=lambda d: (d.direction, d.section, d.text))
     return tuple(deltas)
 
 
 def _diff_evidence(ir_a: AuditIR, ir_b: AuditIR) -> tuple[EvidenceDelta, ...]:
-    a_map = _evidence_by_id(ir_a)
-    b_map = _evidence_by_id(ir_b)
+    """Codex M-16 v2 review fix: evidence is diffed by canonical
+    source handle (DOI > PMID > normalized URL > normalized
+    statement) instead of run-local ev_xxx. Re-runs that emit
+    the same source under a renumbered ev_id no longer surface
+    as add+remove."""
+    a_map = _evidence_by_handle(ir_a)
+    b_map = _evidence_by_handle(ir_b)
     deltas: list[EvidenceDelta] = []
-    for eid, ea in a_map.items():
-        if eid not in b_map:
+    for handle, ea in a_map.items():
+        if handle not in b_map:
             deltas.append(EvidenceDelta(
                 direction="removed",
-                evidence_id=eid,
+                evidence_id=getattr(ea, "evidence_id", "") or "",
                 statement=getattr(ea, "statement", "") or "",
                 tier=getattr(ea, "tier", "") or "",
                 url=getattr(ea, "url", "") or "",
             ))
-    for eid, eb in b_map.items():
-        if eid not in a_map:
+    for handle, eb in b_map.items():
+        if handle not in a_map:
             deltas.append(EvidenceDelta(
                 direction="added",
-                evidence_id=eid,
+                evidence_id=getattr(eb, "evidence_id", "") or "",
                 statement=getattr(eb, "statement", "") or "",
                 tier=getattr(eb, "tier", "") or "",
                 url=getattr(eb, "url", "") or "",
             ))
-    deltas.sort(key=lambda d: (d.direction, d.evidence_id))
+    deltas.sort(key=lambda d: (d.direction, d.statement))
     return tuple(deltas)
 
 
@@ -278,30 +379,40 @@ def _diff_contradictions(
 def _tier_pcts(ir: AuditIR) -> dict[str, float]:
     """Compute tier percentages from the AuditIR tier_mix.
 
+    Codex M-16 v2 review fix: v1 hardcoded `tier1..tier4`, but
+    the real V30 manifest uses `T1..T7` + `UNKNOWN`. v1 returned
+    all-zeros and silently missed every tier shift on real data.
+    v2 reads the actual keys from `tier_mix.fractions`.
+
     AuditIR.tier_mix.fractions is a Mapping[tier_label, fraction]
-    where fractions sum to 1.0. Convert to percentages."""
+    where fractions sum to ~1.0. Convert to percentages keyed by
+    the real tier labels.
+    """
     tm = ir.tier_mix
     fractions = dict(tm.fractions or {})
-    return {
-        tier: 100.0 * float(fractions.get(tier, 0.0))
-        for tier in ("tier1", "tier2", "tier3", "tier4")
-    }
+    return {tier: 100.0 * float(frac) for tier, frac in fractions.items()}
 
 
 def _diff_tier_mix(
     ir_a: AuditIR, ir_b: AuditIR, threshold_pp: float,
 ) -> tuple[TierMixShift, ...]:
+    """Codex M-16 v2 review fix: union of tier keys observed in
+    either run. v1 only checked the four hardcoded names so a
+    tier present in A but absent from B never surfaced.
+    """
     a_pcts = _tier_pcts(ir_a)
     b_pcts = _tier_pcts(ir_b)
+    all_tiers = sorted(set(a_pcts) | set(b_pcts))
     shifts: list[TierMixShift] = []
-    for tier in ("tier1", "tier2", "tier3", "tier4"):
-        delta = b_pcts[tier] - a_pcts[tier]
+    for tier in all_tiers:
+        a_pct = a_pcts.get(tier, 0.0)
+        b_pct = b_pcts.get(tier, 0.0)
+        delta = b_pct - a_pct
         if abs(delta) >= threshold_pp:
             shifts.append(TierMixShift(
-                tier=tier, a_pct=a_pcts[tier], b_pct=b_pcts[tier],
+                tier=tier, a_pct=a_pct, b_pct=b_pct,
                 delta_pp=delta,
             ))
-    shifts.sort(key=lambda s: s.tier)
     return tuple(shifts)
 
 
