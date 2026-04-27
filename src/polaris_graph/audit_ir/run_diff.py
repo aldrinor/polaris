@@ -191,37 +191,72 @@ def _claims_by_handle(ir: AuditIR) -> dict[str, Any]:
 
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _PMID_RE = re.compile(r"\bpmid[:\s]*(\d+)\b", re.IGNORECASE)
-_TRACKING_PARAM_RE = re.compile(
-    r"[?&](utm_[^=]+|fbclid|gclid|mc_[^=]+|ref|source)=[^&#]*"
+
+# Codex M-16 v3 review fix: parse + reconstruct URLs via
+# urllib.parse so tracking-param removal doesn't corrupt the
+# remaining query. v2 regex consumed `?utm_source=x` but left
+# `&id=1` orphaned with a leading `&`, producing different
+# normalized strings for the same URL with vs without UTM.
+_TRACKING_PARAM_PREFIXES: tuple[str, ...] = (
+    "utm_", "mc_", "_hsenc", "_hsmi",
 )
+_TRACKING_PARAM_NAMES: frozenset[str] = frozenset({
+    "fbclid", "gclid", "yclid", "msclkid",
+    "ref", "source", "ref_src", "ref_url",
+    "feature", "trk",
+})
+
+
+def _is_tracking_param(name: str) -> bool:
+    n = name.lower()
+    if n in _TRACKING_PARAM_NAMES:
+        return True
+    for pref in _TRACKING_PARAM_PREFIXES:
+        if n.startswith(pref):
+            return True
+    return False
 
 
 def _normalize_url(url: str) -> str:
-    """Lowercase host, strip scheme/www/trailing slash/fragments
-    and tracking params, so `HTTPS://Example.com/foo/` and
-    `http://example.com/foo?utm_source=x#bar` collapse."""
+    """Codex M-16 v3 review fix: parse URL with urllib.parse,
+    drop tracking query params, sort the remaining params, and
+    rebuild canonical form. Without this, `?utm_source=x&id=1`
+    and `?id=1` normalized to different strings.
+
+    Normalization steps:
+      1. Strip whitespace; ensure scheme for parsing.
+      2. Lowercase netloc; strip `www.`.
+      3. Drop fragment.
+      4. Drop tracking query params (utm_*, fbclid, gclid, ref,
+         source, mc_*, etc.).
+      5. Sort remaining query params alphabetically.
+      6. Strip trailing slash on path.
+      7. Drop scheme so http vs https doesn't matter.
+    """
     if not url:
         return ""
-    u = url.strip().lower()
-    # Strip scheme.
-    for sch in ("https://", "http://"):
-        if u.startswith(sch):
-            u = u[len(sch):]
-            break
-    # Strip www.
-    if u.startswith("www."):
-        u = u[4:]
-    # Strip fragment.
-    if "#" in u:
-        u = u.split("#", 1)[0]
-    # Strip tracking params (best-effort regex; keeps other
-    # query params intact).
-    u = _TRACKING_PARAM_RE.sub("", u)
-    # If the query is now empty, strip the trailing ?.
-    u = u.rstrip("?&")
-    # Strip trailing slash.
-    u = u.rstrip("/")
-    return u
+    raw = url.strip()
+    if not raw:
+        return ""
+    # urllib needs a scheme to populate netloc correctly.
+    has_scheme = raw.lower().startswith(("http://", "https://"))
+    if not has_scheme:
+        raw = "http://" + raw
+    from urllib.parse import urlsplit, parse_qsl, urlencode
+    parts = urlsplit(raw)
+    netloc = parts.netloc.lower()
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    path = parts.path.rstrip("/")
+    qs_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    kept = sorted(
+        (k.lower(), v) for (k, v) in qs_pairs if not _is_tracking_param(k)
+    )
+    new_query = urlencode(kept)
+    out = netloc + path
+    if new_query:
+        out = f"{out}?{new_query}"
+    return out
 
 
 def _evidence_handle(entry: Any) -> str:

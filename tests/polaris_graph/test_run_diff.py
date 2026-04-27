@@ -373,6 +373,40 @@ def test_evidence_normalized_url_collapses_tracking_params() -> None:
     assert d.evidence_deltas == ()
 
 
+def test_evidence_url_with_tracking_param_alongside_real_param() -> None:
+    """Codex M-16 v2 review regression: v2 regex consumed
+    `?utm_source=x` but left `&id=1` orphaned. v3 uses
+    urllib.parse so `?utm_source=x&id=1` and `?id=1` normalize
+    identically."""
+    ir_a = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_a", "Smith 2023",
+             url="https://example.com/path?utm_source=mail&id=1"),
+    ))
+    ir_b = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_b", "Smith 2023",
+             url="https://example.com/path?id=1"),
+    ))
+    d = diff_runs(ir_a, ir_b)
+    assert d.evidence_deltas == (), (
+        "tracking param removal must preserve real query params"
+    )
+
+
+def test_evidence_url_query_param_order_does_not_matter() -> None:
+    """Param order should be canonicalized so `?a=1&b=2` and
+    `?b=2&a=1` collapse to the same key."""
+    ir_a = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_a", "Smith 2023",
+             url="https://example.com/path?a=1&b=2"),
+    ))
+    ir_b = _make_minimal_ir(bibliography=(
+        _bib(1, "ev_b", "Smith 2023",
+             url="https://example.com/path?b=2&a=1"),
+    ))
+    d = diff_runs(ir_a, ir_b)
+    assert d.evidence_deltas == ()
+
+
 # ---------------------------------------------------------------------------
 # Contradiction deltas
 # ---------------------------------------------------------------------------
