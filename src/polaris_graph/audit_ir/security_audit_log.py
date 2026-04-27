@@ -58,6 +58,12 @@ class SecurityEventType(Enum):
     API_KEY_CREATED = "api_key_created"
     API_KEY_REVOKED = "api_key_revoked"
     USER_ROLE_CHANGED = "user_role_changed"
+    # Codex M-19 v1 review fix: access-grant/revoke must be a
+    # first-class event for SOC2 procurement. role-change alone
+    # doesn't cover the "user added to / removed from an org"
+    # surface (auth_store's add_membership / remove_membership).
+    MEMBERSHIP_ADDED = "membership_added"
+    MEMBERSHIP_REMOVED = "membership_removed"
     DATA_DELETED = "data_deleted"
     AUDIT_BUNDLE_EXPORTED = "audit_bundle_exported"
 
@@ -172,9 +178,31 @@ _DEFAULT_SEVERITY: dict[SecurityEventType, EventSeverity] = {
     SecurityEventType.API_KEY_CREATED: EventSeverity.INFO,
     SecurityEventType.API_KEY_REVOKED: EventSeverity.INFO,
     SecurityEventType.USER_ROLE_CHANGED: EventSeverity.INFO,
+    SecurityEventType.MEMBERSHIP_ADDED: EventSeverity.INFO,
+    SecurityEventType.MEMBERSHIP_REMOVED: EventSeverity.INFO,
     SecurityEventType.DATA_DELETED: EventSeverity.INFO,
     SecurityEventType.AUDIT_BUNDLE_EXPORTED: EventSeverity.INFO,
 }
+
+
+# Codex M-19 v1 review fix: events that REQUIRE attribution.
+# Anonymous AUTH_FAILED is OK (the failure is the point — there
+# may not be a valid user_id), but SUCCESS / cross-tenant /
+# privilege-escalation / membership / data-deletion / export
+# events must carry both user_id AND org_id to satisfy "every
+# authenticated action attributed to user_id + org_id."
+_REQUIRES_ATTRIBUTION: frozenset[SecurityEventType] = frozenset({
+    SecurityEventType.AUTH_SUCCEEDED,
+    SecurityEventType.CROSS_TENANT_DENIED,
+    SecurityEventType.PRIVILEGE_ESCALATION_DENIED,
+    SecurityEventType.API_KEY_CREATED,
+    SecurityEventType.API_KEY_REVOKED,
+    SecurityEventType.USER_ROLE_CHANGED,
+    SecurityEventType.MEMBERSHIP_ADDED,
+    SecurityEventType.MEMBERSHIP_REMOVED,
+    SecurityEventType.DATA_DELETED,
+    SecurityEventType.AUDIT_BUNDLE_EXPORTED,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +284,22 @@ class SecurityAuditLog:
             raise SecurityAuditLogError(
                 f"severity must be EventSeverity, got {severity!r}"
             )
+        # Codex M-19 v1 review fix: enforce attribution for
+        # event types where "who did this?" is the whole point.
+        # Anonymous AUTH_FAILED is fine (no valid user yet); other
+        # event types MUST carry both user_id and org_id or the
+        # SOC2 attribution claim is hollow.
+        if event_type in _REQUIRES_ATTRIBUTION:
+            if not user_id or not user_id.strip():
+                raise SecurityAuditLogError(
+                    f"event_type {event_type.value!r} requires "
+                    f"user_id attribution; got {user_id!r}"
+                )
+            if not org_id or not org_id.strip():
+                raise SecurityAuditLogError(
+                    f"event_type {event_type.value!r} requires "
+                    f"org_id attribution; got {org_id!r}"
+                )
 
         try:
             details_json = json.dumps(details or {}, sort_keys=True)
