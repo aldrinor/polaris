@@ -46,6 +46,33 @@ from src.polaris_graph.audit_ir.template_classifier import (
     RoutingVerdict,
     classify_query,
 )
+from src.polaris_graph.audit_ir.provenance import (
+    PdfSpan,
+    SheetCell,
+    SlideRegion,
+    TextSpan,
+    Timecode,
+    UploadProvenance,
+)
+from src.polaris_graph.audit_ir.workspace_store import (
+    BoundedError,
+    DEFAULT_MAX_DOCS_PER_WORKSPACE,
+    Upload,
+    Workspace,
+    WorkspaceStateError,
+    WorkspaceStore,
+    WorkspaceStoreError,
+    upload_to_dict,
+    workspace_to_dict,
+)
+from src.polaris_graph.audit_ir.parser_runner import (
+    ParserError,
+    ParserRunner,
+    ParseResult,
+    PdfParser,
+    TextParser,
+    select_parser,
+)
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,

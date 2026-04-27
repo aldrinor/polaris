@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from pydantic import BaseModel, Field
@@ -553,6 +553,214 @@ async def resume_job(job_id: str) -> dict:
     # gets reclaimed. Idempotent.
     get_or_start_job_worker()
     return job_to_dict(job)
+
+
+# ---------------------------------------------------------------------------
+# Workspace + upload endpoints (M-11)
+# ---------------------------------------------------------------------------
+
+_WORKSPACE_DB_PATH = REPO_ROOT / "state" / "polaris_workspaces.sqlite"
+_WORKSPACE_FILES_ROOT = REPO_ROOT / "state" / "polaris_workspace_files"
+_workspace_store = None  # type: ignore[var-annotated]
+
+
+def get_workspace_store():
+    """Lazy-init the WorkspaceStore. Tests patch this with a tmp_path store."""
+    from src.polaris_graph.audit_ir.workspace_store import WorkspaceStore
+    global _workspace_store
+    if _workspace_store is None:
+        _workspace_store = WorkspaceStore(_WORKSPACE_DB_PATH)
+    return _workspace_store
+
+
+def _set_workspace_store_for_tests(store) -> None:
+    global _workspace_store
+    _workspace_store = store
+
+
+def _get_workspace_files_root() -> Path:
+    """Override for tests via _set_workspace_files_root_for_tests."""
+    return _WORKSPACE_FILES_ROOT_OVERRIDE or _WORKSPACE_FILES_ROOT
+
+
+_WORKSPACE_FILES_ROOT_OVERRIDE: Path | None = None
+
+
+def _set_workspace_files_root_for_tests(root: Path | None) -> None:
+    global _WORKSPACE_FILES_ROOT_OVERRIDE
+    _WORKSPACE_FILES_ROOT_OVERRIDE = root
+
+
+class CreateWorkspaceRequest(BaseModel):
+    name: str = Field(..., description="Human-readable workspace name.")
+    max_docs: int | None = Field(
+        default=None,
+        description="Override workspace doc cap. Defaults to PG_WORKSPACE_MAX_DOCS / 50.",
+    )
+
+
+@router.post("/api/inspector/workspaces")
+async def create_workspace(req: CreateWorkspaceRequest) -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import (
+        WorkspaceStateError,
+        workspace_to_dict,
+    )
+    store = get_workspace_store()
+    try:
+        ws = store.create_workspace(req.name, max_docs=req.max_docs)
+    except WorkspaceStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return workspace_to_dict(ws)
+
+
+@router.get("/api/inspector/workspaces")
+async def list_workspaces() -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import workspace_to_dict
+    store = get_workspace_store()
+    return {
+        "workspaces": [workspace_to_dict(w) for w in store.list_workspaces()],
+    }
+
+
+@router.get("/api/inspector/workspaces/{workspace_id}")
+async def get_workspace(workspace_id: str) -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import workspace_to_dict
+    store = get_workspace_store()
+    ws = store.get_workspace(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail=f"unknown workspace: {workspace_id}")
+    return workspace_to_dict(ws)
+
+
+@router.post("/api/inspector/workspaces/{workspace_id}/uploads")
+async def upload_to_workspace(
+    workspace_id: str,
+    file: UploadFile = File(...),
+) -> dict:
+    """Upload a file to the workspace. Phase B parses text uploads
+    synchronously; PDF and other formats land as `pending` /
+    `failed` per the parser's `can_handle` decision.
+
+    Bounded enforcement happens BEFORE the file bytes are written
+    so a rejected upload doesn't leave orphaned files on disk.
+    """
+    from src.polaris_graph.audit_ir.parser_runner import (
+        ParserError,
+        select_parser,
+        parse_result_to_chunk_dicts,
+    )
+    from src.polaris_graph.audit_ir.workspace_store import (
+        BoundedError,
+        WorkspaceStateError,
+        upload_to_dict,
+    )
+
+    store = get_workspace_store()
+    if store.get_workspace(workspace_id) is None:
+        raise HTTPException(status_code=404, detail=f"unknown workspace: {workspace_id}")
+
+    filename = file.filename or "upload"
+    content_type = file.content_type
+    payload = await file.read()
+    size_bytes = len(payload)
+
+    # Reserve the upload row first (with a tentative storage_path)
+    # so bounded enforcement happens before we touch the disk.
+    files_root = _get_workspace_files_root()
+    workspace_dir = files_root / workspace_id
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    # We don't have the upload_id yet; reserve via the store, then
+    # write to <root>/<workspace_id>/<upload_id>/<filename>.
+    try:
+        # Two-phase: register row first to get upload_id + bounded check.
+        upload = store.upload_file(
+            workspace_id=workspace_id, filename=filename,
+            content_type=content_type, size_bytes=size_bytes,
+            storage_path="",  # filled in below
+        )
+    except BoundedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except WorkspaceStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    upload_dir = workspace_dir / upload.upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = upload_dir / filename
+    storage_path.write_bytes(payload)
+
+    # Update storage_path now that we know it.
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE uploads SET storage_path = ? WHERE upload_id = ?",
+            (str(storage_path), upload.upload_id),
+        )
+
+    # Synchronously parse if a parser claims it. Phase C M-11.5
+    # will switch this to async via JobQueue for slow extractors.
+    parser = select_parser(filename, content_type)
+    if parser is None:
+        # No parser → leave status='pending'; operator decides.
+        refreshed = store.get_upload(upload.upload_id)
+        return upload_to_dict(refreshed)
+
+    store.transition_parser_status(upload.upload_id, "parsing")
+    try:
+        result = parser.parse(upload.upload_id, storage_path)
+    except ParserError as exc:
+        failed = store.transition_parser_status(
+            upload.upload_id, "failed", parser_error=str(exc),
+        )
+        return upload_to_dict(failed)
+
+    chunk_dicts = parse_result_to_chunk_dicts(result)
+    if chunk_dicts:
+        store.insert_chunks(upload.upload_id, chunk_dicts)
+    parsed = store.transition_parser_status(upload.upload_id, "parsed")
+    return upload_to_dict(parsed)
+
+
+@router.get("/api/inspector/workspaces/{workspace_id}/uploads")
+async def list_workspace_uploads(
+    workspace_id: str, include_deleted: bool = False
+) -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import upload_to_dict
+    store = get_workspace_store()
+    if store.get_workspace(workspace_id) is None:
+        raise HTTPException(status_code=404, detail=f"unknown workspace: {workspace_id}")
+    uploads = store.list_uploads(workspace_id, include_deleted=include_deleted)
+    return {"uploads": [upload_to_dict(u) for u in uploads]}
+
+
+@router.get("/api/inspector/uploads/{upload_id}")
+async def get_upload(upload_id: str) -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import upload_to_dict
+    store = get_workspace_store()
+    upload = store.get_upload(upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail=f"unknown upload: {upload_id}")
+    return upload_to_dict(upload)
+
+
+@router.delete("/api/inspector/uploads/{upload_id}")
+async def delete_upload(upload_id: str) -> dict:
+    from src.polaris_graph.audit_ir.workspace_store import (
+        WorkspaceStateError,
+        upload_to_dict,
+    )
+    store = get_workspace_store()
+    try:
+        upload = store.soft_delete_upload(upload_id)
+    except WorkspaceStateError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return upload_to_dict(upload)
+
+
+@router.get("/api/inspector/uploads/{upload_id}/chunks")
+async def list_upload_chunks(upload_id: str) -> dict:
+    store = get_workspace_store()
+    if store.get_upload(upload_id) is None:
+        raise HTTPException(status_code=404, detail=f"unknown upload: {upload_id}")
+    return {"chunks": store.list_chunks(upload_id)}
 
 
 @router.get("/inspector/{slug}", response_class=HTMLResponse)
