@@ -368,6 +368,66 @@ def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
     assert r_ascii.confidence == r_nbsp.confidence == r_endash.confidence
 
 
+def test_renal_composite_outcomes_query_routes() -> None:
+    """Codex M-10 v5 review regression: vocab gap. The query
+    "empagliflozin renal composite outcomes in chronic kidney
+    disease patients" was operator_review at 0.45 because
+    'composite' tagged as alien. After adding it to the catalog
+    the query routes."""
+    r = classify_query(
+        "empagliflozin renal composite outcomes in chronic kidney disease patients"
+    )
+    assert r.verdict == RoutingVerdict.ROUTED, (
+        f"got {r.verdict.value} (score {r.confidence:.2f}, "
+        f"rationale={r.rationale})"
+    )
+
+
+def test_multiword_keyword_does_not_cross_hit() -> None:
+    """Codex M-10 v5 review fix: the multi-word keyword 'phase 2'
+    must NOT match a query that contains 'phase 3' + 'type 2
+    diabetes'. Set-based subset matching saw {phase, 2} as a subset
+    of the query's tokens; the new ordered-subsequence check
+    requires the keyword's tokens to appear contiguously.
+    """
+    from src.polaris_graph.audit_ir.template_classifier import (
+        _keyword_hits,
+        _tokenize_raw,
+        _tokenize_raw_seq,
+    )
+    q = "Phase 3 trial of monoclonal antibody for type 2 diabetes"
+    qset = _tokenize_raw(q)
+    qseq = _tokenize_raw_seq(q)
+    hits = _keyword_hits(qset, qseq, ("phase 2", "phase 3"))
+    assert "phase 3" in hits, "phase 3 should match (it's contiguous in the query)"
+    assert "phase 2" not in hits, (
+        "phase 2 should NOT match — its tokens are present but not contiguous"
+    )
+
+
+def test_multiword_type_diabetes_cross_hit_blocked() -> None:
+    """Companion to test_multiword_keyword_does_not_cross_hit:
+    'type 1 diabetes' must NOT match a query that contains 'type
+    2 diabetes' + 'phase 1' even though tokens {type, 1, diabetes}
+    are all individually present."""
+    from src.polaris_graph.audit_ir.template_classifier import (
+        _keyword_hits,
+        _tokenize_raw,
+        _tokenize_raw_seq,
+    )
+    q = "Phase 1 trial of metformin for type 2 diabetes"
+    qset = _tokenize_raw(q)
+    qseq = _tokenize_raw_seq(q)
+    hits = _keyword_hits(
+        qset, qseq, ("type 1 diabetes", "type 2 diabetes", "phase 1")
+    )
+    assert "type 2 diabetes" in hits
+    assert "phase 1" in hits
+    assert "type 1 diabetes" not in hits, (
+        "type 1 diabetes should NOT match — tokens present but not contiguous"
+    )
+
+
 def test_stopword_filter_disables_scaffold_jaccard() -> None:
     """Codex M-10 review fix: a query that shares only stopwords
     with an exemplar must score 0 on Jaccard. Without filtering,

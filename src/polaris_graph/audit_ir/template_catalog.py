@@ -168,6 +168,7 @@ _V30_CLINICAL = CuratedTemplate(
         "adverse", "adverse event", "adverse events",
         "side effect", "side effects",
         "outcome", "outcomes", "endpoint", "endpoints",
+        "composite", "composites", "individual", "individuals",
         "result", "results", "rate", "rates", "ratio", "ratios",
         "response", "responses", "responder", "responders",
         "remission", "relapse", "recurrence",

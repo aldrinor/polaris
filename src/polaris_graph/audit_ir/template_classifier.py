@@ -181,18 +181,25 @@ _STOPWORDS: frozenset[str] = frozenset({
 })
 
 
-def _tokenize_raw(text: str) -> frozenset[str]:
-    """Lowercased, hyphen-preserving word/digit tokens.
-
-    Hyphens within tokens are kept (so "glp-1" stays one token).
-    1-char non-digit tokens are dropped to suppress noise.
-    Unicode hyphen variants are normalized to ASCII first.
+def _tokenize_raw_seq(text: str) -> list[str]:
+    """Lowercased, hyphen-preserving word/digit tokens as an
+    ORDERED list. Codex M-10 v5 review fix: multi-word keyword
+    matching needs token order to avoid cross-hits like "phase 2"
+    set-matching when a query has "phase 3" + "type 2 diabetes"
+    (the tokens {phase, 2} are both present but not contiguous
+    in that combination).
     """
     if not text:
-        return frozenset()
+        return []
     normalized = text.translate(_HYPHEN_TRANSLATE).lower()
     raw = _TOKEN_RE.findall(normalized)
-    return frozenset(t for t in raw if len(t) > 1 or t.isdigit())
+    return [t for t in raw if len(t) > 1 or t.isdigit()]
+
+
+def _tokenize_raw(text: str) -> frozenset[str]:
+    """Frozenset variant — used where order doesn't matter
+    (single-word lookups, alien-token computation, Jaccard)."""
+    return frozenset(_tokenize_raw_seq(text))
 
 
 def _filter_stopwords(tokens: frozenset[str]) -> frozenset[str]:
@@ -200,19 +207,45 @@ def _filter_stopwords(tokens: frozenset[str]) -> frozenset[str]:
     return frozenset(t for t in tokens if t not in _STOPWORDS)
 
 
-def _keyword_hits(qtokens: frozenset[str], keywords: tuple[str, ...]) -> tuple[str, ...]:
-    """Return the keywords that are subsets of the query tokens.
+def _contains_subseq(haystack: list[str], needle: list[str]) -> bool:
+    """Return True if `needle` appears as a CONTIGUOUS subsequence
+    in `haystack`. Codex M-10 v5 review fix: replaces set-membership
+    for multi-word keyword matching."""
+    n = len(needle)
+    if n == 0 or n > len(haystack):
+        return False
+    for i in range(len(haystack) - n + 1):
+        if haystack[i:i + n] == needle:
+            return True
+    return False
 
-    Operates on raw (un-stopword-filtered) query tokens because
-    keywords like "in" never occur — keywords are content words.
-    A multi-word keyword like "phase 3" matches only if both tokens
-    are present in the query.
+
+def _keyword_hits(
+    qtokens_set: frozenset[str],
+    qtokens_seq: list[str],
+    keywords: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return the keywords whose tokens appear in the query.
+
+    Codex M-10 v5 review fix: matching depends on keyword arity:
+      - 1-token keyword: set membership (any occurrence in query).
+      - N-token keyword (N > 1): CONTIGUOUS subsequence in the
+        ordered query token list. This prevents the cross-hit
+        bypass where a query with "phase 3" + "type 2 diabetes"
+        had set tokens {phase, 2} both present, falsely matching
+        the multi-word keyword "phase 2".
     """
     hits: list[str] = []
     for kw in keywords:
-        kw_toks = _tokenize_raw(kw)
-        if kw_toks and kw_toks.issubset(qtokens):
-            hits.append(kw)
+        kw_seq = _tokenize_raw_seq(kw)
+        if not kw_seq:
+            continue
+        if len(kw_seq) == 1:
+            if kw_seq[0] in qtokens_set:
+                hits.append(kw)
+        else:
+            if _contains_subseq(qtokens_seq, kw_seq):
+                hits.append(kw)
     return tuple(hits)
 
 
@@ -278,7 +311,9 @@ _ROUTED_MAX_ALIEN_TOKENS = 0
 
 
 def _score_template(
-    qtokens_raw: frozenset[str], tmpl: CuratedTemplate
+    qtokens_set: frozenset[str],
+    qtokens_seq: list[str],
+    tmpl: CuratedTemplate,
 ) -> tuple[float, tuple[str, ...], tuple[str, ...], float]:
     """Codex M-10 v3 review: discrete-tier score using two-class
     keyword signals + alien-token gate.
@@ -300,9 +335,9 @@ def _score_template(
     route decision strongly toward false-negatives (those land in
     OPERATOR_REVIEW, which the operator can reclassify).
     """
-    drug_hits = _keyword_hits(qtokens_raw, tmpl.drug_keywords)
-    medical_hits = _keyword_hits(qtokens_raw, tmpl.medical_keywords)
-    qtokens_filtered = _filter_stopwords(qtokens_raw)
+    drug_hits = _keyword_hits(qtokens_set, qtokens_seq, tmpl.drug_keywords)
+    medical_hits = _keyword_hits(qtokens_set, qtokens_seq, tmpl.medical_keywords)
+    qtokens_filtered = _filter_stopwords(qtokens_set)
     ex_jac = _max_example_jaccard(qtokens_filtered, tmpl.scope_examples)
     alien = _alien_tokens(qtokens_filtered, drug_hits, medical_hits)
     n_alien = len(alien)
@@ -381,7 +416,8 @@ def classify_query(
             ),
         )
 
-    qtokens_raw = _tokenize_raw(question)
+    qtokens_seq = _tokenize_raw_seq(question)
+    qtokens_set = frozenset(qtokens_seq)
     catalog = list_catalog()
     if not catalog:
         return RoutingResult(
@@ -394,7 +430,9 @@ def classify_query(
 
     scored: list[RoutingCandidate] = []
     for tmpl in catalog:
-        score, drug_hits, medical_hits, ex_jac = _score_template(qtokens_raw, tmpl)
+        score, drug_hits, medical_hits, ex_jac = _score_template(
+            qtokens_set, qtokens_seq, tmpl
+        )
         scored.append(
             RoutingCandidate(
                 template_id=tmpl.template_id,
