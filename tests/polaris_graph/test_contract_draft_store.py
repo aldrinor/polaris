@@ -1946,11 +1946,12 @@ def test_clause_check_blocks_pending_with_decision_metadata(
     tmp_path: Path,
 ) -> None:
     """decision='pending' requires all decision metadata to be NULL.
-    Direct SQL can't write a half-decided clause."""
+    Direct SQL can't write a half-decided clause. Blocked by
+    either the v12 metadata-drift trigger or the CHECK constraint."""
     d = _create_basic(store)
     c = _add_clause(store, d)
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "UPDATE contract_clauses SET decided_by = 'bob' "
                 "WHERE clause_id = ?",
@@ -2308,3 +2309,198 @@ def test_full_clause_protection_during_awaiting(
         decision=ClauseDecision.APPROVED, notes="ok",
     )
     assert decided.decision == ClauseDecision.APPROVED
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v12: clause decision changes are auto-logged + decision
+# metadata cannot drift without a decision change
+# ---------------------------------------------------------------------------
+
+
+def test_v12_direct_sql_decision_update_auto_logs(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v11 finding: direct SQL UPDATE clause decision
+    fields bypassed decide_clause and left no contract_decision_log
+    row. v12 adds an AFTER UPDATE trigger that auto-writes a log
+    row whenever decision changes — the audit trail is now
+    tamper-resistant. (The forged actor still leaves a trace; a
+    later anomaly-detection layer would catch the unknown user.)"""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Direct SQL: forge a clause decision (the v11 attack).
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        conn.execute(
+            "UPDATE contract_clauses SET decision = 'approved', "
+            "decided_by = 'forged_reviewer', decided_at = 1.0 "
+            "WHERE clause_id = ?",
+            (c.clause_id,),
+        )
+    # An audit-log row now exists for the forged decision (no
+    # silent bypass).
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    decision_changes = [
+        r for r in log
+        if r["clause_id"] == c.clause_id
+        and r["from_state"] == "pending"
+        and r["to_state"] == "approved"
+    ]
+    assert len(decision_changes) == 1
+    assert decision_changes[0]["actor_user_id"] == "forged_reviewer"
+
+
+def test_v12_legitimate_decide_clause_logs_exactly_once(
+    store: ContractDraftStore,
+) -> None:
+    """v12 moved log-writing from decide_clause to a SQL trigger.
+    Confirm the legitimate path still produces exactly ONE log
+    entry per decision change (not zero, not duplicated)."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    pending_to_approved = [
+        r for r in log
+        if r["clause_id"] == c.clause_id
+        and r["from_state"] == "pending"
+        and r["to_state"] == "approved"
+    ]
+    assert len(pending_to_approved) == 1
+    assert pending_to_approved[0]["actor_user_id"] == "bob"
+    assert pending_to_approved[0]["rationale"] == "ok"
+
+
+def test_v12_blocks_decided_by_change_without_decision_change(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """v12 trg_block_decision_metadata_drift: cannot rewrite
+    decided_by on an already-decided clause without changing
+    the decision. Attribution is bound to a (re-)decision event."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Legitimate decide.
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # Direct SQL: try to rewrite decided_by to a different person
+    # without changing the decision (a "this was actually approved
+    # by Alice" forgery attempt).
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="metadata"):
+            conn.execute(
+                "UPDATE contract_clauses SET decided_by = 'alice' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_v12_blocks_decided_at_change_without_decision_change(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: decided_at cannot be rewritten without a new
+    decision event. Backdating an approval is blocked."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="metadata"):
+            conn.execute(
+                "UPDATE contract_clauses SET decided_at = 1.0 "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_v12_blocks_decision_notes_change_without_decision_change(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: decision_notes cannot be silently rewritten.
+    A reviewer cannot retroactively change their reasoning text
+    without a new decide_clause call (which becomes a new log row)."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.REJECTED, notes="violates policy",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="metadata"):
+            conn.execute(
+                "UPDATE contract_clauses SET "
+                "decision_notes = 'actually OK' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_v12_redecide_via_decide_clause_works(
+    store: ContractDraftStore,
+) -> None:
+    """The metadata-drift block does NOT prevent legitimate
+    re-decision via decide_clause — that's a real decision change
+    so trg_block_decision_metadata_drift's WHEN clause is false
+    (OLD.decision != NEW.decision)."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # First decision: approve.
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # Re-decide: reject. Each call writes a separate log row.
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="alice",
+        decision=ClauseDecision.REJECTED, notes="reconsidered",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    decision_rows = [r for r in log if r["clause_id"] == c.clause_id]
+    transitions = [(r["from_state"], r["to_state"]) for r in decision_rows]
+    assert ("pending", "approved") in transitions
+    assert ("approved", "rejected") in transitions

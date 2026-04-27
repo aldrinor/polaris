@@ -586,6 +586,64 @@ WHEN NEW.title != OLD.title
 BEGIN
     SELECT RAISE(ABORT, 'clause title/body/evidence are immutable after creation — only decision metadata may change via decide_clause');
 END;
+
+-- Codex M-26 v12 review fix: v11 still allowed direct SQL to
+-- mutate clause decision fields without writing a corresponding
+-- contract_decision_log row, so a forged decide_clause-equivalent
+-- left no audit trail. The CHECK + content-immutability triggers
+-- accepted canonical 'approved' metadata so approve_draft saw an
+-- all-approved clause set even though no review actually happened.
+--
+-- v12 closes this with two triggers:
+--
+-- 1) trg_log_clause_decision_change (AFTER UPDATE): every clause
+--    decision change writes a contract_decision_log row
+--    automatically. Direct SQL bypassing decide_clause still
+--    leaves an audit trail. The legitimate decide_clause path
+--    drops its manual log INSERT to avoid duplicates — the
+--    trigger is the single source of truth for decision-log
+--    rows on clauses.
+--
+-- 2) trg_block_decision_metadata_drift (BEFORE UPDATE): blocks
+--    UPDATEs that change decision metadata (decided_by /
+--    decided_at / decision_notes) without changing decision
+--    itself. Once a clause's decision is recorded, its
+--    attribution is immutable — only re-deciding via decide_clause
+--    can change who/when/why.
+CREATE TRIGGER IF NOT EXISTS trg_log_clause_decision_change
+AFTER UPDATE ON contract_clauses
+FOR EACH ROW
+WHEN OLD.decision != NEW.decision
+BEGIN
+    INSERT INTO contract_decision_log (
+        draft_id, clause_id, actor_user_id,
+        from_state, to_state, rationale, created_at
+    ) VALUES (
+        NEW.draft_id, NEW.clause_id, NEW.decided_by,
+        OLD.decision, NEW.decision, NEW.decision_notes,
+        NEW.decided_at
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_block_decision_metadata_drift
+BEFORE UPDATE ON contract_clauses
+FOR EACH ROW
+WHEN OLD.decision = NEW.decision
+     AND (
+         (OLD.decided_by IS NOT NEW.decided_by
+              AND (OLD.decided_by IS NULL OR NEW.decided_by IS NULL
+                   OR OLD.decided_by != NEW.decided_by))
+         OR (OLD.decided_at IS NOT NEW.decided_at
+              AND (OLD.decided_at IS NULL OR NEW.decided_at IS NULL
+                   OR OLD.decided_at != NEW.decided_at))
+         OR (OLD.decision_notes IS NOT NEW.decision_notes
+              AND (OLD.decision_notes IS NULL
+                   OR NEW.decision_notes IS NULL
+                   OR OLD.decision_notes != NEW.decision_notes))
+     )
+BEGIN
+    SELECT RAISE(ABORT, 'cannot mutate clause decision metadata without a decision change — re-decide via decide_clause to retag attribution');
+END;
 """
 
 
@@ -836,6 +894,13 @@ class ContractDraftStore:
                         f"draft is in AWAITING_APPROVAL; draft is "
                         f"in {draft_status.value!r}"
                     )
+                # Codex M-26 v12: trg_log_clause_decision_change
+                # writes the contract_decision_log row automatically
+                # whenever a clause's decision changes. We removed
+                # the manual INSERT here so the trigger is the
+                # single source of truth — direct-SQL bypasses also
+                # auto-log this way, closing the v11 audit-trail
+                # gap.
                 conn.execute(
                     "UPDATE contract_clauses SET decision = ?, "
                     "decided_by = ?, decision_notes = ?, "
@@ -843,18 +908,6 @@ class ContractDraftStore:
                     (
                         decision.value, approver_user_id.strip(),
                         sanitized_notes, now, clause_id,
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO contract_decision_log (draft_id, "
-                    "clause_id, actor_user_id, from_state, to_state, "
-                    "rationale, created_at) VALUES "
-                    "(?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        clause_row["draft_id"], clause_id,
-                        approver_user_id.strip(),
-                        clause_row["decision"], decision.value,
-                        sanitized_notes, now,
                     ),
                 )
                 conn.execute("COMMIT")
