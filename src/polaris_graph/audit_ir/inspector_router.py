@@ -522,6 +522,8 @@ async def route_query(req: RouteQueryRequest) -> dict:
                 "template_id": c.template_id,
                 "score": c.score,
                 "keyword_hits": list(c.keyword_hits),
+                "drug_hits": list(c.drug_hits),
+                "medical_hits": list(c.medical_hits),
                 "example_jaccard": c.example_jaccard,
             }
             for c in result.candidates

@@ -72,11 +72,20 @@ class RoutingVerdict(str, Enum):
 
 @dataclass(frozen=True)
 class RoutingCandidate:
-    """One template-and-score pair surfaced to the UI."""
+    """One template-and-score pair surfaced to the UI.
+
+    Codex M-10 review fix: surfaces drug_hits and medical_hits
+    separately so the operator-review UI can show "matched 2 medical
+    keywords but no specific drug; confirm scope" rather than a
+    single opaque keyword count. `keyword_hits` retained as the union
+    for backwards compat with v1 consumers.
+    """
 
     template_id: str
     score: float
     keyword_hits: tuple[str, ...] = field(default_factory=tuple)
+    drug_hits: tuple[str, ...] = field(default_factory=tuple)
+    medical_hits: tuple[str, ...] = field(default_factory=tuple)
     example_jaccard: float = 0.0
 
 
@@ -130,41 +139,92 @@ class RouterConfig:
 
 _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
+# Codex M-10 review fix: normalize Unicode hyphens (non-breaking
+# hyphen U+2011, en-dash U+2013, em-dash U+2014, minus sign U+2212,
+# figure dash U+2012) to ASCII so copy-pasted text like "GLP‑1"
+# tokenizes the same way as "GLP-1". Done at normalize-time, not
+# inside the regex, so the regex stays simple/auditable.
+_HYPHEN_TRANSLATE = str.maketrans({
+    "‐": "-", "‑": "-", "‒": "-",
+    "–": "-", "—": "-", "―": "-",
+    "−": "-",
+})
 
-def _tokenize(text: str) -> frozenset[str]:
-    """Return lowercased word/digit tokens. Hyphens preserved (so
-    'glp-1' stays one token). Drops 1-char tokens that aren't digits
-    to suppress noise.
+# Codex M-10 review fix: stopword/scaffold suppression. Without this,
+# a query that mimics an exemplar's question scaffold ("What is the
+# efficacy of X for Y?") gets a high Jaccard from {what, is, the,
+# of, for} alone, which let off-scope queries like "What is the
+# efficacy of turmeric for arthritis?" auto-route. The suppression
+# is small and conservative — it only removes question scaffold and
+# core English function words, never medical content.
+_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the",
+    "and", "or", "but",
+    "of", "in", "on", "at", "to", "for", "from", "with", "by",
+    "is", "are", "was", "were", "be", "been", "being",
+    "what", "which", "who", "whom", "why", "how", "when", "where",
+    "do", "does", "did", "has", "have", "had",
+    "this", "that", "these", "those",
+    "as", "if", "than", "then", "so", "such",
+    "i", "you", "we", "they", "he", "she", "it",
+    "my", "your", "our", "their", "his", "her", "its",
+    "new", "any", "some", "all", "both", "each", "every",
+})
+
+
+def _tokenize_raw(text: str) -> frozenset[str]:
+    """Lowercased, hyphen-preserving word/digit tokens.
+
+    Hyphens within tokens are kept (so "glp-1" stays one token).
+    1-char non-digit tokens are dropped to suppress noise.
+    Unicode hyphen variants are normalized to ASCII first.
     """
     if not text:
         return frozenset()
-    raw = _TOKEN_RE.findall(text.lower())
+    normalized = text.translate(_HYPHEN_TRANSLATE).lower()
+    raw = _TOKEN_RE.findall(normalized)
     return frozenset(t for t in raw if len(t) > 1 or t.isdigit())
+
+
+def _filter_stopwords(tokens: frozenset[str]) -> frozenset[str]:
+    """Drop scaffold words so they cannot inflate Jaccard similarity."""
+    return frozenset(t for t in tokens if t not in _STOPWORDS)
 
 
 def _keyword_hits(qtokens: frozenset[str], keywords: tuple[str, ...]) -> tuple[str, ...]:
     """Return the keywords that are subsets of the query tokens.
 
+    Operates on raw (un-stopword-filtered) query tokens because
+    keywords like "in" never occur — keywords are content words.
     A multi-word keyword like "phase 3" matches only if both tokens
-    are present in the query. This prevents accidental partial hits.
+    are present in the query.
     """
     hits: list[str] = []
     for kw in keywords:
-        kw_toks = _tokenize(kw)
+        kw_toks = _tokenize_raw(kw)
         if kw_toks and kw_toks.issubset(qtokens):
             hits.append(kw)
     return tuple(hits)
 
 
-def _max_example_jaccard(qtokens: frozenset[str], examples: tuple[str, ...]) -> float:
-    """Highest Jaccard similarity between the query and any exemplar."""
+def _max_example_jaccard(
+    qtokens_filtered: frozenset[str], examples: tuple[str, ...]
+) -> float:
+    """Highest Jaccard similarity between the query and any exemplar.
+
+    Both sides are stopword-filtered (Codex M-10 fix). Without the
+    filter, a query+exemplar that share `{what, is, the, of, for}`
+    gets a misleading 0.5+ baseline from scaffold alone.
+    """
     best = 0.0
+    if not qtokens_filtered:
+        return 0.0
     for ex in examples:
-        ex_toks = _tokenize(ex)
-        if not ex_toks or not qtokens:
+        ex_toks = _filter_stopwords(_tokenize_raw(ex))
+        if not ex_toks:
             continue
-        inter = qtokens & ex_toks
-        union = qtokens | ex_toks
+        inter = qtokens_filtered & ex_toks
+        union = qtokens_filtered | ex_toks
         if not union:
             continue
         j = len(inter) / len(union)
@@ -174,49 +234,72 @@ def _max_example_jaccard(qtokens: frozenset[str], examples: tuple[str, ...]) -> 
 
 
 def _score_template(
-    qtokens: frozenset[str], tmpl: CuratedTemplate
-) -> tuple[float, tuple[str, ...], float]:
-    """Discrete-tier score for one template against the query tokens.
+    qtokens_raw: frozenset[str], tmpl: CuratedTemplate
+) -> tuple[float, tuple[str, ...], tuple[str, ...], float]:
+    """Codex M-10 review fix: discrete-tier score using two-class
+    keyword signals.
 
-    Returns (score in [0, 1], keyword_hits, example_jaccard).
+    Returns (score in [0, 1], drug_hits, medical_hits, example_jaccard).
 
-    Tiers (higher tiers fire first):
-      tier A — example_jaccard >= 0.4 AND >=2 keyword hits
-               → routed; score blends jaccard.
-      tier B — example_jaccard >= 0.3 alone
-               → routed-or-review depending on threshold.
-      tier C — >=3 keyword hits (medical+clinical framing) but no
-               strong example overlap
-               → operator_review (just below floor_high).
-      tier D — 1-2 keyword hits OR weak example overlap
-               → operator_review (above floor_review).
-      tier E — nothing
-               → unsupported.
+    The ROUTED gate (tier A) requires BOTH:
+      (1) at least one drug_keyword hit (a specific regulated drug
+          or drug class is named in the query), AND
+      (2) example_jaccard ≥ 0.30 on stopword-filtered tokens (the
+          query semantically matches a known exemplar shape, not
+          just the question scaffold).
+
+    Without (1), the verdict can rise no higher than OPERATOR_REVIEW
+    regardless of exemplar similarity. This is the Risk #13
+    guardrail — the false-positive direction (auto-routing
+    off-scope queries about supplements / non-drugs / generic
+    medical topics) is the dominant failure mode in Phase B with
+    one production template, so the route gate is deliberately
+    drug-anchored.
     """
-    kw_matches = _keyword_hits(qtokens, tmpl.scope_keywords)
-    ex_jac = _max_example_jaccard(qtokens, tmpl.scope_examples)
-    n_kw = len(kw_matches)
+    drug_hits = _keyword_hits(qtokens_raw, tmpl.drug_keywords)
+    medical_hits = _keyword_hits(qtokens_raw, tmpl.medical_keywords)
+    qtokens_filtered = _filter_stopwords(qtokens_raw)
+    ex_jac = _max_example_jaccard(qtokens_filtered, tmpl.scope_examples)
 
-    if ex_jac >= 0.4 and n_kw >= 2:
-        # Strong example match + at least two keyword hits.
-        return min(0.6 + 0.4 * ex_jac, 1.0), kw_matches, ex_jac
-    if ex_jac >= 0.3:
-        # Strong example match alone — route, but lower confidence.
-        return min(0.5 + 0.5 * ex_jac, 0.85), kw_matches, ex_jac
-    if n_kw >= 3:
-        # Multiple keyword hits without exemplar match — keyword-only
-        # query (e.g. "FDA drug trial") is likely in domain but
-        # ambiguous; surface for operator review.
-        return min(0.40 + 0.05 * (n_kw - 3), 0.54), kw_matches, ex_jac
-    if n_kw == 2:
-        return 0.35, kw_matches, ex_jac
-    if n_kw == 1:
-        return 0.30, kw_matches, ex_jac
-    if ex_jac >= 0.10:
-        # Weak lexical overlap with examples but no keyword hits.
-        # Borderline; route to operator review.
-        return 0.20, kw_matches, ex_jac
-    return 0.0, kw_matches, ex_jac
+    n_drug = len(drug_hits)
+    n_medical = len(medical_hits)
+
+    # Tier A — ROUTED: drug-anchored AND semantically aligned with
+    # an exemplar shape. Score blends jaccard so very-strong matches
+    # land near 1.0 and weak-but-passing matches sit just above
+    # floor_high.
+    if n_drug >= 1 and ex_jac >= 0.30:
+        score = 0.55 + 0.45 * ex_jac
+        return min(score, 1.0), drug_hits, medical_hits, ex_jac
+
+    # Tier B — OPERATOR_REVIEW: drug named but the query shape is
+    # off-pattern (e.g. "tirzepatide weather forecast"). Operator
+    # decides if the query can be reframed.
+    if n_drug >= 1:
+        # Score sits in the review band; jaccard contributes a small
+        # nudge so a borderline exemplar match isn't lost in logs.
+        return 0.40 + 0.10 * ex_jac, drug_hits, medical_hits, ex_jac
+
+    # Tier C — OPERATOR_REVIEW: no drug named, but multiple medical
+    # signals + decent jaccard. Could be a question that needs a
+    # drug specified by the operator (e.g. "What is the efficacy of
+    # this new GLP-1 agonist?" with the drug name elided).
+    if n_medical >= 3 and ex_jac >= 0.20:
+        return 0.40, drug_hits, medical_hits, ex_jac
+
+    # Tier D — OPERATOR_REVIEW (low): some medical signal but no
+    # drug and weak shape match.
+    if n_medical >= 2:
+        return 0.35, drug_hits, medical_hits, ex_jac
+    if n_medical >= 1:
+        return 0.30, drug_hits, medical_hits, ex_jac
+
+    # Tier E — UNSUPPORTED: weak lexical overlap but no medical
+    # framing at all.
+    if ex_jac >= 0.20:
+        return 0.20, drug_hits, medical_hits, ex_jac
+
+    return 0.0, drug_hits, medical_hits, ex_jac
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +331,7 @@ def classify_query(
             ),
         )
 
-    qtokens = _tokenize(question)
+    qtokens_raw = _tokenize_raw(question)
     catalog = list_catalog()
     if not catalog:
         return RoutingResult(
@@ -261,12 +344,14 @@ def classify_query(
 
     scored: list[RoutingCandidate] = []
     for tmpl in catalog:
-        score, kw_hits, ex_jac = _score_template(qtokens, tmpl)
+        score, drug_hits, medical_hits, ex_jac = _score_template(qtokens_raw, tmpl)
         scored.append(
             RoutingCandidate(
                 template_id=tmpl.template_id,
                 score=score,
-                keyword_hits=kw_hits,
+                keyword_hits=drug_hits + medical_hits,
+                drug_hits=drug_hits,
+                medical_hits=medical_hits,
                 example_jaccard=ex_jac,
             )
         )
@@ -283,12 +368,27 @@ def classify_query(
             rationale=(
                 f"Query matches '{top.template_id}' with high confidence "
                 f"(score {top.score:.2f} ≥ floor_high {config.floor_high:.2f}; "
-                f"keyword hits: {len(top.keyword_hits)}, example "
-                f"Jaccard: {top.example_jaccard:.2f})."
+                f"drug hits: {len(top.drug_hits)}, medical hits: "
+                f"{len(top.medical_hits)}, example Jaccard: "
+                f"{top.example_jaccard:.2f})."
             ),
         )
 
     if top.score >= config.floor_review:
+        # Codex M-10 review fix: rationale calls out which gate the
+        # query failed so the operator-review UI can show "no
+        # specific drug named — confirm or supply one" vs "drug named
+        # but query shape is off".
+        if not top.drug_hits:
+            why = (
+                "no specific regulated drug or drug class named — "
+                "v30_clinical requires one for routed audits"
+            )
+        else:
+            why = (
+                "drug named but query shape did not match a known "
+                "exemplar; operator should reframe or confirm scope"
+            )
         return RoutingResult(
             verdict=RoutingVerdict.OPERATOR_REVIEW,
             template_id=top.template_id,
@@ -297,8 +397,8 @@ def classify_query(
             rationale=(
                 f"Query partially matches '{top.template_id}' "
                 f"(score {top.score:.2f} in "
-                f"[{config.floor_review:.2f}, {config.floor_high:.2f})). "
-                f"Operator must confirm scope before audit launches."
+                f"[{config.floor_review:.2f}, {config.floor_high:.2f})): "
+                f"{why}. Operator must confirm scope before audit launches."
             ),
         )
 

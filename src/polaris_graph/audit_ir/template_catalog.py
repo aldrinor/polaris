@@ -21,34 +21,56 @@ from dataclasses import dataclass
 class CuratedTemplate:
     """A supported audit template with metadata for routing + scope display.
 
+    Codex M-10 review fix: signals are split into TWO classes to close
+    the false-positive bypass identified in v1:
+
+      drug_keywords   → STRONG signals (specific drug names + drug
+                        classes). Required for the ROUTED verdict —
+                        no drug-keyword hit means the verdict cannot
+                        rise above OPERATOR_REVIEW regardless of
+                        exemplar similarity. This is the Risk #13
+                        guardrail: a query about supplements,
+                        psychotherapy, or non-pharmaceutical
+                        interventions cannot accidentally route to
+                        v30_clinical just because it shares the
+                        question scaffold of an exemplar.
+
+      medical_keywords → BROAD signals (regulatory bodies, trial
+                        methodology terms, conditions, generic
+                        outcomes, broad medical-domain words).
+                        Indicates the query is plausibly medical
+                        and merits OPERATOR_REVIEW, but never alone
+                        sufficient for ROUTED.
+
+    `scope_keywords` is a property returning the union — kept for
+    backwards compat with code that just wants the full bag.
+
     Attributes:
-        template_id: Stable identifier matching a registered JobRunner
-                     (e.g. "v30_clinical"). Job enqueue validates against
-                     `list_runners()` so an entry here without a runner
-                     is detected on enqueue.
+        template_id: Stable identifier matching a registered JobRunner.
         display_name: Human-readable name shown on the scope page.
-        description: One- to two-sentence description of what this
-                     template does.
-        scope_summary: Longer scope description for the scope page.
-                       Should be honest about boundaries (what's IN scope,
-                       what's NOT in scope).
-        scope_keywords: Tuple of tokens / token-bigrams that indicate
-                        the query is plausibly in scope. Multi-word
-                        entries are matched as token sets (every word
-                        must appear in the query). Used by the
-                        classifier as a coarse domain signal.
-        scope_examples: Positive query exemplars that the classifier
-                        compares against via Jaccard token similarity.
-                        These should be concrete, real-shape questions
-                        — not abstract slogans.
+        description: One- to two-sentence description.
+        scope_summary: Longer scope description; documents IN-scope
+                       AND OUT-of-scope per FINAL_PLAN scope-page
+                       reinforcement mitigation.
+        drug_keywords: Tuple of specific drugs / drug classes. Multi-
+                       word entries match as token sets.
+        medical_keywords: Tuple of broad medical/clinical-trial/
+                          regulatory/condition terms.
+        scope_examples: Concrete real-shape positive query exemplars.
     """
 
     template_id: str
     display_name: str
     description: str
     scope_summary: str
-    scope_keywords: tuple[str, ...]
+    drug_keywords: tuple[str, ...]
+    medical_keywords: tuple[str, ...]
     scope_examples: tuple[str, ...]
+
+    @property
+    def scope_keywords(self) -> tuple[str, ...]:
+        """Backward-compat: union of drug + medical keywords."""
+        return tuple(self.drug_keywords) + tuple(self.medical_keywords)
 
 
 # ---------------------------------------------------------------------------
@@ -63,50 +85,79 @@ _V30_CLINICAL = CuratedTemplate(
         "status, and contradictions across published evidence."
     ),
     scope_summary=(
-        "IN SCOPE: questions about a specific drug or drug class for a "
-        "specific clinical condition where regulatory filings, randomized "
-        "trial data, and meta-analyses exist. Examples: efficacy of "
-        "tirzepatide for type 2 diabetes; safety profile of semaglutide; "
-        "FDA approval pathway for a new monoclonal antibody.\n\n"
-        "OUT OF SCOPE: clinical practice guideline questions; patient-"
-        "specific advice; non-clinical wellness; veterinary; off-label "
-        "speculation without published evidence; comparative-effectiveness "
-        "between drug classes when both classes lack head-to-head trials. "
-        "Submit those queries only after the operator confirms scope."
+        "IN SCOPE: questions about a specific regulated drug (by name "
+        "or by drug class) for a specific clinical condition where "
+        "regulatory filings, randomized trial data, and meta-analyses "
+        "exist. Examples: efficacy of tirzepatide for type 2 diabetes; "
+        "safety profile of semaglutide; cardiovascular outcomes of "
+        "GLP-1 receptor agonists.\n\n"
+        "OUT OF SCOPE: questions about supplements, vitamins, "
+        "homeopathy, or other non-regulated interventions; "
+        "psychotherapy or other non-pharmaceutical treatments; "
+        "clinical practice guideline questions; patient-specific advice; "
+        "non-clinical wellness; veterinary; off-label speculation "
+        "without published evidence; comparative-effectiveness between "
+        "drug classes when both lack head-to-head trials. The router "
+        "will surface medical-but-non-drug queries to operator review; "
+        "v30_clinical is not the right template for them."
     ),
-    # Domain + clinical-specific signals. Multi-word entries match as
-    # token sets (every word must appear in the query).
-    scope_keywords=(
-        # Clinical-trial framing
-        "efficacy", "safety", "randomized", "placebo", "double-blind",
-        "trial", "clinical", "phase 1", "phase 2", "phase 3",
-        "primary endpoint", "secondary endpoint", "meta-analysis",
+    # Codex M-10 review fix: drug_keywords are the STRONG gate. Only
+    # specific regulated drugs and drug classes qualify. Generic
+    # words like "drug" / "medication" / "therapy" are NOT here —
+    # they belong in medical_keywords (review-only).
+    drug_keywords=(
+        # Specific drug names (small Phase B set; expanded as the
+        # template library grows in Phase C).
+        "tirzepatide", "semaglutide", "liraglutide", "dulaglutide",
+        "metformin", "empagliflozin", "dapagliflozin", "sitagliptin",
+        "atorvastatin", "rosuvastatin",
+        # Drug classes (multi-word entries match as token sets).
+        "glp-1", "sglt2", "dpp-4",
+        "monoclonal antibody", "monoclonal antibodies",
+        "receptor agonist",
+        # Regulated biologic / antibody umbrella terms — these only
+        # matter as drug-keywords when paired with a real exemplar
+        # match, so they are conservative.
+        "biologic", "biosimilar",
+    ),
+    # Codex M-10 review fix: medical_keywords cover the broad medical
+    # domain — clinical-trial terminology, regulatory framing,
+    # conditions, and generic outcomes. A medical_keyword hit is
+    # NEVER sufficient on its own for ROUTED; it can only push the
+    # verdict up to OPERATOR_REVIEW (the operator decides whether
+    # v30_clinical is the right template).
+    medical_keywords=(
+        # Trial methodology
+        "randomized", "double-blind", "placebo", "placebo-controlled",
+        "phase 1", "phase 2", "phase 3", "phase 4",
+        "primary endpoint", "secondary endpoint",
+        "meta-analysis", "systematic review",
         # Regulatory framing
-        "fda", "ema", "regulatory", "approval", "indication",
-        "label", "post-marketing",
-        # Outcomes
-        "mortality", "morbidity", "adverse", "tolerability",
-        "hba1c", "ldl", "blood pressure",
-        # Common drug families / drugs
-        "glp-1", "tirzepatide", "semaglutide", "liraglutide",
-        "metformin", "monoclonal", "biologic",
-        # Common conditions / domains
-        "diabetes", "obesity", "hypertension", "cardiovascular",
-        "oncology", "cancer", "depression", "stroke",
-        # Medical domain (broader — flags for operator review when
-        # alone, prevents over-triage as unsupported)
-        "drug", "treatment", "therapy", "medication", "patient",
+        "fda", "ema", "mhra", "regulatory", "approval", "indication",
+        "label", "post-marketing", "clinical trial", "trial",
+        # Outcomes / safety
+        "efficacy", "safety", "adverse", "adverse event", "tolerability",
+        "mortality", "morbidity",
+        "hba1c", "ldl", "blood pressure", "weight loss",
+        # Conditions
+        "diabetes", "type 2 diabetes", "obesity", "hypertension",
+        "cardiovascular", "oncology", "cancer", "depression", "stroke",
+        "atherosclerosis",
+        # Broader medical-domain words
+        "drug", "drugs", "treatment", "therapy", "medication",
+        "patient", "patients",
         "disease", "syndrome", "condition", "study", "studies",
+        "clinical", "pharmacology", "pharmacokinetic",
     ),
     scope_examples=(
         "What is the efficacy of tirzepatide for type 2 diabetes?",
         "Safety profile of semaglutide for obesity",
         "Studies on metformin for diabetes",
-        "Clinical trial outcomes for monoclonal antibodies in hypertension",
-        "FDA approval pathway for new diabetes drugs",
         "Cardiovascular safety of GLP-1 receptor agonists",
         "Adverse event rates of liraglutide in obesity trials",
-        "Meta-analysis of biologic therapy in oncology",
+        "Empagliflozin cardiovascular outcomes meta-analysis in heart failure",
+        "Atorvastatin efficacy for hypercholesterolemia in adults",
+        "Phase 3 trial of monoclonal antibody for hypertension",
     ),
 )
 

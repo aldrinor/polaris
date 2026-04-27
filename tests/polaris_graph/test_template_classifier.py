@@ -236,3 +236,108 @@ def test_candidates_for_unsupported_still_present() -> None:
     r = classify_query("What's the weather?")
     assert len(r.candidates) >= 1
     assert all(isinstance(c, RoutingCandidate) for c in r.candidates)
+
+
+# ---------------------------------------------------------------------------
+# Codex M-10 review regression: false-positive bypasses where the
+# query mimics an exemplar's question scaffold but is off-scope
+# (non-pharmaceutical interventions, supplements, generic medical
+# queries). v1 routed all four of these as ROUTED with confidence
+# > 0.6; v2 must surface them as OPERATOR_REVIEW at most.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # Non-regulated intervention with a real-shape exemplar match.
+        "Safety profile of ibuprofen for back pain",
+        "What is the efficacy of turmeric for arthritis?",
+        "FDA approval pathway for new supplements",
+        "Meta-analysis of psychotherapy in depression",
+        # Additional non-drug interventions / supplements.
+        "Efficacy of vitamin D supplementation for autoimmune disease",
+        "Acupuncture for chronic migraine prevention",
+        "Cognitive behavioral therapy for anxiety disorders",
+        "Curcumin anti-inflammatory effects in osteoarthritis",
+        # Wellness / non-clinical.
+        "Mediterranean diet for cardiovascular health",
+        "Yoga benefits for back pain",
+    ],
+)
+def test_off_scope_with_exemplar_shape_does_not_route(query: str) -> None:
+    """Codex M-10 review regression. Without the drug-keyword gate,
+    these all auto-routed because they mimic exemplar scaffold. After
+    the v2 fix, none must be ROUTED."""
+    r = classify_query(query)
+    assert r.verdict != RoutingVerdict.ROUTED, (
+        f"off-scope query {query!r} routed with score {r.confidence:.2f} "
+        f"and rationale {r.rationale!r}"
+    )
+
+
+def test_routed_requires_drug_keyword_hit() -> None:
+    """Codex M-10 invariant: ROUTED implies at least one drug_keyword
+    hit. The verdict should never rise to ROUTED from medical/
+    regulatory keywords + exemplar overlap alone."""
+    routed_queries = [
+        "What is the efficacy of tirzepatide for type 2 diabetes?",
+        "Safety profile of semaglutide for obesity",
+        "Studies on metformin for diabetes",
+        "Cardiovascular safety of GLP-1 receptor agonists",
+        "Empagliflozin cardiovascular outcomes meta-analysis",
+    ]
+    for q in routed_queries:
+        r = classify_query(q)
+        assert r.verdict == RoutingVerdict.ROUTED, (
+            f"true-positive query {q!r} did not route "
+            f"(score {r.confidence:.2f}, rationale={r.rationale})"
+        )
+        # Top candidate must have at least one drug hit.
+        top = r.candidates[0]
+        assert len(top.drug_hits) >= 1, (
+            f"routed query {q!r} has no drug hits (only medical_hits "
+            f"{top.medical_hits}); ROUTED gate violated"
+        )
+
+
+def test_drug_hit_alone_does_not_route_without_jaccard() -> None:
+    """A drug name without an exemplar-aligned shape stays in
+    OPERATOR_REVIEW (operator decides whether the query can be
+    reframed)."""
+    r = classify_query("tirzepatide weather forecast")
+    assert r.verdict == RoutingVerdict.OPERATOR_REVIEW, (
+        f"drug-name-only off-shape query routed as {r.verdict} "
+        f"(rationale={r.rationale})"
+    )
+
+
+def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
+    """Codex M-10 review fix: copied text like 'GLP‑1' (U+2011
+    non-breaking hyphen) must match the same as 'GLP-1' (ASCII).
+    Without normalization, copy-pasted PDF text wouldn't trigger
+    the drug-class hit."""
+    ascii_q = "Cardiovascular safety of GLP-1 receptor agonists"
+    nbsp_q = "Cardiovascular safety of GLP‑1 receptor agonists"
+    endash_q = "Cardiovascular safety of GLP–1 receptor agonists"
+    r_ascii = classify_query(ascii_q)
+    r_nbsp = classify_query(nbsp_q)
+    r_endash = classify_query(endash_q)
+    assert r_ascii.verdict == r_nbsp.verdict == r_endash.verdict
+    assert r_ascii.confidence == r_nbsp.confidence == r_endash.confidence
+
+
+def test_stopword_filter_disables_scaffold_jaccard() -> None:
+    """Codex M-10 review fix: a query that shares only stopwords
+    with an exemplar must score 0 on Jaccard. Without filtering,
+    'What is the efficacy of X for Y?' shapes inflate jaccard from
+    {what, is, the, of, for} alone."""
+    # All scaffold-only-overlap with an exemplar.
+    r = classify_query("What is the something of nothing for somewhere?")
+    assert r.verdict in {
+        RoutingVerdict.UNSUPPORTED,
+        RoutingVerdict.OPERATOR_REVIEW,
+    }, f"got {r.verdict}"
+    assert r.confidence < DEFAULT_FLOOR_HIGH, (
+        f"scaffold-only query reached confidence {r.confidence:.2f}"
+    )
