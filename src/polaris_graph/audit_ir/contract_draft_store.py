@@ -32,6 +32,35 @@ Out of scope for v1:
   - Counterparty-side workflows (countersign, redlines,
     versioning of negotiated changes).
 
+Codex M-26 v6 review (structural refactor): the prior v1..v5
+parameterized helper `_transition_draft(to_state, from_states,
+mark_decided, set_approver, set_rejecter)` had a combinatorial
+bypass surface. Each round of review found a new (parameter,
+value) tuple that escaped the invariants. v6 eliminates the
+parameter surface entirely:
+
+  - Three concrete private helpers, one per legal transition:
+        _perform_submit  : DRAFT → AWAITING_APPROVAL
+        _perform_approve : AWAITING_APPROVAL → APPROVED
+        _perform_reject  : AWAITING_APPROVAL → REJECTED
+    Each is hardcoded for its specific edge — no `to_state`
+    parameter, no `from_states` parameter, no bookkeeping flags.
+    There is no parameter combination that can produce an illegal
+    state because the parameters that would express "illegal
+    state" do not exist.
+
+  - DB-level CHECK constraints encode the audit-trail invariants:
+        DRAFT             : decision fields all NULL
+        AWAITING_APPROVAL : decision fields all NULL
+        APPROVED          : approved_by + decision_rationale +
+                            decided_at all NOT NULL, rejected_by
+                            NULL
+        REJECTED          : rejected_by + decision_rationale +
+                            decided_at all NOT NULL, approved_by
+                            NULL
+    Even direct SQL UPDATE attempts that violate these patterns
+    fail at the SQL layer.
+
 LAW VII compliance: stdlib only. Endpoints wired separately.
 """
 
@@ -138,13 +167,6 @@ class ContractDraft:
     """One contract draft.
 
     `audit_run_id` is the V30 run this draft is anchored to.
-    Codex M-26 v1 review fix: v1 docstring claimed
-    "validated at clause-add time" but `add_clause` does not
-    actually load the audit IR. Back-link FK validation is
-    deferred to v2 (the runner integration milestone) — until
-    then, a clause may reference a non-existent evidence_id /
-    claim_id. The Inspector view 1 surfaces unresolved IDs as
-    "missing source" so reviewers see drift.
     """
 
     draft_id: str
@@ -169,6 +191,14 @@ class ContractDraft:
 # ---------------------------------------------------------------------------
 
 
+# Codex M-26 v6 review fix: encode SOC2 audit-trail invariants as
+# DB-level CHECK constraints. Even a direct SQL UPDATE that tries
+# to write status='approved' with approved_by=NULL fails at the
+# SQL layer. The Python helpers + the DB constraints form a
+# defense-in-depth pair: the helpers ensure invariant maintenance
+# during normal operation, and the constraints ensure that SQL-
+# level mistakes (or future contributors who don't read the docs)
+# cannot land an invalid row.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS contract_drafts (
     draft_id TEXT PRIMARY KEY,
@@ -185,7 +215,32 @@ CREATE TABLE IF NOT EXISTS contract_drafts (
     decision_rationale TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    decided_at REAL
+    decided_at REAL,
+    CHECK (
+        (status = 'draft'
+            AND approved_by IS NULL
+            AND rejected_by IS NULL
+            AND decision_rationale IS NULL
+            AND decided_at IS NULL)
+        OR
+        (status = 'awaiting_approval'
+            AND approved_by IS NULL
+            AND rejected_by IS NULL
+            AND decision_rationale IS NULL
+            AND decided_at IS NULL)
+        OR
+        (status = 'approved'
+            AND approved_by IS NOT NULL
+            AND rejected_by IS NULL
+            AND decision_rationale IS NOT NULL
+            AND decided_at IS NOT NULL)
+        OR
+        (status = 'rejected'
+            AND approved_by IS NULL
+            AND rejected_by IS NOT NULL
+            AND decision_rationale IS NOT NULL
+            AND decided_at IS NOT NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_contract_drafts_org_status
@@ -234,29 +289,6 @@ CREATE INDEX IF NOT EXISTS idx_contract_decision_log_draft
 # ---------------------------------------------------------------------------
 
 
-_TERMINAL_DRAFT_STATES: frozenset[ContractDraftStatus] = frozenset({
-    ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
-})
-
-
-# Codex M-26 v4 review fix: encode the full state machine as a
-# closed transition table so direct _transition_draft callers
-# cannot use any (from, to) pair that the public API doesn't
-# expose. The valid forward-only transitions are:
-#   DRAFT             -> AWAITING_APPROVAL  (submit_for_approval)
-#   AWAITING_APPROVAL -> APPROVED           (approve_draft)
-#   AWAITING_APPROVAL -> REJECTED           (reject_draft)
-# Any other pair is a state-machine violation regardless of who
-# the caller is.
-_VALID_DRAFT_TRANSITIONS: frozenset[
-    tuple[ContractDraftStatus, ContractDraftStatus]
-] = frozenset({
-    (ContractDraftStatus.DRAFT, ContractDraftStatus.AWAITING_APPROVAL),
-    (ContractDraftStatus.AWAITING_APPROVAL, ContractDraftStatus.APPROVED),
-    (ContractDraftStatus.AWAITING_APPROVAL, ContractDraftStatus.REJECTED),
-})
-
-
 class ContractDraftStore:
     """SQLite-backed contract-draft registry.
 
@@ -266,6 +298,17 @@ class ContractDraftStore:
     role for `submit_for_approval` / `approve_draft` /
     `reject_draft` so a regular member cannot self-approve their
     own contract drafts.
+
+    Codex M-26 v6 review (structural refactor): the lifecycle
+    transition surface is now three hardcoded private helpers
+    (`_perform_submit`, `_perform_approve`, `_perform_reject`),
+    one per legal edge. There is no parameterized helper that
+    could be invoked with a malicious (to_state, from_states,
+    mark_decided, set_approver, set_rejecter) tuple. Direct
+    callers reaching for the underscore-prefixed methods STILL
+    cannot violate state-machine invariants, because the legal-
+    edge enforcement is hardcoded into each helper rather than
+    being a runtime parameter check.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -467,11 +510,6 @@ class ContractDraftStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                # Codex M-26 v1 fix: org-scoped lookup (previously
-                # selected by clause_id alone, then checked org —
-                # disclosed existence via different error wording).
-                # v2 unifies the two error paths into a single
-                # "not accessible" message.
                 clause_row = conn.execute(
                     "SELECT c.*, d.status AS draft_status "
                     "FROM contract_clauses c "
@@ -527,7 +565,7 @@ class ContractDraftStore:
         return _row_to_clause(row)
 
     # ------------------------------------------------------------------
-    # Draft lifecycle
+    # Draft lifecycle — public entry points
     # ------------------------------------------------------------------
 
     def submit_for_approval(
@@ -535,18 +573,9 @@ class ContractDraftStore:
     ) -> ContractDraft:
         """Move a DRAFT into AWAITING_APPROVAL. Refuses if the
         draft has zero clauses."""
-        clauses = self.list_clauses(draft_id=draft_id, org_id=org_id)
-        if not clauses:
-            raise ContractDraftStateError(
-                f"draft {draft_id!r} has no clauses; cannot submit "
-                f"an empty contract for approval"
-            )
-        return self._transition_draft(
+        return self._perform_submit(
             draft_id=draft_id, org_id=org_id,
-            actor_user_id=submitter_user_id,
-            from_states=(ContractDraftStatus.DRAFT,),
-            to_state=ContractDraftStatus.AWAITING_APPROVAL,
-            rationale="submitted",
+            submitter_user_id=submitter_user_id,
         )
 
     def approve_draft(
@@ -563,14 +592,6 @@ class ContractDraftStore:
         clause is REJECTED — every clause must be APPROVED.
         Refuses if the approver is also the submitter (separation
         of duties).
-
-        Codex M-26 v1 review fix: the clause-snapshot and the
-        AWAITING_APPROVAL→APPROVED transition used to run in two
-        separate connections. A concurrent decide_clause(REJECTED)
-        landing in that gap let the draft flip to APPROVED with
-        a REJECTED clause. v2 moves all gate checks INSIDE
-        _transition_draft's BEGIN IMMEDIATE so the snapshot is
-        atomic with the write.
         """
         sanitized = _sanitize_notes(rationale)
         if sanitized is None:
@@ -578,13 +599,9 @@ class ContractDraftStore:
                 "approval rationale must be non-empty (LAW II — "
                 "every approval is part of the SOC2 audit trail)"
             )
-        return self._transition_draft(
+        return self._perform_approve(
             draft_id=draft_id, org_id=org_id,
-            actor_user_id=approver_user_id,
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale=sanitized,
-            mark_decided=True, set_approver=True,
+            approver_user_id=approver_user_id, rationale=sanitized,
         )
 
     def reject_draft(
@@ -598,98 +615,60 @@ class ContractDraftStore:
         sanitized = _sanitize_notes(rationale)
         if sanitized is None:
             raise ContractDraftStateError(
-                "rejection rationale must be non-empty"
+                "rejection rationale must be non-empty (LAW II — "
+                "every rejection is part of the SOC2 audit trail)"
             )
-        return self._transition_draft(
+        return self._perform_reject(
             draft_id=draft_id, org_id=org_id,
-            actor_user_id=rejecter_user_id,
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.REJECTED,
-            rationale=sanitized,
-            mark_decided=True, set_rejecter=True,
+            rejecter_user_id=rejecter_user_id, rationale=sanitized,
         )
 
-    def _transition_draft(
-        self,
-        *,
-        draft_id: str,
-        org_id: str,
-        actor_user_id: str,
-        from_states: tuple[ContractDraftStatus, ...],
-        to_state: ContractDraftStatus,
-        rationale: str | None = None,
-        mark_decided: bool = False,
-        set_approver: bool = False,
-        set_rejecter: bool = False,
+    # ------------------------------------------------------------------
+    # Hardcoded transition helpers (Codex v6 structural refactor)
+    # ------------------------------------------------------------------
+    #
+    # Each `_perform_*` helper enforces ONE specific edge of the
+    # state machine. There is no parameter for "which transition"
+    # or "which bookkeeping flags" — the helper names ARE the
+    # transitions. A direct caller invoking `_perform_approve`
+    # cannot, by parameter manipulation, achieve any other edge
+    # because the helper only knows how to do its one job.
+    #
+    # All gate checks (state precondition, SOD, all-clauses-
+    # approved, rationale, clause-count) live INSIDE each helper's
+    # BEGIN IMMEDIATE so concurrent decide_clause / submit calls
+    # cannot create TOCTOU races.
+
+    def _perform_submit(
+        self, *, draft_id: str, org_id: str, submitter_user_id: str,
     ) -> ContractDraft:
-        """Codex M-26 v1 review fix: all gate checks (SOD + all-
-        clauses-approved + rationale required) now live INSIDE
-        the BEGIN IMMEDIATE so a malicious caller invoking this
-        helper directly (Python's _ prefix is convention only,
-        not enforcement) cannot bypass the FINAL_PLAN gate.
-        Also closes the TOCTOU race: clauses are re-read inside
-        the lock, so a concurrent decide_clause(REJECTED) cannot
-        slip in between the snapshot and the transition.
+        """Hardcoded edge: DRAFT → AWAITING_APPROVAL.
+
+        Preconditions enforced inside BEGIN IMMEDIATE:
+          - draft accessible to org_id
+          - draft.status == DRAFT
+          - draft has ≥ 1 clause
+
+        Invariants enforced (also at DB CHECK level):
+          - approved_by, rejected_by, decision_rationale,
+            decided_at remain NULL.
+          - status flips to AWAITING_APPROVAL.
+
+        This helper has NO parameter that could be used to set
+        decision metadata on a submitted draft. The v5 bypass
+        `_transition_draft(to_state=AWAITING_APPROVAL,
+        mark_decided=True, set_approver=True)` is structurally
+        impossible here — there is no `mark_decided` or
+        `set_approver` parameter.
         """
-        if not actor_user_id.strip():
+        if not submitter_user_id.strip():
             raise ContractDraftStateError(
-                "actor_user_id must be non-empty"
+                "submitter_user_id must be non-empty"
             )
-        # Codex M-26 v2/v3 review fix: caller-supplied from_states
-        # could be used to resurrect terminal states. v3 ENFORCES
-        # the canonical from_states for terminal transitions
-        # regardless of caller input. APPROVED and REJECTED can
-        # ONLY be reached from AWAITING_APPROVAL.
-        if to_state in (
-            ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
-        ):
-            from_states = (ContractDraftStatus.AWAITING_APPROVAL,)
-        # Codex M-26 v3 review fix: terminal states are TRULY
-        # terminal. v3 only forced from_states for transitions
-        # TO terminal — but a direct caller could still pass
-        # `to_state=AWAITING_APPROVAL, from_states=(REJECTED,)`
-        # to revive a rejected draft. v4 forbids ANY transition
-        # OUT of APPROVED or REJECTED — these states cannot
-        # appear in the from_states set for non-terminal targets.
-        if to_state not in (
-            ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
-        ):
-            forbidden_from = {
-                ContractDraftStatus.APPROVED,
-                ContractDraftStatus.REJECTED,
-            }
-            from_states = tuple(
-                s for s in from_states if s not in forbidden_from
-            )
-            if not from_states:
-                # Caller asked us to transition non-terminally
-                # only from terminal states — that's never legal.
-                raise ContractDraftStateError(
-                    f"cannot transition out of a terminal state "
-                    f"(APPROVED / REJECTED) to {to_state.value!r}; "
-                    f"terminal states are final"
-                )
-        # Codex M-26 v2 review fix: caller-supplied mark_decided /
-        # set_approver / set_rejecter could be False for an
-        # APPROVED transition, leaving status=approved with
-        # approved_by=NULL, decided_at=NULL, rationale=NULL. v3
-        # ENFORCES the canonical bookkeeping flags by to_state.
-        if to_state == ContractDraftStatus.APPROVED:
-            mark_decided = True
-            set_approver = True
-            set_rejecter = False
-        elif to_state == ContractDraftStatus.REJECTED:
-            mark_decided = True
-            set_approver = False
-            set_rejecter = True
-        from_values = tuple(s.value for s in from_states)
         now = time.time()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                # Codex M-26 v1 fix: org-scoped lookup so cross-
-                # org access surfaces as "not accessible" rather
-                # than disclosing existence via different errors.
                 row = conn.execute(
                     "SELECT * FROM contract_drafts "
                     "WHERE draft_id = ? AND org_id = ?",
@@ -701,137 +680,30 @@ class ContractDraftStore:
                         f"to this caller"
                     )
                 current = ContractDraftStatus(row["status"])
-                if current not in from_states:
+                if current != ContractDraftStatus.DRAFT:
                     raise ContractDraftStateError(
                         f"draft {draft_id!r} is in state "
-                        f"{current.value!r}; expected one of "
-                        f"{from_values} to transition to "
-                        f"{to_state.value!r}"
+                        f"{current.value!r}; submit_for_approval "
+                        f"requires DRAFT state"
                     )
-
-                # Codex M-26 v4 review fix: enforce the closed
-                # state-machine transition table inside the lock.
-                # ANY (from, to) pair not in _VALID_DRAFT_TRANSITIONS
-                # is rejected, regardless of caller. This blocks:
-                #   - AWAITING_APPROVAL → DRAFT (rewind submitted)
-                #   - APPROVED → anything (terminal, already covered)
-                #   - REJECTED → anything (terminal, already covered)
-                #   - DRAFT → APPROVED (skip approval queue)
-                #   - DRAFT → REJECTED (skip approval queue)
-                if (current, to_state) not in _VALID_DRAFT_TRANSITIONS:
+                clause_count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM contract_clauses "
+                    "WHERE draft_id = ?",
+                    (draft_id,),
+                ).fetchone()
+                if int(clause_count["n"]) == 0:
                     raise ContractDraftStateError(
-                        f"transition {current.value!r} → "
-                        f"{to_state.value!r} is not a valid draft "
-                        f"state-machine edge; the only legal edges "
-                        f"are draft→awaiting_approval, "
-                        f"awaiting_approval→approved, "
-                        f"awaiting_approval→rejected"
+                        f"draft {draft_id!r} has no clauses; "
+                        f"cannot submit an empty contract for "
+                        f"approval"
                     )
-
-                # Codex M-26 v4 review fix: submitting for approval
-                # requires at least one clause. The public
-                # submit_for_approval method had this check, but a
-                # direct _transition_draft(to_state=AWAITING_APPROVAL)
-                # call could bypass it and submit an empty draft.
-                # v5 enforces it inside the lock.
-                if to_state == ContractDraftStatus.AWAITING_APPROVAL:
-                    clause_count = conn.execute(
-                        "SELECT COUNT(*) AS n FROM contract_clauses "
-                        "WHERE draft_id = ?",
-                        (draft_id,),
-                    ).fetchone()
-                    if int(clause_count["n"]) == 0:
-                        raise ContractDraftStateError(
-                            f"draft {draft_id!r} has no clauses; "
-                            f"cannot submit an empty contract for "
-                            f"approval"
-                        )
-
-                # Codex M-26 v3 fix: REJECTED transitions also
-                # require non-empty rationale. v3 only enforced
-                # rationale for APPROVED, so a direct
-                # _transition_draft(to_state=REJECTED) call
-                # produced status=rejected with rationale=NULL.
-                if to_state == ContractDraftStatus.REJECTED:
-                    if rationale is None or not rationale.strip():
-                        raise ContractDraftStateError(
-                            "rejection rationale must be non-empty "
-                            "(LAW II — every rejection is part of "
-                            "the SOC2 audit trail)"
-                        )
-
-                # Codex M-26 v1 fix: enforce APPROVAL gate
-                # invariants INSIDE the lock for any to_state ==
-                # APPROVED, regardless of which method dispatched
-                # here. A direct caller invoking _transition_draft
-                # cannot bypass these because the SQL is in this
-                # transaction.
-                if to_state == ContractDraftStatus.APPROVED:
-                    # Separation of duties: submitter cannot self-
-                    # approve. Use the actor_user_id (the
-                    # approver) and the row's submitter_user_id.
-                    if row["submitter_user_id"] == actor_user_id.strip():
-                        raise ContractDraftStateError(
-                            "the contract submitter cannot approve "
-                            "their own draft (separation of duties — "
-                            "every approval needs a second human "
-                            "reviewer)"
-                        )
-                    # Rationale required for APPROVED transitions.
-                    if rationale is None or not rationale.strip():
-                        raise ContractDraftStateError(
-                            "approval rationale must be non-empty "
-                            "(LAW II — every approval is part of "
-                            "the SOC2 audit trail)"
-                        )
-                    # All-clauses-approved check INSIDE the lock so
-                    # a racing decide_clause(REJECTED) cannot slip
-                    # in between snapshot and transition.
-                    clause_rows = conn.execute(
-                        "SELECT decision FROM contract_clauses "
-                        "WHERE draft_id = ?",
-                        (draft_id,),
-                    ).fetchall()
-                    if not clause_rows:
-                        raise ContractDraftStateError(
-                            "cannot approve draft: no clauses "
-                            "(this should be impossible — submit_for_"
-                            "approval refuses empty drafts)"
-                        )
-                    decisions = {
-                        ClauseDecision(r["decision"]) for r in clause_rows
-                    }
-                    if ClauseDecision.PENDING in decisions:
-                        raise ContractDraftStateError(
-                            "cannot approve draft: at least one "
-                            "clause is still PENDING; decide every "
-                            "clause before approving"
-                        )
-                    if ClauseDecision.REJECTED in decisions:
-                        raise ContractDraftStateError(
-                            "cannot approve draft: at least one "
-                            "clause is REJECTED; remove or replace "
-                            "it before approving"
-                        )
-                set_parts = ["status = ?", "updated_at = ?"]
-                params: list[Any] = [to_state.value, now]
-                if mark_decided:
-                    set_parts.append("decided_at = ?")
-                    set_parts.append("decision_rationale = ?")
-                    params.extend([now, rationale])
-                if set_approver:
-                    set_parts.append("approved_by = ?")
-                    set_parts.append("rejected_by = NULL")
-                    params.append(actor_user_id.strip())
-                if set_rejecter:
-                    set_parts.append("rejected_by = ?")
-                    set_parts.append("approved_by = NULL")
-                    params.append(actor_user_id.strip())
-                params.append(draft_id)
                 conn.execute(
-                    f"UPDATE contract_drafts SET {', '.join(set_parts)} "
-                    f"WHERE draft_id = ?",
-                    params,
+                    "UPDATE contract_drafts SET status = ?, "
+                    "updated_at = ? WHERE draft_id = ?",
+                    (
+                        ContractDraftStatus.AWAITING_APPROVAL.value,
+                        now, draft_id,
+                    ),
                 )
                 conn.execute(
                     "INSERT INTO contract_decision_log (draft_id, "
@@ -839,8 +711,141 @@ class ContractDraftStore:
                     "rationale, created_at) VALUES "
                     "(?, NULL, ?, ?, ?, ?, ?)",
                     (
-                        draft_id, actor_user_id.strip(),
-                        current.value, to_state.value,
+                        draft_id, submitter_user_id.strip(),
+                        ContractDraftStatus.DRAFT.value,
+                        ContractDraftStatus.AWAITING_APPROVAL.value,
+                        "submitted", now,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        result = self.get_draft(draft_id=draft_id, org_id=org_id)
+        if result is None:
+            raise ContractDraftError(
+                f"submit succeeded but cannot read back draft "
+                f"{draft_id!r}"
+            )
+        return result
+
+    def _perform_approve(
+        self,
+        *,
+        draft_id: str,
+        org_id: str,
+        approver_user_id: str,
+        rationale: str,
+    ) -> ContractDraft:
+        """Hardcoded edge: AWAITING_APPROVAL → APPROVED.
+
+        Preconditions enforced inside BEGIN IMMEDIATE:
+          - draft accessible to org_id
+          - draft.status == AWAITING_APPROVAL
+          - approver_user_id != draft.submitter_user_id (SOD)
+          - rationale non-empty (already sanitized by public
+            entry point, but re-checked here for direct callers)
+          - all clauses APPROVED (no PENDING, no REJECTED)
+
+        Invariants written:
+          - status = 'approved'
+          - approved_by = approver_user_id
+          - decided_at = now
+          - decision_rationale = rationale
+          - rejected_by = NULL  (mutually exclusive with approved_by)
+
+        DB CHECK constraint on contract_drafts mirrors these
+        invariants — even if this Python helper had a bug, an
+        attempted UPDATE that violates the canonical APPROVED
+        pattern would fail at the SQL layer.
+        """
+        if not approver_user_id.strip():
+            raise ContractDraftStateError(
+                "approver_user_id must be non-empty"
+            )
+        if rationale is None or not rationale.strip():
+            raise ContractDraftStateError(
+                "approval rationale must be non-empty (LAW II — "
+                "every approval is part of the SOC2 audit trail)"
+            )
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT * FROM contract_drafts "
+                    "WHERE draft_id = ? AND org_id = ?",
+                    (draft_id, org_id),
+                ).fetchone()
+                if row is None:
+                    raise ContractDraftStateError(
+                        f"draft {draft_id!r} is not accessible "
+                        f"to this caller"
+                    )
+                current = ContractDraftStatus(row["status"])
+                if current != ContractDraftStatus.AWAITING_APPROVAL:
+                    raise ContractDraftStateError(
+                        f"draft {draft_id!r} is in state "
+                        f"{current.value!r}; approve_draft requires "
+                        f"AWAITING_APPROVAL state"
+                    )
+                if row["submitter_user_id"] == approver_user_id.strip():
+                    raise ContractDraftStateError(
+                        "the contract submitter cannot approve "
+                        "their own draft (separation of duties — "
+                        "every approval needs a second human "
+                        "reviewer)"
+                    )
+                clause_rows = conn.execute(
+                    "SELECT decision FROM contract_clauses "
+                    "WHERE draft_id = ?",
+                    (draft_id,),
+                ).fetchall()
+                if not clause_rows:
+                    # Should be impossible — _perform_submit refuses
+                    # empty drafts. If we land here, something
+                    # corrupted the clause table after submit.
+                    raise ContractDraftStateError(
+                        "cannot approve draft: no clauses (this "
+                        "should be impossible — submit_for_approval "
+                        "refuses empty drafts)"
+                    )
+                decisions = {
+                    ClauseDecision(r["decision"]) for r in clause_rows
+                }
+                if ClauseDecision.PENDING in decisions:
+                    raise ContractDraftStateError(
+                        "cannot approve draft: at least one clause "
+                        "is still PENDING; decide every clause "
+                        "before approving"
+                    )
+                if ClauseDecision.REJECTED in decisions:
+                    raise ContractDraftStateError(
+                        "cannot approve draft: at least one clause "
+                        "is REJECTED; remove or replace it before "
+                        "approving"
+                    )
+                conn.execute(
+                    "UPDATE contract_drafts SET "
+                    "status = ?, updated_at = ?, decided_at = ?, "
+                    "decision_rationale = ?, "
+                    "approved_by = ?, rejected_by = NULL "
+                    "WHERE draft_id = ?",
+                    (
+                        ContractDraftStatus.APPROVED.value,
+                        now, now, rationale,
+                        approver_user_id.strip(), draft_id,
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO contract_decision_log (draft_id, "
+                    "clause_id, actor_user_id, from_state, to_state, "
+                    "rationale, created_at) VALUES "
+                    "(?, NULL, ?, ?, ?, ?, ?)",
+                    (
+                        draft_id, approver_user_id.strip(),
+                        ContractDraftStatus.AWAITING_APPROVAL.value,
+                        ContractDraftStatus.APPROVED.value,
                         rationale, now,
                     ),
                 )
@@ -851,7 +856,96 @@ class ContractDraftStore:
         result = self.get_draft(draft_id=draft_id, org_id=org_id)
         if result is None:
             raise ContractDraftError(
-                f"transitioned draft {draft_id!r} but cannot read it back"
+                f"approve succeeded but cannot read back draft "
+                f"{draft_id!r}"
+            )
+        return result
+
+    def _perform_reject(
+        self,
+        *,
+        draft_id: str,
+        org_id: str,
+        rejecter_user_id: str,
+        rationale: str,
+    ) -> ContractDraft:
+        """Hardcoded edge: AWAITING_APPROVAL → REJECTED.
+
+        Preconditions enforced inside BEGIN IMMEDIATE:
+          - draft accessible to org_id
+          - draft.status == AWAITING_APPROVAL
+          - rationale non-empty
+
+        Invariants written:
+          - status = 'rejected'
+          - rejected_by = rejecter_user_id
+          - decided_at = now
+          - decision_rationale = rationale
+          - approved_by = NULL  (mutually exclusive with rejected_by)
+        """
+        if not rejecter_user_id.strip():
+            raise ContractDraftStateError(
+                "rejecter_user_id must be non-empty"
+            )
+        if rationale is None or not rationale.strip():
+            raise ContractDraftStateError(
+                "rejection rationale must be non-empty (LAW II — "
+                "every rejection is part of the SOC2 audit trail)"
+            )
+        now = time.time()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT * FROM contract_drafts "
+                    "WHERE draft_id = ? AND org_id = ?",
+                    (draft_id, org_id),
+                ).fetchone()
+                if row is None:
+                    raise ContractDraftStateError(
+                        f"draft {draft_id!r} is not accessible "
+                        f"to this caller"
+                    )
+                current = ContractDraftStatus(row["status"])
+                if current != ContractDraftStatus.AWAITING_APPROVAL:
+                    raise ContractDraftStateError(
+                        f"draft {draft_id!r} is in state "
+                        f"{current.value!r}; reject_draft requires "
+                        f"AWAITING_APPROVAL state"
+                    )
+                conn.execute(
+                    "UPDATE contract_drafts SET "
+                    "status = ?, updated_at = ?, decided_at = ?, "
+                    "decision_rationale = ?, "
+                    "rejected_by = ?, approved_by = NULL "
+                    "WHERE draft_id = ?",
+                    (
+                        ContractDraftStatus.REJECTED.value,
+                        now, now, rationale,
+                        rejecter_user_id.strip(), draft_id,
+                    ),
+                )
+                conn.execute(
+                    "INSERT INTO contract_decision_log (draft_id, "
+                    "clause_id, actor_user_id, from_state, to_state, "
+                    "rationale, created_at) VALUES "
+                    "(?, NULL, ?, ?, ?, ?, ?)",
+                    (
+                        draft_id, rejecter_user_id.strip(),
+                        ContractDraftStatus.AWAITING_APPROVAL.value,
+                        ContractDraftStatus.REJECTED.value,
+                        rationale, now,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        result = self.get_draft(draft_id=draft_id, org_id=org_id)
+        if result is None:
+            raise ContractDraftError(
+                f"reject succeeded but cannot read back draft "
+                f"{draft_id!r}"
             )
         return result
 

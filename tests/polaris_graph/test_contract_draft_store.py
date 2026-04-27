@@ -1,7 +1,27 @@
-"""Tests for src/polaris_graph/audit_ir/contract_draft_store.py (M-26)."""
+"""Tests for src/polaris_graph/audit_ir/contract_draft_store.py (M-26).
+
+v6 structural refactor: the lifecycle transition surface is now
+three hardcoded private helpers (`_perform_submit`,
+`_perform_approve`, `_perform_reject`), one per legal edge.
+There is no parameterized `_transition_draft` helper. Plus
+DB-level CHECK constraints encode the SOC2 audit-trail invariants
+so direct SQL UPDATE attempts that violate them fail at the SQL
+layer.
+
+Tests are organized:
+  - Public-API happy paths
+  - Per-clause approval flow
+  - The FINAL_PLAN gate (assert_approved_for_send)
+  - Cross-tenant isolation
+  - Decision audit log
+  - Direct-call attacks on the new `_perform_*` helpers
+  - Confirmation that the v1..v5 parameterized helper is GONE
+  - DB CHECK constraint enforcement
+"""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -164,6 +184,11 @@ def test_submit_transitions_to_awaiting_approval(
         submitter_user_id="usr_alice",
     )
     assert submitted.status == ContractDraftStatus.AWAITING_APPROVAL
+    # Decision metadata stays NULL on a submitted draft (LAW II).
+    assert submitted.approved_by is None
+    assert submitted.rejected_by is None
+    assert submitted.decision_rationale is None
+    assert submitted.decided_at is None
 
 
 def test_decide_clause_blocked_in_draft_state(
@@ -243,7 +268,7 @@ def test_approve_draft_requires_all_clauses_approved(
 ) -> None:
     d = _create_basic(store)
     c1 = _add_clause(store, d, title="Clause 1")
-    c2 = _add_clause(store, d, title="Clause 2")
+    _add_clause(store, d, title="Clause 2")
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
@@ -358,6 +383,9 @@ def test_approve_draft_succeeds_with_all_clauses_approved(
     )
     assert approved.status == ContractDraftStatus.APPROVED
     assert approved.approved_by == "bob"
+    assert approved.rejected_by is None
+    assert approved.decided_at is not None
+    assert approved.decision_rationale is not None
 
 
 def test_reject_draft_requires_rationale(
@@ -374,6 +402,26 @@ def test_reject_draft_requires_rationale(
             draft_id=d.draft_id, org_id="org_a",
             rejecter_user_id="bob", rationale="",
         )
+
+
+def test_reject_draft_writes_canonical_metadata(
+    store: ContractDraftStore,
+) -> None:
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    rejected = store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    assert rejected.status == ContractDraftStatus.REJECTED
+    assert rejected.rejected_by == "bob"
+    assert rejected.approved_by is None
+    assert rejected.decided_at is not None
+    assert rejected.decision_rationale == "not a fit"
 
 
 # ---------------------------------------------------------------------------
@@ -504,9 +552,9 @@ def test_add_clause_rejects_cross_org(store: ContractDraftStore) -> None:
 def test_decide_clause_rejects_cross_org(
     store: ContractDraftStore,
 ) -> None:
-    """Codex M-26 v1 fix: cross-org decide_clause now surfaces
-    "not accessible to this caller" — same wording as unknown
-    clause_id, no existence leak."""
+    """Cross-org decide_clause surfaces "not accessible to this
+    caller" — same wording as unknown clause_id, no existence
+    leak."""
     d = _create_basic(store, org_id="org_a")
     c = _add_clause(store, d)
     store.submit_for_approval(
@@ -589,50 +637,170 @@ def test_draft_to_dict_round_trips(store: ContractDraftStore) -> None:
     assert payload["kind"] == "msa"
 
 
+def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    payload = clause_to_dict(c)
+    assert payload["clause_id"] == c.clause_id
+    assert payload["evidence_ids"] == ["ev_a"]
+    assert payload["decision"] == "pending"
+
+
 # ---------------------------------------------------------------------------
-# Codex M-26 v1 review fixes
+# Codex M-26 v6 structural refactor: the parameterized helper is GONE
 # ---------------------------------------------------------------------------
 
 
-def test_direct_transition_draft_call_cannot_bypass_gate(
+def test_v6_no_parameterized_transition_helper(
     store: ContractDraftStore,
 ) -> None:
-    """Codex M-26 v1: `_transition_draft` is callable from outside
-    the class (Python's _ prefix is convention only). v1 placed
-    the gate checks in approve_draft only, so a malicious caller
-    invoking `store._transition_draft(to_state=APPROVED, ...)`
-    flipped the draft to APPROVED bypassing all-clauses-approved,
-    SOD, and rationale.
+    """v1..v5 had a parameterized `_transition_draft(to_state,
+    from_states, mark_decided, set_approver, set_rejecter)` helper
+    that proved to have a combinatorial bypass surface. Each round
+    of Codex review found a new (parameter, value) tuple that
+    escaped the invariants. v6 eliminates it.
 
-    v2 moves all gate checks INTO _transition_draft inside the
-    BEGIN IMMEDIATE so direct-call bypasses fail."""
-    d = _create_basic(store, submitter="usr_alice")
+    This test confirms `_transition_draft` is GONE — there is no
+    parameterized surface for a malicious caller to exploit. The
+    transition surface is now three hardcoded helpers, each
+    enforcing exactly one edge of the state machine."""
+    assert not hasattr(store, "_transition_draft"), (
+        "_transition_draft must not exist in v6 — its parameter "
+        "surface was the bypass surface. Use _perform_submit / "
+        "_perform_approve / _perform_reject instead."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Direct attacks on the new _perform_submit helper
+# ---------------------------------------------------------------------------
+
+
+def test_direct_perform_submit_requires_clauses(
+    store: ContractDraftStore,
+) -> None:
+    """_perform_submit refuses an empty draft. There is no
+    parameter that could opt out of this check."""
+    d = _create_basic(store)
+    with pytest.raises(ContractDraftStateError, match="no clauses"):
+        store._perform_submit(
+            draft_id=d.draft_id, org_id="org_a",
+            submitter_user_id="usr_alice",
+        )
+
+
+def test_direct_perform_submit_blocked_from_awaiting(
+    store: ContractDraftStore,
+) -> None:
+    """_perform_submit only operates on DRAFT. Already-submitted
+    drafts cannot be re-submitted."""
+    d = _create_basic(store)
     _add_clause(store, d)
-    store.submit_for_approval(
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="DRAFT state"):
+        store._perform_submit(
+            draft_id=d.draft_id, org_id="org_a",
+            submitter_user_id="usr_alice",
+        )
+
+
+def test_direct_perform_submit_blocked_from_terminal(
+    store: ContractDraftStore,
+) -> None:
+    """Terminal states (APPROVED / REJECTED) cannot be revived
+    via _perform_submit. There is no `from_states` parameter."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store._perform_reject(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    # Direct attempt to "re-submit" a rejected draft.
+    with pytest.raises(ContractDraftStateError, match="DRAFT state"):
+        store._perform_submit(
+            draft_id=d.draft_id, org_id="org_a",
+            submitter_user_id="usr_alice",
+        )
+
+
+def test_direct_perform_submit_does_not_write_decision_metadata(
+    store: ContractDraftStore,
+) -> None:
+    """The Codex M-26 v5 bypass: `_transition_draft(to_state=
+    AWAITING_APPROVAL, mark_decided=True, set_approver=True)`
+    wrote decision metadata onto a submitted draft. v6 has no
+    such parameter — _perform_submit only flips status."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    submitted = store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    assert submitted.status == ContractDraftStatus.AWAITING_APPROVAL
+    assert submitted.approved_by is None
+    assert submitted.rejected_by is None
+    assert submitted.decision_rationale is None
+    assert submitted.decided_at is None
+
+
+def test_direct_perform_submit_cross_org_uniform_error(
+    store: ContractDraftStore,
+) -> None:
+    """Cross-org and unknown draft_id surface the same error (no
+    existence leak)."""
+    d = _create_basic(store, org_id="org_a")
+    _add_clause(store, d)
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._perform_submit(
+            draft_id=d.draft_id, org_id="org_b",
+            submitter_user_id="attacker",
+        )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._perform_submit(
+            draft_id="ctr_phantom", org_id="org_a",
+            submitter_user_id="bob",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Direct attacks on the new _perform_approve helper
+# ---------------------------------------------------------------------------
+
+
+def test_direct_perform_approve_blocks_pending_clauses(
+    store: ContractDraftStore,
+) -> None:
+    """_perform_approve enforces all-clauses-approved inside
+    BEGIN IMMEDIATE."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
     # Don't decide the clause — leave PENDING.
-    # Direct call must fail because clauses aren't all approved.
     with pytest.raises(ContractDraftStateError, match="PENDING"):
-        store._transition_draft(
+        store._perform_approve(
             draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="usr_attacker",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="bypass attempt", mark_decided=True,
-            set_approver=True,
+            approver_user_id="bob",
+            rationale="bypass attempt",
         )
 
 
-def test_direct_transition_draft_blocks_self_approval(
+def test_direct_perform_approve_blocks_self_approval(
     store: ContractDraftStore,
 ) -> None:
-    """Direct _transition_draft call with submitter==approver
-    must fail SOD even though approve_draft isn't dispatching."""
+    """SOD: submitter cannot self-approve, even via direct call."""
     d = _create_basic(store, submitter="usr_alice")
     c = _add_clause(store, d)
-    store.submit_for_approval(
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
@@ -644,22 +812,20 @@ def test_direct_transition_draft_blocks_self_approval(
     with pytest.raises(
         ContractDraftStateError, match="separation of duties",
     ):
-        store._transition_draft(
+        store._perform_approve(
             draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="usr_alice",  # the submitter!
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="self-approval bypass attempt",
-            mark_decided=True, set_approver=True,
+            approver_user_id="usr_alice",  # the submitter!
+            rationale="self-approval bypass",
         )
 
 
-def test_direct_transition_draft_blocks_empty_rationale(
+def test_direct_perform_approve_blocks_empty_rationale(
     store: ContractDraftStore,
 ) -> None:
+    """Rationale required even via direct call."""
     d = _create_basic(store)
     c = _add_clause(store, d)
-    store.submit_for_approval(
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
@@ -669,27 +835,27 @@ def test_direct_transition_draft_blocks_empty_rationale(
         decision=ClauseDecision.APPROVED, notes="ok",
     )
     with pytest.raises(ContractDraftStateError, match="rationale"):
-        store._transition_draft(
+        store._perform_approve(
             draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale=None,  # bypass attempt
-            mark_decided=True, set_approver=True,
+            approver_user_id="bob", rationale="",
+        )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_approve(
+            draft_id=d.draft_id, org_id="org_a",
+            approver_user_id="bob", rationale="   ",  # whitespace
         )
 
 
-def test_direct_transition_draft_blocks_rejected_clause(
+def test_direct_perform_approve_blocks_rejected_clause(
     store: ContractDraftStore,
 ) -> None:
     """The TOCTOU race Codex reproduced: a late
     decide_clause(REJECTED) landing between snapshot and
-    transition. v2 re-reads clauses inside the lock so REJECTED
-    clauses are caught."""
+    transition. v6 re-reads clauses inside the lock."""
     d = _create_basic(store)
     c1 = _add_clause(store, d, title="Good")
     c2 = _add_clause(store, d, title="Bad")
-    store.submit_for_approval(
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
@@ -704,131 +870,86 @@ def test_direct_transition_draft_blocks_rejected_clause(
         decision=ClauseDecision.REJECTED,
         notes="violates policy",
     )
-    # Even direct _transition_draft call must catch the REJECTED
-    # clause inside its own lock.
     with pytest.raises(ContractDraftStateError, match="REJECTED"):
-        store._transition_draft(
+        store._perform_approve(
             draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="bypassing the rejected clause",
-            mark_decided=True, set_approver=True,
-        )
-
-
-def test_cross_org_transition_draft_uniform_error(
-    store: ContractDraftStore,
-) -> None:
-    """Codex M-26 v1: cross-org access on _transition_draft used
-    to disclose existence via different error wording. v2 unifies
-    to "not accessible to this caller"."""
-    d = _create_basic(store, org_id="org_a")
-    _add_clause(store, d)
-    store.submit_for_approval(
-        draft_id=d.draft_id, org_id="org_a",
-        submitter_user_id="usr_alice",
-    )
-    with pytest.raises(ContractDraftStateError, match="not accessible"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_b",  # cross-org
-            actor_user_id="attacker",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="cross-org bypass",
-            mark_decided=True, set_approver=True,
-        )
-    # Same wording for genuinely unknown draft_id.
-    with pytest.raises(ContractDraftStateError, match="not accessible"):
-        store._transition_draft(
-            draft_id="ctr_phantom", org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="phantom",
-            mark_decided=True, set_approver=True,
-        )
-
-
-def test_cross_org_decide_clause_uniform_error(
-    store: ContractDraftStore,
-) -> None:
-    """Codex M-26 v1: decide_clause loaded by clause_id first then
-    checked org afterward. v2 uses an org-scoped JOIN so cross-
-    org and unknown clause_id surface as the same error."""
-    d = _create_basic(store, org_id="org_a")
-    c = _add_clause(store, d)
-    store.submit_for_approval(
-        draft_id=d.draft_id, org_id="org_a",
-        submitter_user_id="usr_alice",
-    )
-    with pytest.raises(ContractDraftStateError, match="not accessible"):
-        store.decide_clause(
-            clause_id=c.clause_id, org_id="org_b",
-            approver_user_id="attacker",
-            decision=ClauseDecision.APPROVED, notes="ok",
-        )
-    with pytest.raises(ContractDraftStateError, match="not accessible"):
-        store.decide_clause(
-            clause_id="cls_phantom", org_id="org_a",
             approver_user_id="bob",
-            decision=ClauseDecision.APPROVED, notes="ok",
+            rationale="bypassing the rejected clause",
         )
 
 
-# ---------------------------------------------------------------------------
-# Codex M-26 v2 review fixes
-# ---------------------------------------------------------------------------
-
-
-def test_direct_transition_cannot_resurrect_rejected_to_approved(
+def test_direct_perform_approve_only_from_awaiting(
     store: ContractDraftStore,
 ) -> None:
-    """Codex M-26 v2: caller-supplied from_states could let a
-    direct caller pass `from_states=(REJECTED,)` and resurrect a
-    terminal-rejected draft to APPROVED. v3 ignores caller-supplied
-    from_states for APPROVED/REJECTED transitions and enforces
-    AWAITING_APPROVAL as the canonical from-state."""
+    """_perform_approve refuses any state other than
+    AWAITING_APPROVAL. There is no `from_states` parameter, so
+    a caller can't pretend the draft is in AWAITING_APPROVAL when
+    it isn't."""
     d = _create_basic(store)
     _add_clause(store, d)
-    store.submit_for_approval(
+    # Still in DRAFT — never submitted.
+    with pytest.raises(ContractDraftStateError, match="AWAITING_APPROVAL"):
+        store._perform_approve(
+            draft_id=d.draft_id, org_id="org_a",
+            approver_user_id="bob", rationale="skip approval queue",
+        )
+
+
+def test_direct_perform_approve_blocked_from_terminal(
+    store: ContractDraftStore,
+) -> None:
+    """Terminal-state revival is structurally impossible: the
+    state check rejects anything other than AWAITING_APPROVAL."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    # Land the draft in REJECTED (terminal).
-    store.reject_draft(
+    store._perform_reject(
         draft_id=d.draft_id, org_id="org_a",
         rejecter_user_id="bob", rationale="not a fit",
     )
-    snap = store.get_draft(draft_id=d.draft_id, org_id="org_a")
-    assert snap is not None
-    assert snap.status == ContractDraftStatus.REJECTED
-
-    # Direct call passing from_states=(REJECTED,) must still fail
-    # because v3 forces from_states=(AWAITING_APPROVAL,) for an
-    # APPROVED transition.
-    with pytest.raises(ContractDraftStateError, match="awaiting_approval"):
-        store._transition_draft(
+    # Now in REJECTED. Try to resurrect to APPROVED.
+    with pytest.raises(ContractDraftStateError, match="AWAITING_APPROVAL"):
+        store._perform_approve(
             draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.REJECTED,),  # bypass attempt
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="resurrecting rejected",
-            mark_decided=True, set_approver=True,
+            approver_user_id="alice", rationale="resurrect",
         )
 
 
-def test_direct_transition_cannot_approve_with_mark_decided_false(
+def test_direct_perform_approve_cross_org_uniform_error(
     store: ContractDraftStore,
 ) -> None:
-    """Codex M-26 v2: passing mark_decided=False / set_approver=False
-    on an APPROVED transition would leave status=approved with
-    approved_by=NULL, decided_at=NULL, rationale=NULL. v3 ignores
-    caller-supplied bookkeeping flags and forces canonical values
-    for terminal transitions."""
+    d = _create_basic(store, org_id="org_a")
+    _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._perform_approve(
+            draft_id=d.draft_id, org_id="org_b",
+            approver_user_id="attacker",
+            rationale="cross-org bypass",
+        )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._perform_approve(
+            draft_id="ctr_phantom", org_id="org_a",
+            approver_user_id="bob",
+            rationale="phantom",
+        )
+
+
+def test_direct_perform_approve_writes_canonical_metadata(
+    store: ContractDraftStore,
+) -> None:
+    """Even via direct call, _perform_approve writes the canonical
+    APPROVED metadata pattern. There is no parameter to opt out
+    of writing approved_by / decided_at / decision_rationale."""
     d = _create_basic(store, submitter="usr_alice")
     c = _add_clause(store, d)
-    store.submit_for_approval(
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
@@ -837,221 +958,249 @@ def test_direct_transition_cannot_approve_with_mark_decided_false(
         approver_user_id="bob",
         decision=ClauseDecision.APPROVED, notes="ok",
     )
-    # Direct call with mark_decided=False, set_approver=False
-    # should NOT produce a NULL-bookkeeping APPROVED row.
-    approved = store._transition_draft(
+    approved = store._perform_approve(
         draft_id=d.draft_id, org_id="org_a",
-        actor_user_id="bob",
-        from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-        to_state=ContractDraftStatus.APPROVED,
-        rationale="reviewed",
-        mark_decided=False,  # bypass attempt
-        set_approver=False,  # bypass attempt
+        approver_user_id="bob", rationale="reviewed",
     )
-    # Despite caller passing False, the row is fully populated.
     assert approved.status == ContractDraftStatus.APPROVED
     assert approved.approved_by == "bob"
+    assert approved.rejected_by is None  # Mutually exclusive.
     assert approved.decided_at is not None
     assert approved.decision_rationale == "reviewed"
 
 
-def test_direct_transition_cannot_reject_without_bookkeeping(
+# ---------------------------------------------------------------------------
+# Direct attacks on the new _perform_reject helper
+# ---------------------------------------------------------------------------
+
+
+def test_direct_perform_reject_requires_rationale(
     store: ContractDraftStore,
 ) -> None:
-    """Symmetric to the APPROVED case: a direct caller passing
-    mark_decided=False / set_rejecter=False on a REJECTED
-    transition cannot produce a NULL-bookkeeping rejection row."""
+    """SOC2: every rejection has a non-empty rationale."""
     d = _create_basic(store)
     _add_clause(store, d)
-    store.submit_for_approval(
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    rejected = store._transition_draft(
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_a",
+            rejecter_user_id="bob", rationale="",
+        )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_a",
+            rejecter_user_id="bob", rationale="   ",
+        )
+
+
+def test_direct_perform_reject_only_from_awaiting(
+    store: ContractDraftStore,
+) -> None:
+    """_perform_reject refuses any state other than
+    AWAITING_APPROVAL — DRAFT, APPROVED, REJECTED all blocked."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    # In DRAFT.
+    with pytest.raises(ContractDraftStateError, match="AWAITING_APPROVAL"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_a",
+            rejecter_user_id="bob", rationale="not yet submitted",
+        )
+
+
+def test_direct_perform_reject_blocked_from_terminal(
+    store: ContractDraftStore,
+) -> None:
+    """Already-rejected drafts cannot be re-rejected (no double-
+    rejection log entries)."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
         draft_id=d.draft_id, org_id="org_a",
-        actor_user_id="bob",
-        from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-        to_state=ContractDraftStatus.REJECTED,
-        rationale="not a fit",
-        mark_decided=False,  # bypass attempt
-        set_rejecter=False,  # bypass attempt
+        submitter_user_id="usr_alice",
+    )
+    store._perform_reject(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    with pytest.raises(ContractDraftStateError, match="AWAITING_APPROVAL"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_a",
+            rejecter_user_id="bob", rationale="re-reject",
+        )
+
+
+def test_direct_perform_reject_cross_org_uniform_error(
+    store: ContractDraftStore,
+) -> None:
+    d = _create_basic(store, org_id="org_a")
+    _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_b",
+            rejecter_user_id="attacker",
+            rationale="cross-org",
+        )
+
+
+def test_direct_perform_reject_writes_canonical_metadata(
+    store: ContractDraftStore,
+) -> None:
+    """Even via direct call, _perform_reject writes the canonical
+    REJECTED metadata pattern."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    rejected = store._perform_reject(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
     )
     assert rejected.status == ContractDraftStatus.REJECTED
     assert rejected.rejected_by == "bob"
+    assert rejected.approved_by is None  # Mutually exclusive.
     assert rejected.decided_at is not None
     assert rejected.decision_rationale == "not a fit"
 
 
 # ---------------------------------------------------------------------------
-# Codex M-26 v3 review fixes
+# DB CHECK constraint enforcement (Codex v6 second line of defense)
 # ---------------------------------------------------------------------------
 
 
-def test_direct_transition_cannot_revive_rejected_to_awaiting(
+def test_db_check_blocks_approved_with_null_approver(
     store: ContractDraftStore,
+    tmp_path: Path,
 ) -> None:
-    """Codex M-26 v3: v3 forced from_states=(AWAITING_APPROVAL,)
-    only when to_state is APPROVED/REJECTED. A direct caller
-    could still pass `to_state=AWAITING_APPROVAL,
-    from_states=(REJECTED,)` to revive a terminal-rejected
-    draft. v4 forbids ANY transition out of terminal states."""
+    """LAW II SOC2 invariant encoded at DB level: if Python
+    helpers had a bug, an UPDATE that lands status='approved'
+    with approved_by=NULL fails at the SQL layer."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    store.reject_draft(
-        draft_id=d.draft_id, org_id="org_a",
-        rejecter_user_id="bob", rationale="not a fit",
-    )
-    snap = store.get_draft(draft_id=d.draft_id, org_id="org_a")
-    assert snap is not None
-    assert snap.status == ContractDraftStatus.REJECTED
-
-    # Direct call attempting to revive REJECTED → AWAITING_APPROVAL.
-    with pytest.raises(ContractDraftStateError, match="terminal"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.REJECTED,),
-            to_state=ContractDraftStatus.AWAITING_APPROVAL,
-        )
+    # Direct SQL UPDATE attempting to violate the canonical
+    # APPROVED pattern (status='approved' with approved_by=NULL).
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
 
 
-def test_direct_transition_cannot_revive_approved_to_draft(
+def test_db_check_blocks_approved_with_rejected_by_set(
     store: ContractDraftStore,
+    tmp_path: Path,
 ) -> None:
-    """Symmetric: APPROVED is also terminal."""
-    d = _create_basic(store, submitter="usr_alice")
-    c = _add_clause(store, d)
-    store.submit_for_approval(
-        draft_id=d.draft_id, org_id="org_a",
-        submitter_user_id="usr_alice",
-    )
-    store.decide_clause(
-        clause_id=c.clause_id, org_id="org_a",
-        approver_user_id="bob",
-        decision=ClauseDecision.APPROVED, notes="ok",
-    )
-    store.approve_draft(
-        draft_id=d.draft_id, org_id="org_a",
-        approver_user_id="bob", rationale="reviewed",
-    )
-    with pytest.raises(ContractDraftStateError, match="terminal"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.APPROVED,),
-            to_state=ContractDraftStatus.DRAFT,
-        )
-
-
-def test_direct_transition_reject_requires_rationale(
-    store: ContractDraftStore,
-) -> None:
-    """Codex M-26 v3: v3 only enforced rationale-required for
-    APPROVED. A direct REJECTED transition with rationale=None
-    or "" produced status=rejected, decision_rationale=NULL —
-    a SOC2 audit-trail violation. v4 enforces rationale for
-    REJECTED inside _transition_draft as well."""
+    """The CHECK enforces mutual exclusion: status='approved' with
+    rejected_by NOT NULL is illegal."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    with pytest.raises(ContractDraftStateError, match="rationale"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.REJECTED,
-            rationale=None,  # bypass attempt
-        )
-    with pytest.raises(ContractDraftStateError, match="rationale"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.REJECTED,
-            rationale="   ",  # whitespace only
-        )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob', rejected_by = 'bob', "
+                "decision_rationale = 'r', decided_at = 0.0 "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
 
 
-# ---------------------------------------------------------------------------
-# Codex M-26 v4 review fixes
-# ---------------------------------------------------------------------------
-
-
-def test_direct_transition_cannot_revert_awaiting_to_draft(
+def test_db_check_blocks_rejected_with_null_rejecter(
     store: ContractDraftStore,
+    tmp_path: Path,
 ) -> None:
-    """Codex M-26 v4: AWAITING_APPROVAL → DRAFT was a non-terminal
-    edge that v4 didn't catch (terminal-from check excluded it).
-    v5 enforces a closed transition table; reverting a submitted
-    draft is not a legal edge."""
+    """Symmetric invariant for REJECTED."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    with pytest.raises(ContractDraftStateError, match="not a valid"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="alice",
-            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
-            to_state=ContractDraftStatus.DRAFT,
-        )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'rejected' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
 
 
-def test_direct_transition_cannot_skip_approval_queue(
+def test_db_check_blocks_draft_with_decision_metadata(
     store: ContractDraftStore,
+    tmp_path: Path,
 ) -> None:
-    """Codex M-26 v4: DRAFT → APPROVED would skip the approval
-    queue entirely. v5 blocks this — when to_state is APPROVED,
-    v3's from_states-forcing already set from_states to
-    (AWAITING_APPROVAL,), so the current=DRAFT check fires before
-    we even reach the transition-table check. Either error
-    indicates the bypass is closed."""
+    """A draft (not yet submitted) cannot carry decision metadata.
+    The Codex v5 bypass `_transition_draft(to_state=
+    AWAITING_APPROVAL, mark_decided=True, set_approver=True)`
+    is now blocked at TWO layers: the structural refactor (no
+    such parameter exists in v6 helpers) AND the DB CHECK
+    (status='awaiting_approval' with approved_by NOT NULL fails
+    at SQL)."""
     d = _create_basic(store)
     _add_clause(store, d)
-    # Draft is in DRAFT state. Skip approval queue entirely.
-    with pytest.raises(
-        ContractDraftStateError, match="awaiting_approval|not a valid",
-    ):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="bob",
-            from_states=(ContractDraftStatus.DRAFT,),
-            to_state=ContractDraftStatus.APPROVED,
-            rationale="bypass approval queue",
-        )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET approved_by = 'bob' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
 
 
-def test_direct_transition_submit_requires_clauses(
+def test_db_check_blocks_awaiting_with_decision_metadata(
     store: ContractDraftStore,
+    tmp_path: Path,
 ) -> None:
-    """Codex M-26 v4: a direct call to _transition_draft(
-    to_state=AWAITING_APPROVAL) bypassed the public
-    submit_for_approval's "no clauses → reject" check. v5
-    enforces it inside the lock for ANY caller."""
+    """A submitted (AWAITING_APPROVAL) draft cannot carry decision
+    metadata until it transitions to APPROVED or REJECTED. This is
+    the exact v5 bypass closed at the DB layer."""
     d = _create_basic(store)
-    # No clauses added.
-    with pytest.raises(ContractDraftStateError, match="no clauses"):
-        store._transition_draft(
-            draft_id=d.draft_id, org_id="org_a",
-            actor_user_id="alice",
-            from_states=(ContractDraftStatus.DRAFT,),
-            to_state=ContractDraftStatus.AWAITING_APPROVAL,
-        )
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET approved_by = 'bob', "
+                "decision_rationale = 'r', decided_at = 0.0 "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
 
 
-def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
+def test_db_check_blocks_invalid_status_value(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """The CHECK enumerates the four legal status values; any
+    other status value fails."""
     d = _create_basic(store)
-    c = _add_clause(store, d)
-    payload = clause_to_dict(c)
-    assert payload["clause_id"] == c.clause_id
-    assert payload["evidence_ids"] == ["ev_a"]
-    assert payload["decision"] == "pending"
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'cancelled' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
