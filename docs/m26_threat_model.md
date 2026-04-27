@@ -61,7 +61,7 @@ When evaluating a proposed "M-26 hardening", check whether the threat falls into
 | `UPDATE OF status` (after) | `trg_log_draft_status_change` | Auto-writes `contract_decision_log` row for every status change |
 | `UPDATE` (any column, terminal row) | `trg_freeze_drafts_on_terminal` | Approved/rejected rows are fully immutable |
 | `DELETE` (terminal row) | `trg_freeze_drafts_delete_on_terminal` | Approved/rejected rows cannot be deleted |
-| Per-row | `CHECK` constraint | Status-vs-decision-fields invariants: pending/awaiting → all decision fields NULL; approved → approved_by + rationale + decided_at NOT NULL & non-empty, rejected_by NULL; symmetric for rejected. Mutual exclusion between approved_by and rejected_by. |
+| Per-row | `CHECK` constraint | Status-vs-decision-fields invariants: draft/awaiting_approval → all decision fields NULL; approved → approved_by + rationale + decided_at NOT NULL & non-empty, rejected_by NULL; symmetric for rejected. Mutual exclusion between approved_by and rejected_by. |
 
 ### `contract_clauses` table
 
@@ -76,6 +76,18 @@ When evaluating a proposed "M-26 hardening", check whether the threat falls into
 | `UPDATE OF decision` (after) | `trg_log_clause_decision_change` | Auto-writes `contract_decision_log` row for every decision change |
 | `DELETE` | `trg_freeze_clauses_after_submit_delete` | No DELETE once parent draft is submitted |
 | Per-row | `CHECK` constraint | Decision-vs-audit-fields invariants: pending → decided_by/notes/decided_at all NULL; approved → decided_by + decided_at NOT NULL & non-empty; rejected → adds decision_notes NOT NULL & non-empty |
+
+### `contract_decision_log` table (post-lock v15 — Codex doc audit finding)
+
+The original v1-v14 hardening cycle missed this table entirely. The doc claimed it was "append-only by design" but no SQL triggers actually enforced that; direct SQL UPDATE/DELETE on log rows worked, so a forged decision (created via the v11-class direct-SQL clause attack) could be erased after the v12/v13 auto-log triggers wrote the audit entry. The v15 post-lock fix closes this:
+
+| Operation | Defense | What it enforces |
+|---|---|---|
+| `INSERT` | (allowed) | Auto-log triggers + `create_draft` are the only write paths; INSERT is the only legal mutation |
+| `UPDATE` | `trg_decision_log_no_update` | All UPDATEs raise; row attribution and content are immutable |
+| `DELETE` | `trg_decision_log_no_delete` | All DELETEs raise; the audit trail must survive |
+
+This makes the audit-trail integrity claim later in this document actually true. A forged decision via direct SQL on `contract_clauses` or `contract_drafts` writes a tamper-evident log entry naming the forged actor, and that entry cannot be erased without DDL.
 
 ### Python layer (defense in depth above SQL)
 
@@ -101,12 +113,14 @@ When evaluating a proposed "M-26 hardening", check whether the threat falls into
 
 1. Reproduce the attack as a direct-SQL test in `test_contract_draft_store.py`.
 2. Confirm it survives all four layers (public API, `_perform_*` helpers, CHECK, triggers).
-3. If it does, the attack is real and a v15 fix is warranted. Otherwise, the layers caught it — no change needed.
+3. **Test attacks against secondary tables too** — the auto-log triggers write to `contract_decision_log`; that table is itself a defense surface and must be checked. The v15 post-lock find was that the log table was unprotected even though the doc claimed it was append-only.
+4. If the attack survives all that, the bug is real and a v16 fix is warranted. Otherwise, the layers caught it — no change needed.
 
 **Audit-trail integrity:**
 
 - Every status/decision change writes a `contract_decision_log` row automatically (via auto-log triggers). Direct-SQL bypasses still leave a trace; that trace may have a forged actor string, but anomaly detection on the log + M-15a identity-validation catches forged actors.
-- `contract_decision_log` is append-only by design (no UPDATE/DELETE triggers exist on it because we want the audit history to grow monotonically).
+- `contract_decision_log` is append-only and **enforced** by `trg_decision_log_no_update` + `trg_decision_log_no_delete` (added v15 post-lock per Codex doc audit). Without these triggers, the auto-log promise is hollow — direct SQL could erase the forged-actor entry that anomaly detection relies on.
+- Future contributors writing new audit-log tables should follow the same pattern: append-only via INSERT-only triggers, every mutation path attached to a parent state machine.
 
 ---
 
