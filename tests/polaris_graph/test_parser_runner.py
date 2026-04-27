@@ -26,10 +26,31 @@ def test_text_parser_can_handle_plain_text() -> None:
     p = TextParser()
     assert p.can_handle("notes.txt", "text/plain") is True
     assert p.can_handle("notes.md", "text/markdown") is True
-    assert p.can_handle("ambiguous", "text/anything") is True
     assert p.can_handle("by_extension.txt", None) is True
+    assert p.can_handle("by_extension.md", None) is True
     assert p.can_handle("doc.pdf", "application/pdf") is False
-    assert p.can_handle("data.csv", "text/csv") is True  # text/* pattern
+
+
+def test_text_parser_rejects_csv_and_tsv() -> None:
+    """Codex M-11 review fix: TextParser must NOT accept sheet-like
+    formats (text/csv, text/tab-separated-values). Those need
+    SheetCell provenance, not TextSpan, so the Phase B safe rule
+    is to leave them as 'no parser' → status pending until Phase
+    C ships a SheetParser."""
+    p = TextParser()
+    assert p.can_handle("data.csv", "text/csv") is False
+    assert p.can_handle("data.tsv", "text/tab-separated-values") is False
+    # By extension only — same rejection.
+    assert p.can_handle("data.csv", None) is False
+    assert p.can_handle("data.tsv", None) is False
+
+
+def test_text_parser_rejects_unrecognized_text_mime() -> None:
+    """text/anything should NOT auto-claim — only the explicit
+    plain-text MIME allowlist routes through TextParser."""
+    p = TextParser()
+    assert p.can_handle("ambiguous", "text/anything") is False
+    assert p.can_handle("page.html", "text/html") is False
 
 
 def test_text_parser_emits_text_span_chunks(tmp_path: Path) -> None:

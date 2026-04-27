@@ -200,3 +200,89 @@ def test_uploaded_file_bytes_persist_on_disk(client_and_store) -> None:
     storage_path = Path(resp["storage_path"])
     assert storage_path.exists()
     assert storage_path.read_bytes() == b"persisted bytes"
+
+
+# ---------------------------------------------------------------------------
+# Codex M-11 review regression: filename sanitization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw_name,expected_basename",
+    [
+        # Path traversal attempts.
+        ("../../etc/passwd", "passwd"),
+        ("..\\..\\..\\windows\\system32\\evil.txt", "evil.txt"),
+        # Absolute paths.
+        ("/tmp/abs.txt", "abs.txt"),
+        ("/etc/passwd", "passwd"),
+        ("C:/abs2.txt", "abs2.txt"),
+        ("C:\\abs3.txt", "abs3.txt"),
+        # Nested paths.
+        ("subdir/name.txt", "name.txt"),
+        ("a/b/c/deep.txt", "deep.txt"),
+        # Mixed separators.
+        ("foo/bar\\baz.txt", "baz.txt"),
+        # NUL byte injection. FastAPI's multipart layer URL-encodes
+        # literal NUL to "%00" before our sanitizer sees it; the
+        # sanitizer strips both forms.
+        ("clean%00.txt", "clean.txt"),
+        # Dot-only fall back to "upload".
+        (".", "upload"),
+        ("..", "upload"),
+    ],
+)
+def test_upload_filename_sanitization(
+    client_and_store, raw_name: str, expected_basename: str
+) -> None:
+    """Codex M-11 review regression: filenames are reduced to a
+    sanitized basename. Path traversal, absolute paths, drive
+    letters, nested paths, and NUL bytes must all be neutralized
+    BEFORE the file hits disk."""
+    client, _, files_root = client_and_store
+    ws = client.post("/api/inspector/workspaces", json={"name": "Sanitize"}).json()
+    resp = client.post(
+        f"/api/inspector/workspaces/{ws['workspace_id']}/uploads",
+        files={"file": (raw_name, b"x", "text/plain")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["filename"] == expected_basename
+    storage_path = Path(body["storage_path"])
+    # Must be inside the workspace root.
+    storage_path.resolve().relative_to(files_root.resolve())
+    # Must end with the sanitized basename.
+    assert storage_path.name == expected_basename
+
+
+def test_upload_filename_with_traversal_does_not_escape_root(client_and_store) -> None:
+    """Codex M-11 review regression: even with malicious traversal
+    attempts, the resolved storage path stays inside the workspace
+    files root (defense in depth)."""
+    client, _, files_root = client_and_store
+    ws = client.post("/api/inspector/workspaces", json={"name": "Defense"}).json()
+    resp = client.post(
+        f"/api/inspector/workspaces/{ws['workspace_id']}/uploads",
+        files={"file": ("../../escape.txt", b"x", "text/plain")},
+    ).json()
+    storage_path = Path(resp["storage_path"]).resolve()
+    files_root_resolved = files_root.resolve()
+    # Verify with relative_to — raises if outside.
+    storage_path.relative_to(files_root_resolved)
+    # The sanitized basename "escape.txt" is what's on disk.
+    assert storage_path.name == "escape.txt"
+
+
+def test_upload_csv_lands_as_pending_not_routed_through_text_parser(
+    client_and_store,
+) -> None:
+    """Codex M-11 review regression: TextParser narrowed to plain
+    text only. CSV uploads now stay 'pending' (no parser claims
+    them) instead of being silently flattened to TextSpan."""
+    client, _, _ = client_and_store
+    ws = client.post("/api/inspector/workspaces", json={"name": "Csv"}).json()
+    resp = client.post(
+        f"/api/inspector/workspaces/{ws['workspace_id']}/uploads",
+        files={"file": ("data.csv", b"a,b,c\n1,2,3", "text/csv")},
+    ).json()
+    assert resp["parser_status"] == "pending"

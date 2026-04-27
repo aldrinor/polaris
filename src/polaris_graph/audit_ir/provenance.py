@@ -125,7 +125,14 @@ def to_dict(prov: UploadProvenance) -> dict[str, Any]:
 def from_dict(data: dict[str, Any]) -> UploadProvenance:
     """Deserialize a dict (as produced by `to_dict`) back into the
     correct variant. Raises ValueError on unknown / malformed
-    `kind`."""
+    `kind`.
+
+    Codex M-11 review fix: validates field types in addition to
+    arity. Without this, malformed payloads with wrong types
+    (e.g. `SlideRegion(bbox=[1, 2])` — wrong tuple length, or
+    string offsets where ints are expected) deserialized
+    successfully via duck typing.
+    """
     kind = data.get("kind")
     if kind is None:
         raise ValueError("provenance dict missing 'kind' tag")
@@ -137,6 +144,67 @@ def from_dict(data: dict[str, Any]) -> UploadProvenance:
     if cls is SlideRegion and isinstance(fields.get("bbox"), list):
         fields["bbox"] = tuple(fields["bbox"])
     try:
-        return cls(**fields)
+        instance = cls(**fields)
     except TypeError as exc:
         raise ValueError(f"malformed {kind} provenance: {exc}") from exc
+    _validate(instance)
+    return instance
+
+
+def _validate(prov: UploadProvenance) -> None:
+    """Type and shape validation for a freshly-constructed
+    provenance variant. Raises ValueError on any issue.
+
+    Per LAW II — fail loud, never silently store malformed data.
+    """
+    if not isinstance(prov.upload_id, str) or not prov.upload_id:
+        raise ValueError(
+            f"malformed {prov.kind}: upload_id must be non-empty string"
+        )
+    if isinstance(prov, TextSpan):
+        if not isinstance(prov.char_start, int) or not isinstance(prov.char_end, int):
+            raise ValueError(
+                "malformed text_span: char_start/char_end must be int"
+            )
+        if prov.char_start < 0 or prov.char_end < prov.char_start:
+            raise ValueError(
+                f"malformed text_span: invalid range [{prov.char_start}, {prov.char_end}]"
+            )
+    elif isinstance(prov, PdfSpan):
+        if not isinstance(prov.page, int) or prov.page < 1:
+            raise ValueError("malformed pdf_span: page must be int >= 1")
+        if not isinstance(prov.char_start, int) or not isinstance(prov.char_end, int):
+            raise ValueError(
+                "malformed pdf_span: char_start/char_end must be int"
+            )
+        if prov.char_start < 0 or prov.char_end < prov.char_start:
+            raise ValueError(
+                f"malformed pdf_span: invalid range "
+                f"[{prov.char_start}, {prov.char_end}]"
+            )
+    elif isinstance(prov, SheetCell):
+        if not isinstance(prov.sheet, str) or not prov.sheet:
+            raise ValueError("malformed sheet_cell: sheet must be non-empty string")
+        if not isinstance(prov.cell_range, str) or not prov.cell_range:
+            raise ValueError(
+                "malformed sheet_cell: cell_range must be non-empty string"
+            )
+    elif isinstance(prov, SlideRegion):
+        if not isinstance(prov.slide_num, int) or prov.slide_num < 1:
+            raise ValueError("malformed slide_region: slide_num must be int >= 1")
+        if prov.bbox is not None:
+            if not isinstance(prov.bbox, tuple) or len(prov.bbox) != 4:
+                raise ValueError(
+                    "malformed slide_region: bbox must be 4-tuple or None"
+                )
+            if not all(isinstance(v, (int, float)) for v in prov.bbox):
+                raise ValueError(
+                    "malformed slide_region: bbox values must be numeric"
+                )
+    elif isinstance(prov, Timecode):
+        if not isinstance(prov.start_s, (int, float)) or not isinstance(prov.end_s, (int, float)):
+            raise ValueError("malformed timecode: start_s/end_s must be numeric")
+        if prov.start_s < 0 or prov.end_s < prov.start_s:
+            raise ValueError(
+                f"malformed timecode: invalid range [{prov.start_s}, {prov.end_s}]"
+            )

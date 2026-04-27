@@ -248,3 +248,101 @@ def test_insert_and_list_chunks(store: WorkspaceStore) -> None:
 def test_insert_chunks_rejects_unknown_upload(store: WorkspaceStore) -> None:
     with pytest.raises(WorkspaceStateError, match="unknown upload"):
         store.insert_chunks("up_no_such", [("text", {"kind": "text_span"})])
+
+
+def test_insert_chunks_rejects_soft_deleted_upload(store: WorkspaceStore) -> None:
+    """Codex M-11 review fix: chunks must not be appended to a
+    soft-deleted upload — that would weaken the audit meaning of
+    delete."""
+    ws = store.create_workspace("RejectChunks", max_docs=2)
+    up = store.upload_file(ws.workspace_id, "x.txt", "text/plain", 1, "/p/x")
+    store.soft_delete_upload(up.upload_id)
+    with pytest.raises(WorkspaceStateError, match="soft-deleted"):
+        store.insert_chunks(
+            up.upload_id,
+            [("text", to_dict(TextSpan(up.upload_id, 0, 10)))],
+        )
+
+
+def test_bounded_enforcement_is_atomic_under_concurrency(tmp_path: Path) -> None:
+    """Codex M-11 review fix: BEGIN IMMEDIATE makes the COUNT +
+    INSERT transactional. Two concurrent uploads cannot both pass
+    the cap check and oversubscribe."""
+    import threading
+    store = WorkspaceStore(tmp_path / "race.sqlite")
+    ws = store.create_workspace("Race", max_docs=1)
+
+    results: list[Exception | None] = []
+    barrier = threading.Barrier(2)
+
+    def attempt(idx: int) -> None:
+        barrier.wait()
+        try:
+            store.upload_file(
+                ws.workspace_id, f"f{idx}.txt", "text/plain", 1, f"/p/{idx}"
+            )
+            results.append(None)
+        except BoundedError as e:
+            results.append(e)
+        except Exception as e:  # other exceptions propagate as failures
+            results.append(e)
+
+    t1 = threading.Thread(target=attempt, args=(1,))
+    t2 = threading.Thread(target=attempt, args=(2,))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    successes = [r for r in results if r is None]
+    bounded_errors = [r for r in results if isinstance(r, BoundedError)]
+    assert len(successes) == 1, (
+        f"exactly one upload should succeed; got {len(successes)} "
+        f"results={results}"
+    )
+    assert len(bounded_errors) == 1, (
+        f"exactly one upload should fail with BoundedError; got "
+        f"{len(bounded_errors)} bounded errors out of {results}"
+    )
+    # Final state: only one upload row.
+    listed = store.list_uploads(ws.workspace_id)
+    assert len(listed) == 1
+
+
+def test_transition_blocks_concurrent_soft_delete(store: WorkspaceStore) -> None:
+    """Codex M-11 review fix: the parser_status UPDATE includes
+    `deleted_at IS NULL` so a soft-delete that races between the
+    pre-read and the UPDATE cannot let a deleted row transition.
+
+    We can't easily simulate the exact race window in a single-
+    threaded test, but we CAN simulate the ordered sequence:
+    soft-delete first, then attempt transition — must still fail.
+    """
+    ws = store.create_workspace("Race", max_docs=2)
+    up = store.upload_file(ws.workspace_id, "x.txt", "text/plain", 1, "/p/x")
+    store.soft_delete_upload(up.upload_id)
+    with pytest.raises(WorkspaceStateError, match="soft-deleted"):
+        store.transition_parser_status(up.upload_id, "parsing")
+
+
+def test_update_storage_path(store: WorkspaceStore) -> None:
+    """Codex M-11 review fix: store-owned storage_path update."""
+    ws = store.create_workspace("StoragePath", max_docs=2)
+    up = store.upload_file(ws.workspace_id, "x.txt", "text/plain", 1, "/p/old")
+    after = store.update_storage_path(up.upload_id, "/p/new")
+    assert after.storage_path == "/p/new"
+    fetched = store.get_upload(up.upload_id)
+    assert fetched.storage_path == "/p/new"
+
+
+def test_update_storage_path_unknown_upload(store: WorkspaceStore) -> None:
+    with pytest.raises(WorkspaceStateError, match="unknown upload"):
+        store.update_storage_path("up_no_such", "/p/x")
+
+
+def test_update_storage_path_rejects_deleted(store: WorkspaceStore) -> None:
+    ws = store.create_workspace("Stale", max_docs=2)
+    up = store.upload_file(ws.workspace_id, "x.txt", "text/plain", 1, "/p/x")
+    store.soft_delete_upload(up.upload_id)
+    with pytest.raises(WorkspaceStateError, match="soft-deleted"):
+        store.update_storage_path(up.upload_id, "/p/y")

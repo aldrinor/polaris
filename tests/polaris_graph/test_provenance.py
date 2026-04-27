@@ -98,6 +98,93 @@ def test_from_dict_malformed_payload_raises() -> None:
         from_dict({"kind": "text_span", "upload_id": "u"})  # missing offsets
 
 
+# ---------------------------------------------------------------------------
+# Codex M-11 review regression: type/shape validation
+# ---------------------------------------------------------------------------
+
+
+def test_from_dict_rejects_negative_text_span_offsets() -> None:
+    with pytest.raises(ValueError, match="invalid range"):
+        from_dict({
+            "kind": "text_span", "upload_id": "u",
+            "char_start": -5, "char_end": 10,
+        })
+
+
+def test_from_dict_rejects_inverted_text_span_range() -> None:
+    with pytest.raises(ValueError, match="invalid range"):
+        from_dict({
+            "kind": "text_span", "upload_id": "u",
+            "char_start": 100, "char_end": 50,
+        })
+
+
+def test_from_dict_rejects_non_int_text_span_offsets() -> None:
+    with pytest.raises(ValueError, match="must be int"):
+        from_dict({
+            "kind": "text_span", "upload_id": "u",
+            "char_start": "0", "char_end": "10",
+        })
+
+
+def test_from_dict_rejects_zero_pdf_page() -> None:
+    with pytest.raises(ValueError, match=">= 1"):
+        from_dict({
+            "kind": "pdf_span", "upload_id": "u",
+            "page": 0, "char_start": 0, "char_end": 10,
+        })
+
+
+def test_from_dict_rejects_empty_sheet_name() -> None:
+    with pytest.raises(ValueError, match="sheet must be"):
+        from_dict({
+            "kind": "sheet_cell", "upload_id": "u",
+            "sheet": "", "cell_range": "A1",
+        })
+
+
+def test_from_dict_rejects_slide_region_wrong_bbox_arity() -> None:
+    """Codex M-11 review regression: bbox must be 4-tuple. Old
+    schema accepted [1, 2] silently."""
+    with pytest.raises(ValueError, match="4-tuple"):
+        from_dict({
+            "kind": "slide_region", "upload_id": "u",
+            "slide_num": 1, "bbox": [1.0, 2.0],
+        })
+
+
+def test_from_dict_rejects_slide_region_non_numeric_bbox() -> None:
+    with pytest.raises(ValueError, match="numeric"):
+        from_dict({
+            "kind": "slide_region", "upload_id": "u",
+            "slide_num": 1, "bbox": ["a", "b", "c", "d"],
+        })
+
+
+def test_from_dict_rejects_negative_timecode_start() -> None:
+    with pytest.raises(ValueError, match="invalid range"):
+        from_dict({
+            "kind": "timecode", "upload_id": "u",
+            "start_s": -1.0, "end_s": 5.0,
+        })
+
+
+def test_from_dict_rejects_inverted_timecode_range() -> None:
+    with pytest.raises(ValueError, match="invalid range"):
+        from_dict({
+            "kind": "timecode", "upload_id": "u",
+            "start_s": 10.0, "end_s": 5.0,
+        })
+
+
+def test_from_dict_rejects_empty_upload_id() -> None:
+    with pytest.raises(ValueError, match="upload_id"):
+        from_dict({
+            "kind": "text_span", "upload_id": "",
+            "char_start": 0, "char_end": 10,
+        })
+
+
 def test_dataclasses_are_frozen() -> None:
     """All variants must be immutable so callers can't mutate
     shared provenance records."""

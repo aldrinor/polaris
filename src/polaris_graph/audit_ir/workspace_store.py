@@ -268,10 +268,14 @@ class WorkspaceStore:
         """Register a new upload. Atomically validates that the
         workspace exists AND has spare capacity. Raises BoundedError
         if at the cap; WorkspaceStateError if the workspace is
-        unknown."""
-        ws = self.get_workspace(workspace_id)
-        if ws is None:
-            raise WorkspaceStateError(f"unknown workspace: {workspace_id}")
+        unknown.
+
+        Codex M-11 review fix: enforcement is now transactional via
+        BEGIN IMMEDIATE — without it, two concurrent uploads could
+        both see (max_docs - 1) and oversubscribe the cap. The
+        IMMEDIATE lock acquires SQLite's write lock at BEGIN time,
+        so the second connection blocks until the first commits.
+        """
         if not filename:
             raise WorkspaceStateError("filename must be non-empty")
         if size_bytes < 0:
@@ -279,30 +283,71 @@ class WorkspaceStore:
         upload_id = f"up_{uuid.uuid4().hex[:12]}"
         now = time.time()
         with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM uploads "
-                "WHERE workspace_id = ? AND deleted_at IS NULL",
-                (workspace_id,),
-            )
-            current = cur.fetchone()[0]
-            if current >= ws.max_docs:
-                raise BoundedError(
-                    f"workspace {workspace_id} at cap ({current}/{ws.max_docs}); "
-                    f"delete an upload or raise PG_WORKSPACE_MAX_DOCS"
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                ws_row = conn.execute(
+                    "SELECT max_docs FROM workspaces WHERE workspace_id = ?",
+                    (workspace_id,),
+                ).fetchone()
+                if ws_row is None:
+                    conn.execute("ROLLBACK")
+                    raise WorkspaceStateError(
+                        f"unknown workspace: {workspace_id}"
+                    )
+                max_docs = ws_row["max_docs"]
+                cur = conn.execute(
+                    "SELECT COUNT(*) FROM uploads "
+                    "WHERE workspace_id = ? AND deleted_at IS NULL",
+                    (workspace_id,),
                 )
-            conn.execute(
-                "INSERT INTO uploads (upload_id, workspace_id, filename, "
-                "content_type, size_bytes, storage_path, parser_status, "
-                "created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
-                (upload_id, workspace_id, filename, content_type,
-                 size_bytes, storage_path, now),
-            )
+                current = cur.fetchone()[0]
+                if current >= max_docs:
+                    conn.execute("ROLLBACK")
+                    raise BoundedError(
+                        f"workspace {workspace_id} at cap "
+                        f"({current}/{max_docs}); delete an upload or "
+                        f"raise PG_WORKSPACE_MAX_DOCS"
+                    )
+                conn.execute(
+                    "INSERT INTO uploads (upload_id, workspace_id, filename, "
+                    "content_type, size_bytes, storage_path, parser_status, "
+                    "created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                    (upload_id, workspace_id, filename, content_type,
+                     size_bytes, storage_path, now),
+                )
+                conn.execute("COMMIT")
+            except (BoundedError, WorkspaceStateError):
+                # Already rolled back above.
+                raise
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
         return Upload(
             upload_id=upload_id, workspace_id=workspace_id, filename=filename,
             content_type=content_type, size_bytes=size_bytes,
             storage_path=storage_path, parser_status="pending",
             parser_error=None, created_at=now, parsed_at=None, deleted_at=None,
         )
+
+    def update_storage_path(self, upload_id: str, storage_path: str) -> Upload:
+        """Codex M-11 review fix: store-owned storage_path update.
+        Avoids the inspector_router layering violation of reaching
+        into `store._connect()` directly.
+        """
+        upload = self.get_upload(upload_id)
+        if upload is None:
+            raise WorkspaceStateError(f"unknown upload: {upload_id}")
+        if upload.deleted_at is not None:
+            raise WorkspaceStateError(
+                f"upload {upload_id} is soft-deleted; cannot update path"
+            )
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE uploads SET storage_path = ? "
+                "WHERE upload_id = ? AND deleted_at IS NULL",
+                (storage_path, upload_id),
+            )
+        return replace(upload, storage_path=storage_path)
 
     def get_upload(self, upload_id: str) -> Upload | None:
         with self._connect() as conn:
@@ -351,16 +396,22 @@ class WorkspaceStore:
         now = time.time()
         parsed_at = now if new_status == "parsed" else None
         with self._connect() as conn:
+            # Codex M-11 review fix: include `deleted_at IS NULL` in
+            # the atomic UPDATE so a concurrent soft-delete cannot
+            # race past the pre-read check and let a deleted row
+            # transition.
             cur = conn.execute(
                 "UPDATE uploads SET parser_status = ?, parser_error = ?, "
                 "parsed_at = COALESCE(?, parsed_at) "
-                "WHERE upload_id = ? AND parser_status = ?",
+                "WHERE upload_id = ? AND parser_status = ? "
+                "AND deleted_at IS NULL",
                 (new_status, parser_error, parsed_at, upload_id,
                  upload.parser_status),
             )
             if cur.rowcount == 0:
                 raise WorkspaceStateError(
-                    f"concurrent state change for upload {upload_id}; retry"
+                    f"concurrent state change for upload {upload_id} "
+                    f"(soft-deleted or status moved); retry"
                 )
         return replace(
             upload,
@@ -399,22 +450,54 @@ class WorkspaceStore:
         """Insert parsed chunks for an upload. Each chunk is a
         (text, provenance_dict) tuple where provenance_dict is the
         output of `provenance.to_dict()`. Returns the number
-        inserted."""
+        inserted.
+
+        Codex M-11 review fix: rejects writes to soft-deleted
+        uploads. Without this, a parse already in flight could
+        append chunks to a deleted upload — weakening the audit
+        meaning of soft-delete.
+        """
         upload = self.get_upload(upload_id)
         if upload is None:
             raise WorkspaceStateError(f"unknown upload: {upload_id}")
+        if upload.deleted_at is not None:
+            raise WorkspaceStateError(
+                f"upload {upload_id} is soft-deleted; cannot insert chunks"
+            )
         rows = []
         for seq, (text, prov_dict) in enumerate(chunks):
             chunk_id = f"ck_{uuid.uuid4().hex[:12]}"
             rows.append((
                 chunk_id, upload_id, seq, text, json.dumps(prov_dict),
             ))
+        # Use a transaction so the soft-delete check + insert are
+        # atomic relative to a concurrent soft-delete: the INSERT
+        # gates on deleted_at via a sub-select.
         with self._connect() as conn:
-            conn.executemany(
-                "INSERT INTO upload_chunks (chunk_id, upload_id, seq, "
-                "text, provenance_json) VALUES (?, ?, ?, ?, ?)",
-                rows,
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                still_live = conn.execute(
+                    "SELECT 1 FROM uploads WHERE upload_id = ? "
+                    "AND deleted_at IS NULL",
+                    (upload_id,),
+                ).fetchone()
+                if still_live is None:
+                    conn.execute("ROLLBACK")
+                    raise WorkspaceStateError(
+                        f"upload {upload_id} was soft-deleted concurrently; "
+                        f"chunks not inserted"
+                    )
+                conn.executemany(
+                    "INSERT INTO upload_chunks (chunk_id, upload_id, seq, "
+                    "text, provenance_json) VALUES (?, ?, ?, ?, ?)",
+                    rows,
+                )
+                conn.execute("COMMIT")
+            except WorkspaceStateError:
+                raise
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
         return len(rows)
 
     def list_chunks(self, upload_id: str) -> list[dict[str, Any]]:

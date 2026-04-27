@@ -632,6 +632,54 @@ async def get_workspace(workspace_id: str) -> dict:
     return workspace_to_dict(ws)
 
 
+def _sanitize_upload_filename(raw: str | None) -> str:
+    """Codex M-11 review fix: reduce a multipart filename to a safe
+    basename. Defends against:
+      - path traversal: "../../etc/passwd"
+      - absolute paths: "/etc/passwd", "C:/abs.txt", "C:\\abs.txt"
+      - nested paths: "subdir/name.txt"
+      - Unicode separators / NUL bytes
+      - empty / dot-only names
+
+    Phase B always rewrites the on-disk path to
+    `<root>/<workspace_id>/<upload_id>/<sanitized>` so even a
+    malicious sanitized basename cannot escape the upload-specific
+    directory.
+    """
+    if not raw:
+        return "upload"
+    # Strip NUL bytes (Windows can choke on these); strip whitespace.
+    # FastAPI's multipart parser URL-encodes literal NUL to "%00" by
+    # the time we see it, so strip both forms.
+    name = raw.replace("\x00", "").replace("%00", "").strip()
+    # Take the basename via both path separators so paths constructed
+    # on either OS get reduced. Apply repeatedly to defend against
+    # encoded "../" sequences.
+    while True:
+        prev = name
+        # Strip leading drive letters ("C:") and root markers.
+        if len(name) >= 2 and name[1] == ":":
+            name = name[2:]
+        # Strip both separators in priority order.
+        for sep in ("/", "\\"):
+            if sep in name:
+                name = name.rsplit(sep, 1)[-1]
+        if name == prev:
+            break
+    # Reject parent-dir / current-dir markers.
+    if name in {"", ".", ".."}:
+        return "upload"
+    # Reject leading dot-segment (still hides the file but cleaner UX).
+    while name.startswith("../") or name.startswith("..\\"):
+        name = name[3:]
+    # Final basename via os.path.basename for parity.
+    import os as _os
+    name = _os.path.basename(name)
+    if not name or name in {".", ".."}:
+        return "upload"
+    return name
+
+
 @router.post("/api/inspector/workspaces/{workspace_id}/uploads")
 async def upload_to_workspace(
     workspace_id: str,
@@ -643,6 +691,11 @@ async def upload_to_workspace(
 
     Bounded enforcement happens BEFORE the file bytes are written
     so a rejected upload doesn't leave orphaned files on disk.
+
+    Codex M-11 review fix: filename is sanitized to a basename
+    before any disk write, and the on-disk path is constructed
+    inside the per-upload directory and verified to be within
+    the workspace root.
     """
     from src.polaris_graph.audit_ir.parser_runner import (
         ParserError,
@@ -659,7 +712,7 @@ async def upload_to_workspace(
     if store.get_workspace(workspace_id) is None:
         raise HTTPException(status_code=404, detail=f"unknown workspace: {workspace_id}")
 
-    filename = file.filename or "upload"
+    filename = _sanitize_upload_filename(file.filename)
     content_type = file.content_type
     payload = await file.read()
     size_bytes = len(payload)
@@ -669,10 +722,7 @@ async def upload_to_workspace(
     files_root = _get_workspace_files_root()
     workspace_dir = files_root / workspace_id
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    # We don't have the upload_id yet; reserve via the store, then
-    # write to <root>/<workspace_id>/<upload_id>/<filename>.
     try:
-        # Two-phase: register row first to get upload_id + bounded check.
         upload = store.upload_file(
             workspace_id=workspace_id, filename=filename,
             content_type=content_type, size_bytes=size_bytes,
@@ -686,14 +736,25 @@ async def upload_to_workspace(
     upload_dir = workspace_dir / upload.upload_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     storage_path = upload_dir / filename
-    storage_path.write_bytes(payload)
 
-    # Update storage_path now that we know it.
-    with store._connect() as conn:
-        conn.execute(
-            "UPDATE uploads SET storage_path = ? WHERE upload_id = ?",
-            (str(storage_path), upload.upload_id),
+    # Defense in depth: resolve and verify the path is inside the
+    # workspace root. Sanitization above should already prevent
+    # escape, but a corrupted filesystem (symlink) could still
+    # redirect — refuse if so.
+    resolved = storage_path.resolve()
+    workspace_root_resolved = files_root.resolve()
+    try:
+        resolved.relative_to(workspace_root_resolved)
+    except ValueError:
+        # Soft-delete the reserved row so the cap recovers.
+        store.soft_delete_upload(upload.upload_id)
+        raise HTTPException(
+            status_code=400,
+            detail="upload path escapes workspace root; refused",
         )
+
+    storage_path.write_bytes(payload)
+    store.update_storage_path(upload.upload_id, str(storage_path))
 
     # Synchronously parse if a parser claims it. Phase C M-11.5
     # will switch this to async via JobQueue for slow extractors.

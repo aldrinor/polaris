@@ -101,7 +101,18 @@ class TextParser(ParserRunner):
 
     parser_id = "text"
 
+    # Codex M-11 review fix: narrow to plain-text only. Originally
+    # any `text/*` MIME claimed by TextParser, which silently
+    # absorbed `text/csv` / `text/tab-separated-values` and stored
+    # spreadsheet-shaped uploads as TextSpan provenance. M-12 would
+    # then need re-upload to get SheetCell. The Phase B safe rule:
+    # only accept extensions and MIMEs that are unambiguously plain
+    # text. Sheet-like formats fall through to "no parser" → status
+    # `pending` until Phase C ships a SheetParser.
     _SUPPORTED_EXT: frozenset[str] = frozenset({".txt", ".md", ".text"})
+    _SUPPORTED_MIMES: frozenset[str] = frozenset({
+        "text/plain", "text/markdown", "text/x-markdown",
+    })
 
     def __init__(self, chunk_chars: int | None = None) -> None:
         self._chunk_chars = chunk_chars or self._env_chunk_chars()
@@ -118,7 +129,7 @@ class TextParser(ParserRunner):
             return DEFAULT_TEXT_CHUNK_CHARS
 
     def can_handle(self, filename: str, content_type: str | None) -> bool:
-        if content_type and content_type.startswith("text/"):
+        if content_type and content_type in self._SUPPORTED_MIMES:
             return True
         ext = Path(filename).suffix.lower()
         return ext in self._SUPPORTED_EXT
