@@ -284,11 +284,21 @@ _V30_CLINICAL_ONCOLOGY = CuratedTemplate(
         "sorafenib", "sunitinib",
         "olaparib", "rucaparib",
         "venetoclax",
-        # Drug classes (narrow oncology).
+        # Drug classes (narrow oncology). Codex M-20 review fix:
+        # plural surface forms must be present so queries like
+        # "PD-1 inhibitors efficacy in melanoma" match the singular
+        # exemplars; otherwise the singular keyword "pd-1 inhibitor"
+        # tokenizes differently from the plural "pd-1 inhibitors"
+        # and the contiguous-subseq match misses.
         "checkpoint inhibitor", "checkpoint inhibitors",
-        "pd-1 inhibitor", "pd-l1 inhibitor",
-        "car-t", "car t cell", "tyrosine kinase inhibitor",
-        "tki", "parp inhibitor", "antibody-drug conjugate",
+        "pd-1 inhibitor", "pd-1 inhibitors",
+        "pd-l1 inhibitor", "pd-l1 inhibitors",
+        "car-t", "car-ts", "car t cell", "car t cells",
+        "tyrosine kinase inhibitor", "tyrosine kinase inhibitors",
+        "tki", "tkis",
+        "parp inhibitor", "parp inhibitors",
+        "antibody-drug conjugate", "antibody-drug conjugates",
+        "adc", "adcs",
     ),
     medical_keywords=(
         # Trial methodology
@@ -352,7 +362,6 @@ _V30_CLINICAL_ONCOLOGY = CuratedTemplate(
         "drug", "drugs", "treatment", "treatments",
         "therapy", "therapies", "regimen", "regimens",
         "study", "studies", "studied",
-        "outcome", "outcomes", "result", "results",
     ),
     scope_examples=(
         "Pembrolizumab efficacy in metastatic non-small cell lung cancer",
@@ -405,16 +414,21 @@ _V30_CLINICAL_CARDIO = CuratedTemplate(
         "sacubitril", "sacubitril/valsartan", "ivabradine",
         # Antiarrhythmic.
         "amiodarone", "flecainide", "sotalol",
-        # Drug classes.
+        # Drug classes. Codex M-20 review fix: plural surface forms
+        # must be present; "DOACs" and "calcium channel blockers"
+        # otherwise drop to operator_review even though "doac" /
+        # "calcium channel blocker" route correctly.
         "ace inhibitor", "ace inhibitors",
-        "arb", "arbs", "angiotensin receptor blocker",
+        "arb", "arbs",
+        "angiotensin receptor blocker", "angiotensin receptor blockers",
         "beta blocker", "beta blockers",
-        "calcium channel blocker",
+        "calcium channel blocker", "calcium channel blockers",
         "statin", "statins",
-        "doac", "noac", "direct oral anticoagulant",
+        "doac", "doacs", "noac", "noacs",
+        "direct oral anticoagulant", "direct oral anticoagulants",
         "p2y12 inhibitor", "p2y12 inhibitors",
         "pcsk9 inhibitor", "pcsk9 inhibitors",
-        "arni",
+        "arni", "arnis",
     ),
     medical_keywords=(
         # Methodology
@@ -459,8 +473,8 @@ _V30_CLINICAL_CARDIO = CuratedTemplate(
         "response", "responses",
         "endpoint", "endpoints",
         "profile", "profiles",
-        "in adults", "adult", "adults",
-        "advanced", "stable", "unstable",
+        "in adults", "advanced",
+        "stable", "unstable",
         "reduced", "preserved", "mildly reduced",
         "cardiovascular", "cardiac", "vascular",
         # Population
@@ -472,7 +486,6 @@ _V30_CLINICAL_CARDIO = CuratedTemplate(
         "primary prevention", "secondary prevention",
         "efficacy", "safety", "tolerability",
         "adverse event", "adverse events",
-        "outcome", "outcomes",
     ),
     scope_examples=(
         "Apixaban efficacy for stroke prevention in atrial fibrillation",

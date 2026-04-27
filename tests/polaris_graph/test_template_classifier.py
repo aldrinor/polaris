@@ -642,21 +642,92 @@ def test_tie_margin_garbage_env_falls_back_to_default(monkeypatch) -> None:
 
 def test_real_catalog_has_no_unexpected_ties() -> None:
     """Smoke test: each template's own scope_examples must self-route
-    decisively (no false ties surfacing as OPERATOR_REVIEW). This is
-    a stricter version of test_every_scope_example_self_routes — it
-    also asserts the router doesn't fire tie-detection on these
-    examples by accident."""
+    decisively to that template, with no tie-demotion firing.
+
+    Codex M-20 review tightening: the prior assertion shape only
+    checked that "multiple templates" wasn't in the rationale text,
+    which is a weaker condition than "verdict is ROUTED". A tie
+    demotion that produced different rationale wording could slip
+    past. The strict shape now: ROUTED + correct template_id."""
     from src.polaris_graph.audit_ir.template_catalog import list_catalog
     for tmpl in list_catalog():
         for ex in tmpl.scope_examples:
             r = classify_query(ex)
-            # Self-routing must succeed (covered by other test) but
-            # ALSO not surface "Multiple templates" rationale — that
-            # would mean two real templates accidentally collide.
-            if r.verdict == RoutingVerdict.OPERATOR_REVIEW:
-                assert "multiple templates" not in r.rationale.lower(), (
-                    f"template {tmpl.template_id!r} exemplar "
-                    f"{ex!r} accidentally ties with another template; "
-                    f"add disambiguating keywords or examples. "
-                    f"rationale={r.rationale!r}"
-                )
+            assert r.verdict == RoutingVerdict.ROUTED, (
+                f"template {tmpl.template_id!r} exemplar {ex!r} "
+                f"failed to self-route (verdict={r.verdict}); "
+                f"another template either ties or scores above. "
+                f"rationale={r.rationale!r}"
+            )
+            assert r.template_id == tmpl.template_id, (
+                f"template {tmpl.template_id!r} exemplar {ex!r} "
+                f"routed to {r.template_id!r} instead. The new "
+                f"template's keywords are too weak relative to a "
+                f"sibling template — disambiguate."
+            )
+
+
+# Codex M-20 review fix: plural surface forms of drug-class
+# abbreviations must route to the specialty templates. The singular
+# form ("PD-1 inhibitor") was already covered by the catalog; the
+# plural form ("PD-1 inhibitors") tokenized to a different sequence
+# and missed under contiguous-subseq matching. Each query below
+# names ONLY a class abbreviation (no specific drug), so it relies
+# entirely on the class keyword being present in both forms.
+@pytest.mark.parametrize("query, expected_template", [
+    ("PD-1 inhibitors efficacy in melanoma", "v30_clinical_oncology"),
+    ("PARP inhibitors maintenance in ovarian cancer", "v30_clinical_oncology"),
+    ("PD-L1 inhibitors in non-small cell lung cancer", "v30_clinical_oncology"),
+    ("Checkpoint inhibitors in metastatic melanoma", "v30_clinical_oncology"),
+    ("DOACs efficacy in atrial fibrillation", "v30_clinical_cardio"),
+    ("ARBs outcomes in hypertension", "v30_clinical_cardio"),
+    ("Calcium channel blockers efficacy in hypertension", "v30_clinical_cardio"),
+    ("Beta blockers in heart failure", "v30_clinical_cardio"),
+    ("Statins for primary prevention in adults", "v30_clinical_cardio"),
+    ("PCSK9 inhibitors LDL reduction outcomes", "v30_clinical_cardio"),
+])
+def test_plural_drug_class_forms_route_correctly(
+    query: str, expected_template: str,
+) -> None:
+    """Plural class-abbreviation surface forms must route to the
+    correct specialty template. Codex M-20 review found that
+    "PD-1 inhibitors", "DOACs", "ARBs", "calcium channel blockers"
+    all dropped to operator_review because only the singular form
+    was present in drug_keywords."""
+    r = classify_query(query)
+    # Either the query routes (best case) or it lands in operator_
+    # review for some other reason — but it MUST score the expected
+    # template at the top with a reasonable score (>= floor_review).
+    top = r.candidates[0]
+    assert top.template_id == expected_template, (
+        f"query {query!r} expected to score {expected_template!r} "
+        f"highest but got {top.template_id!r} at score {top.score:.2f}"
+    )
+
+
+def test_no_duplicate_keywords_within_template() -> None:
+    """Codex M-20 review fix: duplicate medical_keywords inflate the
+    keyword-hit count and bias weak matches above their natural
+    score (e.g. a single 'outcomes' counts twice). Catalog entries
+    must keep both drug_keywords and medical_keywords as sets-in-
+    spirit (tuples preserved for catalog-order semantics, but with
+    no repetitions)."""
+    from collections import Counter
+    from src.polaris_graph.audit_ir.template_catalog import list_catalog
+    for tmpl in list_catalog():
+        med_dups = [
+            (k, v) for k, v in Counter(tmpl.medical_keywords).items()
+            if v > 1
+        ]
+        assert not med_dups, (
+            f"template {tmpl.template_id!r} has duplicate "
+            f"medical_keywords (each one inflates score): {med_dups}"
+        )
+        drug_dups = [
+            (k, v) for k, v in Counter(tmpl.drug_keywords).items()
+            if v > 1
+        ]
+        assert not drug_dups, (
+            f"template {tmpl.template_id!r} has duplicate "
+            f"drug_keywords: {drug_dups}"
+        )
