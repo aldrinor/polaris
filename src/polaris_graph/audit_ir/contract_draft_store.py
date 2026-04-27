@@ -92,6 +92,19 @@ draft, which `assert_approved_for_send` then passed because it
 only checks draft.status. v8 adds the symmetric BEFORE INSERT
 trigger so terminal drafts have NO mutable clause surface.
 
+Codex M-26 v9 review fix: v8 had two more bypasses:
+  (a) clause UPDATE freeze checked `NEW.draft_id` only — direct
+      SQL `UPDATE contract_clauses SET draft_id = <non-terminal>`
+      moved a clause OFF a terminal draft. v9 checks BOTH OLD and
+      NEW draft_id so the trigger fires when either end touches
+      a terminal draft.
+  (b) `contract_drafts` row had no terminal-row freeze for non-
+      status mutations. Direct SQL could mutate `title`,
+      `counterparty_name`, `audit_run_id` etc. on an APPROVED row.
+      v9 adds `trg_freeze_drafts_on_terminal` (BEFORE UPDATE) and
+      `trg_freeze_drafts_delete_on_terminal` (BEFORE DELETE) so
+      terminal rows are fully immutable.
+
 LAW VII compliance: stdlib only. Endpoints wired separately.
 """
 
@@ -394,12 +407,18 @@ END;
 -- terminal status (APPROVED / REJECTED). After approval, no one
 -- can flip a clause from approved to rejected (or vice versa)
 -- to retroactively change what was reviewed.
+-- Codex M-26 v9 review fix: v8's WHEN clause only checked
+-- NEW.draft_id, so `UPDATE contract_clauses SET draft_id = <non-
+-- terminal>` could move a clause OFF a terminal draft (OLD points
+-- at terminal but NEW doesn't, trigger doesn't fire). v9 checks
+-- both OLD and NEW so the trigger fires if EITHER end of the
+-- update touches a terminal draft.
 CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_update
 BEFORE UPDATE ON contract_clauses
 FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM contract_drafts
-    WHERE draft_id = NEW.draft_id
+    WHERE (draft_id = NEW.draft_id OR draft_id = OLD.draft_id)
       AND status IN ('approved', 'rejected')
 )
 BEGIN
@@ -436,6 +455,33 @@ WHEN EXISTS (
 )
 BEGIN
     SELECT RAISE(ABORT, 'cannot insert clauses on a terminal draft (approved or rejected)');
+END;
+
+-- Codex M-26 v9 review fix: v8 didn't freeze contract_drafts
+-- rows after terminal status. Direct SQL could mutate `title`,
+-- `counterparty_name`, `audit_run_id`, `kind` etc. on an APPROVED
+-- draft and `assert_approved_for_send` still passed because it
+-- only validates status. Terminal drafts must be FULLY frozen:
+-- once a draft is APPROVED or REJECTED, no field on the row can
+-- change. The transition trigger handles the status column path;
+-- this trigger handles non-status mutation paths.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_drafts_on_terminal
+BEFORE UPDATE ON contract_drafts
+FOR EACH ROW
+WHEN OLD.status IN ('approved', 'rejected')
+BEGIN
+    SELECT RAISE(ABORT, 'cannot modify a terminal contract draft (approved or rejected) — terminal rows are immutable');
+END;
+
+-- Symmetric: terminal drafts cannot be deleted either. Once
+-- approved, the row is part of the SOC2 audit trail and cannot
+-- be erased.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_drafts_delete_on_terminal
+BEFORE DELETE ON contract_drafts
+FOR EACH ROW
+WHEN OLD.status IN ('approved', 'rejected')
+BEGIN
+    SELECT RAISE(ABORT, 'cannot delete a terminal contract draft (approved or rejected)');
 END;
 """
 

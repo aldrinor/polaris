@@ -1476,7 +1476,9 @@ def test_trigger_blocks_revive_terminal_to_awaiting(
     store: ContractDraftStore,
     tmp_path: Path,
 ) -> None:
-    """REJECTED is terminal: cannot revert to AWAITING_APPROVAL."""
+    """REJECTED is terminal: cannot revert to AWAITING_APPROVAL.
+    Blocked by either the transition trigger or the row-freeze
+    trigger (v9) — whichever fires first. Both prevent the bypass."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
@@ -1488,7 +1490,7 @@ def test_trigger_blocks_revive_terminal_to_awaiting(
         rejecter_user_id="bob", rationale="not a fit",
     )
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="awaiting_approval"):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "UPDATE contract_drafts SET status = 'awaiting_approval', "
                 "approved_by = NULL, rejected_by = NULL, "
@@ -1668,5 +1670,181 @@ def test_trigger_blocks_clause_insert_on_terminal_draft_rejected(
                 "INSERT INTO contract_clauses (clause_id, draft_id, "
                 "title, body, decision, created_at) VALUES "
                 "('cls_evil', ?, 'Late add', 'x', 'pending', 0.0)",
+                (d.draft_id,),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v9: tighten clause UPDATE freeze + freeze terminal drafts
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_blocks_clause_move_off_terminal_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v8 finding: v8's clause UPDATE freeze only checked
+    NEW.draft_id, so direct SQL `UPDATE contract_clauses SET
+    draft_id = <non-terminal>` moved a clause OFF a terminal draft.
+    list_clauses(terminal_draft) showed the clause missing — i.e.
+    the approved contract's clause set was modified after review.
+    v9 checks both OLD.draft_id and NEW.draft_id."""
+    # Set up: terminal draft (approved) + non-terminal draft.
+    d_approved = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_a",
+    )
+    c = _add_clause(store, d_approved)
+    store.submit_for_approval(
+        draft_id=d_approved.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d_approved, approver="bob")
+    store.approve_draft(
+        draft_id=d_approved.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    d_draft = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_b",
+    )
+    # Direct SQL attempting to move clause off the approved draft.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "UPDATE contract_clauses SET draft_id = ? "
+                "WHERE clause_id = ?",
+                (d_draft.draft_id, c.clause_id),
+            )
+    # Clause is still on the approved draft.
+    clauses = store.list_clauses(
+        draft_id=d_approved.draft_id, org_id="org_a",
+    )
+    assert any(cc.clause_id == c.clause_id for cc in clauses)
+
+
+def test_trigger_blocks_clause_move_onto_terminal_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: cannot move a clause INTO a terminal draft.
+    The OR-check on (OLD, NEW) catches both directions."""
+    d_approved = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_a",
+    )
+    _add_clause(store, d_approved, title="real")
+    store.submit_for_approval(
+        draft_id=d_approved.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d_approved, approver="bob")
+    store.approve_draft(
+        draft_id=d_approved.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    d_draft = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_b",
+    )
+    c_orphan = _add_clause(store, d_draft, title="orphan")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "UPDATE contract_clauses SET draft_id = ? "
+                "WHERE clause_id = ?",
+                (d_approved.draft_id, c_orphan.clause_id),
+            )
+
+
+def test_trigger_blocks_terminal_draft_metadata_mutation(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v8 finding: 'contract_drafts has no terminal-row
+    freeze for non-status updates, so direct SQL can mutate
+    approved draft metadata (title, counterparty_name, etc.) and
+    assert_approved_for_send still passes.' v9 adds a row-freeze
+    trigger that fires on ANY update when OLD.status is terminal."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    # Terminal. Try to mutate non-status metadata via direct SQL.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal contract draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET title = 'BACKDOOR' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="terminal contract draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET counterparty_name = 'Different Corp' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="terminal contract draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET audit_run_id = 'run_xxx' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+    # Re-read and confirm metadata unchanged.
+    d_after = store.get_draft(draft_id=d.draft_id, org_id="org_a")
+    assert d_after is not None
+    assert d_after.title == "MSA with Acme Corp"
+    assert d_after.counterparty_name == "Acme Corp"
+    assert d_after.audit_run_id == "run_v3"
+
+
+def test_trigger_blocks_terminal_draft_metadata_mutation_rejected(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: REJECTED is also terminal."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal contract draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET counterparty_name = 'Other' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_terminal_draft_delete(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Terminal drafts are part of the SOC2 audit trail. Direct SQL
+    DELETE on an APPROVED row would erase the audit record."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal contract draft"):
+            conn.execute(
+                "DELETE FROM contract_drafts WHERE draft_id = ?",
                 (d.draft_id,),
             )
