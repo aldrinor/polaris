@@ -223,6 +223,16 @@ class BillingQuotaStore:
     Per-call connections (matches the workspace/job/review/memory
     pattern). WAL journal mode. BEGIN IMMEDIATE on
     increment/check-and-increment paths so racing calls serialize.
+
+    Authorization posture (Codex M-NEW v1 review):
+    This store is PRIVILEGED-ONLY. It does NOT validate that the
+    caller has authority over the passed `org_id` — any caller
+    who can invoke `consume()` / `check_quota()` / `assign_plan()`
+    can target any org. The endpoint layer that wires this up
+    MUST gate on caller.org_id == passed org_id (and on
+    admin/owner role for assign_plan / reset_monthly_counters).
+    Without that gate, the store is a cross-org auth boundary
+    bypass.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -274,25 +284,65 @@ class BillingQuotaStore:
                     raise QuotaStateError(
                         f"quota override value must be int; got {v!r}"
                     )
+                # Codex M-NEW v1 review fix: only -1 means unlimited;
+                # other negative values would silently grant unlimited
+                # too because the enforcement path treats cap<0 as
+                # unbounded. v2 rejects all negatives except -1.
+                if v < -1:
+                    raise QuotaStateError(
+                        f"quota override value must be >= 0 for a "
+                        f"finite cap, or exactly -1 for unlimited; "
+                        f"got {v}"
+                    )
                 quotas[k] = v
-        now = time.time()
+        # Codex M-NEW v1 review fix: capture `now` AFTER acquiring
+        # BEGIN IMMEDIATE so a racing consume() can't slip an event
+        # into the new cycle window between the timestamp capture
+        # and the row write.
         with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO plans (org_id, tier, quotas_json, "
-                "cycle_start, updated_at) VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(org_id) DO UPDATE SET "
-                "tier = excluded.tier, "
-                "quotas_json = excluded.quotas_json, "
-                "cycle_start = excluded.cycle_start, "
-                "updated_at = excluded.updated_at",
-                (
-                    org_id.strip(), tier.value,
-                    _quotas_to_json(quotas), now, now,
-                ),
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                # Codex M-NEW v1 review fix: redundant re-assign of
+                # the SAME tier with the SAME overrides should NOT
+                # refresh cycle_start (a customer calling assign_plan
+                # to "confirm tier" should not get free budget).
+                # Refresh cycle only when the plan composition
+                # actually changes.
+                existing = conn.execute(
+                    "SELECT tier, quotas_json, cycle_start "
+                    "FROM plans WHERE org_id = ?",
+                    (org_id,),
+                ).fetchone()
+                composition_changed = True
+                cycle_start = time.time()
+                if existing is not None:
+                    if (
+                        existing["tier"] == tier.value
+                        and existing["quotas_json"] == _quotas_to_json(quotas)
+                    ):
+                        composition_changed = False
+                        cycle_start = float(existing["cycle_start"])
+                conn.execute(
+                    "INSERT INTO plans (org_id, tier, quotas_json, "
+                    "cycle_start, updated_at) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(org_id) DO UPDATE SET "
+                    "tier = excluded.tier, "
+                    "quotas_json = excluded.quotas_json, "
+                    "cycle_start = excluded.cycle_start, "
+                    "updated_at = excluded.updated_at",
+                    (
+                        org_id.strip(), tier.value,
+                        _quotas_to_json(quotas),
+                        cycle_start, time.time(),
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
         return PlanAssignment(
             org_id=org_id.strip(), tier=tier, quotas=quotas,
-            cycle_start=now,
+            cycle_start=cycle_start,
         )
 
     def get_plan(self, *, org_id: str) -> PlanAssignment | None:
@@ -318,20 +368,32 @@ class BillingQuotaStore:
         reset" is implemented by updating cycle_start; subsequent
         check_quota / increment calls only count events newer than
         cycle_start when computing usage.
+
+        Codex M-NEW v1 review fix: `now` is captured AFTER
+        BEGIN IMMEDIATE acquires the write lock, so an event
+        committed milliseconds before the lock cannot accidentally
+        land in the new cycle window.
         """
         if not org_id.strip():
             raise QuotaStateError("org_id must be non-empty")
-        now = time.time()
         with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE plans SET cycle_start = ?, updated_at = ? "
-                "WHERE org_id = ?",
-                (now, now, org_id.strip()),
-            )
-            if cur.rowcount == 0:
-                raise QuotaStateError(
-                    f"org {org_id!r} has no assigned plan; cannot reset"
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                now = time.time()
+                cur = conn.execute(
+                    "UPDATE plans SET cycle_start = ?, updated_at = ? "
+                    "WHERE org_id = ?",
+                    (now, now, org_id.strip()),
                 )
+                if cur.rowcount == 0:
+                    raise QuotaStateError(
+                        f"org {org_id!r} has no assigned plan; "
+                        f"cannot reset"
+                    )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
     # ------------------------------------------------------------------
     # Quota check + atomic increment

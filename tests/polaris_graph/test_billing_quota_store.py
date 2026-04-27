@@ -340,6 +340,90 @@ def test_list_events_time_range(store: BillingQuotaStore) -> None:
     assert len(after) == 1
 
 
+# ---------------------------------------------------------------------------
+# Codex M-NEW v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_negative_quota_override_rejected_unless_unlimited(
+    store: BillingQuotaStore,
+) -> None:
+    """Codex M-NEW v1: any negative cap silently became unlimited
+    because the enforcement path treats cap<0 as unbounded. v2
+    rejects negative values except -1 (the explicit unlimited
+    sentinel)."""
+    with pytest.raises(QuotaStateError, match=">= 0|-1"):
+        store.assign_plan(
+            org_id="org_a", tier=PlanTier.PILOT,
+            quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: -5},
+        )
+    # Explicit unlimited (-1) is allowed.
+    plan = store.assign_plan(
+        org_id="org_a", tier=PlanTier.PILOT,
+        quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: -1},
+    )
+    assert plan.quotas[QuotaEventKind.AUDIT_RUN_ENQUEUED] == -1
+
+
+def test_redundant_assign_plan_does_not_refresh_cycle(
+    store: BillingQuotaStore,
+) -> None:
+    """Codex M-NEW v1: re-calling assign_plan with the SAME tier
+    and overrides used to refresh cycle_start, granting the
+    customer a fresh budget. v2 only refreshes when composition
+    actually changes."""
+    p1 = store.assign_plan(org_id="org_a", tier=PlanTier.PILOT)
+    # Use a few units of the budget.
+    for _ in range(3):
+        store.consume(
+            org_id="org_a",
+            kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+        )
+    res_after_use = store.check_quota(
+        org_id="org_a", kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+    )
+    assert res_after_use.used == 3
+
+    # Re-assign with the SAME tier — must NOT refresh cycle.
+    time.sleep(0.005)
+    p2 = store.assign_plan(org_id="org_a", tier=PlanTier.PILOT)
+    assert p2.cycle_start == p1.cycle_start, (
+        "redundant re-assign must NOT refresh cycle_start"
+    )
+    res_after_reassign = store.check_quota(
+        org_id="org_a", kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+    )
+    assert res_after_reassign.used == 3, (
+        "redundant re-assign must NOT zero the budget counter"
+    )
+
+
+def test_changing_tier_does_refresh_cycle(
+    store: BillingQuotaStore,
+) -> None:
+    """A real tier change should refresh cycle_start (the customer
+    is on a new plan now)."""
+    p1 = store.assign_plan(org_id="org_a", tier=PlanTier.PILOT)
+    time.sleep(0.005)
+    p2 = store.assign_plan(org_id="org_a", tier=PlanTier.PRODUCTION)
+    assert p2.cycle_start > p1.cycle_start
+
+
+def test_changing_quota_override_refreshes_cycle(
+    store: BillingQuotaStore,
+) -> None:
+    """Same tier but different override should be treated as a
+    composition change."""
+    p1 = store.assign_plan(org_id="org_a", tier=PlanTier.PILOT)
+    time.sleep(0.005)
+    p2 = store.assign_plan(
+        org_id="org_a", tier=PlanTier.PILOT,
+        quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: 200},
+    )
+    assert p2.cycle_start > p1.cycle_start
+    assert p2.quotas[QuotaEventKind.AUDIT_RUN_ENQUEUED] == 200
+
+
 def test_list_events_limit_validation(store: BillingQuotaStore) -> None:
     with pytest.raises(QuotaStateError, match="limit"):
         store.list_events(org_id="org_a", limit=0)
