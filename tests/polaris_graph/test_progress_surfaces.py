@@ -310,6 +310,47 @@ def test_is_terminal_false_for_unknown_job(bus: SurfaceBus) -> None:
     assert bus.is_terminal("never_seen") is False
 
 
+def test_terminal_jobs_set_is_bounded_with_fifo_eviction() -> None:
+    """Codex M-13 v3 review regression: _terminal_jobs grew
+    unbounded in v2. Every audit run permanently left one string
+    in the singleton bus.
+
+    v3 caps the set at terminal_cap with FIFO eviction. Re-prune
+    of an already-terminal job_id refreshes its position rather
+    than re-counting it.
+    """
+    bus = SurfaceBus(terminal_cap=10)
+    for i in range(100):
+        bus.prune(f"job_{i}")
+    assert len(bus._terminal_jobs) == 10
+    # The 10 most recent should be retained; the oldest 90 evicted.
+    surviving = list(bus._terminal_jobs.keys())
+    assert surviving[0] == "job_90"
+    assert surviving[-1] == "job_99"
+    # Older job_ids no longer report terminal.
+    assert bus.is_terminal("job_0") is False
+    assert bus.is_terminal("job_50") is False
+    assert bus.is_terminal("job_99") is True
+
+
+def test_re_prune_same_job_id_does_not_grow_set() -> None:
+    """Repeated prune of the same job_id refreshes position but
+    doesn't bloat the set."""
+    bus = SurfaceBus(terminal_cap=5)
+    for _ in range(20):
+        bus.prune("same_job")
+    assert len(bus._terminal_jobs) == 1
+    assert bus.is_terminal("same_job") is True
+
+
+def test_terminal_cap_default_is_reasonable() -> None:
+    """Default cap should comfortably cover a day of Phase B
+    throughput. 1024 entries at ~50 audits/day == 20 days of
+    history, far longer than any subscribe-after-prune window."""
+    bus = SurfaceBus()
+    assert bus._terminal_cap >= 1024
+
+
 def test_subscribe_with_snapshot_when_terminal_does_not_register(bus: SurfaceBus) -> None:
     """If the job is already terminal, subscribe_with_snapshot
     must NOT register the new queue — there's no producer left

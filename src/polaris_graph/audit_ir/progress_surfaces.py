@@ -52,6 +52,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from collections import OrderedDict
 from threading import Lock
 from typing import Any
 
@@ -97,6 +98,16 @@ class SurfaceEvent:
 # we choose (drop oldest).
 _DEFAULT_QUEUE_SIZE = 64
 
+# Codex M-13 v2 review fix: _terminal_jobs is bounded with FIFO
+# eviction. Without this, every audit job leaves one permanent
+# string in the singleton bus, growing unbounded over the
+# process's lifetime. The marker only needs to live long enough
+# to cover the subscribe-after-prune race window — minutes is
+# more than enough for SSE clients reconnecting after a worker
+# transition. 1024 entries comfortably covers a day of activity
+# at typical Phase B throughput.
+_DEFAULT_TERMINAL_MARK_CAP = 1024
+
 
 class SurfaceBus:
     """In-memory, thread-safe pub-sub for progressive Inspector
@@ -108,8 +119,13 @@ class SurfaceBus:
     state of every surface that's been emitted.
     """
 
-    def __init__(self, queue_size: int = _DEFAULT_QUEUE_SIZE) -> None:
+    def __init__(
+        self,
+        queue_size: int = _DEFAULT_QUEUE_SIZE,
+        terminal_cap: int = _DEFAULT_TERMINAL_MARK_CAP,
+    ) -> None:
         self._queue_size = queue_size
+        self._terminal_cap = max(1, terminal_cap)
         # job_id -> {SurfaceKind: SurfaceEvent}
         self._snapshots: dict[str, dict[SurfaceKind, SurfaceEvent]] = {}
         # job_id -> list of (subscriber_queue, owning_event_loop).
@@ -125,9 +141,15 @@ class SurfaceBus:
         # Codex M-13 v2 review fix: track jobs that have been
         # pruned so a new subscriber arriving AFTER prune sees an
         # immediate sentinel instead of hanging forever on an
-        # empty queue. Bounded best-effort — Phase C swaps to a
-        # DB-backed event log.
-        self._terminal_jobs: set[str] = set()
+        # empty queue.
+        # Codex M-13 v3 review fix: bounded with FIFO eviction
+        # (OrderedDict-as-LRU). Without this, every audit run
+        # leaves one permanent string in the singleton bus,
+        # growing the set forever. The marker only needs to
+        # outlive the subscribe-after-prune race window (seconds);
+        # capping at terminal_cap entries covers many days of
+        # Phase B throughput before the oldest entry rolls.
+        self._terminal_jobs: OrderedDict[str, None] = OrderedDict()
         # Mutex protects the dicts; producers may emit from worker
         # threads while subscribers run in the FastAPI event loop.
         self._lock = Lock()
@@ -288,7 +310,15 @@ class SurfaceBus:
             # terminal so a NEW subscriber arriving after the
             # prune sees an immediate sentinel instead of waiting
             # forever on an empty queue.
-            self._terminal_jobs.add(job_id)
+            # Codex M-13 v3 fix: FIFO-evict via OrderedDict so the
+            # marker set stays bounded. Re-prune of the same
+            # job_id refreshes its position.
+            if job_id in self._terminal_jobs:
+                self._terminal_jobs.move_to_end(job_id)
+            else:
+                self._terminal_jobs[job_id] = None
+                while len(self._terminal_jobs) > self._terminal_cap:
+                    self._terminal_jobs.popitem(last=False)
         for q, loop in subs:
             self._dispatch_to_subscriber(q, loop, None, job_id=job_id)
 
