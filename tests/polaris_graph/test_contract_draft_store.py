@@ -1580,7 +1580,7 @@ def test_trigger_blocks_clause_modify_on_terminal_draft(
     # Draft now APPROVED. Direct SQL flipping the clause to
     # rejected would retroactively change what was reviewed.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "UPDATE contract_clauses SET decision = 'rejected' "
                 "WHERE clause_id = ?",
@@ -1605,7 +1605,7 @@ def test_trigger_blocks_clause_delete_on_terminal_draft(
         approver_user_id="bob", rationale="reviewed",
     )
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "DELETE FROM contract_clauses WHERE clause_id = ?",
                 (c.clause_id,),
@@ -1636,7 +1636,7 @@ def test_trigger_blocks_clause_insert_on_terminal_draft_approved(
     # would let an attacker stuff prose into the contract after
     # human review.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "INSERT INTO contract_clauses (clause_id, draft_id, "
                 "title, body, decision, created_at) VALUES "
@@ -1665,7 +1665,7 @@ def test_trigger_blocks_clause_insert_on_terminal_draft_rejected(
         rejecter_user_id="bob", rationale="not a fit",
     )
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "INSERT INTO contract_clauses (clause_id, draft_id, "
                 "title, body, decision, created_at) VALUES "
@@ -1708,7 +1708,7 @@ def test_trigger_blocks_clause_move_off_terminal_draft(
     )
     # Direct SQL attempting to move clause off the approved draft.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "UPDATE contract_clauses SET draft_id = ? "
                 "WHERE clause_id = ?",
@@ -1745,7 +1745,7 @@ def test_trigger_blocks_clause_move_onto_terminal_draft(
     )
     c_orphan = _add_clause(store, d_draft, title="orphan")
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+        with pytest.raises(sqlite3.IntegrityError, match="clause"):
             conn.execute(
                 "UPDATE contract_clauses SET draft_id = ? "
                 "WHERE clause_id = ?",
@@ -2100,3 +2100,211 @@ def test_decide_clause_legitimate_path_still_works(
     assert decided.title == "Real"
     assert decided.body == "Real body"
     assert decided.evidence_ids == ("ev_a",)
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v11: clause INSERT/DELETE/draft_id-move locked once
+# parent draft is submitted (status != 'draft')
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_blocks_clause_insert_during_awaiting_approval(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v10 finding: 'insert a forged decision=approved
+    clause into an awaiting_approval draft.' approve_draft only
+    checks the clauses currently attached, so a forged 'approved'
+    clause inserted via direct SQL during the AWAITING_APPROVAL
+    window let approval succeed without anyone reviewing the
+    forged clause body. v11 expands the INSERT freeze to fire on
+    any non-DRAFT parent."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Direct SQL: forge a fully-decided 'approved' clause that
+    # passes the v10 clause CHECK (decided_by + decided_at set).
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(
+            sqlite3.IntegrityError, match="parent draft is submitted"
+        ):
+            conn.execute(
+                "INSERT INTO contract_clauses (clause_id, draft_id, "
+                "title, body, decision, decided_by, decided_at, "
+                "created_at) VALUES "
+                "('cls_forged', ?, 'Backdoor', 'malicious clause', "
+                "'approved', 'fake_user', 1.0, 0.0)",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_clause_delete_during_awaiting_approval(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v10 finding: 'delete a rejected clause' before
+    approval. Removing a rejected clause from an awaiting-approval
+    draft hides the rejection from approve_draft's all-clauses-
+    approved gate. v11 blocks DELETE on any non-DRAFT parent."""
+    d = _create_basic(store, submitter="usr_alice")
+    c1 = _add_clause(store, d, title="Good")
+    c2 = _add_clause(store, d, title="Bad")
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Approve one clause, reject the other.
+    store.decide_clause(
+        clause_id=c1.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.decide_clause(
+        clause_id=c2.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.REJECTED, notes="violates policy",
+    )
+    # Direct SQL DELETE of the rejected clause — would let
+    # approve_draft pass.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(
+            sqlite3.IntegrityError, match="parent draft is submitted"
+        ):
+            conn.execute(
+                "DELETE FROM contract_clauses WHERE clause_id = ?",
+                (c2.clause_id,),
+            )
+    # And approve_draft still refuses (the rejected clause is
+    # still there).
+    with pytest.raises(ContractDraftStateError, match="REJECTED"):
+        store.approve_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            approver_user_id="bob", rationale="LGTM",
+        )
+
+
+def test_trigger_blocks_clause_move_during_awaiting_approval(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v10 finding: 'move a rejected clause to another
+    non-terminal draft.' If the rejected clause migrates to
+    another DRAFT (or AWAITING_APPROVAL) draft, the original
+    awaiting_approval draft loses its rejected clause and
+    approve_draft passes."""
+    d_target = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d_target, title="Good")
+    c_bad = _add_clause(store, d_target, title="Bad")
+    store.submit_for_approval(
+        draft_id=d_target.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c_bad.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.REJECTED, notes="bad",
+    )
+    # Create a separate DRAFT-state draft to attempt the move into.
+    d_decoy = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_b",
+    )
+    _add_clause(store, d_decoy, title="placeholder")
+    # Direct SQL move of the rejected clause from the AWAITING
+    # parent to the DRAFT parent — would erase it from the queue.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(
+            sqlite3.IntegrityError, match="submitted contract"
+        ):
+            conn.execute(
+                "UPDATE contract_clauses SET draft_id = ? "
+                "WHERE clause_id = ?",
+                (d_decoy.draft_id, c_bad.clause_id),
+            )
+    # The rejected clause is still on the original draft.
+    clauses = store.list_clauses(
+        draft_id=d_target.draft_id, org_id="org_a",
+    )
+    assert any(c.clause_id == c_bad.clause_id for c in clauses)
+
+
+def test_trigger_blocks_clause_move_into_awaiting_approval(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: a clause from a DRAFT parent cannot be moved
+    INTO an AWAITING_APPROVAL parent (would inject unreviewed
+    content past submit)."""
+    d_awaiting = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d_awaiting, title="Original")
+    store.submit_for_approval(
+        draft_id=d_awaiting.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    d_draft = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_b",
+    )
+    c_orphan = _add_clause(store, d_draft, title="late add")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(
+            sqlite3.IntegrityError, match="submitted contract"
+        ):
+            conn.execute(
+                "UPDATE contract_clauses SET draft_id = ? "
+                "WHERE clause_id = ?",
+                (d_awaiting.draft_id, c_orphan.clause_id),
+            )
+
+
+def test_full_clause_protection_during_awaiting(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """End-to-end: during AWAITING_APPROVAL, all of INSERT/DELETE/
+    draft_id-move on contract_clauses fails. Only legitimate
+    decide_clause (decision-metadata UPDATE) is allowed."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    db = tmp_path / "contracts.sqlite"
+
+    # 1. INSERT new clause: blocked.
+    with sqlite3.connect(db) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO contract_clauses (clause_id, draft_id, "
+                "title, body, decision, decided_by, decided_at, "
+                "created_at) VALUES ('x', ?, 't', 'b', 'approved', "
+                "'u', 1.0, 0.0)",
+                (d.draft_id,),
+            )
+    # 2. DELETE existing clause: blocked.
+    with sqlite3.connect(db) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "DELETE FROM contract_clauses WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+    # 3. UPDATE draft_id: blocked.
+    d_other = _create_basic(
+        store, submitter="usr_alice", audit_run_id="run_b",
+    )
+    with sqlite3.connect(db) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE contract_clauses SET draft_id = ? "
+                "WHERE clause_id = ?",
+                (d_other.draft_id, c.clause_id),
+            )
+    # 4. decide_clause (legitimate) still works.
+    decided = store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    assert decided.decision == ClauseDecision.APPROVED

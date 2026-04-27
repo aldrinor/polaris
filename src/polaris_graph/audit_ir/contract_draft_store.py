@@ -449,6 +449,12 @@ END;
 -- at terminal but NEW doesn't, trigger doesn't fire). v9 checks
 -- both OLD and NEW so the trigger fires if EITHER end of the
 -- update touches a terminal draft.
+--
+-- This trigger blocks any UPDATE on terminal-parent clauses —
+-- including legitimate-looking decision flips that would happen
+-- post-approval. Decision changes during AWAITING_APPROVAL are
+-- allowed (decide_clause); this fires only when parent is
+-- already terminal.
 CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_update
 BEFORE UPDATE ON contract_clauses
 FOR EACH ROW
@@ -461,36 +467,78 @@ BEGIN
     SELECT RAISE(ABORT, 'cannot modify clauses on a terminal draft (approved or rejected)');
 END;
 
-CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_delete
+-- Codex M-26 v11 review fix: v10's freeze triggers only protected
+-- the contract_clauses table when the parent draft was in a
+-- terminal state (APPROVED/REJECTED). During the AWAITING_APPROVAL
+-- window — between submit and final-approve — direct SQL could
+-- still INSERT a forged 'decision=approved' clause, DELETE a
+-- rejected clause, or move a rejected clause to another non-
+-- terminal draft. approve_draft only validates the clauses
+-- currently attached, so the bypass passed.
+--
+-- v11 expands the protection: clauses on a non-DRAFT parent
+-- (i.e. submitted, approved, or rejected) cannot be inserted,
+-- deleted, or moved. Decision-metadata UPDATEs during
+-- AWAITING_APPROVAL remain allowed via decide_clause because
+-- that path UPDATEs decision/decided_by/decided_at — never
+-- draft_id, never the row's existence.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_after_submit_delete
 BEFORE DELETE ON contract_clauses
 FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM contract_drafts
     WHERE draft_id = OLD.draft_id
-      AND status IN ('approved', 'rejected')
+      AND status != 'draft'
 )
 BEGIN
-    SELECT RAISE(ABORT, 'cannot delete clauses on a terminal draft (approved or rejected)');
+    SELECT RAISE(ABORT, 'cannot delete clauses once parent draft is submitted (status != draft)');
 END;
 
 -- Codex M-26 v8 review fix: v7 froze terminal-draft clause UPDATE
--- and DELETE but not INSERT. Direct SQL could INSERT a new
--- clause with `draft_id=<approved draft>, decision='pending'`,
--- landing a PENDING clause on an APPROVED draft —
--- assert_approved_for_send still passed because it only checks
--- draft.status == 'approved'. v8 adds the symmetric BEFORE INSERT
+-- and DELETE but not INSERT. v8 added the symmetric BEFORE INSERT
 -- trigger to fully freeze clauses once the parent draft is
 -- terminal: no UPDATE, no DELETE, no INSERT.
-CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_insert
+--
+-- Codex M-26 v11 review fix: v8's INSERT trigger only blocked
+-- terminal parents. During AWAITING_APPROVAL, direct SQL could
+-- still INSERT a forged 'decision=approved' clause that satisfied
+-- the v10 clause CHECK; approve_draft saw a fully-approved
+-- clause set and let the draft transition to APPROVED. v11
+-- expands the trigger to fire on any non-DRAFT parent.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_after_submit_insert
 BEFORE INSERT ON contract_clauses
 FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM contract_drafts
     WHERE draft_id = NEW.draft_id
-      AND status IN ('approved', 'rejected')
+      AND status != 'draft'
 )
 BEGIN
-    SELECT RAISE(ABORT, 'cannot insert clauses on a terminal draft (approved or rejected)');
+    SELECT RAISE(ABORT, 'cannot insert clauses once parent draft is submitted (status != draft)');
+END;
+
+-- Codex M-26 v11 review fix: clause draft_id moves are blocked
+-- when EITHER OLD.draft_id or NEW.draft_id points at a non-DRAFT
+-- parent. This closes the v10 bypass where direct SQL could move
+-- a rejected clause off an AWAITING_APPROVAL parent into another
+-- non-terminal draft.
+--
+-- The terminal-update trigger (above) already blocks all UPDATEs
+-- on terminal-parent clauses including draft_id changes; this
+-- trigger fills the AWAITING_APPROVAL gap. Decision-metadata
+-- UPDATEs by decide_clause still pass because they don't change
+-- draft_id.
+CREATE TRIGGER IF NOT EXISTS trg_lock_clause_draft_id_after_submit
+BEFORE UPDATE OF draft_id ON contract_clauses
+FOR EACH ROW
+WHEN OLD.draft_id != NEW.draft_id
+     AND EXISTS (
+         SELECT 1 FROM contract_drafts
+         WHERE (draft_id = OLD.draft_id OR draft_id = NEW.draft_id)
+           AND status != 'draft'
+     )
+BEGIN
+    SELECT RAISE(ABORT, 'cannot move clauses to or from a submitted contract (status != draft)');
 END;
 
 -- Codex M-26 v9 review fix: v8 didn't freeze contract_drafts
