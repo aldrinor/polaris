@@ -209,7 +209,17 @@ async def compose_brief(
         )
 
     raw_paragraphs = await llm.draft_brief(question=question, chunks=chunks)
-    chunks_by_id = {c.chunk_id: c for c in chunks}
+
+    # Codex M-12 v2 review fix: an upload can be soft-deleted DURING
+    # the LLM await. Re-snapshot the eligible-chunk set AFTER the
+    # await and intersect — any chunk that was deleted while the
+    # LLM was running is removed from the validation set so the
+    # final brief never cites a chunk that's no longer eligible.
+    eligible_now = store.list_eligible_chunks(workspace_id)
+    eligible_ids_now = {c["chunk_id"] for c in eligible_now}
+    chunks_by_id = {
+        c.chunk_id: c for c in chunks if c.chunk_id in eligible_ids_now
+    }
 
     validated: list[BriefParagraph] = []
     for p in raw_paragraphs:
@@ -250,9 +260,18 @@ async def compose_brief(
             support_status="supported",
         ))
 
+    # Codex M-12 v2 review fix: filter retrieved_chunks to the
+    # post-await eligible set so the API response never advertises
+    # chunks that are no longer eligible for retrieval (e.g. their
+    # upload was soft-deleted during the LLM await).
+    surviving_retrieved = tuple(
+        c for c in chunks if c.chunk_id in eligible_ids_now
+    )
+
     if not validated:
         # LLM hallucinated all citations OR returned no usable
-        # paragraphs. Emit explicit insufficient-support label
+        # paragraphs (or all of them got pruned by the post-await
+        # delete check). Emit explicit insufficient-support label
         # rather than a hollow brief.
         return CorpusBrief(
             workspace_id=workspace_id, question=question,
@@ -260,13 +279,13 @@ async def compose_brief(
                 claim=_INSUFFICIENT_LLM_DROPPED_ALL,
                 support_status="insufficient_support",
             ),),
-            retrieved_chunks=tuple(chunks),
+            retrieved_chunks=surviving_retrieved,
         )
 
     return CorpusBrief(
         workspace_id=workspace_id, question=question,
         paragraphs=tuple(validated),
-        retrieved_chunks=tuple(chunks),
+        retrieved_chunks=surviving_retrieved,
     )
 
 
@@ -339,9 +358,14 @@ class OpenRouterBriefClient:
         # this module doesn't import a Pydantic schema from the
         # OpenRouter client family — keeps the dependency arrows
         # clean.
+        # Codex M-12 v2 review fix: removed `thinking_mode=False`
+        # — the real OpenRouterClient.generate signature has no
+        # such kwarg (would TypeError at call time and 500 the
+        # endpoint). generate() already disables reasoning by
+        # default for the prose path.
         response = await self._client.generate(
             prompt=prompt, system=_DRAFT_BRIEF_SYSTEM,
-            max_tokens=4096, thinking_mode=False,
+            max_tokens=4096,
         )
         # OpenRouterClient.generate returns LLMResponse, not str.
         text = getattr(response, "content", None)

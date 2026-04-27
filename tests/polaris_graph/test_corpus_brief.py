@@ -426,6 +426,90 @@ def test_retrieval_excludes_concurrently_deleted_uploads(tmp_path: Path) -> None
     assert b.upload_id in upload_ids
 
 
+class _DeletingLlm:
+    """LLM fake that soft-deletes one of its candidate chunks DURING
+    `draft_brief`, simulating the v2 race window: retrieval has
+    already snapshotted the chunks, but the upload is deleted while
+    the LLM is generating."""
+
+    def __init__(self, store: WorkspaceStore, target_upload_id: str,
+                 paragraphs: list[dict[str, Any]]) -> None:
+        self._store = store
+        self._target = target_upload_id
+        self._paragraphs = paragraphs
+
+    async def draft_brief(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[dict[str, Any]]:
+        # Delete the upload while we're "generating" the brief.
+        self._store.soft_delete_upload(self._target)
+        return self._paragraphs
+
+
+def test_compose_brief_drops_citation_when_upload_deleted_mid_await(tmp_path: Path) -> None:
+    """Codex M-12 v2 review regression: soft-delete during the LLM
+    await must not leak deleted chunks into the final brief.
+
+    v2 v1 (single-snapshot) bug: chunks_by_id was built from the
+    PRE-await retrieval snapshot, so a delete during the await
+    didn't drop the citation.
+    """
+    store = WorkspaceStore(tmp_path / "race.sqlite")
+    ws = store.create_workspace("MidAwait", max_docs=5)
+    up = store.upload_file(ws.workspace_id, "x.txt", "text/plain", 50, "/p/x")
+    store.transition_parser_status(up.upload_id, "parsing")
+    store.insert_chunks(up.upload_id, [
+        ("Tirzepatide diabetes content here.",
+         to_dict(TextSpan(up.upload_id, 0, 35))),
+    ])
+    store.transition_parser_status(up.upload_id, "parsed")
+
+    # Fetch the chunk_id the deleting LLM will try to cite.
+    chunk_id = store.list_chunks(up.upload_id)[0]["chunk_id"]
+
+    deleting_llm = _DeletingLlm(
+        store=store, target_upload_id=up.upload_id,
+        paragraphs=[{
+            "claim": "Tirzepatide is mentioned.",
+            "citations": [{"chunk_id": chunk_id}],
+        }],
+    )
+
+    brief = _run(compose_brief(
+        store=store, workspace_id=ws.workspace_id,
+        question="tirzepatide diabetes", llm=deleting_llm,
+    ))
+    # The chunk is no longer eligible — citation must be dropped.
+    # No surviving paragraphs → insufficient_support fallback.
+    assert len(brief.paragraphs) == 1
+    assert brief.paragraphs[0].support_status == "insufficient_support"
+    # And the API must not advertise the deleted chunk in
+    # retrieved_chunks either.
+    surviving_ids = {c.chunk_id for c in brief.retrieved_chunks}
+    assert chunk_id not in surviving_ids
+
+
+def test_openrouter_brief_client_does_not_pass_thinking_mode_kwarg() -> None:
+    """Codex M-12 v2 review regression: production OpenRouterClient.
+    generate() has no `thinking_mode` kwarg; passing it would raise
+    TypeError and 500 the endpoint. The fake here mirrors the real
+    signature (no thinking_mode); the client must still work."""
+
+    class StrictAsyncOpenRouter:
+        async def generate(
+            self, prompt: str, system: str = "",
+            max_tokens: int = 4096,
+        ) -> Any:
+            # NO `thinking_mode` parameter — matches real signature.
+            return SimpleNamespace(content='{"paragraphs": []}')
+
+    fake = StrictAsyncOpenRouter()
+    client = OpenRouterBriefClient(fake)
+    # Must not TypeError on the strict signature.
+    paragraphs = asyncio.run(client.draft_brief(question="q", chunks=[]))
+    assert paragraphs == []
+
+
 def test_list_eligible_chunks_excludes_deleted_and_unparsed(tmp_path: Path) -> None:
     """Direct test of the new atomic store API."""
     store = WorkspaceStore(tmp_path / "ws.sqlite")
