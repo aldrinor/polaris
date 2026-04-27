@@ -529,6 +529,46 @@ class WorkspaceStore:
             for r in rows
         ]
 
+    def list_eligible_chunks(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Codex M-12 review fix: atomic snapshot of all chunks
+        eligible for retrieval — single SQL query joining
+        upload_chunks to uploads, gated on `uploads.deleted_at IS
+        NULL AND uploads.parser_status = 'parsed' AND
+        uploads.workspace_id = ?`.
+
+        Replaces the v1 two-phase pattern (list_uploads then
+        list_chunks per-upload) which raced soft-delete: a delete
+        landing between the two reads let the deleted upload's
+        chunks leak into the retrieval set.
+
+        Returns chunk dicts enriched with `filename` from the
+        joined uploads row so the retriever doesn't need a second
+        lookup.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT c.chunk_id, c.upload_id, c.seq, c.text, "
+                "c.provenance_json, u.filename "
+                "FROM upload_chunks c "
+                "JOIN uploads u ON u.upload_id = c.upload_id "
+                "WHERE u.workspace_id = ? "
+                "AND u.deleted_at IS NULL "
+                "AND u.parser_status = 'parsed' "
+                "ORDER BY u.created_at DESC, c.seq",
+                (workspace_id,),
+            ).fetchall()
+        return [
+            {
+                "chunk_id": r["chunk_id"],
+                "upload_id": r["upload_id"],
+                "seq": r["seq"],
+                "text": r["text"],
+                "provenance": json.loads(r["provenance_json"]),
+                "filename": r["filename"],
+            }
+            for r in rows
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Internal row converters

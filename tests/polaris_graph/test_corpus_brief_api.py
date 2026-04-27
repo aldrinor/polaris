@@ -24,9 +24,10 @@ class FakeLlm:
     def __init__(self, paragraphs: list[dict[str, Any]] | None = None) -> None:
         self.paragraphs = paragraphs or []
 
-    def draft_brief(
+    async def draft_brief(
         self, question: str, chunks: list[RetrievedChunk]
     ) -> list[dict[str, Any]]:
+        # Codex M-12 review fix: LlmClient is async.
         return self.paragraphs
 
 

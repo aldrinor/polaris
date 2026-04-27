@@ -160,20 +160,20 @@ def retrieve_chunks(
     if not q_tokens:
         return []
 
-    uploads = store.list_uploads(workspace_id, include_deleted=False)
-    parsed = [u for u in uploads if u.parser_status == "parsed"]
-    if not parsed:
+    # Codex M-12 review fix: atomic single-query snapshot of all
+    # eligible chunks (parsed + non-deleted uploads in this
+    # workspace). Replaces the v1 two-phase pattern which raced
+    # soft-delete: a delete landing between list_uploads() and
+    # list_chunks() let the deleted upload's chunks leak.
+    eligible = store.list_eligible_chunks(workspace_id)
+    if not eligible:
         return []
 
-    # Build the corpus once: gather all chunks from all parsed
-    # uploads in this workspace.
     all_chunks: list[tuple[dict[str, Any], list[str], str]] = []
     # tuple shape: (chunk_record, tokens, filename)
-    for upload in parsed:
-        chunk_dicts = store.list_chunks(upload.upload_id)
-        for ck in chunk_dicts:
-            tokens = _content_tokens(ck["text"])
-            all_chunks.append((ck, tokens, upload.filename))
+    for ck in eligible:
+        tokens = _content_tokens(ck["text"])
+        all_chunks.append((ck, tokens, ck["filename"]))
 
     if not all_chunks:
         return []

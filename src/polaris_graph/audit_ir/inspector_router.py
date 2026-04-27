@@ -892,7 +892,7 @@ async def compose_workspace_brief(
         )
     llm = _get_brief_llm()
     try:
-        brief = compose_brief(
+        brief = await compose_brief(
             store=store, workspace_id=workspace_id,
             question=req.question, llm=llm,
             top_k=req.top_k, min_score=req.min_score,

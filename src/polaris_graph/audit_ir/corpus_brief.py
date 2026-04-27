@@ -131,12 +131,17 @@ def brief_to_dict(b: CorpusBrief) -> dict[str, Any]:
 class LlmClient(Protocol):
     """Minimal LLM interface the brief emitter needs.
 
+    Codex M-12 review fix: `draft_brief` is now async because the
+    real OpenRouter client is async. Sync test fakes implement
+    this as `async def` too — there's no overhead since they don't
+    actually do I/O.
+
     Implementations must:
       - Return JSON parseable as the schema described in the prompt.
       - Raise on any error (no silent fallbacks per LAW II).
     """
 
-    def draft_brief(
+    async def draft_brief(
         self,
         question: str,
         chunks: list[RetrievedChunk],
@@ -167,7 +172,7 @@ _INSUFFICIENT_LLM_DROPPED_ALL = (
 )
 
 
-def compose_brief(
+async def compose_brief(
     store: WorkspaceStore,
     workspace_id: str,
     question: str,
@@ -180,6 +185,10 @@ def compose_brief(
     Returns a CorpusBrief whose paragraphs are either supported
     (with non-empty citations) or labeled "insufficient_support".
     Never silently fabricates citations.
+
+    Codex M-12 review fix: now async so it can `await` the real
+    OpenRouter LLM client. Test fakes implement `draft_brief` as
+    async too.
 
     Raises ValueError on unknown workspace (matches retrieve_chunks
     behavior so the API layer maps to 404).
@@ -199,7 +208,7 @@ def compose_brief(
             retrieved_chunks=(),
         )
 
-    raw_paragraphs = llm.draft_brief(question=question, chunks=chunks)
+    raw_paragraphs = await llm.draft_brief(question=question, chunks=chunks)
     chunks_by_id = {c.chunk_id: c for c in chunks}
 
     validated: list[BriefParagraph] = []
@@ -298,7 +307,15 @@ def _build_user_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
 
 
 class OpenRouterBriefClient:
-    """Real LLM client backed by OpenRouterClient.generate_structured.
+    """Real LLM client backed by OpenRouterClient.generate.
+
+    Codex M-12 review fix: now async, awaits `generate()`, and
+    parses `LLMResponse.content`. v1 incorrectly:
+      - Called `asyncio.run()` from inside an async FastAPI route
+        (raises "asyncio.run() cannot be called from a running
+        event loop").
+      - Treated the `LLMResponse` return value as a str
+        (`AttributeError` on `.strip()`).
 
     Constructed lazily by the API layer so unit tests don't need
     network credentials.
@@ -313,35 +330,35 @@ class OpenRouterBriefClient:
         Typed loosely to avoid pulling that import here."""
         self._client = openrouter_client
 
-    def draft_brief(
+    async def draft_brief(
         self, question: str, chunks: list[RetrievedChunk]
     ) -> list[dict[str, Any]]:
         prompt = _build_user_prompt(question, chunks)
-        # Inline call via the existing client. We use generate (not
-        # generate_structured) and parse the JSON ourselves so this
-        # module doesn't import a Pydantic schema from the OpenRouter
-        # client family — keeps the dependency arrows clean.
-        import asyncio
-        coro = self._client.generate(
+        # Inline call via the existing async client. We use generate
+        # (not generate_structured) and parse the JSON ourselves so
+        # this module doesn't import a Pydantic schema from the
+        # OpenRouter client family — keeps the dependency arrows
+        # clean.
+        response = await self._client.generate(
             prompt=prompt, system=_DRAFT_BRIEF_SYSTEM,
             max_tokens=4096, thinking_mode=False,
         )
-        try:
-            text = asyncio.run(coro)
-        except RuntimeError:
-            # We're already inside a running event loop (e.g. an
-            # async FastAPI handler). Fall back to a manual loop.
-            loop = asyncio.new_event_loop()
-            try:
-                text = loop.run_until_complete(coro)
-            finally:
-                loop.close()
-        # generate() returns str; strip code fences and parse.
+        # OpenRouterClient.generate returns LLMResponse, not str.
+        text = getattr(response, "content", None)
+        if text is None:
+            # Tolerate plain-string returns from test doubles that
+            # haven't migrated to LLMResponse-shaped fakes.
+            text = response if isinstance(response, str) else ""
+        if not isinstance(text, str):
+            raise ValueError(
+                f"LLM response.content must be str; got {type(text).__name__}"
+            )
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
-            # remove leading "json\n" if present after strip
             cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+            # Trim trailing fence remnants.
+            cleaned = cleaned.rstrip("`").strip()
         parsed = json.loads(cleaned)
         if not isinstance(parsed, dict) or "paragraphs" not in parsed:
             raise ValueError(
