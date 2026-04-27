@@ -529,6 +529,144 @@ def test_citation_format_uses_cite_prefix() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Codex M-14 v3 review regressions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ("approved for adults with type 2 diabetes",
+         "isn't approved for adults with type 2 diabetes"),
+        ("approved for adults with type 2 diabetes",
+         "aren't approved for adults with type 2 diabetes"),
+        ("approved for adults with type 2 diabetes",
+         "can't be approved for adults with type 2 diabetes"),
+        ("approved for adults with type 2 diabetes",
+         "won't approve for adults with type 2 diabetes"),
+        ("approved for adults",
+         "doesn't approve for adults"),
+        ("approved for adults",
+         "didn't approve for adults"),
+        # Apostrophe-less spellings (cant, dont, isnt) seen in
+        # the wild from naive copy-paste.
+        ("approved for adults",
+         "isnt approved for adults"),
+        # "cannot" is a common single-word negation.
+        ("approved for adults",
+         "cannot be approved for adults"),
+    ],
+)
+def test_contraction_negation_forces_divergence(values: tuple[str, str]) -> None:
+    """Codex M-14 v3 review regression: v2 tokenized "isn't" as
+    {"isn", "t"} — fragments — and the negation guard never saw
+    "not". v3 expands contractions BEFORE tokenization."""
+    fa, fb = values
+    findings = [
+        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence", (
+        f"contraction case {values!r} flattened to "
+        f"{result.verdicts[0].verdict}"
+    )
+
+
+@pytest.mark.parametrize(
+    "smuggled_value",
+    [
+        "approved worldwide for type 2 diabetes",
+        "approved globally for chronic conditions",
+        "internationally approved for the same indication",
+        "consensus across jurisdictions on this indication",
+        "global consensus among regulators",
+        "unanimously approved by all regulators",
+        "every jurisdiction has approved this drug",
+        "every regulator has approved this drug",
+    ],
+)
+def test_smuggled_flattening_variants_neutralized(smuggled_value: str) -> None:
+    """Codex M-14 v3 review regression: v2 was exact-substring
+    match. v3 catches "approved worldwide", "approved globally",
+    "internationally approved", "consensus across jurisdictions",
+    "unanimously approved", "every jurisdiction" via word-boundary
+    regex on trigger words."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "indications", smuggled_value, "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "indications",
+            "withheld pending Phase 4 review",  # forces divergence
+            "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    para = result.paragraphs[0]
+    # The flattening trigger word should be neutralized in the
+    # rendered paragraph.
+    para_lower = para.lower()
+    forbidden_in_render = [
+        "worldwide", "globally", "internationally",
+        "international consensus", "global consensus",
+        "consensus across jurisdictions", "unanimous",
+        "every jurisdiction", "every regulator",
+        "all regulators", "all jurisdictions",
+        "regulators worldwide", "regulators globally",
+    ]
+    for trigger in forbidden_in_render:
+        # The trigger must NOT appear in the rendered paragraph.
+        # (It might still appear in the original `value` we
+        # constructed, but the renderer must have replaced it
+        # with [this jurisdiction].)
+        assert trigger not in para_lower, (
+            f"flattening trigger {trigger!r} survived rendering "
+            f"in paragraph: {para}"
+        )
+
+
+def test_thousands_separator_does_not_force_false_divergence() -> None:
+    """Codex M-14 v3 review regression: v2 numeric guard treated
+    "1,000 mg" vs "1000 mg" as divergence because the regex
+    extracted {"1","000"} vs {"1000"}. v3 normalizes thousands-
+    separator commas so both produce {"1000"}."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "dosage",
+            "starting dose 1,000 mg once daily", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "dosage",
+            "starting dose 1000 mg once daily", "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    # Thousands-separator parity must be respected: same value,
+    # same verdict.
+    assert result.verdicts[0].verdict == "convergence", (
+        "1,000 mg vs 1000 mg incorrectly flagged as divergence"
+    )
+
+
+def test_thousands_separator_real_mismatch_still_diverges() -> None:
+    """Sanity: the thousands-separator normalization must NOT
+    over-correct. Genuinely different values must still diverge."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "dosage",
+            "starting dose 1,000 mg once daily", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "dosage",
+            "starting dose 2,000 mg once daily", "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence"
+
+
 def test_machine_readable_evidence_via_bound_ev_ids_field() -> None:
     """Codex M-14 v2 mandate: pipeline-native code must read
     citation IDs from FieldVerdict.bound_ev_ids, NOT regex-parse

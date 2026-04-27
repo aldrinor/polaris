@@ -203,11 +203,44 @@ _STOPWORDS: frozenset[str] = frozenset({
 })
 
 
+def _expand_contractions(text: str) -> str:
+    """Codex M-14 v3 review fix: expand English contractions
+    BEFORE the _TOKEN_RE splits on apostrophes. v2 tokenized
+    "isn't approved" as {"isn", "approved"} — fragments — and
+    the negation guard never saw "not". Expansion via word-
+    boundary regex on lowercased text.
+    """
+    if not text:
+        return text
+    out = text.lower()
+    # Word-boundary replace each contraction. We iterate the
+    # static dict in length-DESC order so longer keys
+    # (e.g. "couldn't") match before shorter ones.
+    for raw in sorted(_CONTRACTIONS, key=len, reverse=True):
+        # Use re.sub so word boundaries are respected.
+        # Apostrophe is not a word char, so \b at the start
+        # works for the apostrophe-style key; for non-apostrophe
+        # keys (cant, dont) standard \b applies.
+        if "'" in raw:
+            # Match the contraction literally (apostrophe-aware).
+            pattern = re.compile(r"\b" + re.escape(raw))
+        else:
+            pattern = re.compile(r"\b" + re.escape(raw) + r"\b")
+        out = pattern.sub(_CONTRACTIONS[raw], out)
+    return out
+
+
 def _tokens(text: str) -> frozenset[str]:
-    """Lowercased, stopword-filtered content tokens."""
+    """Lowercased, stopword-filtered content tokens.
+
+    Codex M-14 v3 review fix: contractions expanded BEFORE
+    tokenization so "isn't" → "is not" → contributes "not" to
+    the token bag.
+    """
     if not text:
         return frozenset()
-    raw = _TOKEN_RE.findall(text.lower())
+    expanded = _expand_contractions(text)
+    raw = _TOKEN_RE.findall(expanded)
     return frozenset(t for t in raw if t not in _STOPWORDS and len(t) > 1)
 
 
@@ -243,10 +276,44 @@ _DEFAULT_CONVERGENCE_FLOOR = 0.7
 
 # Negation tokens: their presence vs absence flips meaning
 # entirely. "approved" vs "not approved" must never converge.
+# Codex M-14 v3 review fix: contractions need an EXPANSION step
+# before tokenization. v2 tokenized "isn't approved" as
+# {"isn","approved"} (the apostrophe split the contraction into
+# fragments) and the negation guard never saw "not". This map
+# normalizes contractions to their expanded form BEFORE _tokens()
+# runs, so "isn't" / "aren't" / "can't" / "won't" etc. all
+# contribute "not" to the token bag and trigger the negation
+# guard.
+_CONTRACTIONS: dict[str, str] = {
+    "isn't": "is not", "isnt": "is not",
+    "aren't": "are not", "arent": "are not",
+    "wasn't": "was not", "wasnt": "was not",
+    "weren't": "were not", "werent": "were not",
+    "can't": "can not", "cant": "can not",
+    "cannot": "can not",
+    "couldn't": "could not", "couldnt": "could not",
+    "won't": "will not", "wont": "will not",
+    "wouldn't": "would not", "wouldnt": "would not",
+    "shouldn't": "should not", "shouldnt": "should not",
+    "doesn't": "does not", "doesnt": "does not",
+    "don't": "do not", "dont": "do not",
+    "didn't": "did not", "didnt": "did not",
+    "hasn't": "has not", "hasnt": "has not",
+    "haven't": "have not", "havent": "have not",
+    "hadn't": "had not", "hadnt": "had not",
+    "shan't": "shall not", "shant": "shall not",
+    "mustn't": "must not", "mustnt": "must not",
+    "needn't": "need not", "neednt": "need not",
+}
+
+
 _NEGATION_TOKENS: frozenset[str] = frozenset({
     "not", "no", "never", "without",
     "contraindicated", "withheld", "denied", "rejected",
     "withdrawn", "suspended",
+    # Codex M-14 v3 review fix: also catch refusal verbs that
+    # don't contain "not" but flip meaning regardless.
+    "refused", "revoked", "negative",
 })
 
 # Status-pending tokens: regulatory positions still in flux
@@ -301,15 +368,25 @@ def _force_divergence(values: list[str]) -> bool:
     return False
 
 
-_NUMERIC_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+# Codex M-14 v3 review fix: extended regex to consume thousands-
+# separator commas so "1,000 mg" and "1000 mg" produce the same
+# numeric token. v2 regex `\b\d+(?:\.\d+)?\b` saw "1,000" as
+# {"1", "000"} and falsely diverged from {"1000"}.
+_NUMERIC_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\b")
 
 
 def _extract_numeric_tokens(text: str) -> frozenset[str]:
     """Extract bare numeric tokens (integers, decimals) from text.
-    Used by the numeric-mismatch divergence guard."""
+    Used by the numeric-mismatch divergence guard.
+
+    Codex M-14 v3 review fix: thousands-separator commas are
+    stripped from the matched token so "1,000" and "1000"
+    normalize to the same canonical form.
+    """
     if not text:
         return frozenset()
-    return frozenset(_NUMERIC_RE.findall(text))
+    raw = _NUMERIC_RE.findall(text)
+    return frozenset(s.replace(",", "") for s in raw)
 
 
 # Codex M-14 v2 review fix: divergence-flattening prose guard.
@@ -317,34 +394,52 @@ def _extract_numeric_tokens(text: str) -> frozenset[str]:
 # values verbatim), if an upstream M-70 prose contains language
 # that itself flattens jurisdictions ("regulators worldwide", etc.)
 # the bullet would silently preserve it. Detect + neutralize.
-_FLATTENING_PHRASES: tuple[str, ...] = (
-    "regulators worldwide",
-    "regulators globally",
-    "all regulators",
-    "globally approved",
-    "worldwide approved",
+#
+# Codex M-14 v3 review fix: v2 was exact-substring match. Variants
+# like "approved worldwide", "approved globally", "internationally
+# approved", "consensus across jurisdictions" bypassed it. v3
+# uses regex with `\b` word boundaries and matches the trigger
+# WORDS (worldwide, globally, internationally, consensus,
+# unanimous, international) rather than fixed phrases — any prose
+# containing those flattening signals gets neutralized regardless
+# of surrounding word order.
+_FLATTENING_TRIGGERS: tuple[str, ...] = (
+    "worldwide",
+    "globally",
+    "internationally",
     "international consensus",
     "global consensus",
+    "consensus across jurisdictions",
+    "unanimous",
+    "unanimously",  # adverb form — regex \b requires explicit listing
+    "all regulators",
     "all jurisdictions",
+    "every jurisdiction",
+    "every regulator",
+    "regulators worldwide",
+    "regulators globally",
+)
+
+# Build a single regex that matches any trigger as a word boundary.
+_FLATTENING_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(t) for t in _FLATTENING_TRIGGERS) + r")\b",
+    flags=re.IGNORECASE,
 )
 
 
 def _strip_flattening_phrases(text: str) -> str:
-    """Replace flattening phrases with explicit single-jurisdiction
-    framing so the divergence path can never preserve smuggled
-    consensus language inside a bullet."""
+    """Replace flattening triggers with explicit single-
+    jurisdiction framing so the divergence path can never
+    preserve smuggled consensus language inside a bullet.
+
+    Codex M-14 v3 review fix: regex with word boundaries replaces
+    the v2 exact-substring match. Catches "approved worldwide",
+    "approved globally", "internationally approved", "unanimously
+    approved", "consensus across jurisdictions", etc.
+    """
     if not text:
         return text
-    out = text
-    lower = out.lower()
-    for phrase in _FLATTENING_PHRASES:
-        idx = lower.find(phrase)
-        while idx >= 0:
-            # Replace verbatim slice (case-preserving via length).
-            out = out[:idx] + "[this jurisdiction]" + out[idx + len(phrase):]
-            lower = out.lower()
-            idx = lower.find(phrase)
-    return out
+    return _FLATTENING_RE.sub("[this jurisdiction]", text)
 
 
 # ---------------------------------------------------------------------------
