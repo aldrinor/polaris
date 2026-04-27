@@ -2740,9 +2740,12 @@ def test_v16_decision_log_blocks_insert_or_replace(
     )
     target_log_id = submit_row["log_id"]
     # Direct SQL REPLACE attempting to overwrite the submit row's
-    # actor via primary-key conflict.
+    # actor via primary-key conflict. CRITICAL: don't enable
+    # recursive_triggers — the threat model is that an attacker
+    # opens their own SQLite connection at the default OFF.
+    # v17 (BEFORE INSERT trigger detecting log_id collision) must
+    # catch the bypass regardless of recursive_triggers state.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        conn.execute("PRAGMA recursive_triggers = ON")
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             conn.execute(
                 "INSERT OR REPLACE INTO contract_decision_log "
@@ -2779,8 +2782,8 @@ def test_v16_decision_log_blocks_replace_into(
         draft_id=d.draft_id, org_id="org_a",
     )
     target_log_id = log[0]["log_id"]
+    # v17: trigger fires regardless of recursive_triggers state.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        conn.execute("PRAGMA recursive_triggers = ON")
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             conn.execute(
                 "REPLACE INTO contract_decision_log "

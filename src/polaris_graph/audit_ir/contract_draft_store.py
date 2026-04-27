@@ -404,6 +404,33 @@ BEGIN
     SELECT RAISE(ABORT, 'contract_decision_log is append-only; DELETE is forbidden (the audit trail must survive)');
 END;
 
+-- Codex M-26 v17 review fix: the v16 PRAGMA approach only worked
+-- for store-owned connections. A direct-SQL attacker opens their
+-- own SQLite connection at the default `recursive_triggers = OFF`
+-- and uses `INSERT OR REPLACE INTO contract_decision_log
+-- (log_id, ...)` to delete-then-insert without firing the
+-- BEFORE DELETE trigger.
+--
+-- This trigger catches the REPLACE attack at the BEFORE INSERT
+-- phase (which DOES fire regardless of recursive_triggers state):
+-- if NEW.log_id is non-NULL and a row with that log_id already
+-- exists, it's an INSERT OR REPLACE and must abort.
+--
+-- Legitimate INSERT paths (auto-log triggers + create_draft) do
+-- NOT specify log_id explicitly (it autoincrements), so the
+-- WHEN clause doesn't fire on them. Forged INSERT OR REPLACE
+-- with explicit log_id is the specific attack closed.
+CREATE TRIGGER IF NOT EXISTS trg_decision_log_no_replace
+BEFORE INSERT ON contract_decision_log
+FOR EACH ROW
+WHEN NEW.log_id IS NOT NULL
+     AND EXISTS (
+         SELECT 1 FROM contract_decision_log WHERE log_id = NEW.log_id
+     )
+BEGIN
+    SELECT RAISE(ABORT, 'contract_decision_log is append-only; INSERT OR REPLACE on an existing log_id is forbidden (overwrites the audit record)');
+END;
+
 -- Codex M-26 v7 review fix: SQL triggers encode the cross-row
 -- SOC2 invariants the CHECK constraint cannot express. Even a
 -- direct SQL UPDATE that bypasses the Python helpers fails at
