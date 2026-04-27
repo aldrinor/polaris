@@ -387,6 +387,57 @@ def _job_dep_with_role(required_role: str):
     return _dep
 
 
+def _lookup_review_org(review_id: str) -> str | None:
+    """Resolve review_id → org_id. Returns None if unknown.
+
+    Mirrors `_lookup_job_org` — used by the M-23 review endpoint
+    deps to gate cross-tenant access.
+    """
+    from src.polaris_graph.audit_ir.inspector_router import (
+        get_review_store,
+    )
+    store = get_review_store()
+    # The store's get() is org-scoped, so we have to peek at any
+    # org first to find the review's org. For 404-vs-403 distinction,
+    # we use a direct DB peek that bypasses the org filter.
+    import sqlite3
+    try:
+        conn = sqlite3.connect(
+            store._db_path, isolation_level=None, timeout=5.0,
+        )
+        try:
+            row = conn.execute(
+                "SELECT org_id FROM reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    return row[0]
+
+
+def _review_dep_with_role(required_role: str):
+    from fastapi import Depends
+
+    async def _dep(
+        review_id: str,
+        caller: Caller = Depends(require_authenticated_caller),
+    ) -> Caller:
+        org_id = _lookup_review_org(review_id)
+        if org_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"unknown review_id: {review_id}",
+            )
+        require_org_member_of(caller, org_id, required_role)
+        return caller
+
+    return _dep
+
+
 # ---------------------------------------------------------------------------
 # Convenience: pre-built dependencies for the most common roles
 # ---------------------------------------------------------------------------
@@ -401,3 +452,7 @@ require_upload_member = _upload_dep_with_role("member")
 
 require_job_viewer = _job_dep_with_role("viewer")
 require_job_member = _job_dep_with_role("member")
+
+require_review_viewer = _review_dep_with_role("viewer")
+require_review_member = _review_dep_with_role("member")
+require_review_admin = _review_dep_with_role("admin")

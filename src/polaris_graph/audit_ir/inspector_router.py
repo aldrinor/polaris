@@ -42,6 +42,9 @@ from src.polaris_graph.audit_ir.auth_middleware import (
     require_authenticated_caller,
     require_job_member,
     require_job_viewer,
+    require_review_admin,
+    require_review_member,
+    require_review_viewer,
     require_upload_member,
     require_upload_viewer,
     require_workspace_admin,
@@ -866,6 +869,29 @@ def _set_workspace_store_for_tests(store) -> None:
     _workspace_store = store
 
 
+# ---------------------------------------------------------------------------
+# Review store (M-23) — singleton, lazy-init, test-overridable
+# ---------------------------------------------------------------------------
+
+
+_REVIEW_DB_PATH = REPO_ROOT / "state" / "polaris_reviews.sqlite"
+_review_store = None  # type: ignore[var-annotated]
+
+
+def get_review_store():
+    """Lazy-init the ReviewStore. Tests patch this with a tmp_path store."""
+    from src.polaris_graph.audit_ir.review_store import ReviewStore
+    global _review_store
+    if _review_store is None:
+        _review_store = ReviewStore(_REVIEW_DB_PATH)
+    return _review_store
+
+
+def _set_review_store_for_tests(store) -> None:
+    global _review_store
+    _review_store = store
+
+
 def _get_workspace_files_root() -> Path:
     """Override for tests via _set_workspace_files_root_for_tests."""
     return _WORKSPACE_FILES_ROOT_OVERRIDE or _WORKSPACE_FILES_ROOT
@@ -1243,3 +1269,265 @@ async def inspector_page(slug: str) -> HTMLResponse:
     html = html.replace("{{ run_slug }}", slug)
     html = html.replace("{{ run_id }}", summary.run_id)
     return HTMLResponse(content=html)
+
+
+# ---------------------------------------------------------------------------
+# Review queue (M-23)
+# ---------------------------------------------------------------------------
+
+
+class CreateReviewRequest(BaseModel):
+    run_slug: str = Field(..., description="audit slug being reviewed")
+    run_id: str = Field(..., description="specific run_id under review")
+    prior_review_id: str | None = Field(
+        default=None,
+        description=(
+            "If this review chains from a prior NEEDS_CHANGES review "
+            "(re-review of the same audit shape after re-running), "
+            "pass the prior review_id; new review's version = prior + 1."
+        ),
+    )
+
+
+class ReviewDecisionRequest(BaseModel):
+    decision: str = Field(
+        ...,
+        description="One of: approved, rejected, needs_changes",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Reviewer notes; required for rejected/needs_changes.",
+    )
+
+
+@router.post("/api/inspector/reviews")
+async def create_review(
+    req: CreateReviewRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Enqueue a run for human review. Members and above can
+    create; the new review is org-scoped to caller.org_id."""
+    from src.polaris_graph.audit_ir.auth_middleware import (
+        require_org_member_of,
+    )
+    require_org_member_of(caller, caller.org_id, "member")
+    from src.polaris_graph.audit_ir.review_store import (
+        ReviewStateError,
+        review_to_dict,
+    )
+    store = get_review_store()
+    try:
+        item = store.enqueue(
+            org_id=caller.org_id,
+            run_slug=req.run_slug,
+            run_id=req.run_id,
+            prior_review_id=req.prior_review_id,
+        )
+    except ReviewStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return review_to_dict(item)
+
+
+@router.get("/api/inspector/reviews")
+async def list_reviews(
+    caller: Caller = Depends(require_authenticated_caller),
+    status: str | None = None,
+) -> dict:
+    """List reviews scoped to the caller's org. Optional `status`
+    filter (case-sensitive enum value, e.g. 'pending')."""
+    from src.polaris_graph.audit_ir.review_store import (
+        ReviewStatus,
+        review_to_dict,
+    )
+    status_filter: ReviewStatus | None = None
+    if status:
+        try:
+            status_filter = ReviewStatus(status)
+        except ValueError:
+            valid = ", ".join(s.value for s in ReviewStatus)
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown status {status!r}; expected one of {valid}",
+            )
+    store = get_review_store()
+    items = store.list_by_org(org_id=caller.org_id, status=status_filter)
+    return {
+        "count": len(items),
+        "reviews": [review_to_dict(i) for i in items],
+    }
+
+
+@router.get("/api/inspector/reviews/{review_id}")
+async def get_review(
+    review_id: str,
+    caller: Caller = Depends(require_review_viewer),
+) -> dict:
+    from src.polaris_graph.audit_ir.review_store import review_to_dict
+    item = get_review_store().get(
+        review_id=review_id, org_id=caller.org_id,
+    )
+    if item is None:
+        # Should never happen — require_review_viewer already 404'd.
+        raise HTTPException(
+            status_code=404, detail=f"unknown review_id: {review_id}",
+        )
+    return review_to_dict(item)
+
+
+@router.post("/api/inspector/reviews/{review_id}/claim")
+async def claim_review(
+    review_id: str,
+    caller: Caller = Depends(require_review_member),
+) -> dict:
+    from src.polaris_graph.audit_ir.review_store import (
+        ReviewStateError,
+        review_to_dict,
+    )
+    try:
+        item = get_review_store().claim(
+            review_id=review_id,
+            org_id=caller.org_id,
+            user_id=caller.user_id,
+        )
+    except ReviewStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return review_to_dict(item)
+
+
+@router.post("/api/inspector/reviews/{review_id}/decision")
+async def decide_review(
+    review_id: str,
+    req: ReviewDecisionRequest,
+    caller: Caller = Depends(require_review_member),
+) -> dict:
+    from src.polaris_graph.audit_ir.review_store import (
+        ReviewStateError,
+        ReviewStatus,
+        review_to_dict,
+    )
+    valid_decisions = {
+        "approved": ReviewStatus.APPROVED,
+        "rejected": ReviewStatus.REJECTED,
+        "needs_changes": ReviewStatus.NEEDS_CHANGES,
+    }
+    if req.decision not in valid_decisions:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown decision {req.decision!r}; expected one of "
+                f"{', '.join(valid_decisions)}"
+            ),
+        )
+    if req.decision in ("rejected", "needs_changes") and not (
+        req.notes and req.notes.strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"decision {req.decision!r} requires non-empty notes "
+                f"explaining why"
+            ),
+        )
+
+    store = get_review_store()
+    try:
+        if req.decision == "approved":
+            item = store.approve(
+                review_id=review_id, org_id=caller.org_id,
+                user_id=caller.user_id, notes=req.notes,
+            )
+        elif req.decision == "rejected":
+            item = store.reject(
+                review_id=review_id, org_id=caller.org_id,
+                user_id=caller.user_id, notes=req.notes,
+            )
+        else:  # needs_changes
+            item = store.request_changes(
+                review_id=review_id, org_id=caller.org_id,
+                user_id=caller.user_id, notes=req.notes,
+            )
+    except ReviewStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return review_to_dict(item)
+
+
+@router.get("/api/inspector/reviews/{review_id}/transitions")
+async def list_review_transitions(
+    review_id: str,
+    caller: Caller = Depends(require_review_viewer),
+) -> dict:
+    """Append-only audit log for one review."""
+    rows = get_review_store().list_transitions(
+        review_id=review_id, org_id=caller.org_id,
+    )
+    return {"count": len(rows), "transitions": rows}
+
+
+@router.get("/api/inspector/reviews/{review_id}/diff")
+async def get_review_version_diff(
+    review_id: str,
+    caller: Caller = Depends(require_review_viewer),
+) -> dict:
+    """M-23: version diff between this review's run and the
+    prior review's run (only meaningful if prior_review_id is set).
+
+    Returns the M-16 RunDiff projection. 400 if the review has no
+    prior version.
+    """
+    from src.polaris_graph.audit_ir.review_store import review_to_dict
+    from src.polaris_graph.audit_ir.run_diff import (
+        diff_runs, diff_to_dict,
+    )
+    store = get_review_store()
+    item = store.get(review_id=review_id, org_id=caller.org_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404, detail=f"unknown review_id: {review_id}",
+        )
+    if item.prior_review_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "this review has no prior version; version diff is "
+                "only defined for chained reviews (re-reviews of the "
+                "same audit shape)"
+            ),
+        )
+    prior = store.get(
+        review_id=item.prior_review_id, org_id=caller.org_id,
+    )
+    if prior is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"review {review_id!r} declares prior "
+                f"{item.prior_review_id!r} but it cannot be loaded"
+            ),
+        )
+
+    summary_a = find_run_by_slug(prior.run_slug)
+    summary_b = find_run_by_slug(item.run_slug)
+    if summary_a is None or summary_b is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "underlying run artifacts unavailable for diff; "
+                "expected runs for both versions to be mounted"
+            ),
+        )
+    try:
+        ir_a = load_audit_ir(summary_a.artifact_dir)
+        ir_b = load_audit_ir(summary_b.artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"cannot load AuditIR: {exc}",
+        )
+    try:
+        d = diff_runs(ir_a, ir_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "prior_review": review_to_dict(prior),
+        "current_review": review_to_dict(item),
+        "diff": diff_to_dict(d),
+    }

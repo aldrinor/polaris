@@ -65,6 +65,10 @@ def _reset_phase_b_singletons():
                 pass
             _ir._job_worker = None
         _ir._job_queue = None
+        # M-23: also reset the review_store singleton so tests
+        # that share the inspector_router module don't carry
+        # state across one another.
+        _ir._review_store = None
         _reset_runners_for_tests()
 
     _reset()
