@@ -1608,3 +1608,65 @@ def test_trigger_blocks_clause_delete_on_terminal_draft(
                 "DELETE FROM contract_clauses WHERE clause_id = ?",
                 (c.clause_id,),
             )
+
+
+def test_trigger_blocks_clause_insert_on_terminal_draft_approved(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v7 finding: 'direct SQL can INSERT a new row
+    into contract_clauses after the parent draft is already
+    approved. The row lands, list_clauses shows an added pending
+    clause, assert_approved_for_send still passes.' v8 adds the
+    symmetric BEFORE INSERT trigger."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    # Draft now APPROVED. Direct SQL INSERT of a new clause
+    # would let an attacker stuff prose into the contract after
+    # human review.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "INSERT INTO contract_clauses (clause_id, draft_id, "
+                "title, body, decision, created_at) VALUES "
+                "('cls_evil', ?, 'Backdoor', 'malicious', "
+                "'pending', 0.0)",
+                (d.draft_id,),
+            )
+    # And the clause list is unchanged.
+    clauses = store.list_clauses(draft_id=d.draft_id, org_id="org_a")
+    assert all(c.title != "Backdoor" for c in clauses)
+
+
+def test_trigger_blocks_clause_insert_on_terminal_draft_rejected(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: cannot INSERT clauses on a REJECTED draft either."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "INSERT INTO contract_clauses (clause_id, draft_id, "
+                "title, body, decision, created_at) VALUES "
+                "('cls_evil', ?, 'Late add', 'x', 'pending', 0.0)",
+                (d.draft_id,),
+            )

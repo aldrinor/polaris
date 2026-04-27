@@ -85,6 +85,13 @@ v7 closes all three:
       * `trg_freeze_clauses_on_terminal_*`: clauses are immutable
         after the parent draft reaches APPROVED / REJECTED.
 
+Codex M-26 v8 review fix: v7's freeze triggers covered UPDATE
+and DELETE on contract_clauses but not INSERT. Direct SQL could
+still INSERT a fresh `decision='pending'` clause onto an APPROVED
+draft, which `assert_approved_for_send` then passed because it
+only checks draft.status. v8 adds the symmetric BEFORE INSERT
+trigger so terminal drafts have NO mutable clause surface.
+
 LAW VII compliance: stdlib only. Endpoints wired separately.
 """
 
@@ -409,6 +416,26 @@ WHEN EXISTS (
 )
 BEGIN
     SELECT RAISE(ABORT, 'cannot delete clauses on a terminal draft (approved or rejected)');
+END;
+
+-- Codex M-26 v8 review fix: v7 froze terminal-draft clause UPDATE
+-- and DELETE but not INSERT. Direct SQL could INSERT a new
+-- clause with `draft_id=<approved draft>, decision='pending'`,
+-- landing a PENDING clause on an APPROVED draft —
+-- assert_approved_for_send still passed because it only checks
+-- draft.status == 'approved'. v8 adds the symmetric BEFORE INSERT
+-- trigger to fully freeze clauses once the parent draft is
+-- terminal: no UPDATE, no DELETE, no INSERT.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_insert
+BEFORE INSERT ON contract_clauses
+FOR EACH ROW
+WHEN EXISTS (
+    SELECT 1 FROM contract_drafts
+    WHERE draft_id = NEW.draft_id
+      AND status IN ('approved', 'rejected')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'cannot insert clauses on a terminal draft (approved or rejected)');
 END;
 """
 
