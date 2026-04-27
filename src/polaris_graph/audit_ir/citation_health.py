@@ -21,6 +21,7 @@ operator decides whether a yellow audit ships.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
@@ -54,6 +55,7 @@ class CitationIssueCode(Enum):
     """
 
     BROKEN_REF = "broken_ref"
+    BROKEN_REPORT_CITATION = "broken_report_citation"
     INVALID_SPAN = "invalid_span"
     INVALID_TIER = "invalid_tier"
     DUPLICATE_EVIDENCE_ID = "duplicate_evidence_id"
@@ -312,6 +314,72 @@ def _check_verified_report(
     return issues, referenced
 
 
+# Codex M-17 v1 review fix: report.md `[N]` citations are a
+# first-class renderer contract — the inspector / audit-bundle
+# delivery surface displays them, and customers expect [N] in the
+# rendered prose to resolve to a bibliography entry. Bibliography
+# nums are positive integers, never zero, and we only flag bare
+# `[N]` patterns (not `[#ev:...]` provenance tokens, which are
+# handled by _check_verified_report).
+#
+# We strip `[#ev:...]` first to avoid accidentally matching the
+# integer inside an evidence span like `[#ev:ev_001:5-10]`, and
+# we strip fenced code blocks so a markdown list "[1] Item" inside
+# a code block doesn't surface as a broken citation.
+_REPORT_CITATION_RE = re.compile(r"\[(\d+)\]")
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`]*`")
+
+
+def _check_report_citations(
+    report_md: str,
+    bibliography: tuple[BibliographyEntry, ...],
+) -> list[CitationHealthIssue]:
+    """Codex M-17 v1 review fix: report.md uses bare `[N]` markers
+    to cite bibliography entries by number. Every `[N]` in the
+    rendered prose must resolve to a bibliography entry with that
+    num, or the renderer surfaces a dead link to the customer.
+
+    Provenance tokens (`[#ev:...]`), fenced code blocks, and inline
+    backtick code spans are stripped before scanning to avoid false
+    positives on integer-looking content that isn't a citation.
+    """
+    issues: list[CitationHealthIssue] = []
+    if not report_md:
+        return issues
+
+    cleaned = _CODE_FENCE_RE.sub("", report_md)
+    cleaned = _INLINE_CODE_RE.sub("", cleaned)
+    cleaned = _PROVENANCE_TOKEN_RE.sub("", cleaned)
+
+    bib_nums = {entry.num for entry in bibliography}
+    seen: set[int] = set()
+
+    for match in _REPORT_CITATION_RE.finditer(cleaned):
+        try:
+            num = int(match.group(1))
+        except ValueError:  # defensive — regex captures \d+ only
+            continue
+        if num in seen:
+            continue
+        seen.add(num)
+        if num not in bib_nums:
+            issues.append(
+                CitationHealthIssue(
+                    severity=IssueSeverity.ERROR,
+                    code=CitationIssueCode.BROKEN_REPORT_CITATION,
+                    message=(
+                        f"report.md cites [{num}] but no bibliography "
+                        f"entry has num={num}; the rendered prose "
+                        f"shows a dead link to the customer"
+                    ),
+                    bib_num=num,
+                )
+            )
+    return issues
+
+
 def _check_orphans(
     bibliography: tuple[BibliographyEntry, ...],
     referenced_ids: set[str],
@@ -363,8 +431,13 @@ def check_citation_health(ir: AuditIR) -> CitationHealthReport:
         ir.verified_report, evidence_id_index
     )
     orphan_issues = _check_orphans(ir.bibliography, referenced_ids)
+    report_citation_issues = _check_report_citations(
+        ir.report_md, ir.bibliography
+    )
 
-    all_issues = tuple(bib_issues + sent_issues + orphan_issues)
+    all_issues = tuple(
+        bib_issues + sent_issues + orphan_issues + report_citation_issues
+    )
 
     err = sum(1 for i in all_issues if i.severity == IssueSeverity.ERROR)
     warn = sum(1 for i in all_issues if i.severity == IssueSeverity.WARNING)

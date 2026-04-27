@@ -38,6 +38,7 @@ def _make_minimal_ir(
     sentences: list[ReportSentence] | None = None,
     bibliography: tuple[BibliographyEntry, ...] = (),
     tier_fractions: dict[str, float] | None = None,
+    report_md: str = "",
 ) -> AuditIR:
     """Minimum-viable AuditIR for citation-health tests."""
     from src.polaris_graph.audit_ir.loader import (
@@ -89,7 +90,7 @@ def _make_minimal_ir(
     )
     return AuditIR(
         ir_schema_version=IR_SCHEMA_VERSION, run_id=run_id,
-        artifact_dir=Path("/tmp"), report_md="", manifest=manifest,
+        artifact_dir=Path("/tmp"), report_md=report_md, manifest=manifest,
         bibliography=bibliography, contradictions=(),
         frame_coverage=frame_coverage, tier_mix=tier_mix,
         verified_report=verified, model_provenance=None,
@@ -301,6 +302,107 @@ def test_dropped_sentence_with_no_tokens_does_not_surface() -> None:
 # ---------------------------------------------------------------------------
 # WARNING cases (drive overall_status → yellow if no errors)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Codex M-17 v1 review fix: report.md `[N]` citation resolution
+# ---------------------------------------------------------------------------
+
+
+def test_broken_report_citation_surfaces_as_error() -> None:
+    """A `[N]` in report.md without a matching bibliography num is
+    a renderer-side dead link. Codex M-17 v1 review pulled this
+    check into M-17 — it complements the token-level broken_ref
+    check (which catches verified_report integrity) by covering
+    the rendered-prose contract."""
+    bib = (_bib(1, "ev_a"), _bib(2, "ev_b"))
+    sentences = [_sentence("c1", "ok", tokens=(_tok("ev_a", 0, 50),))]
+    report_md = (
+        "## Findings\n"
+        "Tirzepatide reduced HbA1c by 1.5% [1]. "
+        "It also lowered weight by 6kg [3]. "
+        "Phantom citation [99] should also fire.\n"
+    )
+    ir = _make_minimal_ir(
+        bibliography=bib, sentences=sentences, report_md=report_md,
+    )
+    report = check_citation_health(ir)
+    codes = [i.code for i in report.issues]
+    broken = [
+        i for i in report.issues
+        if i.code == CitationIssueCode.BROKEN_REPORT_CITATION
+    ]
+    assert len(broken) == 2, f"expected 2 broken report citations, got {broken}"
+    bib_nums = {i.bib_num for i in broken}
+    assert bib_nums == {3, 99}
+    for issue in broken:
+        assert issue.severity == IssueSeverity.ERROR
+    assert report.summary.overall_status == "red"
+
+
+def test_intact_report_citations_do_not_surface() -> None:
+    bib = (_bib(1, "ev_a"), _bib(2, "ev_b"), _bib(3, "ev_c"))
+    sentences = [_sentence("c1", "ok", tokens=(_tok("ev_a", 0, 50),)),
+                 _sentence("c2", "ok2", tokens=(_tok("ev_b", 0, 50),)),
+                 _sentence("c3", "ok3", tokens=(_tok("ev_c", 0, 50),))]
+    report_md = "Claim A [1]. Claim B [2]. Claim C [3]."
+    ir = _make_minimal_ir(
+        bibliography=bib, sentences=sentences, report_md=report_md,
+    )
+    report = check_citation_health(ir)
+    codes = {i.code for i in report.issues}
+    assert CitationIssueCode.BROKEN_REPORT_CITATION not in codes
+
+
+def test_provenance_token_inner_integers_not_treated_as_citations() -> None:
+    """`[#ev:ev_001:5-10]` contains digits that COULD match the
+    `[N]` regex if we were sloppy. M-17 v2 strips provenance tokens
+    before scanning to avoid this false positive."""
+    bib = (_bib(1, "ev_a"),)
+    sentences = [_sentence("c1", "ok", tokens=(_tok("ev_a", 0, 50),))]
+    report_md = (
+        "Tirzepatide reduced HbA1c [#ev:ev_001:5-10] from baseline. "
+        "See [1] for details."
+    )
+    ir = _make_minimal_ir(
+        bibliography=bib, sentences=sentences, report_md=report_md,
+    )
+    report = check_citation_health(ir)
+    codes = {i.code for i in report.issues}
+    assert CitationIssueCode.BROKEN_REPORT_CITATION not in codes
+
+
+def test_code_block_citations_do_not_surface() -> None:
+    """Citations inside fenced code blocks are non-rendered example
+    text — must not be flagged."""
+    bib = (_bib(1, "ev_a"),)
+    sentences = [_sentence("c1", "ok", tokens=(_tok("ev_a", 0, 50),))]
+    report_md = (
+        "Real citation [1].\n\n"
+        "```\n"
+        "Example: list of numbers [99] [100] [101]\n"
+        "```\n"
+    )
+    ir = _make_minimal_ir(
+        bibliography=bib, sentences=sentences, report_md=report_md,
+    )
+    report = check_citation_health(ir)
+    codes = {i.code for i in report.issues}
+    assert CitationIssueCode.BROKEN_REPORT_CITATION not in codes
+
+
+def test_inline_code_citations_do_not_surface() -> None:
+    """Citations inside inline backtick spans are documentation
+    examples — must not be flagged."""
+    bib = (_bib(1, "ev_a"),)
+    sentences = [_sentence("c1", "ok", tokens=(_tok("ev_a", 0, 50),))]
+    report_md = "Use `[N]` markers like [1] for citations."
+    ir = _make_minimal_ir(
+        bibliography=bib, sentences=sentences, report_md=report_md,
+    )
+    report = check_citation_health(ir)
+    codes = {i.code for i in report.issues}
+    assert CitationIssueCode.BROKEN_REPORT_CITATION not in codes
 
 
 def test_orphan_bibliography_entry_surfaces_as_warning() -> None:
