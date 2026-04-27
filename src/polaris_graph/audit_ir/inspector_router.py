@@ -835,6 +835,73 @@ async def list_upload_chunks(upload_id: str) -> dict:
     return {"chunks": store.list_chunks(upload_id)}
 
 
+# ---------------------------------------------------------------------------
+# Question-Bound Corpus Brief (M-12)
+# ---------------------------------------------------------------------------
+
+
+# Tests inject a fake LlmClient via this hook so unit tests don't
+# need network credentials. None means "use the real OpenRouter
+# client lazily".
+_BRIEF_LLM_OVERRIDE = None  # type: ignore[var-annotated]
+
+
+def _set_brief_llm_for_tests(llm) -> None:
+    global _BRIEF_LLM_OVERRIDE
+    _BRIEF_LLM_OVERRIDE = llm
+
+
+def _get_brief_llm():
+    """Resolve the LlmClient for /brief.
+
+    Tests set _BRIEF_LLM_OVERRIDE to a fake. Production lazily
+    constructs an OpenRouterBriefClient on first use.
+    """
+    if _BRIEF_LLM_OVERRIDE is not None:
+        return _BRIEF_LLM_OVERRIDE
+    from src.polaris_graph.audit_ir.corpus_brief import OpenRouterBriefClient
+    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    return OpenRouterBriefClient(OpenRouterClient())
+
+
+class ComposeBriefRequest(BaseModel):
+    question: str = Field(..., description="The single question to answer.")
+    top_k: int = Field(default=8, ge=1, le=50)
+    min_score: float = Field(default=0.5, ge=0.0)
+
+
+@router.post("/api/inspector/workspaces/{workspace_id}/brief")
+async def compose_workspace_brief(
+    workspace_id: str, req: ComposeBriefRequest
+) -> dict:
+    """M-12 Question-Bound Corpus Brief endpoint.
+
+    Returns a brief whose paragraphs are either supported (with
+    inline citations to retrieved chunks) or labeled
+    insufficient_support. Per FINAL_PLAN: "every paragraph cited
+    or 'insufficient support'."
+    """
+    from src.polaris_graph.audit_ir.corpus_brief import (
+        brief_to_dict,
+        compose_brief,
+    )
+    store = get_workspace_store()
+    if store.get_workspace(workspace_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"unknown workspace: {workspace_id}",
+        )
+    llm = _get_brief_llm()
+    try:
+        brief = compose_brief(
+            store=store, workspace_id=workspace_id,
+            question=req.question, llm=llm,
+            top_k=req.top_k, min_score=req.min_score,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return brief_to_dict(brief)
+
+
 @router.get("/inspector/{slug}", response_class=HTMLResponse)
 async def inspector_page(slug: str) -> HTMLResponse:
     """Serve the Evidence Inspector HTML shell for a given run.

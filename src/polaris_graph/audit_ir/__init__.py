@@ -73,6 +73,21 @@ from src.polaris_graph.audit_ir.parser_runner import (
     TextParser,
     select_parser,
 )
+from src.polaris_graph.audit_ir.corpus_retriever import (
+    DEFAULT_TOP_K,
+    DEFAULT_MIN_SCORE,
+    RetrievedChunk,
+    retrieve_chunks,
+)
+from src.polaris_graph.audit_ir.corpus_brief import (
+    BriefCitation,
+    BriefParagraph,
+    CorpusBrief,
+    LlmClient,
+    OpenRouterBriefClient,
+    brief_to_dict,
+    compose_brief,
+)
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,
