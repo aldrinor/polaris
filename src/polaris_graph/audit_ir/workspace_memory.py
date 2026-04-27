@@ -46,7 +46,6 @@ dependency on require_workspace_*.
 
 from __future__ import annotations
 
-import re
 import sqlite3
 import time
 import uuid
@@ -137,30 +136,31 @@ CREATE INDEX IF NOT EXISTS idx_workspace_memory_used
 
 
 # ---------------------------------------------------------------------------
-# Tokenization (matches the M-10 stopword/tokenizer pattern so a
-# question routed by template_classifier and a memory-retrieval
-# call see the same surface vocabulary).
+# Tokenization — DELEGATES to the M-10 template_classifier surface
+# so both modules see identical vocabulary semantics (Unicode-
+# hyphen normalization, Roman numeral collapse, compact drug-class
+# split, stopword filter). Codex M-21 v1 review surfaced that the
+# original ad-hoc tokenizer here drifted: "GLP-1" did not retrieve
+# "GLP1 receptor agonist", "phase 3" missed "phase III", and
+# "type 2 diabetes" only partially overlapped "type II diabetes".
+# Reusing the M-10 path closes those drift gaps in one shot.
 # ---------------------------------------------------------------------------
 
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
-# Conservative stopword list — function words only. Medical/clinical
-# content is never filtered.
-_STOPWORDS: frozenset[str] = frozenset({
-    "a", "an", "and", "are", "as", "at", "be", "by", "do", "does",
-    "for", "from", "has", "have", "i", "if", "in", "into", "is",
-    "it", "its", "of", "on", "or", "that", "the", "their", "them",
-    "they", "this", "to", "was", "were", "what", "when", "where",
-    "which", "who", "why", "will", "with", "you", "your",
-})
-
-
 def _tokenize(text: str) -> set[str]:
-    """Lowercase + alphanumeric token set, stopwords removed."""
+    """Stopword-filtered token set using the M-10 tokenizer.
+
+    Returns a SET (order-insensitive) for Jaccard scoring. The
+    M-10 functions handle Unicode hyphen normalization, Roman
+    numerals (II/III/IV/VI..IX -> Arabic), compact drug-class
+    forms (GLP1 -> [glp, 1]), and 1-character noise suppression.
+    """
+    from src.polaris_graph.audit_ir.template_classifier import (
+        _filter_stopwords, _tokenize_raw,
+    )
     if not text:
         return set()
-    raw = _TOKEN_RE.findall(text.lower())
-    return {t for t in raw if t not in _STOPWORDS and len(t) > 1}
+    return set(_filter_stopwords(_tokenize_raw(text)))
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +382,14 @@ class WorkspaceMemoryStore:
         Per FINAL_PLAN, memory must be user-removable. Hard delete
         (no soft-delete tombstones) so customers can guarantee a
         deletion request actually purged the underlying data.
+
+        Codex M-21 v1 review fix: WAL journal mode keeps deleted
+        bytes in `*-wal` until the next checkpoint, so a forensic
+        scan of the file would still find them. After every
+        delete we issue `PRAGMA wal_checkpoint(TRUNCATE)` which
+        flushes the WAL into the main DB and shrinks the WAL file
+        to zero bytes. This is the strongest purge guarantee
+        SQLite gives us in WAL mode.
         """
         with self._connect() as conn:
             cur = conn.execute(
@@ -389,20 +397,41 @@ class WorkspaceMemoryStore:
                 "WHERE entry_id = ? AND workspace_id = ?",
                 (entry_id, workspace_id),
             )
-        return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+            if deleted:
+                self._wal_truncate(conn)
+        return deleted
 
     def delete_all_for_workspace(self, *, workspace_id: str) -> int:
         """Bulk-delete every entry for a workspace.
 
         Used by workspace deletion / audit-bundle "wipe" requests.
-        Returns the number of rows deleted.
+        Returns the number of rows deleted. Codex M-21 v1 fix:
+        WAL is truncated after the delete (see delete_entry).
         """
         with self._connect() as conn:
             cur = conn.execute(
                 "DELETE FROM workspace_memory WHERE workspace_id = ?",
                 (workspace_id,),
             )
-        return cur.rowcount
+            deleted = cur.rowcount
+            if deleted > 0:
+                self._wal_truncate(conn)
+        return deleted
+
+    @staticmethod
+    def _wal_truncate(conn: sqlite3.Connection) -> None:
+        """Flush WAL into the main DB and shrink the WAL file to
+        zero bytes. Best-effort: if `wal_checkpoint(TRUNCATE)`
+        is unavailable, fall back to PASSIVE which still flushes
+        but doesn't shrink the file."""
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.OperationalError:
+            try:
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except sqlite3.OperationalError:
+                pass
 
 
 # ---------------------------------------------------------------------------

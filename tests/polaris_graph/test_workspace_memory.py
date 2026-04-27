@@ -487,6 +487,109 @@ def test_endpoint_delete_returns_404_for_missing(tmp_path: Path) -> None:
     assert res.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Codex M-21 v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_glp1_query_retrieves_glp_minus_1_entry(
+    store: WorkspaceMemoryStore,
+) -> None:
+    """Codex M-21 v1: 'GLP-1' query did not retrieve 'GLP1
+    receptor agonist' entry because the v1 tokenizer didn't
+    handle the compact-form split. v2 reuses M-10 tokenizer."""
+    store.append_entry(
+        workspace_id="ws_a",
+        claim_text="GLP1 receptor agonist for type 2 diabetes",
+        source_url="https://x.example", source_tier="T1",
+    )
+    results = store.retrieve(workspace_id="ws_a", query="GLP-1")
+    assert len(results) == 1
+
+
+def test_phase_3_matches_phase_iii(store: WorkspaceMemoryStore) -> None:
+    """Codex M-21 v1: 'phase 3' vs 'phase III' overlapped only on
+    'phase'. v2 normalizes Roman numerals."""
+    store.append_entry(
+        workspace_id="ws_a",
+        claim_text="Tirzepatide phase III trial outcomes",
+        source_url="https://x.example", source_tier="T1",
+    )
+    results = store.retrieve(
+        workspace_id="ws_a", query="tirzepatide phase 3 outcomes",
+    )
+    assert len(results) == 1
+
+
+def test_type_2_diabetes_matches_type_ii_diabetes(
+    store: WorkspaceMemoryStore,
+) -> None:
+    """Codex M-21 v1: 'type 2 diabetes' vs 'type II diabetes' only
+    partially overlapped. v2 normalizes Roman numerals."""
+    store.append_entry(
+        workspace_id="ws_a",
+        claim_text="Empagliflozin in type II diabetes outcomes",
+        source_url="https://x.example", source_tier="T1",
+    )
+    results = store.retrieve(
+        workspace_id="ws_a",
+        query="empagliflozin type 2 diabetes outcomes",
+    )
+    assert len(results) == 1
+    # Strong match — should score quite high.
+    assert results[0][1] > 0.5
+
+
+def test_delete_entry_truncates_wal(
+    store: WorkspaceMemoryStore,
+) -> None:
+    """Codex M-21 v1: after `delete_entry`, the WAL file still
+    contained the deleted bytes. v2 issues
+    `PRAGMA wal_checkpoint(TRUNCATE)` after every delete; assert
+    the WAL file shrinks to <= a small threshold so deleted bytes
+    aren't lingering for a forensic scan."""
+    e = store.append_entry(
+        workspace_id="ws_a",
+        claim_text="this is a deletable secret claim",
+        source_url="https://secret.example",
+        source_tier="T1",
+    )
+    # Size of WAL after append (could be hundreds-thousands of
+    # bytes depending on page size — we don't compare against this).
+    wal_path = store._db_path.parent / (store._db_path.name + "-wal")
+    pre_delete_size = wal_path.stat().st_size if wal_path.exists() else 0
+    assert pre_delete_size > 0  # sanity: WAL is in use
+
+    deleted = store.delete_entry(workspace_id="ws_a", entry_id=e.entry_id)
+    assert deleted is True
+    # After the truncate, WAL file should be empty (0 bytes) or
+    # at most a header (32-byte file).
+    post_delete_size = wal_path.stat().st_size if wal_path.exists() else 0
+    assert post_delete_size <= 32, (
+        f"WAL file should be truncated after delete, got "
+        f"{post_delete_size} bytes (was {pre_delete_size} before)"
+    )
+
+
+def test_delete_all_for_workspace_truncates_wal(
+    store: WorkspaceMemoryStore,
+) -> None:
+    for i in range(5):
+        store.append_entry(
+            workspace_id="ws_a",
+            claim_text=f"secret claim {i}",
+            source_url=f"https://x.example/{i}",
+            source_tier="T1",
+        )
+    wal_path = store._db_path.parent / (store._db_path.name + "-wal")
+    pre = wal_path.stat().st_size if wal_path.exists() else 0
+    assert pre > 0
+    deleted = store.delete_all_for_workspace(workspace_id="ws_a")
+    assert deleted == 5
+    post = wal_path.stat().st_size if wal_path.exists() else 0
+    assert post <= 32
+
+
 def test_endpoint_delete_succeeds(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
     app, mem_store, _, ws_id, org_id = _make_app(tmp_path)
