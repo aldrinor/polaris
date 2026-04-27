@@ -882,6 +882,103 @@ def test_direct_transition_cannot_reject_without_bookkeeping(
     assert rejected.decision_rationale == "not a fit"
 
 
+# ---------------------------------------------------------------------------
+# Codex M-26 v3 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_direct_transition_cannot_revive_rejected_to_awaiting(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v3: v3 forced from_states=(AWAITING_APPROVAL,)
+    only when to_state is APPROVED/REJECTED. A direct caller
+    could still pass `to_state=AWAITING_APPROVAL,
+    from_states=(REJECTED,)` to revive a terminal-rejected
+    draft. v4 forbids ANY transition out of terminal states."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    snap = store.get_draft(draft_id=d.draft_id, org_id="org_a")
+    assert snap is not None
+    assert snap.status == ContractDraftStatus.REJECTED
+
+    # Direct call attempting to revive REJECTED → AWAITING_APPROVAL.
+    with pytest.raises(ContractDraftStateError, match="terminal"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.REJECTED,),
+            to_state=ContractDraftStatus.AWAITING_APPROVAL,
+        )
+
+
+def test_direct_transition_cannot_revive_approved_to_draft(
+    store: ContractDraftStore,
+) -> None:
+    """Symmetric: APPROVED is also terminal."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    with pytest.raises(ContractDraftStateError, match="terminal"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.APPROVED,),
+            to_state=ContractDraftStatus.DRAFT,
+        )
+
+
+def test_direct_transition_reject_requires_rationale(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v3: v3 only enforced rationale-required for
+    APPROVED. A direct REJECTED transition with rationale=None
+    or "" produced status=rejected, decision_rationale=NULL —
+    a SOC2 audit-trail violation. v4 enforces rationale for
+    REJECTED inside _transition_draft as well."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.REJECTED,
+            rationale=None,  # bypass attempt
+        )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.REJECTED,
+            rationale="   ",  # whitespace only
+        )
+
+
 def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
     d = _create_basic(store)
     c = _add_clause(store, d)

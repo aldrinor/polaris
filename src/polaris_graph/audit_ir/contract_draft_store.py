@@ -617,7 +617,7 @@ class ContractDraftStore:
             raise ContractDraftStateError(
                 "actor_user_id must be non-empty"
             )
-        # Codex M-26 v2 review fix: caller-supplied from_states
+        # Codex M-26 v2/v3 review fix: caller-supplied from_states
         # could be used to resurrect terminal states. v3 ENFORCES
         # the canonical from_states for terminal transitions
         # regardless of caller input. APPROVED and REJECTED can
@@ -626,6 +626,31 @@ class ContractDraftStore:
             ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
         ):
             from_states = (ContractDraftStatus.AWAITING_APPROVAL,)
+        # Codex M-26 v3 review fix: terminal states are TRULY
+        # terminal. v3 only forced from_states for transitions
+        # TO terminal — but a direct caller could still pass
+        # `to_state=AWAITING_APPROVAL, from_states=(REJECTED,)`
+        # to revive a rejected draft. v4 forbids ANY transition
+        # OUT of APPROVED or REJECTED — these states cannot
+        # appear in the from_states set for non-terminal targets.
+        if to_state not in (
+            ContractDraftStatus.APPROVED, ContractDraftStatus.REJECTED,
+        ):
+            forbidden_from = {
+                ContractDraftStatus.APPROVED,
+                ContractDraftStatus.REJECTED,
+            }
+            from_states = tuple(
+                s for s in from_states if s not in forbidden_from
+            )
+            if not from_states:
+                # Caller asked us to transition non-terminally
+                # only from terminal states — that's never legal.
+                raise ContractDraftStateError(
+                    f"cannot transition out of a terminal state "
+                    f"(APPROVED / REJECTED) to {to_state.value!r}; "
+                    f"terminal states are final"
+                )
         # Codex M-26 v2 review fix: caller-supplied mark_decided /
         # set_approver / set_rejecter could be False for an
         # APPROVED transition, leaving status=approved with
@@ -665,6 +690,19 @@ class ContractDraftStore:
                         f"{from_values} to transition to "
                         f"{to_state.value!r}"
                     )
+
+                # Codex M-26 v3 fix: REJECTED transitions also
+                # require non-empty rationale. v3 only enforced
+                # rationale for APPROVED, so a direct
+                # _transition_draft(to_state=REJECTED) call
+                # produced status=rejected with rationale=NULL.
+                if to_state == ContractDraftStatus.REJECTED:
+                    if rationale is None or not rationale.strip():
+                        raise ContractDraftStateError(
+                            "rejection rationale must be non-empty "
+                            "(LAW II — every rejection is part of "
+                            "the SOC2 audit trail)"
+                        )
 
                 # Codex M-26 v1 fix: enforce APPROVAL gate
                 # invariants INSIDE the lock for any to_state ==
