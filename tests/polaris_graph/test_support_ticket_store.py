@@ -149,6 +149,44 @@ def test_resolve_marks_resolved(store: SupportTicketStore) -> None:
     assert resolved.resolved_at is not None
 
 
+def test_resolve_after_close_reopen_blocked_when_no_assignee(
+    store: SupportTicketStore,
+) -> None:
+    """Codex M-24 v2: bypass OPEN -> close() -> reopen() -> resolve()
+    used to leave a RESOLVED ticket with assigned_to=None, because
+    close() permits OPEN as a from-state, reopen() restores
+    IN_PROGRESS without re-assigning, and resolve() didn't check
+    assignee. v3 makes resolve() refuse when assigned_to is None."""
+    t = _open_basic(store)  # OPEN, no assignee
+    store.close(
+        ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
+    )
+    # Now CLOSED, still no assignee.
+    store.reopen(
+        ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
+    )
+    # Now IN_PROGRESS, but assigned_to is still None.
+    snap = store.get_ticket(ticket_id=t.ticket_id, org_id="org_a")
+    assert snap is not None
+    assert snap.status == TicketStatus.IN_PROGRESS
+    assert snap.assigned_to is None
+    # resolve() must refuse this state.
+    with pytest.raises(SupportTicketStateError, match="assignee|assign"):
+        store.resolve(
+            ticket_id=t.ticket_id, org_id="org_a",
+            agent_user_id="alice",
+        )
+    # The fix: assign() first, then resolve() succeeds.
+    store.assign(
+        ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
+    )
+    resolved = store.resolve(
+        ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
+    )
+    assert resolved.status == TicketStatus.RESOLVED
+    assert resolved.assigned_to == "alice"
+
+
 def test_resolve_from_open_is_blocked(
     store: SupportTicketStore,
 ) -> None:

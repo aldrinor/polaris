@@ -311,10 +311,17 @@ class SupportTicketStore:
 
         Codex M-24 v1 review fix: resolve() requires IN_PROGRESS,
         NOT OPEN. v1 allowed OPEN -> RESOLVED which bypassed the
-        assign() step and left `assigned_to=None`. The lifecycle is
-        OPEN -> assign() -> IN_PROGRESS -> resolve() -> RESOLVED.
-        For "won't fix" / duplicate-style direct-from-open closures,
-        the operator should use close() instead.
+        assign() step and left `assigned_to=None`.
+
+        Codex M-24 v2 review fix: resolve() ALSO requires
+        assigned_to to be non-None. Without this, the bypass
+        OPEN -> close() -> reopen() -> resolve() still produced
+        a RESOLVED ticket with assigned_to=None (because reopen()
+        doesn't re-assign and resolve() only checked status).
+        v3 makes resolve() self-validate the assignee invariant.
+        Operators wanting to close-without-assigning use close()
+        instead, which permits OPEN as a from-state for won't-fix /
+        duplicate scenarios.
         """
         return self._mutate(
             ticket_id=ticket_id, org_id=org_id,
@@ -322,6 +329,7 @@ class SupportTicketStore:
             allowed_from=(TicketStatus.IN_PROGRESS,),
             new_status=TicketStatus.RESOLVED,
             mark_resolved=True,
+            require_assignee=True,
         )
 
     def close(
@@ -368,6 +376,7 @@ class SupportTicketStore:
         assign_to: str | None = None,
         mark_resolved: bool = False,
         clear_resolved: bool = False,
+        require_assignee: bool = False,
     ) -> SupportTicket:
         if not agent_user_id.strip():
             raise SupportTicketStateError(
@@ -401,6 +410,17 @@ class SupportTicketStore:
                         f"{current.value!r}; expected one of "
                         f"{from_values} to transition to "
                         f"{new_status.value!r}"
+                    )
+                # Codex M-24 v2 review fix: resolve() must verify
+                # the ticket has an assignee. Catches the
+                # OPEN -> close() -> reopen() -> resolve() backdoor
+                # where reopen() restores IN_PROGRESS without
+                # re-assigning.
+                if require_assignee and not row["assigned_to"]:
+                    raise SupportTicketStateError(
+                        f"ticket {ticket_id!r} has no assignee; "
+                        f"cannot transition to {new_status.value!r} "
+                        f"without an assignee — call assign() first"
                     )
 
                 set_parts = ["status = ?", "updated_at = ?"]
