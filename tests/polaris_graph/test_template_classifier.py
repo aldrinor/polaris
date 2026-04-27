@@ -368,6 +368,32 @@ def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
     assert r_ascii.confidence == r_nbsp.confidence == r_endash.confidence
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        # Codex M-10 v6 review regression: hyphen-joined compound
+        # modifiers must match the same as space-separated forms.
+        "Dulaglutide phase-3 trial outcomes for type 2 diabetes",
+        "Dulaglutide phase 3 trial outcomes for type-2 diabetes",
+        "Empagliflozin renal composite outcomes in chronic-kidney disease patients",
+        "Phase-3 trial of metformin for type-2 diabetes",
+        "Type-2 diabetes management with semaglutide",
+        # Drug class with optional hyphen (already worked via single
+        # canonical form but verify with split).
+        "GLP-1 receptor agonists for cardiovascular outcomes",
+    ],
+)
+def test_hyphen_compound_orthography_routes(query: str) -> None:
+    """Codex M-10 v6 fix: hyphen-joined compound forms ('phase-3',
+    'type-2') tokenize the same as space-separated forms after the
+    tokenizer's hyphen split."""
+    r = classify_query(query)
+    assert r.verdict == RoutingVerdict.ROUTED, (
+        f"hyphen-compound query {query!r} did not route "
+        f"(score {r.confidence:.2f}, rationale={r.rationale})"
+    )
+
+
 def test_renal_composite_outcomes_query_routes() -> None:
     """Codex M-10 v5 review regression: vocab gap. The query
     "empagliflozin renal composite outcomes in chronic kidney

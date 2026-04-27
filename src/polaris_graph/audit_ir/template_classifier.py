@@ -137,7 +137,21 @@ class RouterConfig:
 # Tokenization + matching primitives
 # ---------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+# Codex M-10 v6 review fix: tokenizer now splits on hyphens.
+# Previously the regex preserved hyphens within tokens so "glp-1"
+# stayed one token. That caused the v6 partial: queries with
+# common compound-modifier orthography ("phase-3", "type-2",
+# "chronic-kidney") tokenized as single tokens ("phase-3" etc.)
+# which didn't match the space-tokenized multi-word keyword
+# "phase 3" via contiguous-subseq.
+#
+# Splitting on hyphens changes "glp-1" → ["glp", "1"] which is
+# fine: the keyword "glp-1" splits the same way and matches as a
+# multi-word contiguous subseq. Same for "sglt-2", "dpp-4",
+# "double-blind", "meta-analysis", "long-term", etc. The Unicode
+# hyphen translate above still runs first so all hyphen variants
+# normalize before the split.
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 # Codex M-10 review fix: normalize Unicode hyphens (non-breaking
 # hyphen U+2011, en-dash U+2013, em-dash U+2014, minus sign U+2212,
