@@ -517,6 +517,23 @@ BEGIN
     SELECT RAISE(ABORT, 'cannot insert clauses once parent draft is submitted (status != draft)');
 END;
 
+-- Codex M-26 v13 review fix: new clauses must be inserted in
+-- the PENDING decision state. The clause CHECK only validates
+-- shape (decision='approved' with decided_by/decided_at is a
+-- valid row), and the after-submit INSERT freeze only fires on
+-- non-draft parents — so direct SQL could INSERT a pre-approved
+-- clause into a DRAFT parent. submit_for_approval then sees
+-- a clause set that's already all-approved and approve_draft
+-- accepts it. v14 closes the gap by requiring INSERT-time
+-- decision='pending'; decisions are recorded only via decide_clause.
+CREATE TRIGGER IF NOT EXISTS trg_clause_insert_must_be_pending
+BEFORE INSERT ON contract_clauses
+FOR EACH ROW
+WHEN NEW.decision != 'pending'
+BEGIN
+    SELECT RAISE(ABORT, 'new clauses must be inserted with decision=pending; decisions are recorded via decide_clause');
+END;
+
 -- Codex M-26 v11 review fix: clause draft_id moves are blocked
 -- when EITHER OLD.draft_id or NEW.draft_id points at a non-DRAFT
 -- parent. This closes the v10 bypass where direct SQL could move

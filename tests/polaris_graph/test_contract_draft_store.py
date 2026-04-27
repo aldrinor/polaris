@@ -2128,10 +2128,11 @@ def test_trigger_blocks_clause_insert_during_awaiting_approval(
     )
     # Direct SQL: forge a fully-decided 'approved' clause that
     # passes the v10 clause CHECK (decided_by + decided_at set).
+    # Blocked by either trg_freeze_clauses_after_submit_insert
+    # (parent != 'draft') or trg_clause_insert_must_be_pending
+    # (decision != 'pending'). Both close the bypass.
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(
-            sqlite3.IntegrityError, match="parent draft is submitted"
-        ):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO contract_clauses (clause_id, draft_id, "
                 "title, body, decision, decided_by, decided_at, "
@@ -2678,3 +2679,44 @@ def test_v13_full_lifecycle_log_intact(
     assert ("draft", "awaiting_approval") in transitions  # auto-log
     assert ("pending", "approved") in transitions  # auto-log (v12)
     assert ("awaiting_approval", "approved") in transitions  # auto (v13)
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v13: clause INSERT must be PENDING (no pre-approved bypass)
+# ---------------------------------------------------------------------------
+
+
+def test_v14_clause_insert_must_be_pending(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v13 finding: direct SQL could INSERT a clause
+    with decision='approved' (and valid decided_by/decided_at to
+    pass the CHECK) into a DRAFT parent. The after-submit INSERT
+    freeze only fired on non-draft parents, so this slipped
+    through. submit_for_approval saw a fully-approved clause set
+    and approve_draft accepted it. v14 adds a trigger requiring
+    INSERT-time decision='pending'."""
+    d = _create_basic(store, submitter="usr_alice")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(
+            sqlite3.IntegrityError, match="decision=pending",
+        ):
+            conn.execute(
+                "INSERT INTO contract_clauses (clause_id, draft_id, "
+                "title, body, decision, decided_by, decided_at, "
+                "created_at) VALUES "
+                "('cls_preapproved', ?, 'Forged', 'forged body', "
+                "'approved', 'attacker', 1.0, 0.0)",
+                (d.draft_id,),
+            )
+
+
+def test_v14_clause_insert_legitimate_pending_passes(
+    store: ContractDraftStore,
+) -> None:
+    """Sanity: legitimate add_clause path inserts decision='pending'
+    so the v14 trigger doesn't fire."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    assert c.decision == ClauseDecision.PENDING
