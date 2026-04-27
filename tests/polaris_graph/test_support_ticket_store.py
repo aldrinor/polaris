@@ -149,6 +149,23 @@ def test_resolve_marks_resolved(store: SupportTicketStore) -> None:
     assert resolved.resolved_at is not None
 
 
+def test_resolve_from_open_is_blocked(
+    store: SupportTicketStore,
+) -> None:
+    """Codex M-24 v1 fix: resolve() now REQUIRES the ticket to
+    have been claimed (state IN_PROGRESS). v1 allowed
+    OPEN -> RESOLVED which left assigned_to=None.
+
+    Operators wanting to close-without-assigning should use
+    close() instead (won't-fix / duplicate scenarios)."""
+    t = _open_basic(store)
+    with pytest.raises(SupportTicketStateError, match="state 'open'"):
+        store.resolve(
+            ticket_id=t.ticket_id, org_id="org_a",
+            agent_user_id="alice",
+        )
+
+
 def test_close_marks_closed(store: SupportTicketStore) -> None:
     t = _open_basic(store)
     closed = store.close(
@@ -160,6 +177,11 @@ def test_close_marks_closed(store: SupportTicketStore) -> None:
 
 def test_reopen_clears_resolved_at(store: SupportTicketStore) -> None:
     t = _open_basic(store)
+    # Codex M-24 v1 fix: resolve() now requires IN_PROGRESS, so
+    # we must claim() first.
+    store.assign(
+        ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
+    )
     store.resolve(
         ticket_id=t.ticket_id, org_id="org_a", agent_user_id="alice",
     )

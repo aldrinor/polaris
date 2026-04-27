@@ -307,13 +307,19 @@ class SupportTicketStore:
         self, *, ticket_id: str, org_id: str,
         agent_user_id: str,
     ) -> SupportTicket:
-        """Mark a ticket resolved. Terminal state."""
+        """Mark a ticket resolved. Terminal state.
+
+        Codex M-24 v1 review fix: resolve() requires IN_PROGRESS,
+        NOT OPEN. v1 allowed OPEN -> RESOLVED which bypassed the
+        assign() step and left `assigned_to=None`. The lifecycle is
+        OPEN -> assign() -> IN_PROGRESS -> resolve() -> RESOLVED.
+        For "won't fix" / duplicate-style direct-from-open closures,
+        the operator should use close() instead.
+        """
         return self._mutate(
             ticket_id=ticket_id, org_id=org_id,
             agent_user_id=agent_user_id,
-            allowed_from=(
-                TicketStatus.OPEN, TicketStatus.IN_PROGRESS,
-            ),
+            allowed_from=(TicketStatus.IN_PROGRESS,),
             new_status=TicketStatus.RESOLVED,
             mark_resolved=True,
         )
