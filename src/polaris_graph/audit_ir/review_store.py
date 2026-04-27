@@ -223,44 +223,68 @@ class ReviewStore:
             raise ReviewStateError(
                 "org_id, run_slug, and run_id must all be non-empty"
             )
-        version = 1
-        prior_id = None
-        if prior_review_id is not None:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT * FROM reviews WHERE review_id = ?",
-                    (prior_review_id,),
-                ).fetchone()
-            if row is None:
-                raise ReviewStateError(
-                    f"prior_review_id {prior_review_id!r} does not exist"
-                )
-            prior_status = ReviewStatus(row["status"])
-            if prior_status != ReviewStatus.NEEDS_CHANGES:
-                raise ReviewStateError(
-                    f"cannot re-enqueue against prior review "
-                    f"{prior_review_id!r} in state {prior_status.value!r}; "
-                    f"only NEEDS_CHANGES priors may chain"
-                )
-            if row["org_id"] != org_id:
-                raise ReviewStateError(
-                    f"prior review {prior_review_id!r} belongs to a "
-                    f"different org; cannot chain across tenants"
-                )
-            if row["run_slug"] != run_slug:
-                raise ReviewStateError(
-                    f"prior review {prior_review_id!r} has run_slug "
-                    f"{row['run_slug']!r}; new review run_slug must "
-                    f"match (got {run_slug!r})"
-                )
-            version = int(row["version"]) + 1
-            prior_id = prior_review_id
-
+        # Codex M-23 v1 review fix: do all prior_review_id
+        # validation INSIDE the BEGIN IMMEDIATE so a cross-org
+        # probe can't distinguish "does not exist" from "belongs
+        # to different org" from "wrong state". A foreign caller
+        # gets a single uniform 403-style error regardless of
+        # which constraint fails.
         review_id = f"rev_{uuid.uuid4().hex[:12]}"
         now = time.time()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                version = 1
+                prior_id: str | None = None
+                if prior_review_id is not None:
+                    row = conn.execute(
+                        "SELECT * FROM reviews WHERE review_id = ? "
+                        "AND org_id = ?",
+                        (prior_review_id, org_id),
+                    ).fetchone()
+                    # Codex M-23 v1 fix: org-scoped lookup. An
+                    # unknown OR cross-org prior_review_id surfaces
+                    # the same generic error — no existence-leak
+                    # probe is possible.
+                    if row is None:
+                        raise ReviewStateError(
+                            f"prior_review_id {prior_review_id!r} is "
+                            f"not accessible to this caller"
+                        )
+                    prior_status = ReviewStatus(row["status"])
+                    if prior_status != ReviewStatus.NEEDS_CHANGES:
+                        raise ReviewStateError(
+                            f"cannot re-enqueue against prior review "
+                            f"{prior_review_id!r} in state "
+                            f"{prior_status.value!r}; only NEEDS_CHANGES "
+                            f"priors may chain"
+                        )
+                    if row["run_slug"] != run_slug:
+                        raise ReviewStateError(
+                            f"prior review {prior_review_id!r} has "
+                            f"run_slug {row['run_slug']!r}; new review "
+                            f"run_slug must match (got {run_slug!r})"
+                        )
+                    # Codex M-23 v1 fix: enforce single-child chain.
+                    # Without this, multiple v2 siblings can be
+                    # enqueued against the same v1 prior, all with
+                    # the same version number. Atomic check inside
+                    # BEGIN IMMEDIATE so two racing enqueues serialize.
+                    sibling = conn.execute(
+                        "SELECT review_id FROM reviews WHERE "
+                        "prior_review_id = ? AND org_id = ?",
+                        (prior_review_id, org_id),
+                    ).fetchone()
+                    if sibling is not None:
+                        raise ReviewStateError(
+                            f"prior_review_id {prior_review_id!r} "
+                            f"already has a chained review "
+                            f"({sibling['review_id']!r}); a single "
+                            f"prior may only chain to one child"
+                        )
+                    version = int(row["version"]) + 1
+                    prior_id = prior_review_id
+
                 conn.execute(
                     "INSERT INTO reviews (review_id, org_id, run_slug, "
                     "run_id, status, version, prior_review_id, "
@@ -317,22 +341,26 @@ class ReviewStore:
         self, *, review_id: str, org_id: str, user_id: str,
         notes: str | None = None,
     ) -> ReviewItem:
-        """Approve an IN_REVIEW item; terminal APPROVED state."""
+        """Approve an IN_REVIEW item; terminal APPROVED state.
+        Codex M-23 v1 review fix: only the assignee may decide."""
         return self._transition(
             review_id=review_id, org_id=org_id, user_id=user_id,
             from_states=(ReviewStatus.IN_REVIEW,),
             to_state=ReviewStatus.APPROVED, decide=True, notes=notes,
+            assignee_only=True,
         )
 
     def reject(
         self, *, review_id: str, org_id: str, user_id: str,
         notes: str | None = None,
     ) -> ReviewItem:
-        """Reject an IN_REVIEW item; terminal REJECTED state."""
+        """Reject an IN_REVIEW item; terminal REJECTED state.
+        Codex M-23 v1 review fix: only the assignee may decide."""
         return self._transition(
             review_id=review_id, org_id=org_id, user_id=user_id,
             from_states=(ReviewStatus.IN_REVIEW,),
             to_state=ReviewStatus.REJECTED, decide=True, notes=notes,
+            assignee_only=True,
         )
 
     def request_changes(
@@ -341,12 +369,16 @@ class ReviewStore:
     ) -> ReviewItem:
         """Decide IN_REVIEW → NEEDS_CHANGES. Operator should
         re-run the audit and call `enqueue(prior_review_id=...)`
-        to create a fresh review at version=N+1."""
+        to create a fresh review at version=N+1.
+
+        Codex M-23 v1 review fix: only the assignee may decide.
+        """
         return self._transition(
             review_id=review_id, org_id=org_id, user_id=user_id,
             from_states=(ReviewStatus.IN_REVIEW,),
             to_state=ReviewStatus.NEEDS_CHANGES,
             decide=True, notes=notes,
+            assignee_only=True,
         )
 
     def _transition(
@@ -360,9 +392,33 @@ class ReviewStore:
         assign_to_user: bool = False,
         decide: bool = False,
         notes: str | None = None,
+        assignee_only: bool = False,
     ) -> ReviewItem:
         if not user_id.strip():
             raise ReviewStateError("user_id must be non-empty")
+        # Codex M-23 v1 review fix: notes sanitization. v1 only
+        # checked notes.strip() for non-emptiness, which let
+        # zero-width spaces (​) and control characters
+        # through. v2 strips ALL Unicode whitespace + non-print
+        # control characters, then re-checks emptiness.
+        sanitized_notes = _sanitize_notes(notes)
+        # If notes were SUPPLIED (non-None input) but sanitized to
+        # None, the caller submitted zero-width/control-only content
+        # masquerading as justification. Surface that as an error
+        # for the rejected/needs_changes branches where notes are
+        # required by the API contract.
+        if (
+            decide
+            and to_state in (ReviewStatus.REJECTED,
+                             ReviewStatus.NEEDS_CHANGES)
+            and sanitized_notes is None
+        ):
+            raise ReviewStateError(
+                f"decision {to_state.value!r} requires non-empty "
+                f"notes with at least one printable content "
+                f"character (zero-width spaces and control chars "
+                f"do not count)"
+            )
         from_values = tuple(s.value for s in from_states)
         now = time.time()
         with self._connect() as conn:
@@ -391,6 +447,19 @@ class ReviewStore:
                         f"{from_values} to transition to "
                         f"{to_state.value!r}"
                     )
+                # Codex M-23 v1 review fix: assignee-only decision.
+                # Without this, a same-org member who didn't claim
+                # the review can still approve/reject it. v2 enforces
+                # exclusive ownership: the assignee_to user is the
+                # only one who can decide.
+                if assignee_only:
+                    assigned = row["assigned_to"]
+                    if assigned and assigned != user_id.strip():
+                        raise ReviewStateError(
+                            f"review {review_id!r} is assigned to "
+                            f"{assigned!r}; only the assignee may "
+                            f"decide on it"
+                        )
 
                 set_parts = ["status = ?", "updated_at = ?"]
                 params: list[Any] = [to_state.value, now]
@@ -402,7 +471,7 @@ class ReviewStore:
                     set_parts.append("decided_at = ?")
                     set_parts.append("notes = ?")
                     params.extend([
-                        user_id.strip(), now, (notes or "").strip() or None,
+                        user_id.strip(), now, sanitized_notes,
                     ])
                 params.append(review_id)
                 conn.execute(
@@ -418,7 +487,7 @@ class ReviewStore:
                     (
                         review_id, current.value, to_state.value,
                         user_id.strip(),
-                        (notes or "").strip() or None, now,
+                        sanitized_notes, now,
                     ),
                 )
                 conn.execute("COMMIT")
@@ -516,6 +585,39 @@ class ReviewStore:
 # ---------------------------------------------------------------------------
 # Row → object converters
 # ---------------------------------------------------------------------------
+
+
+def _sanitize_notes(notes: str | None) -> str | None:
+    """Codex M-23 v1 review fix: strip control characters and
+    zero-width spaces before evaluating emptiness.
+
+    v1 used `(notes or "").strip()` which only filters ASCII
+    whitespace (`\\t\\n\\v\\f\\r ` plus regular space). Zero-
+    width-only or control-char-only `notes` slipped through as
+    "non-empty", letting a reviewer reject without justification
+    via `\"\\u200b\"` (zero-width space) or `\"\\u0000\"` (null).
+
+    Strategy: drop characters in Unicode categories `Cc` (control)
+    and `Cf` (format/zero-width) AND ASCII whitespace. The remainder
+    must be non-empty for the notes to count.
+    """
+    import unicodedata
+    if notes is None:
+        return None
+    cleaned_chars = []
+    for ch in notes:
+        cat = unicodedata.category(ch)
+        if cat.startswith(("Cc", "Cf")):
+            continue
+        if ch.isspace():
+            continue
+        cleaned_chars.append(ch)
+    if not cleaned_chars:
+        return None
+    # Keep the original text for storage (so reviewers see what
+    # they wrote, including legitimate whitespace), but only return
+    # it if the sanitization left a non-empty content footprint.
+    return notes.strip() or None
 
 
 def _row_to_review_item(row: sqlite3.Row) -> ReviewItem:

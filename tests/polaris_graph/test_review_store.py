@@ -245,13 +245,16 @@ def test_chain_run_slug_must_match(store: ReviewStore) -> None:
 
 
 def test_chain_org_must_match(store: ReviewStore) -> None:
+    """Codex M-23 v1 fix: cross-org chain attempts must surface
+    the SAME error wording as truly-unknown prior (no existence
+    leak)."""
     v1 = store.enqueue(org_id="org_a", run_slug="x", run_id="r_v1")
     store.claim(review_id=v1.review_id, org_id="org_a", user_id="alice")
     store.request_changes(
         review_id=v1.review_id, org_id="org_a",
         user_id="alice", notes="redo",
     )
-    with pytest.raises(ReviewStateError, match="cross tenants|different org"):
+    with pytest.raises(ReviewStateError, match="not accessible"):
         store.enqueue(
             org_id="org_b", run_slug="x", run_id="r_v2",
             prior_review_id=v1.review_id,
@@ -259,7 +262,8 @@ def test_chain_org_must_match(store: ReviewStore) -> None:
 
 
 def test_chain_unknown_prior_fails(store: ReviewStore) -> None:
-    with pytest.raises(ReviewStateError, match="does not exist"):
+    """Codex M-23 v1 fix: same wording as cross-org case."""
+    with pytest.raises(ReviewStateError, match="not accessible"):
         store.enqueue(
             org_id="org_a", run_slug="x", run_id="r",
             prior_review_id="rev_phantom",
@@ -493,6 +497,157 @@ def test_endpoint_transitions_log(tmp_path: Path) -> None:
         ("pending", "in_review"),
         ("in_review", "needs_changes"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Codex M-23 v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_chain_unknown_prior_uniform_error_does_not_leak_existence(
+    store: ReviewStore,
+) -> None:
+    """Codex M-23 v1: enqueue() leaked existence of foreign
+    prior_review_id by returning distinct errors for unknown vs
+    cross-org vs wrong-state. v2 returns a uniform 'not accessible
+    to this caller' for all three."""
+    # Cross-org probe: prior exists in org_a, caller tries from
+    # org_b. Must NOT distinguish from "doesn't exist at all".
+    real_prior = store.enqueue(
+        org_id="org_a", run_slug="x", run_id="r_v1",
+    )
+    store.claim(
+        review_id=real_prior.review_id, org_id="org_a",
+        user_id="alice",
+    )
+    store.request_changes(
+        review_id=real_prior.review_id, org_id="org_a",
+        user_id="alice", notes="redo",
+    )
+
+    # Existing prior, but caller is in different org.
+    with pytest.raises(ReviewStateError) as exc_existing:
+        store.enqueue(
+            org_id="org_b", run_slug="x", run_id="r_v2",
+            prior_review_id=real_prior.review_id,
+        )
+    # Truly nonexistent prior.
+    with pytest.raises(ReviewStateError) as exc_phantom:
+        store.enqueue(
+            org_id="org_b", run_slug="x", run_id="r_v2",
+            prior_review_id="rev_phantom",
+        )
+    # Both errors must use the same wording so an attacker cannot
+    # probe which review_ids exist.
+    assert "not accessible" in str(exc_existing.value)
+    assert "not accessible" in str(exc_phantom.value)
+
+
+def test_chain_does_not_allow_multiple_v2_siblings(
+    store: ReviewStore,
+) -> None:
+    """Codex M-23 v1: a single v1 in NEEDS_CHANGES could spawn
+    multiple v2 siblings, all with the same version number. v2
+    enforces uniqueness on prior_review_id."""
+    v1 = store.enqueue(org_id="org_a", run_slug="x", run_id="r_v1")
+    store.claim(review_id=v1.review_id, org_id="org_a", user_id="alice")
+    store.request_changes(
+        review_id=v1.review_id, org_id="org_a",
+        user_id="alice", notes="redo",
+    )
+    # First child OK.
+    v2 = store.enqueue(
+        org_id="org_a", run_slug="x", run_id="r_v2",
+        prior_review_id=v1.review_id,
+    )
+    assert v2.version == 2
+    # Second child against the same prior must fail.
+    with pytest.raises(ReviewStateError, match="already has a chained"):
+        store.enqueue(
+            org_id="org_a", run_slug="x", run_id="r_v2_sibling",
+            prior_review_id=v1.review_id,
+        )
+
+
+def test_assignee_only_decision_blocks_other_member(
+    store: ReviewStore,
+) -> None:
+    """Codex M-23 v1: a same-org member who didn't claim could
+    still approve. v2 enforces assignee-only."""
+    item = store.enqueue(org_id="org_a", run_slug="x", run_id="r")
+    store.claim(
+        review_id=item.review_id, org_id="org_a", user_id="alice",
+    )
+    with pytest.raises(ReviewStateError, match="assignee"):
+        store.approve(
+            review_id=item.review_id, org_id="org_a",
+            user_id="bob",  # different member
+            notes="LGTM",
+        )
+    # The original assignee can still decide.
+    decided = store.approve(
+        review_id=item.review_id, org_id="org_a",
+        user_id="alice", notes="LGTM",
+    )
+    assert decided.status == ReviewStatus.APPROVED
+
+
+def test_assignee_only_blocks_reject_and_request_changes(
+    store: ReviewStore,
+) -> None:
+    item = store.enqueue(org_id="org_a", run_slug="x", run_id="r")
+    store.claim(
+        review_id=item.review_id, org_id="org_a", user_id="alice",
+    )
+    with pytest.raises(ReviewStateError, match="assignee"):
+        store.reject(
+            review_id=item.review_id, org_id="org_a",
+            user_id="bob", notes="nope",
+        )
+    with pytest.raises(ReviewStateError, match="assignee"):
+        store.request_changes(
+            review_id=item.review_id, org_id="org_a",
+            user_id="bob", notes="redo",
+        )
+
+
+def test_zero_width_only_notes_treated_as_empty_via_endpoint(
+    tmp_path: Path,
+) -> None:
+    """Codex M-23 v1: zero-width-only or control-char-only notes
+    on rejected/needs_changes were accepted as 'non-empty' by
+    notes.strip(). v2 sanitizes Cc/Cf/whitespace before checking
+    emptiness."""
+    from fastapi.testclient import TestClient
+    app, store = _make_app_with_store(tmp_path)
+    item = store.enqueue(
+        org_id="org_alpha", run_slug="x", run_id="r",
+    )
+    client = TestClient(
+        app,
+        headers={"X-Polaris-Caller": "org_alpha:usr_alice:member"},
+    )
+    client.post(f"/api/inspector/reviews/{item.review_id}/claim")
+
+    # Zero-width space only
+    res = client.post(
+        f"/api/inspector/reviews/{item.review_id}/decision",
+        json={"decision": "rejected", "notes": "​​​"},
+    )
+    assert res.status_code == 409, res.text  # store-level rejection
+    # Or 400 if the router's pre-check catches it first; both
+    # surface as "not empty" failure.
+    detail_lc = res.json()["detail"].lower()
+    assert "notes" in detail_lc or "non-empty" in detail_lc or "justif" in detail_lc
+
+    # Control-character only
+    res = client.post(
+        f"/api/inspector/reviews/{item.review_id}/decision",
+        json={"decision": "rejected", "notes": ""},
+    )
+    assert res.status_code == 409
+    detail_lc = res.json()["detail"].lower()
+    assert "notes" in detail_lc or "non-empty" in detail_lc or "justif" in detail_lc
 
 
 def test_endpoint_diff_no_prior_400(tmp_path: Path) -> None:

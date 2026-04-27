@@ -1669,14 +1669,30 @@ async def get_review_version_diff(
             ),
         )
 
-    summary_a = find_run_by_slug(prior.run_slug)
-    summary_b = find_run_by_slug(item.run_slug)
-    if summary_a is None or summary_b is None:
+    # Codex M-23 v1 review fix: look up runs by run_id, NOT
+    # run_slug. v1's find_run_by_slug() returned the same run for
+    # both versions because chained reviews must share run_slug —
+    # so the diff was always between a run and itself, surfacing
+    # an empty-deltas false-positive.
+    from src.polaris_graph.audit_ir.registry import find_run_by_id
+    summary_a = find_run_by_id(prior.run_id)
+    summary_b = find_run_by_id(item.run_id)
+    if summary_a is None:
         raise HTTPException(
             status_code=500,
             detail=(
-                "underlying run artifacts unavailable for diff; "
-                "expected runs for both versions to be mounted"
+                f"underlying run artifact unavailable for diff: "
+                f"prior review {prior.review_id!r} references run "
+                f"{prior.run_id!r} which is not mounted"
+            ),
+        )
+    if summary_b is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"underlying run artifact unavailable for diff: "
+                f"current review {item.review_id!r} references run "
+                f"{item.run_id!r} which is not mounted"
             ),
         )
     try:
