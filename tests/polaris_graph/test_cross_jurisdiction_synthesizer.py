@@ -67,7 +67,8 @@ def test_single_jurisdiction_emits_single_source_paragraph() -> None:
     assert len(result.paragraphs) == 1
     para = result.paragraphs[0]
     assert "FDA only" in para
-    assert "ev_fda_1" in para
+    # Codex M-14 v2 fix: citation contract is `[cite:ev_id]`.
+    assert "[cite:ev_fda_1]" in para
     assert "Other jurisdictions" in para
     assert len(result.verdicts) == 1
     v = result.verdicts[0]
@@ -97,29 +98,31 @@ def test_convergence_paragraph_when_all_jurisdictions_agree() -> None:
     assert "FDA" in para
     assert "EMA" in para
     assert "MHRA" in para
-    # All three citations bound.
-    assert "ev_fda" in para
-    assert "ev_ema" in para
-    assert "ev_mhra" in para
+    # Codex M-14 v2: citations use the `[cite:ev_id]` contract.
+    assert "[cite:ev_fda]" in para
+    assert "[cite:ev_ema]" in para
+    assert "[cite:ev_mhra]" in para
     v = result.verdicts[0]
     assert v.verdict == "convergence"
-    assert v.similarity >= 0.5
+    # Codex M-14 v2: default floor is 0.7, not 0.5.
+    assert v.similarity >= 0.7
 
 
 def test_convergence_picks_longest_value_as_canonical() -> None:
     """When multiple jurisdictions converge, the longest (most
-    informative) prose is shown verbatim."""
+    informative) prose is shown verbatim. Pass convergence_floor=0.3
+    so the differently-lengthed values still converge under v2."""
     findings = [
         JurisdictionFinding("FDA", "indications",
                             "approved for diabetes", "ev_short"),
         JurisdictionFinding("EMA", "indications",
-                            "approved for type 2 diabetes mellitus in adults",
+                            "approved for diabetes mellitus in adults",
                             "ev_long"),
     ]
-    result = synthesize_cross_jurisdiction(findings)
+    result = synthesize_cross_jurisdiction(findings, convergence_floor=0.3)
     # Even though "approved for diabetes" is shorter, the EMA value
     # is preserved because it's more informative.
-    assert "type 2 diabetes mellitus in adults" in result.paragraphs[0]
+    assert "diabetes mellitus in adults" in result.paragraphs[0]
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +326,229 @@ def test_low_threshold_keeps_loose_matches_in_convergence() -> None:
     ]
     result = synthesize_cross_jurisdiction(findings, convergence_floor=0.1)
     assert result.verdicts[0].verdict == "convergence"
+
+
+# ---------------------------------------------------------------------------
+# Codex M-14 v2 review regressions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        # Direct negation — the dominant LAW II failure mode.
+        ("approved for adults", "not approved for adults"),
+        # Negation phrased differently.
+        ("contraindicated in pregnancy", "not contraindicated in pregnancy"),
+        # Withdrawn / withheld vs approved.
+        ("approved for type 2 diabetes",
+         "withheld pending pediatric data review"),
+        # Approved vs rejected.
+        ("approved for chronic heart failure",
+         "rejected for chronic heart failure"),
+    ],
+)
+def test_negation_forces_divergence_regardless_of_jaccard(values: tuple[str, str]) -> None:
+    """Codex M-14 v2 review regression: pure token-set Jaccard
+    treats "X" vs "not X" as ~0.667 similar, falsely converging.
+    The hard force-divergence guard catches this BEFORE Jaccard."""
+    fa, fb = values
+    findings = [
+        JurisdictionFinding("FDA", "boxed_warning", fa, "ev_fda"),
+        JurisdictionFinding("EMA", "boxed_warning", fb, "ev_ema"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence", (
+        f"negation case {values!r} flattened to "
+        f"{result.verdicts[0].verdict}"
+    )
+
+
+def test_scope_limiter_forces_divergence() -> None:
+    """`only` / `restricted` qualifiers materially change the
+    indicated population. Their presence vs absence must force
+    divergence."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "indications",
+            "approved for adults only", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "indications",
+            "approved for adults and adolescents", "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence"
+
+
+def test_pending_status_forces_divergence() -> None:
+    """A jurisdiction with `pending` regulatory status must
+    diverge from one with finalized approval."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "post_marketing",
+            "approved with annual safety reporting", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "PMDA", "post_marketing",
+            "label revision pending review of Phase 4 data",
+            "ev_pmda",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence"
+
+
+def test_numeric_mismatch_forces_divergence() -> None:
+    """Different numeric values (dose mg, age cutoffs) must force
+    divergence even if surrounding tokens overlap heavily."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "dosage",
+            "starting dose 5 mg once daily", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "dosage",
+            "starting dose 10 mg once daily", "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence", (
+        "5 mg vs 10 mg must NEVER converge despite token overlap"
+    )
+
+
+def test_asymmetric_numeric_presence_forces_divergence() -> None:
+    """One jurisdiction quantifies, another doesn't → divergence."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "dosage",
+            "starting dose 5 mg daily", "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "dosage",
+            "starting dose as recommended by physician", "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence"
+
+
+def test_synthesis_invariant_under_input_permutation() -> None:
+    """Codex M-14 v2 review regression: convergence canonical
+    selection + citation order must be deterministic across input
+    permutations. Same set of findings → identical paragraph."""
+    findings_a = [
+        JurisdictionFinding("FDA", "indications",
+                            "approved for adults with type 2 diabetes mellitus",
+                            "ev_fda"),
+        JurisdictionFinding("EMA", "indications",
+                            "approved for adults with type 2 diabetes mellitus",
+                            "ev_ema"),
+        JurisdictionFinding("MHRA", "indications",
+                            "approved for adults with type 2 diabetes mellitus",
+                            "ev_mhra"),
+    ]
+    findings_b = list(reversed(findings_a))
+    a = synthesize_cross_jurisdiction(findings_a)
+    b = synthesize_cross_jurisdiction(findings_b)
+    assert a == b, "synthesis differs under input permutation"
+
+
+def test_convergence_canonical_tiebreak_is_jurisdiction_alpha() -> None:
+    """When multiple values have identical lengths, the canonical
+    is the one whose jurisdiction sorts first alphabetically."""
+    findings = [
+        JurisdictionFinding("FDA", "indications",
+                            "approved for adults", "ev_fda"),
+        JurisdictionFinding("EMA", "indications",
+                            "approved for adults", "ev_ema"),
+        JurisdictionFinding("MHRA", "indications",
+                            "approved for adults", "ev_mhra"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    # All values identical; alphabetically first jurisdiction is EMA.
+    # The paragraph should be deterministic, but more importantly,
+    # citation order must be (EMA, FDA, MHRA).
+    para = result.paragraphs[0]
+    ema_idx = para.find("[cite:ev_ema]")
+    fda_idx = para.find("[cite:ev_fda]")
+    mhra_idx = para.find("[cite:ev_mhra]")
+    assert 0 <= ema_idx < fda_idx < mhra_idx
+
+
+def test_smuggled_flattening_phrase_in_value_neutralized() -> None:
+    """Codex M-14 v2 review regression: even on the divergence
+    path, if upstream M-70 prose contained `regulators worldwide`
+    or similar, M-14's bullet must NOT preserve it. The
+    flattening-phrase guard rewrites it to `[this jurisdiction]`."""
+    findings = [
+        JurisdictionFinding(
+            "FDA", "indications",
+            "approved by regulators worldwide for type 2 diabetes",
+            "ev_fda",
+        ),
+        JurisdictionFinding(
+            "EMA", "indications",
+            "withheld pending review",
+            "ev_ema",
+        ),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    para = result.paragraphs[0]
+    # The verdict is divergence (negation/pending guard fires).
+    assert result.verdicts[0].verdict == "divergence"
+    # The flattening phrase must not appear.
+    assert "regulators worldwide" not in para.lower()
+    # The replacement marker should appear.
+    assert "[this jurisdiction]" in para
+
+
+def test_citation_format_uses_cite_prefix() -> None:
+    """Codex M-14 v2 review fix: citation contract is `[cite:ev_id]`,
+    NOT bare `[ev_id]`. The bare form would be confused with the
+    V30 strict_verify token format `[#ev:id:start-end]`."""
+    findings = [
+        JurisdictionFinding("FDA", "x", "approved for X", "ev_id_1"),
+        JurisdictionFinding("EMA", "x", "approved for X", "ev_id_2"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    para = result.paragraphs[0]
+    # The renderer-only `[cite:ev_id]` contract.
+    assert "[cite:ev_id_1]" in para
+    assert "[cite:ev_id_2]" in para
+    # Must NOT emit the bare `[ev_id]` form.
+    # (We can't simply assert "[ev_id_1]" not in para because that
+    # substring is present inside `[cite:ev_id_1]`. Instead check
+    # the non-cite-prefixed form via regex.)
+    import re as _re
+    bare_matches = _re.findall(r"(?<!:)\[ev_id_\d\]", para)
+    assert not bare_matches, (
+        f"bare [ev_id] tokens leaked: {bare_matches}"
+    )
+
+
+def test_machine_readable_evidence_via_bound_ev_ids_field() -> None:
+    """Codex M-14 v2 mandate: pipeline-native code must read
+    citation IDs from FieldVerdict.bound_ev_ids, NOT regex-parse
+    them out of the rendered paragraph.
+
+    bound_ev_ids ordering follows jurisdiction-alpha. Findings:
+    FDA → ev_a, EMA → ev_b. Alphabetically EMA < FDA, so
+    bound_ev_ids = (ev_b, ev_a).
+    """
+    findings = [
+        JurisdictionFinding("FDA", "indications", "approved for X", "ev_a"),
+        JurisdictionFinding("EMA", "indications", "approved for X", "ev_b"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    v = result.verdicts[0]
+    assert v.bound_ev_ids == ("ev_b", "ev_a"), (
+        "bound_ev_ids must be ordered by jurisdiction-alpha for "
+        "deterministic downstream consumption"
+    )
+    assert v.jurisdictions == ("EMA", "FDA")
 
 
 # ---------------------------------------------------------------------------

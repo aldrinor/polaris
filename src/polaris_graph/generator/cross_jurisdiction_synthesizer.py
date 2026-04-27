@@ -221,13 +221,130 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(inter) / len(union)
 
 
-# Codex M-14: convergence threshold. Pairs at ≥ this Jaccard are
-# considered "saying the same thing" for cross-jurisdiction
-# purposes. Empirically tunable; default biases toward DIVERGENCE
-# (the safer failure mode under LAW II — over-flagging divergence
-# makes operators look harder, while under-flagging silently
-# flattens disagreement into consensus).
-_DEFAULT_CONVERGENCE_FLOOR = 0.5
+# Codex M-14 v2 review fix: convergence threshold raised from 0.5
+# to 0.7. v1 default of 0.5 let direct negations cross the floor
+# ("approved for adults" vs "not approved for adults" → Jaccard
+# 0.667 → falsely convergence). 0.7 alone is not enough — see
+# the force-divergence qualifier guards below — but it's a
+# necessary tightening.
+_DEFAULT_CONVERGENCE_FLOOR = 0.7
+
+
+# Codex M-14 v2 review fix: hard force-divergence qualifier guards.
+# Token-set Jaccard alone treats "X" and "not X" as 0.667 similar,
+# which is the exact LAW II over-claim failure Phase C is trying
+# to prevent. These guards force DIVERGENCE when ANY pair of
+# values differs on a qualifier that flips the meaning, BEFORE
+# Jaccard is even consulted.
+#
+# Each guard is a tuple of (token_set, name). If one value
+# contains any token from the set and another value does NOT,
+# the guard fires.
+
+# Negation tokens: their presence vs absence flips meaning
+# entirely. "approved" vs "not approved" must never converge.
+_NEGATION_TOKENS: frozenset[str] = frozenset({
+    "not", "no", "never", "without",
+    "contraindicated", "withheld", "denied", "rejected",
+    "withdrawn", "suspended",
+})
+
+# Status-pending tokens: regulatory positions still in flux
+# don't converge with finalized positions, even if the wording
+# overlaps.
+_PENDING_TOKENS: frozenset[str] = frozenset({
+    "pending", "review", "ongoing", "preliminary",
+    "interim", "provisional",
+})
+
+# Scope-limiter tokens: "only", "exclusively", "restricted to"
+# materially change the indicated population. Their presence vs
+# absence is a divergence signal.
+_SCOPE_LIMITER_TOKENS: frozenset[str] = frozenset({
+    "only", "exclusively", "restricted",
+    "limited",  # "limited to adults" vs "all adults"
+})
+
+
+def _force_divergence(values: list[str]) -> bool:
+    """Return True if the qualifier guards detect a hard
+    divergence between any pair of values.
+
+    Codex M-14 v2 review fix: applied BEFORE Jaccard so that
+    negation/scope/pending mismatches force DIVERGENCE regardless
+    of token overlap.
+    """
+    if len(values) < 2:
+        return False
+    for guard in (_NEGATION_TOKENS, _PENDING_TOKENS, _SCOPE_LIMITER_TOKENS):
+        flags = [bool(_tokens(v) & guard) for v in values]
+        # If ANY value has a guard token and ANY OTHER value does
+        # NOT, the guard fires.
+        if any(flags) and not all(flags):
+            return True
+    # Codex M-14 v2: numeric mismatch guard. Different numeric
+    # values in the prose (dose mg, age cutoffs, percentages) flip
+    # meaning even if the surrounding tokens overlap.
+    numerics = [_extract_numeric_tokens(v) for v in values]
+    if any(numerics):
+        # If two values both have numerics and the sets disagree
+        # at all, force divergence.
+        nonempty = [n for n in numerics if n]
+        if len(nonempty) >= 2:
+            for i in range(len(nonempty)):
+                for j in range(i + 1, len(nonempty)):
+                    if nonempty[i] != nonempty[j]:
+                        return True
+        # Asymmetric: one value has numerics, another doesn't.
+        if any(n for n in numerics) and any(not n for n in numerics):
+            return True
+    return False
+
+
+_NUMERIC_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+
+
+def _extract_numeric_tokens(text: str) -> frozenset[str]:
+    """Extract bare numeric tokens (integers, decimals) from text.
+    Used by the numeric-mismatch divergence guard."""
+    if not text:
+        return frozenset()
+    return frozenset(_NUMERIC_RE.findall(text))
+
+
+# Codex M-14 v2 review fix: divergence-flattening prose guard.
+# Even on the divergence path (where bullets list per-jurisdiction
+# values verbatim), if an upstream M-70 prose contains language
+# that itself flattens jurisdictions ("regulators worldwide", etc.)
+# the bullet would silently preserve it. Detect + neutralize.
+_FLATTENING_PHRASES: tuple[str, ...] = (
+    "regulators worldwide",
+    "regulators globally",
+    "all regulators",
+    "globally approved",
+    "worldwide approved",
+    "international consensus",
+    "global consensus",
+    "all jurisdictions",
+)
+
+
+def _strip_flattening_phrases(text: str) -> str:
+    """Replace flattening phrases with explicit single-jurisdiction
+    framing so the divergence path can never preserve smuggled
+    consensus language inside a bullet."""
+    if not text:
+        return text
+    out = text
+    lower = out.lower()
+    for phrase in _FLATTENING_PHRASES:
+        idx = lower.find(phrase)
+        while idx >= 0:
+            # Replace verbatim slice (case-preserving via length).
+            out = out[:idx] + "[this jurisdiction]" + out[idx + len(phrase):]
+            lower = out.lower()
+            idx = lower.find(phrase)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -258,12 +375,22 @@ def _emit_single_source_paragraph(
 ) -> str:
     """When only one jurisdiction has a value, emit a single-source
     paragraph that explicitly names the jurisdiction (not a generic
-    'regulators agree' claim)."""
+    'regulators agree' claim).
+
+    Codex M-14 v2 review fix: citation rendered as `[cite:ev_id]`
+    (renderer-only contract distinct from the V30 strict_verify
+    `[#ev:id:start-end]` token). This module emits cross-
+    jurisdiction synthesis prose; per-sentence span-bound
+    provenance is the responsibility of the upstream M-70 prose,
+    which is reused verbatim here. Renderers that need
+    machine-readable citation IDs use the FieldVerdict.bound_ev_ids
+    field, not regex parsing of the prose.
+    """
     label = _format_field_label(field_name)
-    value = finding.value.rstrip(".").strip()
+    value = _strip_flattening_phrases(finding.value).rstrip(".").strip()
     return (
         f"**{label} ({finding.jurisdiction} only).** {value} "
-        f"[{finding.bound_ev_id}]. Other jurisdictions in scope did not "
+        f"[cite:{finding.bound_ev_id}]. Other jurisdictions in scope did not "
         f"surface a {field_name.replace('_', ' ')} finding for this entity."
     )
 
@@ -272,18 +399,34 @@ def _emit_convergence_paragraph(
     field_name: str,
     findings: list[JurisdictionFinding],
 ) -> str:
-    """All jurisdictions surface substantively similar prose. Emit
-    a CONVERGENCE paragraph that lists every contributing
-    jurisdiction by name and binds every citation."""
+    """All jurisdictions surface substantively similar prose AND
+    pass the qualifier guards. Emit a CONVERGENCE paragraph that
+    lists every contributing jurisdiction by name and binds every
+    citation.
+
+    Codex M-14 v2 review fix: deterministic canonical selection
+    via (length DESC, jurisdiction ASC) sort key. Pure max-by-len
+    was order-sensitive when two values had the same length.
+    Citation order is also (jurisdiction ASC).
+    """
     label = _format_field_label(field_name)
     juris = sorted(f.jurisdiction for f in findings)
     juris_clause = _join_jurisdictions(juris)
-    # Use the longest of the converged values as the canonical
-    # prose (most informative); could also use the first, but
-    # length-biased preserves more detail.
-    canonical = max(findings, key=lambda f: len(f.value))
-    citations = " ".join(f"[{f.bound_ev_id}]" for f in findings)
-    value = canonical.value.rstrip(".").strip()
+    # Canonical = longest value; ties broken by jurisdiction name
+    # (alphabetical) for determinism across input permutations.
+    canonical = sorted(
+        findings, key=lambda f: (-len(f.value), f.jurisdiction),
+    )[0]
+    # Sanitize the canonical prose so smuggled flattening language
+    # inside an upstream M-70 value can't reach the renderer.
+    value = _strip_flattening_phrases(canonical.value).rstrip(".").strip()
+    # Citations sorted by jurisdiction so the order is invariant
+    # under input permutation.
+    cite_tokens = [
+        f"[cite:{f.bound_ev_id}]"
+        for f in sorted(findings, key=lambda x: x.jurisdiction)
+    ]
+    citations = " ".join(cite_tokens)
     return (
         f"**{label} (convergence: {juris_clause}).** {value}. "
         f"Citations: {citations}."
@@ -297,14 +440,22 @@ def _emit_divergence_paragraph(
     """Jurisdictions surface materially different prose. Emit a
     DIVERGENCE paragraph: one bullet per jurisdiction, each with
     its own citation. The opening clause flags divergence
-    explicitly so renderers can highlight it."""
+    explicitly so renderers can highlight it.
+
+    Codex M-14 v2 review fix: bullet bodies pass through
+    `_strip_flattening_phrases` so even if upstream M-70 prose
+    smuggled in "regulators worldwide" language, it gets
+    neutralized before rendering.
+    """
     label = _format_field_label(field_name)
     juris = sorted(f.jurisdiction for f in findings)
     juris_clause = _join_jurisdictions(juris)
     bullets = []
     for f in sorted(findings, key=lambda x: x.jurisdiction):
-        value = f.value.rstrip(".").strip()
-        bullets.append(f"- **{f.jurisdiction}.** {value} [{f.bound_ev_id}].")
+        value = _strip_flattening_phrases(f.value).rstrip(".").strip()
+        bullets.append(
+            f"- **{f.jurisdiction}.** {value} [cite:{f.bound_ev_id}]."
+        )
     bullet_block = "\n".join(bullets)
     return (
         f"**{label} (divergence across {juris_clause}).** Regulatory "
@@ -355,7 +506,15 @@ def _verdict_for_field(
         f.bound_ev_id for f in sorted(nonempty, key=lambda x: x.jurisdiction)
     )
 
-    if min_sim >= convergence_floor:
+    # Codex M-14 v2 review fix: hard force-divergence guards run
+    # BEFORE the Jaccard threshold check. Negation/scope-limiter/
+    # pending-status/numeric-mismatch differences must NEVER be
+    # silently flattened to convergence regardless of how high
+    # the token overlap scores. Pure Jaccard treats "X" and
+    # "not X" as 0.667 similar.
+    forced_divergence = _force_divergence([f.value for f in nonempty])
+
+    if (not forced_divergence) and min_sim >= convergence_floor:
         verdict = FieldVerdict(
             field_name=field_name,
             verdict="convergence",
