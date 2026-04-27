@@ -382,6 +382,28 @@ CREATE TABLE IF NOT EXISTS contract_decision_log (
 CREATE INDEX IF NOT EXISTS idx_contract_decision_log_draft
     ON contract_decision_log(draft_id, created_at);
 
+-- Codex M-26 v15 review fix (post-lock doc audit): the threat-model
+-- doc claimed contract_decision_log was append-only "by design". It
+-- wasn't — the table had no protective triggers, so direct SQL
+-- could UPDATE row attribution or DELETE log entries entirely,
+-- eliminating the audit trail that v12/v13 auto-log triggers
+-- write. This trio of triggers makes the table truly append-only:
+-- INSERTs only (existing auto-log triggers + create_draft).
+-- No UPDATE, no DELETE, no truncation via DML.
+CREATE TRIGGER IF NOT EXISTS trg_decision_log_no_update
+BEFORE UPDATE ON contract_decision_log
+FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'contract_decision_log is append-only; UPDATE is forbidden (every row is an immutable audit record)');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_log_no_delete
+BEFORE DELETE ON contract_decision_log
+FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'contract_decision_log is append-only; DELETE is forbidden (the audit trail must survive)');
+END;
+
 -- Codex M-26 v7 review fix: SQL triggers encode the cross-row
 -- SOC2 invariants the CHECK constraint cannot express. Even a
 -- direct SQL UPDATE that bypasses the Python helpers fails at

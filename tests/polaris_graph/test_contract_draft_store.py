@@ -2648,6 +2648,127 @@ def test_v13_legitimate_perform_reject_logs_exactly_once(
     assert reject_rows[0]["rationale"] == "not a fit"
 
 
+# ---------------------------------------------------------------------------
+# Codex post-lock doc audit (v15): contract_decision_log is truly
+# append-only — no UPDATE, no DELETE
+# ---------------------------------------------------------------------------
+
+
+def test_v15_decision_log_blocks_update(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """The post-Phase-C threat-model doc audit (Codex review of
+    docs/m26_threat_model.md) found that contract_decision_log
+    was NOT actually append-only. The doc claimed it was; the
+    code didn't enforce it. Direct SQL UPDATE on a log row let
+    an attacker rewrite the actor of a recorded decision —
+    erasing the tamper-evidence the v12/v13 auto-log triggers
+    were supposed to provide. v15 adds a trigger blocking all
+    UPDATE on the log table."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # A log row now exists for the draft→awaiting_approval
+    # transition. Direct SQL UPDATE attempting to rewrite actor.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "UPDATE contract_decision_log "
+                "SET actor_user_id = 'forged' "
+                "WHERE draft_id = ? AND to_state = 'awaiting_approval'",
+                (d.draft_id,),
+            )
+
+
+def test_v15_decision_log_blocks_delete(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: DELETE on contract_decision_log must fail. An
+    attacker who forges a decision via direct SQL on
+    contract_clauses cannot then DELETE the auto-log entry to
+    cover their tracks."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # 3 log rows now: created, submit, clause-approved.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "DELETE FROM contract_decision_log WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_v15_decision_log_truly_append_only_under_full_attack(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """End-to-end: an attacker forges a clause decision via the
+    v11 attack path (direct SQL UPDATE on contract_clauses).
+    The v12 auto-log trigger writes a log row attributing the
+    forged decision. The attacker then tries to DELETE the log
+    row to hide it. v15 makes that impossible — the audit trail
+    truly survives."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    db = tmp_path / "contracts.sqlite"
+    # Forge a clause approval via direct SQL.
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE contract_clauses SET decision = 'approved', "
+            "decided_by = 'attacker', decided_at = 1.0 "
+            "WHERE clause_id = ?",
+            (c.clause_id,),
+        )
+    # The v12 auto-log wrote an entry naming 'attacker'.
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    forged_entries = [
+        r for r in log
+        if r["clause_id"] == c.clause_id
+        and r["actor_user_id"] == "attacker"
+    ]
+    assert len(forged_entries) == 1
+    # Attacker tries to DELETE the entry. Blocked.
+    with sqlite3.connect(db) as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "DELETE FROM contract_decision_log "
+                "WHERE actor_user_id = 'attacker'",
+            )
+    # Attacker tries to UPDATE actor to look legitimate. Blocked.
+    with sqlite3.connect(db) as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "UPDATE contract_decision_log "
+                "SET actor_user_id = 'bob' "
+                "WHERE actor_user_id = 'attacker'",
+            )
+    # Audit trail still names the attacker.
+    log_after = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    assert any(r["actor_user_id"] == "attacker" for r in log_after)
+
+
 def test_v13_full_lifecycle_log_intact(
     store: ContractDraftStore,
 ) -> None:
