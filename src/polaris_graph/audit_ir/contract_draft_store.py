@@ -239,6 +239,24 @@ _TERMINAL_DRAFT_STATES: frozenset[ContractDraftStatus] = frozenset({
 })
 
 
+# Codex M-26 v4 review fix: encode the full state machine as a
+# closed transition table so direct _transition_draft callers
+# cannot use any (from, to) pair that the public API doesn't
+# expose. The valid forward-only transitions are:
+#   DRAFT             -> AWAITING_APPROVAL  (submit_for_approval)
+#   AWAITING_APPROVAL -> APPROVED           (approve_draft)
+#   AWAITING_APPROVAL -> REJECTED           (reject_draft)
+# Any other pair is a state-machine violation regardless of who
+# the caller is.
+_VALID_DRAFT_TRANSITIONS: frozenset[
+    tuple[ContractDraftStatus, ContractDraftStatus]
+] = frozenset({
+    (ContractDraftStatus.DRAFT, ContractDraftStatus.AWAITING_APPROVAL),
+    (ContractDraftStatus.AWAITING_APPROVAL, ContractDraftStatus.APPROVED),
+    (ContractDraftStatus.AWAITING_APPROVAL, ContractDraftStatus.REJECTED),
+})
+
+
 class ContractDraftStore:
     """SQLite-backed contract-draft registry.
 
@@ -690,6 +708,44 @@ class ContractDraftStore:
                         f"{from_values} to transition to "
                         f"{to_state.value!r}"
                     )
+
+                # Codex M-26 v4 review fix: enforce the closed
+                # state-machine transition table inside the lock.
+                # ANY (from, to) pair not in _VALID_DRAFT_TRANSITIONS
+                # is rejected, regardless of caller. This blocks:
+                #   - AWAITING_APPROVAL → DRAFT (rewind submitted)
+                #   - APPROVED → anything (terminal, already covered)
+                #   - REJECTED → anything (terminal, already covered)
+                #   - DRAFT → APPROVED (skip approval queue)
+                #   - DRAFT → REJECTED (skip approval queue)
+                if (current, to_state) not in _VALID_DRAFT_TRANSITIONS:
+                    raise ContractDraftStateError(
+                        f"transition {current.value!r} → "
+                        f"{to_state.value!r} is not a valid draft "
+                        f"state-machine edge; the only legal edges "
+                        f"are draft→awaiting_approval, "
+                        f"awaiting_approval→approved, "
+                        f"awaiting_approval→rejected"
+                    )
+
+                # Codex M-26 v4 review fix: submitting for approval
+                # requires at least one clause. The public
+                # submit_for_approval method had this check, but a
+                # direct _transition_draft(to_state=AWAITING_APPROVAL)
+                # call could bypass it and submit an empty draft.
+                # v5 enforces it inside the lock.
+                if to_state == ContractDraftStatus.AWAITING_APPROVAL:
+                    clause_count = conn.execute(
+                        "SELECT COUNT(*) AS n FROM contract_clauses "
+                        "WHERE draft_id = ?",
+                        (draft_id,),
+                    ).fetchone()
+                    if int(clause_count["n"]) == 0:
+                        raise ContractDraftStateError(
+                            f"draft {draft_id!r} has no clauses; "
+                            f"cannot submit an empty contract for "
+                            f"approval"
+                        )
 
                 # Codex M-26 v3 fix: REJECTED transitions also
                 # require non-empty rationale. v3 only enforced

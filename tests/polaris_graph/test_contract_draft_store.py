@@ -979,6 +979,75 @@ def test_direct_transition_reject_requires_rationale(
         )
 
 
+# ---------------------------------------------------------------------------
+# Codex M-26 v4 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_direct_transition_cannot_revert_awaiting_to_draft(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v4: AWAITING_APPROVAL → DRAFT was a non-terminal
+    edge that v4 didn't catch (terminal-from check excluded it).
+    v5 enforces a closed transition table; reverting a submitted
+    draft is not a legal edge."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="not a valid"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="alice",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.DRAFT,
+        )
+
+
+def test_direct_transition_cannot_skip_approval_queue(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v4: DRAFT → APPROVED would skip the approval
+    queue entirely. v5 blocks this — when to_state is APPROVED,
+    v3's from_states-forcing already set from_states to
+    (AWAITING_APPROVAL,), so the current=DRAFT check fires before
+    we even reach the transition-table check. Either error
+    indicates the bypass is closed."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    # Draft is in DRAFT state. Skip approval queue entirely.
+    with pytest.raises(
+        ContractDraftStateError, match="awaiting_approval|not a valid",
+    ):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.DRAFT,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="bypass approval queue",
+        )
+
+
+def test_direct_transition_submit_requires_clauses(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v4: a direct call to _transition_draft(
+    to_state=AWAITING_APPROVAL) bypassed the public
+    submit_for_approval's "no clauses → reject" check. v5
+    enforces it inside the lock for ANY caller."""
+    d = _create_basic(store)
+    # No clauses added.
+    with pytest.raises(ContractDraftStateError, match="no clauses"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="alice",
+            from_states=(ContractDraftStatus.DRAFT,),
+            to_state=ContractDraftStatus.AWAITING_APPROVAL,
+        )
+
+
 def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
     d = _create_basic(store)
     c = _add_clause(store, d)
