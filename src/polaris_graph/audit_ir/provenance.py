@@ -151,6 +151,19 @@ def from_dict(data: dict[str, Any]) -> UploadProvenance:
     return instance
 
 
+def _is_strict_int(v: Any) -> bool:
+    """Codex M-11 v2 review fix: bool is a subclass of int in
+    Python, so isinstance(True, int) is True. Validation that
+    accepts ints must reject booleans explicitly so payloads like
+    `{"page": true}` don't deserialize as page 1."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _is_strict_number(v: Any) -> bool:
+    """Same as _is_strict_int but accepts float too. Excludes bool."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def _validate(prov: UploadProvenance) -> None:
     """Type and shape validation for a freshly-constructed
     provenance variant. Raises ValueError on any issue.
@@ -162,7 +175,7 @@ def _validate(prov: UploadProvenance) -> None:
             f"malformed {prov.kind}: upload_id must be non-empty string"
         )
     if isinstance(prov, TextSpan):
-        if not isinstance(prov.char_start, int) or not isinstance(prov.char_end, int):
+        if not _is_strict_int(prov.char_start) or not _is_strict_int(prov.char_end):
             raise ValueError(
                 "malformed text_span: char_start/char_end must be int"
             )
@@ -171,9 +184,9 @@ def _validate(prov: UploadProvenance) -> None:
                 f"malformed text_span: invalid range [{prov.char_start}, {prov.char_end}]"
             )
     elif isinstance(prov, PdfSpan):
-        if not isinstance(prov.page, int) or prov.page < 1:
+        if not _is_strict_int(prov.page) or prov.page < 1:
             raise ValueError("malformed pdf_span: page must be int >= 1")
-        if not isinstance(prov.char_start, int) or not isinstance(prov.char_end, int):
+        if not _is_strict_int(prov.char_start) or not _is_strict_int(prov.char_end):
             raise ValueError(
                 "malformed pdf_span: char_start/char_end must be int"
             )
@@ -190,19 +203,19 @@ def _validate(prov: UploadProvenance) -> None:
                 "malformed sheet_cell: cell_range must be non-empty string"
             )
     elif isinstance(prov, SlideRegion):
-        if not isinstance(prov.slide_num, int) or prov.slide_num < 1:
+        if not _is_strict_int(prov.slide_num) or prov.slide_num < 1:
             raise ValueError("malformed slide_region: slide_num must be int >= 1")
         if prov.bbox is not None:
             if not isinstance(prov.bbox, tuple) or len(prov.bbox) != 4:
                 raise ValueError(
                     "malformed slide_region: bbox must be 4-tuple or None"
                 )
-            if not all(isinstance(v, (int, float)) for v in prov.bbox):
+            if not all(_is_strict_number(v) for v in prov.bbox):
                 raise ValueError(
                     "malformed slide_region: bbox values must be numeric"
                 )
     elif isinstance(prov, Timecode):
-        if not isinstance(prov.start_s, (int, float)) or not isinstance(prov.end_s, (int, float)):
+        if not _is_strict_number(prov.start_s) or not _is_strict_number(prov.end_s):
             raise ValueError("malformed timecode: start_s/end_s must be numeric")
         if prov.start_s < 0 or prov.end_s < prov.start_s:
             raise ValueError(

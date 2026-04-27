@@ -185,6 +185,62 @@ def test_from_dict_rejects_empty_upload_id() -> None:
         })
 
 
+# ---------------------------------------------------------------------------
+# Codex M-11 v2 review regression: bool must not pass int validation
+# ---------------------------------------------------------------------------
+
+
+def test_from_dict_rejects_bool_text_span_offsets() -> None:
+    """Python's `bool` is a subclass of `int`, so isinstance(True, int)
+    is True. The validator must reject booleans explicitly so a
+    payload like `{"char_start": true}` doesn't deserialize as 1."""
+    with pytest.raises(ValueError, match="must be int"):
+        from_dict({
+            "kind": "text_span", "upload_id": "u",
+            "char_start": True, "char_end": 10,
+        })
+
+
+def test_from_dict_rejects_bool_pdf_page() -> None:
+    with pytest.raises(ValueError, match="page must be int"):
+        from_dict({
+            "kind": "pdf_span", "upload_id": "u",
+            "page": True, "char_start": 0, "char_end": 10,
+        })
+
+
+def test_from_dict_rejects_bool_pdf_offsets() -> None:
+    with pytest.raises(ValueError, match="must be int"):
+        from_dict({
+            "kind": "pdf_span", "upload_id": "u",
+            "page": 1, "char_start": True, "char_end": 10,
+        })
+
+
+def test_from_dict_rejects_bool_slide_num() -> None:
+    with pytest.raises(ValueError, match="slide_num"):
+        from_dict({
+            "kind": "slide_region", "upload_id": "u",
+            "slide_num": False, "bbox": None,
+        })
+
+
+def test_from_dict_rejects_bool_timecode_seconds() -> None:
+    with pytest.raises(ValueError, match="must be numeric"):
+        from_dict({
+            "kind": "timecode", "upload_id": "u",
+            "start_s": True, "end_s": 5.0,
+        })
+
+
+def test_from_dict_rejects_bool_in_slide_bbox() -> None:
+    with pytest.raises(ValueError, match="numeric"):
+        from_dict({
+            "kind": "slide_region", "upload_id": "u",
+            "slide_num": 1, "bbox": [True, False, 1.0, 2.0],
+        })
+
+
 def test_dataclasses_are_frozen() -> None:
     """All variants must be immutable so callers can't mutate
     shared provenance records."""

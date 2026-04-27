@@ -129,8 +129,14 @@ class TextParser(ParserRunner):
             return DEFAULT_TEXT_CHUNK_CHARS
 
     def can_handle(self, filename: str, content_type: str | None) -> bool:
-        if content_type and content_type in self._SUPPORTED_MIMES:
-            return True
+        # Codex M-11 v2 review fix: strip MIME parameters before
+        # comparing. Real upload headers often include "; charset=
+        # utf-8" / "; charset=ascii" suffixes; the v1 exact-match
+        # rejected those legitimate plain-text uploads.
+        if content_type:
+            base_mime = content_type.split(";", 1)[0].strip().lower()
+            if base_mime in self._SUPPORTED_MIMES:
+                return True
         ext = Path(filename).suffix.lower()
         return ext in self._SUPPORTED_EXT
 

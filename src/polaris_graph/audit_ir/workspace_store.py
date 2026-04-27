@@ -333,6 +333,12 @@ class WorkspaceStore:
         """Codex M-11 review fix: store-owned storage_path update.
         Avoids the inspector_router layering violation of reaching
         into `store._connect()` directly.
+
+        Codex M-11 v2 review fix: rowcount is checked so a
+        concurrent soft-delete cannot make the UPDATE a no-op
+        while we return success. Caller (inspector_router) catches
+        the resulting WorkspaceStateError and cleans up the bytes
+        on disk.
         """
         upload = self.get_upload(upload_id)
         if upload is None:
@@ -342,11 +348,16 @@ class WorkspaceStore:
                 f"upload {upload_id} is soft-deleted; cannot update path"
             )
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE uploads SET storage_path = ? "
                 "WHERE upload_id = ? AND deleted_at IS NULL",
                 (storage_path, upload_id),
             )
+            if cur.rowcount == 0:
+                raise WorkspaceStateError(
+                    f"upload {upload_id} was soft-deleted concurrently; "
+                    f"storage_path not updated"
+                )
         return replace(upload, storage_path=storage_path)
 
     def get_upload(self, upload_id: str) -> Upload | None:

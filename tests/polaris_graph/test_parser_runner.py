@@ -53,6 +53,24 @@ def test_text_parser_rejects_unrecognized_text_mime() -> None:
     assert p.can_handle("page.html", "text/html") is False
 
 
+@pytest.mark.parametrize(
+    "mime",
+    [
+        "text/plain; charset=utf-8",
+        "text/plain;charset=ascii",
+        "text/markdown; charset=utf-8",
+        "text/x-markdown ; charset=us-ascii",
+        "TEXT/PLAIN; CHARSET=UTF-8",  # case-insensitive
+    ],
+)
+def test_text_parser_accepts_parameterized_plain_text_mimes(mime: str) -> None:
+    """Codex M-11 v2 review fix: real upload headers often include
+    "; charset=..." parameters. Exact-match rejected those legitimate
+    plain-text uploads."""
+    p = TextParser()
+    assert p.can_handle("notes.txt", mime) is True
+
+
 def test_text_parser_emits_text_span_chunks(tmp_path: Path) -> None:
     p = TextParser(chunk_chars=10)
     f = tmp_path / "x.txt"

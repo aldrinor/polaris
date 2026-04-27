@@ -754,7 +754,18 @@ async def upload_to_workspace(
         )
 
     storage_path.write_bytes(payload)
-    store.update_storage_path(upload.upload_id, str(storage_path))
+    # Codex M-11 v2 review fix: if a concurrent soft-delete races
+    # past our reservation, update_storage_path now raises rather
+    # than silently no-opping. Clean up the bytes on disk so we
+    # don't leak orphaned files for a deleted upload.
+    try:
+        store.update_storage_path(upload.upload_id, str(storage_path))
+    except WorkspaceStateError as exc:
+        try:
+            storage_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HTTPException(status_code=409, detail=str(exc))
 
     # Synchronously parse if a parser claims it. Phase C M-11.5
     # will switch this to async via JobQueue for slow extractors.
