@@ -129,35 +129,78 @@ _V30_CLINICAL = CuratedTemplate(
     # conditions, generic outcomes, AND the umbrella drug-class
     # terms that are too generic for the STRONG gate. A
     # medical_keyword hit is NEVER sufficient on its own for ROUTED;
-    # it can only push the verdict up to OPERATOR_REVIEW (the
-    # operator decides whether v30_clinical is the right template).
+    # it can only push the verdict up to OPERATOR_REVIEW.
+    #
+    # Codex M-10 v3 review fix: vocabulary expanded substantially
+    # to support the alien-token gate (in classifier). Common
+    # singular/plural variants and standard clinical query
+    # vocabulary are explicitly listed so legitimate variations
+    # don't trip the gate. Phase B is conservative: words missing
+    # here cause queries to fall to OPERATOR_REVIEW, which is the
+    # safe failure mode.
     medical_keywords=(
         # Umbrella drug-class terms (Codex M-10 v2 demote — too
         # generic to anchor ROUTED on their own).
         "biologic", "biologics", "biosimilar", "biosimilars",
         "monoclonal antibody", "monoclonal antibodies",
         "receptor agonist", "receptor antagonist",
+        # Pharmacological vocabulary (Codex M-10 v3 — standalone
+        # forms so plurals/singulars in a query are recognized).
+        "receptor", "receptors",
+        "agonist", "agonists", "antagonist", "antagonists",
+        "inhibitor", "inhibitors",
+        "modulator", "modulators",
+        "statin", "statins",
+        "ace inhibitor", "ace inhibitors",
+        "ssri", "ssris",
         # Trial methodology
         "randomized", "double-blind", "placebo", "placebo-controlled",
         "phase 1", "phase 2", "phase 3", "phase 4",
         "primary endpoint", "secondary endpoint",
-        "meta-analysis", "systematic review",
+        "meta-analysis", "systematic review", "review", "reviews",
+        "analysis", "analyses",
         # Regulatory framing
-        "fda", "ema", "mhra", "regulatory", "approval", "indication",
-        "label", "post-marketing", "clinical trial", "trial",
-        # Outcomes / safety
-        "efficacy", "safety", "adverse", "adverse event", "tolerability",
+        "fda", "ema", "mhra", "pmda", "regulatory", "approval",
+        "indication", "label", "labeling", "post-marketing",
+        "clinical trial", "trial", "trials", "clinical",
+        # Outcomes / safety / pharmacology
+        "efficacy", "effectiveness", "safety", "tolerability",
+        "adverse", "adverse event", "adverse events",
+        "side effect", "side effects",
+        "outcome", "outcomes", "endpoint", "endpoints",
+        "result", "results", "rate", "rates", "ratio", "ratios",
+        "response", "responses", "responder", "responders",
         "mortality", "morbidity",
-        "hba1c", "ldl", "blood pressure", "weight loss",
-        # Conditions
-        "diabetes", "type 2 diabetes", "obesity", "hypertension",
-        "cardiovascular", "oncology", "cancer", "depression", "stroke",
-        "atherosclerosis",
+        "hba1c", "ldl", "hdl", "blood pressure", "weight loss",
+        "weight", "loss", "gain",
+        "pharmacology", "pharmacokinetic", "pharmacokinetics",
+        "pharmacodynamic", "pharmacodynamics",
+        "dose", "doses", "dosage", "dosing",
+        # Conditions / clinical contexts
+        "diabetes", "type 2 diabetes", "type 1 diabetes",
+        "diabetes mellitus", "prediabetes", "t2dm", "t1dm",
+        "obesity", "overweight", "hypertension",
+        "cardiovascular", "atherosclerosis",
+        "heart failure", "heart attack", "myocardial infarction",
+        "atrial fibrillation", "stroke", "arrhythmia",
+        "oncology", "cancer", "tumor", "tumors", "malignancy",
+        "depression", "anxiety", "ptsd",
+        "hypercholesterolemia", "dyslipidemia",
+        "chronic kidney disease", "ckd", "esrd", "kidney disease",
+        "copd", "asthma",
+        # Patient-population vocabulary
+        "patient", "patients", "subject", "subjects", "participant",
+        "participants", "cohort", "cohorts",
+        "adult", "adults", "child", "children", "infant", "infants",
+        "elderly", "geriatric", "pediatric",
         # Broader medical-domain words
-        "drug", "drugs", "treatment", "therapy", "medication",
-        "patient", "patients",
-        "disease", "syndrome", "condition", "study", "studies",
-        "clinical", "pharmacology", "pharmacokinetic",
+        "drug", "drugs", "treatment", "treatments",
+        "therapy", "therapies", "medication", "medications",
+        "disease", "diseases", "syndrome", "syndromes",
+        "condition", "conditions",
+        "study", "studies", "studied",
+        "effect", "effects",
+        "long-term", "short-term",
     ),
     # Codex M-10 v2 review fix: every exemplar names a specific drug
     # from drug_keywords. Removed "Phase 3 trial of monoclonal

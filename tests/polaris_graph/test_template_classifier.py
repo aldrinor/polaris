@@ -271,6 +271,14 @@ def test_candidates_for_unsupported_still_present() -> None:
         "Phase 3 trial of receptor agonist for dermatitis",
         "Meta-analysis of biologics in inflammatory bowel disease",
         "Adverse events of monoclonal antibodies in oncology",
+        # Codex M-10 v3 review regression: real drug + scaffold-shape
+        # + nonsense suffix bypass. Alien-token gate must catch these.
+        "Dulaglutide phase 3 trial outcomes for video game addiction",
+        "Atorvastatin efficacy for engine lubrication",
+        "Empagliflozin cardiovascular outcomes meta-analysis in server uptime",
+        "Cardiovascular safety of GLP-1 receptor agonists for printer firmware",
+        "Tirzepatide efficacy for Java compilation errors",
+        "Metformin phase 3 trial outcomes for blockchain governance",
     ],
 )
 def test_off_scope_with_exemplar_shape_does_not_route(query: str) -> None:

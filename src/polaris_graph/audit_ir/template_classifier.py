@@ -233,52 +233,91 @@ def _max_example_jaccard(
     return best
 
 
+def _alien_tokens(
+    qtokens_filtered: frozenset[str],
+    drug_hits: tuple[str, ...],
+    medical_hits: tuple[str, ...],
+) -> frozenset[str]:
+    """Codex M-10 v3 review fix: tokens in the (stopword-filtered)
+    query that are NOT covered by any matched keyword.
+
+    Used by the ROUTED gate to detect bypasses where a query has a
+    real drug + exemplar-shape prefix but a nonsense suffix
+    ("tirzepatide phase 3 trial outcomes for video game addiction").
+    The exemplar Jaccard alone is too forgiving — adding 2-3 alien
+    words still leaves the matched portion dominant. Counting
+    unrecognized content tokens directly closes that hole.
+    """
+    matched: set[str] = set()
+    for kw in drug_hits:
+        matched |= _tokenize_raw(kw)
+    for kw in medical_hits:
+        matched |= _tokenize_raw(kw)
+    return qtokens_filtered - matched
+
+
+# Codex M-10 v3 review fix: ROUTED requires the query to contain at
+# most this many alien (unrecognized) content tokens. Tightening to
+# 0 would reject natural phrasing variation (a query that uses an
+# adjective we don't know); allowing > 1 lets adversarial bypasses
+# clear the gate. One slack token is the conservative-Phase-B
+# tradeoff. Operators see anything with more alien content as
+# OPERATOR_REVIEW and decide.
+_ROUTED_MAX_ALIEN_TOKENS = 1
+
+
 def _score_template(
     qtokens_raw: frozenset[str], tmpl: CuratedTemplate
 ) -> tuple[float, tuple[str, ...], tuple[str, ...], float]:
-    """Codex M-10 review fix: discrete-tier score using two-class
-    keyword signals.
+    """Codex M-10 v3 review: discrete-tier score using two-class
+    keyword signals + alien-token gate.
 
     Returns (score in [0, 1], drug_hits, medical_hits, example_jaccard).
 
-    The ROUTED gate (tier A) requires BOTH:
+    The ROUTED gate (tier A) requires ALL THREE:
       (1) at least one drug_keyword hit (a specific regulated drug
-          or drug class is named in the query), AND
+          or narrow drug-class abbreviation is named), AND
       (2) example_jaccard ≥ 0.30 on stopword-filtered tokens (the
-          query semantically matches a known exemplar shape, not
-          just the question scaffold).
+          query shape matches a known exemplar, not just the
+          question scaffold), AND
+      (3) at most _ROUTED_MAX_ALIEN_TOKENS unrecognized content
+          tokens (the query doesn't introduce nonsense beyond what
+          the catalog covers).
 
-    Without (1), the verdict can rise no higher than OPERATOR_REVIEW
-    regardless of exemplar similarity. This is the Risk #13
-    guardrail — the false-positive direction (auto-routing
-    off-scope queries about supplements / non-drugs / generic
-    medical topics) is the dominant failure mode in Phase B with
-    one production template, so the route gate is deliberately
-    drug-anchored.
+    Each guard alone is bypass-able. Combined they pin the false-
+    positive surface tightly. Phase B with one template biases the
+    route decision strongly toward false-negatives (those land in
+    OPERATOR_REVIEW, which the operator can reclassify).
     """
     drug_hits = _keyword_hits(qtokens_raw, tmpl.drug_keywords)
     medical_hits = _keyword_hits(qtokens_raw, tmpl.medical_keywords)
     qtokens_filtered = _filter_stopwords(qtokens_raw)
     ex_jac = _max_example_jaccard(qtokens_filtered, tmpl.scope_examples)
+    alien = _alien_tokens(qtokens_filtered, drug_hits, medical_hits)
+    n_alien = len(alien)
 
     n_drug = len(drug_hits)
     n_medical = len(medical_hits)
 
-    # Tier A — ROUTED: drug-anchored AND semantically aligned with
-    # an exemplar shape. Score blends jaccard so very-strong matches
+    # Tier A — ROUTED: drug-anchored, semantically aligned, and
+    # alien-bounded. Score blends jaccard so very-strong matches
     # land near 1.0 and weak-but-passing matches sit just above
     # floor_high.
-    if n_drug >= 1 and ex_jac >= 0.30:
+    if n_drug >= 1 and ex_jac >= 0.30 and n_alien <= _ROUTED_MAX_ALIEN_TOKENS:
         score = 0.55 + 0.45 * ex_jac
         return min(score, 1.0), drug_hits, medical_hits, ex_jac
 
     # Tier B — OPERATOR_REVIEW: drug named but the query shape is
-    # off-pattern (e.g. "tirzepatide weather forecast"). Operator
-    # decides if the query can be reframed.
+    # off-pattern OR the query has too much unrecognized content.
     if n_drug >= 1:
-        # Score sits in the review band; jaccard contributes a small
-        # nudge so a borderline exemplar match isn't lost in logs.
-        return 0.40 + 0.10 * ex_jac, drug_hits, medical_hits, ex_jac
+        # Score sits in the review band; jaccard contributes a
+        # small nudge so a borderline exemplar match isn't lost in
+        # logs. Alien-heavy drug queries top out at the lower end
+        # of the review band.
+        base = 0.40 + 0.10 * ex_jac
+        if n_alien > _ROUTED_MAX_ALIEN_TOKENS:
+            base = min(base, 0.45)
+        return base, drug_hits, medical_hits, ex_jac
 
     # Tier C — OPERATOR_REVIEW: no drug named, but multiple medical
     # signals + decent jaccard. Could be a question that needs a
@@ -377,12 +416,31 @@ def classify_query(
     if top.score >= config.floor_review:
         # Codex M-10 review fix: rationale calls out which gate the
         # query failed so the operator-review UI can show "no
-        # specific drug named — confirm or supply one" vs "drug named
-        # but query shape is off".
+        # specific drug named — confirm or supply one" vs "drug
+        # named but query shape is off" vs "query has unrecognized
+        # content not covered by the catalog".
+        # Codex M-10 v3: alien-token signal added.
+        top_drug_hits_set = set(top.drug_hits)
+        top_med_hits_set = set(top.medical_hits)
+        # Alien is approximate here (full computation lives in
+        # _score_template); we recompute a coarse version for the
+        # rationale message.
+        qfiltered = _filter_stopwords(_tokenize_raw(question))
+        matched_set: set[str] = set()
+        for kw in top_drug_hits_set | top_med_hits_set:
+            matched_set |= _tokenize_raw(kw)
+        alien_count = len(qfiltered - matched_set)
+
         if not top.drug_hits:
             why = (
                 "no specific regulated drug or drug class named — "
                 "v30_clinical requires one for routed audits"
+            )
+        elif alien_count > 1:
+            why = (
+                f"query contains {alien_count} unrecognized content "
+                f"tokens beyond what the v30_clinical catalog covers; "
+                f"operator should clarify or trim non-clinical content"
             )
         else:
             why = (
