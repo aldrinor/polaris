@@ -279,6 +279,15 @@ def test_candidates_for_unsupported_still_present() -> None:
         "Cardiovascular safety of GLP-1 receptor agonists for printer firmware",
         "Tirzepatide efficacy for Java compilation errors",
         "Metformin phase 3 trial outcomes for blockchain governance",
+        # Codex M-10 v4 review regression: single-alien-token bypass.
+        # alien_max=0 must reject these; previously alien<=1 let them
+        # route at confidence 0.70-0.95.
+        "tirzepatide for diabetes pleasingly",
+        "tirzepatide for diabetes printer",
+        "dulaglutide phase 3 trial outcomes for type 2 diabetes printer",
+        "empagliflozin cardiovascular outcomes meta-analysis in adults with chronic kidney disease and heart failure printer",
+        "metformin for type 2 diabetes alongside cryptocurrency",
+        "GLP-1 receptor agonists for cardiovascular outcomes wherever",
     ],
 )
 def test_off_scope_with_exemplar_shape_does_not_route(query: str) -> None:
@@ -290,6 +299,22 @@ def test_off_scope_with_exemplar_shape_does_not_route(query: str) -> None:
         f"off-scope query {query!r} routed with score {r.confidence:.2f} "
         f"and rationale {r.rationale!r}"
     )
+
+
+def test_every_scope_example_self_routes() -> None:
+    """Codex M-10 v4 invariant: every scope_example in the catalog
+    must route at confidence ≥ floor_high when submitted as a query.
+    Catches vocabulary gaps where an exemplar uses a word that isn't
+    in drug_keywords or medical_keywords (so it would be alien)."""
+    from src.polaris_graph.audit_ir.template_catalog import list_catalog
+    for tmpl in list_catalog():
+        for ex in tmpl.scope_examples:
+            r = classify_query(ex)
+            assert r.verdict == RoutingVerdict.ROUTED, (
+                f"scope_example {ex!r} for template {tmpl.template_id} "
+                f"failed self-routing: verdict={r.verdict.value}, "
+                f"score={r.confidence:.2f}, rationale={r.rationale}"
+            )
 
 
 def test_routed_requires_drug_keyword_hit() -> None:

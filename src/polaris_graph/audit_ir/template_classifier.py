@@ -169,6 +169,15 @@ _STOPWORDS: frozenset[str] = frozenset({
     "i", "you", "we", "they", "he", "she", "it",
     "my", "your", "our", "their", "his", "her", "its",
     "new", "any", "some", "all", "both", "each", "every",
+    # Codex M-10 v4 review fix: clinical-context filler verbs that
+    # don't carry routing signal. Adding them avoids alien-tagging
+    # legitimate queries like "Adolescent semaglutide use for
+    # obesity" (now alien=0 instead of alien={use}).
+    # NOT added: words like "alongside", "wherever", "whenever" —
+    # those are nonsense-tail bypass attempts and should remain
+    # alien so the gate catches them.
+    "use", "used", "using", "uses",
+    "given", "taking", "received", "receiving",
 })
 
 
@@ -256,14 +265,16 @@ def _alien_tokens(
     return qtokens_filtered - matched
 
 
-# Codex M-10 v3 review fix: ROUTED requires the query to contain at
-# most this many alien (unrecognized) content tokens. Tightening to
-# 0 would reject natural phrasing variation (a query that uses an
-# adjective we don't know); allowing > 1 lets adversarial bypasses
-# clear the gate. One slack token is the conservative-Phase-B
-# tradeoff. Operators see anything with more alien content as
-# OPERATOR_REVIEW and decide.
-_ROUTED_MAX_ALIEN_TOKENS = 1
+# Codex M-10 v4 review fix: ROUTED tightened to alien_count == 0.
+# v3's single-alien slack still let 1-token nonsense tails route
+# ("tirzepatide for diabetes printer" → routed 0.70). Phase B
+# treats vocabulary gaps as a safe-failure direction: if a real
+# clinical query uses a word the catalog doesn't know yet, it
+# falls to OPERATOR_REVIEW and the operator confirms (or expands
+# the catalog). The vocabulary in template_catalog.medical_keywords
+# is curated to cover the common clinical-query content words so
+# this gate is rarely reached for legitimate queries.
+_ROUTED_MAX_ALIEN_TOKENS = 0
 
 
 def _score_template(
