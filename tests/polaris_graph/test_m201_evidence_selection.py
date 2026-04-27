@@ -203,7 +203,11 @@ def test_m201_selection_pool_smaller_than_max_keeps_everything() -> None:
     )
     assert len(result.selected_rows) == 3
     assert result.dropped_count == 0
-    assert result.selection_strategy == "tier_balanced_v1_all"
+    # M-26-era triage fix (Codex review): the strategy string was
+    # renamed when M-46 ordering landed; assertion was stale.
+    # Code at src/polaris_graph/retrieval/evidence_selector.py:583
+    # now returns the suffixed version below.
+    assert result.selection_strategy == "tier_balanced_v1_all_m46_ordered"
 
 
 # ─────────────────────────────────────────────────────────────────

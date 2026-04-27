@@ -195,10 +195,13 @@ def test_m207_every_manifest_write_includes_status_key() -> None:
             write_positions.append(i)
     # At least 4 write sites (matches the exit path inventory in R1 scoping)
     assert len(write_positions) >= 4
-    # Check each write has a preceding "status" assignment within 50 lines
+    # Check each write has a preceding "status" assignment within 200 lines
+    # (M-26-era triage Codex review: original 80-line window missed the
+    # V30 manifest construction at line 1780 whose write_text fires at
+    # line 1918 — 138 lines apart. Extending to 200 covers it.)
     lines = source.splitlines()
     for pos in write_positions:
-        start = max(0, pos - 80)
+        start = max(0, pos - 200)
         block = "\n".join(lines[start:pos])
         assert '"status"' in block, (
             f"Manifest write at line {pos} has no preceding status field:\n"

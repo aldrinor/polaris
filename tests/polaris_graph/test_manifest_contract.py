@@ -105,10 +105,18 @@ def _find_manifest_write_blocks(source: str) -> list[tuple[int, int, str]]:
             if isinstance(recv, ast.BinOp) and isinstance(recv.op, ast.Div):
                 right = recv.right
                 if isinstance(right, ast.Constant) and right.value == "manifest.json":
-                    # Found a manifest write. Look backward 80 lines for
-                    # the `{ ... }` construction.
+                    # Found a manifest write. Look backward 200 lines
+                    # for the `{ ... }` construction. The V30 site
+                    # at line 1918 has its dict starting at 1780 (138
+                    # lines apart), so the original 80-line window
+                    # missed it; the M-26-era triage Codex review
+                    # flagged this as a false positive. Extending to
+                    # 200 covers the V30 site without admitting
+                    # false positives elsewhere (other manifest
+                    # writes have their `{ ... }` immediately above
+                    # the write_text call).
                     end_line = node.lineno
-                    start_line = max(1, end_line - 80)
+                    start_line = max(1, end_line - 200)
                     block = "\n".join(source_lines[start_line - 1:end_line])
                     blocks.append((start_line, end_line, block))
     return blocks

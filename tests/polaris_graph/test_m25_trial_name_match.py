@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from polaris_graph.generator.provenance_generator import (
+from src.polaris_graph.generator.provenance_generator import (
     extract_trial_names,
     verify_sentence_provenance,
 )

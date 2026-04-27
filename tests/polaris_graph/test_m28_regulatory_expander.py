@@ -14,7 +14,7 @@ Generalizable contract (no hard-coded agency names in Python):
 """
 from __future__ import annotations
 
-from polaris_graph.retrieval.regulatory_expander import (
+from src.polaris_graph.retrieval.regulatory_expander import (
     expand_regulatory_queries,
 )
 
@@ -256,7 +256,7 @@ class TestYamlTemplateIntegration:
     new field to scope_gate without breaking the scope protocol flow."""
 
     def test_clinical_template_loads_with_anchors(self) -> None:
-        from polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("clinical")
         assert isinstance(tmpl, dict)
         anchors = tmpl.get("regulatory_anchors")
@@ -268,13 +268,13 @@ class TestYamlTemplateIntegration:
             assert isinstance(a, str) and "/" not in a and " " not in a
 
     def test_policy_template_loads_with_anchors(self) -> None:
-        from polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("policy")
         assert isinstance(tmpl.get("regulatory_anchors"), list)
         assert len(tmpl["regulatory_anchors"]) > 0
 
     def test_due_diligence_template_loads_with_anchors(self) -> None:
-        from polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("due_diligence")
         assert isinstance(tmpl.get("regulatory_anchors"), list)
         assert len(tmpl["regulatory_anchors"]) > 0
@@ -283,7 +283,7 @@ class TestYamlTemplateIntegration:
         """Tech template has no regulatory_anchors field (zero-anchor
         domain). scope_gate must still load it, and the expander must
         emit zero queries."""
-        from polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("tech")
         # Either missing or an empty list — either is acceptable.
         assert tmpl.get("regulatory_anchors", []) in ([], None) or (
@@ -303,7 +303,7 @@ class TestYamlTemplateIntegration:
         verifies the template fits under the current cap and does not
         silently truncate.
         """
-        from polaris_graph.nodes.scope_gate import load_scope_template
+        from src.polaris_graph.nodes.scope_gate import load_scope_template
         tmpl = load_scope_template("clinical")
         result = expand_regulatory_queries("test question", tmpl)
         # Capped at 12 by default (M-43).

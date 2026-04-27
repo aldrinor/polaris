@@ -23,7 +23,7 @@ environmental, or any cross-jurisdiction query.
 """
 from __future__ import annotations
 
-from polaris_graph.generator.multi_section_generator import (
+from src.polaris_graph.generator.multi_section_generator import (
     SECTION_SYSTEM_PROMPT_TEMPLATE,
 )
 
@@ -78,17 +78,29 @@ class TestRuleIsGeneralizable:
     def test_rule_uses_placeholder_jurisdictions_not_real_agencies(self) -> None:
         """The rule illustrates with "Jurisdiction A / Jurisdiction B"
         rather than FDA / EMA / Health Canada / NICE etc., so it
-        applies uniformly to policy, finance, environmental queries."""
-        # Find rule #11 block (between "11." and "12." or next major section)
+        applies uniformly to policy, finance, environmental queries.
+
+        M-26-era triage Codex review: the original scan range went
+        from rule #11 to "EVIDENCE TIER DISCIPLINE" but that included
+        rule #11b (M-37 jurisdictional coverage) which legitimately
+        names jurisdictions in its detection examples. The test's
+        stated intent is rule #11 (M-29) only, so narrow the scan to
+        stop at "11b.".
+        """
+        # Find rule #11 block (between "11." and "11b." — the next
+        # rule starts at "11b.").
         idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("11.")
         assert idx >= 0
-        # Take the rule block (next ~1500 chars should cover it, before
-        # "EVIDENCE TIER DISCIPLINE" or similar next heading).
-        end_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
-            "EVIDENCE TIER DISCIPLINE", idx,
-        )
+        end_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find("11b.", idx)
         if end_idx == -1:
-            end_idx = idx + 2000
+            # Fallback if rule #11b is removed or renamed: scan until
+            # "EVIDENCE TIER DISCIPLINE" but cap to a reasonable range
+            # so we don't sweep into M-47.
+            end_idx = SECTION_SYSTEM_PROMPT_TEMPLATE.find(
+                "EVIDENCE TIER DISCIPLINE", idx,
+            )
+            if end_idx == -1:
+                end_idx = idx + 2000
         rule_block = SECTION_SYSTEM_PROMPT_TEMPLATE[idx:end_idx]
         # These agency names are domain-specific and must NOT appear
         # in the rule block itself. They may appear elsewhere in the

@@ -48,11 +48,13 @@ This document categorizes the 19 failing tests + 3 collection errors into action
 | `test_m49_v28_preservation::test_pivotal_trial_coverage` | V27→V28 regression | Wait for V30 |
 | `test_m49_v28_preservation::test_surpass_cvot_mentioned` | V27→V28 regression | Wait for V30 |
 | `test_m49_v28_preservation::test_surpass_2_primary_etd_present` | V27→V28 regression | Wait for V30 |
-| `test_m49_v28_preservation::test_m47_clamp_validator_passes` | **Real M47 regression** | Fixable independently |
+| `test_m49_v28_preservation::test_m47_clamp_validator_passes` | V27→V28 regression (mechanism extraction) | Wait for V30 (see appendix) |
 
-**Don't lower baselines** still applies to the 6 wait-for-V30 tests. But the M47 clamp validator should be fixed now — Codex flagged it as concrete, not a V30 placeholder.
+**Don't lower baselines** still applies to ALL 7 wait-for-V30 tests.
 
-**Effort to fix**: ~6 tests are V30-blocked (no immediate work). M47 clamp validator: investigate the concrete regression, ~2-4h.
+**Note on M-47 reclassification (post-triage investigation)**: Codex round-1 flagged M-47 as a concrete regression (fixable independently). On 2026-04-27 investigation, the diagnostic data showed 4 of 6 mechanism papers had ZERO candidate fields extracted by `_m47_extract_candidate_values`. The extractor is reasonable code; the more likely root cause is V28 evidence selection picking quote strings that don't contain the numeric values the extractor looks for. Without re-running the V28 pipeline to inspect actual quote text, the fix is upstream in V28→V30 evidence selection, not in the validator. Reclassified back to V30-blocked.
+
+**Effort to fix**: 7 tests V30-blocked, no immediate work.
 
 ---
 

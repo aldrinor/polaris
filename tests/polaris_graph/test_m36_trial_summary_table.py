@@ -243,7 +243,15 @@ def _install_fake_client(monkeypatch, client: _FakeClient) -> None:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # M-26-era triage fix (Codex review): `asyncio.get_event_loop()`
+    # is deprecated and only worked because upstream tests left a
+    # loop in shared module state. When the suite is run with
+    # `test_corpus_brief.py` first, the get_event_loop() call
+    # raises `RuntimeError: There is no current event loop`.
+    # `asyncio.run()` manages the loop lifecycle correctly per call
+    # (creates a fresh loop, closes it after) and doesn't depend on
+    # any prior global state.
+    return asyncio.run(coro)
 
 
 class TestCallOrchestration:
