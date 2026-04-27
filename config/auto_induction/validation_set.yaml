@@ -1,0 +1,64 @@
+# M-D1 Auto-Induction Validation Set (Phase D)
+#
+# Used by `src.polaris_graph.auto_induction.run_benchmark()` to score
+# any candidate inductor (M-D2 forward) against curator-reviewed
+# contracts + ambiguous + out-of-scope queries.
+#
+# Acceptance thresholds (M-D1 GREEN per Codex round-2 review):
+#   precision >= 0.80         (in-scope cases where induced contract matches curator @ tau=0.80)
+#   silent_disagreement_rate <= 0.05  (in-scope cases inductor accepted but match_score < tau)
+#   abstain_recall >= 0.95    (cases that should abstain where inductor did abstain)
+#   operator_review_load <= 0.30  (fraction of total queries routed to humans)
+#
+# This is a SEED set — M-D1 explicitly defines "100-200 historic
+# queries that already have curator-reviewed contracts." This file
+# starts with 6 cases (2 in-scope clinical, 1 in-scope policy, 2
+# ambiguous, 1 out-of-scope) just to validate the harness shape.
+# Growing the set to 100+ is its own M-D1.5 task — to be done by a
+# human curator or an LLM-assisted curation pass over historic
+# audit-run logs.
+
+in_scope:
+  # Clinical template — happy path
+  - case_id: cli-01
+    query: "What is the efficacy of tirzepatide vs semaglutide for type 2 diabetes?"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  # Clinical template — same contract, different phrasing (test
+  # paraphrase robustness)
+  - case_id: cli-02
+    query: "How does Mounjaro compare to Ozempic on HbA1c reduction in T2DM patients?"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  # Policy template — happy path (depends on policy.yaml having a
+  # contract; the harness will fail loud if not)
+  - case_id: pol-01
+    query: "What are the regulatory implications of the EU AI Act for foundation model providers?"
+    curator_contract_slug: policy_eu_ai_act
+    domain: policy
+
+ambiguous:
+  # Could be clinical OR policy depending on framing; the inductor
+  # SHOULD abstain and route to operator review per Risk #13
+  # (query-to-template misrouting / unsupported overclaim).
+  - case_id: amb-01
+    query: "How effective is GLP-1 therapy for weight loss?"
+    expected_action: abstain
+    reason: "Could be clinical (drug efficacy) or policy (insurance coverage / cost-effectiveness). Without disambiguation the inductor must not silently pick one."
+
+  # Mixed-domain query: a question that crosses clinical + tech +
+  # policy — none of the curated templates fully cover.
+  - case_id: amb-02
+    query: "What are the safety, efficacy, and regulatory landscape for AI-driven clinical decision-support tools in primary care?"
+    expected_action: abstain
+    reason: "Spans clinical AI (evidence base), regulatory (FDA SaMD), tech (ML reliability). No single template covers; operator must split."
+
+out_of_scope:
+  # Industrial materials — explicitly out of supported template
+  # space until M-D6 cross-domain expansion ships an adapter.
+  - case_id: oos-01
+    query: "What is the cycle-life of LFP vs NMC battery chemistries at 1C discharge?"
+    expected_action: abstain
+    reason: "Industrial materials / battery domain. Phase D M-D6 hasn't shipped a retrieval adapter for this. Inductor must abstain."
