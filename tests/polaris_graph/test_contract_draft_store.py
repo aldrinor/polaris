@@ -2712,6 +2712,86 @@ def test_v15_decision_log_blocks_delete(
             )
 
 
+def test_v16_decision_log_blocks_insert_or_replace(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v15 review found that v15's UPDATE/DELETE triggers
+    only fired on plain DML, not on `INSERT OR REPLACE` /
+    `REPLACE INTO`. With recursive_triggers OFF (SQLite default),
+    REPLACE deletes+reinserts WITHOUT firing the DELETE trigger,
+    so an attacker could rewrite a forged log row's actor.
+    v16 enables PRAGMA recursive_triggers = ON in _connect()
+    so the implicit DELETE phase of REPLACE fires the trigger."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Get the log_id of the submit transition.
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    submit_row = next(
+        r for r in log
+        if r["from_state"] == "draft"
+        and r["to_state"] == "awaiting_approval"
+    )
+    target_log_id = submit_row["log_id"]
+    # Direct SQL REPLACE attempting to overwrite the submit row's
+    # actor via primary-key conflict.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        conn.execute("PRAGMA recursive_triggers = ON")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "INSERT OR REPLACE INTO contract_decision_log "
+                "(log_id, draft_id, clause_id, actor_user_id, "
+                "from_state, to_state, rationale, created_at) "
+                "VALUES (?, ?, NULL, 'forged', 'draft', "
+                "'awaiting_approval', 'rewritten', 0.0)",
+                (target_log_id, d.draft_id),
+            )
+    # Original actor still recorded.
+    log_after = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    submit_after = next(
+        r for r in log_after if r["log_id"] == target_log_id
+    )
+    assert submit_after["actor_user_id"] == "usr_alice"
+
+
+def test_v16_decision_log_blocks_replace_into(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: bare `REPLACE INTO` syntax is also blocked.
+    REPLACE INTO is just a synonym for INSERT OR REPLACE, but
+    test both spellings to lock the regression."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    target_log_id = log[0]["log_id"]
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        conn.execute("PRAGMA recursive_triggers = ON")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            conn.execute(
+                "REPLACE INTO contract_decision_log "
+                "(log_id, draft_id, clause_id, actor_user_id, "
+                "from_state, to_state, rationale, created_at) "
+                "VALUES (?, ?, NULL, 'forged', NULL, 'draft', "
+                "'rewritten', 0.0)",
+                (target_log_id, d.draft_id),
+            )
+
+
 def test_v15_decision_log_truly_append_only_under_full_attack(
     store: ContractDraftStore,
     tmp_path: Path,

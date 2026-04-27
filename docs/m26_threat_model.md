@@ -77,17 +77,19 @@ When evaluating a proposed "M-26 hardening", check whether the threat falls into
 | `DELETE` | `trg_freeze_clauses_after_submit_delete` | No DELETE once parent draft is submitted |
 | Per-row | `CHECK` constraint | Decision-vs-audit-fields invariants: pending → decided_by/notes/decided_at all NULL; approved → decided_by + decided_at NOT NULL & non-empty; rejected → adds decision_notes NOT NULL & non-empty |
 
-### `contract_decision_log` table (post-lock v15 — Codex doc audit finding)
+### `contract_decision_log` table (post-lock v15 — Codex doc audit finding; round-2 narrowing)
 
-The original v1-v14 hardening cycle missed this table entirely. The doc claimed it was "append-only by design" but no SQL triggers actually enforced that; direct SQL UPDATE/DELETE on log rows worked, so a forged decision (created via the v11-class direct-SQL clause attack) could be erased after the v12/v13 auto-log triggers wrote the audit entry. The v15 post-lock fix closes this:
+The original v1-v14 hardening cycle missed this table entirely. The doc claimed it was "append-only by design" but no SQL triggers actually enforced that; direct SQL UPDATE/DELETE on log rows worked, so a forged decision (created via the v11-class direct-SQL clause attack) could be erased after the v12/v13 auto-log triggers wrote the audit entry. The v15 post-lock fix narrows this:
 
 | Operation | Defense | What it enforces |
 |---|---|---|
-| `INSERT` | (allowed) | Auto-log triggers + `create_draft` are the only write paths; INSERT is the only legal mutation |
-| `UPDATE` | `trg_decision_log_no_update` | All UPDATEs raise; row attribution and content are immutable |
-| `DELETE` | `trg_decision_log_no_delete` | All DELETEs raise; the audit trail must survive |
+| `INSERT` | (no schema-level defense) | UPDATE/DELETE blocked, but arbitrary direct-SQL INSERT to this table is **NOT** schema-blocked. Auto-log triggers + `create_draft` are the only intended write paths, but a direct caller can append forged log rows. Defense is moved to identity validation (M-15a) + anomaly detection on log entries (out of scope for this substrate; see threat-model boundary). |
+| `UPDATE` | `trg_decision_log_no_update` | All UPDATEs raise; row attribution and content are immutable once written |
+| `DELETE` | `trg_decision_log_no_delete` | All DELETEs raise; the audit trail cannot be erased |
 
-This makes the audit-trail integrity claim later in this document actually true. A forged decision via direct SQL on `contract_clauses` or `contract_drafts` writes a tamper-evident log entry naming the forged actor, and that entry cannot be erased without DDL.
+**What v15 actually guarantees**: the audit trail is **non-destructible** (UPDATE+DELETE blocked) but **not unforgeable** (direct INSERT works). A forged decision via direct SQL on `contract_clauses` or `contract_drafts` writes a tamper-evident log entry naming the forged actor, and that entry cannot be erased after-the-fact. But an attacker with direct SQL access can also fabricate log entries that don't correspond to any real state transition — those forgeries are catchable only by anomaly detection (unknown actors, impossible timestamps, log entries without matching `contract_drafts.status` history, etc.).
+
+**Why not a stronger trigger?** SQLite triggers cannot distinguish a trigger-driven INSERT (legitimate, fired by `trg_log_clause_decision_change` etc.) from a direct-SQL INSERT (forged) without per-connection auth, which the SQLite engine doesn't expose. Cleanly defending arbitrary INSERT requires the process layer (auth + connection-tagging), not the schema layer. This is the same logic that puts DDL and identity validation out of scope.
 
 ### Python layer (defense in depth above SQL)
 
@@ -118,9 +120,9 @@ This makes the audit-trail integrity claim later in this document actually true.
 
 **Audit-trail integrity:**
 
-- Every status/decision change writes a `contract_decision_log` row automatically (via auto-log triggers). Direct-SQL bypasses still leave a trace; that trace may have a forged actor string, but anomaly detection on the log + M-15a identity-validation catches forged actors.
-- `contract_decision_log` is append-only and **enforced** by `trg_decision_log_no_update` + `trg_decision_log_no_delete` (added v15 post-lock per Codex doc audit). Without these triggers, the auto-log promise is hollow — direct SQL could erase the forged-actor entry that anomaly detection relies on.
-- Future contributors writing new audit-log tables should follow the same pattern: append-only via INSERT-only triggers, every mutation path attached to a parent state machine.
+- Every status/decision change writes a `contract_decision_log` row automatically (via auto-log triggers). Direct-SQL bypasses on contract_drafts/contract_clauses still leave a trace; that trace may have a forged actor string, but anomaly detection on the log + M-15a identity-validation catches forged actors.
+- `contract_decision_log` is **non-destructible** but not unforgeable: `trg_decision_log_no_update` + `trg_decision_log_no_delete` (added v15) prevent erasure or rewriting of existing log rows. **Direct-SQL INSERT to the log table is NOT schema-blocked** — see the contract_decision_log defense table for the constraint reasoning. Forged log INSERTs that don't correspond to real state transitions are catchable only by anomaly detection at the process layer.
+- Future contributors writing new audit-log tables should follow the same pattern: UPDATE/DELETE blocked at schema level, INSERT validation deferred to process layer (because SQLite triggers can't authenticate the caller).
 
 ---
 

@@ -102,7 +102,7 @@ These are NOT pending V30/M-60 work. They are unrelated and trivially fixable no
 **Wait for V30** (6 tests):
 - 6 V27/V26 baseline preservation tests in M-42/M-49 — these flip green when V30 ships BEAT-BOTH
 
-**Total quick-win effort**: ~3-5 hours of focused work clears 13 of 19 failures + 3 collection errors. Only 6 wait-for-V30 tests remain after.
+**Total quick-win effort**: ~3-5 hours of focused work clears 13 of 19 failures + 3 collection errors. After the quick-win pass, the suite state is **6 wait-for-V30 tests + 1 real M29 assertion failure** (the M29 failure is the test exposed by the Bucket 4 import-fix; it is a real bug, not a wait-for-V30 placeholder). To reach a clean suite, the M29 assertion at `test_m29_jurisdictional_precision.py:78` must also be fixed — investigation effort unestimated since the failure is currently hidden behind the import error.
 
 ---
 

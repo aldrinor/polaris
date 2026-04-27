@@ -26,7 +26,7 @@ Achieve user-visible feature parity with the best internet research products (Ch
 | 5 | Distribution + collaboration | Low | 25-40 ed |
 | 6 | Carefully-scoped derivative artifacts | Medium-trap | 20-35 ed |
 
-Total: **180-290 eng days** = ~9-14 months for a small strong team. Matches FINAL_PLAN's 24-52 week window. Sequential ordering important for the highest-risk item (auto-induction).
+Total: **180-290 eng days** of engineering effort, fitting inside FINAL_PLAN's 24-52 week (28-week) window when staffed by a 2+ engineer team. The wall-clock duration is dominated NOT by engineering throughput but by two concurrent calendar-latency cycles: M-D4 telemetry accumulation (≥6 months of M-D3 operator-review feedback before the trust gate calibrates) and M-D12 SOC2 audit cycle (external auditor lead time). Sequencing is critical for the highest-risk item (auto-induction). See "Sequencing recommendation" section below for the corrected framing.
 
 ---
 

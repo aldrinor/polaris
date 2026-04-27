@@ -768,6 +768,14 @@ class ContractDraftStore:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA foreign_keys = ON")
+        # Codex M-26 v16 review fix: with `recursive_triggers` OFF
+        # (SQLite default), `INSERT OR REPLACE` / `REPLACE INTO`
+        # deletes + reinserts WITHOUT firing BEFORE DELETE triggers.
+        # That bypassed v15's `trg_decision_log_no_delete` and let
+        # an attacker rewrite forged log rows via REPLACE. Turning
+        # the PRAGMA ON makes the implicit DELETE phase fire the
+        # trigger, closing the v15-on-v15 bypass.
+        conn.execute("PRAGMA recursive_triggers = ON")
         return conn
 
     def _init_schema(self) -> None:
