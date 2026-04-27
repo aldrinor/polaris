@@ -517,6 +517,161 @@ def _run14_artifact_dir() -> Path:
     )
 
 
+# ---------------------------------------------------------------------------
+# Codex M-22 v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_speaker_notes_not_rendered_as_visible_html() -> None:
+    """Codex M-22 v1 fix: speaker notes were rendered as visible
+    `<aside><pre>...</pre></aside>` content. v2 stores them as a
+    `data-notes` attribute on the slide container only — NOT
+    visible HTML body content."""
+    sentences = [
+        _sentence(f"c{i}", f"verified claim {i}") for i in range(8)
+    ]
+    ir = _make_ir(
+        sections=(("Findings", sentences),),
+        bibliography=(_bib(1, "ev_a"),),
+    )
+    deck = build_slide_deck(ir, max_bullets_per_slide=3)
+    html_doc = render_deck_html(deck)
+
+    # No <aside> element rendering visible speaker notes.
+    assert "<aside" not in html_doc
+    assert "Speaker notes</h2>" not in html_doc
+    # And no <pre> blocks either (the v1 visible notes wrapper).
+    assert "<pre>" not in html_doc and "<pre " not in html_doc
+    # But the notes ARE serialized as data-notes for PPTX export.
+    assert "data-notes=" in html_doc
+
+    # The visible body bullets (3 verified claims) appear in <li>
+    # tags. The OVERFLOW sentences (4-7) appear ONLY inside the
+    # data-notes attribute, never inside a <li> or other body element.
+    import re
+    body_bullet_re = re.compile(r"<li [^>]*>([^<]*)</li>", re.DOTALL)
+    body_bullet_texts = body_bullet_re.findall(html_doc)
+    body_text = " ".join(body_bullet_texts)
+    for i in range(3, 8):
+        assert f"verified claim {i}" not in body_text, (
+            f"overflow sentence 'verified claim {i}' appeared in a "
+            f"<li> body bullet — must only be in data-notes"
+        )
+
+
+def test_synthetic_bullets_carry_disclosure_attribute() -> None:
+    """Codex M-22 v1: scope/contradictions/limitations bullets are
+    deterministic metadata projections, not verified-sentence
+    prose. v2 marks them is_synthetic=True so the renderer can
+    add a `data-synthetic="true"` attribute (and a [meta] badge)
+    so customers cannot mistake them for verified findings."""
+    ir = _make_ir(
+        sections=(("Findings", [_sentence("c1", "verified claim a")]),),
+        bibliography=(_bib(1, "ev_a"),),
+        contradictions=(_cluster(1, "dose", "endpoint"),),
+    )
+    deck = build_slide_deck(ir)
+    # Scope, contradictions, limitations bullets must be synthetic.
+    for slide in deck.slides:
+        if slide.slide_id in (
+            "slide_scope", "slide_contradictions", "slide_limitations",
+        ):
+            for b in slide.bullets:
+                assert b.is_synthetic is True, (
+                    f"meta-slide {slide.slide_id} bullet "
+                    f"{b.text!r} must be marked is_synthetic"
+                )
+        elif slide.slide_id.startswith("slide_section_"):
+            for b in slide.bullets:
+                assert b.is_synthetic is False, (
+                    f"section bullet {b.text!r} must NOT be "
+                    f"marked is_synthetic — it's verified prose"
+                )
+
+    html_doc = render_deck_html(deck)
+    # Synthetic disclosure markup is present.
+    assert 'data-synthetic="true"' in html_doc
+    assert "[meta]" in html_doc
+
+
+def test_javascript_url_is_not_rendered_as_link() -> None:
+    """Codex M-22 v1 fix: source URLs were html-escaped but not
+    scheme-checked, so a javascript: URL survived into href and
+    would execute in a browser. v2 restricts hrefs to
+    http/https/mailto."""
+    ir = _make_ir(
+        sections=(("Findings", [_sentence("c1", "x")]),),
+        bibliography=(
+            _bib(1, "ev_a", url="javascript:alert(1)"),
+            _bib(2, "ev_b", url="https://safe.example/paper"),
+        ),
+    )
+    deck = build_slide_deck(ir)
+    html_doc = render_deck_html(deck)
+    # The unsafe scheme MUST NOT appear in an href attribute.
+    assert 'href="javascript:' not in html_doc
+    assert "javascript:alert" not in html_doc or (
+        "(unsafe scheme; link disabled)" in html_doc
+    )
+    # The safe URL still becomes a link.
+    assert 'href="https://safe.example/paper"' in html_doc
+
+
+def test_data_url_is_not_rendered_as_link() -> None:
+    ir = _make_ir(
+        sections=(("Findings", [_sentence("c1", "x")]),),
+        bibliography=(
+            _bib(1, "ev_a", url="data:text/html,<script>alert(1)</script>"),
+        ),
+    )
+    deck = build_slide_deck(ir)
+    html_doc = render_deck_html(deck)
+    assert 'href="data:' not in html_doc
+
+
+def test_unresolved_evidence_id_dropped_from_inline_markers() -> None:
+    """Codex M-22 v1 fix: a verified sentence cited an evidence_id
+    that wasn't in the bibliography (e.g. a stale link). The
+    inline marker showed `[ev_missing]` next to the bullet but the
+    citations footer silently omitted it — visible/footer drift.
+    v2 filters out unresolved evidence_ids from the inline
+    markers."""
+    ir = _make_ir(
+        sections=(("Findings", [
+            _sentence("c1", "claim a", tokens=(
+                EvidenceSpanToken("ev_real", 0, 10),
+                EvidenceSpanToken("ev_missing", 0, 10),
+            )),
+        ]),),
+        bibliography=(_bib(1, "ev_real", "Real source"),),
+    )
+    deck = build_slide_deck(ir)
+    html_doc = render_deck_html(deck)
+    # ev_real renders inline; ev_missing must be filtered out.
+    assert "[ev_real]" in html_doc
+    assert "[ev_missing]" not in html_doc
+
+
+def test_appendix_budget_reservation_with_no_contradictions() -> None:
+    """Codex M-22 v1 fix: the section-budget reservation always
+    subtracted 3 (contradictions + limitations + appendix), so a
+    deck with no contradictions underfilled by 1 slide. v2
+    reserves 2 when no contradictions, 3 otherwise."""
+    sections = tuple(
+        (f"Section{i}", [_sentence(f"c{i}", f"claim {i}")])
+        for i in range(25)
+    )
+    ir = _make_ir(
+        sections=sections,
+        bibliography=(_bib(1, "ev_a"),),
+        # No contradictions on this run.
+    )
+    deck = build_slide_deck(ir, max_slides=20)
+    # Should hit exactly 20 (1 title + 1 scope + 17 sections + 1
+    # limitations + 1 appendix = 20). Without the fix it'd be 19.
+    assert len(deck.slides) == 20
+
+
 def test_real_run14_builds_a_deck() -> None:
     """Real V30 run loads + builds a deck without errors. Sanity
     check that the synthetic-fixture coverage doesn't drift from

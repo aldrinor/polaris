@@ -66,12 +66,23 @@ class SlideBullet:
     builder. v1 uses the verified text verbatim; future v2 may
     add a strict "shorten to N chars" pass that preserves
     citations.
+
+    `is_synthetic` (Codex M-22 v1 review fix): meta-slides
+    (scope/contradictions/limitations) build summary bullets from
+    structured manifest fields (e.g. "verified sentences: 5 of 7").
+    These are NOT verified-sentence prose — they are deterministic
+    metadata projections. Marking them is_synthetic=True lets the
+    renderer disclose the distinction (small "synthesized" badge)
+    so a customer cannot mistake a metadata summary for a verified
+    finding. Section content bullets remain is_synthetic=False
+    and carry the verified-sentence text verbatim.
     """
 
     text: str
     claim_id: str
     section: str
     evidence_ids: tuple[str, ...]
+    is_synthetic: bool = False
 
 
 @dataclass(frozen=True)
@@ -185,9 +196,15 @@ def build_slide_deck(
     slides.append(_build_scope_slide(ir))
 
     # Per-section content slides.
+    # Codex M-22 v1 review fix: appendix-budget reservation must
+    # account for whether the contradictions slide will actually
+    # render. Reserve 2 (limitations + appendix) when no
+    # contradictions, 3 otherwise — so a deck with 20 sections and
+    # no contradictions uses the full max_slides budget.
+    tail_slides = 2 + (1 if ir.contradictions else 0)
     section_slides_budget = max(
         0,
-        max_slides - len(slides) - 3,  # contradictions + limitations + appendix
+        max_slides - len(slides) - tail_slides,
     )
     section_slides = _build_section_slides(
         ir, bib_index,
@@ -251,6 +268,7 @@ def _build_scope_slide(ir: AuditIR) -> Slide:
                 claim_id="scope:adequacy",
                 section="Scope",
                 evidence_ids=(),
+                is_synthetic=True,
             )
         )
     bullets.append(
@@ -263,6 +281,7 @@ def _build_scope_slide(ir: AuditIR) -> Slide:
             claim_id="scope:verified_count",
             section="Scope",
             evidence_ids=(),
+            is_synthetic=True,
         )
     )
     bullets.append(
@@ -275,6 +294,7 @@ def _build_scope_slide(ir: AuditIR) -> Slide:
             claim_id="scope:source_count",
             section="Scope",
             evidence_ids=(),
+            is_synthetic=True,
         )
     )
     notes = (
@@ -388,6 +408,7 @@ def _build_contradictions_slide(
                     evidence_ids=tuple(
                         c.evidence_id for c in cluster.claims
                     ),
+                    is_synthetic=True,
                 )
             )
         else:
@@ -442,6 +463,7 @@ def _build_limitations_slide(ir: AuditIR) -> Slide:
                 claim_id="limitations:dropped_total",
                 section="Limitations",
                 evidence_ids=(),
+                is_synthetic=True,
             )
         )
     if ir.tier_mix.fractions:
@@ -457,6 +479,7 @@ def _build_limitations_slide(ir: AuditIR) -> Slide:
                 claim_id="limitations:tier_mix",
                 section="Limitations",
                 evidence_ids=(),
+                is_synthetic=True,
             )
         )
     if ir.adequacy is not None and ir.adequacy.critical_count:
@@ -469,6 +492,7 @@ def _build_limitations_slide(ir: AuditIR) -> Slide:
                 claim_id="limitations:adequacy_critical",
                 section="Limitations",
                 evidence_ids=(),
+                is_synthetic=True,
             )
         )
     notes_lines = []
@@ -549,6 +573,7 @@ def slide_bullet_to_dict(b: SlideBullet) -> dict[str, Any]:
         "text": b.text, "claim_id": b.claim_id,
         "section": b.section,
         "evidence_ids": list(b.evidence_ids),
+        "is_synthetic": b.is_synthetic,
     }
 
 
@@ -589,10 +614,23 @@ def deck_to_dict(deck: SlideDeck) -> dict[str, Any]:
 def render_deck_html(deck: SlideDeck) -> str:
     """Render the deck to a self-contained HTML page.
 
-    LAW II: every body line carries its claim_id as a data
-    attribute so a customer can click any bullet and verify the
-    back-link to the audit IR. Citations are rendered with
-    visible bib_num markers and a footer link to the appendix.
+    Codex M-22 v1 review fix: speaker notes are NOT rendered as
+    visible HTML in v1 — they appeared as `<aside><pre>...</pre>
+    </aside>` blocks visible to viewers, but contained free-form
+    summary prose synthesized from manifest fields and overflow
+    sentences. That made them visible content without claim_id
+    backlinks (LAW II violation).
+
+    v2 stores notes in a `data-notes` attribute on the slide
+    container (still serialized; presentation tools can extract
+    them) but does NOT render them as visible HTML. PPTX export
+    can pick them up from the JSON projection (`deck_to_dict`)
+    and surface them as actual PowerPoint speaker notes.
+
+    LAW II posture: every visible bullet carries data-claim-id
+    (verified-section bullets) or a `data-synthetic="true"`
+    attribute (meta-slide bullets, transparently disclosed as
+    deterministic metadata projections rather than verified prose).
     """
     parts: list[str] = []
     parts.append("<!DOCTYPE html>")
@@ -609,28 +647,81 @@ def render_deck_html(deck: SlideDeck) -> str:
     return "\n".join(parts)
 
 
+# Codex M-22 v1 review fix: source URLs are escaped via
+# html.escape, but `javascript:` schemes survive escaping and
+# would still execute inside an <a href=...>. Restrict rendered
+# href values to http/https/mailto.
+_SAFE_URL_SCHEMES: frozenset[str] = frozenset({
+    "http", "https", "mailto",
+})
+
+
+def _safe_url(url: str) -> str | None:
+    """Return the URL only if its scheme is on the safe list,
+    otherwise None (renderer drops the link). Defends against
+    `javascript:`, `data:`, `file:`, `vbscript:` href injection.
+    """
+    if not url:
+        return None
+    raw = url.strip()
+    if "://" in raw:
+        scheme = raw.split("://", 1)[0].lower()
+        if scheme not in _SAFE_URL_SCHEMES:
+            return None
+        return raw
+    if raw.lower().startswith("mailto:"):
+        return raw
+    # Schemeless URLs (e.g. "example.com/path") are also rejected
+    # — we cannot tell what the user-agent will resolve them to.
+    return None
+
+
 def _render_slide_html(slide: Slide) -> str:
     parts = []
+    # Codex M-22 v1 review fix: data-notes carries the speaker-
+    # notes text serialized as an attribute (NOT visible HTML),
+    # so PPTX exporters can pick it up without surfacing
+    # synthesized prose to the audience.
     parts.append(
         f'<section class="slide layout-{html.escape(slide.layout)}" '
-        f'data-slide-id="{html.escape(slide.slide_id)}">'
+        f'data-slide-id="{html.escape(slide.slide_id)}" '
+        f'data-notes="{html.escape(slide.notes or "")}">'
     )
     parts.append(f"<h1>{html.escape(slide.title)}</h1>")
     if slide.bullets:
+        # Codex M-22 v1 review fix: build a set of bibliography
+        # evidence IDs for THIS slide so the inline `[ev_xxx]`
+        # markers next to a bullet only show evidence that
+        # actually resolves into the citations footer. An unresolved
+        # evidence_id is dropped from the visible inline marker
+        # (it would otherwise show "[ev_missing]" without a
+        # corresponding footer entry).
+        slide_bib_eids = {c.evidence_id for c in slide.citations}
         parts.append("<ul>")
         for b in slide.bullets:
+            visible_eids = tuple(
+                eid for eid in b.evidence_ids if eid in slide_bib_eids
+            )
             citations_inline = ""
-            if b.evidence_ids:
+            if visible_eids:
                 citations_inline = (
                     " "
                     + " ".join(
                         f'<sup class="cite">[{html.escape(eid)}]</sup>'
-                        for eid in b.evidence_ids
+                        for eid in visible_eids
                     )
                 )
+            synthetic_attr = (
+                ' data-synthetic="true"' if b.is_synthetic else ""
+            )
+            badge = (
+                ' <span class="synthetic-badge">[meta]</span>'
+                if b.is_synthetic else ""
+            )
             parts.append(
-                f'<li data-claim-id="{html.escape(b.claim_id)}">'
-                f"{html.escape(b.text)}{citations_inline}"
+                f'<li data-claim-id="{html.escape(b.claim_id)}"'
+                f"{synthetic_attr}>"
+                f"{html.escape(b.text)}{citations_inline}{badge}"
                 f"</li>"
             )
         parts.append("</ul>")
@@ -639,10 +730,23 @@ def _render_slide_html(slide: Slide) -> str:
         parts.append("<h2>Sources cited</h2>")
         parts.append("<ol>")
         for c in slide.citations:
-            url_html = (
-                f'<a href="{html.escape(c.url)}">{html.escape(c.url)}</a>'
-                if c.url else "no url"
-            )
+            safe_url = _safe_url(c.url)
+            if safe_url is not None:
+                url_html = (
+                    f'<a href="{html.escape(safe_url)}">'
+                    f"{html.escape(safe_url)}</a>"
+                )
+            elif c.url:
+                # Show the raw URL as TEXT (escaped), but DON'T
+                # link to it — protects against javascript: etc.
+                url_html = (
+                    f'<span class="unsafe-url">'
+                    f"{html.escape(c.url)} "
+                    f"(unsafe scheme; link disabled)"
+                    f"</span>"
+                )
+            else:
+                url_html = '<span class="no-url">no url</span>'
             parts.append(
                 f'<li data-evidence-id="{html.escape(c.evidence_id)}">'
                 f"<strong>[{c.bib_num}]</strong> "
@@ -652,11 +756,6 @@ def _render_slide_html(slide: Slide) -> str:
                 f"</li>"
             )
         parts.append("</ol></div>")
-    if slide.notes:
-        parts.append('<aside class="notes">')
-        parts.append("<h2>Speaker notes</h2>")
-        parts.append(f"<pre>{html.escape(slide.notes)}</pre>")
-        parts.append("</aside>")
     parts.append("</section>")
     return "\n".join(parts)
 
