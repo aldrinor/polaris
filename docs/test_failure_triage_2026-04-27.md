@@ -1,132 +1,133 @@
 # Test Failure Triage — 2026-04-27 Snapshot
 
 **Suite**: `tests/polaris_graph/`
-**Commit**: ef27d58 (M-26 threat model doc)
-**Result**: 2614 collected → 2595 passed, 19 failed, 3 skipped, 3 collection errors
+**Commit**: 77b132c (M-26 v15 substrate fix)
+**Result**: 2614 collected → 2595 passed, **19 failed**, 3 skipped, 3 collection errors
+**Reviewed by Codex** (post-author audit) — bucket categorizations corrected per `outputs/codex_findings/test_failure_triage_review/findings.md`
 
-This document categorizes the 19 failing tests into actionable buckets so a future contributor (or wake-up agent) can pick them off without re-discovering the landscape.
+This document categorizes the 19 failing tests + 3 collection errors into actionable buckets with **Codex-verified diagnoses**. Original author's first-pass categorizations are noted where wrong so future readers see the audit trail.
 
 ---
 
-## Bucket 1 — Test pollution (likely 9 tests)
+## Bucket 1 — M-36 test pollution (9 tests)
 
 **Symptom**: tests pass when run individually, fail when run as part of the full suite.
 
 **Files**: `test_m36_trial_summary_table.py`
 
-**Tests** (9):
-- `TestCallOrchestration::test_empty_prose_returns_empty_no_llm_call`
-- `TestCallOrchestration::test_empty_bibliography_returns_empty_no_llm_call`
-- `TestCallOrchestration::test_bibliography_without_num_field_returns_empty`
-- `TestCallOrchestration::test_llm_returns_no_trials_named_empty`
-- `TestCallOrchestration::test_llm_returns_valid_table`
-- `TestCallOrchestration::test_llm_returns_table_with_out_of_range_citations_dropped`
-- `TestCallOrchestration::test_llm_failure_returns_empty`
-- `TestCallOrchestration::test_llm_returns_junk_returns_empty`
-- `TestDisableKnob::test_max_tokens_zero_suppresses_call`
+**Tests** (9 in `TestCallOrchestration` + `TestDisableKnob`).
 
-**Reproducible verification**:
-```
-$ pytest tests/polaris_graph/test_m36_trial_summary_table.py::TestCallOrchestration::test_llm_returns_valid_table
-1 passed in 2.70s            ← passes alone
+**Codex-verified diagnosis (replaces author's "likely event-loop fixture" guess):**
 
-$ pytest tests/polaris_graph/   (full suite)
-9 fail                         ← polluted by an earlier test
-```
+- Polluting test identified: `test_corpus_brief.py::test_compose_brief_with_supported_paragraphs` runs first and leaves the asyncio loop in a state that makes M-36's loop helper fail.
+- The actual error is `RuntimeError: There is no current event loop` at `tests/polaris_graph/test_m36_trial_summary_table.py:246`.
+- The fix is in M-36's OWN loop helper at line 246, NOT in cross-test isolation. M-36 is using `asyncio.get_event_loop()` (deprecated) which only worked because of stale state left by upstream tests.
 
-**Likely cause**: an upstream test mutates module-level state (probably an OpenRouter client mock, a global env var, or an `asyncio` event-loop binding — the `DeprecationWarning: There is no current event loop` hint in the trace points at the latter). The `TestCallOrchestration` class assumes a clean event loop; another test leaves one in a bad state.
+**Effort to fix (Codex-revised)**: minutes, not the 1-2h author estimated. Replace the deprecated `asyncio.get_event_loop()` call with `asyncio.new_event_loop()` (or use `asyncio.run()` which manages the loop lifecycle correctly).
 
-**Effort to fix**: ~1-2 hours. Bisect the suite to identify the polluting test, then add a `pytest` fixture that resets the loop or mocks per-test instead of module-level. Standard test-isolation hygiene.
-
-**Priority**: Medium. The tests pass when run alone, so they aren't masking real M-36 bugs. But the suite is noisy in CI and that erodes trust.
+**Priority**: Medium. Doable now.
 
 ---
 
-## Bucket 2 — Genuine V28 regressions awaiting V30 fix (8 tests)
+## Bucket 2 — V28 regressions awaiting V30 (mixed: 5 V30-blocked, 1 V26 guard, 1 real M47 regression)
 
-**Symptom**: V28 produced lower citation counts than the V27 baseline; preservation tests assert V27 floors.
+**Original author claim**: "8 V28 regressions, all red BY DESIGN, do not lower baselines, V30 fixes them."
+
+**Codex-verified correction**:
+- Count is **7**, not 8 (count error in original)
+- One listed failure is the **V26 NICE guard** in `test_m42_preservation.py:162` — that's a different baseline (V26, not V27/V28)
+- One failure is a **real M47 regression**, not a V30/BEAT-BOTH placeholder: `test_m49_v28_preservation.py:315` (`test_m47_clamp_validator_passes`) is a concrete bug, fixable independent of V30
 
 **Files**: `test_m42_preservation.py`, `test_m49_v28_preservation.py`
 
-**Tests** (8):
-- `test_m42_preservation::TestJurisdictionPreservation::test_nice_count_at_or_above_v25_baseline`
-- `test_m49_v28_preservation::TestV27PreservationFloors::test_fda_count_preserved` (V28: 4 < V27: 7)
-- `test_m49_v28_preservation::TestV27PreservationFloors::test_hc_count_preserved`
-- `test_m49_v28_preservation::TestM44PrimaryCitations::test_pivotal_trial_coverage`
-- `test_m49_v28_preservation::TestM44PrimaryCitations::test_surpass_cvot_mentioned`
-- `test_m49_v28_preservation::TestM44PrimaryCitations::test_surpass_2_primary_etd_present`
-- `test_m49_v28_preservation::TestM47MechanismExtraction::test_m47_clamp_validator_passes`
-- (1 more in M-49 family per the run output)
+| Test | Type | Action |
+|---|---|---|
+| `test_m42_preservation::test_nice_count_at_or_above_v25_baseline` | V26 NICE guard | Wait for V30 (consistent with earlier baselines) |
+| `test_m49_v28_preservation::test_fda_count_preserved` | V27→V28 regression (FDA 7→4) | Wait for V30 |
+| `test_m49_v28_preservation::test_hc_count_preserved` | V27→V28 regression (HC) | Wait for V30 |
+| `test_m49_v28_preservation::test_pivotal_trial_coverage` | V27→V28 regression | Wait for V30 |
+| `test_m49_v28_preservation::test_surpass_cvot_mentioned` | V27→V28 regression | Wait for V30 |
+| `test_m49_v28_preservation::test_surpass_2_primary_etd_present` | V27→V28 regression | Wait for V30 |
+| `test_m49_v28_preservation::test_m47_clamp_validator_passes` | **Real M47 regression** | Fixable independently |
 
-**Reproducible verification**:
-```
-test_fda_count_preserved
-> assert fda >= V27_BASELINES["fda_count"]
-> AssertionError: V28 FDA 4 < V27 baseline 7
-```
+**Don't lower baselines** still applies to the 6 wait-for-V30 tests. But the M47 clamp validator should be fixed now — Codex flagged it as concrete, not a V30 placeholder.
 
-**Likely cause**: This is the documented V28 regression that motivated V30 (per `outputs/audits/v29/true_root_cause_cross_review.md`). V28 + V29 landed `3 BB + 0 BO + 4 LB` cross-reviewed — identical regressions. V30 Report Contract Architecture (M-54..M-62) is the structural fix.
-
-**Effort to fix**: NOT a quick win. These tests are red BY DESIGN until V30 ships end-to-end. They serve as the regression floor V30 must restore.
-
-**Priority**: Wait. These flip green when V30 ships. Don't try to "fix" them by lowering the floor — that defeats their purpose.
+**Effort to fix**: ~6 tests are V30-blocked (no immediate work). M47 clamp validator: investigate the concrete regression, ~2-4h.
 
 ---
 
-## Bucket 3 — V30-pipeline-state assertions (2 tests)
+## Bucket 3 — V30 manifest invariants → ACTUALLY 1 stale string + 2 false positives (3 tests)
 
-**Symptom**: tests assert invariants on V30 pipeline output that V30 hasn't yet produced.
+**Original author claim**: "These will land with M-60 manifest emission."
 
-**Files**: `test_m201_evidence_selection.py`, `test_m207_invariant_coverage.py`, `test_manifest_contract.py`
+**Codex-verified correction**: ALL three are misclassified.
 
-**Tests** (3):
-- `test_m201_evidence_selection::test_m201_selection_pool_smaller_than_max_keeps_everything`
-- `test_m207_invariant_coverage::test_m207_every_manifest_write_includes_status_key`
-- `test_manifest_contract::test_manifest_contract_all_manifest_writes_have_status`
+| Test | Codex finding | Action |
+|---|---|---|
+| `test_m201_evidence_selection.py:206` | **Stale expected string**. Test expects old strategy name; code at `src/polaris_graph/retrieval/evidence_selector.py:583` now returns `tier_balanced_v1_all_m46_ordered`. The code is right, the test is stale. | Update test assertion to match current code. ~5 min. |
+| `test_manifest_contract.py:117` | **False positive**. `scripts/run_honest_sweep_r3.py:1785` already sets `"status": unified_status`; the test misses it because the V30 block pushes the final `write_text()` past the test's 80-line scan window. | Extend the test's scan window or restructure scan to match all `write_text()` calls. ~10 min. |
+| `test_m207_invariant_coverage.py:185` | **Duplicate of the manifest_contract false positive**, same root cause. | Same fix as above. |
 
-**Likely cause**: The last two are duplicate enforcement of "every manifest write must include `status` key." The V30 manifest emission (M-60 — pending) is the right place to enforce this. M-201 is upstream evidence-selection invariants.
+These are NOT pending V30/M-60 work. They are unrelated and trivially fixable now.
 
-**Effort to fix**: 1-3 days. These can be addressed independent of V30 if someone wants to harden the manifest-emission code paths. But the cleaner path is to defer until M-60 lands.
-
-**Priority**: Low-medium. They're noisy but not blocking.
-
----
-
-## Bucket 4 — Pre-existing V30/V28 import errors (3 collection errors, NOT in the 19 above)
-
-These don't run at all; they fail at collection:
-- `test_m25_trial_name_match.py` — uses `from polaris_graph.X import Y` instead of `from src.polaris_graph.X import Y`
-- `test_m28_regulatory_expander.py` — same
-- `test_m29_jurisdictional_precision.py` — same
-
-**Effort to fix**: 5 minutes. Sed the imports. But the modules they reference are V30-era and may have been renamed since these tests were written, so verify each test's referenced symbols still exist before changing the import path.
-
-**Priority**: Low. They're pre-existing and excluded from the regression check via `--ignore=`.
+**Effort to fix**: 15-20 min total for all three.
 
 ---
 
-## Recommended action plan
+## Bucket 4 — Collection errors → fix imports, NOT delete (3 collection errors)
 
-**Right now** (no V30 dependency):
-- Bucket 1 (M-36 test pollution, 9 tests, ~1-2h): bisect + fix the polluting test fixture
-- Bucket 4 (3 collection errors, 5min): rewrite the imports if the V30 modules they reference still exist
+**Original author claim**: "5min sed fix or skip permanently. Modules may have been renamed."
 
-**Next V30 sprint**:
-- Bucket 3 (3 tests): land them as part of M-60 manifest emission completion
-- Bucket 2 (8 tests): they self-clear when V30 reaches BEAT-BOTH
+**Codex-verified correction**: import-fix, NOT delete. The `src/polaris_graph/...` equivalents AND the imported symbols exist for M25/M28/M29. With `PYTHONPATH=src`, all three files COLLECT and 52/53 tests pass.
 
-**Never** (don't touch):
-- Don't lower the V27 baselines in Bucket 2 to make them pass — that erases the regression floor.
-- Don't `xfail` Bucket 2 — the failing assertions are the test authors signaling "V30 must restore this."
+**Important**: unblocking collection exposes one more genuine failing test:
+- `test_m29_jurisdictional_precision.py:78` — real M29 assertion failure once it can actually run
+
+**Files** (3): `test_m25_trial_name_match.py`, `test_m28_regulatory_expander.py`, `test_m29_jurisdictional_precision.py`
+
+**Effort to fix (Codex-revised)**: ~5 min for the imports + ~10-20 min including rerun and triaging the newly-exposed M29 assertion failure. Real total: ~15-25 min, not the original "5 min" claim.
 
 ---
 
-## Appendix — bucket totals
+## Recommended action plan (Codex-revised)
 
-| Bucket | Count | Action |
-|---|---:|---|
-| 1. M-36 test pollution | 9 | Fix now |
-| 2. V28 regressions (V30 fixes) | 8 | Wait for V30 |
-| 3. V30 manifest invariants | 2-3 | Land with M-60 |
-| 4. Collection-time import errors | 3 | Fix now or skip permanently |
-| **Total in suite** | **19 fail + 3 collect-error** | |
+**Right now** (independent of V30):
+- **Bucket 1** (9 M-36 tests, ~minutes): fix the deprecated `asyncio.get_event_loop()` at `test_m36_trial_summary_table.py:246`
+- **Bucket 3** (3 tests, ~15-20 min total):
+  - Update stale string assertion in `test_m201_evidence_selection.py:206`
+  - Extend scan window in `test_manifest_contract.py:117` and `test_m207_invariant_coverage.py:185`
+- **Bucket 4** (3 collection errors, ~15-25 min): fix imports; expect 1 more real failure to surface in M29
+- **Bucket 2.real** (1 test, ~2-4h): investigate and fix the M47 clamp validator regression
+
+**Wait for V30** (6 tests):
+- 6 V27/V26 baseline preservation tests in M-42/M-49 — these flip green when V30 ships BEAT-BOTH
+
+**Total quick-win effort**: ~3-5 hours of focused work clears 13 of 19 failures + 3 collection errors. Only 6 wait-for-V30 tests remain after.
+
+---
+
+## Bucket totals (Codex-corrected)
+
+| Bucket | Original count | Corrected count | Action |
+|---|---:|---:|---|
+| 1. M-36 test pollution | 9 | 9 ✓ | Fix now (`asyncio.run()` swap) |
+| 2. V28/V27/V26 regressions (V30 fixes) | 8 | **6** (V30-blocked) | Wait for V30 |
+| 2.real. M47 clamp validator | (in 2) | 1 | Fix now (concrete bug) |
+| 3. M201/M207/manifest false-positives | 2-3 | **3** (all misclassified) | Fix now (~15-20 min) |
+| 4. Collection-time import errors | 3 | 3 + 1 (newly-exposed M29) | Fix now (~15-25 min) |
+| **Total** | **19 fail + 3 collect** | **19 fail + 3 collect = 22** ✓ | |
+
+The "Bucket 2 = 7 current fails" math reconciles to 22 total: 9 (B1) + 7 (B2 in current count, splits 6 wait + 1 real) + 3 (B3) + 3 (B4) = 22.
+
+---
+
+## Why the original triage was wrong
+
+Recording for future-author honesty (and to seed `feedback_adversarial_review_stop_criterion.md` with a documentation analogue):
+
+- **Bucket 1**: I diagnosed "test pollution" without identifying the polluter. The actual fix is in M-36's own deprecated API call, not cross-test isolation. Always trace failures to the specific line + the specific deprecation.
+- **Bucket 2**: I conflated three different baselines (V25/V26/V27) under one "V28 regression" label and counted wrong (claimed 8, actual 7). I also classified `test_m47_clamp_validator_passes` as V30-pending when it's a concrete bug. Always read each test's assertion to see what it's actually checking.
+- **Bucket 3**: I classified all three as "V30 manifest invariants pending M-60." Codex actually ran them and found: 1 stale string assertion (code is right), 2 false-positive scan-window misses (code is right). I should have run them with verbose output before classifying.
+- **Bucket 4**: I gave 5min as the effort estimate without considering that fixing the imports would expose a previously-hidden real failure. Always assume hidden tests have hidden failures.
+
+The lesson: triaging without running and reading the specific failure line is at-best directionally correct. Codex did the actual investigation; my first pass was sketchy in 4 of 4 buckets.
