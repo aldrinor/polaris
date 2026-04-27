@@ -238,6 +238,52 @@ async def get_run_diff(a_slug: str, b_slug: str) -> dict:
     return diff_to_dict(d)
 
 
+# M-18: regression alerts — same registration-order constraint as
+# /runs/diff. Must live above /runs/{slug} so FastAPI doesn't
+# match `slug=regression`.
+@router.get("/api/inspector/runs/regression")
+async def get_run_regression(slug: str, baseline_slug: str) -> dict:
+    """M-18: regression alerts comparing a new run against a baseline.
+
+    Both runs MUST share the same audit shape (slug). The underlying
+    slug-equality check raises 400 via ValueError if they don't.
+
+    Like `/runs/diff`, this endpoint is declared BEFORE the
+    `/runs/{slug}` dynamic route to avoid path collision (FastAPI
+    matches in registration order).
+
+    Same auth posture as the rest of the run-* surface (currently
+    unauthenticated; org-scoped retrofit deferred to M-15c).
+    """
+    from src.polaris_graph.audit_ir.regression_alerts import (
+        detect_regressions,
+        report_to_dict,
+    )
+    new_summary = find_run_by_slug(slug)
+    if new_summary is None:
+        raise HTTPException(
+            status_code=404, detail=f"unknown run slug: {slug}",
+        )
+    baseline_summary = find_run_by_slug(baseline_slug)
+    if baseline_summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown baseline slug: {baseline_slug}",
+        )
+    try:
+        ir_a = load_audit_ir(baseline_summary.artifact_dir)
+        ir_b = load_audit_ir(new_summary.artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"cannot load AuditIR: {exc}",
+        )
+    try:
+        report = detect_regressions(ir_a, ir_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return report_to_dict(report)
+
+
 @router.get("/api/inspector/runs/{slug}")
 async def get_run(slug: str) -> dict:
     """Return the full AuditIR for a run as a JSON-safe dict.
