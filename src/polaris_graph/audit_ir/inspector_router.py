@@ -309,6 +309,25 @@ async def get_audit_bundle(slug: str):
 
     bundle_files = required_files + optional_files
 
+    # Codex M-16: also embed the AuditIR JSON projection so the
+    # bundle is round-trippable through `load_audit_ir` without
+    # re-running the loader on the raw artifact files. Without
+    # this, downstream consumers (e.g. M-23 review queue, M-25
+    # private-corpus sync) have to re-parse manifest+contradictions
+    # +verification+bibliography just to render the same Inspector
+    # view the bundle is meant to capture.
+    auditir_json = None
+    try:
+        from src.polaris_graph.audit_ir.loader import load_audit_ir
+        from src.polaris_graph.audit_ir.serializer import to_json_dict
+        ir = load_audit_ir(artifact_dir)
+        auditir_json = json.dumps(to_json_dict(ir), indent=2, sort_keys=True)
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        # Don't fail the whole bundle if AuditIR projection has
+        # issues; the raw artifact files are still complete.
+        # M-16 review may want this stricter — change to raise.
+        auditir_json = None
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # First pass: compute digests + write each file
@@ -321,6 +340,13 @@ async def get_audit_bundle(slug: str):
             digest = hashlib.sha256(data).hexdigest()
             digests.append((fname, len(data), digest))
             zf.writestr(fname, data)
+
+        # Codex M-16: AuditIR JSON projection.
+        if auditir_json is not None:
+            data = auditir_json.encode("utf-8")
+            digest = hashlib.sha256(data).hexdigest()
+            digests.append(("audit_ir.json", len(data), digest))
+            zf.writestr("audit_ir.json", data)
 
         # MANIFEST.SHA256 — per-file digests for tamper-evidence.
         sha_lines = [f"{digest}  {fname}" for (fname, _size, digest) in digests]
@@ -397,6 +423,57 @@ async def get_audit_bundle(slug: str):
 async def inspector_root() -> RedirectResponse:
     """Redirect to the canonical demo run for Phase A."""
     return RedirectResponse(url=f"/inspector/{CANONICAL_DEMO_SLUG}")
+
+
+# ---------------------------------------------------------------------------
+# Run diff (M-16)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/inspector/runs/diff")
+async def get_run_diff(a_slug: str, b_slug: str) -> dict:
+    """Codex M-16: structured diff between two runs.
+
+    Both runs MUST share template_id and slug. Returns 400 if
+    they don't (LAW II — diff across different audit shapes is
+    meaningless). Returns 404 if either slug is unknown.
+
+    Note: run endpoints (M-1..M-7) don't have org_id tagging
+    yet (deferred to M-15c), so this endpoint is currently
+    unauthenticated like the rest of the run-* surface. Once
+    M-15c lands, the dependency goes here.
+    """
+    from src.polaris_graph.audit_ir.loader import (
+        AuditIRSchemaError,
+        load_audit_ir,
+    )
+    from src.polaris_graph.audit_ir.run_diff import (
+        diff_runs,
+        diff_to_dict,
+    )
+    summary_a = find_run_by_slug(a_slug)
+    if summary_a is None:
+        raise HTTPException(
+            status_code=404, detail=f"unknown run slug: {a_slug}",
+        )
+    summary_b = find_run_by_slug(b_slug)
+    if summary_b is None:
+        raise HTTPException(
+            status_code=404, detail=f"unknown run slug: {b_slug}",
+        )
+    try:
+        ir_a = load_audit_ir(summary_a.artifact_dir)
+        ir_b = load_audit_ir(summary_b.artifact_dir)
+    except AuditIRSchemaError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"cannot load AuditIR: {exc}",
+        )
+    try:
+        d = diff_runs(ir_a, ir_b)
+    except ValueError as exc:
+        # Mismatched template_id or slug.
+        raise HTTPException(status_code=400, detail=str(exc))
+    return diff_to_dict(d)
 
 
 # ---------------------------------------------------------------------------
