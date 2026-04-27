@@ -137,9 +137,14 @@ class ContractClause:
 class ContractDraft:
     """One contract draft.
 
-    `audit_run_id` is the V30 run this draft is anchored to —
-    every clause's evidence/claim back-links must resolve into
-    that run's audit IR (validated at clause-add time).
+    `audit_run_id` is the V30 run this draft is anchored to.
+    Codex M-26 v1 review fix: v1 docstring claimed
+    "validated at clause-add time" but `add_clause` does not
+    actually load the audit IR. Back-link FK validation is
+    deferred to v2 (the runner integration milestone) — until
+    then, a clause may reference a non-existent evidence_id /
+    claim_id. The Inspector view 1 surfaces unresolved IDs as
+    "missing source" so reviewers see drift.
     """
 
     draft_id: str
@@ -444,20 +449,22 @@ class ContractDraftStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                # Codex M-26 v1 fix: org-scoped lookup (previously
+                # selected by clause_id alone, then checked org —
+                # disclosed existence via different error wording).
+                # v2 unifies the two error paths into a single
+                # "not accessible" message.
                 clause_row = conn.execute(
-                    "SELECT c.*, d.org_id AS draft_org_id, "
-                    "d.status AS draft_status FROM contract_clauses c "
+                    "SELECT c.*, d.status AS draft_status "
+                    "FROM contract_clauses c "
                     "JOIN contract_drafts d ON c.draft_id = d.draft_id "
-                    "WHERE c.clause_id = ?",
-                    (clause_id,),
+                    "WHERE c.clause_id = ? AND d.org_id = ?",
+                    (clause_id, org_id),
                 ).fetchone()
                 if clause_row is None:
                     raise ContractDraftStateError(
-                        f"clause {clause_id!r} not found"
-                    )
-                if clause_row["draft_org_id"] != org_id:
-                    raise ContractDraftStateError(
-                        f"clause {clause_id!r} belongs to a different org"
+                        f"clause {clause_id!r} is not accessible "
+                        f"to this caller"
                     )
                 draft_status = ContractDraftStatus(clause_row["draft_status"])
                 if draft_status not in (
@@ -538,43 +545,20 @@ class ContractDraftStore:
         clause is REJECTED — every clause must be APPROVED.
         Refuses if the approver is also the submitter (separation
         of duties).
+
+        Codex M-26 v1 review fix: the clause-snapshot and the
+        AWAITING_APPROVAL→APPROVED transition used to run in two
+        separate connections. A concurrent decide_clause(REJECTED)
+        landing in that gap let the draft flip to APPROVED with
+        a REJECTED clause. v2 moves all gate checks INSIDE
+        _transition_draft's BEGIN IMMEDIATE so the snapshot is
+        atomic with the write.
         """
         sanitized = _sanitize_notes(rationale)
         if sanitized is None:
             raise ContractDraftStateError(
                 "approval rationale must be non-empty (LAW II — "
                 "every approval is part of the SOC2 audit trail)"
-            )
-        # Check separation of duties FIRST, before checking clauses,
-        # so a self-approval attempt fails with the SOD error not
-        # the "not all approved" error.
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT submitter_user_id FROM contract_drafts "
-                "WHERE draft_id = ? AND org_id = ?",
-                (draft_id, org_id),
-            ).fetchone()
-        if row is None:
-            raise ContractDraftStateError(
-                f"draft {draft_id!r} is not accessible to this caller"
-            )
-        if row["submitter_user_id"] == approver_user_id.strip():
-            raise ContractDraftStateError(
-                "the contract submitter cannot approve their own "
-                "draft (separation of duties — every approval needs "
-                "a second human reviewer)"
-            )
-        clauses = self.list_clauses(draft_id=draft_id, org_id=org_id)
-        statuses = {c.decision for c in clauses}
-        if ClauseDecision.PENDING in statuses:
-            raise ContractDraftStateError(
-                "cannot approve draft: at least one clause is still "
-                "PENDING; decide every clause before approving"
-            )
-        if ClauseDecision.REJECTED in statuses:
-            raise ContractDraftStateError(
-                "cannot approve draft: at least one clause is "
-                "REJECTED; remove or replace it before approving"
             )
         return self._transition_draft(
             draft_id=draft_id, org_id=org_id,
@@ -620,6 +604,15 @@ class ContractDraftStore:
         set_approver: bool = False,
         set_rejecter: bool = False,
     ) -> ContractDraft:
+        """Codex M-26 v1 review fix: all gate checks (SOD + all-
+        clauses-approved + rationale required) now live INSIDE
+        the BEGIN IMMEDIATE so a malicious caller invoking this
+        helper directly (Python's _ prefix is convention only,
+        not enforcement) cannot bypass the FINAL_PLAN gate.
+        Also closes the TOCTOU race: clauses are re-read inside
+        the lock, so a concurrent decide_clause(REJECTED) cannot
+        slip in between the snapshot and the transition.
+        """
         if not actor_user_id.strip():
             raise ContractDraftStateError(
                 "actor_user_id must be non-empty"
@@ -629,17 +622,18 @@ class ContractDraftStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                # Codex M-26 v1 fix: org-scoped lookup so cross-
+                # org access surfaces as "not accessible" rather
+                # than disclosing existence via different errors.
                 row = conn.execute(
-                    "SELECT * FROM contract_drafts WHERE draft_id = ?",
-                    (draft_id,),
+                    "SELECT * FROM contract_drafts "
+                    "WHERE draft_id = ? AND org_id = ?",
+                    (draft_id, org_id),
                 ).fetchone()
                 if row is None:
                     raise ContractDraftStateError(
-                        f"draft {draft_id!r} not found"
-                    )
-                if row["org_id"] != org_id:
-                    raise ContractDraftStateError(
-                        f"draft {draft_id!r} belongs to a different org"
+                        f"draft {draft_id!r} is not accessible "
+                        f"to this caller"
                     )
                 current = ContractDraftStatus(row["status"])
                 if current not in from_states:
@@ -649,6 +643,60 @@ class ContractDraftStore:
                         f"{from_values} to transition to "
                         f"{to_state.value!r}"
                     )
+
+                # Codex M-26 v1 fix: enforce APPROVAL gate
+                # invariants INSIDE the lock for any to_state ==
+                # APPROVED, regardless of which method dispatched
+                # here. A direct caller invoking _transition_draft
+                # cannot bypass these because the SQL is in this
+                # transaction.
+                if to_state == ContractDraftStatus.APPROVED:
+                    # Separation of duties: submitter cannot self-
+                    # approve. Use the actor_user_id (the
+                    # approver) and the row's submitter_user_id.
+                    if row["submitter_user_id"] == actor_user_id.strip():
+                        raise ContractDraftStateError(
+                            "the contract submitter cannot approve "
+                            "their own draft (separation of duties — "
+                            "every approval needs a second human "
+                            "reviewer)"
+                        )
+                    # Rationale required for APPROVED transitions.
+                    if rationale is None or not rationale.strip():
+                        raise ContractDraftStateError(
+                            "approval rationale must be non-empty "
+                            "(LAW II — every approval is part of "
+                            "the SOC2 audit trail)"
+                        )
+                    # All-clauses-approved check INSIDE the lock so
+                    # a racing decide_clause(REJECTED) cannot slip
+                    # in between snapshot and transition.
+                    clause_rows = conn.execute(
+                        "SELECT decision FROM contract_clauses "
+                        "WHERE draft_id = ?",
+                        (draft_id,),
+                    ).fetchall()
+                    if not clause_rows:
+                        raise ContractDraftStateError(
+                            "cannot approve draft: no clauses "
+                            "(this should be impossible — submit_for_"
+                            "approval refuses empty drafts)"
+                        )
+                    decisions = {
+                        ClauseDecision(r["decision"]) for r in clause_rows
+                    }
+                    if ClauseDecision.PENDING in decisions:
+                        raise ContractDraftStateError(
+                            "cannot approve draft: at least one "
+                            "clause is still PENDING; decide every "
+                            "clause before approving"
+                        )
+                    if ClauseDecision.REJECTED in decisions:
+                        raise ContractDraftStateError(
+                            "cannot approve draft: at least one "
+                            "clause is REJECTED; remove or replace "
+                            "it before approving"
+                        )
                 set_parts = ["status = ?", "updated_at = ?"]
                 params: list[Any] = [to_state.value, now]
                 if mark_decided:

@@ -504,13 +504,16 @@ def test_add_clause_rejects_cross_org(store: ContractDraftStore) -> None:
 def test_decide_clause_rejects_cross_org(
     store: ContractDraftStore,
 ) -> None:
+    """Codex M-26 v1 fix: cross-org decide_clause now surfaces
+    "not accessible to this caller" — same wording as unknown
+    clause_id, no existence leak."""
     d = _create_basic(store, org_id="org_a")
     c = _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    with pytest.raises(ContractDraftStateError, match="different org"):
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
         store.decide_clause(
             clause_id=c.clause_id, org_id="org_b",
             approver_user_id="attacker",
@@ -584,6 +587,193 @@ def test_draft_to_dict_round_trips(store: ContractDraftStore) -> None:
     assert payload["draft_id"] == d.draft_id
     assert payload["status"] == "draft"
     assert payload["kind"] == "msa"
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_direct_transition_draft_call_cannot_bypass_gate(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v1: `_transition_draft` is callable from outside
+    the class (Python's _ prefix is convention only). v1 placed
+    the gate checks in approve_draft only, so a malicious caller
+    invoking `store._transition_draft(to_state=APPROVED, ...)`
+    flipped the draft to APPROVED bypassing all-clauses-approved,
+    SOD, and rationale.
+
+    v2 moves all gate checks INTO _transition_draft inside the
+    BEGIN IMMEDIATE so direct-call bypasses fail."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Don't decide the clause — leave PENDING.
+    # Direct call must fail because clauses aren't all approved.
+    with pytest.raises(ContractDraftStateError, match="PENDING"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="usr_attacker",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="bypass attempt", mark_decided=True,
+            set_approver=True,
+        )
+
+
+def test_direct_transition_draft_blocks_self_approval(
+    store: ContractDraftStore,
+) -> None:
+    """Direct _transition_draft call with submitter==approver
+    must fail SOD even though approve_draft isn't dispatching."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    with pytest.raises(
+        ContractDraftStateError, match="separation of duties",
+    ):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="usr_alice",  # the submitter!
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="self-approval bypass attempt",
+            mark_decided=True, set_approver=True,
+        )
+
+
+def test_direct_transition_draft_blocks_empty_rationale(
+    store: ContractDraftStore,
+) -> None:
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale=None,  # bypass attempt
+            mark_decided=True, set_approver=True,
+        )
+
+
+def test_direct_transition_draft_blocks_rejected_clause(
+    store: ContractDraftStore,
+) -> None:
+    """The TOCTOU race Codex reproduced: a late
+    decide_clause(REJECTED) landing between snapshot and
+    transition. v2 re-reads clauses inside the lock so REJECTED
+    clauses are caught."""
+    d = _create_basic(store)
+    c1 = _add_clause(store, d, title="Good")
+    c2 = _add_clause(store, d, title="Bad")
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c1.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.decide_clause(
+        clause_id=c2.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.REJECTED,
+        notes="violates policy",
+    )
+    # Even direct _transition_draft call must catch the REJECTED
+    # clause inside its own lock.
+    with pytest.raises(ContractDraftStateError, match="REJECTED"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="bypassing the rejected clause",
+            mark_decided=True, set_approver=True,
+        )
+
+
+def test_cross_org_transition_draft_uniform_error(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v1: cross-org access on _transition_draft used
+    to disclose existence via different error wording. v2 unifies
+    to "not accessible to this caller"."""
+    d = _create_basic(store, org_id="org_a")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._transition_draft(
+            draft_id=d.draft_id, org_id="org_b",  # cross-org
+            actor_user_id="attacker",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="cross-org bypass",
+            mark_decided=True, set_approver=True,
+        )
+    # Same wording for genuinely unknown draft_id.
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store._transition_draft(
+            draft_id="ctr_phantom", org_id="org_a",
+            actor_user_id="bob",
+            from_states=(ContractDraftStatus.AWAITING_APPROVAL,),
+            to_state=ContractDraftStatus.APPROVED,
+            rationale="phantom",
+            mark_decided=True, set_approver=True,
+        )
+
+
+def test_cross_org_decide_clause_uniform_error(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v1: decide_clause loaded by clause_id first then
+    checked org afterward. v2 uses an org-scoped JOIN so cross-
+    org and unknown clause_id surface as the same error."""
+    d = _create_basic(store, org_id="org_a")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store.decide_clause(
+            clause_id=c.clause_id, org_id="org_b",
+            approver_user_id="attacker",
+            decision=ClauseDecision.APPROVED, notes="ok",
+        )
+    with pytest.raises(ContractDraftStateError, match="not accessible"):
+        store.decide_clause(
+            clause_id="cls_phantom", org_id="org_a",
+            approver_user_id="bob",
+            decision=ClauseDecision.APPROVED, notes="ok",
+        )
 
 
 def test_clause_to_dict_round_trips(store: ContractDraftStore) -> None:
