@@ -23,7 +23,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 
 from pydantic import BaseModel, Field
 
@@ -530,6 +535,81 @@ async def route_query(req: RouteQueryRequest) -> dict:
         ],
         "rationale": result.rationale,
     }
+
+
+# ---------------------------------------------------------------------------
+# Progressive in-run Inspector surfaces (M-13)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/inspector/jobs/{job_id}/surfaces")
+async def get_job_surfaces(job_id: str) -> dict:
+    """Snapshot of every progressive surface emitted for this job.
+
+    Per FINAL_PLAN's t-table: PREFLIGHT / PARSE_PROGRESS / TIER_MIX
+    / FRAME_COVERAGE / CONTRADICTION_QUEUE / VERIFIED_CLAIM /
+    SYNTHESIS_COMPLETE. Each kind appears at most once in the
+    snapshot — the most recent emission wins.
+
+    Returns 404 if the job_id is unknown to the queue.
+    """
+    from src.polaris_graph.audit_ir.progress_surfaces import (
+        get_surface_bus,
+    )
+    queue = get_job_queue()
+    if queue.get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id={job_id}")
+    bus = get_surface_bus()
+    events = bus.latest_snapshot(job_id)
+    return {
+        "job_id": job_id,
+        "surfaces": [e.to_dict() for e in events],
+    }
+
+
+@router.get("/api/inspector/jobs/{job_id}/stream")
+async def stream_job_surfaces(job_id: str) -> StreamingResponse:
+    """Server-Sent Events stream of progressive surfaces for this
+    job. Snapshot replays first (so a late-joining client gets the
+    full state), then live tail.
+
+    Stream terminates when the bus prunes the job_id (worker has
+    transitioned to a terminal status).
+    """
+    import json as _json
+    from src.polaris_graph.audit_ir.progress_surfaces import (
+        get_surface_bus,
+    )
+    queue = get_job_queue()
+    if queue.get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id={job_id}")
+    bus = get_surface_bus()
+
+    async def _event_stream():
+        # Subscribe FIRST so events emitted between the snapshot
+        # read and the queue creation aren't lost.
+        sub_q = bus.subscribe(job_id)
+        try:
+            for event in bus.latest_snapshot(job_id):
+                yield f"data: {_json.dumps(event.to_dict())}\n\n"
+            while True:
+                event = await sub_q.get()
+                if event is None:
+                    # Sentinel from prune() — job is terminal.
+                    yield "event: end\ndata: {}\n\n"
+                    return
+                yield f"data: {_json.dumps(event.to_dict())}\n\n"
+        finally:
+            bus.unsubscribe(job_id, sub_q)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable proxy buffering
+        },
+    )
 
 
 @router.post("/api/inspector/jobs/{job_id}/resume")

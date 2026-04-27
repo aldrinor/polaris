@@ -42,8 +42,43 @@ from typing import Any, Callable, Mapping
 
 from src.polaris_graph.audit_ir.job_queue import Job
 from src.polaris_graph.audit_ir.job_runner import JobControl, JobRunner
+from src.polaris_graph.audit_ir.progress_surfaces import (
+    SurfaceKind,
+    get_surface_bus,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# Codex M-13: map V30 phase keys to progressive Inspector surfaces.
+# Per FINAL_PLAN's t-table:
+#   t=0      pre-flight estimate          → PREFLIGHT
+#   t=0-2    upload/parse progress        → PARSE_PROGRESS
+#   t=2-15   live source discovery + tier → TIER_MIX
+#   t=15-45  frame coverage manifest      → FRAME_COVERAGE
+#   t=45-90  contradiction queue          → CONTRADICTION_QUEUE
+#   t=90-120 first verified claim cards   → VERIFIED_CLAIM
+#   t=120-145 final synthesis             → SYNTHESIS_COMPLETE
+#
+# Map each V30 phase to whichever surface it represents. Phases
+# that don't represent a user-visible milestone map to None.
+_PHASE_TO_SURFACE: dict[str, SurfaceKind | None] = {
+    "scope": SurfaceKind.PREFLIGHT,
+    "retrieval": SurfaceKind.TIER_MIX,
+    "corpus": SurfaceKind.TIER_MIX,
+    "adequacy": SurfaceKind.FRAME_COVERAGE,
+    "completeness": SurfaceKind.FRAME_COVERAGE,
+    "contradict": SurfaceKind.CONTRADICTION_QUEUE,
+    "select": SurfaceKind.VERIFIED_CLAIM,
+    "generation": SurfaceKind.VERIFIED_CLAIM,
+    "v30_phase2": SurfaceKind.VERIFIED_CLAIM,
+    "evaluator": SurfaceKind.VERIFIED_CLAIM,
+    "judge": SurfaceKind.VERIFIED_CLAIM,
+    "eval_gate": SurfaceKind.VERIFIED_CLAIM,
+    "v30_phase1": SurfaceKind.SYNTHESIS_COMPLETE,
+    "cost": SurfaceKind.SYNTHESIS_COMPLETE,
+    "status": SurfaceKind.SYNTHESIS_COMPLETE,
+}
 
 
 # Canonical phase milestones the V30 sweep emits to run_log.txt.
@@ -108,6 +143,18 @@ _PHASE_PCT: dict[str, float] = {key: pct for key, pct, _ in V30_PHASES}
 _PHASE_MSG: dict[str, str] = {key: msg for key, _, msg in V30_PHASES}
 
 
+def _read_env_float(name: str, default: float) -> float:
+    """Codex M-13: env-driven numeric estimate for the PREFLIGHT
+    surface. Garbage values fall back to default per LAW VI."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 @dataclass
 class V30RunnerConfig:
     """Runtime configuration for the V30 runner."""
@@ -164,11 +211,7 @@ class V30JobRunner(JobRunner):
 
         # Initial checkpoint so the queue shows progress immediately.
         # Codex M-9 v2 review fix: guard this with the same Paused →
-        # RuntimeError conversion as the loop checkpoints. Without this
-        # guard, a request_pause that lands between the very first
-        # claim and the first iteration of the while-loop would cause
-        # raw JobControl.Paused to escape to the worker, which marks
-        # the job 'paused' instead of 'failed'.
+        # RuntimeError conversion as the loop checkpoints.
         try:
             control.checkpoint(
                 progress_pct=1.0,
@@ -182,6 +225,19 @@ class V30JobRunner(JobRunner):
                 "Pause is not supported for template_id='v30_clinical' "
                 "in Phase B. Use cancel + re-enqueue instead."
             ) from None
+
+        # Codex M-13: emit a PREFLIGHT surface so the Inspector UI
+        # can render scope/cost/time estimate immediately at t=0.
+        # The actual estimates are derived from the slug + sweep
+        # config; richer per-slug estimates land in Phase C.
+        self._emit_surface(
+            job, SurfaceKind.PREFLIGHT, {
+                "slug": slug,
+                "estimated_minutes": 145,  # FINAL_PLAN p90 target
+                "cost_cap_usd": _read_env_float("PG_MAX_COST_PER_RUN", 10.0),
+                "phase": "launch",
+            },
+        )
 
         logger.info("V30JobRunner: launching %s", " ".join(cmd))
         proc = subprocess.Popen(
@@ -252,6 +308,23 @@ class V30JobRunner(JobRunner):
                                 "Pause is not supported for template_id='v30_clinical' "
                                 "in Phase B. Use cancel + re-enqueue instead."
                             ) from None
+                        # Codex M-13: emit a progressive surface
+                        # for the new phase. Phases that don't map
+                        # to a user-visible milestone (PHASE_MAP
+                        # entry is None) are skipped. The progress
+                        # bar still moves via control.checkpoint
+                        # above; surfaces are an additional view.
+                        surface_kind = _PHASE_TO_SURFACE.get(phase)
+                        if surface_kind is not None:
+                            self._emit_surface(
+                                job, surface_kind, {
+                                    "slug": slug,
+                                    "phase": phase,
+                                    "progress_pct": last_pct,
+                                    "message": _PHASE_MSG[phase],
+                                    "log_line": line.strip()[:300],
+                                },
+                            )
 
                 # Periodic checkpoint even when no new phase fires
                 # (so cancel/pause requests are detected within
@@ -309,6 +382,17 @@ class V30JobRunner(JobRunner):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _emit_surface(
+        job: Job, kind: SurfaceKind, payload: dict[str, Any]
+    ) -> None:
+        """Codex M-13: best-effort surface emission. Never let a
+        bus error fail the audit run — surfaces are auxiliary."""
+        try:
+            get_surface_bus().emit(job.job_id, kind, payload)
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("surface emit failed for job %s", job.job_id)
 
     @staticmethod
     def _classify_phase(line: str) -> str | None:

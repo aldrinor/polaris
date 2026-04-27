@@ -88,6 +88,12 @@ from src.polaris_graph.audit_ir.corpus_brief import (
     brief_to_dict,
     compose_brief,
 )
+from src.polaris_graph.audit_ir.progress_surfaces import (
+    SurfaceBus,
+    SurfaceEvent,
+    SurfaceKind,
+    get_surface_bus,
+)
 from src.polaris_graph.audit_ir.loader import (
     IR_SCHEMA_VERSION,
     AdequacyGate,

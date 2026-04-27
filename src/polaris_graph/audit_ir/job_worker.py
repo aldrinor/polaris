@@ -100,6 +100,7 @@ class JobWorker:
         except JobControl.Cancelled:
             logger.info("worker: job %s cancelled cooperatively", job.job_id)
             result = self._queue.mark_cancelled(job.job_id)
+            self._prune_surfaces(job.job_id)
             if self._on_job_completed:
                 self._on_job_completed(result)
             return result
@@ -112,10 +113,26 @@ class JobWorker:
                 job.job_id,
                 error=f"{type(exc).__name__}: {exc}",
             )
+            self._prune_surfaces(job.job_id)
             if self._on_job_completed:
                 self._on_job_completed(result)
             return result
         result = self._queue.mark_completed(job.job_id, artifact_dir=artifact_dir)
+        self._prune_surfaces(job.job_id)
         if self._on_job_completed:
             self._on_job_completed(result)
         return result
+
+    @staticmethod
+    def _prune_surfaces(job_id: str) -> None:
+        """Codex M-13: drop progressive surface state for a
+        terminal job. SSE subscribers receive a sentinel via
+        bus.prune() so their event-stream loops exit cleanly.
+        Best-effort — never let a bus error fail the worker."""
+        try:
+            from src.polaris_graph.audit_ir.progress_surfaces import (
+                get_surface_bus,
+            )
+            get_surface_bus().prune(job_id)
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("surface prune failed for job %s", job_id)
