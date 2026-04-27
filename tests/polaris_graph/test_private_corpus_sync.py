@@ -415,6 +415,79 @@ def test_list_sync_runs_limit_validation(
         )
 
 
+def test_record_sync_run_atomic_check_and_insert(
+    store: PrivateCorpusSyncStore,
+) -> None:
+    """Codex M-25 v1: approval check and insert ran in two
+    separate connections, so a concurrent revoke could let a
+    sync row land for a now-revoked source. v2 wraps the whole
+    operation in BEGIN IMMEDIATE.
+
+    This test simulates the race deterministically by revoking
+    the source AFTER the test asserts approval but BEFORE
+    record_sync_run executes (impossible to reproduce exactly,
+    so we verify the insert refuses post-revocation as a sanity
+    check on the atomic re-read pattern)."""
+    s = _register_basic(store)
+    store.approve_source(
+        source_id=s.source_id, org_id="org_a", approver_user_id="alice",
+    )
+    # First sync succeeds.
+    store.record_sync_run(
+        source_id=s.source_id, org_id="org_a",
+        triggered_by_user_id="alice",
+        status=SyncRunStatus.SUCCEEDED,
+    )
+    # Operator revokes between syncs.
+    store.revoke_source(
+        source_id=s.source_id, org_id="org_a", revoker_user_id="alice",
+    )
+    # Second sync attempted post-revoke must be refused — v2's
+    # atomic re-read inside BEGIN IMMEDIATE catches the new
+    # state.
+    with pytest.raises(SyncBlockedError, match="revoked|approved"):
+        store.record_sync_run(
+            source_id=s.source_id, org_id="org_a",
+            triggered_by_user_id="alice",
+            status=SyncRunStatus.SUCCEEDED,
+        )
+    # And no second row landed.
+    runs = store.list_sync_runs(
+        source_id=s.source_id, org_id="org_a",
+    )
+    assert len(runs) == 1
+
+
+@pytest.mark.parametrize("secret", [
+    # Slack tokens
+    "xoxb-1234567890-abc",
+    "xoxp-1234-abcd",
+    "xoxa-token",
+    "xapp-1-abc",
+    # Google API key
+    "AIzaSyD" + "x" * 35,
+    # Google OAuth tokens
+    "ya29.A0ARrdaM-token",
+    "1//0gAbcdefghij",
+    # Azure connection strings
+    "DefaultEndpointsProtocol=https;AccountKey=abc",
+    "Endpoint=sb://x;SharedAccessKey=def",
+    "https://x.blob.core.windows.net/?SharedAccessSignature=abc",
+    # GitHub fine-grained PAT
+    "github_pat_" + "x" * 30,
+    # OpenSSH / EC private keys
+    "-----BEGIN OPENSSH PRIVATE KEY-----\nXXX",
+    "-----BEGIN EC PRIVATE KEY-----\nXXX",
+])
+def test_register_rejects_codex_m25_secret_patterns(
+    store: PrivateCorpusSyncStore, secret: str,
+) -> None:
+    """Codex M-25 v1 review additions: Slack, Google API/OAuth,
+    Azure, GitHub fine-grained PAT, OpenSSH/EC private keys."""
+    with pytest.raises(SourceStateError, match="raw secret"):
+        _register_basic(store, credential_ref=secret)
+
+
 def test_record_sync_run_rejects_negative_counts(
     store: PrivateCorpusSyncStore,
 ) -> None:

@@ -400,6 +400,14 @@ class PrivateCorpusSyncStore:
         Refuses if the source is not APPROVED — this is the gate
         FINAL_PLAN's "approved-only, NOT broad connector parity"
         requirement enforces.
+
+        Codex M-25 v1 review fix: the approval check + insert
+        are now ONE atomic transaction under BEGIN IMMEDIATE.
+        v1 did them as two separate connections, so a concurrent
+        revoke_source() between the check and the insert could
+        let a sync row land for a now-revoked source. v2 re-reads
+        the source row inside the lock and refuses if its status
+        is no longer APPROVED.
         """
         if not triggered_by_user_id.strip():
             raise SourceStateError(
@@ -413,32 +421,44 @@ class PrivateCorpusSyncStore:
             raise SourceStateError(
                 f"status must be SyncRunStatus; got {status!r}"
             )
-        source = self.get_source(source_id=source_id, org_id=org_id)
-        if source is None:
-            raise SourceStateError(
-                f"source {source_id!r} is not accessible to this caller"
-            )
-        if source.status != SourceStatus.APPROVED:
-            raise SyncBlockedError(
-                f"source {source_id!r} is in state "
-                f"{source.status.value!r}; sync only allowed when "
-                f"approved"
-            )
         sync_run_id = f"sync_{uuid.uuid4().hex[:12]}"
-        now = time.time()
         with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO sync_runs (sync_run_id, source_id, "
-                "triggered_by_user_id, status, doc_count, "
-                "bytes_synced, error_message, started_at, "
-                "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    sync_run_id, source_id,
-                    triggered_by_user_id.strip(), status.value,
-                    int(doc_count), int(bytes_synced),
-                    error_message, now, now,
-                ),
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT status FROM corpus_sources "
+                    "WHERE source_id = ? AND org_id = ?",
+                    (source_id, org_id),
+                ).fetchone()
+                if row is None:
+                    raise SourceStateError(
+                        f"source {source_id!r} is not accessible "
+                        f"to this caller"
+                    )
+                src_status = SourceStatus(row["status"])
+                if src_status != SourceStatus.APPROVED:
+                    raise SyncBlockedError(
+                        f"source {source_id!r} is in state "
+                        f"{src_status.value!r}; sync only allowed "
+                        f"when approved"
+                    )
+                now = time.time()
+                conn.execute(
+                    "INSERT INTO sync_runs (sync_run_id, source_id, "
+                    "triggered_by_user_id, status, doc_count, "
+                    "bytes_synced, error_message, started_at, "
+                    "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        sync_run_id, source_id,
+                        triggered_by_user_id.strip(), status.value,
+                        int(doc_count), int(bytes_synced),
+                        error_message, now, now,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
         return SyncRun(
             sync_run_id=sync_run_id, source_id=source_id,
             triggered_by_user_id=triggered_by_user_id.strip(),
@@ -512,6 +532,9 @@ def _looks_like_raw_secret(value: str) -> bool:
 
     This is defense in depth — the canonical guidance is "pass
     a vault pointer, not the secret itself."
+
+    Codex M-25 v1 review additions: Slack tokens, Google API
+    keys, Google OAuth tokens, Azure connection-string markers.
     """
     v = value.strip()
     if v.startswith("eyJ") and len(v) > 60:  # JWT
@@ -520,9 +543,30 @@ def _looks_like_raw_secret(value: str) -> bool:
         return True
     if "BEGIN PRIVATE KEY" in v or "BEGIN RSA PRIVATE KEY" in v:
         return True
+    if "BEGIN OPENSSH PRIVATE KEY" in v or "BEGIN EC PRIVATE KEY" in v:
+        return True
     if v.startswith("ghp_") and len(v) > 20:  # GitHub PAT
         return True
+    if v.startswith("github_pat_") and len(v) > 20:  # GitHub fine-grained
+        return True
     if v.startswith(("sk-", "pk-")) and len(v) > 20:  # OpenAI-style
+        return True
+    # Codex M-25 v1 review: Slack token shapes.
+    if v.startswith(("xoxb-", "xoxp-", "xoxa-", "xoxs-", "xapp-")):
+        return True
+    # Google API key (39 chars starting "AIza").
+    if v.startswith("AIza") and len(v) >= 35:
+        return True
+    # Google OAuth access token / refresh token.
+    if v.startswith(("ya29.", "1//")):
+        return True
+    # Azure storage / service-bus connection-string fragments.
+    azure_markers = (
+        "AccountKey=",
+        "SharedAccessKey=",
+        "SharedAccessSignature=",
+    )
+    if any(marker in v for marker in azure_markers):
         return True
     return False
 
