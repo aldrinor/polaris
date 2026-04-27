@@ -892,6 +892,35 @@ def _set_review_store_for_tests(store) -> None:
     _review_store = store
 
 
+# ---------------------------------------------------------------------------
+# Workspace-memory store (M-21)
+# ---------------------------------------------------------------------------
+
+
+_WORKSPACE_MEMORY_DB_PATH = (
+    REPO_ROOT / "state" / "polaris_workspace_memory.sqlite"
+)
+_workspace_memory_store = None  # type: ignore[var-annotated]
+
+
+def get_workspace_memory_store():
+    """Lazy-init the WorkspaceMemoryStore. Tests patch via tmp_path."""
+    from src.polaris_graph.audit_ir.workspace_memory import (
+        WorkspaceMemoryStore,
+    )
+    global _workspace_memory_store
+    if _workspace_memory_store is None:
+        _workspace_memory_store = WorkspaceMemoryStore(
+            _WORKSPACE_MEMORY_DB_PATH
+        )
+    return _workspace_memory_store
+
+
+def _set_workspace_memory_store_for_tests(store) -> None:
+    global _workspace_memory_store
+    _workspace_memory_store = store
+
+
 def _get_workspace_files_root() -> Path:
     """Override for tests via _set_workspace_files_root_for_tests."""
     return _WORKSPACE_FILES_ROOT_OVERRIDE or _WORKSPACE_FILES_ROOT
@@ -1269,6 +1298,141 @@ async def inspector_page(slug: str) -> HTMLResponse:
     html = html.replace("{{ run_slug }}", slug)
     html = html.replace("{{ run_id }}", summary.run_id)
     return HTMLResponse(content=html)
+
+
+# ---------------------------------------------------------------------------
+# Workspace memory (M-21)
+# ---------------------------------------------------------------------------
+
+
+class AppendMemoryRequest(BaseModel):
+    claim_text: str = Field(..., description="Concrete prose stored as memory")
+    source_url: str = Field(..., description="Canonical URL for attribution")
+    source_tier: str = Field(..., description="V30 tier (T1..T7 or UNKNOWN)")
+    source_evidence_id: str | None = Field(
+        default=None,
+        description="Evidence ID this memory derives from, if any.",
+    )
+
+
+@router.post("/api/inspector/workspaces/{workspace_id}/memory")
+async def append_workspace_memory(
+    workspace_id: str,
+    req: AppendMemoryRequest,
+    caller: Caller = Depends(require_workspace_member),
+) -> dict:
+    """Append one memory entry to a workspace.
+
+    Cross-workspace isolation: the workspace dep already validates
+    caller.org_id matches the workspace's org_id. The entry is
+    bound to workspace_id at the store level — it cannot leak
+    into another workspace's retrieve() result.
+    """
+    from src.polaris_graph.audit_ir.workspace_memory import (
+        WorkspaceMemoryStateError,
+        memory_entry_to_dict,
+    )
+    store = get_workspace_memory_store()
+    try:
+        entry = store.append_entry(
+            workspace_id=workspace_id,
+            claim_text=req.claim_text,
+            source_url=req.source_url,
+            source_tier=req.source_tier,
+            source_evidence_id=req.source_evidence_id,
+        )
+    except WorkspaceMemoryStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return memory_entry_to_dict(entry)
+
+
+@router.get("/api/inspector/workspaces/{workspace_id}/memory")
+async def list_workspace_memory(
+    workspace_id: str,
+    caller: Caller = Depends(require_workspace_viewer),
+    max_age_days: float | None = None,
+) -> dict:
+    """List all memory entries for a workspace, newest first.
+
+    `max_age_days` (optional) applies the freshness cutoff per
+    FINAL_PLAN's freshness/staleness rules requirement.
+    """
+    from src.polaris_graph.audit_ir.workspace_memory import (
+        WorkspaceMemoryStateError,
+        memory_entry_to_dict,
+    )
+    store = get_workspace_memory_store()
+    try:
+        entries = store.list_entries(
+            workspace_id=workspace_id, max_age_days=max_age_days,
+        )
+    except WorkspaceMemoryStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "count": len(entries),
+        "entries": [memory_entry_to_dict(e) for e in entries],
+    }
+
+
+@router.post("/api/inspector/workspaces/{workspace_id}/memory/retrieve")
+async def retrieve_workspace_memory(
+    workspace_id: str,
+    query: str,
+    caller: Caller = Depends(require_workspace_viewer),
+    top_k: int = 10,
+    max_age_days: float | None = None,
+) -> dict:
+    """Active retrieval surface — returns ranked memory entries
+    matching `query` keywords. The Inspector + the V30 runner both
+    consume this; the runner labels matched entries as
+    'memory-derived' in the rendered audit (per FINAL_PLAN
+    attribution requirement).
+    """
+    from src.polaris_graph.audit_ir.workspace_memory import (
+        WorkspaceMemoryStateError,
+        memory_entry_to_dict,
+    )
+    store = get_workspace_memory_store()
+    try:
+        results = store.retrieve(
+            workspace_id=workspace_id, query=query, top_k=top_k,
+            max_age_days=max_age_days,
+        )
+    except WorkspaceMemoryStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "count": len(results),
+        "results": [
+            {"entry": memory_entry_to_dict(e), "score": round(score, 4)}
+            for (e, score) in results
+        ],
+    }
+
+
+@router.delete(
+    "/api/inspector/workspaces/{workspace_id}/memory/{entry_id}"
+)
+async def delete_workspace_memory_entry(
+    workspace_id: str,
+    entry_id: str,
+    caller: Caller = Depends(require_workspace_member),
+) -> dict:
+    """Hard-delete one memory entry. Per FINAL_PLAN, memory must
+    be user-removable; deletion is irreversible (no soft-delete
+    tombstone) so customers can guarantee data purge."""
+    store = get_workspace_memory_store()
+    deleted = store.delete_entry(
+        workspace_id=workspace_id, entry_id=entry_id,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"memory entry {entry_id!r} not found in workspace "
+                f"{workspace_id!r}"
+            ),
+        )
+    return {"deleted": True, "entry_id": entry_id}
 
 
 # ---------------------------------------------------------------------------

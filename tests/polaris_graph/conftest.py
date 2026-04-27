@@ -69,6 +69,8 @@ def _reset_phase_b_singletons():
         # that share the inspector_router module don't carry
         # state across one another.
         _ir._review_store = None
+        # M-21: same for the workspace_memory_store singleton.
+        _ir._workspace_memory_store = None
         _reset_runners_for_tests()
 
     _reset()
