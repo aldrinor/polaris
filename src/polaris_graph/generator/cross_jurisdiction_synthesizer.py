@@ -209,10 +209,17 @@ def _expand_contractions(text: str) -> str:
     "isn't approved" as {"isn", "approved"} — fragments — and
     the negation guard never saw "not". Expansion via word-
     boundary regex on lowercased text.
+
+    Codex M-14 v4 review fix: also normalize Unicode smart
+    apostrophes (U+2018 left, U+2019 right) to ASCII apostrophe
+    BEFORE the contraction map runs. PDF / Word copy-paste
+    routinely produces "isn’t" which v3 didn't recognize.
     """
     if not text:
         return text
-    out = text.lower()
+    # Normalize smart quotes first.
+    out = text.replace("‘", "'").replace("’", "'")
+    out = out.lower()
     # Word-boundary replace each contraction. We iterate the
     # static dict in length-DESC order so longer keys
     # (e.g. "couldn't") match before shorter ones.

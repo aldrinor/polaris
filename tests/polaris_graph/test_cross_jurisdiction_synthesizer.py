@@ -650,6 +650,41 @@ def test_thousands_separator_does_not_force_false_divergence() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "values",
+    [
+        # Smart right apostrophe (U+2019) — common from Word/PDF
+        # copy-paste.
+        ("approved for adults with type 2 diabetes",
+         "isn’t approved for adults with type 2 diabetes"),
+        ("approved for adults",
+         "doesn’t approve for adults"),
+        ("approved for adults",
+         "can’t be approved for adults"),
+        # Smart left apostrophe (U+2018) — rarer but appears.
+        ("approved for adults",
+         "isn‘t approved for adults"),
+    ],
+)
+def test_smart_apostrophe_contraction_forces_divergence(
+    values: tuple[str, str],
+) -> None:
+    """Codex M-14 v4 review regression: v3 contraction expansion
+    only matched ASCII apostrophe `'`. Smart apostrophes (U+2018
+    `'`, U+2019 `'`) routinely arrive from Word/PDF copy-paste
+    and bypassed the negation guard."""
+    fa, fb = values
+    findings = [
+        JurisdictionFinding("FDA", "indications", fa, "ev_fda"),
+        JurisdictionFinding("EMA", "indications", fb, "ev_ema"),
+    ]
+    result = synthesize_cross_jurisdiction(findings)
+    assert result.verdicts[0].verdict == "divergence", (
+        f"smart-apostrophe contraction {values!r} flattened to "
+        f"{result.verdicts[0].verdict}"
+    )
+
+
 def test_thousands_separator_real_mismatch_still_diverges() -> None:
     """Sanity: the thousands-separator normalization must NOT
     over-correct. Genuinely different values must still diverge."""
