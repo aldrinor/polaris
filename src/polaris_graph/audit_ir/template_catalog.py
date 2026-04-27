@@ -121,8 +121,10 @@ _V30_CLINICAL = CuratedTemplate(
         "atorvastatin", "rosuvastatin", "simvastatin",
         # Narrow class abbreviations (each identifies a small known
         # set of marketed drugs; a query naming the class is
-        # specific enough to audit).
-        "glp-1", "sglt2", "sglt-2", "dpp-4",
+        # specific enough to audit). The canonical hyphenated form
+        # is used; the v7 tokenizer normalizes hyphen-less query
+        # forms (GLP1 → "glp 1") so both orthographies match.
+        "glp-1", "sglt-2", "dpp-4",
     ),
     # Codex M-10 review fix: medical_keywords cover the broad medical
     # domain — clinical-trial terminology, regulatory framing,

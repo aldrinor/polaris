@@ -381,6 +381,13 @@ def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
         # Drug class with optional hyphen (already worked via single
         # canonical form but verify with split).
         "GLP-1 receptor agonists for cardiovascular outcomes",
+        # Codex M-10 v7 review regression: Roman-numeral and compact
+        # drug-class orthography common in clinical literature.
+        "Dulaglutide phase III trial outcomes for type 2 diabetes",
+        "Dulaglutide phase 3 trial outcomes for type II diabetes",
+        "GLP1 agonists for type 2 diabetes",
+        "DPP4 inhibitors for type 2 diabetes",
+        "Phase IV trial of empagliflozin in heart failure",
     ],
 )
 def test_hyphen_compound_orthography_routes(query: str) -> None:

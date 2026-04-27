@@ -195,19 +195,65 @@ _STOPWORDS: frozenset[str] = frozenset({
 })
 
 
+# Codex M-10 v7 review fix: normalize multi-character Roman
+# numerals to Arabic digits so clinical-literature phrasings like
+# "phase III" / "type II diabetes" match the catalog's "phase 3" /
+# "type 2 diabetes" multi-word keywords.
+#
+# Single-character Romans (i/v/x) deliberately excluded — "i" is
+# the English pronoun (already a stopword), "v" / "x" are too
+# ambiguous (could be variables, volume X, etc.). "phase v" /
+# "type x" are rare enough that operator_review fallback is fine.
+_ROMAN_TO_ARABIC: dict[str, str] = {
+    "ii": "2", "iii": "3", "iv": "4",
+    "vi": "6", "vii": "7", "viii": "8",
+    "ix": "9",
+}
+
+
+# Codex M-10 v7 review fix: hyphen-less drug-class abbreviations
+# (GLP1, SGLT2, DPP4) get split so they tokenize identically to
+# their hyphenated form (GLP-1 → [glp, 1] after the v6 hyphen
+# split). Without this, "GLP1 agonists" and "GLP-1 agonists"
+# tokenize differently and the multi-word kw "glp-1" matches
+# the latter but not the former.
+_COMPACT_DRUG_CLASS_SPLIT: dict[str, list[str]] = {
+    "glp1": ["glp", "1"],
+    "sglt2": ["sglt", "2"],
+    "dpp4": ["dpp", "4"],
+}
+
+
 def _tokenize_raw_seq(text: str) -> list[str]:
-    """Lowercased, hyphen-preserving word/digit tokens as an
-    ORDERED list. Codex M-10 v5 review fix: multi-word keyword
-    matching needs token order to avoid cross-hits like "phase 2"
-    set-matching when a query has "phase 3" + "type 2 diabetes"
-    (the tokens {phase, 2} are both present but not contiguous
-    in that combination).
+    """Lowercased, hyphen-split, Roman/compact-normalized word/digit
+    tokens as an ORDERED list.
+
+    Pipeline:
+      1. Unicode hyphen variants → ASCII hyphen.
+      2. Lowercase.
+      3. Regex `[a-z0-9]+` extracts alphanumeric tokens (hyphens
+         become token boundaries — Codex M-10 v6 fix).
+      4. Roman numerals II/III/IV/VI..IX → Arabic (Codex M-10 v7 fix).
+      5. Compact drug-class forms (GLP1 / SGLT2 / DPP4) → their
+         hyphen-split equivalents (Codex M-10 v7 fix).
+      6. Drop 1-char non-digit tokens to suppress noise.
     """
     if not text:
         return []
     normalized = text.translate(_HYPHEN_TRANSLATE).lower()
     raw = _TOKEN_RE.findall(normalized)
-    return [t for t in raw if len(t) > 1 or t.isdigit()]
+    out: list[str] = []
+    for t in raw:
+        if t in _ROMAN_TO_ARABIC:
+            t = _ROMAN_TO_ARABIC[t]
+        if t in _COMPACT_DRUG_CLASS_SPLIT:
+            for part in _COMPACT_DRUG_CLASS_SPLIT[t]:
+                if len(part) > 1 or part.isdigit():
+                    out.append(part)
+            continue
+        if len(t) > 1 or t.isdigit():
+            out.append(t)
+    return out
 
 
 def _tokenize_raw(text: str) -> frozenset[str]:
