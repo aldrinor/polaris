@@ -475,3 +475,188 @@ def test_stopword_filter_disables_scaffold_jaccard() -> None:
     assert r.confidence < DEFAULT_FLOOR_HIGH, (
         f"scaffold-only query reached confidence {r.confidence:.2f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Codex M-20 phase-c: tie detection (top-1 vs top-2 narrow-gap demotion).
+# When the catalog grows past one template, multiple drug-anchored
+# templates may both score above floor_high for the same query
+# (e.g. tirzepatide hits a diabetes-specific AND an obesity-specific
+# template). Tie detection demotes those queries to OPERATOR_REVIEW
+# so the operator picks the right template instead of the router
+# silently picking the alphabetically-first one.
+# ---------------------------------------------------------------------------
+
+
+def _make_template(
+    template_id: str,
+    drugs: tuple[str, ...] = ("druga",),
+    medical: tuple[str, ...] = ("efficacy", "diabetes", "trial"),
+    examples: tuple[str, ...] = ("druga efficacy in diabetes trial",),
+) -> "CuratedTemplate":
+    """Build a CuratedTemplate stub for tie-detection tests."""
+    from src.polaris_graph.audit_ir.template_catalog import CuratedTemplate
+    return CuratedTemplate(
+        template_id=template_id,
+        display_name=template_id.replace("_", " ").title(),
+        description="test stub",
+        scope_summary="test stub scope",
+        drug_keywords=drugs,
+        medical_keywords=medical,
+        scope_examples=examples,
+    )
+
+
+def test_tie_detection_demotes_when_top_two_within_margin(monkeypatch) -> None:
+    """Two templates score identically (gap == 0 < tie_margin) on a
+    query that fits both. Verdict demotes from ROUTED → OPERATOR_REVIEW
+    so the operator picks the correct template."""
+    tmpl_a = _make_template(template_id="test_template_a")
+    tmpl_b = _make_template(template_id="test_template_b")
+
+    monkeypatch.setattr(
+        "src.polaris_graph.audit_ir.template_classifier.list_catalog",
+        lambda: (tmpl_a, tmpl_b),
+    )
+
+    r = classify_query("druga efficacy in diabetes trial")
+    assert r.verdict == RoutingVerdict.OPERATOR_REVIEW, (
+        f"identical-score top-2 should demote to operator_review, "
+        f"got {r.verdict}; rationale={r.rationale!r}"
+    )
+    rationale_lc = r.rationale.lower()
+    assert (
+        "multiple templates" in rationale_lc
+        or "narrow gap" in rationale_lc
+        or "tie" in rationale_lc
+    ), f"tie-demotion rationale should explain the tie: {r.rationale!r}"
+
+
+def test_tie_detection_does_not_fire_when_top2_below_floor_high(
+    monkeypatch,
+) -> None:
+    """If top-2 falls below floor_high, the gap-margin doesn't
+    matter — only top-1 is a viable target, ROUTED is correct."""
+    # Template A: query matches its exemplar exactly → score ~1.0.
+    # Template B: shares the drug but exemplar shape differs → ex_jac
+    # below 0.30 → falls to Tier B (drug named, no exemplar match) →
+    # score 0.40-0.45 (below floor_high 0.55).
+    tmpl_a = _make_template(
+        template_id="test_template_a",
+        drugs=("druga",),
+        medical=("efficacy", "diabetes", "trial"),
+        examples=("druga efficacy in diabetes trial",),
+    )
+    tmpl_b = _make_template(
+        template_id="test_template_b",
+        drugs=("druga",),
+        medical=("safety", "obesity", "phase"),
+        # Exemplar shape doesn't match the test query at all.
+        examples=("druga safety in obesity phase",),
+    )
+
+    monkeypatch.setattr(
+        "src.polaris_graph.audit_ir.template_classifier.list_catalog",
+        lambda: (tmpl_a, tmpl_b),
+    )
+
+    r = classify_query("druga efficacy in diabetes trial")
+    assert r.verdict == RoutingVerdict.ROUTED, (
+        f"only top-1 above floor_high should route normally, got "
+        f"{r.verdict}; rationale={r.rationale!r}"
+    )
+    assert r.template_id == "test_template_a"
+
+
+def test_tie_detection_does_not_fire_when_gap_exceeds_margin(
+    monkeypatch,
+) -> None:
+    """When gap >= tie_margin, top-1 wins outright — no demotion."""
+    # Both templates cover the same medical vocabulary so neither
+    # has alien tokens. Different exemplars produce different
+    # example_jaccard scores, putting both above floor_high but
+    # with a clear gap.
+    shared_medical = ("efficacy", "diabetes", "obesity", "trial", "phase")
+    tmpl_a = _make_template(
+        template_id="test_template_a",
+        drugs=("druga",),
+        medical=shared_medical,
+        # Exact match with the query → ex_jac=1.0, score=1.0.
+        examples=("druga efficacy in diabetes trial phase",),
+    )
+    tmpl_b = _make_template(
+        template_id="test_template_b",
+        drugs=("druga",),
+        medical=shared_medical,
+        # Shares druga/efficacy/trial/phase with query (4 of 5
+        # content words) but swaps diabetes → obesity. ex_jac ≈
+        # 4/6 ≈ 0.67, score ≈ 0.55 + 0.45*0.67 ≈ 0.85.
+        examples=("druga efficacy in obesity trial phase",),
+    )
+
+    monkeypatch.setattr(
+        "src.polaris_graph.audit_ir.template_classifier.list_catalog",
+        lambda: (tmpl_a, tmpl_b),
+    )
+
+    # tie_margin tightened to 0.05 so the natural ~0.15 gap clears it.
+    monkeypatch.setenv("PG_TEMPLATE_ROUTER_TIE_MARGIN", "0.05")
+
+    r = classify_query("druga efficacy in diabetes trial phase")
+    assert r.verdict == RoutingVerdict.ROUTED, (
+        f"clear gap should ROUTE on top-1, got {r.verdict}; "
+        f"top-1 score={r.candidates[0].score:.3f}, "
+        f"top-2 score={r.candidates[1].score:.3f}; "
+        f"rationale={r.rationale!r}"
+    )
+    assert r.template_id == "test_template_a"
+    # Sanity check: gap is wider than tie_margin used in this test.
+    gap = r.candidates[0].score - r.candidates[1].score
+    assert gap > 0.05, f"gap={gap:.3f} should exceed tie_margin=0.05"
+
+
+def test_tie_margin_env_overridable(monkeypatch) -> None:
+    """LAW VI: tie_margin must be overridable via env var."""
+    monkeypatch.setenv("PG_TEMPLATE_ROUTER_TIE_MARGIN", "0.25")
+    cfg = RouterConfig.from_env()
+    assert cfg.tie_margin == 0.25
+
+    monkeypatch.delenv("PG_TEMPLATE_ROUTER_TIE_MARGIN", raising=False)
+    cfg2 = RouterConfig.from_env()
+    # Default falls back to DEFAULT_TIE_MARGIN.
+    from src.polaris_graph.audit_ir.template_classifier import (
+        DEFAULT_TIE_MARGIN,
+    )
+    assert cfg2.tie_margin == DEFAULT_TIE_MARGIN
+
+
+def test_tie_margin_garbage_env_falls_back_to_default(monkeypatch) -> None:
+    """Garbage env values for tie_margin must not crash — fall back."""
+    monkeypatch.setenv("PG_TEMPLATE_ROUTER_TIE_MARGIN", "not_a_float")
+    cfg = RouterConfig.from_env()
+    from src.polaris_graph.audit_ir.template_classifier import (
+        DEFAULT_TIE_MARGIN,
+    )
+    assert cfg.tie_margin == DEFAULT_TIE_MARGIN
+
+
+def test_real_catalog_has_no_unexpected_ties() -> None:
+    """Smoke test: each template's own scope_examples must self-route
+    decisively (no false ties surfacing as OPERATOR_REVIEW). This is
+    a stricter version of test_every_scope_example_self_routes — it
+    also asserts the router doesn't fire tie-detection on these
+    examples by accident."""
+    from src.polaris_graph.audit_ir.template_catalog import list_catalog
+    for tmpl in list_catalog():
+        for ex in tmpl.scope_examples:
+            r = classify_query(ex)
+            # Self-routing must succeed (covered by other test) but
+            # ALSO not surface "Multiple templates" rationale — that
+            # would mean two real templates accidentally collide.
+            if r.verdict == RoutingVerdict.OPERATOR_REVIEW:
+                assert "multiple templates" not in r.rationale.lower(), (
+                    f"template {tmpl.template_id!r} exemplar "
+                    f"{ex!r} accidentally ties with another template; "
+                    f"add disambiguating keywords or examples. "
+                    f"rationale={r.rationale!r}"
+                )

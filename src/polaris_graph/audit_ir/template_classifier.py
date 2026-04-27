@@ -60,6 +60,12 @@ from src.polaris_graph.audit_ir.template_catalog import (
 
 DEFAULT_FLOOR_HIGH = 0.55
 DEFAULT_FLOOR_REVIEW = 0.30
+# Codex M-20 phase-c: minimum score gap between top-1 and top-2
+# template candidates for top-1 to win routing. If the gap is
+# narrower than this, the verdict demotes to OPERATOR_REVIEW so
+# the operator picks. With 50+ templates, a query that matches
+# multiple drug-anchored templates needs human disambiguation.
+DEFAULT_TIE_MARGIN = 0.10
 
 
 class RoutingVerdict(str, Enum):
@@ -112,10 +118,12 @@ class RouterConfig:
     Override via env:
       PG_TEMPLATE_ROUTER_FLOOR_HIGH    (default 0.55)
       PG_TEMPLATE_ROUTER_FLOOR_REVIEW  (default 0.30)
+      PG_TEMPLATE_ROUTER_TIE_MARGIN    (default 0.10)
     """
 
     floor_high: float = DEFAULT_FLOOR_HIGH
     floor_review: float = DEFAULT_FLOOR_REVIEW
+    tie_margin: float = DEFAULT_TIE_MARGIN
 
     @classmethod
     def from_env(cls) -> "RouterConfig":
@@ -127,10 +135,18 @@ class RouterConfig:
             review = float(os.environ.get("PG_TEMPLATE_ROUTER_FLOOR_REVIEW", DEFAULT_FLOOR_REVIEW))
         except ValueError:
             review = DEFAULT_FLOOR_REVIEW
-        # Guardrails: review_floor must be < high_floor; both must be in [0, 1].
+        try:
+            tie_margin = float(os.environ.get(
+                "PG_TEMPLATE_ROUTER_TIE_MARGIN", DEFAULT_TIE_MARGIN,
+            ))
+        except ValueError:
+            tie_margin = DEFAULT_TIE_MARGIN
         high = max(0.0, min(1.0, high))
         review = max(0.0, min(high, review))
-        return cls(floor_high=high, floor_review=review)
+        tie_margin = max(0.0, min(1.0, tie_margin))
+        return cls(
+            floor_high=high, floor_review=review, tie_margin=tie_margin,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +524,36 @@ def classify_query(
     top = candidates[0]
 
     if top.score >= config.floor_high:
+        # Codex M-20 phase-c: intra-scope tie detection. With 50+
+        # templates, multiple drug-anchored templates may score
+        # within tie_margin of each other (e.g. tirzepatide for
+        # diabetes vs tirzepatide for obesity). Demote to
+        # OPERATOR_REVIEW when top-1 and top-2 are too close —
+        # the operator picks which template matches the user's
+        # actual question.
+        if len(candidates) >= 2:
+            top2 = candidates[1]
+            gap = top.score - top2.score
+            # Only fire the tie demotion if BOTH candidates are
+            # over floor_high. If top-2 is below floor_high, the
+            # margin doesn't matter — only top-1 is a viable
+            # routing target.
+            if (top2.score >= config.floor_high
+                    and gap < config.tie_margin):
+                return RoutingResult(
+                    verdict=RoutingVerdict.OPERATOR_REVIEW,
+                    template_id=top.template_id,
+                    confidence=top.score,
+                    candidates=candidates,
+                    rationale=(
+                        f"Multiple templates score above floor_high "
+                        f"with a narrow gap: '{top.template_id}' "
+                        f"({top.score:.2f}) vs '{top2.template_id}' "
+                        f"({top2.score:.2f}); gap {gap:.2f} < "
+                        f"tie_margin {config.tie_margin:.2f}. "
+                        f"Operator must pick the right template."
+                    ),
+                )
         return RoutingResult(
             verdict=RoutingVerdict.ROUTED,
             template_id=top.template_id,

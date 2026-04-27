@@ -254,8 +254,243 @@ _V30_CLINICAL = CuratedTemplate(
     ),
 )
 
+_V30_CLINICAL_ONCOLOGY = CuratedTemplate(
+    template_id="v30_clinical_oncology",
+    display_name="Clinical oncology drug audit",
+    description=(
+        "Audits an oncology drug for indication, mechanism, "
+        "efficacy, and safety across regulatory approvals."
+    ),
+    scope_summary=(
+        "IN SCOPE: questions about a specific oncology drug or "
+        "regimen for a specific cancer type with published trial "
+        "data. Examples: pembrolizumab for non-small cell lung "
+        "cancer; CAR-T efficacy in DLBCL; trastuzumab safety in "
+        "HER2+ breast cancer.\n\n"
+        "OUT OF SCOPE: non-oncology drugs; precision-medicine "
+        "questions about specific patient cases; investigational "
+        "compounds without published Phase 2+ data."
+    ),
+    drug_keywords=(
+        # Specific oncology drugs.
+        "pembrolizumab", "nivolumab", "atezolizumab", "durvalumab",
+        "ipilimumab",
+        "trastuzumab", "pertuzumab",
+        "rituximab", "obinutuzumab",
+        "bevacizumab", "ramucirumab",
+        "cetuximab", "panitumumab",
+        "imatinib", "dasatinib", "nilotinib",
+        "erlotinib", "gefitinib", "osimertinib",
+        "sorafenib", "sunitinib",
+        "olaparib", "rucaparib",
+        "venetoclax",
+        # Drug classes (narrow oncology).
+        "checkpoint inhibitor", "checkpoint inhibitors",
+        "pd-1 inhibitor", "pd-l1 inhibitor",
+        "car-t", "car t cell", "tyrosine kinase inhibitor",
+        "tki", "parp inhibitor", "antibody-drug conjugate",
+    ),
+    medical_keywords=(
+        # Trial methodology
+        "randomized", "double-blind", "placebo-controlled",
+        "phase 1", "phase 2", "phase 3", "phase 4",
+        "primary endpoint", "secondary endpoint",
+        "meta-analysis", "systematic review", "trial", "trials",
+        # Regulatory
+        "fda", "ema", "mhra", "regulatory", "approval",
+        # Outcomes
+        "efficacy", "safety", "overall survival",
+        "progression-free survival", "response rate",
+        "adverse event", "adverse events",
+        "objective response", "complete response",
+        "partial response",
+        "grade 3", "grade 4",
+        # Cancer types
+        "non-small cell lung cancer", "nsclc", "small cell lung cancer",
+        "sclc", "lung cancer",
+        "breast cancer", "her2+", "her2-positive",
+        "triple-negative", "metastatic",
+        "colorectal cancer", "crc",
+        "melanoma", "lymphoma", "dlbcl", "follicular lymphoma",
+        "leukemia", "aml", "cll", "cml", "all",
+        "myeloid", "lymphoid", "lymphoblastic", "myelogenous",
+        "chronic myeloid", "chronic lymphocytic",
+        "acute myeloid", "acute lymphoblastic",
+        "multiple myeloma",
+        "ovarian cancer", "prostate cancer", "pancreatic cancer",
+        "renal cell carcinoma", "rcc",
+        "hepatocellular carcinoma", "hcc",
+        # Codex M-20 self-route gap fix: words appearing in
+        # exemplars that need to be recognized.
+        "relapsed", "refractory", "advanced",
+        "front-line", "front", "line",
+        "long-term", "high-risk", "low-risk",
+        "brca", "brca-mutated", "mutation", "mutations",
+        "wild-type", "subgroup", "subgroups",
+        "rate", "rates", "remission", "recurrence",
+        "survival",
+        # General response/outcome vocabulary (shared with the
+        # generic clinical template; oncology exemplars use
+        # "overall response", "response rate", etc.).
+        "overall", "response", "responses",
+        "responder", "responders",
+        "outcome", "outcomes", "result", "results",
+        "endpoint", "endpoints",
+        "ratio", "ratios",
+        "profile", "profiles",
+        # Population
+        "patient", "patients", "subject", "subjects",
+        "participant", "participants",
+        "adult", "adults",
+        # Domain
+        "tumor", "tumors", "malignancy", "metastasis",
+        "chemotherapy", "immunotherapy",
+        "targeted therapy", "combination therapy",
+        "first-line", "second-line", "maintenance",
+        "neoadjuvant", "adjuvant",
+        # General medical
+        "drug", "drugs", "treatment", "treatments",
+        "therapy", "therapies", "regimen", "regimens",
+        "study", "studies", "studied",
+        "outcome", "outcomes", "result", "results",
+    ),
+    scope_examples=(
+        "Pembrolizumab efficacy in metastatic non-small cell lung cancer",
+        "Trastuzumab safety in HER2-positive breast cancer",
+        "CAR-T overall response rate in relapsed DLBCL",
+        "Olaparib in BRCA-mutated ovarian cancer first-line maintenance",
+        "Imatinib long-term outcomes in chronic myeloid leukemia",
+        "Nivolumab adverse event rates in advanced melanoma",
+        "Bevacizumab progression-free survival in metastatic colorectal cancer",
+        "Rituximab efficacy in follicular lymphoma front-line therapy",
+    ),
+)
+
+
+_V30_CLINICAL_CARDIO = CuratedTemplate(
+    template_id="v30_clinical_cardio",
+    display_name="Clinical cardiovascular drug audit",
+    description=(
+        "Audits a cardiovascular drug for indication, mechanism, "
+        "efficacy, and safety across approvals and major outcome "
+        "trials."
+    ),
+    scope_summary=(
+        "IN SCOPE: questions about a specific cardiovascular drug "
+        "(antihypertensive, anticoagulant, lipid-lowering, "
+        "antiarrhythmic, heart-failure) with published outcome "
+        "trial data. Examples: apixaban for atrial fibrillation; "
+        "atorvastatin for ASCVD prevention; sacubitril/valsartan "
+        "in HFrEF.\n\n"
+        "OUT OF SCOPE: non-cardiovascular drugs; surgical or "
+        "device interventions; lifestyle-modification questions."
+    ),
+    drug_keywords=(
+        # Anticoagulants.
+        "warfarin", "apixaban", "rivaroxaban", "dabigatran",
+        "edoxaban", "heparin",
+        # Antiplatelets.
+        "aspirin", "clopidogrel", "ticagrelor", "prasugrel",
+        # Antihypertensives.
+        "lisinopril", "enalapril", "ramipril",
+        "losartan", "valsartan", "olmesartan",
+        "amlodipine", "nifedipine",
+        "metoprolol", "carvedilol", "bisoprolol",
+        "furosemide", "spironolactone",
+        # Lipid-lowering.
+        "atorvastatin", "rosuvastatin", "simvastatin",
+        "ezetimibe",
+        "alirocumab", "evolocumab",
+        # Heart-failure.
+        "sacubitril", "sacubitril/valsartan", "ivabradine",
+        # Antiarrhythmic.
+        "amiodarone", "flecainide", "sotalol",
+        # Drug classes.
+        "ace inhibitor", "ace inhibitors",
+        "arb", "arbs", "angiotensin receptor blocker",
+        "beta blocker", "beta blockers",
+        "calcium channel blocker",
+        "statin", "statins",
+        "doac", "noac", "direct oral anticoagulant",
+        "p2y12 inhibitor", "p2y12 inhibitors",
+        "pcsk9 inhibitor", "pcsk9 inhibitors",
+        "arni",
+    ),
+    medical_keywords=(
+        # Methodology
+        "randomized", "double-blind", "placebo-controlled",
+        "phase 1", "phase 2", "phase 3", "phase 4",
+        "outcome trial", "outcome trials",
+        "primary endpoint", "secondary endpoint", "meta-analysis",
+        "trial", "trials", "study", "studies",
+        # Regulatory
+        "fda", "ema", "mhra", "regulatory", "approval",
+        # Conditions
+        "atrial fibrillation", "afib",
+        "heart failure", "hfpef", "hfref",
+        "hypertension", "hypertensive",
+        "myocardial infarction", "heart attack",
+        "stroke", "ischemic stroke",
+        "ascvd", "atherosclerosis",
+        "cardiovascular disease", "cvd",
+        "ischemic heart disease", "coronary artery disease",
+        "cad", "stable angina", "unstable angina",
+        "acute coronary syndrome", "acs",
+        "venous thromboembolism", "vte",
+        "deep vein thrombosis", "dvt",
+        "pulmonary embolism", "pe",
+        "hyperlipidemia", "hypercholesterolemia",
+        "dyslipidemia",
+        # Outcomes
+        "ldl", "hdl", "blood pressure", "ejection fraction",
+        "lvef", "nyha class",
+        "stroke prevention", "bleeding", "major bleeding",
+        "all-cause mortality", "cardiovascular mortality",
+        "mace", "major adverse cardiovascular events",
+        "hospitalization",
+        # Codex M-20 self-route gap fix: words appearing in
+        # cardio exemplars that need to be recognized.
+        "major", "adverse", "events", "reduction",
+        "outcome", "outcomes", "result", "results",
+        "rate", "rates", "ratio", "ratios", "risk",
+        "long-term", "short-term",
+        "after", "post", "primary", "secondary",
+        "chronic", "acute",
+        "response", "responses",
+        "endpoint", "endpoints",
+        "profile", "profiles",
+        "in adults", "adult", "adults",
+        "advanced", "stable", "unstable",
+        "reduced", "preserved", "mildly reduced",
+        "cardiovascular", "cardiac", "vascular",
+        # Population
+        "patient", "patients", "subject", "subjects",
+        "adult", "adults", "elderly",
+        # General medical
+        "drug", "drugs", "treatment", "treatments",
+        "therapy", "therapies",
+        "primary prevention", "secondary prevention",
+        "efficacy", "safety", "tolerability",
+        "adverse event", "adverse events",
+        "outcome", "outcomes",
+    ),
+    scope_examples=(
+        "Apixaban efficacy for stroke prevention in atrial fibrillation",
+        "Atorvastatin major-adverse-cardiovascular-events reduction in ASCVD",
+        "Sacubitril/valsartan all-cause mortality in heart failure with reduced ejection fraction",
+        "Rivaroxaban bleeding risk in venous thromboembolism",
+        "Ticagrelor outcomes after acute coronary syndrome",
+        "Evolocumab LDL reduction and cardiovascular outcomes",
+        "Spironolactone in chronic heart failure HFpEF outcomes",
+        "Amiodarone safety profile in chronic atrial fibrillation",
+    ),
+)
+
+
 TEMPLATE_CATALOG: tuple[CuratedTemplate, ...] = (
     _V30_CLINICAL,
+    _V30_CLINICAL_ONCOLOGY,
+    _V30_CLINICAL_CARDIO,
 )
 
 
