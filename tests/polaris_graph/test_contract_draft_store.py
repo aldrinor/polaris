@@ -2504,3 +2504,177 @@ def test_v12_redecide_via_decide_clause_works(
     transitions = [(r["from_state"], r["to_state"]) for r in decision_rows]
     assert ("pending", "approved") in transitions
     assert ("approved", "rejected") in transitions
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v13: draft status changes are auto-logged (symmetric to v12)
+# ---------------------------------------------------------------------------
+
+
+def test_v13_direct_sql_draft_status_update_auto_logs(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v12 finding: 'direct-SQL draft status transitions
+    still bypass contract_decision_log.' Direct SQL UPDATE flipping
+    awaiting_approval→approved with valid CHECK fields landed an
+    APPROVED draft with no log row for the transition. v13 adds an
+    AFTER UPDATE trigger that auto-writes the log row whenever
+    status changes."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Approve the clause first so the trigger's all-clauses-approved
+    # check passes.
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # Now the v12 attack: direct SQL flips status to approved with
+    # canonical CHECK fields. The state-transition trigger passes
+    # (all-clauses-approved + non-self approver). The auto-log
+    # trigger should still write a log row.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        conn.execute(
+            "UPDATE contract_drafts SET status = 'approved', "
+            "approved_by = 'bob', decision_rationale = 'forged', "
+            "decided_at = 1.0, updated_at = 1.0 "
+            "WHERE draft_id = ?",
+            (d.draft_id,),
+        )
+    # Audit log now has the awaiting_approval→approved transition.
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    awaiting_to_approved = [
+        r for r in log
+        if r["clause_id"] is None
+        and r["from_state"] == "awaiting_approval"
+        and r["to_state"] == "approved"
+    ]
+    assert len(awaiting_to_approved) == 1
+    assert awaiting_to_approved[0]["actor_user_id"] == "bob"
+    assert awaiting_to_approved[0]["rationale"] == "forged"
+
+
+def test_v13_legitimate_perform_submit_logs_exactly_once(
+    store: ContractDraftStore,
+) -> None:
+    """v13 moved log-writing for status transitions from
+    `_perform_submit` to a SQL trigger. Confirm exactly ONE log
+    row per submit (not zero, not duplicated)."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    submit_rows = [
+        r for r in log
+        if r["clause_id"] is None
+        and r["from_state"] == "draft"
+        and r["to_state"] == "awaiting_approval"
+    ]
+    assert len(submit_rows) == 1
+    assert submit_rows[0]["actor_user_id"] == "usr_alice"
+
+
+def test_v13_legitimate_perform_approve_logs_exactly_once(
+    store: ContractDraftStore,
+) -> None:
+    """Same regression check for `_perform_approve` after v13."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    approve_rows = [
+        r for r in log
+        if r["clause_id"] is None
+        and r["from_state"] == "awaiting_approval"
+        and r["to_state"] == "approved"
+    ]
+    assert len(approve_rows) == 1
+    assert approve_rows[0]["actor_user_id"] == "bob"
+    assert approve_rows[0]["rationale"] == "reviewed"
+
+
+def test_v13_legitimate_perform_reject_logs_exactly_once(
+    store: ContractDraftStore,
+) -> None:
+    """Same regression check for `_perform_reject` after v13."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    reject_rows = [
+        r for r in log
+        if r["clause_id"] is None
+        and r["from_state"] == "awaiting_approval"
+        and r["to_state"] == "rejected"
+    ]
+    assert len(reject_rows) == 1
+    assert reject_rows[0]["actor_user_id"] == "bob"
+    assert reject_rows[0]["rationale"] == "not a fit"
+
+
+def test_v13_full_lifecycle_log_intact(
+    store: ContractDraftStore,
+) -> None:
+    """End-to-end after v13: the complete lifecycle still produces
+    the expected sequence of log rows. Same assertion as the
+    legacy test_decision_log_records_lifecycle, just verifying
+    nothing regressed when manual INSERTs were replaced by
+    triggers."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    log = store.list_decision_log(
+        draft_id=d.draft_id, org_id="org_a",
+    )
+    transitions = [(r["from_state"], r["to_state"]) for r in log]
+    assert (None, "draft") in transitions  # create_draft (kept)
+    assert ("draft", "awaiting_approval") in transitions  # auto-log
+    assert ("pending", "approved") in transitions  # auto-log (v12)
+    assert ("awaiting_approval", "approved") in transitions  # auto (v13)

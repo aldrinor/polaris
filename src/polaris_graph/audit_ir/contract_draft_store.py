@@ -644,6 +644,49 @@ WHEN OLD.decision = NEW.decision
 BEGIN
     SELECT RAISE(ABORT, 'cannot mutate clause decision metadata without a decision change — re-decide via decide_clause to retag attribution');
 END;
+
+-- Codex M-26 v13 review fix: symmetric to v12's clause auto-log.
+-- v12 closed the audit-trail gap on contract_clauses but left
+-- contract_drafts unprotected — direct SQL UPDATE flipping
+-- draft status (from awaiting_approval to approved with valid
+-- CHECK fields + non-self approver) bypassed `_perform_*`
+-- helpers and left no contract_decision_log row for the
+-- transition. v13 auto-logs all status transitions on drafts.
+--
+-- The legitimate `_perform_submit` / `_perform_approve` /
+-- `_perform_reject` helpers drop their manual log INSERT (the
+-- trigger is now the single source of truth for status-change
+-- log rows). create_draft's "created" log entry is independent
+-- (an INSERT, not an UPDATE) and stays.
+--
+-- Actor selection logic mirrors the legitimate flow:
+--   awaiting_approval target  -> submitter_user_id
+--   approved target           -> approved_by (set in same UPDATE)
+--   rejected target           -> rejected_by (set in same UPDATE)
+CREATE TRIGGER IF NOT EXISTS trg_log_draft_status_change
+AFTER UPDATE OF status ON contract_drafts
+FOR EACH ROW
+WHEN OLD.status != NEW.status
+BEGIN
+    INSERT INTO contract_decision_log (
+        draft_id, clause_id, actor_user_id,
+        from_state, to_state, rationale, created_at
+    ) VALUES (
+        NEW.draft_id, NULL,
+        CASE
+            WHEN NEW.status = 'awaiting_approval'
+                THEN NEW.submitter_user_id
+            WHEN NEW.status = 'approved'
+                THEN NEW.approved_by
+            WHEN NEW.status = 'rejected'
+                THEN NEW.rejected_by
+            ELSE NEW.submitter_user_id
+        END,
+        OLD.status, NEW.status,
+        NEW.decision_rationale,
+        NEW.updated_at
+    );
+END;
 """
 
 
@@ -1055,24 +1098,15 @@ class ContractDraftStore:
                         f"cannot submit an empty contract for "
                         f"approval"
                     )
+                # Codex M-26 v13: trg_log_draft_status_change
+                # auto-logs the draft→awaiting_approval transition.
+                # Manual INSERT removed to avoid duplicates.
                 conn.execute(
                     "UPDATE contract_drafts SET status = ?, "
                     "updated_at = ? WHERE draft_id = ?",
                     (
                         ContractDraftStatus.AWAITING_APPROVAL.value,
                         now, draft_id,
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO contract_decision_log (draft_id, "
-                    "clause_id, actor_user_id, from_state, to_state, "
-                    "rationale, created_at) VALUES "
-                    "(?, NULL, ?, ?, ?, ?, ?)",
-                    (
-                        draft_id, submitter_user_id.strip(),
-                        ContractDraftStatus.DRAFT.value,
-                        ContractDraftStatus.AWAITING_APPROVAL.value,
-                        "submitted", now,
                     ),
                 )
                 conn.execute("COMMIT")
@@ -1193,6 +1227,9 @@ class ContractDraftStore:
                         "is REJECTED; remove or replace it before "
                         "approving"
                     )
+                # Codex M-26 v13: trg_log_draft_status_change
+                # auto-logs the awaiting_approval→approved
+                # transition. Manual INSERT removed.
                 conn.execute(
                     "UPDATE contract_drafts SET "
                     "status = ?, updated_at = ?, decided_at = ?, "
@@ -1203,18 +1240,6 @@ class ContractDraftStore:
                         ContractDraftStatus.APPROVED.value,
                         now, now, rationale,
                         approver_user_id.strip(), draft_id,
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO contract_decision_log (draft_id, "
-                    "clause_id, actor_user_id, from_state, to_state, "
-                    "rationale, created_at) VALUES "
-                    "(?, NULL, ?, ?, ?, ?, ?)",
-                    (
-                        draft_id, approver_user_id.strip(),
-                        ContractDraftStatus.AWAITING_APPROVAL.value,
-                        ContractDraftStatus.APPROVED.value,
-                        rationale, now,
                     ),
                 )
                 conn.execute("COMMIT")
@@ -1286,6 +1311,9 @@ class ContractDraftStore:
                         f"{current.value!r}; reject_draft requires "
                         f"AWAITING_APPROVAL state"
                     )
+                # Codex M-26 v13: trg_log_draft_status_change
+                # auto-logs the awaiting_approval→rejected
+                # transition. Manual INSERT removed.
                 conn.execute(
                     "UPDATE contract_drafts SET "
                     "status = ?, updated_at = ?, decided_at = ?, "
@@ -1296,18 +1324,6 @@ class ContractDraftStore:
                         ContractDraftStatus.REJECTED.value,
                         now, now, rationale,
                         rejecter_user_id.strip(), draft_id,
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO contract_decision_log (draft_id, "
-                    "clause_id, actor_user_id, from_state, to_state, "
-                    "rationale, created_at) VALUES "
-                    "(?, NULL, ?, ?, ?, ?, ?)",
-                    (
-                        draft_id, rejecter_user_id.strip(),
-                        ContractDraftStatus.AWAITING_APPROVAL.value,
-                        ContractDraftStatus.REJECTED.value,
-                        rationale, now,
                     ),
                 )
                 conn.execute("COMMIT")
