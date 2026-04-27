@@ -509,7 +509,7 @@ _V30_CLINICAL_CARDIO = CuratedTemplate(
         # (drug named, exemplar shape unmatched) floor.
         "DOACs efficacy in atrial fibrillation",
         "Statins for primary prevention in adults",
-        "ARBs outcomes in hypertension",
+        "ARBs cardiovascular outcomes in chronic hypertension",
         "Calcium channel blockers efficacy in hypertension",
         "Beta blockers in heart failure",
         "PCSK9 inhibitors LDL reduction outcomes",
