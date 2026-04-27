@@ -122,6 +122,12 @@ class SurfaceBus:
         self._subscribers: dict[
             str, list[tuple[asyncio.Queue, asyncio.AbstractEventLoop]]
         ] = {}
+        # Codex M-13 v2 review fix: track jobs that have been
+        # pruned so a new subscriber arriving AFTER prune sees an
+        # immediate sentinel instead of hanging forever on an
+        # empty queue. Bounded best-effort — Phase C swaps to a
+        # DB-backed event log.
+        self._terminal_jobs: set[str] = set()
         # Mutex protects the dicts; producers may emit from worker
         # threads while subscribers run in the FastAPI event loop.
         self._lock = Lock()
@@ -159,18 +165,25 @@ class SurfaceBus:
         # subscriber's queue belongs to its event loop, so we
         # schedule the put via call_soon_threadsafe.
         for q, loop in subs:
-            self._dispatch_to_subscriber(q, loop, event)
+            self._dispatch_to_subscriber(q, loop, event, job_id=job_id)
         return event
 
-    @staticmethod
     def _dispatch_to_subscriber(
+        self,
         q: asyncio.Queue,
         loop: asyncio.AbstractEventLoop,
         event: "SurfaceEvent | None",
+        job_id: str | None = None,
     ) -> None:
         """Schedule a put onto the subscriber's queue from the
         producer thread. Drops oldest on overflow so the freshest
-        event always lands."""
+        event always lands.
+
+        Codex M-13 v2 review fix: if the subscriber's loop is
+        closed, sweep the dead (queue, loop) registration so it
+        doesn't leak forever. Without this, abandoned subscribers
+        whose loops died before `unsubscribe()` accumulated.
+        """
         def _put() -> None:
             try:
                 q.put_nowait(event)
@@ -184,7 +197,9 @@ class SurfaceBus:
             loop.call_soon_threadsafe(_put)
         except RuntimeError:
             # Loop is already closed — subscriber went away.
-            pass
+            # Sweep the dead registration if we know the job_id.
+            if job_id is not None:
+                self.unsubscribe(job_id, q)
 
     # ------------------------------------------------------------------
     # Consumer side
@@ -202,12 +217,47 @@ class SurfaceBus:
     def subscribe(self, job_id: str) -> asyncio.Queue:
         """Create a new subscription queue for SSE. Must be called
         from inside an asyncio event loop (FastAPI handler).
-        Caller MUST unsubscribe on disconnect to free memory."""
+        Caller MUST unsubscribe on disconnect to free memory.
+
+        Note: callers that also want the snapshot for replay
+        should use `subscribe_with_snapshot()` to get both
+        atomically. Calling subscribe() then latest_snapshot()
+        non-atomically can produce duplicates when an event lands
+        between the two calls."""
         q: asyncio.Queue = asyncio.Queue(maxsize=self._queue_size)
         loop = asyncio.get_running_loop()
         with self._lock:
             self._subscribers.setdefault(job_id, []).append((q, loop))
         return q
+
+    def subscribe_with_snapshot(
+        self, job_id: str
+    ) -> tuple[asyncio.Queue, list[SurfaceEvent], bool]:
+        """Codex M-13 v2 review fix: atomic subscribe + snapshot
+        capture. Returns (queue, snapshot_events, is_terminal).
+
+        Without this, a client that called subscribe() then
+        latest_snapshot() non-atomically could see an event in
+        BOTH the snapshot and the live queue (duplicate delivery).
+        The lock here ensures no event lands between the snapshot
+        read and the subscribe registration.
+
+        is_terminal=True signals to the caller that the job has
+        been pruned (worker already finished); the SSE stream
+        should replay the (possibly empty) snapshot and emit
+        `event: end` immediately rather than waiting on a queue
+        that will never receive a sentinel.
+        """
+        q: asyncio.Queue = asyncio.Queue(maxsize=self._queue_size)
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            terminal = job_id in self._terminal_jobs
+            snap = self._snapshots.get(job_id, {})
+            events = list(snap.values())
+            if not terminal:
+                self._subscribers.setdefault(job_id, []).append((q, loop))
+        events.sort(key=lambda e: e.emitted_at)
+        return q, events, terminal
 
     def unsubscribe(self, job_id: str, q: asyncio.Queue) -> None:
         """Remove a subscriber queue. Idempotent."""
@@ -234,14 +284,27 @@ class SurfaceBus:
         with self._lock:
             self._snapshots.pop(job_id, None)
             subs = self._subscribers.pop(job_id, [])
+            # Codex M-13 v2 review fix: mark this job_id as
+            # terminal so a NEW subscriber arriving after the
+            # prune sees an immediate sentinel instead of waiting
+            # forever on an empty queue.
+            self._terminal_jobs.add(job_id)
         for q, loop in subs:
-            self._dispatch_to_subscriber(q, loop, None)
+            self._dispatch_to_subscriber(q, loop, None, job_id=job_id)
+
+    def is_terminal(self, job_id: str) -> bool:
+        """Codex M-13 v2 review fix: SSE stream uses this to
+        short-circuit when a client subscribes AFTER the worker
+        already pruned the job_id."""
+        with self._lock:
+            return job_id in self._terminal_jobs
 
     def clear_for_tests(self) -> None:
         """Reset all state. Tests use this to isolate fixtures."""
         with self._lock:
             self._snapshots.clear()
             self._subscribers.clear()
+            self._terminal_jobs.clear()
 
 
 # Module-level singleton.

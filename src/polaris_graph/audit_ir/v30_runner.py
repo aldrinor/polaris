@@ -63,7 +63,13 @@ logger = logging.getLogger(__name__)
 # Map each V30 phase to whichever surface it represents. Phases
 # that don't represent a user-visible milestone map to None.
 _PHASE_TO_SURFACE: dict[str, SurfaceKind | None] = {
-    "scope": SurfaceKind.PREFLIGHT,
+    # Codex M-13 v2 review fix: do NOT remap "scope" to PREFLIGHT.
+    # The runner emits PREFLIGHT explicitly at t=0 with stable
+    # estimate fields (estimated_minutes, cost_cap_usd). If "scope"
+    # later overwrote that snapshot, late SSE replayers would lose
+    # the estimate. "scope" is a no-op for surface emission; the
+    # progress bar still moves via control.checkpoint.
+    "scope": None,
     "retrieval": SurfaceKind.TIER_MIX,
     "corpus": SurfaceKind.TIER_MIX,
     "adequacy": SurfaceKind.FRAME_COVERAGE,

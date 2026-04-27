@@ -130,6 +130,86 @@ def test_sse_stream_replays_snapshot_then_terminates_on_prune(
     assert "event: end" in body
 
 
+def test_sse_stream_after_prune_terminates_immediately(client_and_queue) -> None:
+    """Codex M-13 v2 review regression: if the worker has already
+    pruned the job_id, a new SSE subscriber must NOT hang on an
+    empty queue. The stream should replay the (possibly empty)
+    snapshot then emit `event: end` immediately.
+    """
+    client, queue = client_and_queue
+    job = queue.enqueue("mock", {})
+    bus = get_surface_bus()
+    bus.emit(job.job_id, SurfaceKind.PREFLIGHT, {"slug": "demo"})
+    # Worker prunes BEFORE any subscriber attaches.
+    bus.prune(job.job_id)
+
+    # The request must complete in well under a second.
+    import time
+    started = time.time()
+    with client.stream(
+        "GET", f"/api/inspector/jobs/{job.job_id}/stream"
+    ) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode("utf-8")
+    elapsed = time.time() - started
+    assert elapsed < 2.0, f"stream hung for {elapsed:.2f}s after prune"
+    assert "event: end" in body
+    # Post-prune snapshot is empty (prune cleared it), so no
+    # data lines should appear.
+    data_lines = [
+        line for line in body.split("\n") if line.startswith("data: ")
+    ]
+    # The only `data:` should be the empty payload accompanying
+    # `event: end`. Any pre-prune surface has been cleared.
+    for line in data_lines:
+        payload = json.loads(line[len("data: "):])
+        assert payload == {} or payload.get("kind") is None, (
+            f"unexpected data payload after prune: {payload}"
+        )
+
+
+def test_sse_stream_no_duplicate_events_in_subscribe_snapshot_race(
+    client_and_queue,
+) -> None:
+    """Codex M-13 v2 review regression: subscribe_with_snapshot()
+    must capture snapshot atomically with subscriber registration
+    so events emitted between the two don't appear twice."""
+    client, queue = client_and_queue
+    job = queue.enqueue("mock", {})
+    bus = get_surface_bus()
+    # Pre-existing snapshot.
+    bus.emit(job.job_id, SurfaceKind.PREFLIGHT, {"slug": "demo"})
+
+    # Schedule a new emission to land mid-request, then prune.
+    import threading
+
+    def emit_then_prune():
+        # Small delay so the request is past subscribe but still
+        # waiting on the queue.
+        bus.emit(job.job_id, SurfaceKind.TIER_MIX, {"t1": 5})
+        bus.prune(job.job_id)
+
+    threading.Timer(0.1, emit_then_prune).start()
+
+    with client.stream(
+        "GET", f"/api/inspector/jobs/{job.job_id}/stream"
+    ) as resp:
+        body = b"".join(resp.iter_bytes()).decode("utf-8")
+
+    data_lines = [
+        line for line in body.split("\n") if line.startswith("data: ")
+    ]
+    payloads = [json.loads(line[len("data: "):]) for line in data_lines]
+    # Each kind must appear exactly once.
+    kinds_count: dict[str, int] = {}
+    for p in payloads:
+        k = p.get("kind")
+        if k:
+            kinds_count[k] = kinds_count.get(k, 0) + 1
+    for k, count in kinds_count.items():
+        assert count == 1, f"surface kind {k!r} delivered {count}× (expected 1)"
+
+
 def test_sse_stream_emits_subsequent_events(client_and_queue) -> None:
     """Subscribe-then-emit: events that land AFTER subscribe should
     flow to the SSE consumer."""

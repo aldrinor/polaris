@@ -247,3 +247,80 @@ def test_all_seven_canonical_surface_kinds_exist() -> None:
     }
     actual = {k.value for k in SurfaceKind}
     assert actual == expected
+
+
+# ---------------------------------------------------------------------------
+# Codex M-13 v2 regression: subscribe_with_snapshot + is_terminal
+# ---------------------------------------------------------------------------
+
+
+def test_subscribe_with_snapshot_is_atomic(bus: SurfaceBus) -> None:
+    """Codex M-13 v2 review regression: snapshot capture and
+    subscriber registration must happen atomically so events
+    emitted in between aren't delivered twice (once via snapshot,
+    once via the live queue)."""
+    async def go() -> tuple[list, list]:
+        bus.emit("j", SurfaceKind.PREFLIGHT, {"a": 1})
+        bus.emit("j", SurfaceKind.TIER_MIX, {"b": 2})
+        q, snap, terminal = bus.subscribe_with_snapshot("j")
+        assert terminal is False
+        # Now emit a NEW event that should land in the queue only.
+        bus.emit("j", SurfaceKind.FRAME_COVERAGE, {"c": 3})
+        live: list = []
+        try:
+            while True:
+                e = await asyncio.wait_for(q.get(), timeout=0.05)
+                live.append(e.kind.value)
+        except asyncio.TimeoutError:
+            pass
+        bus.unsubscribe("j", q)
+        return [e.kind.value for e in snap], live
+
+    snap_kinds, live_kinds = asyncio.run(go())
+    assert "preflight" in snap_kinds
+    assert "tier_mix" in snap_kinds
+    # FRAME_COVERAGE must appear exactly once — only in live, not snapshot.
+    assert "frame_coverage" not in snap_kinds
+    assert live_kinds == ["frame_coverage"]
+
+
+def test_subscribe_after_prune_returns_terminal_flag(bus: SurfaceBus) -> None:
+    """Codex M-13 v2 review regression: a client subscribing AFTER
+    the worker pruned the job_id must see is_terminal=True so the
+    SSE handler can short-circuit instead of hanging on an empty
+    queue."""
+    async def go() -> bool:
+        bus.emit("j", SurfaceKind.PREFLIGHT, {"x": 1})
+        bus.prune("j")
+        q, snap, terminal = bus.subscribe_with_snapshot("j")
+        bus.unsubscribe("j", q)
+        return terminal
+
+    assert asyncio.run(go()) is True
+
+
+def test_is_terminal_returns_true_after_prune(bus: SurfaceBus) -> None:
+    bus.emit("j", SurfaceKind.PREFLIGHT, {})
+    assert bus.is_terminal("j") is False
+    bus.prune("j")
+    assert bus.is_terminal("j") is True
+
+
+def test_is_terminal_false_for_unknown_job(bus: SurfaceBus) -> None:
+    assert bus.is_terminal("never_seen") is False
+
+
+def test_subscribe_with_snapshot_when_terminal_does_not_register(bus: SurfaceBus) -> None:
+    """If the job is already terminal, subscribe_with_snapshot
+    must NOT register the new queue — there's no producer left
+    to send a sentinel, so registration would leak the queue."""
+    async def go() -> int:
+        bus.prune("j")
+        q, snap, terminal = bus.subscribe_with_snapshot("j")
+        # Internal check: subscriber list for "j" is empty.
+        with bus._lock:
+            count = len(bus._subscribers.get("j", []))
+        bus.unsubscribe("j", q)
+        return count
+
+    assert asyncio.run(go()) == 0

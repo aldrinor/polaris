@@ -586,12 +586,20 @@ async def stream_job_surfaces(job_id: str) -> StreamingResponse:
     bus = get_surface_bus()
 
     async def _event_stream():
-        # Subscribe FIRST so events emitted between the snapshot
-        # read and the queue creation aren't lost.
-        sub_q = bus.subscribe(job_id)
+        # Codex M-13 v2 review fix: atomic subscribe + snapshot
+        # capture so events emitted between subscribe and
+        # snapshot-read aren't double-delivered. Also returns
+        # is_terminal=True if the worker already pruned the
+        # job_id; in that case there will never be a sentinel
+        # so we replay the snapshot and emit `event: end`
+        # immediately rather than hanging on the empty queue.
+        sub_q, snapshot, terminal = bus.subscribe_with_snapshot(job_id)
         try:
-            for event in bus.latest_snapshot(job_id):
+            for event in snapshot:
                 yield f"data: {_json.dumps(event.to_dict())}\n\n"
+            if terminal:
+                yield "event: end\ndata: {}\n\n"
+                return
             while True:
                 event = await sub_q.get()
                 if event is None:
