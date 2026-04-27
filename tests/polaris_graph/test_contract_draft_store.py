@@ -1073,31 +1073,170 @@ def test_direct_perform_reject_writes_canonical_metadata(
 
 
 # ---------------------------------------------------------------------------
-# DB CHECK constraint enforcement (Codex v6 second line of defense)
+# Codex M-26 v6 review: rationale validation must catch content-empty
+# input (zero-width spaces, Cf chars), not just whitespace.
 # ---------------------------------------------------------------------------
+
+
+def test_perform_approve_rejects_zero_width_space_rationale(
+    store: ContractDraftStore,
+) -> None:
+    """Codex M-26 v6: `_perform_approve` re-validated rationale
+    with `.strip()`, which only strips whitespace. A rationale of
+    "​" (zero-width space) was content-empty but passed
+    `not rationale.strip()` because `.strip()` doesn't strip Cf
+    characters. v7 routes through `_sanitize_notes`, which does."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_approve(
+            draft_id=d.draft_id, org_id="org_a",
+            approver_user_id="bob",
+            rationale="​",  # zero-width space — content-empty
+        )
+
+
+def test_perform_reject_rejects_zero_width_space_rationale(
+    store: ContractDraftStore,
+) -> None:
+    """Symmetric: `_perform_reject` rejection rationale must also
+    use `_sanitize_notes`, not `.strip()`."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_reject(
+            draft_id=d.draft_id, org_id="org_a",
+            rejecter_user_id="bob",
+            rationale="​‌‍",  # all Cf chars
+        )
+
+
+def test_perform_approve_rejects_unicode_format_only_rationale(
+    store: ContractDraftStore,
+) -> None:
+    """Mixed Cf and whitespace must also be caught."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store._perform_submit(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    with pytest.raises(ContractDraftStateError, match="rationale"):
+        store._perform_approve(
+            draft_id=d.draft_id, org_id="org_a",
+            approver_user_id="bob",
+            rationale=" ​ \t\n",  # whitespace + zero-width space
+        )
+
+
+# ---------------------------------------------------------------------------
+# DB CHECK constraint enforcement (defense-in-depth)
+#
+# Each test sets up state where the SQL trigger PASSES so the CHECK
+# constraint can fire on its specific invariant. (Triggers run before
+# CHECK in SQLite; if both would catch a bypass, the trigger fires
+# first with a different error message.)
+# ---------------------------------------------------------------------------
+
+
+def _approve_all_clauses(store, draft, *, org_id="org_a", approver="bob"):
+    """Helper: approve every clause on a draft so the all-clauses-
+    approved trigger gate is satisfied."""
+    for c in store.list_clauses(draft_id=draft.draft_id, org_id=org_id):
+        store.decide_clause(
+            clause_id=c.clause_id, org_id=org_id,
+            approver_user_id=approver,
+            decision=ClauseDecision.APPROVED, notes="ok",
+        )
 
 
 def test_db_check_blocks_approved_with_null_approver(
     store: ContractDraftStore,
     tmp_path: Path,
 ) -> None:
-    """LAW II SOC2 invariant encoded at DB level: if Python
-    helpers had a bug, an UPDATE that lands status='approved'
-    with approved_by=NULL fails at the SQL layer."""
-    d = _create_basic(store)
+    """LAW II SOC2 invariant: status='approved' with approved_by
+    NULL violates the CHECK pattern. We set up all-clauses-approved
+    state so the trigger gate passes and CHECK is the active layer."""
+    d = _create_basic(store, submitter="usr_alice")
     _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
-    # Direct SQL UPDATE attempting to violate the canonical
-    # APPROVED pattern (status='approved' with approved_by=NULL).
+    _approve_all_clauses(store, d, approver="bob")
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
         conn.execute("PRAGMA foreign_keys = ON")
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        # Trigger requires NEW.approved_by != NEW.submitter_user_id;
+        # we set approved_by='bob' (not 'usr_alice'). Trigger passes.
+        # CHECK fails because rationale + decided_at are NULL.
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "UPDATE contract_drafts SET status = 'approved' "
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob' "
                 "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_db_check_blocks_approved_with_empty_string_approver(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v6 finding: CHECK only enforced IS NOT NULL — empty
+    strings passed. v7 adds `length(approved_by) > 0`."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = '', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_db_check_blocks_approved_with_empty_rationale(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v6 finding: empty-string decision_rationale must fail."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob', decision_rationale = '', "
+                "decided_at = 0.0 WHERE draft_id = ?",
                 (d.draft_id,),
             )
 
@@ -1108,14 +1247,15 @@ def test_db_check_blocks_approved_with_rejected_by_set(
 ) -> None:
     """The CHECK enforces mutual exclusion: status='approved' with
     rejected_by NOT NULL is illegal."""
-    d = _create_basic(store)
+    d = _create_basic(store, submitter="usr_alice")
     _add_clause(store, d)
     store.submit_for_approval(
         draft_id=d.draft_id, org_id="org_a",
         submitter_user_id="usr_alice",
     )
+    _approve_all_clauses(store, d, approver="bob")
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "UPDATE contract_drafts SET status = 'approved', "
                 "approved_by = 'bob', rejected_by = 'bob', "
@@ -1129,7 +1269,9 @@ def test_db_check_blocks_rejected_with_null_rejecter(
     store: ContractDraftStore,
     tmp_path: Path,
 ) -> None:
-    """Symmetric invariant for REJECTED."""
+    """Symmetric invariant for REJECTED. Trigger passes for
+    AWAITING→REJECTED with no clause requirements; CHECK catches
+    NULL rejected_by."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
@@ -1137,10 +1279,31 @@ def test_db_check_blocks_rejected_with_null_rejecter(
         submitter_user_id="usr_alice",
     )
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "UPDATE contract_drafts SET status = 'rejected' "
                 "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_db_check_blocks_rejected_with_empty_rejecter(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v6 finding: empty-string rejected_by must fail."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'rejected', "
+                "rejected_by = '', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
                 (d.draft_id,),
             )
 
@@ -1150,12 +1313,8 @@ def test_db_check_blocks_draft_with_decision_metadata(
     tmp_path: Path,
 ) -> None:
     """A draft (not yet submitted) cannot carry decision metadata.
-    The Codex v5 bypass `_transition_draft(to_state=
-    AWAITING_APPROVAL, mark_decided=True, set_approver=True)`
-    is now blocked at TWO layers: the structural refactor (no
-    such parameter exists in v6 helpers) AND the DB CHECK
-    (status='awaiting_approval' with approved_by NOT NULL fails
-    at SQL)."""
+    UPDATE doesn't change status, so trigger doesn't fire — CHECK
+    is the active defense."""
     d = _create_basic(store)
     _add_clause(store, d)
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
@@ -1172,8 +1331,7 @@ def test_db_check_blocks_awaiting_with_decision_metadata(
     tmp_path: Path,
 ) -> None:
     """A submitted (AWAITING_APPROVAL) draft cannot carry decision
-    metadata until it transitions to APPROVED or REJECTED. This is
-    the exact v5 bypass closed at the DB layer."""
+    metadata. The exact v5 bypass closed at SQL layer."""
     d = _create_basic(store)
     _add_clause(store, d)
     store.submit_for_approval(
@@ -1194,13 +1352,259 @@ def test_db_check_blocks_invalid_status_value(
     store: ContractDraftStore,
     tmp_path: Path,
 ) -> None:
-    """The CHECK enumerates the four legal status values; any
-    other status value fails."""
+    """Any non-enum status value is rejected — by trigger
+    ("illegal status value") or CHECK (no matching pattern)."""
     d = _create_basic(store)
     with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "UPDATE contract_drafts SET status = 'cancelled' "
                 "WHERE draft_id = ?",
                 (d.draft_id,),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v7: SQL TRIGGERs encode cross-row invariants
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_blocks_approved_with_pending_clauses(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex M-26 v6 finding: 'direct SQL can write canonical
+    APPROVED metadata onto a draft whose clause rows are still
+    PENDING; assert_approved_for_send then passes on an unreviewed
+    draft.' v7 adds a SQL trigger validating all-clauses-approved
+    before status='approved'."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    # Don't approve any clauses — they're still PENDING.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="not approved"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+    # Crucially: assert_approved_for_send still refuses (the row
+    # never landed in APPROVED state).
+    with pytest.raises(ContractApprovalGateError):
+        store.assert_approved_for_send(
+            draft_id=d.draft_id, org_id="org_a",
+        )
+
+
+def test_trigger_blocks_approved_with_rejected_clauses(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Cannot approve a draft with any REJECTED clause."""
+    d = _create_basic(store, submitter="usr_alice")
+    c1 = _add_clause(store, d, title="Good")
+    c2 = _add_clause(store, d, title="Bad")
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c1.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    store.decide_clause(
+        clause_id=c2.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.REJECTED, notes="violates policy",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="not approved"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_skip_to_approved_from_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """State-machine invariant at SQL layer: DRAFT → APPROVED is
+    illegal (must go through AWAITING_APPROVAL)."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="awaiting_approval"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'bob', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_revert_awaiting_to_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """No transition into 'draft' is legal — terminal-state revival
+    (and rewinding submitted) is blocked at SQL."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'draft' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_revive_terminal_to_awaiting(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """REJECTED is terminal: cannot revert to AWAITING_APPROVAL."""
+    d = _create_basic(store)
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.reject_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        rejecter_user_id="bob", rationale="not a fit",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="awaiting_approval"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'awaiting_approval', "
+                "approved_by = NULL, rejected_by = NULL, "
+                "decision_rationale = NULL, decided_at = NULL "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_self_approval_via_sql(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """SOD encoded at SQL layer: NEW.approved_by must not equal
+    NEW.submitter_user_id."""
+    d = _create_basic(store, submitter="usr_alice")
+    _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="usr_alice")
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="separation of duties"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'approved', "
+                "approved_by = 'usr_alice', decision_rationale = 'r', "
+                "decided_at = 0.0 WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_submit_empty_draft_via_sql(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Cannot transition to AWAITING_APPROVAL with zero clauses."""
+    d = _create_basic(store)
+    # No clauses added.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="empty draft"):
+            conn.execute(
+                "UPDATE contract_drafts SET status = 'awaiting_approval' "
+                "WHERE draft_id = ?",
+                (d.draft_id,),
+            )
+
+
+def test_trigger_blocks_insert_with_non_draft_status(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Direct SQL INSERT cannot create a row already in non-draft
+    status — every draft must start in DRAFT."""
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="draft status"):
+            conn.execute(
+                "INSERT INTO contract_drafts (draft_id, org_id, "
+                "workspace_id, submitter_user_id, audit_run_id, "
+                "kind, title, counterparty_name, status, "
+                "approved_by, decision_rationale, decided_at, "
+                "created_at, updated_at) VALUES "
+                "('ctr_evil', 'org_a', 'ws', 'alice', 'r', "
+                "'msa', 't', 'cp', 'approved', 'bob', 'r', 0.0, "
+                "0.0, 0.0)",
+            )
+
+
+def test_trigger_blocks_clause_modify_on_terminal_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Clauses are frozen after the parent draft reaches terminal
+    status. A direct SQL UPDATE flipping a clause from approved to
+    rejected after approval is blocked."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    # Draft now APPROVED. Direct SQL flipping the clause to
+    # rejected would retroactively change what was reviewed.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "UPDATE contract_clauses SET decision = 'rejected' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_trigger_blocks_clause_delete_on_terminal_draft(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Symmetric: clauses can't be deleted after terminal status."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    _approve_all_clauses(store, d, approver="bob")
+    store.approve_draft(
+        draft_id=d.draft_id, org_id="org_a",
+        approver_user_id="bob", rationale="reviewed",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="terminal draft"):
+            conn.execute(
+                "DELETE FROM contract_clauses WHERE clause_id = ?",
+                (c.clause_id,),
             )

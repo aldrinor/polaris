@@ -53,13 +53,37 @@ parameter surface entirely:
         DRAFT             : decision fields all NULL
         AWAITING_APPROVAL : decision fields all NULL
         APPROVED          : approved_by + decision_rationale +
-                            decided_at all NOT NULL, rejected_by
-                            NULL
+                            decided_at all NOT NULL + non-empty,
+                            rejected_by NULL
         REJECTED          : rejected_by + decision_rationale +
-                            decided_at all NOT NULL, approved_by
-                            NULL
+                            decided_at all NOT NULL + non-empty,
+                            approved_by NULL
     Even direct SQL UPDATE attempts that violate these patterns
     fail at the SQL layer.
+
+Codex M-26 v7 review fix: v6 had three remaining bypasses:
+  (a) `_perform_approve` / `_perform_reject` re-validated rationale
+      with `.strip()` instead of `_sanitize_notes`, allowing
+      content-empty rationales like "​" (zero-width space)
+      to pass when called directly.
+  (b) DB CHECK only enforced `IS NOT NULL` — direct SQL could
+      write `decision_rationale=''` and pass.
+  (c) DB CHECK could not express the cross-row invariant
+      "all clauses approved before status='approved'", so
+      direct SQL UPDATE writing canonical APPROVED metadata
+      onto a draft with PENDING clauses was reachable.
+
+v7 closes all three:
+  - Helpers route rationale through `_sanitize_notes` (strips
+    Cc/Cf categories + whitespace; rejects content-empty input).
+  - CHECK adds `length(field) > 0` to all NOT-NULL string fields.
+  - SQL TRIGGERs encode cross-row invariants the CHECK cannot:
+      * `trg_validate_status_transition`: closed transition table
+        + all-clauses-approved + SOD enforced at SQL layer.
+      * `trg_validate_status_on_insert`: new rows must start
+        in 'draft' status.
+      * `trg_freeze_clauses_on_terminal_*`: clauses are immutable
+        after the parent draft reaches APPROVED / REJECTED.
 
 LAW VII compliance: stdlib only. Endpoints wired separately.
 """
@@ -199,6 +223,22 @@ class ContractDraft:
 # during normal operation, and the constraints ensure that SQL-
 # level mistakes (or future contributors who don't read the docs)
 # cannot land an invalid row.
+#
+# Codex M-26 v7 review fix: v6 CHECK constraints only enforced
+# `IS NOT NULL`, allowing direct SQL to write empty-string audit
+# fields (e.g. approved_by='', decision_rationale=''). v7 adds
+# `length() > 0` checks. Plus v7 adds three SQL TRIGGERs that
+# enforce cross-row invariants the CHECK constraint cannot
+# express:
+#   - state-machine validity (closed transition table at SQL
+#     layer): only DRAFT→AWAITING_APPROVAL, AWAITING_APPROVAL→
+#     APPROVED, AWAITING_APPROVAL→REJECTED are legal
+#   - all-clauses-approved before status='approved'
+#   - SOD at SQL layer (approved_by != submitter_user_id)
+#   - non-empty clauses before status='awaiting_approval'
+#   - clauses immutable after terminal status (no UPDATE/DELETE
+#     on contract_clauses when parent draft is APPROVED/REJECTED)
+#   - new drafts must start in 'draft' status (no INSERT bypass)
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS contract_drafts (
     draft_id TEXT PRIMARY KEY,
@@ -231,14 +271,18 @@ CREATE TABLE IF NOT EXISTS contract_drafts (
         OR
         (status = 'approved'
             AND approved_by IS NOT NULL
+            AND length(approved_by) > 0
             AND rejected_by IS NULL
             AND decision_rationale IS NOT NULL
+            AND length(decision_rationale) > 0
             AND decided_at IS NOT NULL)
         OR
         (status = 'rejected'
             AND approved_by IS NULL
             AND rejected_by IS NOT NULL
+            AND length(rejected_by) > 0
             AND decision_rationale IS NOT NULL
+            AND length(decision_rationale) > 0
             AND decided_at IS NOT NULL)
     )
 );
@@ -281,6 +325,91 @@ CREATE TABLE IF NOT EXISTS contract_decision_log (
 
 CREATE INDEX IF NOT EXISTS idx_contract_decision_log_draft
     ON contract_decision_log(draft_id, created_at);
+
+-- Codex M-26 v7 review fix: SQL triggers encode the cross-row
+-- SOC2 invariants the CHECK constraint cannot express. Even a
+-- direct SQL UPDATE that bypasses the Python helpers fails at
+-- the SQL layer.
+
+-- Trigger 1: validate state-machine transitions at SQL level.
+-- The closed transition table:
+--   draft             -> awaiting_approval (with >=1 clause)
+--   awaiting_approval -> approved (all clauses approved + SOD)
+--   awaiting_approval -> rejected
+-- All other (OLD.status, NEW.status) pairs are forbidden,
+-- including any transition TO 'draft' (terminal-state revival).
+CREATE TRIGGER IF NOT EXISTS trg_validate_status_transition
+BEFORE UPDATE OF status ON contract_drafts
+FOR EACH ROW
+WHEN NEW.status != OLD.status
+BEGIN
+    SELECT CASE
+        WHEN NEW.status = 'draft'
+            THEN RAISE(ABORT, 'illegal transition: draft cannot be a target state (no path back to draft)')
+        WHEN NEW.status = 'awaiting_approval' AND OLD.status != 'draft'
+            THEN RAISE(ABORT, 'illegal transition: awaiting_approval only reachable from draft')
+        WHEN NEW.status = 'awaiting_approval' AND NOT EXISTS (
+            SELECT 1 FROM contract_clauses WHERE draft_id = NEW.draft_id
+        )
+            THEN RAISE(ABORT, 'cannot submit empty draft: at least one clause required')
+        WHEN NEW.status = 'approved' AND OLD.status != 'awaiting_approval'
+            THEN RAISE(ABORT, 'illegal transition: approved only reachable from awaiting_approval')
+        WHEN NEW.status = 'approved' AND NOT EXISTS (
+            SELECT 1 FROM contract_clauses WHERE draft_id = NEW.draft_id
+        )
+            THEN RAISE(ABORT, 'cannot approve draft: no clauses')
+        WHEN NEW.status = 'approved' AND EXISTS (
+            SELECT 1 FROM contract_clauses
+            WHERE draft_id = NEW.draft_id AND decision != 'approved'
+        )
+            THEN RAISE(ABORT, 'cannot approve draft: at least one clause is not approved')
+        WHEN NEW.status = 'approved' AND NEW.approved_by = NEW.submitter_user_id
+            THEN RAISE(ABORT, 'cannot approve own draft: separation of duties')
+        WHEN NEW.status = 'rejected' AND OLD.status != 'awaiting_approval'
+            THEN RAISE(ABORT, 'illegal transition: rejected only reachable from awaiting_approval')
+        WHEN NEW.status NOT IN ('draft', 'awaiting_approval', 'approved', 'rejected')
+            THEN RAISE(ABORT, 'illegal status value')
+    END;
+END;
+
+-- Trigger 2: new contract drafts must start in 'draft' status.
+-- Direct SQL INSERT cannot bypass the lifecycle by inserting a
+-- row already in 'approved' (or any non-draft) status.
+CREATE TRIGGER IF NOT EXISTS trg_validate_status_on_insert
+BEFORE INSERT ON contract_drafts
+FOR EACH ROW
+WHEN NEW.status != 'draft'
+BEGIN
+    SELECT RAISE(ABORT, 'new contract drafts must be inserted in draft status');
+END;
+
+-- Trigger 3: clauses are frozen once the parent draft reaches a
+-- terminal status (APPROVED / REJECTED). After approval, no one
+-- can flip a clause from approved to rejected (or vice versa)
+-- to retroactively change what was reviewed.
+CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_update
+BEFORE UPDATE ON contract_clauses
+FOR EACH ROW
+WHEN EXISTS (
+    SELECT 1 FROM contract_drafts
+    WHERE draft_id = NEW.draft_id
+      AND status IN ('approved', 'rejected')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'cannot modify clauses on a terminal draft (approved or rejected)');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_freeze_clauses_on_terminal_delete
+BEFORE DELETE ON contract_clauses
+FOR EACH ROW
+WHEN EXISTS (
+    SELECT 1 FROM contract_drafts
+    WHERE draft_id = OLD.draft_id
+      AND status IN ('approved', 'rejected')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'cannot delete clauses on a terminal draft (approved or rejected)');
+END;
 """
 
 
@@ -743,31 +872,41 @@ class ContractDraftStore:
           - draft accessible to org_id
           - draft.status == AWAITING_APPROVAL
           - approver_user_id != draft.submitter_user_id (SOD)
-          - rationale non-empty (already sanitized by public
-            entry point, but re-checked here for direct callers)
+          - rationale content-non-empty (sanitized via
+            `_sanitize_notes`, which strips Cc/Cf and whitespace
+            so zero-width-space-only rationales are caught)
           - all clauses APPROVED (no PENDING, no REJECTED)
 
         Invariants written:
           - status = 'approved'
           - approved_by = approver_user_id
           - decided_at = now
-          - decision_rationale = rationale
+          - decision_rationale = rationale (sanitized)
           - rejected_by = NULL  (mutually exclusive with approved_by)
 
-        DB CHECK constraint on contract_drafts mirrors these
-        invariants — even if this Python helper had a bug, an
-        attempted UPDATE that violates the canonical APPROVED
-        pattern would fail at the SQL layer.
+        DB CHECK constraint + state-transition trigger on
+        contract_drafts mirror these invariants — even if this
+        Python helper had a bug, an attempted UPDATE that violates
+        the canonical APPROVED pattern OR the all-clauses-approved
+        invariant would fail at the SQL layer.
         """
         if not approver_user_id.strip():
             raise ContractDraftStateError(
                 "approver_user_id must be non-empty"
             )
-        if rationale is None or not rationale.strip():
+        # Codex v7 review fix: use _sanitize_notes (strips Unicode
+        # Cc/Cf categories + whitespace) instead of `.strip()`.
+        # `.strip()` only strips whitespace, so a rationale of
+        # "​" (zero-width space) was content-empty but passed
+        # `not rationale.strip()`. v7 routes direct-helper callers
+        # through the same sanitizer the public entry point uses.
+        sanitized_rationale = _sanitize_notes(rationale)
+        if sanitized_rationale is None:
             raise ContractDraftStateError(
                 "approval rationale must be non-empty (LAW II — "
                 "every approval is part of the SOC2 audit trail)"
             )
+        rationale = sanitized_rationale
         now = time.time()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -874,24 +1013,29 @@ class ContractDraftStore:
         Preconditions enforced inside BEGIN IMMEDIATE:
           - draft accessible to org_id
           - draft.status == AWAITING_APPROVAL
-          - rationale non-empty
+          - rationale content-non-empty (sanitized via
+            `_sanitize_notes`)
 
         Invariants written:
           - status = 'rejected'
           - rejected_by = rejecter_user_id
           - decided_at = now
-          - decision_rationale = rationale
+          - decision_rationale = rationale (sanitized)
           - approved_by = NULL  (mutually exclusive with rejected_by)
         """
         if not rejecter_user_id.strip():
             raise ContractDraftStateError(
                 "rejecter_user_id must be non-empty"
             )
-        if rationale is None or not rationale.strip():
+        # Codex v7 review fix: use _sanitize_notes (see _perform_approve
+        # rationale check for context).
+        sanitized_rationale = _sanitize_notes(rationale)
+        if sanitized_rationale is None:
             raise ContractDraftStateError(
                 "rejection rationale must be non-empty (LAW II — "
                 "every rejection is part of the SOC2 audit trail)"
             )
+        rationale = sanitized_rationale
         now = time.time()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
