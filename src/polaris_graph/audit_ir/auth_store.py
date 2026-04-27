@@ -85,6 +85,27 @@ def _api_key_prefix() -> str:
 # claim full RFC 5322 compliance).
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
+
+# Codex M-15a v2 review fix: precomputed dummy bcrypt hash at the
+# SAME cost as the production hash (PG_BCRYPT_ROUNDS, default 12)
+# so verify_password's unknown-email path takes the same time as
+# the known-email path. v1 used cost-4 for the dummy → ~80x faster
+# than known-email cost-12 → existence leaked via timing.
+#
+# The dummy hash is computed lazily per-process. Tests that use
+# low cost (e.g. PG_BCRYPT_ROUNDS=4) will see the dummy match the
+# test cost on first call.
+_DUMMY_HASH_CACHE: dict[int, bytes] = {}
+
+
+def _dummy_hash_for_current_cost() -> bytes:
+    rounds = _bcrypt_rounds()
+    cached = _DUMMY_HASH_CACHE.get(rounds)
+    if cached is None:
+        cached = bcrypt.hashpw(b"dummy_pw", bcrypt.gensalt(rounds=rounds))
+        _DUMMY_HASH_CACHE[rounds] = cached
+    return cached
+
 # Org slug: lowercase letters, digits, hyphen. 2-64 chars (must
 # start AND end with alphanumeric, hyphens only in the middle).
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$")
@@ -381,7 +402,14 @@ class AuthStore:
     def verify_password(self, email: str, password: str) -> User:
         """Constant-time password verification. Raises
         CredentialError on any failure (unknown user OR wrong
-        password) so a caller cannot distinguish via timing."""
+        password) so a caller cannot distinguish via timing.
+
+        Codex M-15a v2 review fix: the unknown-email path now uses
+        a precomputed dummy hash at the SAME bcrypt cost as the
+        production hash. v1 used cost-4 dummy → ~80x faster than
+        the known-email cost-12 path → existence leaked via
+        timing. v2 always checkpw() against a same-cost dummy.
+        """
         email = email.strip().lower()
         with self._connect() as conn:
             row = conn.execute(
@@ -389,10 +417,13 @@ class AuthStore:
                 "created_at FROM users WHERE email = ?",
                 (email,),
             ).fetchone()
-        # Always run bcrypt.checkpw even on unknown user to avoid
-        # leaking existence via timing.
         if row is None:
-            bcrypt.checkpw(b"x", bcrypt.hashpw(b"x", bcrypt.gensalt(rounds=4)))
+            # Always run bcrypt.checkpw against a SAME-COST dummy
+            # hash so unknown-email and wrong-password paths take
+            # the same time.
+            bcrypt.checkpw(
+                password.encode("utf-8"), _dummy_hash_for_current_cost(),
+            )
             raise CredentialError("invalid email or password")
         if not bcrypt.checkpw(
             password.encode("utf-8"), row["password_hash"].encode("utf-8")
@@ -583,7 +614,14 @@ class AuthStore:
           - role must be a known role.
           - role must NOT exceed the user's current membership
             role (an admin can't mint an owner-scoped key).
-          - org + user must exist (FK).
+          - org + user must have an active membership.
+
+        Codex M-15a v2 review fix: membership read + key insert
+        now happen inside ONE BEGIN IMMEDIATE transaction on a
+        single connection. v1 split the operations across two
+        connections (get_membership + INSERT), creating a TOCTOU
+        window where a concurrent demotion/removal could land
+        between the check and the insert.
         """
         if role not in ROLE_RANK:
             raise InvalidRoleError(
@@ -592,33 +630,51 @@ class AuthStore:
         if not label or not label.strip():
             raise AuthStoreError("api key label must be non-empty")
 
-        membership = self.get_membership(org_id, user_id)
-        if membership is None:
-            raise NotFoundError(
-                f"user {user_id} has no membership in org {org_id}"
-            )
-        if ROLE_RANK[role] > ROLE_RANK[membership.role]:
-            raise InvalidRoleError(
-                f"requested role {role!r} exceeds user's membership "
-                f"role {membership.role!r}"
-            )
-
+        # Compute the bcrypt hash OUTSIDE the transaction (it's
+        # CPU-bound and slow at production cost; we don't want to
+        # hold the SQLite write lock during it).
         key_id = f"akid_{uuid.uuid4().hex[:10]}"
-        # Plaintext key: prefix + 32 url-safe random chars.
         plaintext = f"{_api_key_prefix()}{secrets.token_urlsafe(32)}"
         key_hash = bcrypt.hashpw(
             plaintext.encode("utf-8"),
             bcrypt.gensalt(rounds=_bcrypt_rounds()),
         ).decode("utf-8")
         now = time.time()
+
         with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO api_keys (key_id, org_id, user_id, role, "
-                "label, key_hash, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (key_id, org_id, user_id, role, label.strip(),
-                 key_hash, now),
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT role FROM memberships "
+                    "WHERE org_id = ? AND user_id = ?",
+                    (org_id, user_id),
+                ).fetchone()
+                if row is None:
+                    conn.execute("ROLLBACK")
+                    raise NotFoundError(
+                        f"user {user_id} has no membership in org {org_id}"
+                    )
+                membership_role = row["role"]
+                if ROLE_RANK[role] > ROLE_RANK[membership_role]:
+                    conn.execute("ROLLBACK")
+                    raise InvalidRoleError(
+                        f"requested role {role!r} exceeds user's "
+                        f"membership role {membership_role!r}"
+                    )
+                conn.execute(
+                    "INSERT INTO api_keys (key_id, org_id, user_id, role, "
+                    "label, key_hash, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (key_id, org_id, user_id, role, label.strip(),
+                     key_hash, now),
+                )
+                conn.execute("COMMIT")
+            except (NotFoundError, InvalidRoleError):
+                raise
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
         record = ApiKey(
             key_id=key_id, org_id=org_id, user_id=user_id,
             role=role, label=label.strip(),
@@ -636,16 +692,26 @@ class AuthStore:
         return [_row_to_api_key(r) for r in rows]
 
     def verify_api_key(self, plaintext: str) -> ApiKey:
-        """Verify an inbound API key and return its ApiKey record.
+        """Verify an inbound API key and return its ApiKey record
+        with the EFFECTIVE role.
+
+        Codex M-15a v2 review fix: the returned `role` is capped
+        by the user's CURRENT membership role at verification
+        time, not the role stored at issuance. v1 returned the
+        issuance-time role, which let a demoted/removed user
+        keep elevated machine access via stale keys. v2:
+          - If no current membership exists for (key.org_id,
+            key.user_id), raise CredentialError (key is "valid"
+            but the principal no longer belongs to the org).
+          - Otherwise return ApiKey with role = min(stored role,
+            current membership role).
+
         Raises CredentialError if the key is unknown / revoked /
-        wrong.
+        wrong format / membership absent.
 
-        We iterate ALL non-revoked rows; bcrypt.checkpw is constant-
-        time relative to its inputs but the linear scan is O(n).
-        For Phase C this is fine (n is bounded by org size). Phase D
-        adds a key_id prefix lookup.
-
-        Updates last_used_at on success.
+        Linear bcrypt scan over non-revoked rows; Phase D adds a
+        prefix index for O(1) lookup. Updates last_used_at on
+        success.
         """
         if not plaintext or not plaintext.startswith(_api_key_prefix()):
             raise CredentialError("invalid api key format")
@@ -658,6 +724,26 @@ class AuthStore:
                     plaintext.encode("utf-8"),
                     row["key_hash"].encode("utf-8"),
                 ):
+                    # Codex M-15a v2: re-resolve membership and
+                    # cap effective role.
+                    membership_row = conn.execute(
+                        "SELECT role FROM memberships "
+                        "WHERE org_id = ? AND user_id = ?",
+                        (row["org_id"], row["user_id"]),
+                    ).fetchone()
+                    if membership_row is None:
+                        # User is no longer a member. Key is
+                        # effectively dead — fail loud.
+                        raise CredentialError(
+                            "api key principal no longer has membership"
+                        )
+                    membership_role = membership_row["role"]
+                    stored_role = row["role"]
+                    # Effective role = min of stored vs current.
+                    if ROLE_RANK[membership_role] < ROLE_RANK[stored_role]:
+                        effective_role = membership_role
+                    else:
+                        effective_role = stored_role
                     # Update last_used_at.
                     now = time.time()
                     conn.execute(
@@ -665,7 +751,11 @@ class AuthStore:
                         "WHERE key_id = ?",
                         (now, row["key_id"]),
                     )
-                    return _row_to_api_key(row, last_used_override=now)
+                    return _row_to_api_key(
+                        row,
+                        last_used_override=now,
+                        role_override=effective_role,
+                    )
         raise CredentialError("invalid api key")
 
     def revoke_api_key(self, key_id: str) -> ApiKey:
@@ -717,12 +807,16 @@ def _row_to_api_key(
     row: sqlite3.Row,
     last_used_override: float | None = None,
     revoked_at_override: float | None = None,
+    role_override: str | None = None,
 ) -> ApiKey:
+    """Codex M-15a v2 review fix: `role_override` lets
+    verify_api_key() return the EFFECTIVE role (capped by current
+    membership) rather than the issuance-time stored role."""
     return ApiKey(
         key_id=row["key_id"],
         org_id=row["org_id"],
         user_id=row["user_id"],
-        role=row["role"],
+        role=role_override if role_override is not None else row["role"],
         label=row["label"],
         last_used_at=last_used_override
         if last_used_override is not None else row["last_used_at"],

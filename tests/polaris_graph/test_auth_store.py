@@ -388,3 +388,128 @@ def test_role_geq() -> None:
 
 def test_roles_tuple_complete() -> None:
     assert set(ROLES) == {"owner", "admin", "member", "viewer"}
+
+
+# ---------------------------------------------------------------------------
+# Codex M-15a v2 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_verify_api_key_caps_role_at_current_membership(store: AuthStore) -> None:
+    """Codex M-15a v1 bug: API key minted as owner; user later
+    demoted to admin. v1 verify_api_key returned role='owner'
+    (stale issuance-time value). v2 caps the effective role at
+    the user's CURRENT membership role."""
+    org = store.create_org("acme", "Acme")
+    user = store.create_user("u@example.com", "U", "password1234")
+    other = store.create_user("o@example.com", "O", "password1234")
+    store.add_membership(org.org_id, user.org_id if False else user.user_id, "owner")
+    store.add_membership(org.org_id, other.user_id, "owner")
+    # Mint owner-scoped key.
+    record, plaintext = store.create_api_key(
+        org.org_id, user.user_id, "owner", "ci",
+    )
+    # Now demote user to admin (other owner exists, so allowed).
+    store.update_membership_role(org.org_id, user.user_id, "admin")
+    # Verifying the key should return EFFECTIVE role 'admin', not
+    # the stale stored 'owner'.
+    verified = store.verify_api_key(plaintext)
+    assert verified.role == "admin", (
+        f"v2 must cap effective role at current membership; "
+        f"got {verified.role}"
+    )
+
+
+def test_verify_api_key_caps_at_member_role_after_demote(store: AuthStore) -> None:
+    """Same as above but demoting from admin to member."""
+    org = store.create_org("acme", "Acme")
+    owner = store.create_user("o@example.com", "O", "password1234")
+    user = store.create_user("u@example.com", "U", "password1234")
+    store.add_membership(org.org_id, owner.user_id, "owner")
+    store.add_membership(org.org_id, user.user_id, "admin")
+    record, plaintext = store.create_api_key(
+        org.org_id, user.user_id, "admin", "ci",
+    )
+    store.update_membership_role(org.org_id, user.user_id, "member")
+    verified = store.verify_api_key(plaintext)
+    assert verified.role == "member"
+
+
+def test_verify_api_key_fails_after_membership_removed(store: AuthStore) -> None:
+    """Codex M-15a v1 bug: removed user keeps usable API keys.
+    v2: if the principal has no current membership, fail loud."""
+    org = store.create_org("acme", "Acme")
+    owner = store.create_user("o@example.com", "O", "password1234")
+    user = store.create_user("u@example.com", "U", "password1234")
+    store.add_membership(org.org_id, owner.user_id, "owner")
+    store.add_membership(org.org_id, user.user_id, "admin")
+    _, plaintext = store.create_api_key(
+        org.org_id, user.user_id, "admin", "ci",
+    )
+    # Now remove user's membership (owner remains; allowed).
+    store.remove_membership(org.org_id, user.user_id)
+    with pytest.raises(CredentialError, match="no longer has membership"):
+        store.verify_api_key(plaintext)
+
+
+def test_verify_api_key_does_not_upgrade_role(store: AuthStore) -> None:
+    """If user was promoted AFTER key issuance, the key's stored
+    role still caps the effective role (key's `min(stored,
+    current)` logic). I.e. promoting a user does NOT silently
+    promote pre-existing keys."""
+    org = store.create_org("acme", "Acme")
+    user = store.create_user("u@example.com", "U", "password1234")
+    store.add_membership(org.org_id, user.user_id, "admin")
+    _, plaintext = store.create_api_key(
+        org.org_id, user.user_id, "member", "old key",
+    )
+    # Promote user to owner.
+    store.update_membership_role(org.org_id, user.user_id, "owner")
+    # Key was minted as 'member'; effective role = min(member, owner) = member.
+    verified = store.verify_api_key(plaintext)
+    assert verified.role == "member"
+
+
+def test_create_api_key_atomic_with_membership_check(store: AuthStore) -> None:
+    """Codex M-15a v2 review fix: membership check + key insert
+    happen in one BEGIN IMMEDIATE transaction. Hard to simulate
+    the race in a single-threaded test, but we can verify that
+    the transaction is real by ensuring NotFoundError is raised
+    cleanly when the membership doesn't exist BEFORE the call."""
+    org = store.create_org("acme", "Acme")
+    user = store.create_user("u@example.com", "U", "password1234")
+    # No membership added.
+    with pytest.raises(NotFoundError, match="no membership"):
+        store.create_api_key(org.org_id, user.user_id, "admin", "ci")
+    # Verify no orphaned api_keys row was inserted.
+    keys = store.list_api_keys_for_org(org.org_id)
+    assert keys == []
+
+
+def test_verify_password_unknown_email_uses_production_cost(
+    store: AuthStore, monkeypatch,
+) -> None:
+    """Codex M-15a v2 review fix: unknown-email path now uses a
+    precomputed dummy hash at PRODUCTION-equivalent bcrypt cost.
+    v1 used cost-4, leaking existence via timing. We can't measure
+    timing reliably in a test, but we CAN assert the dummy hash
+    cache is populated at the current cost after a verify call."""
+    from src.polaris_graph.audit_ir.auth_store import (
+        _DUMMY_HASH_CACHE,
+        _bcrypt_rounds,
+    )
+    # Reset cache to ensure clean assertion.
+    _DUMMY_HASH_CACHE.clear()
+    # Trigger the unknown-email path.
+    with pytest.raises(CredentialError):
+        store.verify_password("never_seen@example.com", "anypass1234")
+    # The cache should now contain a hash at the current bcrypt
+    # cost.
+    expected_cost = _bcrypt_rounds()
+    assert expected_cost in _DUMMY_HASH_CACHE
+    # The hash should be a real bcrypt hash at the expected cost
+    # (bcrypt encodes cost in the prefix: $2b$<cost>$...)
+    cached = _DUMMY_HASH_CACHE[expected_cost].decode("utf-8")
+    assert cached.startswith(f"$2b${expected_cost:02d}$"), (
+        f"dummy hash cost mismatch: {cached[:10]} expected $2b${expected_cost:02d}$"
+    )
