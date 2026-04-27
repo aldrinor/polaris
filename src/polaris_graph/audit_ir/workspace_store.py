@@ -98,10 +98,21 @@ class WorkspaceStateError(WorkspaceStoreError):
 
 @dataclass(frozen=True)
 class Workspace:
+    """A workspace.
+
+    Codex M-15b review fix: `org_id` added — every workspace
+    belongs to an org, gated by M-15b authz dependencies.
+    Workspaces created before M-15b are tagged with the
+    sentinel `_DEFAULT_ORG_ID` (see store schema migration);
+    the M-15b retrofit treats those as belonging to a notional
+    "system" org so cross-org gates still apply consistently.
+    """
+
     workspace_id: str
     name: str
     max_docs: int
     created_at: float
+    org_id: str = "org_default"
 
 
 @dataclass(frozen=True)
@@ -125,6 +136,7 @@ def workspace_to_dict(ws: Workspace) -> dict[str, Any]:
         "name": ws.name,
         "max_docs": ws.max_docs,
         "created_at": ws.created_at,
+        "org_id": ws.org_id,
     }
 
 
@@ -154,8 +166,11 @@ CREATE TABLE IF NOT EXISTS workspaces (
     workspace_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     max_docs INTEGER NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    org_id TEXT NOT NULL DEFAULT 'org_default'
 );
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_org ON workspaces(org_id);
 
 CREATE TABLE IF NOT EXISTS uploads (
     upload_id TEXT PRIMARY KEY,
@@ -213,30 +228,83 @@ class WorkspaceStore:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            # Codex M-15b review fix: migration for pre-M-15b
+            # databases that lack the org_id column. CREATE TABLE
+            # IF NOT EXISTS is a no-op when the table already
+            # exists, so an old DB never picks up new columns.
+            # Add the column lazily here.
+            self._migrate_workspaces_org_id(conn)
+            self._migrate_uploads_indexes(conn)
+
+    @staticmethod
+    def _migrate_workspaces_org_id(conn: sqlite3.Connection) -> None:
+        cols = [
+            r[1] for r in conn.execute(
+                "PRAGMA table_info(workspaces)"
+            ).fetchall()
+        ]
+        if "org_id" not in cols:
+            conn.execute(
+                "ALTER TABLE workspaces ADD COLUMN org_id TEXT NOT NULL "
+                "DEFAULT 'org_default'"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_workspaces_org "
+                "ON workspaces(org_id)"
+            )
+
+    @staticmethod
+    def _migrate_uploads_indexes(conn: sqlite3.Connection) -> None:
+        # Future-proofing hook; no-op for now.
+        pass
 
     # ------------------------------------------------------------------
     # Workspaces
     # ------------------------------------------------------------------
 
-    def create_workspace(self, name: str, max_docs: int | None = None) -> Workspace:
+    def create_workspace(
+        self,
+        name: str,
+        max_docs: int | None = None,
+        org_id: str = "org_default",
+    ) -> Workspace:
+        """Codex M-15b review fix: `org_id` is now a parameter.
+        Defaults to `org_default` so the (small number of)
+        Phase A-vintage callers without an org tag still work.
+        Phase C callers (M-15b retrofitted endpoints) must pass
+        the authenticated caller's org_id."""
         if not name or not name.strip():
             raise WorkspaceStateError("workspace name must be non-empty")
         if max_docs is None:
             max_docs = _env_max_docs()
         if max_docs < 1:
             raise WorkspaceStateError(f"max_docs must be >= 1; got {max_docs}")
+        if not org_id or not org_id.strip():
+            raise WorkspaceStateError("org_id must be non-empty")
         ws_id = f"ws_{uuid.uuid4().hex[:12]}"
         now = time.time()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO workspaces (workspace_id, name, max_docs, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (ws_id, name.strip(), max_docs, now),
+                "INSERT INTO workspaces (workspace_id, name, max_docs, "
+                "created_at, org_id) VALUES (?, ?, ?, ?, ?)",
+                (ws_id, name.strip(), max_docs, now, org_id.strip()),
             )
         return Workspace(
             workspace_id=ws_id, name=name.strip(),
-            max_docs=max_docs, created_at=now,
+            max_docs=max_docs, created_at=now, org_id=org_id.strip(),
         )
+
+    def list_workspaces_for_org(self, org_id: str) -> list[Workspace]:
+        """Codex M-15b review fix: list endpoint must scope to the
+        caller's org. Plain list_workspaces() is now used only by
+        platform-admin code paths."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workspaces WHERE org_id = ? "
+                "ORDER BY created_at DESC",
+                (org_id,),
+            ).fetchall()
+        return [_row_to_workspace(r) for r in rows]
 
     def get_workspace(self, workspace_id: str) -> Workspace | None:
         with self._connect() as conn:
@@ -576,11 +644,19 @@ class WorkspaceStore:
 
 
 def _row_to_workspace(row: sqlite3.Row) -> Workspace:
+    # Codex M-15b: tolerant column read so older DBs that ran
+    # the migration still work even if the row has no org_id.
+    org_id = "org_default"
+    try:
+        org_id = row["org_id"] or "org_default"
+    except (IndexError, KeyError):
+        pass
     return Workspace(
         workspace_id=row["workspace_id"],
         name=row["name"],
         max_docs=row["max_docs"],
         created_at=row["created_at"],
+        org_id=org_id,
     )
 
 

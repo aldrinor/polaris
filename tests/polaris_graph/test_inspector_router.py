@@ -16,7 +16,7 @@ from src.polaris_graph.audit_ir.registry import CANONICAL_DEMO_SLUG
 def _make_client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    return TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
 
 
 def test_list_runs_endpoint() -> None:

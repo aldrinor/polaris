@@ -83,6 +83,11 @@ class Job:
     """An immutable snapshot of a job at read time.
 
     Mutations happen through JobQueue methods, which return new snapshots.
+
+    Codex M-15b review fix: `org_id` and `workspace_id` added so
+    job lookups can gate on org membership. Pre-M-15b jobs default
+    to `org_default` / None, making the M-15b authz dependency
+    treat them as the notional system org.
     """
 
     job_id: str
@@ -100,6 +105,8 @@ class Job:
     checkpoint: Mapping[str, Any] | None
     artifact_dir: str | None
     error: str | None
+    org_id: str = "org_default"
+    workspace_id: str | None = None
 
 
 _SCHEMA_SQL = """
@@ -118,14 +125,30 @@ CREATE TABLE IF NOT EXISTS jobs (
     progress_message TEXT NOT NULL DEFAULT '',
     checkpoint_json TEXT,
     artifact_dir TEXT,
-    error TEXT
+    error TEXT,
+    org_id TEXT NOT NULL DEFAULT 'org_default',
+    workspace_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_org ON jobs (org_id);
 """
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
+    # Codex M-15b: tolerant column read so older DBs that ran the
+    # migration still work even if a row materialized before the
+    # ALTER picked up.
+    org_id = "org_default"
+    workspace_id = None
+    try:
+        org_id = row["org_id"] or "org_default"
+    except (IndexError, KeyError):
+        pass
+    try:
+        workspace_id = row["workspace_id"]
+    except (IndexError, KeyError):
+        pass
     return Job(
         job_id=row["job_id"],
         template_id=row["template_id"],
@@ -142,6 +165,8 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         checkpoint=(json.loads(row["checkpoint_json"]) if row["checkpoint_json"] else None),
         artifact_dir=row["artifact_dir"],
         error=row["error"],
+        org_id=org_id,
+        workspace_id=workspace_id,
     )
 
 
@@ -162,6 +187,26 @@ class JobQueue:
             with self._connect() as conn:
                 conn.executescript("PRAGMA journal_mode=WAL;")
                 conn.executescript(_SCHEMA_SQL)
+                # Codex M-15b review fix: migration for pre-M-15b
+                # databases. CREATE TABLE IF NOT EXISTS is a no-op
+                # when the table exists, so old DBs need ALTER.
+                cols = [
+                    r[1] for r in conn.execute(
+                        "PRAGMA table_info(jobs)"
+                    ).fetchall()
+                ]
+                if "org_id" not in cols:
+                    conn.execute(
+                        "ALTER TABLE jobs ADD COLUMN org_id TEXT NOT NULL "
+                        "DEFAULT 'org_default'"
+                    )
+                if "workspace_id" not in cols:
+                    conn.execute(
+                        "ALTER TABLE jobs ADD COLUMN workspace_id TEXT"
+                    )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_jobs_org ON jobs(org_id)"
+                )
             self._initialized = True
 
     @contextmanager
@@ -177,21 +222,66 @@ class JobQueue:
     # Public API
     # ------------------------------------------------------------------
 
-    def enqueue(self, template_id: str, params: Mapping[str, Any]) -> Job:
-        """Create a new pending job. Returns the persisted Job."""
+    def enqueue(
+        self,
+        template_id: str,
+        params: Mapping[str, Any],
+        org_id: str = "org_default",
+        workspace_id: str | None = None,
+    ) -> Job:
+        """Create a new pending job. Returns the persisted Job.
+
+        Codex M-15b review fix: `org_id` and `workspace_id` are
+        now parameters. Pre-M-15b callers without auth context
+        default to `org_default` / None — the M-15b retrofit
+        treats those as the notional system org so cross-org
+        gates still apply consistently.
+        """
         if not template_id:
             raise JobQueueError("enqueue: template_id required")
         if not isinstance(params, Mapping):
             raise JobQueueError("enqueue: params must be a Mapping")
+        if not org_id or not org_id.strip():
+            raise JobQueueError("enqueue: org_id must be non-empty")
         job_id = str(uuid.uuid4())
         now = time.time()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO jobs (job_id, template_id, params_json, status, created_at) "
-                "VALUES (?, ?, ?, 'pending', ?)",
-                (job_id, template_id, json.dumps(dict(params)), now),
+                "INSERT INTO jobs (job_id, template_id, params_json, "
+                "status, created_at, org_id, workspace_id) "
+                "VALUES (?, ?, ?, 'pending', ?, ?, ?)",
+                (job_id, template_id, json.dumps(dict(params)), now,
+                 org_id.strip(), workspace_id),
             )
         return self._must_get(job_id)
+
+    def list_by_org(
+        self,
+        org_id: str,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[Job]:
+        """Codex M-15b review fix: org-scoped listing. Plain
+        list_by_status is now used only for platform-admin code
+        paths."""
+        with self._connect() as conn:
+            if status is None:
+                rows = conn.execute(
+                    "SELECT * FROM jobs WHERE org_id = ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (org_id, limit),
+                ).fetchall()
+            else:
+                if status not in JOB_STATUSES:
+                    raise JobQueueError(
+                        f"list_by_org: unknown status {status!r}"
+                    )
+                rows = conn.execute(
+                    "SELECT * FROM jobs WHERE org_id = ? AND status = ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (org_id, status, limit),
+                ).fetchall()
+        return [_row_to_job(r) for r in rows]
 
     def get(self, job_id: str) -> Job | None:
         with self._connect() as conn:
@@ -463,7 +553,11 @@ class JobQueue:
 
 
 def job_to_dict(job: Job) -> dict[str, Any]:
-    """Serialize a Job into a JSON-safe dict for API responses."""
+    """Serialize a Job into a JSON-safe dict for API responses.
+
+    Codex M-15b retrofit: surface `org_id` + `workspace_id` so
+    UI / cross-org-leakage tests can verify org tagging.
+    """
     return {
         "job_id": job.job_id,
         "template_id": job.template_id,
@@ -480,4 +574,6 @@ def job_to_dict(job: Job) -> dict[str, Any]:
         "checkpoint": dict(job.checkpoint) if job.checkpoint else None,
         "artifact_dir": job.artifact_dir,
         "error": job.error,
+        "org_id": job.org_id,
+        "workspace_id": job.workspace_id,
     }

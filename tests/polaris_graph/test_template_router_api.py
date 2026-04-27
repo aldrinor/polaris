@@ -20,7 +20,7 @@ from src.polaris_graph.audit_ir.inspector_router import router
 def client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    return TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
 
 
 # ---------------------------------------------------------------------------

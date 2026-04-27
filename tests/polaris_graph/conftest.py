@@ -22,6 +22,22 @@ def _disable_openalex_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _enable_test_caller_header(monkeypatch):
+    """Codex M-15b retrofit: every M-1..M-13 endpoint now requires
+    auth. For the test surface we use the X-Polaris-Caller test
+    header (gated by PG_AUTH_TRUSTED_TEST_HEADER) so unit tests
+    don't need to mint real bcrypt-hashed API keys.
+
+    Each test's TestClient call should include a header like:
+      X-Polaris-Caller: org_alpha:usr_test:owner
+
+    Production MUST leave PG_AUTH_TRUSTED_TEST_HEADER unset.
+    """
+    monkeypatch.setenv("PG_AUTH_TRUSTED_TEST_HEADER", "1")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_phase_b_singletons():
     """Reset M-8 module-level singletons (job queue, worker, runner registry)
     around every test to prevent cross-test pollution.

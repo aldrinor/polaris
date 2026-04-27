@@ -32,7 +32,7 @@ def client_with_isolated_queue(tmp_path: Path):
 
     app = FastAPI()
     app.include_router(router)
-    yield TestClient(app), queue
+    yield TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"}), queue
 
     _set_job_worker_for_tests(None)
     _set_job_queue_for_tests(None)
@@ -98,7 +98,7 @@ def test_list_jobs_filters_by_status(tmp_path: Path) -> None:
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         job = queue.enqueue("mock", {})
         queue.claim_pending()  # pending -> running
         pending = client.get("/api/inspector/jobs?status=pending").json()
@@ -155,7 +155,7 @@ def test_pause_endpoint_sets_flag(tmp_path: Path) -> None:
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         job = queue.enqueue("mock", {})
         queue.claim_pending()  # pending -> running
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/pause")
@@ -186,7 +186,7 @@ def test_pause_endpoint_409_on_pending_job(tmp_path: Path) -> None:
         job = queue.enqueue("mock", {})
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/pause")
         assert resp.status_code == 409
     finally:
@@ -220,7 +220,7 @@ def test_cancel_endpoint_terminates_pending_job(tmp_path: Path) -> None:
         job = queue.enqueue("mock", {})
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/cancel")
         assert resp.status_code == 200
         assert resp.json()["status"] == "cancelled"
@@ -245,7 +245,7 @@ def test_cancel_endpoint_sets_flag_on_running(tmp_path: Path) -> None:
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         job = queue.enqueue("mock", {})
         queue.claim_pending()
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/cancel")
@@ -281,7 +281,7 @@ def test_resume_endpoint_only_works_on_paused(tmp_path: Path) -> None:
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         # Enqueue directly through queue (no auto-worker race).
         job = queue.enqueue("mock", {})
         # Without pausing first, resume must 409.
@@ -334,7 +334,7 @@ def test_enqueue_works_on_cold_start_with_no_prior_route_hit(tmp_path: Path) -> 
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         # First call into the router after a fresh process boot.
         resp = client.post(
             "/api/inspector/jobs",
@@ -369,7 +369,7 @@ def test_enqueue_starts_worker_so_jobs_actually_run(tmp_path: Path) -> None:
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         resp = client.post("/api/inspector/jobs", json={"template_id": "mock", "params": {}})
         assert resp.status_code == 200
         job_id = resp.json()["job_id"]
@@ -417,7 +417,7 @@ def test_resume_endpoint_routes_paused_to_pending_for_reclaim(tmp_path: Path) ->
 
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         # Resume endpoint also auto-starts a worker; wait briefly to let
         # it claim the resumed job before we check.
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/resume")
@@ -461,7 +461,7 @@ def test_cancel_paused_job_via_endpoint_terminates_directly(tmp_path: Path) -> N
     try:
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         # Drive pending → running → paused deterministically.
         job = queue.enqueue("mock", {})
         queue.claim_pending()
@@ -505,7 +505,7 @@ def test_resume_endpoint_starts_worker_after_cold_restart(tmp_path: Path) -> Non
         # Hit the resume endpoint.
         app = FastAPI()
         app.include_router(router)
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"})
         resp = client.post(f"/api/inspector/jobs/{job.job_id}/resume")
         assert resp.status_code == 200
         # The endpoint must start the worker so the reclaim happens.

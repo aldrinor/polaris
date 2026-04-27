@@ -39,7 +39,7 @@ def client_with_corpus(tmp_path: Path):
     _set_workspace_files_root_for_tests(files_root)
     app = FastAPI()
     app.include_router(router)
-    yield TestClient(app), store
+    yield TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"}), store
     _set_workspace_store_for_tests(None)
     _set_workspace_files_root_for_tests(None)
     _set_brief_llm_for_tests(None)

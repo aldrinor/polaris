@@ -22,12 +22,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
+)
+
+# Codex M-15b retrofit: every workspace-scoped, upload-scoped,
+# job-scoped endpoint gets one of these dependencies. The
+# dependency embeds authentication (resolves the caller from API
+# key bearer or X-Polaris-Caller test header) AND authorization
+# (returns 403 if the caller's org doesn't match the resource's
+# owning org). NEW endpoints in this module MUST add the
+# appropriate dependency or the M-15b authz invariant is broken.
+from src.polaris_graph.audit_ir.auth_middleware import (
+    Caller,
+    require_authenticated_caller,
+    require_job_member,
+    require_job_viewer,
+    require_upload_member,
+    require_upload_viewer,
+    require_workspace_admin,
+    require_workspace_member,
+    require_workspace_viewer,
 )
 
 from pydantic import BaseModel, Field
@@ -391,14 +410,15 @@ class EnqueueJobRequest(BaseModel):
 
 
 @router.post("/api/inspector/jobs")
-async def enqueue_job(req: EnqueueJobRequest) -> dict:
+async def enqueue_job(
+    req: EnqueueJobRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
     """Create a new pending job.
 
-    Phase A: only `mock` template_id is supported. M-9 adds `v30_clinical`
-    + the rest of the curated template library.
-
-    Codex M-8 review fix: ensure runners are registered BEFORE template
-    validation so cold-start enqueues see the registry populated.
+    Codex M-15b retrofit: jobs are tagged with the caller's org_id
+    at enqueue time. Cross-org access via the per-job endpoints
+    is gated by the org_id check.
     """
     _ensure_runners_registered()
     available = set(list_runners())
@@ -408,19 +428,22 @@ async def enqueue_job(req: EnqueueJobRequest) -> dict:
             detail=f"Unknown template_id={req.template_id!r}. Available: {sorted(available)}",
         )
     queue = get_job_queue()
-    # Codex M-8 fix: ensure the worker is running so enqueued jobs actually
-    # progress. Idempotent.
     get_or_start_job_worker()
-    job = queue.enqueue(req.template_id, req.params)
+    job = queue.enqueue(req.template_id, req.params, org_id=caller.org_id)
     return job_to_dict(job)
 
 
 @router.get("/api/inspector/jobs")
-async def list_jobs(status: str | None = None, limit: int = 100) -> dict:
+async def list_jobs(
+    status: str | None = None,
+    limit: int = 100,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Codex M-15b retrofit: list ONLY the caller's org's jobs."""
     _ensure_runners_registered()
     queue = get_job_queue()
     try:
-        jobs = queue.list_by_status(status=status, limit=limit)
+        jobs = queue.list_by_org(caller.org_id, status=status, limit=limit)
     except JobQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {
@@ -431,7 +454,11 @@ async def list_jobs(status: str | None = None, limit: int = 100) -> dict:
 
 
 @router.get("/api/inspector/jobs/{job_id}")
-async def get_job(job_id: str) -> dict:
+async def get_job(
+    job_id: str,
+    caller: Caller = Depends(require_job_viewer),
+) -> dict:
+    """Codex M-15b retrofit: job_viewer dependency gates on org membership."""
     queue = get_job_queue()
     job = queue.get(job_id)
     if job is None:
@@ -440,12 +467,15 @@ async def get_job(job_id: str) -> dict:
 
 
 @router.post("/api/inspector/jobs/{job_id}/pause")
-async def pause_job(job_id: str) -> dict:
+async def pause_job(
+    job_id: str,
+    caller: Caller = Depends(require_job_member),
+) -> dict:
+    """Codex M-15b retrofit: pause requires member+ role."""
     queue = get_job_queue()
     try:
         job = queue.request_pause(job_id)
     except JobQueueError as exc:
-        # Surface clearly: 404 for unknown, 409 for state conflict.
         msg = str(exc)
         if "unknown job" in msg:
             raise HTTPException(status_code=404, detail=msg)
@@ -454,7 +484,11 @@ async def pause_job(job_id: str) -> dict:
 
 
 @router.post("/api/inspector/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str) -> dict:
+async def cancel_job(
+    job_id: str,
+    caller: Caller = Depends(require_job_member),
+) -> dict:
+    """Codex M-15b retrofit: cancel requires member+ role."""
     queue = get_job_queue()
     try:
         job = queue.request_cancel(job_id)
@@ -543,7 +577,10 @@ async def route_query(req: RouteQueryRequest) -> dict:
 
 
 @router.get("/api/inspector/jobs/{job_id}/surfaces")
-async def get_job_surfaces(job_id: str) -> dict:
+async def get_job_surfaces(
+    job_id: str,
+    caller: Caller = Depends(require_job_viewer),
+) -> dict:
     """Snapshot of every progressive surface emitted for this job.
 
     Per FINAL_PLAN's t-table: PREFLIGHT / PARSE_PROGRESS / TIER_MIX
@@ -568,7 +605,10 @@ async def get_job_surfaces(job_id: str) -> dict:
 
 
 @router.get("/api/inspector/jobs/{job_id}/stream")
-async def stream_job_surfaces(job_id: str) -> StreamingResponse:
+async def stream_job_surfaces(
+    job_id: str,
+    caller: Caller = Depends(require_job_viewer),
+) -> StreamingResponse:
     """Server-Sent Events stream of progressive surfaces for this
     job. Snapshot replays first (so a late-joining client gets the
     full state), then live tail.
@@ -621,7 +661,10 @@ async def stream_job_surfaces(job_id: str) -> StreamingResponse:
 
 
 @router.post("/api/inspector/jobs/{job_id}/resume")
-async def resume_job(job_id: str) -> dict:
+async def resume_job(
+    job_id: str,
+    caller: Caller = Depends(require_job_member),
+) -> dict:
     """Resume a paused job by transitioning it to 'pending'.
 
     Codex M-8 v2 review fix: also ensure a worker is running so the
@@ -688,30 +731,49 @@ class CreateWorkspaceRequest(BaseModel):
 
 
 @router.post("/api/inspector/workspaces")
-async def create_workspace(req: CreateWorkspaceRequest) -> dict:
+async def create_workspace(
+    req: CreateWorkspaceRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Codex M-15b retrofit: workspace creation requires
+    authentication; workspace inherits the caller's org_id."""
     from src.polaris_graph.audit_ir.workspace_store import (
         WorkspaceStateError,
         workspace_to_dict,
     )
     store = get_workspace_store()
     try:
-        ws = store.create_workspace(req.name, max_docs=req.max_docs)
+        ws = store.create_workspace(
+            req.name, max_docs=req.max_docs, org_id=caller.org_id,
+        )
     except WorkspaceStateError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return workspace_to_dict(ws)
 
 
 @router.get("/api/inspector/workspaces")
-async def list_workspaces() -> dict:
+async def list_workspaces(
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Codex M-15b retrofit: list ONLY the caller's org's workspaces.
+    No cross-org leakage."""
     from src.polaris_graph.audit_ir.workspace_store import workspace_to_dict
     store = get_workspace_store()
     return {
-        "workspaces": [workspace_to_dict(w) for w in store.list_workspaces()],
+        "workspaces": [
+            workspace_to_dict(w)
+            for w in store.list_workspaces_for_org(caller.org_id)
+        ],
     }
 
 
 @router.get("/api/inspector/workspaces/{workspace_id}")
-async def get_workspace(workspace_id: str) -> dict:
+async def get_workspace(
+    workspace_id: str,
+    caller: Caller = Depends(require_workspace_viewer),
+) -> dict:
+    """Codex M-15b retrofit: workspace_viewer dependency gates on
+    org membership."""
     from src.polaris_graph.audit_ir.workspace_store import workspace_to_dict
     store = get_workspace_store()
     ws = store.get_workspace(workspace_id)
@@ -772,6 +834,7 @@ def _sanitize_upload_filename(raw: str | None) -> str:
 async def upload_to_workspace(
     workspace_id: str,
     file: UploadFile = File(...),
+    caller: Caller = Depends(require_workspace_member),
 ) -> dict:
     """Upload a file to the workspace. Phase B parses text uploads
     synchronously; PDF and other formats land as `pending` /
@@ -881,7 +944,9 @@ async def upload_to_workspace(
 
 @router.get("/api/inspector/workspaces/{workspace_id}/uploads")
 async def list_workspace_uploads(
-    workspace_id: str, include_deleted: bool = False
+    workspace_id: str,
+    include_deleted: bool = False,
+    caller: Caller = Depends(require_workspace_viewer),
 ) -> dict:
     from src.polaris_graph.audit_ir.workspace_store import upload_to_dict
     store = get_workspace_store()
@@ -892,7 +957,12 @@ async def list_workspace_uploads(
 
 
 @router.get("/api/inspector/uploads/{upload_id}")
-async def get_upload(upload_id: str) -> dict:
+async def get_upload(
+    upload_id: str,
+    caller: Caller = Depends(require_upload_viewer),
+) -> dict:
+    """Codex M-15b retrofit: upload_viewer dependency resolves
+    upload → workspace → org and gates on caller membership."""
     from src.polaris_graph.audit_ir.workspace_store import upload_to_dict
     store = get_workspace_store()
     upload = store.get_upload(upload_id)
@@ -902,7 +972,11 @@ async def get_upload(upload_id: str) -> dict:
 
 
 @router.delete("/api/inspector/uploads/{upload_id}")
-async def delete_upload(upload_id: str) -> dict:
+async def delete_upload(
+    upload_id: str,
+    caller: Caller = Depends(require_upload_member),
+) -> dict:
+    """Codex M-15b retrofit: requires member+ role to soft-delete."""
     from src.polaris_graph.audit_ir.workspace_store import (
         WorkspaceStateError,
         upload_to_dict,
@@ -916,7 +990,11 @@ async def delete_upload(upload_id: str) -> dict:
 
 
 @router.get("/api/inspector/uploads/{upload_id}/chunks")
-async def list_upload_chunks(upload_id: str) -> dict:
+async def list_upload_chunks(
+    upload_id: str,
+    caller: Caller = Depends(require_upload_viewer),
+) -> dict:
+    """Codex M-15b retrofit: upload_viewer required to read parsed chunks."""
     store = get_workspace_store()
     if store.get_upload(upload_id) is None:
         raise HTTPException(status_code=404, detail=f"unknown upload: {upload_id}")
@@ -960,7 +1038,9 @@ class ComposeBriefRequest(BaseModel):
 
 @router.post("/api/inspector/workspaces/{workspace_id}/brief")
 async def compose_workspace_brief(
-    workspace_id: str, req: ComposeBriefRequest
+    workspace_id: str,
+    req: ComposeBriefRequest,
+    caller: Caller = Depends(require_workspace_member),
 ) -> dict:
     """M-12 Question-Bound Corpus Brief endpoint.
 

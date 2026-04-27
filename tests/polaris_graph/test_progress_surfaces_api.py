@@ -38,7 +38,7 @@ def client_and_queue(tmp_path: Path):
 
     app = FastAPI()
     app.include_router(router)
-    yield TestClient(app), queue
+    yield TestClient(app, headers={"X-Polaris-Caller": "org_default:usr_test:owner"}), queue
     bus.clear_for_tests()
     _set_job_worker_for_tests(None)
     _set_job_queue_for_tests(None)
