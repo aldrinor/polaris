@@ -489,6 +489,149 @@ def test_regression_endpoint_returns_404_for_unknown_slug() -> None:
     assert res.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Codex M-18 v1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_adequacy_proceed_to_abort_is_critical() -> None:
+    """Real V30 corpus_adequacy_gate emits proceed/expand/abort —
+    NOT pass/fail. v1's vocabulary missed proceed → abort. v2 must
+    catch it as CRITICAL."""
+    ir_a = _make_ir(adequacy_decision="proceed", run_id="a")
+    ir_b = _make_ir(adequacy_decision="abort", run_id="b")
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.ADEQUACY_REGRESSION in codes
+    alert = next(
+        a for a in report.alerts
+        if a.code == AlertCode.ADEQUACY_REGRESSION
+    )
+    assert alert.severity == AlertSeverity.CRITICAL
+
+
+def test_adequacy_proceed_to_expand_is_critical() -> None:
+    """expand means 'corpus needs more sources' — that's still a
+    regression vs proceed (which means 'enough sources to start')."""
+    ir_a = _make_ir(adequacy_decision="proceed", run_id="a")
+    ir_b = _make_ir(adequacy_decision="expand", run_id="b")
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.ADEQUACY_REGRESSION in codes
+
+
+def test_adequacy_legacy_pass_to_fail_still_works() -> None:
+    """Backwards-compat: older artifacts may still use the legacy
+    pass/fail vocabulary. v2 keeps both maps."""
+    ir_a = _make_ir(adequacy_decision="pass", run_id="a")
+    ir_b = _make_ir(adequacy_decision="fail", run_id="b")
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.ADEQUACY_REGRESSION in codes
+
+
+def test_cost_spike_ratio_clamped_to_one(monkeypatch) -> None:
+    """Codex M-18 v1 review fix: env override below 1.0 must NOT
+    cause cheaper runs to alert as cost spikes."""
+    monkeypatch.setenv("PG_REGRESSION_COST_SPIKE_RATIO", "0.5")
+    ir_a = _make_ir(cost_usd=1.00, run_id="a")
+    ir_b = _make_ir(cost_usd=0.80, run_id="b")  # cheaper run
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.COST_SPIKE not in codes
+
+
+def test_contradiction_escalation_low_to_high_alerts() -> None:
+    """A persistent contradiction whose severity escalates between
+    runs must alert (Codex M-18 v1 review)."""
+    ir_a = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="low"),),
+        run_id="a",
+    )
+    ir_b = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="high"),),
+        run_id="b",
+    )
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.CONTRADICTION_SEVERITY_ESCALATION in codes
+    esc = next(
+        a for a in report.alerts
+        if a.code == AlertCode.CONTRADICTION_SEVERITY_ESCALATION
+    )
+    assert esc.severity == AlertSeverity.HIGH
+    assert esc.a_value == "low"
+    assert esc.b_value == "high"
+
+
+def test_contradiction_escalation_medium_to_low_does_not_alert() -> None:
+    """Severity de-escalation is an improvement, not a regression."""
+    ir_a = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="medium"),),
+        run_id="a",
+    )
+    ir_b = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="low"),),
+        run_id="b",
+    )
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.CONTRADICTION_SEVERITY_ESCALATION not in codes
+
+
+def test_contradiction_escalation_low_to_medium_is_medium() -> None:
+    """Low → medium escalation: alert at MEDIUM severity (not HIGH)."""
+    ir_a = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="low"),),
+        run_id="a",
+    )
+    ir_b = _make_ir(
+        contradictions=(_cluster("dose", "endpoint", severity="medium"),),
+        run_id="b",
+    )
+    report = detect_regressions(ir_a, ir_b)
+    codes = {a.code for a in report.alerts}
+    assert AlertCode.CONTRADICTION_SEVERITY_ESCALATION in codes
+    esc = next(
+        a for a in report.alerts
+        if a.code == AlertCode.CONTRADICTION_SEVERITY_ESCALATION
+    )
+    assert esc.severity == AlertSeverity.MEDIUM
+
+
+def test_caller_supplied_diff_with_wrong_slug_raises() -> None:
+    """Codex M-18 v1 review fix: validate caller-supplied diff
+    matches the IRs. A wrong slug means the diff is for different
+    runs and would inject false alerts."""
+    from src.polaris_graph.audit_ir.run_diff import RunDiff
+    ir_a = _make_ir(slug="x_drug", run_id="a")
+    ir_b = _make_ir(slug="x_drug", run_id="b")
+    bogus = RunDiff(a_run_id="a", b_run_id="b", slug="WRONG")
+    with pytest.raises(ValueError, match="slug"):
+        detect_regressions(ir_a, ir_b, diff=bogus)
+
+
+def test_caller_supplied_diff_with_wrong_run_ids_raises() -> None:
+    from src.polaris_graph.audit_ir.run_diff import RunDiff
+    ir_a = _make_ir(slug="x_drug", run_id="a")
+    ir_b = _make_ir(slug="x_drug", run_id="b")
+    bogus = RunDiff(a_run_id="WRONG", b_run_id="b", slug="x_drug")
+    with pytest.raises(ValueError, match="a_run_id"):
+        detect_regressions(ir_a, ir_b, diff=bogus)
+
+
+def test_caller_supplied_correct_diff_does_not_recompute() -> None:
+    """Sanity: a properly-matched diff is accepted without
+    raising."""
+    from src.polaris_graph.audit_ir.run_diff import RunDiff
+    ir_a = _make_ir(slug="x", run_id="a")
+    ir_b = _make_ir(slug="x", run_id="b")
+    correct = RunDiff(a_run_id="a", b_run_id="b", slug="x")
+    # No exception expected.
+    report = detect_regressions(ir_a, ir_b, diff=correct)
+    assert report is not None
+
+
 def test_regression_endpoint_does_not_route_to_slug_dynamic() -> None:
     """Critical M-16-style ordering check: /runs/regression must NOT
     be matched as /runs/{slug} with slug='regression'. Without the

@@ -73,6 +73,7 @@ class AlertCode(Enum):
     TIER_DOWNGRADE = "tier_downgrade"
     NEW_CONTRADICTION = "new_contradiction"
     NEW_HIGH_SEVERITY_CONTRADICTION = "new_high_severity_contradiction"
+    CONTRADICTION_SEVERITY_ESCALATION = "contradiction_severity_escalation"
     COST_SPIKE = "cost_spike"
 
 
@@ -165,8 +166,15 @@ def _tier_downgrade_threshold_pp() -> float:
 def _cost_spike_ratio() -> float:
     """Ratio of new/baseline cost above which a cost-spike alert
     fires (defaults to 1.5 — i.e. 50% increase). Ratios above 3.0
-    escalate from MEDIUM to HIGH."""
-    return _float_env("PG_REGRESSION_COST_SPIKE_RATIO", 1.5)
+    escalate from MEDIUM to HIGH.
+
+    Codex M-18 v1 review fix: clamp to >= 1.0. A ratio below 1.0
+    would let an env override flag a CHEAPER run as a cost spike
+    (false-positive on improvement), so we floor the user-supplied
+    value at 1.0 and let the default of 1.5 stand otherwise.
+    """
+    raw = _float_env("PG_REGRESSION_COST_SPIKE_RATIO", 1.5)
+    return max(1.0, raw)
 
 
 # ---------------------------------------------------------------------------
@@ -230,14 +238,26 @@ def _check_evaluator_gate(
 def _check_adequacy(
     ir_a: AuditIR, ir_b: AuditIR,
 ) -> list[RegressionAlert]:
-    """Adequacy gate transition baseline-pass → new-fail is CRITICAL."""
+    """Adequacy gate transition baseline-passing → new-failing is CRITICAL.
+
+    Codex M-18 v1 review fix: real V30 corpus_adequacy_gate emits
+    `proceed | expand | abort` (see corpus_adequacy_gate.py:29) —
+    NOT `pass/fail/approved`. v1 used the wrong vocabulary, so a
+    real `proceed → abort` regression produced no alert. v2 uses
+    the actual decision space and treats both `expand` (corpus
+    needs more sources) and `abort` (corpus rejected) as failing
+    states relative to a baseline of `proceed`.
+    """
     alerts: list[RegressionAlert] = []
     if ir_a.adequacy is None or ir_b.adequacy is None:
         return alerts
     a_dec = (ir_a.adequacy.decision or "").lower()
     b_dec = (ir_b.adequacy.decision or "").lower()
-    passing = {"pass", "approved", "adequate"}
-    failing = {"fail", "rejected", "inadequate"}
+    # Real V30 vocabulary first (per corpus_adequacy_gate.py).
+    # Legacy aliases retained for older artifact directories that
+    # may still carry the prior pass/fail naming.
+    passing = {"proceed", "pass", "approved", "adequate"}
+    failing = {"abort", "expand", "fail", "rejected", "inadequate"}
     if a_dec in passing and b_dec in failing:
         alerts.append(
             RegressionAlert(
@@ -247,7 +267,8 @@ def _check_adequacy(
                     f"corpus adequacy decision regressed from "
                     f"{ir_a.adequacy.decision!r} to "
                     f"{ir_b.adequacy.decision!r}; the new corpus "
-                    f"failed the gate the baseline corpus passed"
+                    f"no longer passes the gate the baseline corpus "
+                    f"passed"
                 ),
                 a_value=ir_a.adequacy.decision,
                 b_value=ir_b.adequacy.decision,
@@ -390,6 +411,31 @@ def _check_tier_downgrade(
     return alerts
 
 
+# Codex M-18 v1 review: contradiction severity escalation must
+# also alert. M-16 keys contradictions by (subject, predicate),
+# so the same cluster persisting across runs but escalating
+# severity (low → high, medium → critical) doesn't surface as
+# an "added" delta. Detect escalations directly by walking both
+# IR's contradictions and matching on (subject, predicate).
+_SEVERITY_RANK: dict[str, int] = {
+    "info": 0, "low": 1, "minor": 1,
+    "medium": 2, "moderate": 2,
+    "high": 3, "severe": 3, "major": 3,
+    "critical": 4,
+}
+_HIGH_SEVERITY_KEYWORDS: frozenset[str] = frozenset({
+    "high", "critical", "severe", "major",
+})
+
+
+def _severity_rank(s: str | None) -> int:
+    """Coerce a contradiction severity string into a totally-
+    ordered rank for escalation detection. Unknown strings rank 0
+    so 'unknown' → 'high' looks like an escalation rather than a
+    sideways move."""
+    return _SEVERITY_RANK.get((s or "").strip().lower(), 0)
+
+
 def _check_new_contradictions(
     diff: RunDiff,
 ) -> list[RegressionAlert]:
@@ -401,12 +447,11 @@ def _check_new_contradictions(
     as regressions — they're improvements.
     """
     alerts: list[RegressionAlert] = []
-    high_keywords = {"high", "critical", "severe"}
     for delta in diff.contradiction_deltas:
         if delta.direction != "added":
             continue
         sev_lc = (delta.severity or "").lower()
-        if sev_lc in high_keywords:
+        if sev_lc in _HIGH_SEVERITY_KEYWORDS:
             alerts.append(
                 RegressionAlert(
                     severity=AlertSeverity.HIGH,
@@ -435,6 +480,55 @@ def _check_new_contradictions(
                     b_value=delta.severity,
                 )
             )
+    return alerts
+
+
+def _check_contradiction_escalation(
+    ir_a: AuditIR, ir_b: AuditIR,
+) -> list[RegressionAlert]:
+    """Codex M-18 v1 review fix: persistent contradictions whose
+    severity escalates between runs (e.g. 'low' → 'high' on the
+    same (subject, predicate) cluster) must alert.
+
+    M-16's run_diff keys contradictions by (subject, predicate),
+    so escalation produces no add/remove delta — both runs have
+    the same key. Walk both IRs' contradictions and match by
+    (subject, predicate); if rank_b > rank_a, alert.
+    """
+    alerts: list[RegressionAlert] = []
+    a_by_key: dict[tuple[str, str], str] = {}
+    for cluster in ir_a.contradictions:
+        a_by_key[(cluster.subject, cluster.predicate)] = (
+            cluster.severity or ""
+        )
+    for cluster in ir_b.contradictions:
+        key = (cluster.subject, cluster.predicate)
+        if key not in a_by_key:
+            continue  # added cluster — handled by _check_new_contradictions
+        a_sev = a_by_key[key]
+        b_sev = cluster.severity or ""
+        if _severity_rank(b_sev) <= _severity_rank(a_sev):
+            continue  # same or lower severity — not an escalation
+        # An escalation to high/critical/severe is HIGH; otherwise
+        # MEDIUM. This mirrors the new-contradiction severity ladder.
+        if (b_sev or "").lower() in _HIGH_SEVERITY_KEYWORDS:
+            sev = AlertSeverity.HIGH
+        else:
+            sev = AlertSeverity.MEDIUM
+        alerts.append(
+            RegressionAlert(
+                severity=sev,
+                code=AlertCode.CONTRADICTION_SEVERITY_ESCALATION,
+                message=(
+                    f"contradiction on subject {cluster.subject!r}, "
+                    f"predicate {cluster.predicate!r} escalated "
+                    f"severity from {a_sev!r} (baseline) to "
+                    f"{b_sev!r}; the same disagreement now matters more"
+                ),
+                a_value=a_sev,
+                b_value=b_sev,
+            )
+        )
     return alerts
 
 
@@ -508,6 +602,29 @@ def detect_regressions(
 
     if diff is None:
         diff = diff_runs(ir_a, ir_b)
+    else:
+        # Codex M-18 v1 review fix: validate caller-supplied diff
+        # matches the IRs they passed. A mismatched diff would
+        # inject false contradiction alerts (or hide real ones)
+        # without any signal that the wires were crossed.
+        if diff.slug != ir_a.manifest.slug:
+            raise ValueError(
+                f"caller-supplied diff has slug {diff.slug!r}; "
+                f"IRs have slug {ir_a.manifest.slug!r} — refusing "
+                f"to use a mismatched diff"
+            )
+        if diff.a_run_id != ir_a.manifest.run_id:
+            raise ValueError(
+                f"caller-supplied diff a_run_id "
+                f"{diff.a_run_id!r} does not match ir_a.run_id "
+                f"{ir_a.manifest.run_id!r}"
+            )
+        if diff.b_run_id != ir_b.manifest.run_id:
+            raise ValueError(
+                f"caller-supplied diff b_run_id "
+                f"{diff.b_run_id!r} does not match ir_b.run_id "
+                f"{ir_b.manifest.run_id!r}"
+            )
 
     alerts: list[RegressionAlert] = []
     alerts.extend(_check_release_flip(ir_a, ir_b))
@@ -517,6 +634,7 @@ def detect_regressions(
     alerts.extend(_check_citation_drop(ir_a, ir_b))
     alerts.extend(_check_tier_downgrade(ir_a, ir_b))
     alerts.extend(_check_new_contradictions(diff))
+    alerts.extend(_check_contradiction_escalation(ir_a, ir_b))
     alerts.extend(_check_cost_spike(ir_a, ir_b))
 
     crit = sum(1 for a in alerts if a.severity == AlertSeverity.CRITICAL)
