@@ -105,6 +105,20 @@ Codex M-26 v9 review fix: v8 had two more bypasses:
       `trg_freeze_drafts_delete_on_terminal` (BEFORE DELETE) so
       terminal rows are fully immutable.
 
+Codex M-26 v10 review fix: v9 had two more bypasses on the clause
+substrate during AWAITING_APPROVAL:
+  (a) Direct SQL `UPDATE contract_clauses SET decision='approved'`
+      bypassed `decide_clause` and left no `decided_by` /
+      `decided_at` audit metadata. v10 adds a CHECK on
+      contract_clauses binding decision values to their canonical
+      audit-trail metadata pattern.
+  (b) Clause body/title/evidence_ids could be rewritten via
+      direct SQL after a decision was recorded. The shipped
+      approved contract could differ from what the clause
+      reviewer signed off on. v10 adds `trg_clause_content_immutable`
+      so body/title/evidence_ids/claim_ids are frozen from
+      INSERT-time onward — only decision metadata can change.
+
 LAW VII compliance: stdlib only. Endpoints wired separately.
 """
 
@@ -322,7 +336,29 @@ CREATE TABLE IF NOT EXISTS contract_clauses (
     decision_notes TEXT,
     decided_at REAL,
     created_at REAL NOT NULL,
-    FOREIGN KEY (draft_id) REFERENCES contract_drafts(draft_id)
+    FOREIGN KEY (draft_id) REFERENCES contract_drafts(draft_id),
+    -- Codex M-26 v10 review fix: clause-decision audit-trail
+    -- invariants. Direct SQL UPDATE setting decision='approved'
+    -- without decided_by + decided_at violated SOC2 in v9; the
+    -- CHECK enforces the canonical pattern per decision value.
+    CHECK (
+        (decision = 'pending'
+            AND decided_by IS NULL
+            AND decision_notes IS NULL
+            AND decided_at IS NULL)
+        OR
+        (decision = 'approved'
+            AND decided_by IS NOT NULL
+            AND length(decided_by) > 0
+            AND decided_at IS NOT NULL)
+        OR
+        (decision = 'rejected'
+            AND decided_by IS NOT NULL
+            AND length(decided_by) > 0
+            AND decided_at IS NOT NULL
+            AND decision_notes IS NOT NULL
+            AND length(decision_notes) > 0)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_contract_clauses_draft
@@ -482,6 +518,25 @@ FOR EACH ROW
 WHEN OLD.status IN ('approved', 'rejected')
 BEGIN
     SELECT RAISE(ABORT, 'cannot delete a terminal contract draft (approved or rejected)');
+END;
+
+-- Codex M-26 v10 review fix: clause body/title/evidence are
+-- IMMUTABLE after creation. v9 allowed direct SQL to rewrite a
+-- decided clause's body/title between submit and final approval,
+-- so the shipped contract differed from what the clause reviewer
+-- signed off on. There is no public "edit clause body" API; once
+-- a clause is added, only its decision metadata can change (via
+-- decide_clause). Body/title/evidence_ids/claim_ids are frozen
+-- from INSERT-time onward.
+CREATE TRIGGER IF NOT EXISTS trg_clause_content_immutable
+BEFORE UPDATE ON contract_clauses
+FOR EACH ROW
+WHEN NEW.title != OLD.title
+     OR NEW.body != OLD.body
+     OR NEW.evidence_ids_json != OLD.evidence_ids_json
+     OR NEW.claim_ids_json != OLD.claim_ids_json
+BEGIN
+    SELECT RAISE(ABORT, 'clause title/body/evidence are immutable after creation — only decision metadata may change via decide_clause');
 END;
 """
 

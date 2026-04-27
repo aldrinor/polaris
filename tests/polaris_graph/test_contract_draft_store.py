@@ -1848,3 +1848,255 @@ def test_trigger_blocks_terminal_draft_delete(
                 "DELETE FROM contract_drafts WHERE draft_id = ?",
                 (d.draft_id,),
             )
+
+
+# ---------------------------------------------------------------------------
+# Codex M-26 v10: clause-decision audit invariants + clause content immutable
+# ---------------------------------------------------------------------------
+
+
+def test_clause_check_blocks_approved_without_decided_by(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v9 finding: 'direct SQL UPDATE contract_clauses SET
+    decision=approved without decided_by/decided_at audit trail.'
+    v10 adds a CHECK binding decision='approved' to non-NULL
+    decided_by + decided_at."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_clauses SET decision = 'approved' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_clause_check_blocks_approved_with_empty_decided_by(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Empty-string decided_by is content-empty and must fail."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_clauses SET decision = 'approved', "
+                "decided_by = '', decided_at = 0.0 "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_clause_check_blocks_approved_without_decided_at(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """decision='approved' requires decided_at NOT NULL too."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_clauses SET decision = 'approved', "
+                "decided_by = 'bob' WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_clause_check_blocks_rejected_without_notes(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """decision='rejected' requires non-empty decision_notes (a
+    rejection without justification is a SOC2 violation)."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_clauses SET decision = 'rejected', "
+                "decided_by = 'bob', decided_at = 0.0 "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_clause_check_blocks_pending_with_decision_metadata(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """decision='pending' requires all decision metadata to be NULL.
+    Direct SQL can't write a half-decided clause."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            conn.execute(
+                "UPDATE contract_clauses SET decided_by = 'bob' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_trigger_blocks_clause_body_rewrite_after_creation(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Codex v9 finding: 'an already-approved clause body/title/
+    evidence binding can still be rewritten before final draft
+    approval, so the shipped approved contract can differ from
+    what the clause reviewer signed off on.' v10 makes clause
+    content immutable from INSERT-time onward."""
+    d = _create_basic(store)
+    c = _add_clause(store, d, title="Original", body="Original body text")
+    # Even before any decision, body shouldn't be rewriteable —
+    # there's no public 'edit clause' API.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET body = 'TAMPERED' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_trigger_blocks_clause_body_rewrite_after_decision(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """The exact v9 attack scenario: clause approved, then body
+    rewritten before final draft approval."""
+    d = _create_basic(store, submitter="usr_alice")
+    c = _add_clause(store, d, body="Reviewed body")
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    # Direct SQL rewrite of the approved clause's body.
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET body = 'DIFFERENT BODY' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_trigger_blocks_clause_title_rewrite(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Title is part of clause content; equally immutable."""
+    d = _create_basic(store)
+    c = _add_clause(store, d)
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET title = 'Different' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_trigger_blocks_clause_evidence_ids_rewrite(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """Evidence binding is part of clause content; equally
+    immutable. Rewriting evidence_ids would let an attacker change
+    what audit findings the clause was grounded on."""
+    d = _create_basic(store)
+    c = _add_clause(
+        store, d, evidence_ids=("ev_real",), claim_ids=("c_real",),
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET evidence_ids_json = ? "
+                "WHERE clause_id = ?",
+                ('["ev_fake"]', c.clause_id),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET claim_ids_json = ? "
+                "WHERE clause_id = ?",
+                ('["c_fake"]', c.clause_id),
+            )
+
+
+def test_trigger_blocks_combined_decision_and_body_change(
+    store: ContractDraftStore,
+    tmp_path: Path,
+) -> None:
+    """A single UPDATE that flips decision AND rewrites body must
+    fail. The freeze trigger fires on body change regardless of
+    OLD.decision, so the single-statement bypass is closed too."""
+    d = _create_basic(store)
+    c = _add_clause(store, d, body="Original")
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    with sqlite3.connect(tmp_path / "contracts.sqlite") as conn:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            conn.execute(
+                "UPDATE contract_clauses SET "
+                "decision = 'approved', decided_by = 'attacker', "
+                "decided_at = 0.0, body = 'DIFFERENT' "
+                "WHERE clause_id = ?",
+                (c.clause_id,),
+            )
+
+
+def test_decide_clause_legitimate_path_still_works(
+    store: ContractDraftStore,
+) -> None:
+    """Sanity check: the legitimate decide_clause flow still works
+    after v10 added clause content immutability + clause CHECK
+    invariants. decide_clause UPDATEs only decision/decided_by/
+    decision_notes/decided_at — never body/title — so the
+    immutability trigger never fires."""
+    d = _create_basic(store)
+    c = _add_clause(
+        store, d, title="Real", body="Real body",
+        evidence_ids=("ev_a",),
+    )
+    store.submit_for_approval(
+        draft_id=d.draft_id, org_id="org_a",
+        submitter_user_id="usr_alice",
+    )
+    decided = store.decide_clause(
+        clause_id=c.clause_id, org_id="org_a",
+        approver_user_id="bob",
+        decision=ClauseDecision.APPROVED, notes="ok",
+    )
+    assert decided.decision == ClauseDecision.APPROVED
+    # Original content unchanged.
+    assert decided.title == "Real"
+    assert decided.body == "Real body"
+    assert decided.evidence_ids == ("ev_a",)
