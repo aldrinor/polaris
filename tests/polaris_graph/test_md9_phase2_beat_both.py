@@ -584,6 +584,75 @@ def test_report_to_exit_code_green_returns_zero() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_regulatory_coverage_does_not_overmatch_path_substring() -> None:
+    """Codex round-1 MED fix (v2): regulatory matching parses host,
+    not the full URL. A URL like
+    `https://example.com/redirect?u=https://fda.gov/x` must NOT
+    score as regulatory coverage — its actual host is example.com.
+    """
+    manifest = {
+        "citations": [
+            "https://example.com/redirect?u=https://fda.gov/x",
+            "https://malicious-site.com/path/with/fda.gov/in/it",
+            "https://accessdata.fda.gov/drugsatfda_docs/label/2024/x.pdf",
+        ],
+    }
+    scores = score_run(manifest)
+    # Only the actual fda.gov host should count.
+    assert scores["regulatory_coverage"].value == 1.0
+
+
+def test_structural_depth_does_not_double_count_mirrored_paths() -> None:
+    """Codex round-1 MED fix (v2): structural_depth probes top-level
+    OR nested, not both. A manifest mirroring tables at both levels
+    must not double-count.
+    """
+    manifest = {
+        "tables": [{"id": "t1"}, {"id": "t2"}],
+        "sections": [{"id": "s1"}],
+        "report": {
+            "tables": [{"id": "t1"}, {"id": "t2"}],
+            "sections": [{"id": "s1"}],
+        },
+    }
+    scores = score_run(manifest)
+    # 2 tables + 1 section = 3, NOT 6
+    assert scores["structural_depth"].value == 3.0
+
+
+def test_structural_depth_falls_back_to_nested_when_top_empty() -> None:
+    """When top-level is empty, the nested path wins."""
+    manifest = {
+        "report": {
+            "tables": [{"id": "t1"}, {"id": "t2"}],
+            "sections": [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}],
+        },
+    }
+    scores = score_run(manifest)
+    assert scores["structural_depth"].value == 5.0
+
+
+def test_claim_frames_treats_zero_as_present_not_missing() -> None:
+    """Codex round-1 LOW fix (v2): a claim with `baseline=0.0` or
+    `endpoint=0.0` (legitimate measurement values) must count as
+    a complete claim. The v1 truthy check incorrectly treated 0.0
+    as missing.
+    """
+    manifest = {
+        "claims": [
+            # All four fields present with falsey-but-valid values:
+            {"n": 100, "baseline": 0.0, "endpoint": 0.0, "ci": "[0.0, 0.0]"},
+            # Genuinely missing CI:
+            {"n": 200, "baseline": 5.0, "endpoint": 3.0, "ci": None},
+            # All four present with normal values:
+            {"n": 50, "baseline": 7.5, "endpoint": 6.2, "ci": "[6.0, 6.5]"},
+        ],
+    }
+    scores = score_run(manifest)
+    # First and third are complete; second has ci=None.
+    assert scores["claim_frames"].value == 2.0
+
+
 def test_diff_rejects_non_dict_baseline() -> None:
     with pytest.raises(BeatBothScoringError, match="dict"):
         diff_dimension_scores("not a dict", {})  # type: ignore[arg-type]

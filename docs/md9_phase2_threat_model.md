@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v1 / 2026-04-28
+**Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (39 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (43 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -121,11 +121,23 @@ and returns 0.0 with a rationale when fields are missing:
   `report.citations`, `report.evidence` — first non-empty wins,
   with cross-path dedup
 - `_ClaimFramesScorer` checks `claims`, `verified_claims`,
-  `report.claims`
-- `_StructuralDepthScorer` sums `tables` + `sections` from
-  top-level OR `report.tables` + `report.sections`
+  `report.claims`. v2 (Codex round-1 LOW fix): "complete claim"
+  uses `key in claim and value is not None` rather than the v1
+  truthy check, so a populated `baseline=0.0` (legitimate)
+  counts as present, not missing.
+- `_StructuralDepthScorer`: v2 (Codex round-1 MED fix) probes
+  `tables` OR `report.tables` (first non-empty wins, NOT both)
+  and `sections` OR `report.sections` separately. v1 summed
+  both, double-counting when manifests mirrored fields at both
+  levels.
 - `_ContradictionHandlingScorer` and `_NarrativeLengthScorer`
   read `report.body` or `body`
+- `_RegulatoryCoverageScorer`: v2 (Codex round-1 MED fix)
+  parses the URL host and checks membership in
+  `_REGULATORY_HOSTS` rather than regex-searching the full URL.
+  v1 falsely scored `https://example.com/redirect?u=https://fda.gov/x`
+  as regulatory; v2 only counts a URL if its actual host is
+  regulatory.
 
 **Mitigation**: if downstream pipelines ship manifest schema
 v2 with new field names, scorers should be updated in v2 of

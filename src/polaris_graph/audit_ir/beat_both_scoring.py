@@ -194,31 +194,28 @@ def _get(manifest: dict[str, Any], *keys: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-# Regex pinning regulatory-domain hostnames. Conservative-explicit
-# so a domain hit means the source IS regulatory, not a marketing
-# subdomain. Matches what V17 audit identified as the gap surface.
-_REGULATORY_HOSTS_RE = re.compile(
-    r"""
-    (?:^|//|\.)
-    (?:
-        accessdata\.fda\.gov |
-        fda\.gov |
-        ema\.europa\.eu |
-        canada\.ca |               # health canada main
-        hc-sc\.gc\.ca |            # health canada legacy
-        recalls-rappels\.canada\.ca |
-        dhpp\.hpfb-dgpsa\.ca |
-        pdf\.hres\.ca |
-        pi\.lilly\.com |           # lilly prescribing info
-        nice\.org\.uk |            # NICE UK
-        cdc\.gov |
-        nih\.gov |
-        clinicaltrials\.gov
-    )
-    (?:/|$)
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
+# Codex round-1 MED fix (v2): regulatory matching now parses the
+# URL host and checks membership in `_REGULATORY_HOSTS`, not a
+# regex against the full URL. The v1 regex matched any URL whose
+# path or query string contained a regulatory hostname literal,
+# e.g. `https://example.com/redirect?u=https://fda.gov/x` falsely
+# scored as regulatory coverage. v2 only counts a URL as
+# regulatory if its actual host matches.
+_REGULATORY_HOSTS: frozenset[str] = frozenset({
+    "accessdata.fda.gov",
+    "fda.gov",
+    "ema.europa.eu",
+    "canada.ca",                      # health canada main
+    "hc-sc.gc.ca",                    # health canada legacy
+    "recalls-rappels.canada.ca",
+    "dhpp.hpfb-dgpsa.ca",
+    "pdf.hres.ca",
+    "pi.lilly.com",                   # lilly prescribing info
+    "nice.org.uk",                    # NICE UK
+    "cdc.gov",
+    "nih.gov",
+    "clinicaltrials.gov",
+})
 
 
 # Per-domain → jurisdiction map for the precision dimension.
@@ -308,7 +305,7 @@ class _RegulatoryCoverageScorer:
     def score(self, manifest: dict[str, Any]) -> DimensionScore:
         urls = _citation_urls(manifest)
         regulatory = tuple(
-            url for url in urls if _REGULATORY_HOSTS_RE.search(url)
+            url for url in urls if _host_of(url) in _REGULATORY_HOSTS
         )
         return DimensionScore(
             dimension=self.dimension,
@@ -373,8 +370,16 @@ class _ClaimFramesScorer:
                 if isinstance(entry, dict):
                     claims.append(entry)
         complete = 0
+        # Codex round-1 LOW fix (v2): use explicit "key in claim
+        # and value is not None" rather than `all(claim.get(key))`.
+        # The truthy check would treat a populated `baseline=0.0`
+        # or `endpoint=0.0` (legitimate baseline measurements) as
+        # missing.
         for claim in claims:
-            if all(claim.get(key) for key in self._FRAME_KEYS):
+            if all(
+                key in claim and claim[key] is not None
+                for key in self._FRAME_KEYS
+            ):
                 complete += 1
         return DimensionScore(
             dimension=self.dimension,
@@ -400,14 +405,25 @@ class _StructuralDepthScorer:
     higher_is_better: bool = True
 
     def score(self, manifest: dict[str, Any]) -> DimensionScore:
+        # Codex round-1 MED fix (v2): probe top-level OR nested,
+        # NOT both. v1 summed both paths, double-counting when a
+        # manifest mirrored tables/sections at both levels (which
+        # contradicted the threat-model "OR" wording). Use the
+        # first-non-empty-wins pattern matching `_citation_urls`.
         table_count = 0
         for path in (("tables",), ("report", "tables")):
             bag = _get(manifest, *path)
-            table_count += len(_coerce_iterable(bag))
+            entries = _coerce_iterable(bag)
+            if entries:
+                table_count = len(entries)
+                break
         section_count = 0
         for path in (("sections",), ("report", "sections")):
             bag = _get(manifest, *path)
-            section_count += len(_coerce_iterable(bag))
+            entries = _coerce_iterable(bag)
+            if entries:
+                section_count = len(entries)
+                break
         depth = table_count + section_count
         return DimensionScore(
             dimension=self.dimension,
