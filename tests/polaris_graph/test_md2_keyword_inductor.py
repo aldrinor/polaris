@@ -126,6 +126,59 @@ def test_word_boundary_prevents_double_count() -> None:
     assert v.decision == "abstain"
 
 
+def test_ira_clean_energy_query_abstains() -> None:
+    """Codex round-2 fix: bare "Inflation Reduction Act" is too
+    broad as an anchor — IRA covers clean energy, EVs, drug
+    pricing. Demoted to support; only narrow 'ira drug price'
+    style anchors qualify."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How does the Inflation Reduction Act (IRA) clean energy "
+        "tax credit interact with state RPS mandates?"
+    )
+    # Should abstain — only support keyword "inflation reduction
+    # act" + "ira" match, no anchor.
+    assert v.decision == "abstain"
+
+
+def test_ira_drug_price_anchored_query_accepts() -> None:
+    """Counter-test for the IRA narrowing: a legitimate drug-pricing
+    IRA query should still accept via the narrow anchor variant."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How does the IRA drug price negotiation timeline affect Part D drugs?"
+    )
+    assert v.decision == "accept"
+    assert getattr(v.induced_contract, "slug", "") == "policy_medicare_drug_price"
+
+
+def test_hospital_reimbursement_no_longer_disqualifies() -> None:
+    """Codex round-2 fix: "hospital reimbursement" was too blunt
+    as a disqualifier — it false-blocked legitimate Medicare
+    drug-pricing queries that mention hospital administration
+    of Part D drugs. Removed; narrower device-specific
+    disqualifiers ("insulin pump", "DME") kept."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How will Medicare drug price negotiation affect hospital "
+        "reimbursement for Part D oncology drugs?"
+    )
+    # Anchor "medicare drug price" + "drug price negotiation" both
+    # match; topic IS drug pricing. Should accept.
+    assert v.decision == "accept"
+    assert getattr(v.induced_contract, "slug", "") == "policy_medicare_drug_price"
+
+
+def test_insulin_pump_still_disqualifies() -> None:
+    """Counter-test: device-specific disqualifiers must still fire
+    on the original off-template adversarial."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "CMS reimbursement rules for insulin pumps under Medicare Advantage"
+    )
+    assert v.decision == "abstain"
+
+
 def test_paraphrase_robustness() -> None:
     """Different surface forms of the same clinical question with
     >=2 matched keywords should all route to the same slug.

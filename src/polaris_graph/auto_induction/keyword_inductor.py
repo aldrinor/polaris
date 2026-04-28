@@ -109,14 +109,17 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
         slug="policy_medicare_drug_price",
         anchor_keywords=(
             # Anchored phrases that ONLY make sense in the Medicare
-            # drug-price context. Multiple gerund / noun variants
-            # of "drug price negotiation" — Codex round-1 found
-            # gerund-form "drug pricing negotiation" was missed.
+            # drug-price context. Codex round-2 fix: removed bare
+            # "inflation reduction act" because IRA covers many
+            # things (clean energy, EVs, tax credits). Kept
+            # narrower "ira drug price" / "ira drug pricing" /
+            # "inflation reduction act drug" variants.
             "medicare drug price",
             "medicare drug pricing",
             "drug price negotiation",
             "drug pricing negotiation",
-            "inflation reduction act",
+            "inflation reduction act drug price",
+            "inflation reduction act drug pricing",
             "ira drug price",
             "ira drug pricing",
             "maximum fair price",
@@ -139,6 +142,7 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             "drug pricing",
             "negotiation",
             "ira",
+            "inflation reduction act",  # demoted from anchor (Codex round-2)
         ),
         disqualify_keywords=(
             # Codex round-1: "How do PBM rebates affect
@@ -150,11 +154,15 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             "commercial insurance",
             "commercial plan",
             # CMS does many non-drug things (DME reimbursement,
-            # hospital payment, MA plan rules). Disqualify when
-            # the topic is clearly not drug pricing.
+            # MA plan device rules). Disqualifiers narrowed to
+            # device-specific terms (Codex round-2 fix: removed
+            # "hospital reimbursement" because it false-blocked
+            # legitimate Medicare drug-pricing queries that
+            # mention hospital admin of Part D drugs).
             "insulin pump",
             "durable medical equipment",
-            "hospital reimbursement",
+            "dme reimbursement",
+            "device reimbursement",
         ),
     ),
 )
