@@ -111,17 +111,28 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             # Anchored phrases that ONLY make sense in the Medicare
             # drug-price context. Codex round-2 fix: removed bare
             # "inflation reduction act" because IRA covers many
-            # things (clean energy, EVs, tax credits). Kept
-            # narrower "ira drug price" / "ira drug pricing" /
-            # "inflation reduction act drug" variants.
+            # things (clean energy, EVs, tax credits).
+            #
+            # Codex round-3 fix: added IRA + drug-program-context
+            # anchors so queries like "How will IRA provisions
+            # affect Part D formulary design?" route correctly
+            # without requiring the literal phrase "drug price".
+            # The anchor list is now multi-form: explicit drug-
+            # pricing phrases AND IRA-coupled-with-drug-program
+            # phrases.
             "medicare drug price",
             "medicare drug pricing",
             "drug price negotiation",
             "drug pricing negotiation",
             "inflation reduction act drug price",
             "inflation reduction act drug pricing",
+            "inflation reduction act negotiation",
+            "inflation reduction act provisions",
             "ira drug price",
             "ira drug pricing",
+            "ira negotiation",
+            "ira negotiated",
+            "ira provisions",
             "maximum fair price",
             "negotiated drug price",
             "negotiated price",
@@ -159,10 +170,17 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             # "hospital reimbursement" because it false-blocked
             # legitimate Medicare drug-pricing queries that
             # mention hospital admin of Part D drugs).
+            #
+            # Codex round-3 fix: added plural variants. Word-
+            # boundary regex doesn't match "insulin pump" inside
+            # "insulin pumps" — both forms must be listed.
             "insulin pump",
+            "insulin pumps",
             "durable medical equipment",
             "dme reimbursement",
+            "dme reimbursements",
             "device reimbursement",
+            "device reimbursements",
         ),
     ),
 )

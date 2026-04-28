@@ -179,6 +179,53 @@ def test_insulin_pump_still_disqualifies() -> None:
     assert v.decision == "abstain"
 
 
+def test_round3_ira_provisions_part_d_accepts() -> None:
+    """Codex round-3 fix: 'IRA provisions affect Part D formulary'
+    style queries had no anchor after round-2 demotion of
+    'inflation reduction act'. Round 3 added 'ira provisions' /
+    'ira negotiation' anchors to cover these phrasings."""
+    inductor = KeywordInductor()
+    queries = [
+        "How will IRA provisions affect Part D formulary design?",
+        "How will IRA negotiated prices affect Part D formularies?",
+        (
+            "What is the Inflation Reduction Act negotiation timeline "
+            "for Medicare Part D drugs?"
+        ),
+    ]
+    for q in queries:
+        v = inductor.induce(q)
+        assert v.decision == "accept", f"expected accept for {q!r}, got {v}"
+        assert (
+            getattr(v.induced_contract, "slug", "") == "policy_medicare_drug_price"
+        )
+
+
+def test_round3_insulin_pumps_plural_disqualifies() -> None:
+    """Codex round-3 fix: 'insulin pump' (singular) didn't match
+    'insulin pumps' (plural) under word-boundary regex. Added
+    plural variant. With anchor-bearing query, this is the real
+    regression test — anchors would otherwise force accept."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How will Medicare drug price negotiation affect "
+        "insulin pumps under Part D?"
+    )
+    # Despite anchor "medicare drug price" + "drug price negotiation"
+    # both matching, the disqualifier "insulin pumps" forces abstain.
+    assert v.decision == "abstain"
+
+
+def test_round3_dme_reimbursements_plural_disqualifies() -> None:
+    """Plural variant of DME disqualifier."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How does Medicare drug price negotiation interact with "
+        "DME reimbursements for Part D supplies?"
+    )
+    assert v.decision == "abstain"
+
+
 def test_paraphrase_robustness() -> None:
     """Different surface forms of the same clinical question with
     >=2 matched keywords should all route to the same slug.
