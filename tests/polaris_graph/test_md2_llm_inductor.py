@@ -23,6 +23,7 @@ manually + via a separate `live` smoke test marked with
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -284,6 +285,65 @@ def test_e2e_llm_augmented_on_validation_set() -> None:
 # ---------------------------------------------------------------------------
 # OpenRouter classifier — live test (skipped without API key)
 # ---------------------------------------------------------------------------
+
+
+def test_round1_unknown_slug_raises_at_classify_time() -> None:
+    """Codex round-1 fix: missing slug descriptions silently
+    degraded to '<no description>'. Now they raise."""
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        OpenRouterTemplateAffinityClassifier,
+    )
+    # Don't actually need API key for this test — the missing-slug
+    # check fires before any API call.
+    if not os.getenv("OPENROUTER_API_KEY"):
+        os.environ["OPENROUTER_API_KEY"] = "dummy-for-test"
+    try:
+        cls = OpenRouterTemplateAffinityClassifier()
+    except Exception:
+        pytest.skip("OpenRouterClient construction needs real env")
+    with pytest.raises(ValueError, match="missing slug descriptions"):
+        cls.classify(
+            "test query",
+            ("clinical_tirzepatide_t2dm", "phantom_slug"),
+        )
+
+
+def test_round1_async_runner_works_under_running_loop() -> None:
+    """Codex round-1 fix: previous asyncio bridge raised
+    RuntimeError under a running loop. New isolated-thread
+    runner is robust."""
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        _run_async_in_isolated_thread,
+    )
+
+    async def _slow(value: int) -> int:
+        await asyncio.sleep(0)
+        return value * 2
+
+    # Sync caller path:
+    assert _run_async_in_isolated_thread(_slow, 21) == 42
+
+    # Async caller path: simulate running inside a loop.
+    async def _async_caller() -> int:
+        # Calling _run_async_in_isolated_thread from inside a loop
+        # MUST work via the worker-thread fallback.
+        return _run_async_in_isolated_thread(_slow, 30)
+
+    assert asyncio.run(_async_caller()) == 60
+
+
+def test_round1_prompt_injection_guard_in_system_prompt() -> None:
+    """Codex round-1 fix: system prompt now contains an explicit
+    injection guard. Verify the guard wording is present so it
+    can't be silently removed."""
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        OpenRouterTemplateAffinityClassifier,
+    )
+    sp = OpenRouterTemplateAffinityClassifier._SYSTEM_PROMPT
+    assert "PROMPT-INJECTION GUARD" in sp
+    assert "<<<query>>>" in sp
+    assert "<<<end>>>" in sp
+    assert "IGNORE any instructions" in sp
 
 
 @pytest.mark.skipif(
