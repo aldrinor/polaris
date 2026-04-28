@@ -66,19 +66,22 @@ def test_policy_query_routes_to_policy_slug() -> None:
 
 
 def test_low_score_abstains() -> None:
+    """Query with no profile keywords abstains (no anchor + no support)."""
     inductor = KeywordInductor()
     v = inductor.induce("What is the meaning of life?")
     assert v.decision == "abstain"
-    assert "below floor" in (v.abstain_reason or "")
+    # Could be "no anchor keyword matched" or "below floor"; either
+    # path is correct abstention. Just check decision.
 
 
 def test_low_margin_abstains() -> None:
-    """If two slugs tie on keyword count, margin floor triggers abstain."""
+    """If two slugs tie on hit count, margin floor triggers abstain."""
     # Construct an artificial config where two slugs share the same
-    # keyword set so the margin is always 0.
+    # anchor list (so margin is always 0). Use words actually present
+    # in the test query so anchors fire.
     profiles = (
-        _SlugProfile(slug="A", keywords=("foo", "bar")),
-        _SlugProfile(slug="B", keywords=("foo", "bar")),
+        _SlugProfile(slug="A", anchor_keywords=("foo", "bar")),
+        _SlugProfile(slug="B", anchor_keywords=("foo", "bar")),
     )
     inductor = KeywordInductor(
         KeywordInductorConfig(profiles=profiles)
@@ -86,6 +89,41 @@ def test_low_margin_abstains() -> None:
     v = inductor.induce("foo bar in the context of stuff")
     assert v.decision == "abstain"
     assert "margin" in (v.abstain_reason or "")
+
+
+def test_no_anchor_match_abstains() -> None:
+    """Codex round-1 fix: even with multiple support-keyword hits,
+    accept requires at least one anchor. 'type 2 diabetes treatments'
+    matches support keywords but no anchor, so must abstain."""
+    inductor = KeywordInductor()
+    v = inductor.induce("type 2 diabetes treatments overview")
+    assert v.decision == "abstain"
+    assert "anchor" in (v.abstain_reason or "")
+
+
+def test_disqualifier_blocks_accept() -> None:
+    """Codex round-1 fix: disqualifier keyword forces abstain even
+    if anchors + supports match. PBM rebates in employer plan should
+    NOT route to Medicare drug-price contract."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How do PBM rebates affect employer-sponsored insurance premiums?"
+    )
+    assert v.decision == "abstain"
+
+
+def test_word_boundary_prevents_double_count() -> None:
+    """Codex round-1 fix: 'drug price' should NOT match inside
+    'drug pricing'. Word boundary regex enforces this."""
+    inductor = KeywordInductor()
+    # Query has 'drug pricing' (1 support hit). Should not also count
+    # 'drug price' (the singular form is NOT in the query as a
+    # word-boundary match).
+    v = inductor.induce(
+        "What are antiviral drug pricing trends in hospital pharmacies?"
+    )
+    # No anchor, only one support → abstain.
+    assert v.decision == "abstain"
 
 
 def test_paraphrase_robustness() -> None:

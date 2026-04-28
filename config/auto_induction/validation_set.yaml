@@ -145,6 +145,46 @@ ambiguous:
     expected_action: abstain
     reason: "Two-part query (clinical evidence + pricing) crosses templates. Operator must split into two independent runs."
 
+  # Codex round-1 review additions: on-domain off-template adversarial
+  # negatives. These match SOME keywords from one template's profile
+  # but the question is NOT about that template's specific subject.
+  # The inductor must abstain rather than over-route.
+
+  - case_id: amb-09
+    query: "How effective is semaglutide for non-diabetic obesity?"
+    expected_action: abstain
+    reason: "On-domain adversarial: mentions 'semaglutide' (clinical_tirzepatide_t2dm support keyword) but the question is about obesity in non-diabetic patients, not the T2DM contract. No tirzepatide anchor present."
+
+  - case_id: amb-10
+    query: "Ozempic side effects in weight-loss-only use"
+    expected_action: abstain
+    reason: "On-domain adversarial: 'Ozempic' is in the clinical support keywords as a comparator, but the question is non-T2DM weight-loss safety. The clinical_tirzepatide_t2dm contract doesn't cover this scope."
+
+  - case_id: amb-11
+    query: "How do PBM rebates affect employer-sponsored insurance premiums?"
+    expected_action: abstain
+    reason: "On-domain adversarial: 'PBM' + 'rebate' match policy support keywords but the topic is commercial / employer-plan economics, not Medicare drug-price negotiation. Disqualifier 'employer-sponsored' should fire."
+
+  - case_id: amb-12
+    query: "CMS reimbursement rules for insulin pumps under Medicare Advantage"
+    expected_action: abstain
+    reason: "On-domain adversarial: 'CMS' + 'Medicare' + 'Medicare Advantage' all match support but the topic is durable medical equipment reimbursement, not drug-price negotiation. Disqualifier 'insulin pump' should fire."
+
+  - case_id: amb-13
+    query: "Antiviral drug pricing trends in hospital pharmacy budgets"
+    expected_action: abstain
+    reason: "On-domain adversarial: 'drug pricing' matches the support keyword but the topic is hospital pharmacy economics, not Medicare drug-price negotiation. No anchor keyword (medicare drug price / IRA / negotiated price) present."
+
+  - case_id: amb-14
+    query: "Type 2 diabetes treatment landscape in 2025"
+    expected_action: abstain
+    reason: "On-domain adversarial: 'type 2 diabetes' + 'diabetes' match clinical support keywords but no specific drug anchor (tirzepatide / Mounjaro / SURPASS) is named. The query is too broad for the tirzepatide-specific contract."
+
+  - case_id: amb-15
+    query: "Drug price transparency at the state level vs federal IRA implementation"
+    expected_action: abstain
+    reason: "Mixed-jurisdiction policy query: 'IRA' anchors policy template but adds state-level scope which the curator contract doesn't cover. Operator should split into federal vs state runs."
+
 out_of_scope:
   # ──────────────────────────────────────────────────────────────────
   # Domains with NO curated template (until M-D6 cross-domain ships).

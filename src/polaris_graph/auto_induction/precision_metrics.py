@@ -259,15 +259,20 @@ def run_benchmark(
     abstain_total = 0
 
     for case in validation_set.all_cases:
-        verdict = inductor.induce(case.query)
+        raw_verdict = inductor.induce(case.query)
 
         # Codex round-1: confidence threshold downgrades accept to abstain.
-        effective_decision = verdict.decision
+        # Codex M-D2 round-1: store the EFFECTIVE verdict in
+        # case_results when downgrading, so downstream consumers see
+        # consistent (verdict.decision, comparison) tuples. Previously
+        # case_results stored raw verdict (decision='accept') alongside
+        # comparison=None for downgraded cases, which was confusing.
+        effective_decision = raw_verdict.decision
         if (
-            verdict.decision == "accept"
+            raw_verdict.decision == "accept"
             and confidence_threshold is not None
-            and verdict.confidence is not None
-            and verdict.confidence < confidence_threshold
+            and raw_verdict.confidence is not None
+            and raw_verdict.confidence < confidence_threshold
         ):
             effective_decision = "abstain"
 
@@ -275,7 +280,22 @@ def run_benchmark(
             abstain_total += 1
             if case.expected_action == "abstain":
                 abstain_correct += 1
-            case_results.append((case, verdict, None))
+            # If raw was accept but downgraded, build a synthetic
+            # abstain verdict so case_results reflects what was
+            # actually counted in the metrics.
+            if raw_verdict.decision != "abstain":
+                effective_verdict = InductorVerdict(
+                    decision="abstain",
+                    confidence=raw_verdict.confidence,
+                    abstain_reason=(
+                        f"confidence_threshold downgrade: "
+                        f"{raw_verdict.confidence:.3f} < "
+                        f"{confidence_threshold}"
+                    ),
+                )
+            else:
+                effective_verdict = raw_verdict
+            case_results.append((case, effective_verdict, None))
             continue
 
         # decision == "accept"
@@ -284,18 +304,18 @@ def run_benchmark(
             assert case.curator_contract_slug is not None
             curator = _load_curator_contract(case.curator_contract_slug)
             cmp = compare_contracts(
-                curator, verdict.induced_contract,
+                curator, raw_verdict.induced_contract,
             )
             if cmp.match_score >= tau:
                 in_scope_match_at_tau += 1
             else:
                 in_scope_silent_disagreements += 1
-            case_results.append((case, verdict, cmp))
+            case_results.append((case, raw_verdict, cmp))
         else:
             # Inductor accepted a case it should have abstained on.
             # No comparison meaningful (no curator contract for
             # ambiguous/out_of_scope).
-            case_results.append((case, verdict, None))
+            case_results.append((case, raw_verdict, None))
 
     metrics = PrecisionMetrics(
         total_cases=validation_set.total,
