@@ -25,10 +25,13 @@ the schema + capture; phase 2 ships:
 
 ## Phase 2 v1 boundaries (per `docs/md11_phase2_threat_model.md`)
 
-1. **Single-threaded.** os.environ mutation is process-global.
-   Two concurrent replays will stomp each other. Phase 2 v1 is
-   single-threaded; phase-2-of-phase-2 may add a process-pool
-   isolation later.
+1. **Single-threaded — enforced.** os.environ mutation is
+   process-global. Same-process concurrent or nested replays
+   raise `ConcurrentReplayError` (round-1 fix in v2: a
+   module-level non-reentrant `threading.Lock` acquired at
+   `apply_replay_plan` entry, released in finally). Misuse
+   is loud, not a silent stomp. Phase-2-of-phase-2 may add
+   subprocess isolation so concurrent replays become safe.
 
 2. **Prompt-hash is verification-only, not restoration.**
    `pin.prompt_version_hashes` records SHA-256 hashes — enough

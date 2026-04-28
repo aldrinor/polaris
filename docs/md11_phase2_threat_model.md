@@ -35,26 +35,45 @@ Phase 2 v2 (deferred):
 
 ---
 
-## Phase 2 v1 boundaries (NOT FIXED — DELIBERATE)
+## Phase 2 v1 boundaries
 
-### 1. Single-threaded only
+Boundaries 2-5 are deliberate phase 1 cuts (deferred to phase
+2 of phase 2). Boundary 1 is **enforced** at runtime — misuse
+fails closed.
 
-`os.environ` is process-global. Two concurrent replays of
-different pins WILL stomp each other's env state. The
-`apply_replay_plan` context manager is reversible *for the
-caller's pin* — but if a second pin's apply runs inside the
-first's `with` block, the second's prior-state snapshot
-captures the first pin's mutations, so the restore on inner
-exit lands the env back at the FIRST pin's values, not
-pre-replay.
+### 1. Single-threaded — enforced via lock
 
-The included test `test_concurrent_replays_stomp_each_other_
-documented_boundary` exercises this empirically as
-documentation.
+`os.environ` is process-global. Same-process concurrent or
+nested replays would stomp each other's env state. v2
+(round-1 fix on commit 1ba9144) enforces single-threaded
+operation via a module-level non-reentrant
+`threading.Lock` (`_REPLAY_LOCK`):
 
-**Mitigation**: phase 2 v2 may add a process-pool isolation
-pattern (worker subprocess per replay). Until then, callers
-must serialize replays.
+- `apply_replay_plan` acquires the lock non-blocking at entry
+- If contended (another replay is active in this process), it
+  raises `ConcurrentReplayError` immediately
+- The lock is released in `finally` — both on normal exit and
+  on exceptions inside the `with` block
+
+Tests covering this:
+- `test_nested_replay_raises_concurrent_replay_error` —
+  inner-block re-entry hits ConcurrentReplayError
+- `test_concurrent_replays_serialize_via_lock` — two threads
+  racing apply: one wins, the other gets
+  ConcurrentReplayError
+- `test_lock_released_after_replay_exit` — sequential replays
+  work
+- `test_lock_released_after_exception` — exception inside
+  with-block doesn't leak the lock
+
+**Mitigation for legitimate concurrency**: phase 2 v2 may add
+subprocess-per-replay isolation so multiple pins can replay
+in parallel. Each subprocess has its own `os.environ` and its
+own module-level lock; the cross-process boundary is what
+makes parallel replay safe.
+
+Until then, callers must serialize replays — the lock-driven
+hard error is the enforcement, not just documentation.
 
 ### 2. Prompt-hash is verification-only, not restoration
 
