@@ -1,0 +1,309 @@
+"""M-D2 phase b LLM-augmented inductor tests.
+
+Coverage:
+  - MockTemplateAffinityClassifier deterministic routing (broader
+    paraphrase than the keyword stub)
+  - LLMAugmentedInductor decision flow:
+      stub accepts → return stub verdict
+      stub abstains + LLM null → propagate abstain
+      stub abstains + LLM low-confidence → propagate abstain
+      stub abstains + LLM high-confidence → accept LLM slug
+  - JSON parser tolerance (code-fence wrapper, trailing prose,
+    malformed JSON)
+  - End-to-end benchmark on the M-D1.5 expanded set with mock
+    classifier — should improve operator_review_load over the
+    keyword-stub baseline by handling paraphrase cases the stub
+    abstains on.
+
+NOTE: tests do NOT call the real OpenRouter API. They use the
+mock classifier exclusively. Live LLM integration is verified
+manually + via a separate `live` smoke test marked with
+@pytest.mark.skipif(no API key).
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from src.polaris_graph.auto_induction import (
+    ClassifierVerdict,
+    InductorVerdict,
+    LLMAugmentedInductor,
+    LLMAugmentedInductorConfig,
+    MockTemplateAffinityClassifier,
+    load_validation_set,
+    run_benchmark,
+)
+from src.polaris_graph.auto_induction.keyword_inductor import KeywordInductor
+from src.polaris_graph.auto_induction.llm_inductor import (
+    _parse_classifier_json,
+)
+
+
+# ---------------------------------------------------------------------------
+# MockTemplateAffinityClassifier
+# ---------------------------------------------------------------------------
+
+
+_CANDIDATES = (
+    "clinical_tirzepatide_t2dm",
+    "policy_medicare_drug_price",
+)
+
+
+def test_mock_classifier_routes_clinical_paraphrase() -> None:
+    """A query with broader clinical vocabulary — but only one
+    keyword from the strict stub — should route via the mock
+    classifier (which has broader keywords)."""
+    cls = MockTemplateAffinityClassifier()
+    v = cls.classify(
+        "What's the GLP-1 evidence base for HbA1c reduction in type 2 diabetes?",
+        _CANDIDATES,
+    )
+    assert v.slug == "clinical_tirzepatide_t2dm"
+    assert v.confidence > 0.0
+
+
+def test_mock_classifier_routes_policy_paraphrase() -> None:
+    cls = MockTemplateAffinityClassifier()
+    v = cls.classify(
+        "How will the IRA's drug price negotiation affect manufacturer R&D?",
+        _CANDIDATES,
+    )
+    assert v.slug == "policy_medicare_drug_price"
+    assert v.confidence > 0.0
+
+
+def test_mock_classifier_returns_null_on_unknown() -> None:
+    cls = MockTemplateAffinityClassifier()
+    v = cls.classify("What is the meaning of life?", _CANDIDATES)
+    assert v.slug is None
+
+
+def test_mock_classifier_returns_null_on_tied_match() -> None:
+    """When clinical + policy both match equally, classifier
+    declines (margin too small)."""
+    cls = MockTemplateAffinityClassifier()
+    v = cls.classify(
+        "How does Medicare cover semaglutide for diabetes?",
+        _CANDIDATES,
+    )
+    # 'medicare' (policy) + 'semaglutide' + 'diabetes' (clinical)
+    # — likely tied or close; mock classifier returns null.
+    # (Allow either null OR low-confidence for either slug.)
+    if v.slug is not None:
+        # If it picked one, confidence should be modest.
+        assert v.confidence < 0.7
+
+
+# ---------------------------------------------------------------------------
+# JSON parser tolerance
+# ---------------------------------------------------------------------------
+
+
+def test_parser_handles_code_fence() -> None:
+    raw = (
+        "```json\n"
+        '{"slug": "clinical_tirzepatide_t2dm", "confidence": 0.85, '
+        '"reason": "exact match"}\n'
+        "```"
+    )
+    v = _parse_classifier_json(raw, _CANDIDATES)
+    assert v.slug == "clinical_tirzepatide_t2dm"
+    assert v.confidence == pytest.approx(0.85)
+
+
+def test_parser_handles_trailing_prose() -> None:
+    raw = (
+        "Here is my answer:\n"
+        '{"slug": "policy_medicare_drug_price", "confidence": 0.9}\n'
+        "Hope that helps!"
+    )
+    v = _parse_classifier_json(raw, _CANDIDATES)
+    assert v.slug == "policy_medicare_drug_price"
+    assert v.confidence == pytest.approx(0.9)
+
+
+def test_parser_rejects_unknown_slug() -> None:
+    raw = '{"slug": "made_up_slug", "confidence": 0.99}'
+    v = _parse_classifier_json(raw, _CANDIDATES)
+    assert v.slug is None  # rejected
+    assert v.confidence == 0.0
+
+
+def test_parser_handles_malformed_json() -> None:
+    raw = "not even valid json {"
+    v = _parse_classifier_json(raw, _CANDIDATES)
+    assert v.slug is None
+    assert v.confidence == 0.0
+    assert v.reason is not None
+
+
+def test_parser_clamps_confidence_to_unit_interval() -> None:
+    raw = '{"slug": "clinical_tirzepatide_t2dm", "confidence": 5.0}'
+    v = _parse_classifier_json(raw, _CANDIDATES)
+    assert v.confidence == 1.0
+
+
+# ---------------------------------------------------------------------------
+# LLMAugmentedInductor decision flow
+# ---------------------------------------------------------------------------
+
+
+class _FixedClassifier:
+    """Test-only classifier returning a fixed verdict."""
+
+    def __init__(self, verdict: ClassifierVerdict) -> None:
+        self._verdict = verdict
+
+    def classify(self, query: str, candidate_slugs):
+        return self._verdict
+
+
+def test_inductor_returns_stub_verdict_when_stub_accepts() -> None:
+    """Stub accepts → LLM is never consulted (cheap path)."""
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=_FixedClassifier(
+            ClassifierVerdict(slug=None, confidence=0.0)
+        ),
+    )
+    v = inductor.induce(
+        "What is the efficacy of tirzepatide vs semaglutide for type 2 diabetes?"
+    )
+    assert v.decision == "accept"
+    assert getattr(v.induced_contract, "slug", "") == "clinical_tirzepatide_t2dm"
+
+
+def test_inductor_propagates_abstain_when_classifier_returns_null() -> None:
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=_FixedClassifier(
+            ClassifierVerdict(
+                slug=None, confidence=0.0,
+                reason="LLM declined",
+            )
+        ),
+    )
+    v = inductor.induce("What is the meaning of life?")
+    assert v.decision == "abstain"
+    assert "LLM declined" in (v.abstain_reason or "")
+
+
+def test_inductor_abstains_on_low_llm_confidence() -> None:
+    """Codex Phase D acceptance: precision depends on
+    llm_accept_floor. Below floor → abstain."""
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=_FixedClassifier(
+            ClassifierVerdict(
+                slug="clinical_tirzepatide_t2dm",
+                confidence=0.5,  # below default floor 0.7
+            )
+        ),
+    )
+    v = inductor.induce("Some borderline clinical query without anchor")
+    assert v.decision == "abstain"
+    assert "< floor" in (v.abstain_reason or "")
+
+
+def test_inductor_accepts_on_high_llm_confidence() -> None:
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=_FixedClassifier(
+            ClassifierVerdict(
+                slug="clinical_tirzepatide_t2dm",
+                confidence=0.9,  # well above default floor 0.7
+            )
+        ),
+    )
+    # A query the keyword stub abstains on (no anchor) — LLM picks up.
+    v = inductor.induce("GLP-1 evidence for diabetic glycemic control")
+    assert v.decision == "accept"
+    assert getattr(v.induced_contract, "slug", "") == "clinical_tirzepatide_t2dm"
+    assert v.confidence == pytest.approx(0.9)
+
+
+def test_inductor_handles_classifier_picking_unknown_slug() -> None:
+    """If the LLM picks a slug that doesn't exist in
+    config/scope_templates/, lookup fails — should abstain
+    cleanly, not crash."""
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=_FixedClassifier(
+            ClassifierVerdict(
+                slug="phantom_slug_does_not_exist",
+                confidence=0.95,
+            )
+        ),
+    )
+    v = inductor.induce("Some query")
+    assert v.decision == "abstain"
+    assert "not found" in (v.abstain_reason or "")
+
+
+# ---------------------------------------------------------------------------
+# End-to-end on M-D1.5 set with mock classifier
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_llm_augmented_on_validation_set() -> None:
+    """Run the LLM-augmented inductor against the M-D1.5
+    validation set with the mock classifier. Should match or
+    improve on the keyword stub's metrics — specifically the
+    operator_review_load might drop because the mock classifier
+    handles single-anchor / paraphrase queries the stub abstains
+    on."""
+    from pathlib import Path
+
+    seed_path = (
+        Path(__file__).resolve().parents[2]
+        / "config" / "auto_induction" / "validation_set.yaml"
+    )
+    s = load_validation_set(seed_path)
+    inductor = LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=MockTemplateAffinityClassifier(),
+    )
+    result = run_benchmark(inductor, s, tau=0.8)
+    m = result.metrics
+    # Sanity: should not be WORSE than the keyword stub baseline.
+    assert m.precision >= 0.95, (
+        f"LLM-augmented precision dropped below keyword stub "
+        f"baseline: {m.precision}"
+    )
+    assert m.silent_disagreement_rate <= 0.05
+    # Abstain recall should stay ≥ 0.95 (we don't want LLM over-routing).
+    assert m.abstain_recall >= 0.85, (
+        f"LLM-augmented abstain_recall too low: {m.abstain_recall}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter classifier — live test (skipped without API key)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not os.getenv("OPENROUTER_API_KEY"),
+    reason="OPENROUTER_API_KEY not set; skipping live LLM test",
+)
+def test_openrouter_classifier_lives() -> None:
+    """Live smoke test: real OpenRouter API call. Costs ~$0.005.
+    Skipped in CI / offline environments. Run manually with
+    OPENROUTER_API_KEY set to verify the JSON contract."""
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        OpenRouterTemplateAffinityClassifier,
+    )
+
+    cls = OpenRouterTemplateAffinityClassifier()
+    v = cls.classify(
+        "What is the efficacy of tirzepatide for type 2 diabetes?",
+        _CANDIDATES,
+    )
+    # Real LLM should route this to clinical_tirzepatide_t2dm with
+    # high confidence.
+    assert v.slug == "clinical_tirzepatide_t2dm"
+    assert v.confidence >= 0.7

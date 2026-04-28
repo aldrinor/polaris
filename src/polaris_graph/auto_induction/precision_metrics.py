@@ -61,6 +61,13 @@ class InductorVerdict:
       - "abstain": inductor declined to produce a contract; the
         runtime should fall back to operator review.
 
+    `is_terminal`: when True on an abstain, the verdict is FINAL
+    — downstream wrappers (e.g. LLMAugmentedInductor) must NOT
+    override it. Used by the keyword stub to signal disqualifier
+    hits (semantically "I know this is out of scope") vs ordinary
+    low-confidence abstains (where an LLM might legitimately
+    have more information). Default False = override allowed.
+
     Codex round-1 review fix: validate decision + enforce shape
     invariants. Previously any non-'abstain' string was treated as
     accept silently.
@@ -70,6 +77,7 @@ class InductorVerdict:
     induced_contract: Any | None = None
     confidence: float | None = None
     abstain_reason: str | None = None
+    is_terminal: bool = False
 
     def __post_init__(self) -> None:
         if self.decision not in ("accept", "abstain"):

@@ -50,13 +50,28 @@ from src.polaris_graph.auto_induction.precision_metrics import (
     run_benchmark,
 )
 
+from src.polaris_graph.auto_induction.llm_inductor import (
+    ClassifierVerdict,
+    LLMAugmentedInductor,
+    LLMAugmentedInductorConfig,
+    MockTemplateAffinityClassifier,
+    OpenRouterTemplateAffinityClassifier,
+    TemplateAffinityClassifier,
+)
+
 __all__ = [
     "BenchmarkResult",
+    "ClassifierVerdict",
     "ContractComparison",
     "InductorProtocol",
     "InductorVerdict",
     "InductorVerdictError",
+    "LLMAugmentedInductor",
+    "LLMAugmentedInductorConfig",
+    "MockTemplateAffinityClassifier",
+    "OpenRouterTemplateAffinityClassifier",
     "PrecisionMetrics",
+    "TemplateAffinityClassifier",
     "ValidationCase",
     "ValidationSet",
     "compare_contracts",

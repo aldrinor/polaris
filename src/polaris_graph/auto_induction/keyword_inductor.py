@@ -243,16 +243,19 @@ class KeywordInductor:
 
     def _score_slug(
         self, query_lower: str, profile: _SlugProfile,
-    ) -> tuple[int, int]:
-        """Return (anchor_hits, support_hits) for the slug.
+    ) -> tuple[int, int, bool]:
+        """Return (anchor_hits, support_hits, disqualifier_hit) for the slug.
 
-        Returns (0, 0) if any disqualifier keyword matches.
+        Returns (0, 0, True) if any disqualifier keyword matches —
+        the disqualifier_hit flag is propagated to the verdict's
+        is_terminal so wrappers (M-D2 phase b LLM-augmented) don't
+        override the abstain.
         """
         if any(
             _kw_in_query(query_lower, dk)
             for dk in profile.disqualify_keywords
         ):
-            return (0, 0)
+            return (0, 0, True)
         anchor_hits = sum(
             1 for kw in profile.anchor_keywords
             if _kw_in_query(query_lower, kw)
@@ -261,7 +264,7 @@ class KeywordInductor:
             1 for kw in profile.support_keywords
             if _kw_in_query(query_lower, kw)
         )
-        return (anchor_hits, support_hits)
+        return (anchor_hits, support_hits, False)
 
     def _confidence_from_score(
         self, count: int, total: int,
@@ -272,11 +275,14 @@ class KeywordInductor:
 
     def induce(self, query: str) -> InductorVerdict:
         ql = query.lower()
-        scored: list[tuple[_SlugProfile, int, int]] = []
+        scored: list[tuple[_SlugProfile, int, int, bool]] = []
+        any_disqualifier_hit = False
         for p in self._config.profiles:
-            anchor, support = self._score_slug(ql, p)
-            scored.append((p, anchor, support))
-        # Sort by total descending.
+            anchor, support, disq = self._score_slug(ql, p)
+            scored.append((p, anchor, support, disq))
+            if disq:
+                any_disqualifier_hit = True
+        # Sort by total descending (disqualified slugs sort to bottom).
         scored.sort(key=lambda x: x[1] + x[2], reverse=True)
         if not scored:
             return InductorVerdict(
@@ -284,7 +290,7 @@ class KeywordInductor:
                 abstain_reason="no slug profiles configured",
             )
 
-        best_profile, best_anchor, best_support = scored[0]
+        best_profile, best_anchor, best_support, _ = scored[0]
         best_total = best_anchor + best_support
         if len(scored) > 1:
             second_total = scored[1][1] + scored[1][2]
@@ -298,6 +304,20 @@ class KeywordInductor:
             + len(best_profile.support_keywords)
         )
         confidence = self._confidence_from_score(best_total, total_kw)
+
+        # Codex-flagged: disqualifier-hit on ANY slug means we know
+        # this query is out of scope. Propagate as terminal abstain
+        # so M-D2 phase-b LLM augmenter doesn't override.
+        if any_disqualifier_hit:
+            return InductorVerdict(
+                decision="abstain",
+                abstain_reason=(
+                    "disqualifier keyword matched (query is out of "
+                    "scope for the candidate slug; do not consult LLM)"
+                ),
+                confidence=confidence,
+                is_terminal=True,
+            )
 
         if self._config.require_anchor and best_anchor < 1:
             return InductorVerdict(
