@@ -147,6 +147,70 @@ _TERMINAL_ACTIONS: frozenset[CuratorAction] = frozenset({
 })
 
 
+def _validate_terminal_args(
+    curator_action: CuratorAction,
+    actor_user_id: str,
+    final_payload: dict[str, Any] | None,
+    diff_payload: dict[str, Any] | None,
+) -> None:
+    """Codex round-1 MED fix (v2): centralized cross-action invariant
+    enforcement, called by update_curator_action() before any DB
+    mutation. Every terminal-action invariant lives here so the
+    contract is auditable in one place.
+
+    Invariants enforced:
+      - curator_action MUST be a CuratorAction enum value (not a string)
+      - curator_action MUST NOT be PENDING (this is a transition to
+        terminal, not a re-entry)
+      - actor_user_id MUST be non-empty for any terminal action
+      - REJECTED: final_payload + diff_payload MUST both be None
+      - ACCEPTED_AS_PROPOSED: final_payload required (= proposed),
+        diff_payload MUST be None
+      - MODIFIED / OVERRIDDEN: final_payload required, diff_payload
+        is optional but expected
+    """
+    if not isinstance(curator_action, CuratorAction):
+        raise DecisionTelemetryError(
+            f"curator_action must be CuratorAction, got "
+            f"{type(curator_action).__name__}"
+        )
+    if curator_action == CuratorAction.PENDING:
+        raise DecisionTelemetryError(
+            "update_curator_action cannot transition to PENDING"
+        )
+    if not actor_user_id:
+        raise DecisionTelemetryError(
+            "actor_user_id required for terminal curator actions"
+        )
+    if curator_action == CuratorAction.REJECTED:
+        if final_payload is not None:
+            raise DecisionTelemetryError(
+                "final_payload must be None for rejected action"
+            )
+        if diff_payload is not None:
+            raise DecisionTelemetryError(
+                "diff_payload must be None for rejected action"
+            )
+        return
+    if curator_action == CuratorAction.ACCEPTED_AS_PROPOSED:
+        if diff_payload is not None:
+            raise DecisionTelemetryError(
+                "diff_payload must be None for accepted_as_proposed "
+                "(no diff exists when curator accepts as-is)"
+            )
+        if final_payload is None:
+            raise DecisionTelemetryError(
+                "final_payload required for accepted_as_proposed; "
+                "should equal proposed_payload"
+            )
+        return
+    # MODIFIED or OVERRIDDEN
+    if final_payload is None:
+        raise DecisionTelemetryError(
+            f"final_payload required for {curator_action.value}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Data class
 # ---------------------------------------------------------------------------
@@ -384,6 +448,7 @@ class DecisionRecordStore:
         self,
         record_id: str,
         *,
+        workspace_id: str,
         curator_action: CuratorAction,
         actor_user_id: str,
         final_payload: dict[str, Any] | None = None,
@@ -395,6 +460,12 @@ class DecisionRecordStore:
 
         Args:
           record_id: record to update.
+          workspace_id: scoping field. v2: required, matched against
+            the row's stored workspace_id. Raises
+            DecisionTelemetryStateError if (record_id, workspace_id)
+            does not exist — protecting against cross-workspace
+            transitions even if a caller knows another workspace's
+            record_id.
           curator_action: terminal action (NOT pending).
           actor_user_id: required for terminal actions.
           final_payload: required for accepted_as_proposed / modified /
@@ -406,51 +477,19 @@ class DecisionRecordStore:
           clock: optional override for tests.
 
         Raises:
-          DecisionTelemetryStateError: record not found, already
-            terminal, invalid transition, or final_payload constraint
-            violated.
+          DecisionTelemetryStateError: record not found in workspace,
+            already terminal, invalid transition.
+          DecisionTelemetryError: validation failure on
+            curator_action / final_payload / diff_payload (see
+            _validate_terminal_args).
         """
-        if not isinstance(curator_action, CuratorAction):
-            raise DecisionTelemetryError(
-                f"curator_action must be CuratorAction, got "
-                f"{type(curator_action).__name__}"
-            )
-        if curator_action == CuratorAction.PENDING:
-            raise DecisionTelemetryError(
-                "update_curator_action cannot transition to PENDING"
-            )
-        if not actor_user_id:
-            raise DecisionTelemetryError(
-                "actor_user_id required for terminal curator actions"
-            )
-
-        # Cross-action invariants on payload + diff.
-        if curator_action == CuratorAction.REJECTED:
-            if final_payload is not None:
-                raise DecisionTelemetryError(
-                    "final_payload must be None for rejected action"
-                )
-            if diff_payload is not None:
-                raise DecisionTelemetryError(
-                    "diff_payload must be None for rejected action"
-                )
-        elif curator_action == CuratorAction.ACCEPTED_AS_PROPOSED:
-            if diff_payload is not None:
-                raise DecisionTelemetryError(
-                    "diff_payload must be None for accepted_as_proposed "
-                    "(no diff exists when curator accepts as-is)"
-                )
-            if final_payload is None:
-                raise DecisionTelemetryError(
-                    "final_payload required for accepted_as_proposed; "
-                    "should equal proposed_payload"
-                )
-        else:
-            # MODIFIED or OVERRIDDEN — final_payload required.
-            if final_payload is None:
-                raise DecisionTelemetryError(
-                    f"final_payload required for {curator_action.value}"
-                )
+        if not workspace_id:
+            raise DecisionTelemetryError("workspace_id must be non-empty")
+        # All cross-action invariants centralized in
+        # _validate_terminal_args (Codex round-1 MED fix v2).
+        _validate_terminal_args(
+            curator_action, actor_user_id, final_payload, diff_payload,
+        )
 
         try:
             final_json = (
@@ -473,13 +512,17 @@ class DecisionRecordStore:
         try:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT curator_action FROM decision_records WHERE record_id = ?",
-                (record_id,),
+                """
+                SELECT curator_action FROM decision_records
+                 WHERE record_id = ? AND workspace_id = ?
+                """,
+                (record_id, workspace_id),
             ).fetchone()
             if row is None:
                 conn.execute("ROLLBACK")
                 raise DecisionTelemetryStateError(
-                    f"record_id {record_id!r} not found"
+                    f"record_id {record_id!r} not found in workspace "
+                    f"{workspace_id!r}"
                 )
             existing_action = CuratorAction(row["curator_action"])
             if existing_action in _TERMINAL_ACTIONS:
@@ -498,7 +541,7 @@ class DecisionRecordStore:
                        diff_payload_json = ?,
                        notes = ?,
                        decided_at = ?
-                 WHERE record_id = ?
+                 WHERE record_id = ? AND workspace_id = ?
                 """,
                 (
                     curator_action.value,
@@ -508,6 +551,7 @@ class DecisionRecordStore:
                     notes,
                     now,
                     record_id,
+                    workspace_id,
                 ),
             )
             conn.execute("COMMIT")
@@ -519,25 +563,47 @@ class DecisionRecordStore:
         finally:
             conn.close()
 
-        return self._must_get(record_id)
+        return self._must_get(record_id, workspace_id)
 
-    def get(self, record_id: str) -> DecisionRecord | None:
-        """Fetch a record by id, or None if not found."""
+    def get(
+        self, record_id: str, *, workspace_id: str,
+    ) -> DecisionRecord | None:
+        """Fetch a record by id within the given workspace.
+
+        Codex round-1 MED fix (v2): `workspace_id` is required and
+        the query filters on both columns. Without this, a caller
+        with a record_id from another workspace could read across
+        workspace boundaries — even though record_id is a UUID4,
+        the M-D7 / M-D10 pattern is to require workspace_id
+        explicitly so cross-workspace access is never possible
+        through the public API.
+
+        Returns None if no record matches `(record_id, workspace_id)`.
+        Raises DecisionTelemetryError on empty workspace_id.
+        """
+        if not workspace_id:
+            raise DecisionTelemetryError("workspace_id must be non-empty")
         conn = self._connect()
         try:
             row = conn.execute(
-                "SELECT * FROM decision_records WHERE record_id = ?",
-                (record_id,),
+                """
+                SELECT * FROM decision_records
+                 WHERE record_id = ? AND workspace_id = ?
+                """,
+                (record_id, workspace_id),
             ).fetchone()
             return _row_to_record(row) if row is not None else None
         finally:
             conn.close()
 
-    def _must_get(self, record_id: str) -> DecisionRecord:
-        record = self.get(record_id)
+    def _must_get(
+        self, record_id: str, workspace_id: str,
+    ) -> DecisionRecord:
+        record = self.get(record_id, workspace_id=workspace_id)
         if record is None:
             raise DecisionTelemetryStateError(
-                f"record_id {record_id!r} not found post-update"
+                f"record_id {record_id!r} not found post-update "
+                f"(workspace {workspace_id!r})"
             )
         return record
 

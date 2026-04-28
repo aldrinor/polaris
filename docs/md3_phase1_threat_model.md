@@ -1,8 +1,8 @@
 # M-D3 phase 1 — induction + scope-gate decision telemetry
 
-**Status:** v1 / 2026-04-28
+**Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/decision_telemetry.py`
-**Tests:** `tests/polaris_graph/test_md3_decision_telemetry.py` (37 passing)
+**Tests:** `tests/polaris_graph/test_md3_decision_telemetry.py` (42 passing)
 **Pairs with:** M-D2 inductor (induction kind), M-D5 scope gate
 (scope_gate kind via discriminator), M-23 review queue (closes
 the loop on curator actions)
@@ -84,21 +84,67 @@ DB-level CHECK constraint catches any unrecognized kind at
 INSERT time. Adding a new kind is a forward-compatible schema
 migration (new value in CHECK list — old data unaffected).
 
-### 4. Per-workspace isolation (no cross-tenant aggregation)
+### 4. Per-workspace isolation (enforced at API boundary in v2)
 
-`workspace_id` is the gating field on every read. There is no
-cross-workspace aggregation in phase 1. Each workspace has its
-own DB file (extends M-21 substrate); aggregation across
-workspaces is M-D4's job (and potentially M-D13 for
-collaboration features).
+`workspace_id` is the gating field on every read AND every
+mutation. v1 relied on FS-level per-workspace DB isolation
+(M-21 / M-D7 pattern); v2 (Codex round-1 MED fix) tightens
+this further by requiring `workspace_id` on every public method
+that touches a record:
+
+- `get(record_id, *, workspace_id)` — query filters on both
+  columns. A caller knowing only `record_id` (without
+  workspace_id) cannot retrieve a record.
+- `update_curator_action(record_id, *, workspace_id, ...)` —
+  SELECT and UPDATE both filter on `(record_id, workspace_id)`.
+  A workspace mismatch surfaces as "not found" — the row stays
+  PENDING and untouched.
+- `list_for_workspace` / `count_for_workspace` already required
+  workspace_id in v1.
 
 **Mitigation**: M-D4 will need a cross-workspace aggregation
 layer, but that's a per-installation concern (ops-side, not
 substrate-side). Phase 1 deliberately does not have a global
 "telemetry" table — the substrate respects the same isolation
-boundary as M-21.
+boundary as M-21. v2 adds defense-in-depth so even a caller
+with multiple workspaces mounted on one process cannot
+accidentally cross workspace boundaries through the public
+API.
 
-### 5. Terminal states are terminal — no transitions
+Tests pin this:
+- `test_get_with_wrong_workspace_returns_none`
+- `test_update_with_wrong_workspace_raises`
+- `test_get_with_empty_workspace_raises`
+- `test_update_with_empty_workspace_raises`
+
+### 5. Cross-action invariants centralized in `_validate_terminal_args` (v2)
+
+**Codex round-1 MED fix** (v2): all cross-action invariants on
+`update_curator_action` are now enforced in a single private
+helper `_validate_terminal_args`, called before any DB
+mutation. v1 had the invariants inlined in
+`update_curator_action`; v2 extracts them so the contract is
+auditable in one place and exercised independently by tests.
+
+Invariants enforced by the helper:
+
+- `curator_action` MUST be a `CuratorAction` enum (not a string)
+- `curator_action` MUST NOT be `PENDING` (the function transitions
+  out of pending; it cannot transition into pending)
+- `actor_user_id` MUST be non-empty for any terminal action
+- `REJECTED`: `final_payload` + `diff_payload` MUST both be None
+  (nothing shipped, no diff)
+- `ACCEPTED_AS_PROPOSED`: `final_payload` required (the curator
+  shipped exactly what was proposed); `diff_payload` MUST be None
+- `MODIFIED` / `OVERRIDDEN`: `final_payload` required; `diff_payload`
+  is optional but expected
+
+`test_validate_terminal_args_helper_centralization` exercises
+all 4 happy-path cases and 9 invariant-violation cases directly
+through the helper, pinning that the helper IS the central
+enforcement site for boundary 5.
+
+### 6. Terminal states are terminal — no transitions
 
 Once `update_curator_action` moves a record to a terminal
 state (accepted_as_proposed / modified / overridden /
@@ -118,7 +164,7 @@ should record a NEW DecisionRecord referencing the same
 query, NOT transition the existing record. M-D4 will still
 have full visibility — both records will surface.
 
-### 6. JSON payload integrity (no schema validation in v1)
+### 7. JSON payload integrity (no schema validation in v1)
 
 `proposed_payload`, `final_payload`, and `diff_payload` are
 JSON-serializable dicts. Phase 1 does NOT validate their
@@ -138,7 +184,7 @@ kind schema validation is the caller's responsibility). M-D4
 may add per-kind schema validation if calibration uncovers
 schema drift as a data-quality issue.
 
-### 7. No notification callbacks
+### 8. No notification callbacks
 
 Phase 1 is record-only. There are no email / webhook /
 in-product notifications when a record is created or
