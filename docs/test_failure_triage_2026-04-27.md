@@ -29,14 +29,14 @@ This document categorizes the 19 failing tests + 3 collection errors into action
 
 ---
 
-## Bucket 2 — V28 regressions awaiting V30 (mixed: 5 V30-blocked, 1 V26 guard, 1 real M47 regression)
+## Bucket 2 — V28 regressions awaiting V30 (7 V30-blocked, includes V26 guard + M47 mechanism extraction)
 
 **Original author claim**: "8 V28 regressions, all red BY DESIGN, do not lower baselines, V30 fixes them."
 
 **Codex-verified correction**:
 - Count is **7**, not 8 (count error in original)
 - One listed failure is the **V26 NICE guard** in `test_m42_preservation.py:162` — that's a different baseline (V26, not V27/V28)
-- One failure is a **real M47 regression**, not a V30/BEAT-BOTH placeholder: `test_m49_v28_preservation.py:315` (`test_m47_clamp_validator_passes`) is a concrete bug, fixable independent of V30
+- M-47 clamp validator was originally Codex-flagged as "concrete fix possible". On 2026-04-27 author investigation revealed the failure was upstream V28 evidence-selection picking quotes without numeric values, not a validator bug. Codex round-2 review (`outputs/codex_findings/triage_executed_fixes_review/findings.md`) accepted the V30-blocked reclassification.
 
 **Files**: `test_m42_preservation.py`, `test_m49_v28_preservation.py`
 
@@ -99,12 +99,11 @@ These are NOT pending V30/M-60 work. They are unrelated and trivially fixable no
   - Update stale string assertion in `test_m201_evidence_selection.py:206`
   - Extend scan window in `test_manifest_contract.py:117` and `test_m207_invariant_coverage.py:185`
 - **Bucket 4** (3 collection errors, ~15-25 min): fix imports; expect 1 more real failure to surface in M29
-- **Bucket 2.real** (1 test, ~2-4h): investigate and fix the M47 clamp validator regression
 
-**Wait for V30** (6 tests):
-- 6 V27/V26 baseline preservation tests in M-42/M-49 — these flip green when V30 ships BEAT-BOTH
+**Wait for V30** (7 tests):
+- 6 V27/V26 baseline preservation tests in M-42/M-49 + 1 M47 clamp validator (post-investigation reclassified — see Bucket 2 above) — these all flip green when V30 ships BEAT-BOTH
 
-**Total quick-win effort**: ~3-5 hours of focused work clears 13 of 19 failures + 3 collection errors. After the quick-win pass, the suite state is **6 wait-for-V30 tests + 1 real M29 assertion failure** (the M29 failure is the test exposed by the Bucket 4 import-fix; it is a real bug, not a wait-for-V30 placeholder). To reach a clean suite, the M29 assertion at `test_m29_jurisdictional_precision.py:78` must also be fixed — investigation effort unestimated since the failure is currently hidden behind the import error.
+**Total quick-win effort**: ~3-5 hours of focused work clears 12 of 19 failures + 3 collection errors. After the quick-win pass executed in commit 336ac67, suite state is exactly the 7 V30-blocked tests above (the M29 assertion at `test_m29_jurisdictional_precision.py:78` was fixed inline as a Bucket-4 follow-on by narrowing the scan range from rule #11 to rule #11b boundary).
 
 ---
 
@@ -112,14 +111,15 @@ These are NOT pending V30/M-60 work. They are unrelated and trivially fixable no
 
 | Bucket | Original count | Corrected count | Action |
 |---|---:|---:|---|
-| 1. M-36 test pollution | 9 | 9 ✓ | Fix now (`asyncio.run()` swap) |
-| 2. V28/V27/V26 regressions (V30 fixes) | 8 | **6** (V30-blocked) | Wait for V30 |
-| 2.real. M47 clamp validator | (in 2) | 1 | Fix now (concrete bug) |
-| 3. M201/M207/manifest false-positives | 2-3 | **3** (all misclassified) | Fix now (~15-20 min) |
-| 4. Collection-time import errors | 3 | 3 + 1 (newly-exposed M29) | Fix now (~15-25 min) |
+| 1. M-36 test pollution | 9 | 9 ✓ | Fix now (`asyncio.run()` swap) — DONE in 336ac67 |
+| 2. V28/V27/V26 regressions (V30 fixes) | 8 | **7** (all V30-blocked, including M47 post-investigation) | Wait for V30 |
+| 3. M201/M207/manifest false-positives | 2-3 | **3** (all misclassified) | Fix now (~15-20 min) — DONE in 336ac67 |
+| 4. Collection-time import errors | 3 | 3 + 1 (newly-exposed M29 fixed inline) | Fix now (~15-25 min) — DONE in 336ac67 |
 | **Total** | **19 fail + 3 collect** | **19 fail + 3 collect = 22** ✓ | |
 
-The "Bucket 2 = 7 current fails" math reconciles to 22 total: 9 (B1) + 7 (B2 in current count, splits 6 wait + 1 real) + 3 (B3) + 3 (B4) = 22.
+Math reconciles: 9 (B1, fixed) + 7 (B2 wait-for-V30) + 3 (B3, fixed) + 3 (B4, fixed) = 22 entries triaged.
+
+Post-execution suite state: 2680 passed / 7 failed (= B2 above) / 3 skipped, with +76 tests now collecting after import fixes (M-25 14 + M-28 31 + M-29 8 = 53 from the import unblock + 22 new M-D1 harness tests + 1 from re-stabilizing M-36 = 76). Verified by Codex round-2 review.
 
 ---
 
@@ -128,7 +128,7 @@ The "Bucket 2 = 7 current fails" math reconciles to 22 total: 9 (B1) + 7 (B2 in 
 Recording for future-author honesty (and to seed `feedback_adversarial_review_stop_criterion.md` with a documentation analogue):
 
 - **Bucket 1**: I diagnosed "test pollution" without identifying the polluter. The actual fix is in M-36's own deprecated API call, not cross-test isolation. Always trace failures to the specific line + the specific deprecation.
-- **Bucket 2**: I conflated three different baselines (V25/V26/V27) under one "V28 regression" label and counted wrong (claimed 8, actual 7). I also classified `test_m47_clamp_validator_passes` as V30-pending when it's a concrete bug. Always read each test's assertion to see what it's actually checking.
+- **Bucket 2**: I conflated three different baselines (V25/V26/V27) under one "V28 regression" label and counted wrong (claimed 8, actual 7). I also originally classified `test_m47_clamp_validator_passes` as V30-pending; Codex round-1 disagreed and called it concrete; on subsequent investigation the data showed it's actually upstream-data-dependent and Codex round-2 accepted V30-blocked. Always read each test's assertion to see what it's actually checking, AND consider whether failing data is a fixable code bug vs upstream pipeline issue.
 - **Bucket 3**: I classified all three as "V30 manifest invariants pending M-60." Codex actually ran them and found: 1 stale string assertion (code is right), 2 false-positive scan-window misses (code is right). I should have run them with verbose output before classifying.
 - **Bucket 4**: I gave 5min as the effort estimate without considering that fixing the imports would expose a previously-hidden real failure. Always assume hidden tests have hidden failures.
 
