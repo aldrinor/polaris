@@ -98,17 +98,28 @@ class FreshnessStatus(Enum):
        heartbeat but no eviction.
     `superseded`: newer canonical version exists; alert +
        evict.
-    `retracted`: formal retraction or expression of concern;
-       alert + evict; operator review needed.
+    `retracted`: formal retraction (Crossref `update-policy`
+       retraction, PubMed `Retracted Publication`); alert +
+       evict; operator review required.
+    `expression_of_concern`: ICMJE/COPE expression of concern
+       — the source's authority is in question but not formally
+       retracted. Round-1 fix: split out from `retracted` so
+       phase-2 operator workflows can route them differently
+       (an EoC may be lifted; a retraction is permanent).
+       Alert + evict — until the EoC is resolved, the cached
+       payload should not be relied on.
     `unreachable`: 4xx/5xx or timeout; alert recorded but cache
        NOT evicted (transient outage doesn't justify dropping
        a valid cached payload). Phase 2 daemon will
-       retry-with-backoff.
+       retry-with-backoff. Persistent unreachable does NOT
+       promote to superseded — transport failure is not a
+       content-freshness signal.
     """
 
     UNCHANGED = "unchanged"
     SUPERSEDED = "superseded"
     RETRACTED = "retracted"
+    EXPRESSION_OF_CONCERN = "expression_of_concern"
     UNREACHABLE = "unreachable"
 
 
@@ -116,6 +127,7 @@ class FreshnessStatus(Enum):
 _EVICTING_STATUSES = frozenset({
     FreshnessStatus.SUPERSEDED,
     FreshnessStatus.RETRACTED,
+    FreshnessStatus.EXPRESSION_OF_CONCERN,
 })
 
 
@@ -144,9 +156,13 @@ class FreshnessAlert:
     """One recorded freshness check.
 
     `alert_id` is a UUID4 string.
+    `source_url` preserves the raw URL the caller passed
+    (operators see what they cited).
+    `cache_key` is the canonical identity (DOI/PMID/canonical
+    URL) — alert dedup + latest-per-source queries key on this
+    so equivalent URL forms merge into one history.
     `checked_at` is the unix timestamp when the detector ran
-    (NOT a wall-clock call; injected via the monitor's clock so
-    tests can pin time).
+    (injected via the monitor's clock so tests can pin time).
     `evicted_cache_key` is set if the monitor invalidated the
     M-D7 cache as part of recording this alert. None if cache
     not provided or status didn't trigger eviction.
@@ -155,6 +171,7 @@ class FreshnessAlert:
     alert_id: str
     workspace_id: str
     source_url: str
+    cache_key: str
     status: str  # FreshnessStatus.value
     details: str | None
     new_canonical_url: str | None
@@ -169,6 +186,7 @@ def alert_to_dict(alert: FreshnessAlert) -> dict[str, Any]:
         "alert_id": alert.alert_id,
         "workspace_id": alert.workspace_id,
         "source_url": alert.source_url,
+        "cache_key": alert.cache_key,
         "status": alert.status,
         "details": alert.details,
         "new_canonical_url": alert.new_canonical_url,
@@ -209,6 +227,7 @@ CREATE TABLE IF NOT EXISTS freshness_alerts (
     alert_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
     source_url TEXT NOT NULL,
+    cache_key TEXT NOT NULL,
     status TEXT NOT NULL,
     details TEXT,
     new_canonical_url TEXT,
@@ -216,7 +235,7 @@ CREATE TABLE IF NOT EXISTS freshness_alerts (
     checked_at REAL NOT NULL,
     evicted_cache_key TEXT,
     CHECK (status IN ('unchanged', 'superseded', 'retracted',
-                      'unreachable'))
+                      'expression_of_concern', 'unreachable'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_freshness_ws_checked
@@ -225,10 +244,12 @@ CREATE INDEX IF NOT EXISTS idx_freshness_ws_checked
 CREATE INDEX IF NOT EXISTS idx_freshness_ws_status
     ON freshness_alerts(workspace_id, status);
 
--- Latest-per-URL queries (e.g. "is this DOI currently
--- flagged?") need an indexed scan by (workspace, url, time).
-CREATE INDEX IF NOT EXISTS idx_freshness_ws_url_checked
-    ON freshness_alerts(workspace_id, source_url, checked_at DESC);
+-- Latest-per-source queries key on the canonical cache_key,
+-- not the raw source_url, so equivalent URL forms
+-- (`10.1000/foo` vs `https://doi.org/10.1000/foo`) merge into
+-- one history. Round-1 fix.
+CREATE INDEX IF NOT EXISTS idx_freshness_ws_cachekey_checked
+    ON freshness_alerts(workspace_id, cache_key, checked_at DESC);
 """
 
 
@@ -275,8 +296,15 @@ class FreshnessAlertStore:
         fetched_status_code: int | None,
         checked_at: float,
         evicted_cache_key: str | None,
+        cache_key: str | None = None,
     ) -> FreshnessAlert:
-        """Persist one alert. Returns the saved record."""
+        """Persist one alert. Returns the saved record.
+
+        `cache_key` is computed from `source_url` if not
+        provided. Round-1 fix: alerts dedup on canonical key,
+        not raw URL — equivalent forms (`10.1000/foo` vs
+        `https://doi.org/10.1000/foo`) become one history.
+        """
         if not workspace_id or not workspace_id.strip():
             raise FreshnessMonitorError(
                 "workspace_id must be non-empty"
@@ -294,17 +322,34 @@ class FreshnessAlertStore:
         url = source_url.strip()
         alert_id = str(uuid.uuid4())
 
+        if cache_key is None:
+            from src.polaris_graph.audit_ir.retrieval_cache import (
+                make_cache_key,
+            )
+            try:
+                cache_key = make_cache_key(url)
+            except Exception as exc:
+                raise FreshnessMonitorError(
+                    f"could not canonicalize source_url for "
+                    f"cache_key: {url!r}"
+                ) from exc
+        ck = cache_key.strip()
+        if not ck:
+            raise FreshnessMonitorError(
+                "cache_key must be non-empty"
+            )
+
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO freshness_alerts
-                    (alert_id, workspace_id, source_url, status,
-                     details, new_canonical_url,
+                    (alert_id, workspace_id, source_url, cache_key,
+                     status, details, new_canonical_url,
                      fetched_status_code, checked_at,
                      evicted_cache_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (alert_id, ws, url, status.value, details,
+                (alert_id, ws, url, ck, status.value, details,
                  new_canonical_url, fetched_status_code,
                  checked_at, evicted_cache_key),
             )
@@ -312,6 +357,7 @@ class FreshnessAlertStore:
             alert_id=alert_id,
             workspace_id=ws,
             source_url=url,
+            cache_key=ck,
             status=status.value,
             details=details,
             new_canonical_url=new_canonical_url,
@@ -364,8 +410,17 @@ class FreshnessAlertStore:
     def latest_for_url(
         self, workspace_id: str, source_url: str
     ) -> FreshnessAlert | None:
-        """Newest alert for one source URL in this workspace.
-        Returns None if no alerts recorded for this URL."""
+        """Newest alert for one source in this workspace.
+
+        Round-1 fix: queries by canonical cache_key, not raw
+        source_url, so equivalent forms (`10.1000/foo`,
+        `https://doi.org/10.1000/foo`, `?utm_source=x`) merge
+        into one history. The alert's `source_url` field still
+        preserves whichever form was originally cited.
+
+        Returns None if no alerts recorded for this canonical
+        identity.
+        """
         if not workspace_id or not workspace_id.strip():
             raise FreshnessMonitorError(
                 "workspace_id must be non-empty"
@@ -374,12 +429,21 @@ class FreshnessAlertStore:
             raise FreshnessMonitorError(
                 "source_url must be non-empty"
             )
+        from src.polaris_graph.audit_ir.retrieval_cache import (
+            make_cache_key,
+        )
+        try:
+            ck = make_cache_key(source_url)
+        except Exception as exc:
+            raise FreshnessMonitorError(
+                f"could not canonicalize source_url: {source_url!r}"
+            ) from exc
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM freshness_alerts "
-                "WHERE workspace_id=? AND source_url=? "
+                "WHERE workspace_id=? AND cache_key=? "
                 "ORDER BY checked_at DESC LIMIT 1",
-                (workspace_id.strip(), source_url.strip()),
+                (workspace_id.strip(), ck),
             )
             row = cur.fetchone()
         if row is None:
@@ -461,30 +525,34 @@ def check_freshness(
             f"got {type(result).__name__}"
         )
 
+    # Compute canonical cache_key once — needed for eviction
+    # AND for alert dedup. Failure to canonicalize is fatal:
+    # we'd be unable to record a queryable alert OR evict.
+    from src.polaris_graph.audit_ir.retrieval_cache import (
+        make_cache_key,
+    )
+    try:
+        cache_key = make_cache_key(source_url)
+    except Exception as exc:
+        raise FreshnessMonitorError(
+            f"could not canonicalize source_url: {source_url!r}"
+        ) from exc
+
     evicted_key: str | None = None
     if cache is not None and result.status in _EVICTING_STATUSES:
-        from src.polaris_graph.audit_ir.retrieval_cache import (
-            make_cache_key,
-        )
         try:
-            cache_key = make_cache_key(source_url)
+            if cache.evict_by_url(workspace_id, source_url):
+                evicted_key = cache_key
         except Exception:
-            # If the URL can't be canonicalized into a cache key,
-            # we still record the alert but skip eviction.
-            cache_key = None
-        if cache_key is not None:
-            try:
-                if cache.evict_by_url(workspace_id, source_url):
-                    evicted_key = cache_key
-            except Exception:
-                # Eviction failure must not silently swallow the
-                # alert; re-raise so the caller knows the cache
-                # is in an unknown state.
-                raise
+            # Eviction failure must not silently swallow the
+            # alert; re-raise so the caller knows the cache
+            # is in an unknown state.
+            raise
 
     return store.record(
         workspace_id=workspace_id,
         source_url=source_url,
+        cache_key=cache_key,
         status=result.status,
         details=result.details,
         new_canonical_url=result.new_canonical_url,
@@ -504,6 +572,7 @@ def _row_to_alert(row: sqlite3.Row) -> FreshnessAlert:
         alert_id=row["alert_id"],
         workspace_id=row["workspace_id"],
         source_url=row["source_url"],
+        cache_key=row["cache_key"],
         status=row["status"],
         details=row["details"],
         new_canonical_url=row["new_canonical_url"],

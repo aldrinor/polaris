@@ -234,7 +234,97 @@ def test_latest_for_url_returns_newest(
 def test_latest_for_url_miss_returns_none(
     store: FreshnessAlertStore,
 ) -> None:
-    assert store.latest_for_url("ws-a", "never") is None
+    assert store.latest_for_url("ws-a", "10.1000/never-recorded") is None
+
+
+def test_latest_for_url_canonical_dedup(
+    store: FreshnessAlertStore,
+) -> None:
+    """Round-1 fix: equivalent URL forms canonicalize to the
+    same cache_key, so latest_for_url merges histories.
+
+    `10.1000/foo`, `https://doi.org/10.1000/foo`, and
+    `?utm_source=x` should all return the same latest alert."""
+    store.record(
+        workspace_id="ws-a",
+        source_url="10.1000/foo",  # bare DOI
+        status=FreshnessStatus.UNCHANGED,
+        details=None,
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=100.0,
+        evicted_cache_key=None,
+    )
+    store.record(
+        workspace_id="ws-a",
+        source_url="https://doi.org/10.1000/foo",  # URL form
+        status=FreshnessStatus.RETRACTED,
+        details="retracted",
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=200.0,
+        evicted_cache_key="doi:10.1000/foo",
+    )
+    # Querying by ANY equivalent form returns the same latest.
+    by_bare = store.latest_for_url("ws-a", "10.1000/foo")
+    by_url = store.latest_for_url("ws-a", "https://doi.org/10.1000/foo")
+    by_decorated = store.latest_for_url(
+        "ws-a", "https://doi.org/10.1000/foo?utm_source=x"
+    )
+    assert by_bare is not None
+    assert by_url is not None
+    assert by_decorated is not None
+    # All three return the most recent record (the retracted one).
+    assert by_bare.status == "retracted"
+    assert by_url.status == "retracted"
+    assert by_decorated.status == "retracted"
+    # All carry the same canonical cache_key.
+    assert by_bare.cache_key == "doi:10.1000/foo"
+    assert by_url.cache_key == "doi:10.1000/foo"
+    assert by_decorated.cache_key == "doi:10.1000/foo"
+
+
+def test_record_persists_canonical_cache_key(
+    store: FreshnessAlertStore,
+) -> None:
+    """Alerts carry a canonical cache_key independent of the
+    raw source_url — verifies the round-1 schema addition."""
+    alert = store.record(
+        workspace_id="ws-a",
+        source_url="https://doi.org/10.1000/foo?utm_source=x",
+        status=FreshnessStatus.UNCHANGED,
+        details=None,
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=1.0,
+        evicted_cache_key=None,
+    )
+    # Raw URL preserved.
+    assert (
+        alert.source_url
+        == "https://doi.org/10.1000/foo?utm_source=x"
+    )
+    # Canonical key normalized.
+    assert alert.cache_key == "doi:10.1000/foo"
+
+
+def test_record_rejects_empty_cache_key_override(
+    store: FreshnessAlertStore,
+) -> None:
+    """Passing an explicit empty cache_key fails loudly rather
+    than persisting an alert with no canonical identity."""
+    with pytest.raises(FreshnessMonitorError, match="cache_key"):
+        store.record(
+            workspace_id="ws-a",
+            source_url="10.1000/foo",
+            status=FreshnessStatus.UNCHANGED,
+            details=None,
+            new_canonical_url=None,
+            fetched_status_code=200,
+            checked_at=1.0,
+            evicted_cache_key=None,
+            cache_key="   ",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -303,17 +393,35 @@ def test_taxonomy_check_constraint(
             conn.execute(
                 """
                 INSERT INTO freshness_alerts
-                    (alert_id, workspace_id, source_url, status,
-                     details, new_canonical_url,
+                    (alert_id, workspace_id, source_url, cache_key,
+                     status, details, new_canonical_url,
                      fetched_status_code, checked_at,
                      evicted_cache_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "fake-id", "ws-a", "u1", "fabricated_status",
-                    None, None, 200, 0.0, None,
+                    "fake-id", "ws-a", "u1", "doi:10.1000/foo",
+                    "fabricated_status", None, None, 200, 0.0, None,
                 ),
             )
+
+
+def test_check_constraint_accepts_expression_of_concern(
+    store: FreshnessAlertStore,
+) -> None:
+    """Round-1 fix: expression_of_concern split out from
+    retracted. Operator workflows route them differently."""
+    alert = store.record(
+        workspace_id="ws-a",
+        source_url="https://doi.org/10.1000/foo",
+        status=FreshnessStatus.EXPRESSION_OF_CONCERN,
+        details="ICMJE expression of concern issued 2026-04-01",
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=1700000000.0,
+        evicted_cache_key="doi:10.1000/foo",
+    )
+    assert alert.status == "expression_of_concern"
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +553,42 @@ def test_check_freshness_superseded_evicts_cache(
     assert alert.status == "superseded"
     assert alert.evicted_cache_key == "doi:10.1000/foo"
     assert alert.new_canonical_url == "https://doi.org/10.1000/foo-v2"
+    assert cache.get("ws-a", "10.1000/foo") is None
+
+
+def test_check_freshness_expression_of_concern_evicts_cache(
+    store: FreshnessAlertStore, cache: RetrievalCacheStore,
+) -> None:
+    """Round-1 fix: expression_of_concern evicts the cache
+    (the source's authority is in question; cached payload
+    can't be relied on until the EoC is resolved). Distinct
+    from retracted in operator workflow but same eviction
+    behavior."""
+    cache.put(
+        workspace_id="ws-a",
+        source_url="10.1000/foo",
+        payload=b"x",
+        content_type="text/html",
+        fetch_status_code=200,
+    )
+    detector = StubDetector(
+        FreshnessCheckResult(
+            source_url="10.1000/foo",
+            status=FreshnessStatus.EXPRESSION_OF_CONCERN,
+            details="ICMJE EoC 2026-04-01",
+            fetched_status_code=200,
+        )
+    )
+    alert = check_freshness(
+        workspace_id="ws-a",
+        source_url="10.1000/foo",
+        detector=detector,
+        store=store,
+        cache=cache,
+        clock=FixedClock(),
+    )
+    assert alert.status == "expression_of_concern"
+    assert alert.evicted_cache_key == "doi:10.1000/foo"
     assert cache.get("ws-a", "10.1000/foo") is None
 
 
@@ -656,6 +800,7 @@ def test_alert_to_dict_round_trips_shape() -> None:
         alert_id="abc-123",
         workspace_id="ws-a",
         source_url="https://doi.org/10.1000/foo",
+        cache_key="doi:10.1000/foo",
         status="retracted",
         details="formal retraction",
         new_canonical_url=None,
@@ -666,5 +811,6 @@ def test_alert_to_dict_round_trips_shape() -> None:
     d = alert_to_dict(alert)
     assert d["alert_id"] == "abc-123"
     assert d["status"] == "retracted"
+    assert d["cache_key"] == "doi:10.1000/foo"
     assert d["evicted_cache_key"] == "doi:10.1000/foo"
     assert d["checked_at"] == 1700000000.0

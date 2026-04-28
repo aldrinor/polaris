@@ -32,7 +32,10 @@ Phase 2 (deferred):
   queue when alert lands)
 - Empirical alert-latency ≤ 24h acceptance test
 - Retry-with-backoff for `unreachable` status (transient
-  outages shouldn't promote to retracted)
+  outages get retried; persistent unreachable stays
+  `unreachable` with retry-count metadata — transport failure
+  is NOT a content-freshness signal and never auto-promotes
+  to `retracted`/`superseded`)
 
 ---
 
@@ -111,10 +114,18 @@ If phase 2 needs pin-time freshness state for replay, a new
 Statuses that trigger eviction:
 - `superseded`
 - `retracted`
+- `expression_of_concern` — round-1 fix: split out from
+  `retracted` so phase-2 operator workflows can route them
+  differently (an EoC may be lifted; a retraction is
+  permanent). Eviction behavior is the same: until the EoC
+  is resolved, the cached payload should not be relied on.
 
 Statuses that do NOT trigger eviction:
 - `unchanged` (no change detected)
-- `unreachable` (transient outage; phase 2 will retry)
+- `unreachable` (transient outage; phase 2 will retry, but
+  unreachable does NOT auto-promote to retracted/superseded
+  no matter how persistent — transport failure is not a
+  content-freshness signal)
 
 Eviction-error propagation: if the cache raises during
 `evict_by_url`, the exception bubbles up and the alert is NOT
@@ -135,8 +146,13 @@ When implementing phase 2, the daemon must:
    notify operators via M-23 review queue (out-of-scope for
    phase 1).
 3. For `unreachable` alerts, retry with exponential backoff
-   (1h → 6h → 24h → mark as superseded if persistent). Phase 2
-   may add a `consecutive_failures` column for this.
+   (1h → 6h → 24h → escalate to operator review queue). The
+   alert STAYS `unreachable` even after persistent failures —
+   it does NOT auto-promote to `retracted`/`superseded`
+   because transport failure is not a content-freshness
+   signal. Phase 2 may add a `consecutive_failures` column;
+   sustained unreachability triggers operator notification,
+   not a taxonomy change.
 
 ---
 
