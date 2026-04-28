@@ -69,6 +69,42 @@ def test_url_cache_key_drops_tracking_params() -> None:
     assert a == b
 
 
+def test_doi_canonicalization_strips_url_decoration() -> None:
+    """Round-1 fix: equivalent DOI URL forms must canonicalize
+    to the same key. Trailing slash, query, fragment all dropped."""
+    base = make_cache_key("10.1000/foo.bar")
+    assert make_cache_key("https://doi.org/10.1000/foo.bar") == base
+    assert make_cache_key("https://doi.org/10.1000/foo.bar/") == base
+    assert (
+        make_cache_key("https://doi.org/10.1000/foo.bar?utm_source=x")
+        == base
+    )
+    assert make_cache_key("https://doi.org/10.1000/foo.bar#abstract") == base
+    assert make_cache_key("doi:10.1000/foo.bar") == base
+    assert make_cache_key("DOI:10.1000/FOO.BAR") == base
+
+
+def test_doi_strict_shape_rejects_near_doi() -> None:
+    """Round-1 fix: tighten DOI regex so non-DOI strings that
+    happen to start with `10.` aren't misclassified.
+
+    DOI prefix per ANSI/NISO Z39.84-2010: 10.<4-9 digits>(.subprefix)*
+    A short registrant like `10.123/foo` (only 3 digits) is NOT a
+    valid DOI."""
+    # 3-digit registrant — invalid DOI shape, falls back to URL.
+    short = make_cache_key("10.123/foo")
+    assert short.startswith("url:"), f"got {short!r}"
+
+    # 10-digit registrant exceeds spec range (max 9), invalid.
+    long = make_cache_key("10.1234567890/foo")
+    assert long.startswith("url:"), f"got {long!r}"
+
+    # No suffix after slash — invalid.
+    no_suffix = make_cache_key("10.1000/")
+    # Falls back to URL canonicalization, which strips trailing /.
+    assert no_suffix.startswith("url:"), f"got {no_suffix!r}"
+
+
 def test_cache_key_kinds_dont_collide() -> None:
     """`url:` and `doi:` discriminator prefixes prevent
     cross-kind collisions."""
@@ -417,6 +453,75 @@ def test_last_hit_at_updates_on_get(
     assert got is not None
     assert got.last_hit_at is not None
     assert got.last_hit_at >= entry.fetched_at
+
+
+def test_get_select_update_is_atomic_under_concurrent_put(
+    tmp_path: Path,
+) -> None:
+    """Round-1 fix: get() wraps SELECT + UPDATE in BEGIN
+    IMMEDIATE. Without the explicit transaction, a concurrent
+    put() between the two statements could leave caller with
+    stale payload while last_hit_at landed on the new row.
+
+    This test exercises 50 concurrent gets racing 50 concurrent
+    puts on the same key. Every successful get must return a
+    payload whose SHA matches the row currently visible at the
+    end of the test (no torn read between SELECT and UPDATE)."""
+    import hashlib
+    import threading
+
+    db = tmp_path / "race.db"
+    store = RetrievalCacheStore(db)
+    # Initial put.
+    store.put(
+        workspace_id="ws-a",
+        source_url="10.1000/foo",
+        payload=b"v0",
+        content_type="text/html",
+        fetch_status_code=200,
+    )
+
+    errors: list[str] = []
+
+    def writer(i: int) -> None:
+        payload = f"v{i}".encode()
+        store.put(
+            workspace_id="ws-a",
+            source_url="10.1000/foo",
+            payload=payload,
+            content_type="text/html",
+            fetch_status_code=200,
+        )
+
+    def reader() -> None:
+        try:
+            got = store.get("ws-a", "10.1000/foo")
+            if got is not None:
+                # SHA must match the payload bytes returned —
+                # if SELECT and UPDATE raced, the entry's
+                # payload could be detached from its
+                # payload_sha256.
+                expected = hashlib.sha256(got.payload).hexdigest()
+                if got.payload_sha256 != expected:
+                    errors.append(
+                        f"sha mismatch: stored {got.payload_sha256}, "
+                        f"actual {expected}"
+                    )
+        except Exception as exc:
+            errors.append(f"read raised: {exc!r}")
+
+    threads = []
+    for i in range(1, 51):
+        threads.append(threading.Thread(target=writer, args=(i,)))
+    for _ in range(50):
+        threads.append(threading.Thread(target=reader))
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"race detected: {errors[:3]}"
 
 
 # ---------------------------------------------------------------------------

@@ -182,21 +182,50 @@ _PMID_RE = re.compile(
     r"^(?:https?://)?(?:www\.)?(?:ncbi\.nlm\.nih\.gov/pubmed/|pubmed\.ncbi\.nlm\.nih\.gov/)(\d+)/?$",
     re.IGNORECASE,
 )
+# DOI shape per Crossref + ANSI/NISO Z39.84-2010:
+#   prefix: 10.<registrant 4-9 digits, optional dotted sub-prefixes>
+#   suffix: any non-whitespace 1+ chars
+# We additionally exclude `/`/`?`/`#`/whitespace from the suffix
+# because those almost always indicate URL decoration we want to
+# strip (or, in the `/` case, structural decoration we keep — see
+# below).
+_DOI_FULL_RE = re.compile(
+    r"^10\.[0-9]{4,9}(?:\.[0-9]+)*/[^\s?#]+$"
+)
 
 
 def _canonicalize_doi(raw: str) -> str | None:
     """Normalize a DOI string. Returns the bare DOI (e.g.
-    "10.1000/foo.bar") or None if input doesn't look like one."""
+    "10.1000/foo.bar") or None if input doesn't look like one.
+
+    Strips:
+      - URL prefix (`https://doi.org/`, `dx.doi.org/`)
+      - `doi:` scheme prefix
+      - URL fragment (`#frag`)
+      - URL query string (`?utm_source=x`)
+      - trailing `/`
+    Lower-cases the entire DOI (DOIs are
+    case-insensitive per the standard).
+    """
     if not raw:
         return None
     text = raw.strip().lower()
     text = _DOI_PREFIX_RE.sub("", text)
     if text.startswith("doi:"):
         text = text[4:]
+    # Drop fragment first, then query.
+    text = text.split("#", 1)[0]
+    text = text.split("?", 1)[0]
+    text = text.rstrip("/")
     if not text.startswith("10."):
         return None
-    # Reject anything with whitespace or quotes.
+    # Reject anything with whitespace.
     if any(c.isspace() for c in text):
+        return None
+    # Strict shape match — rejects `10.123/foo` (registrant must
+    # be 4-9 digits) and other near-DOI strings like
+    # `10.x` URL paths that happen to start with the prefix.
+    if not _DOI_FULL_RE.match(text):
         return None
     return text
 
@@ -364,22 +393,38 @@ class RetrievalCacheStore:
     def _get_by_key(
         self, workspace_id: str, cache_key: str
     ) -> CacheEntry | None:
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT * FROM retrieval_cache "
-                "WHERE workspace_id=? AND cache_key=?",
-                (workspace_id, cache_key),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
+        """Atomic SELECT + UPDATE last_hit_at.
 
-            now = time.time()
-            conn.execute(
-                "UPDATE retrieval_cache SET last_hit_at=? "
-                "WHERE workspace_id=? AND cache_key=?",
-                (now, workspace_id, cache_key),
-            )
+        Wrapped in BEGIN IMMEDIATE to prevent the race where a
+        concurrent put()/evict() lands between SELECT and UPDATE
+        — without the explicit transaction, the caller could
+        receive a stale payload while last_hit_at lands on a
+        newer or deleted row. BEGIN IMMEDIATE acquires the write
+        lock at the start so no other writer can interleave.
+        """
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                cur = conn.execute(
+                    "SELECT * FROM retrieval_cache "
+                    "WHERE workspace_id=? AND cache_key=?",
+                    (workspace_id, cache_key),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    conn.execute("COMMIT")
+                    return None
+
+                now = time.time()
+                conn.execute(
+                    "UPDATE retrieval_cache SET last_hit_at=? "
+                    "WHERE workspace_id=? AND cache_key=?",
+                    (now, workspace_id, cache_key),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
         return _row_to_entry(row, last_hit_at_override=now)
 
     # -- eviction (explicit, not pure TTL) --
