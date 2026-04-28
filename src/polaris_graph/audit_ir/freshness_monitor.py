@@ -282,8 +282,91 @@ class FreshnessAlertStore:
         return conn
 
     def _init_schema(self) -> None:
+        """Idempotent schema init with v1->v2 upgrade path.
+
+        v1 (commit 7bece98) had no `cache_key` column. v2
+        (this build) requires it. If an existing v1 table is
+        detected, ALTER TABLE adds the column and backfills
+        canonical keys from `source_url`. The CHECK
+        constraint on `status` was also extended (added
+        `expression_of_concern`); SQLite can't ALTER an
+        existing CHECK in place, so when the upgrade fires
+        we rebuild the table via the standard SQLite recipe
+        (rename old, create new, copy, drop). Idempotent —
+        running twice is a no-op."""
         with self._connect() as conn:
+            self._upgrade_v1_to_v2(conn)
             conn.executescript(_SCHEMA)
+
+    @staticmethod
+    def _upgrade_v1_to_v2(conn: sqlite3.Connection) -> None:
+        """Detect v1 schema and migrate to v2 in place.
+
+        v1 fingerprint: `freshness_alerts` table exists AND
+        has no `cache_key` column. If both conditions hold,
+        we rebuild via temp table to update the CHECK
+        constraint AND add the new column with backfilled
+        canonical keys."""
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='freshness_alerts'"
+        )
+        if cur.fetchone() is None:
+            return  # No table yet — fresh DB, full schema will create v2.
+
+        cur = conn.execute("PRAGMA table_info(freshness_alerts)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "cache_key" in cols:
+            return  # Already v2 (or newer).
+
+        # v1 detected. Migrate.
+        from src.polaris_graph.audit_ir.retrieval_cache import (
+            make_cache_key,
+        )
+
+        # Rename old table.
+        conn.execute(
+            "ALTER TABLE freshness_alerts RENAME TO "
+            "freshness_alerts_v1_old"
+        )
+        # Drop old indexes — they'd block recreate.
+        for idx in (
+            "idx_freshness_ws_checked",
+            "idx_freshness_ws_status",
+            "idx_freshness_ws_url_checked",
+        ):
+            conn.execute(f"DROP INDEX IF EXISTS {idx}")
+        # Create the v2 table + indexes.
+        conn.executescript(_SCHEMA)
+        # Backfill: walk old rows, compute cache_key from
+        # source_url, re-insert into v2 table.
+        old_cur = conn.execute(
+            "SELECT alert_id, workspace_id, source_url, status, "
+            "details, new_canonical_url, fetched_status_code, "
+            "checked_at, evicted_cache_key "
+            "FROM freshness_alerts_v1_old"
+        )
+        for row in old_cur.fetchall():
+            try:
+                ck = make_cache_key(row[2])
+            except Exception:
+                # If a v1 row's source_url won't canonicalize,
+                # we can't safely migrate it. Log to the row
+                # itself via cache_key=`migration_failed:<url>`
+                # so operators can see and triage. Fail-loud
+                # over data loss.
+                ck = f"migration_failed:{row[2][:200]}"
+            conn.execute(
+                "INSERT INTO freshness_alerts "
+                "(alert_id, workspace_id, source_url, cache_key, "
+                " status, details, new_canonical_url, "
+                " fetched_status_code, checked_at, "
+                " evicted_cache_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row[0], row[1], row[2], ck, row[3], row[4],
+                 row[5], row[6], row[7], row[8]),
+            )
+        conn.execute("DROP TABLE freshness_alerts_v1_old")
 
     def record(
         self,

@@ -795,6 +795,161 @@ def test_coexists_with_m21_and_md7_in_same_db(
 # ---------------------------------------------------------------------------
 
 
+def test_v1_to_v2_schema_migration_backfills_cache_key(
+    tmp_path: Path,
+) -> None:
+    """Round-2 fix: pre-existing v1 freshness_alerts table
+    (no cache_key column) must upgrade in place when v2 store
+    opens it. Backfills cache_key from source_url canonicalization."""
+    import sqlite3
+
+    db = tmp_path / "v1.db"
+    # Hand-build the v1 schema as it was at commit 7bece98.
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE freshness_alerts (
+            alert_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            status TEXT NOT NULL,
+            details TEXT,
+            new_canonical_url TEXT,
+            fetched_status_code INTEGER,
+            checked_at REAL NOT NULL,
+            evicted_cache_key TEXT,
+            CHECK (status IN ('unchanged', 'superseded',
+                              'retracted', 'unreachable'))
+        );
+        CREATE INDEX idx_freshness_ws_checked
+            ON freshness_alerts(workspace_id, checked_at DESC);
+        CREATE INDEX idx_freshness_ws_status
+            ON freshness_alerts(workspace_id, status);
+        CREATE INDEX idx_freshness_ws_url_checked
+            ON freshness_alerts(workspace_id, source_url, checked_at DESC);
+        """
+    )
+    # Insert two v1 rows.
+    conn.execute(
+        "INSERT INTO freshness_alerts "
+        "(alert_id, workspace_id, source_url, status, details, "
+        " new_canonical_url, fetched_status_code, checked_at, "
+        " evicted_cache_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("a1", "ws-a", "https://doi.org/10.1000/foo",
+         "retracted", None, None, 200, 100.0, None),
+    )
+    conn.execute(
+        "INSERT INTO freshness_alerts "
+        "(alert_id, workspace_id, source_url, status, details, "
+        " new_canonical_url, fetched_status_code, checked_at, "
+        " evicted_cache_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("a2", "ws-a", "10.1000/bar",
+         "unchanged", None, None, 200, 200.0, None),
+    )
+    conn.commit()
+    conn.close()
+
+    # Now open with the v2 store — must migrate cleanly.
+    store = FreshnessAlertStore(db)
+
+    # Both rows survived with backfilled cache_key.
+    rows = store.list_alerts(workspace_id="ws-a")
+    assert len(rows) == 2
+    by_id = {r.alert_id: r for r in rows}
+    assert by_id["a1"].cache_key == "doi:10.1000/foo"
+    assert by_id["a2"].cache_key == "doi:10.1000/bar"
+    # Status preserved.
+    assert by_id["a1"].status == "retracted"
+    assert by_id["a2"].status == "unchanged"
+
+    # Querying by canonical key works after migration.
+    latest = store.latest_for_url(
+        "ws-a", "https://doi.org/10.1000/foo"
+    )
+    assert latest is not None
+    assert latest.alert_id == "a1"
+
+    # New v2-only status (expression_of_concern) accepted after
+    # migration — confirms the CHECK constraint was rebuilt.
+    new_alert = store.record(
+        workspace_id="ws-a",
+        source_url="10.1000/baz",
+        status=FreshnessStatus.EXPRESSION_OF_CONCERN,
+        details=None,
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=300.0,
+        evicted_cache_key=None,
+    )
+    assert new_alert.status == "expression_of_concern"
+
+
+def test_v1_to_v2_migration_idempotent(tmp_path: Path) -> None:
+    """Re-instantiating the v2 store on an already-migrated DB
+    is a no-op (no double-migration)."""
+    db = tmp_path / "x.db"
+    s1 = FreshnessAlertStore(db)
+    s1.record(
+        workspace_id="ws-a",
+        source_url="10.1000/foo",
+        status=FreshnessStatus.UNCHANGED,
+        details=None,
+        new_canonical_url=None,
+        fetched_status_code=200,
+        checked_at=1.0,
+        evicted_cache_key=None,
+    )
+    # Re-init must not duplicate or break anything.
+    s2 = FreshnessAlertStore(db)
+    assert s2.count(workspace_id="ws-a") == 1
+
+
+def test_v1_to_v2_migration_handles_uncanonicalizable_v1_row(
+    tmp_path: Path,
+) -> None:
+    """If a v1 row has a source_url that won't canonicalize,
+    migration tags it `migration_failed:<url>` rather than
+    silently dropping the row. Operators can find and triage."""
+    import sqlite3
+
+    db = tmp_path / "v1bad.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE freshness_alerts (
+            alert_id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            status TEXT NOT NULL,
+            details TEXT,
+            new_canonical_url TEXT,
+            fetched_status_code INTEGER,
+            checked_at REAL NOT NULL,
+            evicted_cache_key TEXT,
+            CHECK (status IN ('unchanged', 'superseded',
+                              'retracted', 'unreachable'))
+        );
+        """
+    )
+    # Whitespace source_url is invalid to canonicalize.
+    conn.execute(
+        "INSERT INTO freshness_alerts "
+        "(alert_id, workspace_id, source_url, status, details, "
+        " new_canonical_url, fetched_status_code, checked_at, "
+        " evicted_cache_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("a1", "ws-a", "   ",
+         "unchanged", None, None, 200, 1.0, None),
+    )
+    conn.commit()
+    conn.close()
+
+    store = FreshnessAlertStore(db)
+    rows = store.list_alerts(workspace_id="ws-a")
+    assert len(rows) == 1
+    # Row preserved (no data loss); cache_key tagged for triage.
+    assert rows[0].cache_key.startswith("migration_failed:")
+
+
 def test_alert_to_dict_round_trips_shape() -> None:
     alert = FreshnessAlert(
         alert_id="abc-123",
