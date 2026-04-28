@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v2 / 2026-04-28
+**Status:** v3 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (43 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (50 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -137,7 +137,19 @@ and returns 0.0 with a rationale when fields are missing:
   `_REGULATORY_HOSTS` rather than regex-searching the full URL.
   v1 falsely scored `https://example.com/redirect?u=https://fda.gov/x`
   as regulatory; v2 only counts a URL if its actual host is
-  regulatory.
+  regulatory. v3 (Codex round-2 MED fix) replaced the simple
+  `_HOST_RE` regex with `urllib.parse.urlsplit`-based parsing
+  so URLs with port (`fda.gov:443`), query (`fda.gov?x=1`),
+  userinfo (`user:pass@fda.gov`), or fragment (`fda.gov#x`)
+  parse to the bare host and match the frozenset correctly.
+  `www.fda.gov` and `fda.gov` are unified.
+
+`_ClaimFramesScorer` v3 (Codex round-2 LOW fix) also rejects
+empty-string field values via `_is_frame_field_populated`:
+  - `None` → missing
+  - `""` (empty string) → missing
+  - `0` / `0.0` → present (legitimate measurement; v2 fix)
+  - any other non-None / non-empty value → present
 
 **Mitigation**: if downstream pipelines ship manifest schema
 v2 with new field names, scorers should be updated in v2 of

@@ -72,6 +72,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Protocol
+from urllib.parse import urlsplit
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +169,26 @@ class DimensionScorer(Protocol):
 # ---------------------------------------------------------------------------
 
 
+_MISSING = object()
+
+
+def _is_frame_field_populated(value: Any) -> bool:
+    """Codex round-2 LOW fix (v3): a frame field counts as
+    populated when:
+      - it's not the sentinel (key absent from dict)
+      - it's not None
+      - it's not the empty string
+
+    Numeric 0 / 0.0 (legitimate baseline / endpoint values) DO
+    count as populated. This is the round-1 fix preserved.
+    """
+    if value is _MISSING or value is None:
+        return False
+    if isinstance(value, str) and value == "":
+        return False
+    return True
+
+
 def _coerce_iterable(value: Any) -> tuple[Any, ...]:
     """Best-effort coerce to tuple. None / scalar → empty tuple."""
     if value is None:
@@ -237,12 +258,40 @@ _JURISDICTION_HOSTS = {
 }
 
 
-_HOST_RE = re.compile(r"^(?:https?://)?(?:www\.)?([^/]+)", re.IGNORECASE)
-
-
 def _host_of(url: str) -> str:
-    match = _HOST_RE.match(url)
-    return match.group(1).lower() if match else ""
+    """Parse the canonical lowercase host from a URL.
+
+    Codex round-2 MED fix (v3): strip userinfo (`user:pass@`),
+    port (`:443`), query (`?x=1`), and fragment (`#frag`) so
+    legitimate regulatory URLs with any of those components
+    parse to the bare hostname. v1+v2 used a simple regex that
+    only stopped at `/`, so `https://fda.gov:443/x` returned
+    `fda.gov:443` and missed the regulatory frozenset check.
+
+    Uses `urllib.parse.urlsplit` for canonical parsing —
+    Python's standard URL parser handles the edge cases
+    (escaped userinfo, IPv6 brackets, etc.) more robustly than
+    regex.
+    """
+    if not url:
+        return ""
+    # urlsplit handles missing scheme by treating the whole
+    # thing as path; pre-pend `//` if no scheme so it parses
+    # the host correctly.
+    candidate = url.strip()
+    if "://" not in candidate and not candidate.startswith("//"):
+        candidate = "//" + candidate
+    try:
+        parts = urlsplit(candidate)
+        host = parts.hostname or ""
+    except (ValueError, AttributeError):
+        return ""
+    # Strip the leading "www." per the v1 convention so
+    # www.fda.gov and fda.gov hit the same regulatory entry.
+    host_lower = host.lower()
+    if host_lower.startswith("www."):
+        host_lower = host_lower[4:]
+    return host_lower
 
 
 def _citation_urls(manifest: dict[str, Any]) -> tuple[str, ...]:
@@ -375,9 +424,14 @@ class _ClaimFramesScorer:
         # The truthy check would treat a populated `baseline=0.0`
         # or `endpoint=0.0` (legitimate baseline measurements) as
         # missing.
+        # Codex round-2 LOW fix (v3): also reject empty strings.
+        # An empty `ci=""` is morally missing — it doesn't carry
+        # the [low, high] range the dimension counts. Numeric 0
+        # stays present (legitimate measurement value); empty
+        # string is not.
         for claim in claims:
             if all(
-                key in claim and claim[key] is not None
+                _is_frame_field_populated(claim.get(key, _MISSING))
                 for key in self._FRAME_KEYS
             ):
                 complete += 1

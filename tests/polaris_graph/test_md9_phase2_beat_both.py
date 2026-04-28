@@ -653,6 +653,104 @@ def test_claim_frames_treats_zero_as_present_not_missing() -> None:
     assert scores["claim_frames"].value == 2.0
 
 
+def test_regulatory_coverage_handles_url_with_port() -> None:
+    """Codex round-2 MED fix (v3): _host_of must strip the port
+    component so https://fda.gov:443/x parses to host fda.gov."""
+    manifest = {
+        "citations": [
+            "https://fda.gov:443/drugs/some-drug",
+            "https://accessdata.fda.gov:8443/drugsatfda_docs/x.pdf",
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["regulatory_coverage"].value == 2.0
+
+
+def test_regulatory_coverage_handles_url_with_query() -> None:
+    """Codex round-2 MED fix (v3): _host_of must drop the query so
+    https://fda.gov?x=1 parses to host fda.gov."""
+    manifest = {
+        "citations": [
+            "https://fda.gov?x=1",
+            "https://ema.europa.eu/index.php?route=foo",
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["regulatory_coverage"].value == 2.0
+
+
+def test_regulatory_coverage_handles_url_with_userinfo() -> None:
+    """Codex round-2 MED fix (v3): _host_of must drop user:pass@
+    so https://user:pass@fda.gov/x parses to host fda.gov."""
+    manifest = {
+        "citations": [
+            "https://user:pass@fda.gov/drugs/some-drug",
+            "https://anonymous:@accessdata.fda.gov/x.pdf",
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["regulatory_coverage"].value == 2.0
+
+
+def test_regulatory_coverage_handles_url_with_fragment() -> None:
+    """A URL fragment must not block the host match."""
+    manifest = {
+        "citations": [
+            "https://fda.gov/drugs/some-drug#approved",
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["regulatory_coverage"].value == 1.0
+
+
+def test_regulatory_coverage_handles_www_prefix() -> None:
+    """www.fda.gov should match the same regulatory entry as fda.gov."""
+    manifest = {
+        "citations": [
+            "https://www.fda.gov/drugs/some-drug",
+            "https://fda.gov/another",
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["regulatory_coverage"].value == 2.0
+
+
+def test_claim_frames_treats_empty_string_as_missing() -> None:
+    """Codex round-2 LOW fix (v3): a claim with `ci=""` is morally
+    missing — empty string doesn't carry the [low, high] range.
+    The v2 fix made `0.0` count as present (correct); v3 keeps
+    that and rejects empty strings.
+    """
+    manifest = {
+        "claims": [
+            # Empty CI = missing
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2, "ci": ""},
+            # 0.0 baseline (legitimate) = present
+            {"n": 50, "baseline": 0.0, "endpoint": 0.0, "ci": "[0, 0]"},
+            # Genuinely complete
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7, "ci": "[5.4, 6.0]"},
+        ],
+    }
+    scores = score_run(manifest)
+    # Two complete claims; the first is incomplete (empty CI).
+    assert scores["claim_frames"].value == 2.0
+
+
+def test_claim_frames_missing_key_treated_as_missing() -> None:
+    """A claim that doesn't have the key at all is missing
+    (sentinel != None != ""); pin that case distinctly."""
+    manifest = {
+        "claims": [
+            # 'ci' key absent entirely
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2},
+            # All four present
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7, "ci": "[5.4, 6.0]"},
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["claim_frames"].value == 1.0
+
+
 def test_diff_rejects_non_dict_baseline() -> None:
     with pytest.raises(BeatBothScoringError, match="dict"):
         diff_dimension_scores("not a dict", {})  # type: ignore[arg-type]
