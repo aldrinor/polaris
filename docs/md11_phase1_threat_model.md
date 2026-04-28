@@ -2,8 +2,9 @@
 
 **Status:** GREEN-locked v5 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/model_pin.py`
-**Tests:** `tests/polaris_graph/test_md11_model_pin.py` (63+ passing)
+**Tests:** `tests/polaris_graph/test_md11_model_pin.py` (64 passing)
 **Schema version:** `PIN_SCHEMA_VERSION = "v4"`
+**Seed env-var count:** 46 (`DEFAULT_REPLAY_ENV_VARS`)
 **Codex review trail:** `outputs/codex_findings/md11_phase1_*_review/`
 
 ---
@@ -48,7 +49,7 @@ overwhelming majority are sovereign-mode-only, test fixtures,
 low-impact debug toggles, or per-call overrides that the
 pipeline never reads at the v3 honest-rebuild level.
 
-`DEFAULT_REPLAY_ENV_VARS` is curated to 36 vars verified
+`DEFAULT_REPLAY_ENV_VARS` is curated to 46 vars verified
 against actual call sites across:
 - `src/polaris_graph/llm/openrouter_client.py` (routing)
 - `src/polaris_graph/agents/nli_verifier.py` (faithfulness)
