@@ -573,25 +573,55 @@ def _diff_manifest(
     return tuple(drifts)
 
 
-# Status-taxonomy ordering for regression detection.
-# Lower-tier values regress to higher-tier values. Tiers:
+# Closed taxonomy of unified pipeline statuses.
+# **Source of truth**: `scripts/run_honest_sweep_r3.py:95-113`
+# (`UNIFIED_STATUS_VALUES`). Mirrored here so regression_lab
+# doesn't depend on scripts/ at import time. A taxonomy-drift
+# test in `tests/polaris_graph/test_md9_regression_lab.py`
+# asserts the two sets match — adding a new status to the
+# runner without updating this list will fail that test.
+#
+# Tiers:
 #   0 = success
 #   1 = partial_*  (degraded but report produced)
 #   2 = abort_*    (no report)
 #   3 = error_*    (unhandled exception)
-# Going from a lower tier to a higher tier is a regression.
+_STATUS_TIERS: dict[str, int] = {
+    # success
+    "success": 0,
+    # partial — report produced but degraded signal
+    "partial_thin_corpus": 1,
+    "partial_incomplete_corpus": 1,
+    "partial_rule_check_warnings": 1,
+    "partial_outline_fallback": 1,
+    "partial_qwen_advisory": 1,
+    # abort — pipeline refused to produce a report
+    "abort_scope_rejected": 2,
+    "abort_no_sources": 2,
+    "abort_corpus_inadequate": 2,
+    "abort_corpus_approval_denied": 2,
+    "abort_no_verified_sections": 2,
+    "abort_evaluator_critical": 2,
+    # error — unhandled exception
+    "error_unexpected": 3,
+}
+
+# Public alias of the keys for taxonomy-drift testing.
+KNOWN_STATUS_VALUES: frozenset[str] = frozenset(_STATUS_TIERS)
+
+
 def _status_tier(status: object) -> int:
+    """Return tier index for a known status, or -1 for unknown.
+
+    Unknown values include typos, future taxonomy additions
+    that haven't been mirrored here, and non-string inputs.
+    They make `_status_is_regression` return True (fail
+    closed) — better to flag a borderline case than miss a
+    real regression.
+    """
     if not isinstance(status, str):
-        return -1  # unknown, can't compare
-    if status == "success":
-        return 0
-    if status.startswith("partial_"):
-        return 1
-    if status.startswith("abort_"):
-        return 2
-    if status.startswith("error_"):
-        return 3
-    return -1
+        return -1
+    return _STATUS_TIERS.get(status, -1)
 
 
 def _status_is_regression(

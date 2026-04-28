@@ -258,6 +258,46 @@ def test_manifest_unknown_status_fails_closed() -> None:
     assert report.verdict is RegressionVerdict.RED
 
 
+def test_manifest_unknown_partial_typo_fails_closed() -> None:
+    """Round-2 fix: a typo'd partial_* value (NOT in
+    UNIFIED_STATUS_VALUES) must fail closed, not bucket as
+    'partial' via prefix match."""
+    base = _inputs(manifest={"status": "partial_thin_corpus"})
+    curr = _inputs(manifest={"status": "partial_typo"})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+
+
+def test_manifest_unknown_abort_typo_fails_closed() -> None:
+    """Round-2 fix: same for abort_* typos."""
+    base = _inputs(manifest={"status": "abort_no_sources"})
+    curr = _inputs(manifest={"status": "abort_typo"})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+
+
+def test_known_status_values_match_live_runner() -> None:
+    """Taxonomy-drift guard. The runner's UNIFIED_STATUS_VALUES
+    is the source of truth; regression_lab's KNOWN_STATUS_VALUES
+    must mirror it exactly. Adding a new status to the runner
+    without updating regression_lab will fail this test."""
+    from src.polaris_graph.audit_ir.regression_lab import (
+        KNOWN_STATUS_VALUES,
+    )
+
+    # Import the live taxonomy from the runner. (The runner is
+    # a script, so this is a one-way dependency at test time.)
+    import importlib
+    runner = importlib.import_module("scripts.run_honest_sweep_r3")
+    live = runner.UNIFIED_STATUS_VALUES
+
+    assert KNOWN_STATUS_VALUES == live, (
+        f"taxonomy drift: regression_lab has "
+        f"{KNOWN_STATUS_VALUES - live} not in runner; "
+        f"runner has {live - KNOWN_STATUS_VALUES} not in regression_lab"
+    )
+
+
 def test_pin_schema_version_change_is_red() -> None:
     """Schema version change is always RED (cross-version pins
     are not safely comparable for replay)."""
