@@ -1,8 +1,8 @@
 # M-D5 phase 1 — confidence-gated template matching boundary
 
-**Status:** v2 / 2026-04-28
+**Status:** v3 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/scope_classifier.py`
-**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (27 passing)
+**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (29 passing)
 **Pairs with:** M-20 router (`template_classifier.classify_query`),
 M-D1 validation set (43 cases)
 **Substrate:** stdlib + `template_classifier` only — no LLM client coupling
@@ -137,14 +137,36 @@ clean by avoiding LLM-internal coupling. Phase 1 preserves that
 — the scope-gate is a substrate primitive, not a runtime
 orchestrator.
 
-### 7. Empty/whitespace queries short-circuit before classifier (v2)
+### 7. Visually-empty queries short-circuit before classifier (v3)
 
-**Codex round-1 LOW fix** (commit on top of v1): the gate
-short-circuits empty / whitespace-only queries to
-`OPERATOR_REVIEW` *before* invoking `classifier.classify()`. The
-`ScopeEligibilityClassifier` Protocol does NOT guarantee output
-for empty input — a phase 2 classifier may legitimately raise on
-empty / whitespace-only strings (or hit edge cases in tokenizers).
+**Codex round-1 LOW fix** (v2): the gate short-circuits empty /
+whitespace-only queries to `OPERATOR_REVIEW` *before* invoking
+`classifier.classify()`. The `ScopeEligibilityClassifier`
+Protocol does NOT guarantee output for empty input — a phase 2
+classifier may legitimately raise on empty / whitespace-only
+strings (or hit edge cases in tokenizers).
+
+**Codex round-2 PARTIAL fix** (v3): v2 used `str.strip()` to
+detect empty input, but `strip()` only removes characters where
+`str.isspace()` returns True (Zs/Zl/Zp + control whitespace).
+It does NOT remove Cf (format) characters: U+200B (zero-width
+space), U+200C (ZWNJ), U+200D (ZWJ), U+2060 (word joiner),
+U+FEFF (BOM). These render as nothing but leave a non-empty
+string after `strip()` — letting a query like `"​​​"`
+bypass the v2 short-circuit and reach the classifier.
+
+v3 adds `_is_visually_empty(text)` which iterates char-by-char
+and treats a string as empty when every character is one of:
+- whitespace (`isspace()` True)
+- `Cf` (Format) — zero-width spaces, joiners, BOM, word joiner
+- `Cc` (Control) — control codes
+- `Cn` (Unassigned) — unassigned code points
+- `Co` (Private Use) — private-use area
+
+Visible Unicode (Japanese, accented Latin, Greek, em-dashes,
+etc.) is NOT treated as empty (verified by
+`test_visible_unicode_query_does_not_short_circuit` covering 5
+visible-Unicode inputs).
 
 The short-circuit emits a sentinel `ScopeClassification` with
 `verdict=UNCERTAIN, confidence=0.0` so callers retain a uniform
@@ -152,7 +174,11 @@ result shape. The router's `RoutingVerdict.UNSUPPORTED` rationale
 is preserved in the gate rationale.
 
 This mirrors the M-20 router's existing empty-query handling
-into the gate's contract, end-to-end.
+into the gate's contract, end-to-end. Tests pin both:
+- `test_unicode_format_character_query_short_circuits` (7
+  visually-empty Cf inputs all bypass classifier)
+- `test_visible_unicode_query_does_not_short_circuit` (5 visible
+  Unicode inputs all reach classifier)
 
 **Mitigation**: phase 2 may revisit this if a real classifier
 defines well-formed empty-input behavior. Phase 1 prefers the

@@ -54,6 +54,7 @@ See `docs/md5_phase1_threat_model.md` for boundaries.
 from __future__ import annotations
 
 import os
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
@@ -97,6 +98,36 @@ def _read_threshold_from_env() -> float:
     except ValueError:
         return DEFAULT_CONFIDENCE_THRESHOLD
     return max(0.0, min(1.0, value))
+
+
+def _is_visually_empty(text: str) -> bool:
+    """Codex round-2 PARTIAL fix: detect visually-empty input
+    including Unicode format characters that `str.strip()` misses.
+
+    Python's `str.strip()` only removes characters where
+    `str.isspace()` returns True (Zs/Zl/Zp/whitespace controls).
+    It does NOT remove Cf (format) characters: `​` (zero-
+    width space), `‌` (ZWNJ), `‍` (ZWJ), `⁠`
+    (word joiner), `﻿` (BOM). These render as nothing but
+    leave a non-empty string after strip — letting a query like
+    `"​​"` bypass the v2 short-circuit and reach the
+    classifier.
+
+    Treat any string composed entirely of whitespace + Cf
+    + Cc (control) + invisible characters as visually empty.
+    """
+    if not text:
+        return True
+    for ch in text:
+        if ch.isspace():
+            continue
+        category = unicodedata.category(ch)
+        # Cf = Format, Cc = Control, Cn = Unassigned, Co = Private Use.
+        # Any of these are non-rendering / non-content.
+        if category in ("Cf", "Cc", "Cn", "Co"):
+            continue
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -264,14 +295,20 @@ def confidence_gated_match(
 
     router_result = classify_query(question, config=router_config)
 
-    # Codex round-1 LOW fix: short-circuit on empty/whitespace input
-    # before invoking the classifier. The classifier protocol does
-    # NOT guarantee output for empty questions, and a phase 2
+    # Codex round-1 LOW fix (v2): short-circuit on empty/whitespace
+    # input before invoking the classifier. The classifier protocol
+    # does NOT guarantee output for empty questions, and a phase 2
     # classifier may legitimately raise on empty input. M-20 router
     # already returns `UNSUPPORTED` here with a useful rationale —
     # mirror that into a gated `operator_review` so the empty-query
     # contract holds end-to-end.
-    if not question or not question.strip():
+    #
+    # Codex round-2 PARTIAL fix (v3): use `_is_visually_empty` instead
+    # of `str.strip()`. `strip()` doesn't remove Cf (zero-width space,
+    # ZWNJ, BOM, word joiner) or Cc (control) characters, so a query
+    # like `"​​"` (3× zero-width space) was reaching the
+    # classifier despite being visually empty.
+    if _is_visually_empty(question):
         sentinel = ScopeClassification(
             verdict=ScopeVerdict.UNCERTAIN,
             confidence=0.0,

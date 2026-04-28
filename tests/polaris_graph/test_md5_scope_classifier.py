@@ -446,6 +446,79 @@ def test_whitespace_only_query_short_circuits_classifier_invocation() -> None:
     assert result.action == GatedAction.OPERATOR_REVIEW
 
 
+def test_unicode_format_character_query_short_circuits() -> None:
+    """Codex round-2 PARTIAL fix: visually-empty queries composed of
+    Cf (format) characters must short-circuit. `str.strip()` does
+    NOT remove zero-width space (U+200B), ZWNJ (U+200C), ZWJ
+    (U+200D), word joiner (U+2060), or BOM (U+FEFF).
+    """
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError(
+                "classifier reached for visually-empty Unicode input"
+            )
+
+    visually_empty_inputs = [
+        "​​​",          # zero-width space
+        "‌",                       # zero-width non-joiner
+        "‍",                       # zero-width joiner
+        "⁠",                       # word joiner
+        "﻿",                       # BOM
+        "  ​​  ",            # whitespace + zwsp
+        "​\t‍\n",            # mixed Cf + whitespace
+    ]
+    for query in visually_empty_inputs:
+        raising = _RaisingClassifier()
+        result = confidence_gated_match(
+            query, classifier=raising, threshold=0.70,
+        )
+        assert raising.called is False, (
+            f"query {query!r} reached classifier; should short-circuit"
+        )
+        assert result.action == GatedAction.OPERATOR_REVIEW
+
+
+def test_visible_unicode_query_does_not_short_circuit() -> None:
+    """Negative case: queries with actual Unicode content (non-Latin
+    scripts, accented chars, em-dashes, etc.) MUST reach the
+    classifier — they are not visually empty.
+
+    Pins that the v3 _is_visually_empty check doesn't over-strip.
+    """
+
+    @dataclass
+    class _CountingClassifier:
+        called: int = 0
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called += 1
+            return ScopeClassification(
+                verdict=ScopeVerdict.IN_SCOPE,
+                confidence=0.95,
+                domain="clinical",
+                rationale="visible content",
+            )
+
+    visible_inputs = [
+        "tirzepatide for diabetes",
+        "tirzépatide for diábetès",       # accented Latin
+        "ティルゼパチド for diabetes",    # Japanese
+        "tirzepatide — for diabetes",     # em-dash
+        "α-blocker safety",               # Greek alpha
+    ]
+    for query in visible_inputs:
+        clf = _CountingClassifier()
+        confidence_gated_match(query, classifier=clf, threshold=0.70)
+        assert clf.called == 1, (
+            f"visible query {query!r} did NOT reach classifier"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Validation-set abstain contract — the spec
 # ---------------------------------------------------------------------------
