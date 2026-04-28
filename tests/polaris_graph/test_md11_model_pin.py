@@ -1,4 +1,4 @@
-"""M-D11 phase 1 model-pin tests (schema v2)."""
+"""M-D11 phase 1 model-pin tests (schema v3)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.polaris_graph.audit_ir.model_pin import (
+    DEFAULT_REPLAY_ENV_VARS,
     DEFAULT_ROUTING_ENV_VARS,
     PIN_SCHEMA_VERSION,
     ModelPin,
@@ -36,7 +37,7 @@ def test_capture_pin_minimal() -> None:
         llm_models={"generator": "qwen/qwen3.5-plus"},
     )
     assert pin.run_id == "run_001"
-    assert pin.pin_schema_version == "v2"
+    assert pin.pin_schema_version == "v3"
     assert pin.llm_models == {"generator": "qwen/qwen3.5-plus"}
     assert pin.llm_providers == {"generator": "openrouter"}
     assert pin.prompt_version_hashes == {}
@@ -166,7 +167,7 @@ def test_capture_pin_with_capture_env_var_names(
 
 def test_capture_pin_default_schema_version() -> None:
     pin = capture_pin(run_id="r", llm_models={"generator": "m"})
-    assert pin.pin_schema_version == PIN_SCHEMA_VERSION == "v2"
+    assert pin.pin_schema_version == PIN_SCHEMA_VERSION == "v3"
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +178,7 @@ def test_capture_pin_default_schema_version() -> None:
 def test_capture_env_snapshot_default_set_keys() -> None:
     snap = capture_env_snapshot()
     # Stable shape: every default name is present.
-    for name in DEFAULT_ROUTING_ENV_VARS:
+    for name in DEFAULT_REPLAY_ENV_VARS:
         assert name in snap
 
 
@@ -192,6 +193,92 @@ def test_capture_env_snapshot_missing_returns_empty_string(
 def test_capture_env_snapshot_rejects_empty_name() -> None:
     with pytest.raises(ModelPinError, match="non-empty"):
         capture_env_snapshot(["", "OK"])
+
+
+# ---------------------------------------------------------------------------
+# Default env-var set verification (Codex round-2 fixes)
+# ---------------------------------------------------------------------------
+
+
+def test_default_replay_env_vars_uses_correct_fallbacks_var() -> None:
+    """Round-2 fix: OPENROUTER_ALLOW_FALLBACKS is the actual var
+    name used by openrouter_client; OPENROUTER_FALLBACKS doesn't
+    exist in the codebase."""
+    assert "OPENROUTER_ALLOW_FALLBACKS" in DEFAULT_REPLAY_ENV_VARS
+    assert "OPENROUTER_FALLBACKS" not in DEFAULT_REPLAY_ENV_VARS
+
+
+def test_default_replay_env_vars_includes_nli_knobs() -> None:
+    """Round-2 fix: NLI faithfulness knobs alter verifier behavior
+    and must be captured."""
+    for name in (
+        "PG_NLI_DISPUTE_THRESHOLD",
+        "PG_NLI_CONTEXT_WINDOW",
+        "PG_NLI_DOMAIN_ADAPTIVE",
+        "PG_NLI_DOMAIN_FLOOR",
+        "PG_FAITHFULNESS_NLI_THRESHOLD",
+    ):
+        assert name in DEFAULT_REPLAY_ENV_VARS, f"missing: {name}"
+
+
+def test_default_replay_env_vars_includes_v3_toggles() -> None:
+    """Round-2 fix: synthesis structural toggles change the prose
+    surface and must be captured."""
+    for name in (
+        "PG_V3_SURFACE_ANALYSIS",
+        "PG_V3_COMPARISON_TABLES",
+        "PG_PHASE_5_ENABLED",
+    ):
+        assert name in DEFAULT_REPLAY_ENV_VARS, f"missing: {name}"
+
+
+def test_default_replay_env_vars_includes_call_profile() -> None:
+    """Round-2 fix: token-budget knobs alter generated outputs
+    even when model + prompt are identical."""
+    for name in (
+        "PG_SECTION_WRITER_MAX_TOKENS",
+        "PG_SECTION_CONTINUATION_MAX_TOKENS",
+        "PG_GLM5_MIN_MAX_TOKENS",
+    ):
+        assert name in DEFAULT_REPLAY_ENV_VARS, f"missing: {name}"
+
+
+def test_default_routing_env_vars_alias_to_replay_env_vars() -> None:
+    """Backward-compat alias: imports of DEFAULT_ROUTING_ENV_VARS
+    still resolve to the broader replay set."""
+    assert DEFAULT_ROUTING_ENV_VARS == DEFAULT_REPLAY_ENV_VARS
+
+
+# ---------------------------------------------------------------------------
+# Symmetric retrieval_source_versions validation (Codex round-2 low finding)
+# ---------------------------------------------------------------------------
+
+
+def test_capture_pin_rejects_non_str_retrieval_value() -> None:
+    with pytest.raises(ModelPinError, match="retrieval_source_versions"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            retrieval_source_versions={"crossref": 1},  # type: ignore[dict-item]
+        )
+
+
+def test_capture_pin_rejects_non_str_retrieval_key() -> None:
+    with pytest.raises(ModelPinError, match="retrieval_source_versions"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            retrieval_source_versions={1: "v1"},  # type: ignore[dict-item]
+        )
+
+
+def test_capture_pin_rejects_empty_retrieval_key() -> None:
+    with pytest.raises(ModelPinError, match="retrieval_source_versions"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            retrieval_source_versions={"  ": "v1"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +360,7 @@ def test_pin_to_json_stable_key_order() -> None:
 def test_pin_to_dict_emits_schema_version() -> None:
     pin = capture_pin(run_id="r", llm_models={"generator": "m"})
     d = pin_to_dict(pin)
-    assert d["pin_schema_version"] == "v2"
+    assert d["pin_schema_version"] == "v3"
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +381,20 @@ def test_pin_from_dict_rejects_v1_schema_no_version() -> None:
         pin_from_dict(v1_shape)
 
 
+def test_pin_from_dict_rejects_v2_schema() -> None:
+    """A v2-shaped dict must not silently load under v3 (schema
+    bumped after Codex round-2 review uncovered missing env vars)."""
+    v2_shape = {
+        "pin_schema_version": "v2",
+        "run_id": "r",
+        "captured_at": 0.0,
+        "llm_models": {"generator": "m"},
+        "llm_providers": {"generator": "openrouter"},
+    }
+    with pytest.raises(ModelPinError, match="pin_schema_version"):
+        pin_from_dict(v2_shape)
+
+
 def test_pin_from_dict_rejects_unknown_schema_version() -> None:
     with pytest.raises(ModelPinError, match="pin_schema_version"):
         pin_from_dict(
@@ -311,7 +412,7 @@ def test_pin_from_dict_missing_llm_models() -> None:
     with pytest.raises(ModelPinError, match="missing required key"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
             }
@@ -328,7 +429,7 @@ def test_pin_from_dict_re_validates_run_id_empty() -> None:
     with pytest.raises(ModelPinError, match="run_id"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -341,7 +442,7 @@ def test_pin_from_dict_re_validates_run_id_whitespace() -> None:
     with pytest.raises(ModelPinError, match="run_id"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "   ",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -354,7 +455,7 @@ def test_pin_from_dict_re_validates_models_empty() -> None:
     with pytest.raises(ModelPinError, match="llm_models"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {},
@@ -366,7 +467,7 @@ def test_pin_from_dict_re_validates_models_value_empty() -> None:
     with pytest.raises(ModelPinError, match="llm_models"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": ""},
@@ -379,7 +480,7 @@ def test_pin_from_dict_provider_role_mismatch() -> None:
     with pytest.raises(ModelPinError, match="unknown roles"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -398,7 +499,7 @@ def test_pin_from_dict_provider_missing_role() -> None:
     with pytest.raises(ModelPinError, match="missing roles"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m", "evaluator": "n"},
@@ -411,7 +512,7 @@ def test_pin_from_dict_prompt_role_unknown() -> None:
     with pytest.raises(ModelPinError, match="prompt_version_hashes"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -425,7 +526,7 @@ def test_pin_from_dict_env_snapshot_invalid_value_type() -> None:
     with pytest.raises(ModelPinError, match="env_snapshot"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -439,7 +540,7 @@ def test_pin_from_dict_retrieval_invalid_value() -> None:
     with pytest.raises(ModelPinError, match="retrieval_source_versions"):
         pin_from_dict(
             {
-                "pin_schema_version": "v2",
+                "pin_schema_version": "v3",
                 "run_id": "r",
                 "captured_at": 0.0,
                 "llm_models": {"generator": "m"},
@@ -577,7 +678,7 @@ def test_pins_not_equivalent_on_schema_version_change() -> None:
     pin_a = capture_pin(run_id="a", llm_models={"generator": "m"})
     # Synthesize a different schema-version pin via dataclass replace
     # (frozen but replace returns new instance).
-    pin_b = replace(pin_a, pin_schema_version="v3")
+    pin_b = replace(pin_a, pin_schema_version="v99")
     assert not pins_equivalent_for_replay(pin_a, pin_b)
 
 
@@ -624,7 +725,7 @@ def test_validation_set_hash_changes_on_content_change(
 # ---------------------------------------------------------------------------
 
 
-def test_json_shape_includes_v2_fields() -> None:
+def test_json_shape_includes_v3_fields() -> None:
     pin = capture_pin(
         run_id="r",
         llm_models={"generator": "m"},
@@ -632,7 +733,7 @@ def test_json_shape_includes_v2_fields() -> None:
     )
     text = pin_to_json(pin)
     parsed = json.loads(text)
-    assert parsed["pin_schema_version"] == "v2"
+    assert parsed["pin_schema_version"] == "v3"
     assert parsed["llm_models"] == {"generator": "m"}
     assert parsed["llm_providers"] == {"generator": "openrouter"}
     assert parsed["env_snapshot"]["OPENROUTER_BASE_URL"] == "https://example/api"

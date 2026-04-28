@@ -12,11 +12,11 @@ is a separate module that depends on this one being stable.
 
 ## Schema version
 
-`PIN_SCHEMA_VERSION = "v2"`. Every pin carries this version
+`PIN_SCHEMA_VERSION = "v3"`. Every pin carries this version
 explicitly. `pin_from_dict` rejects mismatched versions loudly
 so future schema changes don't silently misload historical pins.
 
-## Pin shape (v2)
+## Pin shape (v3)
 
 ModelPin captures:
   - run_id: the run this pin was captured from
@@ -42,9 +42,12 @@ ModelPin captures:
   - validation_set_hash: hash of the M-D1 validation set file
     if the run involved induction
   - env_snapshot: {var_name: value} captured environment toggles
-    that affect routing/prompt selection. Empty string for unset
-    vars so the snapshot shape is stable. See
-    `DEFAULT_ROUTING_ENV_VARS` for the recommended capture set.
+    that affect routing, prompt selection, verification gates, AND
+    LLM call profile (token budgets). Empty string for unset vars
+    so the snapshot shape is stable. See
+    `DEFAULT_REPLAY_ENV_VARS` for the recommended capture set
+    (verified against actual `os.getenv` call sites in
+    `docs/pipeline_audit_context/08_env_var_inventory.md`).
   - notes: free-form operator context (excluded from replay
     equivalence)
 
@@ -74,31 +77,58 @@ from pathlib import Path
 from typing import Any
 
 
-PIN_SCHEMA_VERSION = "v2"
+PIN_SCHEMA_VERSION = "v3"
 
 
-# Environment variables that influence routing / prompt selection
-# in the current honest_pipeline + openrouter_client + synthesis
-# stack. Capturing these at run time makes pins truly replay-
-# safe: two pins with identical model ids but divergent env are
-# NOT replay-equivalent.
-DEFAULT_ROUTING_ENV_VARS: tuple[str, ...] = (
+# Environment variables that influence routing, prompt selection,
+# verification gates, OR LLM call profile (token budgets) in the
+# current honest_pipeline + openrouter_client + synthesis stack.
+# Capturing these at run time makes pins truly replay-safe: two
+# pins with identical model ids but divergent env are NOT
+# replay-equivalent.
+#
+# Names verified against actual `os.getenv` call sites — see
+# `docs/pipeline_audit_context/08_env_var_inventory.md`. Per
+# Codex round-2 review (commit 472b865), the set must include
+# call-profile knobs (max_tokens) since they materially change
+# generated outputs even when the prompt + model are identical.
+DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
     # OpenRouter routing
     "OPENROUTER_BASE_URL",
     "OPENROUTER_DEFAULT_MODEL",
     "OPENROUTER_PROVIDER_ORDER",
-    "OPENROUTER_FALLBACKS",
+    "OPENROUTER_ALLOW_FALLBACKS",
     "OPENROUTER_REQUIRE_PARAMETERS",
     "OPENROUTER_PROVIDER_REQUIRE_PARAMETERS",
-    # Synthesis prompt mode (analytical vs default)
+    # Synthesis prompt mode + structural feature toggles
     "PG_V3_ANALYTICAL_PROMPT",
-    # Pipeline gate / behavior toggles
     "PG_V3_DEPTH_GATE",
+    "PG_V3_SURFACE_ANALYSIS",
+    "PG_V3_COMPARISON_TABLES",
+    "PG_PHASE_5_ENABLED",
     "POLARIS_CITEFIRST_ENABLED",
+    # Verification gates (provenance + NLI faithfulness)
     "PG_PROVENANCE_MIN_CONTENT_OVERLAP",
     "PG_NLI_ENABLED",
     "PG_NLI_THRESHOLD",
+    "PG_NLI_DISPUTE_THRESHOLD",
+    "PG_NLI_CONTEXT_WINDOW",
+    "PG_NLI_DOMAIN_ADAPTIVE",
+    "PG_NLI_DOMAIN_FLOOR",
+    "PG_FAITHFULNESS_NLI_THRESHOLD",
+    # LLM call profile — token budgets that change outputs even
+    # with identical model + prompt
+    "PG_SECTION_WRITER_MAX_TOKENS",
+    "PG_SECTION_CONTINUATION_MAX_TOKENS",
+    "PG_GLM5_MIN_MAX_TOKENS",
 )
+
+
+# Backward-compat alias. Older callers may import
+# `DEFAULT_ROUTING_ENV_VARS`; the name was narrowed in v3 to
+# `DEFAULT_REPLAY_ENV_VARS` (broader scope: routing + gates +
+# call profile). Keep alias so internal callers don't break.
+DEFAULT_ROUTING_ENV_VARS: tuple[str, ...] = DEFAULT_REPLAY_ENV_VARS
 
 
 @dataclass(frozen=True)
@@ -157,7 +187,7 @@ def hash_inductor_profile(profile_text: str) -> str:
 
 
 def capture_env_snapshot(
-    names: Iterable[str] = DEFAULT_ROUTING_ENV_VARS,
+    names: Iterable[str] = DEFAULT_REPLAY_ENV_VARS,
 ) -> dict[str, str]:
     """Capture current values of named environment variables.
 
@@ -201,6 +231,29 @@ def _validate_role_dict(
                 f"{field_name}[{role!r}] must be non-empty string"
             )
         out[role.strip()] = value.strip()
+    return out
+
+
+def _validate_retrieval_source_versions(data: Any) -> dict[str, str]:
+    """Validate retrieval_source_versions: dict of str→str. Empty
+    dict is allowed (no retrieval sources)."""
+    if not isinstance(data, dict):
+        raise ModelPinError(
+            f"retrieval_source_versions must be a dict, "
+            f"got {type(data).__name__}"
+        )
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        if not isinstance(k, str) or not k.strip():
+            raise ModelPinError(
+                "retrieval_source_versions keys must be non-empty strings"
+            )
+        if not isinstance(v, str):
+            raise ModelPinError(
+                f"retrieval_source_versions[{k!r}] must be string, "
+                f"got {type(v).__name__}"
+            )
+        out[k] = v
     return out
 
 
@@ -318,6 +371,10 @@ def capture_pin(
     else:
         env_final = {}
 
+    retrieval_validated = _validate_retrieval_source_versions(
+        retrieval_source_versions or {}
+    )
+
     return ModelPin(
         run_id=run_id.strip(),
         captured_at=captured_at if captured_at is not None else time.time(),
@@ -325,7 +382,7 @@ def capture_pin(
         llm_models=models,
         llm_providers=providers,
         prompt_version_hashes=prompt_hashes,
-        retrieval_source_versions=dict(retrieval_source_versions or {}),
+        retrieval_source_versions=retrieval_validated,
         inductor_type=inductor_type,
         inductor_version_hash=inductor_hash,
         validation_set_hash=vs_hash,
@@ -406,18 +463,9 @@ def pin_from_dict(data: dict[str, Any]) -> ModelPin:
                 f"prompt_version_hashes has unknown roles: {sorted(unknown_h)}"
             )
 
-        retrieval_raw = data.get("retrieval_source_versions") or {}
-        if not isinstance(retrieval_raw, dict):
-            raise ModelPinError(
-                "retrieval_source_versions must be a dict"
-            )
-        retrieval: dict[str, str] = {}
-        for k, v in retrieval_raw.items():
-            if not isinstance(k, str) or not isinstance(v, str):
-                raise ModelPinError(
-                    "retrieval_source_versions must be str→str"
-                )
-            retrieval[k] = v
+        retrieval = _validate_retrieval_source_versions(
+            data.get("retrieval_source_versions") or {}
+        )
 
         env_raw = data.get("env_snapshot", {}) or {}
         env_snapshot = _validate_env_snapshot(env_raw)
