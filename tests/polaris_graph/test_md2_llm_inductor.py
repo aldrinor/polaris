@@ -488,6 +488,56 @@ def test_round3_classifier_propagates_cost_writeback() -> None:
         _RUN_COST_CTX.reset(token)
 
 
+def test_round4_classifier_propagates_cost_on_worker_failure() -> None:
+    """Codex round-4 fix: if OpenRouter bills cost before raising
+    (empty-content path, retry path), the parent must STILL see
+    that cost. Round-3 only wrote back on success; round-4 moves
+    the write-back into finally blocks so failures propagate too.
+
+    Stubs a client that increments _RUN_COST_CTX by $0.03 and
+    then raises — verifies parent's cost shows +$0.03 even though
+    classify() raised.
+    """
+    import contextvars
+
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        OpenRouterTemplateAffinityClassifier,
+    )
+    from src.polaris_graph.llm.openrouter_client import _RUN_COST_CTX
+
+    if not os.getenv("OPENROUTER_API_KEY"):
+        os.environ["OPENROUTER_API_KEY"] = "dummy-for-test"
+
+    cls = OpenRouterTemplateAffinityClassifier()
+
+    class _BillingThenRaisingClient:
+        async def generate(self, **kwargs):
+            current = _RUN_COST_CTX.get()
+            _RUN_COST_CTX.set(current + 0.03)
+            raise RuntimeError("simulated empty-content failure")
+
+    cls._client = _BillingThenRaisingClient()
+
+    token = _RUN_COST_CTX.set(0.0)
+    try:
+        assert _RUN_COST_CTX.get() == 0.0
+        with pytest.raises(RuntimeError, match="empty-content failure"):
+            cls.classify(
+                "tirzepatide for type 2 diabetes",
+                ("clinical_tirzepatide_t2dm",),
+            )
+        # Even though classify() raised, the worker's billed cost
+        # must have propagated. Without round-4 fix this would
+        # still be 0.0.
+        post_cost = _RUN_COST_CTX.get()
+        assert post_cost == pytest.approx(0.03), (
+            f"worker failure cost write-back broken: parent "
+            f"_RUN_COST_CTX = {post_cost} (expected 0.03)"
+        )
+    finally:
+        _RUN_COST_CTX.reset(token)
+
+
 @pytest.mark.skipif(
     not os.getenv("OPENROUTER_API_KEY"),
     reason="OPENROUTER_API_KEY not set; skipping live LLM test",

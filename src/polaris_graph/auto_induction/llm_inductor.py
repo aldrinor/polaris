@@ -365,40 +365,54 @@ class OpenRouterTemplateAffinityClassifier:
             f"Return strict JSON per the system instructions."
         )
 
-        # Codex round-3 fix: ContextVar.run() in the worker thread
-        # gives READ visibility but NOT write-back — `_add_run_cost`
-        # inside the worker updates the worker's copy of
-        # _RUN_COST_CTX, leaving the parent's value untouched.
-        # Result: classifier LLM calls don't count against the
-        # per-run cost cap. Fix: capture parent's pre-call cost,
-        # snapshot worker's post-call cost via a closure-shared
-        # holder (lists are shared by reference across threads),
-        # apply the delta back to parent context after worker
-        # returns.
+        # Codex round-3/4 fix: ContextVar.run() in the worker thread
+        # gives READ visibility but NOT write-back. Worker
+        # `_add_run_cost` updates only the worker's snapshot,
+        # leaving parent value untouched. Fix: capture parent's
+        # pre-call cost, capture worker's post-call cost via
+        # closure-shared holder (mutable, thread-shared by
+        # reference), apply delta to parent context.
+        #
+        # Codex round-4 finding: round-3 only wrote back on success.
+        # OpenRouter's empty-content + retry paths bill cost
+        # BEFORE raising, so on failure the cost was lost. v5 wraps
+        # the worker call AND the inner coroutine in try/finally
+        # blocks so the cost delta propagates whether or not the
+        # call succeeds. The exception still propagates after the
+        # write-back.
         from src.polaris_graph.llm.openrouter_client import _RUN_COST_CTX
 
         parent_cost_before = _RUN_COST_CTX.get()
         worker_cost_after_holder: list[float] = [parent_cost_before]
 
         async def _go() -> str:
-            response = await self._client.generate(
-                prompt=user_prompt,
-                system=self._SYSTEM_PROMPT,
-                temperature=0.0,  # deterministic routing
+            try:
+                response = await self._client.generate(
+                    prompt=user_prompt,
+                    system=self._SYSTEM_PROMPT,
+                    temperature=0.0,  # deterministic routing
+                )
+                return response.content
+            finally:
+                # Always capture, even on raise. Worker's
+                # ContextVar snapshot has the accumulated cost
+                # (including any partial cost the OpenRouter
+                # client billed before raising).
+                worker_cost_after_holder[0] = _RUN_COST_CTX.get()
+
+        try:
+            raw_response = _run_async_in_isolated_thread(_go)
+        finally:
+            # Apply the worker's cost delta to the parent context
+            # whether or not the worker raised. The OpenRouter
+            # client's empty-content + retry paths bill cost
+            # BEFORE raising, so on failure we still owe the
+            # parent budget the partial cost.
+            cost_delta = (
+                worker_cost_after_holder[0] - parent_cost_before
             )
-            # Capture worker-thread post-call cost. The worker's
-            # ContextVar snapshot has the accumulated cost; the
-            # parent's still has the pre-call value.
-            worker_cost_after_holder[0] = _RUN_COST_CTX.get()
-            return response.content
-
-        raw_response = _run_async_in_isolated_thread(_go)
-
-        # Apply the worker's cost delta to the parent context so
-        # the run-budget cap sees it.
-        cost_delta = worker_cost_after_holder[0] - parent_cost_before
-        if cost_delta > 0:
-            _RUN_COST_CTX.set(parent_cost_before + cost_delta)
+            if cost_delta > 0:
+                _RUN_COST_CTX.set(parent_cost_before + cost_delta)
 
         return _parse_classifier_json(raw_response, candidate_slugs)
 
