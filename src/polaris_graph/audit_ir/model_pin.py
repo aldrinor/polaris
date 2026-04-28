@@ -43,11 +43,17 @@ ModelPin captures:
     if the run involved induction
   - env_snapshot: {var_name: value} captured environment toggles
     that affect routing, prompt selection, verification gates, AND
-    LLM call profile (token budgets). Empty string for unset vars
-    so the snapshot shape is stable. See
-    `DEFAULT_REPLAY_ENV_VARS` for the recommended capture set
-    (verified against actual `os.getenv` call sites in
-    `docs/pipeline_audit_context/08_env_var_inventory.md`).
+    LLM call profile (token budgets).
+
+    **Unset vs. empty distinction**: an unset env var is captured
+    as `None`; a var explicitly set to "" is captured as `""`.
+    Many call sites read numeric vars via `int(os.getenv("X",
+    "default"))`, so phase-2 replay must DELETE the env var (not
+    set it to "") when the captured value is `None`. Conflating
+    the two would either (a) crash `int("")` at the call site, or
+    (b) bypass the runtime default and silently change behavior.
+    See `DEFAULT_REPLAY_ENV_VARS` for the recommended capture set
+    (verified against actual `os.getenv` call sites).
   - notes: free-form operator context (excluded from replay
     equivalence)
 
@@ -77,7 +83,7 @@ from pathlib import Path
 from typing import Any
 
 
-PIN_SCHEMA_VERSION = "v3"
+PIN_SCHEMA_VERSION = "v4"
 
 
 # Environment variables that influence routing, prompt selection,
@@ -87,11 +93,9 @@ PIN_SCHEMA_VERSION = "v3"
 # pins with identical model ids but divergent env are NOT
 # replay-equivalent.
 #
-# Names verified against actual `os.getenv` call sites — see
-# `docs/pipeline_audit_context/08_env_var_inventory.md`. Per
-# Codex round-2 review (commit 472b865), the set must include
-# call-profile knobs (max_tokens) since they materially change
-# generated outputs even when the prompt + model are identical.
+# Names verified against actual `os.getenv` call sites in the
+# polaris_graph tree (Codex rounds 2-3). Dead vars (referenced
+# only in this module) are excluded.
 DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
     # OpenRouter routing
     "OPENROUTER_BASE_URL",
@@ -99,27 +103,43 @@ DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
     "OPENROUTER_PROVIDER_ORDER",
     "OPENROUTER_ALLOW_FALLBACKS",
     "OPENROUTER_REQUIRE_PARAMETERS",
-    "OPENROUTER_PROVIDER_REQUIRE_PARAMETERS",
     # Synthesis prompt mode + structural feature toggles
     "PG_V3_ANALYTICAL_PROMPT",
     "PG_V3_DEPTH_GATE",
     "PG_V3_SURFACE_ANALYSIS",
     "PG_V3_COMPARISON_TABLES",
+    "PG_V3_ANALYSIS_ENABLED",
     "PG_PHASE_5_ENABLED",
+    "PG_STORM_ENABLED",
     "POLARIS_CITEFIRST_ENABLED",
-    # Verification gates (provenance + NLI faithfulness)
+    # Verification gates (provenance + NLI faithfulness +
+    # cross-source corroboration)
     "PG_PROVENANCE_MIN_CONTENT_OVERLAP",
     "PG_NLI_ENABLED",
+    "PG_NLI_MODEL",
+    "PG_FAITHLENS_MODEL",
     "PG_NLI_THRESHOLD",
     "PG_NLI_DISPUTE_THRESHOLD",
     "PG_NLI_CONTEXT_WINDOW",
     "PG_NLI_DOMAIN_ADAPTIVE",
     "PG_NLI_DOMAIN_FLOOR",
+    "PG_NLI_FAITHFULNESS_FLOOR",
     "PG_FAITHFULNESS_NLI_THRESHOLD",
+    "PG_CROSS_SOURCE_ENABLED",
+    "PG_CROSS_SOURCE_MIN_SIM",
+    "PG_CROSS_SOURCE_MIN_NLI",
+    "PG_CROSS_SOURCE_MAX_SOURCES",
+    "PG_CROSS_SOURCE_SELF_CHECK_MIN",
+    # Pipeline budgets / gap-fill loops
+    "PG_V3_MAX_GAP_SEARCHES",
+    "PG_V3_SYNTH_BUDGET_PCT",
     # LLM call profile — token budgets that change outputs even
     # with identical model + prompt
     "PG_SECTION_WRITER_MAX_TOKENS",
     "PG_SECTION_CONTINUATION_MAX_TOKENS",
+    "PG_V3_SCOPE_MAX_TOKENS",
+    "PG_V3_OUTLINE_MAX_TOKENS",
+    "PG_VERIFY_MAX_TOKENS",
     "PG_GLM5_MIN_MAX_TOKENS",
 )
 
@@ -150,7 +170,11 @@ class ModelPin:
     inductor_type: str | None = None
     inductor_version_hash: str | None = None
     validation_set_hash: str | None = None
-    env_snapshot: dict[str, str] = field(default_factory=dict)
+    # str -> str | None. None = "var was unset at capture time".
+    # "" = "var was set to empty string". Phase-2 replay must
+    # respect the distinction (delete vs. set) — see module
+    # docstring.
+    env_snapshot: dict[str, str | None] = field(default_factory=dict)
     # Free-form notes for operator context — not used by replay,
     # only for human readability.
     notes: str = ""
@@ -188,21 +212,24 @@ def hash_inductor_profile(profile_text: str) -> str:
 
 def capture_env_snapshot(
     names: Iterable[str] = DEFAULT_REPLAY_ENV_VARS,
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     """Capture current values of named environment variables.
 
-    Missing variables are recorded as empty string so the
-    snapshot has stable shape across runs (a missing var and a
-    var set to "" are treated the same — neither overrides
-    routing in the current stack).
+    Returns `None` for unset variables and the string value for
+    set variables (including empty string). The distinction
+    matters: many call sites read numeric vars with a default
+    fallback (`int(os.getenv("X", "8192"))`) — re-setting to ""
+    on replay would skip the default and crash the cast.
     """
-    snapshot: dict[str, str] = {}
+    snapshot: dict[str, str | None] = {}
     for name in names:
         if not isinstance(name, str) or not name.strip():
             raise ModelPinError(
                 "env var names must be non-empty strings"
             )
-        snapshot[name.strip()] = os.environ.get(name.strip(), "")
+        clean = name.strip()
+        # `None` if unset; the actual value (possibly "") if set.
+        snapshot[clean] = os.environ.get(clean)
     return snapshot
 
 
@@ -257,26 +284,29 @@ def _validate_retrieval_source_versions(data: Any) -> dict[str, str]:
     return out
 
 
-def _validate_env_snapshot(data: Any) -> dict[str, str]:
-    """Validate env_snapshot shape: str→str (None values become
-    "")."""
+def _validate_env_snapshot(data: Any) -> dict[str, str | None]:
+    """Validate env_snapshot shape: str → (str | None).
+
+    `None` is preserved (means "var was unset at capture time").
+    Empty string is preserved (means "var was set to "")."""
     if not isinstance(data, dict):
         raise ModelPinError(
             f"env_snapshot must be a dict, got {type(data).__name__}"
         )
-    out: dict[str, str] = {}
+    out: dict[str, str | None] = {}
     for k, v in data.items():
         if not isinstance(k, str) or not k.strip():
             raise ModelPinError(
                 "env_snapshot keys must be non-empty strings"
             )
         if v is None:
-            out[k.strip()] = ""
+            out[k.strip()] = None
         elif isinstance(v, str):
             out[k.strip()] = v
         else:
             raise ModelPinError(
-                f"env_snapshot[{k!r}] must be string or None"
+                f"env_snapshot[{k!r}] must be string or None, "
+                f"got {type(v).__name__}"
             )
     return out
 
@@ -291,7 +321,7 @@ def capture_pin(
     inductor_type: str | None = None,
     inductor_profile_text: str | None = None,
     validation_set_path: Path | str | None = None,
-    env_snapshot: dict[str, str] | None = None,
+    env_snapshot: dict[str, str | None] | None = None,
     capture_env_var_names: Iterable[str] | None = None,
     notes: str = "",
     captured_at: float | None = None,
