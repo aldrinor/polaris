@@ -12,16 +12,16 @@ is a separate module that depends on this one being stable.
 
 ## Schema version
 
-`PIN_SCHEMA_VERSION = "v3"`. Every pin carries this version
+`PIN_SCHEMA_VERSION = "v4"`. Every pin carries this version
 explicitly. `pin_from_dict` rejects mismatched versions loudly
 so future schema changes don't silently misload historical pins.
 
-## Pin shape (v3)
+## Pin shape (v4)
 
 ModelPin captures:
   - run_id: the run this pin was captured from
   - captured_at: unix timestamp
-  - pin_schema_version: "v2" (explicit forward-compat marker)
+  - pin_schema_version: "v4" (explicit forward-compat marker)
   - llm_models: {role: model_id} — e.g. {"generator": "z-ai/glm-5.1",
     "evaluator": "qwen/qwen3.5-plus", "judge": "...", "inductor": "..."}.
     The current honest_pipeline + audit_ir loader carry distinct
@@ -94,8 +94,19 @@ PIN_SCHEMA_VERSION = "v4"
 # replay-equivalent.
 #
 # Names verified against actual `os.getenv` call sites in the
-# polaris_graph tree (Codex rounds 2-3). Dead vars (referenced
+# polaris_graph tree (Codex rounds 2-4). Dead vars (referenced
 # only in this module) are excluded.
+#
+# **Boundary**: this is a *seed list* of common-path replay-
+# critical vars — NOT exhaustive. The codebase has 800+ env
+# vars, most of which are sovereign-mode, test-only, or
+# low-impact. Pipelines using non-default features (e.g. STORM
+# token budgets, custom NLI ensembles, contradiction-detector
+# corroboration sub-thresholds) extend the capture set via
+# `capture_pin(capture_env_var_names=[...])`. Phase 2 replay
+# requires an exact env_snapshot match for the captured set;
+# vars outside the captured set are NOT replayed.
+# See `docs/md11_phase1_threat_model.md` for the full boundary.
 DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
     # OpenRouter routing
     "OPENROUTER_BASE_URL",
@@ -125,14 +136,27 @@ DEFAULT_REPLAY_ENV_VARS: tuple[str, ...] = (
     "PG_NLI_DOMAIN_FLOOR",
     "PG_NLI_FAITHFULNESS_FLOOR",
     "PG_FAITHFULNESS_NLI_THRESHOLD",
+    "PG_REQUIRE_NLI_FOR_FAITHFUL",
     "PG_CROSS_SOURCE_ENABLED",
     "PG_CROSS_SOURCE_MIN_SIM",
     "PG_CROSS_SOURCE_MIN_NLI",
     "PG_CROSS_SOURCE_MAX_SOURCES",
     "PG_CROSS_SOURCE_SELF_CHECK_MIN",
+    "PG_MAX_CROSS_SOURCE_PAIRS",
+    # Contradiction detector (binary toggle + main threshold)
+    "PG_CONTRADICTION_ENABLED",
+    "PG_CONTRADICTION_NLI_THRESHOLD",
     # Pipeline budgets / gap-fill loops
     "PG_V3_MAX_GAP_SEARCHES",
     "PG_V3_SYNTH_BUDGET_PCT",
+    "PG_V3_TOTAL_BUDGET_SECONDS",
+    # STORM behavior knobs (beyond the enable flag) — only
+    # the user-visible ones; deep token-budget sub-knobs are
+    # extension territory, not seed-list territory.
+    "PG_STORM_PERSPECTIVES_COUNT",
+    "PG_STORM_ROUNDS_PER_PERSPECTIVE",
+    "PG_STORM_MAX_TIME_SECONDS",
+    "PG_STORM_PERSONA_MAX_TOKENS",
     # LLM call profile — token budgets that change outputs even
     # with identical model + prompt
     "PG_SECTION_WRITER_MAX_TOKENS",

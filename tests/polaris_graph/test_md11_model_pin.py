@@ -294,6 +294,29 @@ def test_default_replay_env_vars_includes_round3_additions() -> None:
         assert name in DEFAULT_REPLAY_ENV_VARS, f"missing: {name}"
 
 
+def test_default_replay_env_vars_includes_round4_additions() -> None:
+    """Round-4 fix: Codex flagged headline replay-critical vars
+    that should be in the seed list (rather than left to
+    extension via capture_env_var_names)."""
+    for name in (
+        # Top-level run budget
+        "PG_V3_TOTAL_BUDGET_SECONDS",
+        # Verifier require-NLI gate
+        "PG_REQUIRE_NLI_FOR_FAITHFUL",
+        # Cross-source pair cap
+        "PG_MAX_CROSS_SOURCE_PAIRS",
+        # Contradiction detector binary + main threshold
+        "PG_CONTRADICTION_ENABLED",
+        "PG_CONTRADICTION_NLI_THRESHOLD",
+        # STORM user-visible behavior knobs (beyond enable flag)
+        "PG_STORM_PERSPECTIVES_COUNT",
+        "PG_STORM_ROUNDS_PER_PERSPECTIVE",
+        "PG_STORM_MAX_TIME_SECONDS",
+        "PG_STORM_PERSONA_MAX_TOKENS",
+    ):
+        assert name in DEFAULT_REPLAY_ENV_VARS, f"missing: {name}"
+
+
 def test_default_routing_env_vars_alias_to_replay_env_vars() -> None:
     """Backward-compat alias: imports of DEFAULT_ROUTING_ENV_VARS
     still resolve to the broader replay set."""
