@@ -8,57 +8,213 @@
 #   precision >= 0.80         (in-scope cases where induced contract matches curator @ tau=0.80)
 #   silent_disagreement_rate <= 0.05  (in-scope cases inductor accepted but match_score < tau)
 #   abstain_recall >= 0.95    (cases that should abstain where inductor did abstain)
+#   abstain_precision >= 0.80 (correct abstains / total abstains; Codex round-1 fix)
 #   operator_review_load <= 0.30  (fraction of total queries routed to humans)
 #
-# This is a SEED set — M-D1 explicitly defines "100-200 historic
-# queries that already have curator-reviewed contracts." This file
-# starts with 6 cases (2 in-scope clinical, 1 in-scope policy, 2
-# ambiguous, 1 out-of-scope) just to validate the harness shape.
-# Growing the set to 100+ is its own M-D1.5 task — to be done by a
-# human curator or an LLM-assisted curation pass over historic
-# audit-run logs.
+# Set size: 36 cases as of M-D1.5 expansion 2026-04-27 (was 6 seed).
+# Plan target is 100-200 cases. The expansion to 100+ is its own
+# task — to be done by a human curator or LLM-assisted curation
+# pass over historic audit-run logs (this YAML structure is the
+# stable schema for that future work).
+#
+# Naming convention:
+#   cli-NN  = in_scope clinical (clinical_tirzepatide_t2dm)
+#   pol-NN  = in_scope policy (policy_medicare_drug_price)
+#   amb-NN  = ambiguous (multiple-domain + unclear-intent)
+#   oos-NN  = out_of_scope (no curated template covers)
 
 in_scope:
-  # Clinical template — happy path
+  # ──────────────────────────────────────────────────────────────────
+  # Clinical: clinical_tirzepatide_t2dm
+  # Tests paraphrase robustness, drug-name variants, condition variants.
+  # ──────────────────────────────────────────────────────────────────
   - case_id: cli-01
     query: "What is the efficacy of tirzepatide vs semaglutide for type 2 diabetes?"
     curator_contract_slug: clinical_tirzepatide_t2dm
     domain: clinical
 
-  # Clinical template — same contract, different phrasing (test
-  # paraphrase robustness)
   - case_id: cli-02
     query: "How does Mounjaro compare to Ozempic on HbA1c reduction in T2DM patients?"
     curator_contract_slug: clinical_tirzepatide_t2dm
     domain: clinical
 
-  # Policy template — happy path
-  # (slug verified to exist in config/scope_templates/policy.yaml)
+  - case_id: cli-03
+    query: "What does the SURPASS-2 trial tell us about tirzepatide for diabetes management?"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  - case_id: cli-04
+    query: "Tirzepatide glycemic control efficacy in adults with type 2 diabetes — what is the evidence base?"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  - case_id: cli-05
+    query: "Compare GIP/GLP-1 dual agonist tirzepatide against GLP-1 monotherapy for T2DM"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  - case_id: cli-06
+    query: "Mounjaro versus semaglutide head-to-head for type 2 diabetes — clinical outcomes"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  - case_id: cli-07
+    query: "What is the SURPASS program evidence for tirzepatide in glycemic management?"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  - case_id: cli-08
+    query: "HbA1c reduction with tirzepatide compared to semaglutide in diabetes patients"
+    curator_contract_slug: clinical_tirzepatide_t2dm
+    domain: clinical
+
+  # ──────────────────────────────────────────────────────────────────
+  # Policy: policy_medicare_drug_price
+  # ──────────────────────────────────────────────────────────────────
   - case_id: pol-01
     query: "What is the projected impact of the Medicare drug price negotiation rule on pharmaceutical R&D investment?"
     curator_contract_slug: policy_medicare_drug_price
     domain: policy
 
+  - case_id: pol-02
+    query: "How will Inflation Reduction Act drug price provisions affect Part D formulary design?"
+    curator_contract_slug: policy_medicare_drug_price
+    domain: policy
+
+  - case_id: pol-03
+    query: "Medicare drug pricing negotiation: PBM rebate impact and CMS implementation timeline"
+    curator_contract_slug: policy_medicare_drug_price
+    domain: policy
+
+  - case_id: pol-04
+    query: "What is the evidence on IRA-driven drug price negotiation effect on innovation?"
+    curator_contract_slug: policy_medicare_drug_price
+    domain: policy
+
+  - case_id: pol-05
+    query: "CMS rebate / drug price negotiation implementation under the Inflation Reduction Act"
+    curator_contract_slug: policy_medicare_drug_price
+    domain: policy
+
+  - case_id: pol-06
+    query: "Medicare Part D formulary changes from drug price negotiation policy"
+    curator_contract_slug: policy_medicare_drug_price
+    domain: policy
+
 ambiguous:
-  # Could be clinical OR policy depending on framing; the inductor
-  # SHOULD abstain and route to operator review per Risk #13
-  # (query-to-template misrouting / unsupported overclaim).
+  # ──────────────────────────────────────────────────────────────────
+  # Multi-domain or unclear-intent queries; inductor MUST abstain.
+  # ──────────────────────────────────────────────────────────────────
   - case_id: amb-01
     query: "How effective is GLP-1 therapy for weight loss?"
     expected_action: abstain
     reason: "Could be clinical (drug efficacy) or policy (insurance coverage / cost-effectiveness). Without disambiguation the inductor must not silently pick one."
 
-  # Mixed-domain query: a question that crosses clinical + tech +
-  # policy — none of the curated templates fully cover.
   - case_id: amb-02
     query: "What are the safety, efficacy, and regulatory landscape for AI-driven clinical decision-support tools in primary care?"
     expected_action: abstain
     reason: "Spans clinical AI (evidence base), regulatory (FDA SaMD), tech (ML reliability). No single template covers; operator must split."
 
+  - case_id: amb-03
+    query: "Is semaglutide cost-effective for obesity treatment under Medicare coverage?"
+    expected_action: abstain
+    reason: "Crosses clinical (obesity efficacy) and policy (Medicare coverage decision). No template currently covers obesity-specific clinical contract."
+
+  - case_id: amb-04
+    query: "Tell me about diabetes treatments"
+    expected_action: abstain
+    reason: "Too broad — no specific drug, comparator, or outcome named. Cannot route to clinical_tirzepatide_t2dm (which is tirzepatide-specific) without operator scoping."
+
+  - case_id: amb-05
+    query: "What's happening with drug prices?"
+    expected_action: abstain
+    reason: "Underspecified — no jurisdiction, time-window, or policy mechanism named. Could be Medicare, state-level, international, or PBM. Operator must scope."
+
+  - case_id: amb-06
+    query: "GLP-1 therapy considerations for patients with both diabetes and cardiovascular disease"
+    expected_action: abstain
+    reason: "Combines T2DM clinical question with cardiology overlay. No CV-comorbidity template; operator must scope further."
+
+  - case_id: amb-07
+    query: "How does the IRA affect GLP-1 access for diabetic patients?"
+    expected_action: abstain
+    reason: "Crosses clinical (GLP-1 indications) and policy (IRA / Medicare access). Both templates partially apply; needs operator decomposition."
+
+  - case_id: amb-08
+    query: "Compare clinical evidence and pricing for tirzepatide"
+    expected_action: abstain
+    reason: "Two-part query (clinical evidence + pricing) crosses templates. Operator must split into two independent runs."
+
 out_of_scope:
-  # Industrial materials — explicitly out of supported template
-  # space until M-D6 cross-domain expansion ships an adapter.
+  # ──────────────────────────────────────────────────────────────────
+  # Domains with NO curated template (until M-D6 cross-domain ships).
+  # ──────────────────────────────────────────────────────────────────
   - case_id: oos-01
     query: "What is the cycle-life of LFP vs NMC battery chemistries at 1C discharge?"
     expected_action: abstain
     reason: "Industrial materials / battery domain. Phase D M-D6 hasn't shipped a retrieval adapter for this. Inductor must abstain."
+
+  - case_id: oos-02
+    query: "What are the cybersecurity implications of post-quantum cryptography migration?"
+    expected_action: abstain
+    reason: "Cybersecurity policy domain. M-D6 candidate (NIST/MITRE adapter) but no curated template currently."
+
+  - case_id: oos-03
+    query: "How effective is cognitive behavioral therapy for treatment-resistant depression?"
+    expected_action: abstain
+    reason: "Mental-health clinical area. Outside the tirzepatide/T2DM template. M-NEW or M-D6 might add psychiatric clinical templates eventually."
+
+  - case_id: oos-04
+    query: "What are the long-term economic effects of universal basic income trials?"
+    expected_action: abstain
+    reason: "Economic policy / social science. Outside both Medicare drug-price and clinical templates."
+
+  - case_id: oos-05
+    query: "Adverse event profile for SARS-CoV-2 mRNA vaccines vs adenoviral vector vaccines"
+    expected_action: abstain
+    reason: "Vaccine clinical area, distinct from T2DM template. Pharmacovigilance retrieval adapter (M-D6 candidate) not built."
+
+  - case_id: oos-06
+    query: "What are the climate-impact tradeoffs of nuclear vs renewable baseload generation?"
+    expected_action: abstain
+    reason: "Energy policy / environmental science. Both out of scope for current templates."
+
+  - case_id: oos-07
+    query: "How do federal land-use regulations interact with state environmental protection statutes?"
+    expected_action: abstain
+    reason: "Federalism / environmental law. No current template; M-D6 cross-domain candidate."
+
+  - case_id: oos-08
+    query: "Comparative effectiveness of AAV-mediated gene therapy for inherited retinal diseases"
+    expected_action: abstain
+    reason: "Gene therapy / ophthalmology clinical area. Outside T2DM template."
+
+  - case_id: oos-09
+    query: "What are best practices for Kubernetes operator design patterns?"
+    expected_action: abstain
+    reason: "Software engineering / cloud-native architecture. Tech domain has no current curated template."
+
+  - case_id: oos-10
+    query: "How does GDP growth correlate with central-bank interest rate policy in OECD countries?"
+    expected_action: abstain
+    reason: "Macroeconomic / monetary policy. Outside Medicare drug-price template (the only policy template currently)."
+
+  - case_id: oos-11
+    query: "Survey of LLM long-context attention scaling laws"
+    expected_action: abstain
+    reason: "ML research / technical literature. Tech domain has no current curated template."
+
+  - case_id: oos-12
+    query: "Carbon capture and storage feasibility under various IPCC emission scenarios"
+    expected_action: abstain
+    reason: "Climate policy / environmental engineering. Outside current templates."
+
+  - case_id: oos-13
+    query: "Pharmacokinetics of warfarin in CYP2C9 polymorphism carriers"
+    expected_action: abstain
+    reason: "Pharmacogenomics / cardiology clinical question. Outside T2DM template; would need a separate clinical template."
+
+  - case_id: oos-14
+    query: "Best evidence on minimum-wage increases and small-business employment elasticity"
+    expected_action: abstain
+    reason: "Labor economics / policy. Outside Medicare drug-price template."
