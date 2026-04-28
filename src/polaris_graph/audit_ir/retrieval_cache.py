@@ -212,7 +212,9 @@ def _canonicalize_doi(raw: str) -> str | None:
     text = raw.strip().lower()
     text = _DOI_PREFIX_RE.sub("", text)
     if text.startswith("doi:"):
-        text = text[4:]
+        # Tolerate `doi: 10.1000/foo` (space after colon) — some
+        # citation styles emit this form.
+        text = text[4:].lstrip()
     # Drop fragment first, then query.
     text = text.split("#", 1)[0]
     text = text.split("?", 1)[0]

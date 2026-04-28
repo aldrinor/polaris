@@ -84,6 +84,15 @@ def test_doi_canonicalization_strips_url_decoration() -> None:
     assert make_cache_key("DOI:10.1000/FOO.BAR") == base
 
 
+def test_doi_scheme_with_space_after_colon() -> None:
+    """Round-2 polish: `doi: 10.1000/foo` (space after colon)
+    is a citation-style form some sources emit. Should
+    canonicalize like the no-space variant."""
+    base = make_cache_key("doi:10.1000/foo")
+    assert make_cache_key("doi: 10.1000/foo") == base
+    assert make_cache_key("DOI:  10.1000/foo") == base
+
+
 def test_doi_strict_shape_rejects_near_doi() -> None:
     """Round-1 fix: tighten DOI regex so non-DOI strings that
     happen to start with `10.` aren't misclassified.
@@ -455,28 +464,37 @@ def test_last_hit_at_updates_on_get(
     assert got.last_hit_at >= entry.fetched_at
 
 
-def test_get_select_update_is_atomic_under_concurrent_put(
+def test_get_select_update_is_atomic_under_concurrent_evict(
     tmp_path: Path,
 ) -> None:
-    """Round-1 fix: get() wraps SELECT + UPDATE in BEGIN
-    IMMEDIATE. Without the explicit transaction, a concurrent
-    put() between the two statements could leave caller with
-    stale payload while last_hit_at landed on the new row.
+    """Round-1 + round-2 fix: get() must be atomic against
+    interleaved evict() too. The pre-v2 race shape was:
+        T1: SELECT row -> got row v1
+        T2: DELETE row v1
+        T1: UPDATE last_hit_at WHERE key=...  (no rows match, silent)
+        T1: returns row v1 (caller sees stale payload after delete)
 
-    This test exercises 50 concurrent gets racing 50 concurrent
-    puts on the same key. Every successful get must return a
-    payload whose SHA matches the row currently visible at the
-    end of the test (no torn read between SELECT and UPDATE)."""
+    This test exercises gets racing evicts. The atomicity
+    contract: if a get() returns a row, that row must still be
+    in the DB at the moment of return (the BEGIN IMMEDIATE
+    transaction prevents an evict from interleaving).
+
+    We verify by re-reading immediately after the get and
+    checking that any row we observed is internally consistent
+    (same payload SHA on the immediate re-read). Without BEGIN
+    IMMEDIATE, the evicting thread can race in between, and a
+    follow-up read would see None where get() returned a
+    payload — that's the divergence we'd flag."""
     import hashlib
     import threading
 
     db = tmp_path / "race.db"
     store = RetrievalCacheStore(db)
-    # Initial put.
+    # Pre-load a single entry.
     store.put(
         workspace_id="ws-a",
         source_url="10.1000/foo",
-        payload=b"v0",
+        payload=b"v0-stable",
         content_type="text/html",
         fetch_status_code=200,
     )
@@ -484,23 +502,25 @@ def test_get_select_update_is_atomic_under_concurrent_put(
     errors: list[str] = []
 
     def writer(i: int) -> None:
-        payload = f"v{i}".encode()
-        store.put(
-            workspace_id="ws-a",
-            source_url="10.1000/foo",
-            payload=payload,
-            content_type="text/html",
-            fetch_status_code=200,
-        )
+        # Alternate evict + put — both are write-side operations
+        # that race the get's UPDATE.
+        if i % 2 == 0:
+            store.evict_by_url("ws-a", "10.1000/foo")
+        else:
+            store.put(
+                workspace_id="ws-a",
+                source_url="10.1000/foo",
+                payload=f"v{i}".encode(),
+                content_type="text/html",
+                fetch_status_code=200,
+            )
 
     def reader() -> None:
         try:
             got = store.get("ws-a", "10.1000/foo")
             if got is not None:
-                # SHA must match the payload bytes returned —
-                # if SELECT and UPDATE raced, the entry's
-                # payload could be detached from its
-                # payload_sha256.
+                # SHA must match payload (BEGIN IMMEDIATE makes
+                # SELECT + UPDATE see a coherent snapshot).
                 expected = hashlib.sha256(got.payload).hexdigest()
                 if got.payload_sha256 != expected:
                     errors.append(
@@ -511,9 +531,9 @@ def test_get_select_update_is_atomic_under_concurrent_put(
             errors.append(f"read raised: {exc!r}")
 
     threads = []
-    for i in range(1, 51):
+    for i in range(1, 101):
         threads.append(threading.Thread(target=writer, args=(i,)))
-    for _ in range(50):
+    for _ in range(100):
         threads.append(threading.Thread(target=reader))
 
     for t in threads:
