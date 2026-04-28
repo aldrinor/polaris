@@ -418,6 +418,76 @@ def test_round2_async_runner_propagates_contextvars() -> None:
         test_var.reset(token)
 
 
+def test_round3_classifier_propagates_cost_writeback() -> None:
+    """Codex round-3 fix: worker thread's ContextVar.set() does
+    NOT propagate back to parent. Without explicit write-back,
+    LLM-call costs accumulated by the worker were lost — the
+    parent's `_RUN_COST_CTX` still showed the pre-call value.
+    The classifier now captures the worker's cost delta and
+    applies it to the parent context.
+
+    This test stubs the OpenRouterClient to simulate a cost-
+    accumulating LLM call, then verifies the parent's cost has
+    advanced by the expected amount.
+    """
+    import contextvars
+    from unittest.mock import MagicMock
+
+    from src.polaris_graph.auto_induction.llm_inductor import (
+        OpenRouterTemplateAffinityClassifier,
+    )
+    from src.polaris_graph.llm.openrouter_client import _RUN_COST_CTX
+
+    # Build a classifier with a stubbed client that "spends"
+    # $0.05 inside its async generate() — simulated by setting
+    # _RUN_COST_CTX to (parent_value + 0.05) inside the call.
+    if not os.getenv("OPENROUTER_API_KEY"):
+        os.environ["OPENROUTER_API_KEY"] = "dummy-for-test"
+
+    cls = OpenRouterTemplateAffinityClassifier()
+
+    # Replace the real client with a stub.
+    class _StubResponse:
+        def __init__(self) -> None:
+            self.content = (
+                '{"slug": "clinical_tirzepatide_t2dm", '
+                '"confidence": 0.9, "reason": "stub"}'
+            )
+
+    class _StubClient:
+        async def generate(self, **kwargs):
+            # Simulate an LLM call accumulating $0.05 of cost
+            # via _RUN_COST_CTX.set. Inside the worker thread's
+            # ctx.run, this updates the worker's copy.
+            current = _RUN_COST_CTX.get()
+            _RUN_COST_CTX.set(current + 0.05)
+            return _StubResponse()
+
+    cls._client = _StubClient()
+
+    # Reset parent cost to zero.
+    token = _RUN_COST_CTX.set(0.0)
+    try:
+        # Before classify(): parent cost = 0.
+        assert _RUN_COST_CTX.get() == 0.0
+
+        verdict = cls.classify(
+            "tirzepatide for type 2 diabetes",
+            ("clinical_tirzepatide_t2dm",),
+        )
+        assert verdict.slug == "clinical_tirzepatide_t2dm"
+
+        # After classify(): worker added 0.05; parent should now
+        # see 0.05. Without round-3 fix this would still be 0.0.
+        post_cost = _RUN_COST_CTX.get()
+        assert post_cost == pytest.approx(0.05), (
+            f"worker cost write-back broken: parent _RUN_COST_CTX = "
+            f"{post_cost} (expected 0.05)"
+        )
+    finally:
+        _RUN_COST_CTX.reset(token)
+
+
 @pytest.mark.skipif(
     not os.getenv("OPENROUTER_API_KEY"),
     reason="OPENROUTER_API_KEY not set; skipping live LLM test",
