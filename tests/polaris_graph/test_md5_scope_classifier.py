@@ -157,18 +157,27 @@ def test_in_scope_with_router_operator_review_returns_operator_review() -> None:
 
 
 def test_in_scope_with_router_unsupported_returns_operator_review() -> None:
-    """Classifier in-scope but router fails to lexically match — disagree."""
+    """Classifier in-scope but router UNSUPPORTED — gate must defer.
+
+    Codex round-1 LOW fix: pin this branch deterministically by raising
+    the router's floor_review above any natural query score so the
+    router lands in UNSUPPORTED for the test query, instead of
+    conditionally asserting on whatever score happens to come out.
+    """
     classifier = _StubClassifier(
         verdict=ScopeVerdict.IN_SCOPE, confidence=0.95,
     )
-    # Force UNSUPPORTED by using a question with no drug/medical signal.
+    # Floor_review at 0.99 forces every non-perfect-match query to UNSUPPORTED.
+    config = RouterConfig(
+        floor_high=0.99, floor_review=0.99, tie_margin=0.10,
+    )
     result = confidence_gated_match(
         "Tell me about lipid panel cutoffs",
-        classifier=classifier, threshold=0.70,
+        classifier=classifier, threshold=0.70, router_config=config,
     )
-    if result.router_result.verdict == RoutingVerdict.UNSUPPORTED:
-        assert result.action == GatedAction.OPERATOR_REVIEW
-        assert "disagree" in result.rationale.lower()
+    assert result.router_result.verdict == RoutingVerdict.UNSUPPORTED
+    assert result.action == GatedAction.OPERATOR_REVIEW
+    assert "disagree" in result.rationale.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -251,23 +260,46 @@ def test_classifier_returns_wrong_type_raises() -> None:
         )
 
 
-def test_classifier_returns_wrong_verdict_type_raises() -> None:
+def test_classifier_returns_wrong_classification_type_raises() -> None:
+    """A classifier returning the wrong dataclass type fails loudly."""
+
     @dataclass(frozen=True)
-    class _NotAnEnum:
+    class _NotAClassification:
         verdict: str
         confidence: float
         domain: str | None
         rationale: str
 
     broken = _BrokenClassifier(
-        payload=_NotAnEnum(
-            verdict="in_scope",  # str, not ScopeVerdict
+        payload=_NotAClassification(
+            verdict="in_scope",
             confidence=0.9,
             domain=None,
             rationale="x",
         )
     )
     with pytest.raises(ScopeClassifierError, match="ScopeClassification"):
+        confidence_gated_match(
+            _TIRZE_QUERY, classifier=broken, threshold=0.70,  # type: ignore[arg-type]
+        )
+
+
+def test_classifier_returns_classification_with_non_enum_verdict_raises() -> None:
+    """Codex round-1 LOW fix: pin the verdict-enum guard distinctly.
+
+    Constructing a real ScopeClassification with a non-enum verdict
+    requires bypassing the dataclass init (frozen + typed). We do
+    that via __new__ + object.__setattr__ to land a malformed
+    instance, which exercises the actual `isinstance(verdict, ScopeVerdict)`
+    guard rather than the upstream type guard.
+    """
+    bad = object.__new__(ScopeClassification)
+    object.__setattr__(bad, "verdict", "in_scope")  # str, not ScopeVerdict
+    object.__setattr__(bad, "confidence", 0.9)
+    object.__setattr__(bad, "domain", None)
+    object.__setattr__(bad, "rationale", "x")
+    broken = _BrokenClassifier(payload=bad)
+    with pytest.raises(ScopeClassifierError, match="ScopeVerdict enum"):
         confidence_gated_match(
             _TIRZE_QUERY, classifier=broken, threshold=0.70,  # type: ignore[arg-type]
         )
@@ -365,6 +397,53 @@ def test_empty_query_lands_in_operator_review_or_reject() -> None:
     )
     assert result.router_result.verdict == RoutingVerdict.UNSUPPORTED
     assert result.action != GatedAction.ROUTE
+
+
+def test_empty_query_short_circuits_classifier_invocation() -> None:
+    """Codex round-1 LOW fix: an empty query must NOT invoke the
+    classifier. The classifier protocol does not guarantee output
+    for empty input — a phase 2 classifier may raise. Mirror M-20's
+    empty-query handling at the gate level."""
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError(
+                "classifier not equipped to handle empty input"
+            )
+
+    raising = _RaisingClassifier()
+    result = confidence_gated_match(
+        "", classifier=raising, threshold=0.70,
+    )
+    assert raising.called is False, (
+        "Empty query should short-circuit before classifier invocation"
+    )
+    assert result.action == GatedAction.OPERATOR_REVIEW
+    assert result.template_id is None
+    assert "empty query" in result.rationale.lower()
+
+
+def test_whitespace_only_query_short_circuits_classifier_invocation() -> None:
+    """Whitespace-only input must short-circuit the same way."""
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError("never called")
+
+    raising = _RaisingClassifier()
+    result = confidence_gated_match(
+        "   \n\t ", classifier=raising, threshold=0.70,
+    )
+    assert raising.called is False
+    assert result.action == GatedAction.OPERATOR_REVIEW
 
 
 # ---------------------------------------------------------------------------

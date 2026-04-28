@@ -1,8 +1,8 @@
 # M-D5 phase 1 — confidence-gated template matching boundary
 
-**Status:** v1 / 2026-04-28
+**Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/scope_classifier.py`
-**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (24 passing)
+**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (27 passing)
 **Pairs with:** M-20 router (`template_classifier.classify_query`),
 M-D1 validation set (43 cases)
 **Substrate:** stdlib + `template_classifier` only — no LLM client coupling
@@ -136,6 +136,28 @@ never touches their internals.
 clean by avoiding LLM-internal coupling. Phase 1 preserves that
 — the scope-gate is a substrate primitive, not a runtime
 orchestrator.
+
+### 7. Empty/whitespace queries short-circuit before classifier (v2)
+
+**Codex round-1 LOW fix** (commit on top of v1): the gate
+short-circuits empty / whitespace-only queries to
+`OPERATOR_REVIEW` *before* invoking `classifier.classify()`. The
+`ScopeEligibilityClassifier` Protocol does NOT guarantee output
+for empty input — a phase 2 classifier may legitimately raise on
+empty / whitespace-only strings (or hit edge cases in tokenizers).
+
+The short-circuit emits a sentinel `ScopeClassification` with
+`verdict=UNCERTAIN, confidence=0.0` so callers retain a uniform
+result shape. The router's `RoutingVerdict.UNSUPPORTED` rationale
+is preserved in the gate rationale.
+
+This mirrors the M-20 router's existing empty-query handling
+into the gate's contract, end-to-end.
+
+**Mitigation**: phase 2 may revisit this if a real classifier
+defines well-formed empty-input behavior. Phase 1 prefers the
+fail-closed-with-empty-handler path so the protocol contract
+holds without imposing classifier-side requirements.
 
 ---
 

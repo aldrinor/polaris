@@ -263,6 +263,36 @@ def confidence_gated_match(
         applied_threshold = max(0.0, min(1.0, float(threshold)))
 
     router_result = classify_query(question, config=router_config)
+
+    # Codex round-1 LOW fix: short-circuit on empty/whitespace input
+    # before invoking the classifier. The classifier protocol does
+    # NOT guarantee output for empty questions, and a phase 2
+    # classifier may legitimately raise on empty input. M-20 router
+    # already returns `UNSUPPORTED` here with a useful rationale —
+    # mirror that into a gated `operator_review` so the empty-query
+    # contract holds end-to-end.
+    if not question or not question.strip():
+        sentinel = ScopeClassification(
+            verdict=ScopeVerdict.UNCERTAIN,
+            confidence=0.0,
+            domain=None,
+            rationale=(
+                "Empty query — classifier not invoked; "
+                "see scope page for supported question shapes."
+            ),
+        )
+        return GatedMatchResult(
+            action=GatedAction.OPERATOR_REVIEW,
+            template_id=None,
+            router_result=router_result,
+            classification=sentinel,
+            threshold=applied_threshold,
+            rationale=(
+                "Empty query short-circuit: classifier not invoked. "
+                f"Router rationale: {router_result.rationale}"
+            ),
+        )
+
     classification = classifier.classify(question)
 
     if not isinstance(classification, ScopeClassification):
