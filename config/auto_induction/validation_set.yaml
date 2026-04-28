@@ -32,11 +32,11 @@ in_scope:
     curator_contract_slug: clinical_tirzepatide_t2dm
     domain: clinical
 
-  # Policy template — happy path (depends on policy.yaml having a
-  # contract; the harness will fail loud if not)
+  # Policy template — happy path
+  # (slug verified to exist in config/scope_templates/policy.yaml)
   - case_id: pol-01
-    query: "What are the regulatory implications of the EU AI Act for foundation model providers?"
-    curator_contract_slug: policy_eu_ai_act
+    query: "What is the projected impact of the Medicare drug price negotiation rule on pharmaceutical R&D investment?"
+    curator_contract_slug: policy_medicare_drug_price
     domain: policy
 
 ambiguous:

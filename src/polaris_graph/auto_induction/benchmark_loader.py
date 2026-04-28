@@ -111,12 +111,17 @@ def _coerce_case(
             domain=raw.get("domain"),
             expected_action="accept",
         )
-    # ambiguous / out_of_scope: must declare expected_action='abstain'
+    # ambiguous / out_of_scope: MUST declare expected_action='abstain'
+    # Codex round-1 (M-D1 harness review): allowing 'accept' for
+    # negative-set groups weakens the round-2 negative-set contract
+    # — by definition an ambiguous or out-of-scope case is one the
+    # inductor must abstain on.
     expected = raw.get("expected_action", "abstain")
-    if expected not in ("accept", "abstain"):
+    if expected != "abstain":
         raise ValidationSetError(
-            f"case {case_id!r} expected_action must be 'accept' or "
-            f"'abstain', got {expected!r}"
+            f"case {case_id!r} (group {group!r}) must have "
+            f"expected_action='abstain'; got {expected!r}. "
+            f"Negative-set cases by definition require abstention."
         )
     return ValidationCase(
         case_id=case_id.strip(),

@@ -45,6 +45,7 @@ from src.polaris_graph.auto_induction.precision_metrics import (
     BenchmarkResult,
     InductorProtocol,
     InductorVerdict,
+    InductorVerdictError,
     PrecisionMetrics,
     run_benchmark,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "ContractComparison",
     "InductorProtocol",
     "InductorVerdict",
+    "InductorVerdictError",
     "PrecisionMetrics",
     "ValidationCase",
     "ValidationSet",

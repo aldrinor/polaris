@@ -7,14 +7,19 @@ the induced contract reproduces the curator's structural commitments:
   - per-section required_entities set equality (by entity_id)
   - per-entity rendering_slot agreement
   - per-entity min_fields_for_completion agreement (numeric)
+  - per-entity type agreement (Codex round-1 review fix)
+  - per-entity required_fields set agreement (Codex round-1 fix:
+    a partial pseudo-contract that omits required_fields was
+    scoring 0.8 trivially)
 
 Returns a ContractComparison with field-by-field disagreement detail
-plus a single match_score in [0.0, 1.0]. The default scoring is a
-weighted average:
-  - section_order match: 20%
-  - entities-by-id match: 40%
-  - rendering_slot match: 20%
-  - min_fields agreement: 20%
+plus a single match_score in [0.0, 1.0]. Default scoring weights:
+  - section_order match: 15%
+  - entities-by-id match: 25%
+  - rendering_slot match: 15%
+  - min_fields agreement: 15%
+  - type agreement (NEW v2): 15%
+  - required_fields IoU (NEW v2): 15%
 
 The thresholds in M-D1 acceptance criteria (>= 0.8 precision) refer
 to this match_score.
@@ -42,6 +47,8 @@ class ContractComparison:
     entities_by_id_score: float
     rendering_slot_score: float
     min_fields_score: float
+    type_score: float
+    required_fields_score: float
     # Specific disagreements for debugging.
     sections_only_in_curator: tuple[str, ...] = field(default_factory=tuple)
     sections_only_in_induced: tuple[str, ...] = field(default_factory=tuple)
@@ -49,6 +56,8 @@ class ContractComparison:
     entities_only_in_induced: tuple[str, ...] = field(default_factory=tuple)
     rendering_slot_mismatches: tuple[str, ...] = field(default_factory=tuple)
     min_fields_mismatches: tuple[str, ...] = field(default_factory=tuple)
+    type_mismatches: tuple[str, ...] = field(default_factory=tuple)
+    required_fields_mismatches: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _set_iou(a: set[str], b: set[str]) -> float:
@@ -65,17 +74,19 @@ def compare_contracts(
     curator: Any,
     induced: Any | None,
     *,
-    section_weight: float = 0.20,
-    entities_weight: float = 0.40,
-    rendering_weight: float = 0.20,
-    min_fields_weight: float = 0.20,
+    section_weight: float = 0.15,
+    entities_weight: float = 0.25,
+    rendering_weight: float = 0.15,
+    min_fields_weight: float = 0.15,
+    type_weight: float = 0.15,
+    required_fields_weight: float = 0.15,
 ) -> ContractComparison:
     """Compare a curator-reviewed contract against an induced one.
 
     `curator` and `induced` must be `src.polaris_graph.nodes.report_contract.ReportContract`
     objects (or anything with the same shape: `slug`, `section_order`
-    list, and `required_entities` list of objects with `id`,
-    `rendering_slot`, `min_fields_for_completion`).
+    list, and `required_entities` list of objects with `id`, `type`,
+    `rendering_slot`, `min_fields_for_completion`, `required_fields`).
 
     If `induced` is None (the inductor abstained or failed), returns
     a comparison with match_score=0.0 and all fields zeroed — caller
@@ -84,6 +95,7 @@ def compare_contracts(
     weights_sum = (
         section_weight + entities_weight
         + rendering_weight + min_fields_weight
+        + type_weight + required_fields_weight
     )
     if abs(weights_sum - 1.0) > 1e-6:
         raise ValueError(
@@ -100,6 +112,8 @@ def compare_contracts(
             entities_by_id_score=0.0,
             rendering_slot_score=0.0,
             min_fields_score=0.0,
+            type_score=0.0,
+            required_fields_score=0.0,
         )
 
     induced_slug = getattr(induced, "slug", "?")
@@ -113,10 +127,12 @@ def compare_contracts(
     ind_eids = {getattr(e, "id", str(e)) for e in ind_entities}
     entities_score = _set_iou(cur_eids, ind_eids)
 
-    # Rendering-slot agreement: only over the intersection of entity ids.
+    # Rendering-slot, type, min_fields, required_fields agreement: only
+    # over the intersection of entity ids.
     common_eids = cur_eids & ind_eids
     cur_by_id = {getattr(e, "id", str(e)): e for e in cur_entities}
     ind_by_id = {getattr(e, "id", str(e)): e for e in ind_entities}
+
     rendering_mismatches: list[str] = []
     rendering_matches = 0
     for eid in common_eids:
@@ -132,7 +148,6 @@ def compare_contracts(
         rendering_matches / len(common_eids) if common_eids else 1.0
     )
 
-    # min_fields agreement: equality (NOT ratio) over intersection.
     min_fields_mismatches: list[str] = []
     min_fields_matches = 0
     for eid in common_eids:
@@ -148,11 +163,46 @@ def compare_contracts(
         min_fields_matches / len(common_eids) if common_eids else 1.0
     )
 
+    # Codex round-1 review fix: include type + required_fields in the
+    # match score. Without these, an inducer that produces the right
+    # entity ids + slots but wrong types or missing required_fields
+    # was hitting match_score=0.8 trivially.
+    type_mismatches: list[str] = []
+    type_matches = 0
+    for eid in common_eids:
+        cur_type = getattr(cur_by_id[eid], "type", None)
+        ind_type = getattr(ind_by_id[eid], "type", None)
+        if cur_type == ind_type:
+            type_matches += 1
+        else:
+            type_mismatches.append(
+                f"{eid}: curator={cur_type!r} induced={ind_type!r}"
+            )
+    type_score = type_matches / len(common_eids) if common_eids else 1.0
+
+    required_fields_mismatches: list[str] = []
+    rf_iou_sum = 0.0
+    for eid in common_eids:
+        cur_fields = set(getattr(cur_by_id[eid], "required_fields", ()) or ())
+        ind_fields = set(getattr(ind_by_id[eid], "required_fields", ()) or ())
+        rf_iou = _set_iou(cur_fields, ind_fields)
+        rf_iou_sum += rf_iou
+        if rf_iou < 1.0:
+            required_fields_mismatches.append(
+                f"{eid}: curator={sorted(cur_fields)!r} "
+                f"induced={sorted(ind_fields)!r} (iou={rf_iou:.2f})"
+            )
+    required_fields_score = (
+        rf_iou_sum / len(common_eids) if common_eids else 1.0
+    )
+
     match_score = (
         section_weight * section_score
         + entities_weight * entities_score
         + rendering_weight * rendering_score
         + min_fields_weight * min_fields_score
+        + type_weight * type_score
+        + required_fields_weight * required_fields_score
     )
 
     return ContractComparison(
@@ -163,10 +213,14 @@ def compare_contracts(
         entities_by_id_score=entities_score,
         rendering_slot_score=rendering_score,
         min_fields_score=min_fields_score,
+        type_score=type_score,
+        required_fields_score=required_fields_score,
         sections_only_in_curator=tuple(sorted(cur_sections - ind_sections)),
         sections_only_in_induced=tuple(sorted(ind_sections - cur_sections)),
         entities_only_in_curator=tuple(sorted(cur_eids - ind_eids)),
         entities_only_in_induced=tuple(sorted(ind_eids - cur_eids)),
         rendering_slot_mismatches=tuple(rendering_mismatches),
         min_fields_mismatches=tuple(min_fields_mismatches),
+        type_mismatches=tuple(type_mismatches),
+        required_fields_mismatches=tuple(required_fields_mismatches),
     )

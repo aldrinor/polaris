@@ -1,14 +1,20 @@
 """M-D1 auto-induction harness tests (Phase D).
 
 The harness must:
-  - load + validate the validation set YAML
-  - compare contracts structurally and produce match_score in [0, 1]
-  - aggregate precision / abstain_recall / operator_review_load
+  - load + validate the validation set YAML (with strict
+    expected_action='abstain' for negative groups)
+  - compare contracts structurally on 6 dimensions including type
+    + required_fields, producing match_score in [0, 1]
+  - validate InductorVerdict shape (decision is closed enum,
+    accept↔induced_contract invariant, confidence in [0,1])
+  - aggregate precision / abstain_recall / abstain_precision /
+    operator_review_load + silent_disagreement_rate
   - report acceptance against M-D1 thresholds
+  - support confidence-threshold sweeping for M-D2 calibration
 
-These tests use stub inductors (no LLM, no real induction) to
-verify the harness math is correct. M-D2 will plug in a real
-inductor and run this harness against the real validation set.
+These tests use stub inductors (no LLM, no real induction) PLUS
+an end-to-end run on the shipped seed validation set, exercising
+the real curator-contract loader path.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from src.polaris_graph.auto_induction import (
     BenchmarkResult,
     InductorProtocol,
     InductorVerdict,
+    InductorVerdictError,
     PrecisionMetrics,
     ValidationCase,
     ValidationSet,
@@ -36,15 +43,17 @@ from src.polaris_graph.auto_induction.benchmark_loader import (
 
 
 # ---------------------------------------------------------------------------
-# Stub contract objects (avoid importing the V30 substrate in unit tests)
+# Stub contract objects (avoid importing the V30 substrate for unit tests)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class _Entity:
     id: str
+    type: str
     rendering_slot: str
     min_fields_for_completion: int
+    required_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,10 +68,15 @@ class _Contract:
 # ---------------------------------------------------------------------------
 
 
+SEED_VS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "config" / "auto_induction" / "validation_set.yaml"
+)
+
+
 def test_load_validation_set_real_file() -> None:
     """The shipped seed validation set loads cleanly."""
-    p = Path(__file__).resolve().parents[2] / "config" / "auto_induction" / "validation_set.yaml"
-    s = load_validation_set(p)
+    s = load_validation_set(SEED_VS_PATH)
     assert isinstance(s, ValidationSet)
     assert s.total >= 5
     assert len(s.in_scope) >= 1
@@ -82,7 +96,7 @@ def test_load_validation_set_missing_curator_slug_raises(
     p.write_text(
         "in_scope:\n"
         "  - case_id: cli-01\n"
-        "    query: 'q1'\n",  # missing curator_contract_slug
+        "    query: 'q1'\n",
         encoding="utf-8",
     )
     with pytest.raises(ValidationSetError, match="curator_contract_slug"):
@@ -107,15 +121,18 @@ def test_load_validation_set_duplicate_case_id_raises(
         load_validation_set(p)
 
 
-def test_load_validation_set_bad_expected_action(
+def test_load_validation_set_rejects_accept_in_negative_group(
     tmp_path: Path,
 ) -> None:
+    """Codex round-1 fix: ambiguous + out_of_scope groups MUST
+    declare expected_action='abstain'. By definition a negative-set
+    case is one the inductor must abstain on."""
     p = tmp_path / "vs.yaml"
     p.write_text(
         "ambiguous:\n"
         "  - case_id: amb-01\n"
         "    query: 'q1'\n"
-        "    expected_action: maybe\n",  # invalid
+        "    expected_action: accept\n",  # invalid for ambiguous
         encoding="utf-8",
     )
     with pytest.raises(ValidationSetError, match="expected_action"):
@@ -140,8 +157,8 @@ def test_compare_identical_contracts_score_one() -> None:
         "x",
         sections=("A", "B"),
         entities=(
-            _Entity("e1", "A", 3),
-            _Entity("e2", "B", 2),
+            _Entity("e1", "pivotal_trial", "A", 3, ("doi", "n", "endpoint")),
+            _Entity("e2", "regulatory", "B", 2, ("url", "agency")),
         ),
     )
     cmp = compare_contracts(c, c)
@@ -150,10 +167,15 @@ def test_compare_identical_contracts_score_one() -> None:
     assert cmp.entities_by_id_score == 1.0
     assert cmp.rendering_slot_score == 1.0
     assert cmp.min_fields_score == 1.0
+    assert cmp.type_score == 1.0
+    assert cmp.required_fields_score == 1.0
 
 
 def test_compare_inducer_returned_none() -> None:
-    c = _make_contract("x", sections=("A",), entities=(_Entity("e1", "A", 1),))
+    c = _make_contract(
+        "x", sections=("A",),
+        entities=(_Entity("e1", "t", "A", 1, ("f",)),),
+    )
     cmp = compare_contracts(c, None)
     assert cmp.match_score == 0.0
     assert cmp.induced_slug is None
@@ -172,44 +194,85 @@ def test_compare_extra_section_in_induced() -> None:
 def test_compare_missing_entity() -> None:
     cur = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "A", 3), _Entity("e2", "A", 2)),
+        entities=(
+            _Entity("e1", "t", "A", 3),
+            _Entity("e2", "t", "A", 2),
+        ),
     )
     ind = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "A", 3),),  # missing e2
+        entities=(_Entity("e1", "t", "A", 3),),  # missing e2
     )
     cmp = compare_contracts(cur, ind)
     assert cmp.entities_only_in_curator == ("e2",)
-    # IoU = 1 / 2 (one shared, one only-in-curator).
     assert cmp.entities_by_id_score == pytest.approx(0.5)
 
 
-def test_compare_rendering_slot_mismatch_recorded() -> None:
+def test_compare_type_mismatch_penalized() -> None:
+    """Codex round-1 fix: type mismatches must be penalized.
+    Previously an inducer producing the right ids but wrong types
+    scored full marks on rendering_slot etc."""
     cur = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "A", 3),),
+        entities=(_Entity("e1", "pivotal_trial", "A", 3, ("doi",)),),
     )
     ind = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "B", 3),),  # slot wrong
+        entities=(_Entity("e1", "regulatory", "A", 3, ("doi",)),),
     )
     cmp = compare_contracts(cur, ind)
-    assert cmp.rendering_slot_score == 0.0
-    assert any("e1" in m for m in cmp.rendering_slot_mismatches)
+    assert cmp.type_score == 0.0
+    assert any("e1" in m for m in cmp.type_mismatches)
+    assert cmp.match_score < 1.0
 
 
-def test_compare_min_fields_mismatch_recorded() -> None:
+def test_compare_required_fields_mismatch_penalized() -> None:
+    """Codex round-1 fix: required_fields mismatches must be
+    penalized. Previously an inducer that omitted required_fields
+    entirely scored 0.8 trivially."""
     cur = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "A", 3),),
+        entities=(
+            _Entity("e1", "t", "A", 3, ("doi", "endpoint", "n")),
+        ),
     )
     ind = _make_contract(
         "x", sections=("A",),
-        entities=(_Entity("e1", "A", 1),),  # min_fields wrong
+        entities=(
+            _Entity("e1", "t", "A", 3, ()),  # required_fields empty
+        ),
     )
     cmp = compare_contracts(cur, ind)
-    assert cmp.min_fields_score == 0.0
-    assert any("e1" in m for m in cmp.min_fields_mismatches)
+    assert cmp.required_fields_score == 0.0
+    assert any("e1" in m for m in cmp.required_fields_mismatches)
+    assert cmp.match_score < 1.0
+
+
+def test_compare_partial_pseudocontract_does_not_hit_tau() -> None:
+    """Codex round-1 fix: previously a partial pseudo-contract
+    (right ids + sections + slots, but no type/required_fields)
+    could hit match_score=0.8. With v2 weights (15% each for type
+    and required_fields), missing both drops score below 0.80."""
+    cur = _make_contract(
+        "x", sections=("A", "B"),
+        entities=(
+            _Entity("e1", "pivotal_trial", "A", 3, ("doi", "n")),
+            _Entity("e2", "regulatory", "B", 2, ("url",)),
+        ),
+    )
+    # Pseudo-contract: same ids + sections + slots + min_fields,
+    # but wrong type and empty required_fields.
+    ind = _make_contract(
+        "x", sections=("A", "B"),
+        entities=(
+            _Entity("e1", "wrong_type", "A", 3, ()),
+            _Entity("e2", "wrong_type", "B", 2, ()),
+        ),
+    )
+    cmp = compare_contracts(cur, ind)
+    # 4/6 dimensions perfect (15+25+15+15 = 70%), 2/6 zero.
+    assert cmp.match_score == pytest.approx(0.70)
+    assert cmp.match_score < 0.80  # below tau
 
 
 def test_compare_weights_must_sum_to_one() -> None:
@@ -219,6 +282,40 @@ def test_compare_weights_must_sum_to_one() -> None:
             c, c,
             section_weight=0.5, entities_weight=0.5,
             rendering_weight=0.5, min_fields_weight=0.5,
+            type_weight=0.5, required_fields_weight=0.5,
+        )
+
+
+# ---------------------------------------------------------------------------
+# InductorVerdict validation tests (Codex round-1 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_verdict_rejects_unknown_decision() -> None:
+    with pytest.raises(InductorVerdictError, match="must be 'accept' or 'abstain'"):
+        InductorVerdict(decision="maybe")
+
+
+def test_verdict_accept_requires_contract() -> None:
+    with pytest.raises(InductorVerdictError, match="requires non-None"):
+        InductorVerdict(decision="accept", induced_contract=None)
+
+
+def test_verdict_abstain_requires_no_contract() -> None:
+    with pytest.raises(InductorVerdictError, match="must have None"):
+        InductorVerdict(
+            decision="abstain", induced_contract=object(),
+        )
+
+
+def test_verdict_confidence_must_be_in_unit_interval() -> None:
+    with pytest.raises(InductorVerdictError, match="must be in"):
+        InductorVerdict(
+            decision="accept", induced_contract=object(), confidence=1.5,
+        )
+    with pytest.raises(InductorVerdictError, match="must be in"):
+        InductorVerdict(
+            decision="abstain", confidence=-0.1,
         )
 
 
@@ -228,20 +325,14 @@ def test_compare_weights_must_sum_to_one() -> None:
 
 
 class _AlwaysAbstainInductor:
-    """Stub inductor that abstains on every query."""
-
     def induce(self, query: str) -> InductorVerdict:
         return InductorVerdict(
             decision="abstain",
-            induced_contract=None,
             abstain_reason="stub: always abstain",
         )
 
 
 class _AlwaysAcceptStubInductor:
-    """Stub inductor that always accepts and returns a stub contract.
-    For testing the harness math, not for real induction."""
-
     def __init__(self, contract: Any) -> None:
         self._contract = contract
 
@@ -285,118 +376,16 @@ def _make_validation_set(*, in_scope: int, ambiguous: int, oos: int) -> Validati
 
 def test_always_abstain_inductor_metrics() -> None:
     s = _make_validation_set(in_scope=3, ambiguous=2, oos=2)
-    inductor = _AlwaysAbstainInductor()
-    result = run_benchmark(inductor, s, tau=0.8)
+    result = run_benchmark(_AlwaysAbstainInductor(), s, tau=0.8)
     m = result.metrics
     assert m.total_cases == 7
-    # Always abstaining: precision = 0/0 -> 0.0 (no acceptances)
     assert m.precision == 0.0
-    # 0 silent disagreements (no acceptances)
     assert m.silent_disagreement_rate == 0.0
-    # Abstain recall = 4/4 = 1.0 (all 4 should-abstain cases got abstained)
     assert m.abstain_recall == 1.0
-    # Operator review load = 7/7 = 1.0 (everything routed to humans)
+    # Codex round-1 fix: abstain_precision = correct/total = 4/7
+    assert m.abstain_precision == pytest.approx(4 / 7)
     assert m.operator_review_load == 1.0
-    # Doesn't pass acceptance — operator load way over 0.30
     assert not m.passes_acceptance()
-
-
-def test_perfect_inductor_passes_acceptance(monkeypatch) -> None:
-    """An oracle inductor accepts in-scope (with the correct curator
-    contract) and abstains on ambiguous + OOS. Should pass all
-    M-D1 thresholds."""
-    stub_contract = _make_contract(
-        "stub",
-        sections=("A",),
-        entities=(_Entity("e1", "A", 1),),
-    )
-    # Patch the curator-loader to return the same stub contract (so
-    # match_score == 1.0).
-    monkeypatch.setattr(
-        "src.polaris_graph.auto_induction.precision_metrics."
-        "_load_curator_contract",
-        lambda slug: stub_contract,
-    )
-
-    class _OracleInductor:
-        def induce(self, query: str) -> InductorVerdict:
-            if query.startswith("q") and query[1:].isdigit():
-                # All queries from _make_validation_set start with "q".
-                # Use the case-id semantics from the set: in-scope IDs
-                # start cli-, ambiguous amb-, oos oos-. We don't have
-                # that info in induce() — so peek at the call order
-                # via shared state. For test purposes, use the harness's
-                # case ordering: in_scope first, then ambiguous, then
-                # oos.
-                ...
-            return InductorVerdict(
-                decision="accept",
-                induced_contract=stub_contract,
-                confidence=0.99,
-            )
-
-    # Different approach: a contract-aware inductor that sees the
-    # case_id via run_benchmark's case loop. But run_benchmark only
-    # passes query, not case. So we need the inductor to make the
-    # accept/abstain decision from the query.
-    # Use a query-prefix oracle: in-scope queries start "in:", others
-    # start "out:".
-    s = ValidationSet(
-        in_scope=(
-            ValidationCase(
-                case_id="cli-1", group="in_scope",
-                query="in:cli-1",
-                curator_contract_slug="stub",
-            ),
-            ValidationCase(
-                case_id="cli-2", group="in_scope",
-                query="in:cli-2",
-                curator_contract_slug="stub",
-            ),
-        ),
-        ambiguous=(
-            ValidationCase(
-                case_id="amb-1", group="ambiguous",
-                query="out:amb-1",
-                expected_action="abstain",
-            ),
-        ),
-        out_of_scope=(
-            ValidationCase(
-                case_id="oos-1", group="out_of_scope",
-                query="out:oos-1",
-                expected_action="abstain",
-            ),
-        ),
-    )
-
-    class _OracleInductorByPrefix:
-        def induce(self, query: str) -> InductorVerdict:
-            if query.startswith("in:"):
-                return InductorVerdict(
-                    decision="accept",
-                    induced_contract=stub_contract,
-                    confidence=0.99,
-                )
-            return InductorVerdict(
-                decision="abstain",
-                induced_contract=None,
-                abstain_reason="not in scope",
-            )
-
-    result = run_benchmark(_OracleInductorByPrefix(), s, tau=0.8)
-    m = result.metrics
-    assert m.precision == pytest.approx(1.0)
-    assert m.silent_disagreement_rate == 0.0
-    assert m.abstain_recall == pytest.approx(1.0)
-    assert m.operator_review_load == pytest.approx(0.5)  # 2/4 abstained
-    # operator_review_load 0.5 is over the 0.30 ceiling, so doesn't
-    # pass default acceptance — but the validation set was tiny + all
-    # OOS, which is unrealistic. With a 100-200 case set the load
-    # should be naturally lower.
-    assert not m.passes_acceptance()
-    # But with a relaxed ceiling it passes.
-    assert m.passes_acceptance(operator_review_ceiling=0.6)
 
 
 def test_silent_disagreement_counted(monkeypatch) -> None:
@@ -406,14 +395,14 @@ def test_silent_disagreement_counted(monkeypatch) -> None:
         "curator",
         sections=("A", "B", "C"),
         entities=(
-            _Entity("e1", "A", 3),
-            _Entity("e2", "B", 2),
-            _Entity("e3", "C", 1),
+            _Entity("e1", "pivotal_trial", "A", 3, ("doi",)),
+            _Entity("e2", "regulatory", "B", 2, ("url",)),
+            _Entity("e3", "mechanism", "C", 1, ("doi",)),
         ),
     )
     induced_contract = _make_contract(
         "induced",
-        sections=("Z",),  # totally different
+        sections=("Z",),
         entities=(),
     )
     monkeypatch.setattr(
@@ -427,8 +416,144 @@ def test_silent_disagreement_counted(monkeypatch) -> None:
         _AlwaysAcceptStubInductor(induced_contract), s, tau=0.8,
     )
     m = result.metrics
-    # 2 acceptances, both with bad match
     assert m.in_scope_accepted == 2
     assert m.in_scope_match_at_tau == 0
     assert m.in_scope_silent_disagreements == 2
     assert m.silent_disagreement_rate == pytest.approx(1.0)
+
+
+def test_confidence_threshold_downgrades_accept_to_abstain(monkeypatch) -> None:
+    """Codex round-1 fix: confidence is now actionable. With
+    confidence_threshold set, low-confidence accepts become abstains."""
+    contract = _make_contract(
+        "stub", sections=("A",),
+        entities=(_Entity("e1", "t", "A", 1, ("f",)),),
+    )
+
+    class _LowConfidenceInductor:
+        def induce(self, query: str) -> InductorVerdict:
+            return InductorVerdict(
+                decision="accept",
+                induced_contract=contract,
+                confidence=0.5,  # low
+            )
+
+    monkeypatch.setattr(
+        "src.polaris_graph.auto_induction.precision_metrics."
+        "_load_curator_contract",
+        lambda slug: contract,
+    )
+
+    s = _make_validation_set(in_scope=2, ambiguous=0, oos=2)
+    # Without threshold: accepts in-scope, accepts oos (incorrectly).
+    result = run_benchmark(_LowConfidenceInductor(), s, tau=0.8)
+    assert result.metrics.in_scope_accepted == 2
+    assert result.metrics.abstain_total == 0
+
+    # With threshold=0.7: confidence 0.5 < 0.7 → all accepts become
+    # abstains. Now abstain_recall=1.0 on oos cases.
+    result_th = run_benchmark(
+        _LowConfidenceInductor(), s, tau=0.8, confidence_threshold=0.7,
+    )
+    assert result_th.metrics.abstain_total == 4
+    assert result_th.metrics.abstain_correct == 2  # the oos cases
+    assert result_th.metrics.abstain_recall == 1.0
+    assert result_th.metrics.in_scope_accepted == 0
+
+
+# ---------------------------------------------------------------------------
+# End-to-end test on the shipped seed validation set (Codex round-1 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_seed_validation_set_loads_curator_contracts() -> None:
+    """Codex round-1 fix: the shipped seed set must actually be
+    benchmarkable. Round-1 found policy_eu_ai_act slug didn't exist
+    and the loader was passing a Path where a dict was expected.
+    Both fixed in v2; this test catches regression."""
+    s = load_validation_set(SEED_VS_PATH)
+    # Stub inductor: abstain on everything. Expected behavior:
+    # - all in-scope routed to operator (counts as silent failure
+    #   from the metric POV but no crash)
+    # - all ambiguous + oos correctly abstained
+    # The KEY assertion is that this does not crash on the
+    # _load_curator_contract path. Round-1 v1 would have crashed
+    # on any in_scope acceptance. Use an inductor that ALSO accepts
+    # in-scope cases to actually exercise the loader.
+    from src.polaris_graph.nodes.report_contract import (
+        load_report_contract_for_slug,
+    )
+    import yaml as _yaml
+
+    # Pre-flight: confirm the seed set's slugs exist in the actual
+    # template files. This is the regression test for the
+    # policy_eu_ai_act bug.
+    config_root = (
+        Path(__file__).resolve().parents[2] / "config" / "scope_templates"
+    )
+    seen_slugs: set[str] = set()
+    for yaml_path in config_root.glob("*.yaml"):
+        with yaml_path.open("r", encoding="utf-8") as fp:
+            tdict = _yaml.safe_load(fp)
+        if isinstance(tdict, dict):
+            by_slug = tdict.get("per_query_report_contract") or {}
+            seen_slugs |= set(by_slug.keys())
+
+    for case in s.in_scope:
+        assert case.curator_contract_slug in seen_slugs, (
+            f"seed validation set references unknown slug "
+            f"{case.curator_contract_slug!r}; available slugs in "
+            f"config/scope_templates: {sorted(seen_slugs)}"
+        )
+
+
+def test_end_to_end_benchmark_on_seed_set_with_oracle() -> None:
+    """Run the full benchmark pipeline on the shipped seed set
+    using a query-prefix oracle. Exercises:
+      - load_validation_set on real YAML
+      - _load_curator_contract on real templates (the round-1 bug fix)
+      - compare_contracts on real ReportContract objects
+      - PrecisionMetrics aggregation
+    """
+    s = load_validation_set(SEED_VS_PATH)
+
+    # Oracle: accept any in-scope query (whose curator_contract_slug
+    # we can look up); abstain otherwise.
+    in_scope_queries = {c.query for c in s.in_scope}
+    in_scope_slugs = {c.query: c.curator_contract_slug for c in s.in_scope}
+
+    class _OracleInductor:
+        def induce(self, query: str) -> InductorVerdict:
+            if query in in_scope_queries:
+                slug = in_scope_slugs[query]
+                # Look up the curator contract and return it as the
+                # induced contract — perfect oracle.
+                from src.polaris_graph.auto_induction.precision_metrics import (
+                    _load_curator_contract,
+                )
+                contract = _load_curator_contract(slug)
+                return InductorVerdict(
+                    decision="accept",
+                    induced_contract=contract,
+                    confidence=1.0,
+                )
+            return InductorVerdict(
+                decision="abstain",
+                abstain_reason="not in scope",
+            )
+
+    result = run_benchmark(_OracleInductor(), s, tau=0.8)
+    m = result.metrics
+    # Perfect oracle: accepts all in-scope, abstains correctly on all
+    # ambiguous + oos. Match score = 1.0 for all in-scope cases.
+    assert m.in_scope_accepted == len(s.in_scope)
+    assert m.in_scope_match_at_tau == len(s.in_scope)
+    assert m.silent_disagreement_rate == 0.0
+    assert m.abstain_correct == m.abstain_should_abstain_total
+    assert m.abstain_recall == 1.0
+    assert m.precision == 1.0
+    # operator_review_load = abstains / total. With 3 in-scope + 2 amb + 1 oos,
+    # ratio is 3/6 = 0.5 — over the 0.30 ceiling because the seed set is
+    # tiny + half-negative. Realistic 100-200 case sets will be closer.
+    assert m.operator_review_load == pytest.approx(0.5)
+    assert m.passes_acceptance(operator_review_ceiling=0.6)
