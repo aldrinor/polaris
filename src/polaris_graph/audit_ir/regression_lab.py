@@ -96,11 +96,20 @@ class InductionMetric(Enum):
 
 
 class ManifestDrift(Enum):
-    """Which manifest field flipped."""
+    """Which manifest field flipped.
 
-    ABORT_STATUS = "abort_status"
+    Field names match the live `manifest.json` schema produced
+    by `scripts/run_honest_sweep_r3.py:1785-1828`:
+      - `status` (unified taxonomy: success / partial_* / abort_* / error_*)
+      - `release_allowed` (evaluator gate verdict)
+      - `adequacy.decision` ("proceed" / "expand" / "abort")
+      - `generator.sentences_verified` (count of strict-verified sentences)
+    """
+
+    STATUS = "status"
     RELEASE_ALLOWED = "release_allowed"
-    SECTIONS_VERIFIED_DROPPED_TO_ZERO = "sections_verified_dropped_to_zero"
+    ADEQUACY_DECISION = "adequacy_decision"
+    SENTENCES_VERIFIED_DROPPED_TO_ZERO = "sentences_verified_dropped_to_zero"
 
 
 # ---------------------------------------------------------------------------
@@ -340,12 +349,17 @@ def _diff_pin(
         )
 
     if baseline.validation_set_hash != current.validation_set_hash:
+        # validation_set_hash is the IDENTITY of the benchmark
+        # dataset. Once it changes, induction precision/recall
+        # are no longer apples-to-apples — the gate must fail
+        # closed. Severity "schema" forces a RED verdict in
+        # diff_regression.
         drifts.append(
             PinDriftField(
                 field_name="validation_set_hash",
                 baseline_value=baseline.validation_set_hash,
                 current_value=current.validation_set_hash,
-                severity="config",
+                severity="schema",
             )
         )
 
@@ -475,6 +489,11 @@ def _diff_manifest(
 ) -> tuple[ManifestDriftField, ...]:
     """Return every pipeline-verdict field that flipped.
 
+    Reads the LIVE manifest schema produced by
+    `scripts/run_honest_sweep_r3.py` (top-level `status`,
+    `release_allowed`, nested `adequacy.decision` and
+    `generator.sentences_verified`).
+
     If either input is None, returns empty tuple (manifest check
     skipped — the caller didn't supply pipeline output).
     """
@@ -483,20 +502,25 @@ def _diff_manifest(
 
     drifts: list[ManifestDriftField] = []
 
-    b_status = baseline.get("abort_status")
-    c_status = current.get("abort_status")
+    # `status` is the unified pipeline taxonomy:
+    # success / partial_* / abort_* / error_*. Regression =
+    # going from "success" to anything else, OR going from any
+    # partial_* to any abort_*/error_* (degradation within the
+    # taxonomy).
+    b_status = baseline.get("status")
+    c_status = current.get("status")
     if b_status != c_status:
-        # Regression if went from "success" to anything else.
-        is_regression = b_status == "success" and c_status != "success"
+        is_regression = _status_is_regression(b_status, c_status)
         drifts.append(
             ManifestDriftField(
-                field=ManifestDrift.ABORT_STATUS,
+                field=ManifestDrift.STATUS,
                 baseline_value=b_status,
                 current_value=c_status,
                 is_regression=is_regression,
             )
         )
 
+    # release_allowed is the evaluator-gate verdict.
     b_release = baseline.get("release_allowed")
     c_release = current.get("release_allowed")
     if b_release != c_release:
@@ -511,11 +535,26 @@ def _diff_manifest(
             )
         )
 
-    # Sections-verified dropping to zero is a hard regression
-    # even if abort_status didn't flip (could be on a different
-    # code path).
-    b_verified = baseline.get("sections_verified")
-    c_verified = current.get("sections_verified")
+    # adequacy.decision: "proceed" / "expand" / "abort".
+    # Regression = proceed -> expand or proceed -> abort, OR
+    # expand -> abort.
+    b_adequacy = _nested_get(baseline, "adequacy", "decision")
+    c_adequacy = _nested_get(current, "adequacy", "decision")
+    if b_adequacy != c_adequacy:
+        is_regression = _adequacy_is_regression(b_adequacy, c_adequacy)
+        drifts.append(
+            ManifestDriftField(
+                field=ManifestDrift.ADEQUACY_DECISION,
+                baseline_value=b_adequacy,
+                current_value=c_adequacy,
+                is_regression=is_regression,
+            )
+        )
+
+    # generator.sentences_verified dropping to zero is a hard
+    # regression even if status didn't flip.
+    b_verified = _nested_get(baseline, "generator", "sentences_verified")
+    c_verified = _nested_get(current, "generator", "sentences_verified")
     if (
         isinstance(b_verified, int)
         and isinstance(c_verified, int)
@@ -524,7 +563,7 @@ def _diff_manifest(
     ):
         drifts.append(
             ManifestDriftField(
-                field=ManifestDrift.SECTIONS_VERIFIED_DROPPED_TO_ZERO,
+                field=ManifestDrift.SENTENCES_VERIFIED_DROPPED_TO_ZERO,
                 baseline_value=b_verified,
                 current_value=c_verified,
                 is_regression=True,
@@ -532,6 +571,63 @@ def _diff_manifest(
         )
 
     return tuple(drifts)
+
+
+# Status-taxonomy ordering for regression detection.
+# Lower-tier values regress to higher-tier values. Tiers:
+#   0 = success
+#   1 = partial_*  (degraded but report produced)
+#   2 = abort_*    (no report)
+#   3 = error_*    (unhandled exception)
+# Going from a lower tier to a higher tier is a regression.
+def _status_tier(status: object) -> int:
+    if not isinstance(status, str):
+        return -1  # unknown, can't compare
+    if status == "success":
+        return 0
+    if status.startswith("partial_"):
+        return 1
+    if status.startswith("abort_"):
+        return 2
+    if status.startswith("error_"):
+        return 3
+    return -1
+
+
+def _status_is_regression(
+    baseline: object, current: object
+) -> bool:
+    """A status flip is regression if current is in a worse tier
+    than baseline. Within-tier flips (e.g.
+    partial_thin_corpus -> partial_outline_fallback) are NOT
+    regressions for the bootstrap gate."""
+    b_tier = _status_tier(baseline)
+    c_tier = _status_tier(current)
+    if b_tier < 0 or c_tier < 0:
+        # Unknown taxonomy values fail closed.
+        return True
+    return c_tier > b_tier
+
+
+def _adequacy_is_regression(
+    baseline: object, current: object
+) -> bool:
+    """Adequacy ordering: proceed (best) < expand < abort (worst)."""
+    order = {"proceed": 0, "expand": 1, "abort": 2}
+    if baseline not in order or current not in order:
+        return True  # unknown values fail closed
+    return order[current] > order[baseline]  # type: ignore[index]
+
+
+def _nested_get(d: dict[str, Any] | None, *keys: str) -> Any:
+    """Walk nested dict by key path; return None if any link
+    is missing or non-dict."""
+    cur: Any = d
+    for k in keys:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return cur
 
 
 # ---------------------------------------------------------------------------

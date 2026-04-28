@@ -163,15 +163,44 @@ def test_operator_review_load_rise_is_red() -> None:
     assert report.verdict is RegressionVerdict.RED
 
 
-def test_manifest_abort_status_flip_to_failure_is_red() -> None:
-    base = _inputs(manifest={"abort_status": "success"})
-    curr = _inputs(manifest={"abort_status": "abort_no_verified_sections"})
+def test_manifest_status_success_to_abort_is_red() -> None:
+    """Live manifest schema: top-level `status` (unified
+    taxonomy: success / partial_* / abort_* / error_*).
+    success -> abort_* is regression."""
+    base = _inputs(manifest={"status": "success"})
+    curr = _inputs(manifest={"status": "abort_no_verified_sections"})
     report = diff_regression(base, curr)
     assert report.verdict is RegressionVerdict.RED
     assert any(
-        d.field is ManifestDrift.ABORT_STATUS and d.is_regression
+        d.field is ManifestDrift.STATUS and d.is_regression
         for d in report.manifest_drift
     )
+
+
+def test_manifest_status_success_to_partial_is_red() -> None:
+    """success -> partial_* is regression: report produced but
+    degraded signal. Codex round-1 explicit example."""
+    base = _inputs(manifest={"status": "success"})
+    curr = _inputs(manifest={"status": "partial_thin_corpus"})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+
+
+def test_manifest_status_partial_to_abort_is_red() -> None:
+    """Within-taxonomy degradation: partial -> abort regresses."""
+    base = _inputs(manifest={"status": "partial_thin_corpus"})
+    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+
+
+def test_manifest_status_within_partial_tier_is_yellow() -> None:
+    """Within-tier partial flip is drift but not regression
+    (report still produced, just a different degradation type)."""
+    base = _inputs(manifest={"status": "partial_thin_corpus"})
+    curr = _inputs(manifest={"status": "partial_outline_fallback"})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.YELLOW
 
 
 def test_manifest_release_allowed_flip_is_red() -> None:
@@ -181,13 +210,50 @@ def test_manifest_release_allowed_flip_is_red() -> None:
     assert report.verdict is RegressionVerdict.RED
 
 
-def test_manifest_sections_verified_dropped_to_zero_is_red() -> None:
+def test_manifest_adequacy_proceed_to_expand_is_red() -> None:
+    """Live schema: nested `adequacy.decision`.
+    proceed -> expand is regression (Codex round-1 explicit)."""
+    base = _inputs(manifest={"adequacy": {"decision": "proceed"}})
+    curr = _inputs(manifest={"adequacy": {"decision": "expand"}})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+    assert any(
+        d.field is ManifestDrift.ADEQUACY_DECISION and d.is_regression
+        for d in report.manifest_drift
+    )
+
+
+def test_manifest_adequacy_expand_to_proceed_is_yellow() -> None:
+    """Improvement, not regression."""
+    base = _inputs(manifest={"adequacy": {"decision": "expand"}})
+    curr = _inputs(manifest={"adequacy": {"decision": "proceed"}})
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.YELLOW
+
+
+def test_manifest_sentences_verified_dropped_to_zero_is_red() -> None:
+    """Live schema: nested `generator.sentences_verified`."""
     base = _inputs(
-        manifest={"abort_status": "success", "sections_verified": 5}
+        manifest={
+            "status": "success",
+            "generator": {"sentences_verified": 5},
+        }
     )
     curr = _inputs(
-        manifest={"abort_status": "success", "sections_verified": 0}
+        manifest={
+            "status": "success",
+            "generator": {"sentences_verified": 0},
+        }
     )
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+
+
+def test_manifest_unknown_status_fails_closed() -> None:
+    """An unknown status taxonomy value should fail closed
+    (treat as regression rather than miss it)."""
+    base = _inputs(manifest={"status": "success"})
+    curr = _inputs(manifest={"status": "some_unknown_label"})
     report = diff_regression(base, curr)
     assert report.verdict is RegressionVerdict.RED
 
@@ -306,23 +372,75 @@ def test_env_diff_unset_vs_empty_treated_as_drift() -> None:
 def test_manifest_none_skips_check() -> None:
     """Either side missing manifest → no manifest drift checked."""
     base = _inputs(manifest=None)
-    curr = _inputs(manifest={"abort_status": "abort_corpus_inadequate"})
+    curr = _inputs(manifest={"status": "abort_corpus_inadequate"})
     report = diff_regression(base, curr)
     assert report.manifest_drift == ()
 
 
 def test_manifest_failure_to_success_not_regression() -> None:
     """Going from failure → success is improvement, not regression."""
-    base = _inputs(manifest={"abort_status": "abort_no_verified_sections"})
-    curr = _inputs(manifest={"abort_status": "success"})
+    base = _inputs(manifest={"status": "abort_no_verified_sections"})
+    curr = _inputs(manifest={"status": "success"})
     report = diff_regression(base, curr)
     flips = [
         d for d in report.manifest_drift
-        if d.field is ManifestDrift.ABORT_STATUS
+        if d.field is ManifestDrift.STATUS
     ]
     assert len(flips) == 1
     assert flips[0].is_regression is False
     assert report.verdict is RegressionVerdict.YELLOW
+
+
+# ---------------------------------------------------------------------------
+# validation_set_hash drift fails closed (Codex round-1 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_validation_set_hash_change_is_red() -> None:
+    """validation_set_hash is the IDENTITY of the benchmark
+    dataset. Once it changes, induction metrics are no longer
+    apples-to-apples — CI must fail closed."""
+    from src.polaris_graph.audit_ir.model_pin import capture_pin
+
+    pin_a = capture_pin(
+        run_id="a",
+        llm_models={"generator": "m"},
+        inductor_type="KW",
+        inductor_profile_text="anchor: foo",
+    )
+    # Synthesize a new pin with a different validation_set_hash
+    # by re-capturing with a different validation_set_path.
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".yaml", delete=False, mode="w", encoding="utf-8"
+    ) as f:
+        f.write("in_scope: [{case_id: a, query: q}]\n")
+        path = Path(f.name)
+    try:
+        pin_b = capture_pin(
+            run_id="b",
+            llm_models={"generator": "m"},
+            inductor_type="KW",
+            inductor_profile_text="anchor: foo",
+            validation_set_path=path,
+        )
+    finally:
+        path.unlink(missing_ok=True)
+    assert pin_a.validation_set_hash != pin_b.validation_set_hash
+
+    base = _inputs(pin=pin_a)
+    curr = _inputs(pin=pin_b)
+    report = diff_regression(base, curr)
+    assert report.verdict is RegressionVerdict.RED
+    # The drift entry should be tagged as schema-severity.
+    vs_drifts = [
+        d for d in report.pin_drift
+        if d.field_name == "validation_set_hash"
+    ]
+    assert len(vs_drifts) == 1
+    assert vs_drifts[0].severity == "schema"
 
 
 # ---------------------------------------------------------------------------
