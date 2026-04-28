@@ -109,30 +109,28 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
         slug="policy_medicare_drug_price",
         anchor_keywords=(
             # Anchored phrases that ONLY make sense in the Medicare
-            # drug-price context. Codex round-2 fix: removed bare
-            # "inflation reduction act" because IRA covers many
-            # things (clean energy, EVs, tax credits).
+            # drug-price context.
             #
-            # Codex round-3 fix: added IRA + drug-program-context
-            # anchors so queries like "How will IRA provisions
-            # affect Part D formulary design?" route correctly
-            # without requiring the literal phrase "drug price".
-            # The anchor list is now multi-form: explicit drug-
-            # pricing phrases AND IRA-coupled-with-drug-program
-            # phrases.
+            # Codex round-2 fix: removed bare "inflation reduction
+            # act" because IRA covers many things (clean energy,
+            # EVs, tax credits).
+            #
+            # Codex round-3 added IRA + provisions/negotiation
+            # variants. Codex round-4 found those were ALSO too
+            # broad — "How did IRA negotiation affect EV tax
+            # credits?" false-accepted. Round-4 fix REVERTS those
+            # broader anchors and keeps only drug-explicit
+            # phrases. Queries that mention IRA + Part D without
+            # the word "drug" abstain by design — they're
+            # genuinely ambiguous (Part D has non-drug rules too).
             "medicare drug price",
             "medicare drug pricing",
             "drug price negotiation",
             "drug pricing negotiation",
             "inflation reduction act drug price",
             "inflation reduction act drug pricing",
-            "inflation reduction act negotiation",
-            "inflation reduction act provisions",
             "ira drug price",
             "ira drug pricing",
-            "ira negotiation",
-            "ira negotiated",
-            "ira provisions",
             "maximum fair price",
             "negotiated drug price",
             "negotiated price",
@@ -164,6 +162,7 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             "employer sponsored",
             "commercial insurance",
             "commercial plan",
+            "commercial plans",  # Codex round-4 plural variant
             # CMS does many non-drug things (DME reimbursement,
             # MA plan device rules). Disqualifiers narrowed to
             # device-specific terms (Codex round-2 fix: removed
@@ -176,6 +175,8 @@ _DEFAULT_PROFILES: tuple[_SlugProfile, ...] = (
             # "insulin pumps" — both forms must be listed.
             "insulin pump",
             "insulin pumps",
+            "insulin-pump",  # Codex round-4: hyphenated variant
+            "insulin-pumps",
             "durable medical equipment",
             "dme reimbursement",
             "dme reimbursements",

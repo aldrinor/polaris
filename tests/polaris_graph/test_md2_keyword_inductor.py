@@ -179,26 +179,70 @@ def test_insulin_pump_still_disqualifies() -> None:
     assert v.decision == "abstain"
 
 
-def test_round3_ira_provisions_part_d_accepts() -> None:
-    """Codex round-3 fix: 'IRA provisions affect Part D formulary'
-    style queries had no anchor after round-2 demotion of
-    'inflation reduction act'. Round 3 added 'ira provisions' /
-    'ira negotiation' anchors to cover these phrasings."""
+def test_round4_ira_provisions_without_drug_word_abstains() -> None:
+    """Codex round-4 fix: round-3 added 'ira provisions',
+    'ira negotiation' etc. as anchors, but those false-accepted
+    on EV-tax-credit queries. Round-4 REVERTED those anchors;
+    queries that mention IRA + Part D without the word "drug"
+    now abstain by design — they're genuinely ambiguous (Part D
+    has non-drug rules; IRA has clean-energy provisions).
+
+    Operator must include "drug" / "drug pricing" / "drug price"
+    explicitly to route to the Medicare drug-price contract."""
     inductor = KeywordInductor()
-    queries = [
+    # These ALL abstain in v5 by design (no drug word):
+    abstain_queries = [
         "How will IRA provisions affect Part D formulary design?",
-        "How will IRA negotiated prices affect Part D formularies?",
-        (
-            "What is the Inflation Reduction Act negotiation timeline "
-            "for Medicare Part D drugs?"
-        ),
+        "How do IRA provisions affect EV tax credits?",
+        "How did IRA negotiation affect EV tax credits?",
     ]
-    for q in queries:
+    for q in abstain_queries:
+        v = inductor.induce(q)
+        assert v.decision == "abstain", f"expected abstain for {q!r}, got {v}"
+
+    # These ACCEPT (drug word present):
+    accept_queries = [
+        "How will IRA drug price negotiation affect Part D formularies?",
+        (
+            "What is the Inflation Reduction Act drug pricing "
+            "negotiation timeline for Medicare Part D?"
+        ),
+        "What does IRA drug price negotiation mean for Medicare?",
+    ]
+    for q in accept_queries:
         v = inductor.induce(q)
         assert v.decision == "accept", f"expected accept for {q!r}, got {v}"
         assert (
-            getattr(v.induced_contract, "slug", "") == "policy_medicare_drug_price"
+            getattr(v.induced_contract, "slug", "")
+            == "policy_medicare_drug_price"
         )
+
+
+def test_round4_commercial_plans_plural_disqualifies() -> None:
+    """Codex round-4: 'commercial plan' was singular-only. Plural
+    'commercial plans' now disqualifies."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How does Medicare drug price negotiation affect commercial plans?"
+    )
+    assert v.decision == "abstain"
+
+
+def test_round4_insulin_pump_hyphenated_disqualifies() -> None:
+    """Codex round-4: 'insulin pump' (space) didn't match
+    'insulin-pump' (hyphen). Both forms disqualify now."""
+    inductor = KeywordInductor()
+    v = inductor.induce(
+        "How does Medicare drug price negotiation affect "
+        "insulin-pump supplies?"
+    )
+    assert v.decision == "abstain"
+    # Plural-hyphenated:
+    v2 = inductor.induce(
+        "Medicare drug price negotiation impact on insulin-pumps "
+        "for Part D enrollees"
+    )
+    assert v2.decision == "abstain"
 
 
 def test_round3_insulin_pumps_plural_disqualifies() -> None:
