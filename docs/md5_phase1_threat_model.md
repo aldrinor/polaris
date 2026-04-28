@@ -1,8 +1,8 @@
 # M-D5 phase 1 — confidence-gated template matching boundary
 
-**Status:** v3 / 2026-04-28
+**Status:** v4 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/scope_classifier.py`
-**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (29 passing)
+**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (30 passing)
 **Pairs with:** M-20 router (`template_classifier.classify_query`),
 M-D1 validation set (43 cases)
 **Substrate:** stdlib + `template_classifier` only — no LLM client coupling
@@ -155,13 +155,17 @@ U+FEFF (BOM). These render as nothing but leave a non-empty
 string after `strip()` — letting a query like `"​​​"`
 bypass the v2 short-circuit and reach the classifier.
 
-v3 adds `_is_visually_empty(text)` which iterates char-by-char
+v3 added `_is_visually_empty(text)` which iterates char-by-char
 and treats a string as empty when every character is one of:
 - whitespace (`isspace()` True)
 - `Cf` (Format) — zero-width spaces, joiners, BOM, word joiner
 - `Cc` (Control) — control codes
 - `Cn` (Unassigned) — unassigned code points
 - `Co` (Private Use) — private-use area
+- `Cs` (Surrogate) — added in v4 per Codex round-3 probe.
+  Surrogate halves are invalid in well-formed Unicode but
+  Python `str` permits them; treating them as non-content
+  denies that bypass class.
 
 Visible Unicode (Japanese, accented Latin, Greek, em-dashes,
 etc.) is NOT treated as empty (verified by

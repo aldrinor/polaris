@@ -483,6 +483,32 @@ def test_unicode_format_character_query_short_circuits() -> None:
         assert result.action == GatedAction.OPERATOR_REVIEW
 
 
+def test_surrogate_only_query_short_circuits() -> None:
+    """Codex round-3 LOW fix (v4): a string of lone Unicode
+    surrogates (Cs category) is invalid well-formed Unicode but
+    Python str permits it. Treat as non-content."""
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError("classifier reached for surrogate input")
+
+    raising = _RaisingClassifier()
+    # Lone surrogates: U+D800 (high), U+DC00 (low). Both are Cs.
+    # Concatenating individual surrogate code points (not a paired
+    # supplementary character) is invalid well-formed Unicode but
+    # Python str permits it.
+    surrogate_query = chr(0xD800) + chr(0xDC00)
+    result = confidence_gated_match(
+        surrogate_query, classifier=raising, threshold=0.70,
+    )
+    assert raising.called is False
+    assert result.action == GatedAction.OPERATOR_REVIEW
+
+
 def test_visible_unicode_query_does_not_short_circuit() -> None:
     """Negative case: queries with actual Unicode content (non-Latin
     scripts, accented chars, em-dashes, etc.) MUST reach the

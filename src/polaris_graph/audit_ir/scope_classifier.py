@@ -122,9 +122,13 @@ def _is_visually_empty(text: str) -> bool:
         if ch.isspace():
             continue
         category = unicodedata.category(ch)
-        # Cf = Format, Cc = Control, Cn = Unassigned, Co = Private Use.
-        # Any of these are non-rendering / non-content.
-        if category in ("Cf", "Cc", "Cn", "Co"):
+        # Cf = Format, Cc = Control, Cn = Unassigned, Co = Private Use,
+        # Cs = Surrogate. All are non-rendering / non-content. Cs added
+        # in v4 per Codex round-3 probe: surrogate halves are invalid
+        # in well-formed Unicode but Python str permits them — treat
+        # as non-content so a string of lone surrogates short-circuits
+        # rather than reaching the classifier.
+        if category in ("Cf", "Cc", "Cn", "Co", "Cs"):
             continue
         return False
     return True
