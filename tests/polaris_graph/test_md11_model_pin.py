@@ -1,16 +1,19 @@
-"""M-D11 phase 1 model-pin tests."""
+"""M-D11 phase 1 model-pin tests (schema v2)."""
 
 from __future__ import annotations
 
 import json
-import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from src.polaris_graph.audit_ir.model_pin import (
+    DEFAULT_ROUTING_ENV_VARS,
+    PIN_SCHEMA_VERSION,
     ModelPin,
     ModelPinError,
+    capture_env_snapshot,
     capture_pin,
     hash_file,
     hash_inductor_profile,
@@ -30,26 +33,39 @@ from src.polaris_graph.audit_ir.model_pin import (
 def test_capture_pin_minimal() -> None:
     pin = capture_pin(
         run_id="run_001",
-        llm_model="qwen/qwen3.5-plus",
+        llm_models={"generator": "qwen/qwen3.5-plus"},
     )
     assert pin.run_id == "run_001"
-    assert pin.llm_model == "qwen/qwen3.5-plus"
-    assert pin.llm_provider == "openrouter"
+    assert pin.pin_schema_version == "v2"
+    assert pin.llm_models == {"generator": "qwen/qwen3.5-plus"}
+    assert pin.llm_providers == {"generator": "openrouter"}
+    assert pin.prompt_version_hashes == {}
     assert pin.captured_at > 0
-    assert pin.prompt_version_hash == ""
     assert pin.retrieval_source_versions == {}
     assert pin.inductor_type is None
     assert pin.inductor_version_hash is None
     assert pin.validation_set_hash is None
+    assert pin.env_snapshot == {}
     assert pin.notes == ""
 
 
-def test_capture_pin_full() -> None:
+def test_capture_pin_full_multi_model() -> None:
     pin = capture_pin(
         run_id="run_002",
-        llm_model="z-ai/glm-5.1",
-        llm_provider="direct",
-        system_prompt="You are a research router.",
+        llm_models={
+            "generator": "z-ai/glm-5.1",
+            "evaluator": "qwen/qwen3.5-plus",
+            "judge": "anthropic/claude-haiku-4-5",
+            "inductor_classifier": "z-ai/glm-5.1",
+        },
+        llm_providers={
+            "generator": "openrouter",
+            "evaluator": "direct",
+        },
+        role_prompts={
+            "generator": "You are a research synthesizer.",
+            "evaluator": "You judge faithfulness.",
+        },
         retrieval_source_versions={
             "crossref": "v1",
             "pubmed": "2024-12",
@@ -57,31 +73,125 @@ def test_capture_pin_full() -> None:
         },
         inductor_type="LLMAugmentedInductor",
         inductor_profile_text="anchor: tirzepatide; support: t2dm",
+        env_snapshot={"OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"},
         notes="Q1 2026 baseline",
     )
-    assert pin.llm_provider == "direct"
-    assert len(pin.prompt_version_hash) == 64  # SHA-256 hex
+    assert pin.llm_providers["generator"] == "openrouter"
+    assert pin.llm_providers["evaluator"] == "direct"
+    # Roles in models but not in providers got auto-filled openrouter.
+    assert pin.llm_providers["judge"] == "openrouter"
+    assert pin.llm_providers["inductor_classifier"] == "openrouter"
+    assert len(pin.prompt_version_hashes["generator"]) == 64  # SHA-256 hex
+    assert len(pin.prompt_version_hashes["evaluator"]) == 64
+    # judge / inductor_classifier didn't have role_prompts → no hash.
+    assert "judge" not in pin.prompt_version_hashes
+    assert "inductor_classifier" not in pin.prompt_version_hashes
     assert pin.retrieval_source_versions["crossref"] == "v1"
     assert pin.inductor_type == "LLMAugmentedInductor"
     assert len(pin.inductor_version_hash or "") == 64
+    assert pin.env_snapshot["OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
     assert pin.notes == "Q1 2026 baseline"
 
 
 def test_capture_pin_rejects_empty_run_id() -> None:
     with pytest.raises(ModelPinError, match="run_id"):
-        capture_pin(run_id="", llm_model="x")
+        capture_pin(run_id="", llm_models={"generator": "x"})
 
 
-def test_capture_pin_rejects_empty_model() -> None:
-    with pytest.raises(ModelPinError, match="llm_model"):
-        capture_pin(run_id="r", llm_model="")
+def test_capture_pin_rejects_empty_models() -> None:
+    with pytest.raises(ModelPinError, match="llm_models"):
+        capture_pin(run_id="r", llm_models={})
+
+
+def test_capture_pin_rejects_empty_model_value() -> None:
+    with pytest.raises(ModelPinError, match="llm_models"):
+        capture_pin(run_id="r", llm_models={"generator": ""})
+
+
+def test_capture_pin_rejects_whitespace_role() -> None:
+    with pytest.raises(ModelPinError, match="llm_models"):
+        capture_pin(run_id="r", llm_models={"   ": "m"})
 
 
 def test_capture_pin_at_explicit_timestamp() -> None:
     pin = capture_pin(
-        run_id="r", llm_model="m", captured_at=1700000000.0,
+        run_id="r",
+        llm_models={"generator": "m"},
+        captured_at=1700000000.0,
     )
     assert pin.captured_at == 1700000000.0
+
+
+def test_capture_pin_provider_role_unknown_raises() -> None:
+    with pytest.raises(ModelPinError, match="unknown roles"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            llm_providers={"evaluator": "openrouter"},  # not in models
+        )
+
+
+def test_capture_pin_role_prompts_unknown_raises() -> None:
+    with pytest.raises(ModelPinError, match="role_prompts"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            role_prompts={"judge": "p"},  # judge not in models
+        )
+
+
+def test_capture_pin_env_snapshot_and_capture_names_mutually_exclusive() -> None:
+    with pytest.raises(ModelPinError, match="not both"):
+        capture_pin(
+            run_id="r",
+            llm_models={"generator": "m"},
+            env_snapshot={"X": "1"},
+            capture_env_var_names=["X"],
+        )
+
+
+def test_capture_pin_with_capture_env_var_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_TEST_PIN_VAR", "captured_value")
+    monkeypatch.delenv("PG_TEST_PIN_MISSING", raising=False)
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        capture_env_var_names=["PG_TEST_PIN_VAR", "PG_TEST_PIN_MISSING"],
+    )
+    assert pin.env_snapshot["PG_TEST_PIN_VAR"] == "captured_value"
+    assert pin.env_snapshot["PG_TEST_PIN_MISSING"] == ""
+
+
+def test_capture_pin_default_schema_version() -> None:
+    pin = capture_pin(run_id="r", llm_models={"generator": "m"})
+    assert pin.pin_schema_version == PIN_SCHEMA_VERSION == "v2"
+
+
+# ---------------------------------------------------------------------------
+# capture_env_snapshot
+# ---------------------------------------------------------------------------
+
+
+def test_capture_env_snapshot_default_set_keys() -> None:
+    snap = capture_env_snapshot()
+    # Stable shape: every default name is present.
+    for name in DEFAULT_ROUTING_ENV_VARS:
+        assert name in snap
+
+
+def test_capture_env_snapshot_missing_returns_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PG_NOT_SET_FOR_TEST", raising=False)
+    snap = capture_env_snapshot(["PG_NOT_SET_FOR_TEST"])
+    assert snap["PG_NOT_SET_FOR_TEST"] == ""
+
+
+def test_capture_env_snapshot_rejects_empty_name() -> None:
+    with pytest.raises(ModelPinError, match="non-empty"):
+        capture_env_snapshot(["", "OK"])
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +233,10 @@ def test_hash_file_missing_raises(tmp_path: Path) -> None:
 def test_pin_to_dict_round_trips() -> None:
     pin = capture_pin(
         run_id="r1",
-        llm_model="m",
+        llm_models={"generator": "m1", "evaluator": "m2"},
         captured_at=1234567890.0,
         retrieval_source_versions={"a": "1"},
+        env_snapshot={"OPENROUTER_BASE_URL": "https://example/api"},
     )
     d = pin_to_dict(pin)
     pin2 = pin_from_dict(d)
@@ -135,9 +246,10 @@ def test_pin_to_dict_round_trips() -> None:
 def test_pin_to_json_round_trips() -> None:
     pin = capture_pin(
         run_id="r2",
-        llm_model="m",
-        system_prompt="hello",
+        llm_models={"generator": "m"},
+        role_prompts={"generator": "hello"},
         inductor_profile_text="anchor: x",
+        env_snapshot={"PG_V3_ANALYTICAL_PROMPT": "1"},
     )
     text = pin_to_json(pin)
     pin2 = pin_from_json(text)
@@ -147,22 +259,194 @@ def test_pin_to_json_round_trips() -> None:
 def test_pin_to_json_stable_key_order() -> None:
     """Reproducible serialization: same pin → same JSON bytes."""
     pin = capture_pin(
-        run_id="r3", llm_model="m", captured_at=100.0,
+        run_id="r3",
+        llm_models={"generator": "m"},
+        captured_at=100.0,
         retrieval_source_versions={"z": "1", "a": "2", "m": "3"},
+        env_snapshot={"Z": "1", "A": "2"},
     )
     j1 = pin_to_json(pin)
     j2 = pin_to_json(pin)
     assert j1 == j2
 
 
-def test_pin_from_dict_missing_required_key() -> None:
+def test_pin_to_dict_emits_schema_version() -> None:
+    pin = capture_pin(run_id="r", llm_models={"generator": "m"})
+    d = pin_to_dict(pin)
+    assert d["pin_schema_version"] == "v2"
+
+
+# ---------------------------------------------------------------------------
+# pin_from_dict validation (re-applies invariants)
+# ---------------------------------------------------------------------------
+
+
+def test_pin_from_dict_rejects_v1_schema_no_version() -> None:
+    """A v1-shaped dict (no pin_schema_version, llm_model singular)
+    must not silently load."""
+    v1_shape = {
+        "run_id": "r",
+        "captured_at": 0.0,
+        "llm_model": "qwen/qwen3.5-plus",
+        "llm_provider": "openrouter",
+    }
+    with pytest.raises(ModelPinError, match="pin_schema_version"):
+        pin_from_dict(v1_shape)
+
+
+def test_pin_from_dict_rejects_unknown_schema_version() -> None:
+    with pytest.raises(ModelPinError, match="pin_schema_version"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v99",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+            }
+        )
+
+
+def test_pin_from_dict_missing_llm_models() -> None:
     with pytest.raises(ModelPinError, match="missing required key"):
-        pin_from_dict({"run_id": "r", "captured_at": 0.0})  # missing llm_model
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+            }
+        )
 
 
 def test_pin_from_dict_rejects_non_dict() -> None:
     with pytest.raises(ModelPinError, match="must be a dict"):
         pin_from_dict("not a dict")  # type: ignore[arg-type]
+
+
+def test_pin_from_dict_re_validates_run_id_empty() -> None:
+    """Symmetric with capture_pin: empty run_id is rejected."""
+    with pytest.raises(ModelPinError, match="run_id"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+            }
+        )
+
+
+def test_pin_from_dict_re_validates_run_id_whitespace() -> None:
+    with pytest.raises(ModelPinError, match="run_id"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "   ",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+            }
+        )
+
+
+def test_pin_from_dict_re_validates_models_empty() -> None:
+    with pytest.raises(ModelPinError, match="llm_models"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {},
+            }
+        )
+
+
+def test_pin_from_dict_re_validates_models_value_empty() -> None:
+    with pytest.raises(ModelPinError, match="llm_models"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": ""},
+            }
+        )
+
+
+def test_pin_from_dict_provider_role_mismatch() -> None:
+    """Provider declares a role not present in models."""
+    with pytest.raises(ModelPinError, match="unknown roles"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {
+                    "generator": "openrouter",
+                    "evaluator": "openrouter",  # not in models
+                },
+            }
+        )
+
+
+def test_pin_from_dict_provider_missing_role() -> None:
+    """Every model role must have a provider on disk (no auto-fill
+    on load — we require pins captured via capture_pin to be
+    fully formed)."""
+    with pytest.raises(ModelPinError, match="missing roles"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m", "evaluator": "n"},
+                "llm_providers": {"generator": "openrouter"},  # missing evaluator
+            }
+        )
+
+
+def test_pin_from_dict_prompt_role_unknown() -> None:
+    with pytest.raises(ModelPinError, match="prompt_version_hashes"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+                "prompt_version_hashes": {"judge": "abc"},  # not in models
+            }
+        )
+
+
+def test_pin_from_dict_env_snapshot_invalid_value_type() -> None:
+    with pytest.raises(ModelPinError, match="env_snapshot"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+                "env_snapshot": {"X": 123},  # int, not str
+            }
+        )
+
+
+def test_pin_from_dict_retrieval_invalid_value() -> None:
+    with pytest.raises(ModelPinError, match="retrieval_source_versions"):
+        pin_from_dict(
+            {
+                "pin_schema_version": "v2",
+                "run_id": "r",
+                "captured_at": 0.0,
+                "llm_models": {"generator": "m"},
+                "llm_providers": {"generator": "openrouter"},
+                "retrieval_source_versions": {"crossref": 1},  # int
+            }
+        )
 
 
 def test_pin_from_json_malformed() -> None:
@@ -175,33 +459,73 @@ def test_pin_from_json_malformed() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _baseline() -> ModelPin:
+    return capture_pin(
+        run_id="run_a",
+        llm_models={"generator": "m"},
+        captured_at=1.0,
+        retrieval_source_versions={"x": "1"},
+    )
+
+
 def test_pins_equivalent_for_replay_true_when_config_matches() -> None:
     pin_a = capture_pin(
-        run_id="run_a", llm_model="m", captured_at=1.0,
+        run_id="run_a",
+        llm_models={"generator": "m"},
+        captured_at=1.0,
         retrieval_source_versions={"x": "1"},
     )
     pin_b = capture_pin(
-        run_id="run_b", llm_model="m", captured_at=2.0,  # different
+        run_id="run_b",  # different
+        llm_models={"generator": "m"},
+        captured_at=2.0,  # different
         retrieval_source_versions={"x": "1"},
-        notes="different notes",  # also different
+        notes="different notes",  # different
     )
-    # run_id, captured_at, notes excluded from equivalence.
     assert pins_equivalent_for_replay(pin_a, pin_b)
 
 
 def test_pins_not_equivalent_on_model_change() -> None:
-    pin_a = capture_pin(run_id="a", llm_model="qwen/qwen3.5-plus")
-    pin_b = capture_pin(run_id="b", llm_model="z-ai/glm-5.1")
+    pin_a = capture_pin(run_id="a", llm_models={"generator": "qwen/qwen3.5-plus"})
+    pin_b = capture_pin(run_id="b", llm_models={"generator": "z-ai/glm-5.1"})
+    assert not pins_equivalent_for_replay(pin_a, pin_b)
+
+
+def test_pins_not_equivalent_on_role_addition() -> None:
+    """Adding an evaluator role makes the pin non-equivalent."""
+    pin_a = capture_pin(
+        run_id="a", llm_models={"generator": "m"}
+    )
+    pin_b = capture_pin(
+        run_id="b",
+        llm_models={"generator": "m", "evaluator": "m2"},
+    )
+    assert not pins_equivalent_for_replay(pin_a, pin_b)
+
+
+def test_pins_not_equivalent_on_provider_change() -> None:
+    pin_a = capture_pin(
+        run_id="a",
+        llm_models={"generator": "m"},
+        llm_providers={"generator": "openrouter"},
+    )
+    pin_b = capture_pin(
+        run_id="b",
+        llm_models={"generator": "m"},
+        llm_providers={"generator": "direct"},
+    )
     assert not pins_equivalent_for_replay(pin_a, pin_b)
 
 
 def test_pins_not_equivalent_on_inductor_change() -> None:
     pin_a = capture_pin(
-        run_id="a", llm_model="m",
+        run_id="a",
+        llm_models={"generator": "m"},
         inductor_profile_text="profile-v1",
     )
     pin_b = capture_pin(
-        run_id="b", llm_model="m",
+        run_id="b",
+        llm_models={"generator": "m"},
         inductor_profile_text="profile-v2",
     )
     assert not pins_equivalent_for_replay(pin_a, pin_b)
@@ -209,19 +533,51 @@ def test_pins_not_equivalent_on_inductor_change() -> None:
 
 def test_pins_not_equivalent_on_retrieval_source_change() -> None:
     pin_a = capture_pin(
-        run_id="a", llm_model="m",
+        run_id="a",
+        llm_models={"generator": "m"},
         retrieval_source_versions={"crossref": "v1"},
     )
     pin_b = capture_pin(
-        run_id="b", llm_model="m",
-        retrieval_source_versions={"crossref": "v2"},  # version bumped
+        run_id="b",
+        llm_models={"generator": "m"},
+        retrieval_source_versions={"crossref": "v2"},
     )
     assert not pins_equivalent_for_replay(pin_a, pin_b)
 
 
-def test_pins_not_equivalent_on_prompt_change() -> None:
-    pin_a = capture_pin(run_id="a", llm_model="m", system_prompt="p1")
-    pin_b = capture_pin(run_id="b", llm_model="m", system_prompt="p2")
+def test_pins_not_equivalent_on_per_role_prompt_change() -> None:
+    pin_a = capture_pin(
+        run_id="a",
+        llm_models={"generator": "m"},
+        role_prompts={"generator": "p1"},
+    )
+    pin_b = capture_pin(
+        run_id="b",
+        llm_models={"generator": "m"},
+        role_prompts={"generator": "p2"},
+    )
+    assert not pins_equivalent_for_replay(pin_a, pin_b)
+
+
+def test_pins_not_equivalent_on_env_snapshot_change() -> None:
+    pin_a = capture_pin(
+        run_id="a",
+        llm_models={"generator": "m"},
+        env_snapshot={"OPENROUTER_PROVIDER_ORDER": "a,b"},
+    )
+    pin_b = capture_pin(
+        run_id="b",
+        llm_models={"generator": "m"},
+        env_snapshot={"OPENROUTER_PROVIDER_ORDER": "b,a"},  # reversed
+    )
+    assert not pins_equivalent_for_replay(pin_a, pin_b)
+
+
+def test_pins_not_equivalent_on_schema_version_change() -> None:
+    pin_a = capture_pin(run_id="a", llm_models={"generator": "m"})
+    # Synthesize a different schema-version pin via dataclass replace
+    # (frozen but replace returns new instance).
+    pin_b = replace(pin_a, pin_schema_version="v3")
     assert not pins_equivalent_for_replay(pin_a, pin_b)
 
 
@@ -235,7 +591,7 @@ def test_capture_pin_with_validation_set_hash(tmp_path: Path) -> None:
     vs_path.write_text("in_scope: []\n", encoding="utf-8")
     pin = capture_pin(
         run_id="r",
-        llm_model="m",
+        llm_models={"generator": "m"},
         validation_set_path=vs_path,
     )
     assert len(pin.validation_set_hash or "") == 64
@@ -249,7 +605,34 @@ def test_validation_set_hash_changes_on_content_change(
     vs2 = tmp_path / "vs2.yaml"
     vs2.write_text("in_scope: [{case_id: x, query: q}]\n", encoding="utf-8")
 
-    pin1 = capture_pin(run_id="a", llm_model="m", validation_set_path=vs1)
-    pin2 = capture_pin(run_id="b", llm_model="m", validation_set_path=vs2)
+    pin1 = capture_pin(
+        run_id="a",
+        llm_models={"generator": "m"},
+        validation_set_path=vs1,
+    )
+    pin2 = capture_pin(
+        run_id="b",
+        llm_models={"generator": "m"},
+        validation_set_path=vs2,
+    )
     assert pin1.validation_set_hash != pin2.validation_set_hash
     assert not pins_equivalent_for_replay(pin1, pin2)
+
+
+# ---------------------------------------------------------------------------
+# JSON shape sanity
+# ---------------------------------------------------------------------------
+
+
+def test_json_shape_includes_v2_fields() -> None:
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        env_snapshot={"OPENROUTER_BASE_URL": "https://example/api"},
+    )
+    text = pin_to_json(pin)
+    parsed = json.loads(text)
+    assert parsed["pin_schema_version"] == "v2"
+    assert parsed["llm_models"] == {"generator": "m"}
+    assert parsed["llm_providers"] == {"generator": "openrouter"}
+    assert parsed["env_snapshot"]["OPENROUTER_BASE_URL"] == "https://example/api"
