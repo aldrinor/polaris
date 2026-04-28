@@ -71,7 +71,9 @@ not a warning.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -82,6 +84,15 @@ from src.polaris_graph.audit_ir.model_pin import (
     capture_pin,
     pins_equivalent_for_replay,
 )
+
+
+# Module-level non-reentrant lock guarding os.environ mutation.
+# Per Codex round-1 finding (commit 1ba9144): same-process
+# nested/concurrent replays silently stomped each other in v1.
+# v2 turns the stomp into a hard `PinReplayError` so misuse is
+# loud — phase 2 v1 is single-threaded by design and should
+# fail closed when callers violate that boundary.
+_REPLAY_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +110,24 @@ class MissingPromptTextError(PinReplayError):
     prompt_version_hash captures shape but not content; full
     restoration requires the original prompt text from the
     audit bundle."""
+
+
+class PromptHashMismatchError(PinReplayError):
+    """Raised when the operator supplies prompt text whose
+    SHA-256 doesn't match the pin's prompt_version_hashes
+    entry for that role. Per Codex round-1 finding (commit
+    1ba9144): presence-check alone allowed wrong prompts to
+    pass the 'ready to restore' gate. v2 hash-checks
+    supplied text and rejects mismatches loudly."""
+
+
+class ConcurrentReplayError(PinReplayError):
+    """Raised when a replay tries to enter
+    `apply_replay_plan` while another replay is already
+    active in the process. os.environ is process-global;
+    same-process concurrent or nested replays would stomp
+    each other. Phase 2 v1 is single-threaded — process-pool
+    isolation is phase 2 v2 territory."""
 
 
 class ReplayVerificationError(PinReplayError):
@@ -210,12 +239,17 @@ def apply_replay_plan(plan: ReplayPlan) -> Iterator[ReplayPlan]:
 
     Captures the current value of every var the plan touches
     BEFORE mutating, then restores on `__exit__` (success or
-    exception). This is REQUIRED — replay must not pollute the
-    process env beyond its `with` block.
+    exception). Reversibility is REQUIRED — replay must not
+    pollute the process env beyond its `with` block.
 
-    Phase 2 v1 boundary: single-threaded only. Concurrent
-    replays of different pins will stomp each other's env
-    state since os.environ is process-global.
+    Phase 2 v1 boundary: single-threaded only. Same-process
+    concurrent or nested calls raise
+    `ConcurrentReplayError`. The module holds a non-reentrant
+    `threading.Lock` to enforce this — misuse is loud, not
+    silent stomping.
+
+    Phase 2 v2 may add process-pool isolation (subprocess per
+    replay) so concurrent replays become safe.
     """
     if not isinstance(plan, ReplayPlan):
         raise PinReplayError(
@@ -223,38 +257,52 @@ def apply_replay_plan(plan: ReplayPlan) -> Iterator[ReplayPlan]:
             f"got {type(plan).__name__}"
         )
 
-    # Snapshot prior state. None means "var was unset"; str
-    # means "var was set to that string". Symmetric with the
-    # pin schema.
-    prior: dict[str, str | None] = {}
-    for mut in plan.env_mutations:
-        prior[mut.name] = os.environ.get(mut.name)
-
+    # Try to acquire the module-level lock without blocking.
+    # If another replay holds it, fail loudly — concurrent
+    # replays would stomp each other's env restoration.
+    if not _REPLAY_LOCK.acquire(blocking=False):
+        raise ConcurrentReplayError(
+            "another replay is already active in this process; "
+            "phase 2 v1 is single-threaded — wait for the "
+            "outer `with apply_replay_plan` to exit, or use "
+            "subprocess isolation"
+        )
     try:
-        # Apply.
+        # Snapshot prior state. None means "var was unset"; str
+        # means "var was set to that string". Symmetric with
+        # the pin schema.
+        prior: dict[str, str | None] = {}
         for mut in plan.env_mutations:
-            if mut.op == "delete":
-                os.environ.pop(mut.name, None)
-            elif mut.op == "set":
-                if mut.value is None:
+            prior[mut.name] = os.environ.get(mut.name)
+
+        try:
+            # Apply.
+            for mut in plan.env_mutations:
+                if mut.op == "delete":
+                    os.environ.pop(mut.name, None)
+                elif mut.op == "set":
+                    if mut.value is None:
+                        raise PinReplayError(
+                            f"set mutation for {mut.name!r} "
+                            f"has value=None (should be str)"
+                        )
+                    os.environ[mut.name] = mut.value
+                else:
                     raise PinReplayError(
-                        f"set mutation for {mut.name!r} has "
-                        f"value=None (should be str)"
+                        f"unknown mutation op: {mut.op!r}"
                     )
-                os.environ[mut.name] = mut.value
-            else:
-                raise PinReplayError(
-                    f"unknown mutation op: {mut.op!r}"
-                )
-        yield plan
+            yield plan
+        finally:
+            # Restore — even on exception. Order doesn't
+            # matter since each var's prior is captured
+            # independently.
+            for name, prior_value in prior.items():
+                if prior_value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = prior_value
     finally:
-        # Restore — even on exception. Order doesn't matter
-        # since each var's prior is captured independently.
-        for name, prior_value in prior.items():
-            if prior_value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = prior_value
+        _REPLAY_LOCK.release()
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +431,28 @@ def replay_pin(
             raise MissingPromptTextError(
                 f"prompt text missing for roles: {sorted(missing)}; "
                 f"replay cannot restore prompts from hash alone"
+            )
+        # Per Codex round-1 finding: presence-only check let
+        # an operator pass arbitrary non-blank text and have
+        # it accepted as "the captured prompt". Hash-check
+        # the supplied text against pin.prompt_version_hashes
+        # so wrong prompts can't slip through the gate.
+        mismatches: list[tuple[str, str, str]] = []
+        for role, expected_hash in pin.prompt_version_hashes.items():
+            text = prompt_text[role]
+            actual_hash = hashlib.sha256(
+                text.encode("utf-8")
+            ).hexdigest()
+            if actual_hash != expected_hash:
+                mismatches.append((role, expected_hash, actual_hash))
+        if mismatches:
+            details = "; ".join(
+                f"{role} expected={exp[:12]}... actual={act[:12]}..."
+                for role, exp, act in mismatches
+            )
+            raise PromptHashMismatchError(
+                f"supplied prompt text doesn't hash-match the "
+                f"pin's prompt_version_hashes: {details}"
             )
 
     return build_replay_plan(pin)

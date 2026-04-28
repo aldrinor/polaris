@@ -11,9 +11,11 @@ from src.polaris_graph.audit_ir.model_pin import (
     capture_pin,
 )
 from src.polaris_graph.audit_ir.pin_replay import (
+    ConcurrentReplayError,
     EnvMutation,
     MissingPromptTextError,
     PinReplayError,
+    PromptHashMismatchError,
     ReplayMismatch,
     ReplayPlan,
     apply_replay_plan,
@@ -394,17 +396,14 @@ def test_replay_pin_default_does_not_require_prompt_text() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_concurrent_replays_stomp_each_other_documented_boundary(
+def test_nested_replay_raises_concurrent_replay_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Document the phase 2 v1 boundary: os.environ is
-    process-global. Two simultaneous replays of different
-    pins WILL stomp each other. This test demonstrates the
-    failure mode — phase 2 v1 is single-threaded only.
-
-    Construct two pins with different values for the same
-    var, apply both concurrently, observe that whichever
-    enters second wins inside the inner block."""
+    """Round-1 fix: same-process nested replays USED to
+    silently stomp os.environ. v2 acquires a non-reentrant
+    module lock at apply_replay_plan entry — the inner call
+    raises ConcurrentReplayError instead of corrupting
+    state."""
     monkeypatch.delenv("PG_CONFLICT", raising=False)
     pin_a = capture_pin(
         run_id="a",
@@ -420,11 +419,170 @@ def test_concurrent_replays_stomp_each_other_documented_boundary(
     plan_b = build_replay_plan(pin_b)
     with apply_replay_plan(plan_a):
         assert os.environ["PG_CONFLICT"] == "value-a"
-        with apply_replay_plan(plan_b):
-            # B stomps A.
-            assert os.environ["PG_CONFLICT"] == "value-b"
-        # Restoring B's prior — which, when B applied, was
-        # value-a (set by A).
+        with pytest.raises(ConcurrentReplayError, match="single-threaded"):
+            with apply_replay_plan(plan_b):
+                pass  # never reached
+        # Outer replay still intact.
         assert os.environ["PG_CONFLICT"] == "value-a"
-    # All restored to original (unset).
+    # All restored.
     assert "PG_CONFLICT" not in os.environ
+
+
+def test_concurrent_replays_serialize_via_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two threads racing apply_replay_plan: one wins, the
+    other gets ConcurrentReplayError. The lock makes the
+    failure deterministic instead of a silent stomp."""
+    import threading
+
+    monkeypatch.delenv("PG_CONFLICT_THREAD", raising=False)
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        env_snapshot={"PG_CONFLICT_THREAD": "winner"},
+    )
+    plan = build_replay_plan(pin)
+
+    enter_inner = threading.Event()
+    inner_can_exit = threading.Event()
+    errors: list[BaseException] = []
+
+    def outer() -> None:
+        try:
+            with apply_replay_plan(plan):
+                enter_inner.set()
+                # Hold the lock until inner has tried to enter.
+                inner_can_exit.wait(timeout=5.0)
+        except BaseException as e:
+            errors.append(e)
+
+    def inner() -> None:
+        try:
+            enter_inner.wait(timeout=5.0)
+            with apply_replay_plan(plan):
+                pass
+        except BaseException as e:
+            errors.append(e)
+        finally:
+            inner_can_exit.set()
+
+    t_outer = threading.Thread(target=outer)
+    t_inner = threading.Thread(target=inner)
+    t_outer.start()
+    t_inner.start()
+    t_outer.join(timeout=10.0)
+    t_inner.join(timeout=10.0)
+
+    # Inner thread should have caught a ConcurrentReplayError.
+    concurrent_errors = [
+        e for e in errors if isinstance(e, ConcurrentReplayError)
+    ]
+    assert len(concurrent_errors) == 1
+
+
+def test_lock_released_after_replay_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a replay's `with` block exits, the lock is
+    released and a subsequent replay can proceed."""
+    monkeypatch.delenv("PG_LOCK_RELEASE_TEST", raising=False)
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        env_snapshot={"PG_LOCK_RELEASE_TEST": "x"},
+    )
+    plan = build_replay_plan(pin)
+    with apply_replay_plan(plan):
+        pass
+    # Second replay must succeed (lock released by exit).
+    with apply_replay_plan(plan):
+        assert os.environ["PG_LOCK_RELEASE_TEST"] == "x"
+
+
+def test_lock_released_after_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the `with` block raises, the lock must still be
+    released. Otherwise subsequent replays would deadlock."""
+    monkeypatch.setenv("PG_LOCK_EXCEPT", "before")
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        env_snapshot={"PG_LOCK_EXCEPT": "after"},
+    )
+    plan = build_replay_plan(pin)
+    with pytest.raises(RuntimeError):
+        with apply_replay_plan(plan):
+            raise RuntimeError("simulate failure")
+    # Lock released → second replay works.
+    with apply_replay_plan(plan):
+        assert os.environ["PG_LOCK_EXCEPT"] == "after"
+    assert os.environ["PG_LOCK_EXCEPT"] == "before"
+
+
+# ---------------------------------------------------------------------------
+# Round-1 fix: prompt hash-check (not just presence)
+# ---------------------------------------------------------------------------
+
+
+def test_replay_pin_prompt_text_wrong_hash_raises() -> None:
+    """Round-1 fix: presence-check alone let arbitrary text
+    pass the gate. v2 hash-checks supplied text against
+    pin.prompt_version_hashes and rejects mismatches loudly."""
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        role_prompts={"generator": "system: be a researcher"},
+    )
+    with pytest.raises(PromptHashMismatchError, match="hash-match"):
+        replay_pin(
+            pin,
+            require_prompt_text=True,
+            prompt_text={
+                "generator": "system: this is the WRONG prompt",
+            },
+        )
+
+
+def test_replay_pin_prompt_text_correct_hash_succeeds() -> None:
+    """Operator-supplied text whose SHA-256 matches the pin's
+    captured hash passes the gate."""
+    correct = "system: be a researcher"
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m"},
+        role_prompts={"generator": correct},
+    )
+    plan = replay_pin(
+        pin,
+        require_prompt_text=True,
+        prompt_text={"generator": correct},
+    )
+    assert isinstance(plan, ReplayPlan)
+
+
+def test_replay_pin_prompt_hash_partial_mismatch_lists_only_wrong() -> None:
+    """Multi-role pin: only mismatched roles appear in the
+    error."""
+    correct_gen = "p-gen"
+    correct_eval = "p-eval"
+    pin = capture_pin(
+        run_id="r",
+        llm_models={"generator": "m", "evaluator": "n"},
+        role_prompts={
+            "generator": correct_gen,
+            "evaluator": correct_eval,
+        },
+    )
+    with pytest.raises(PromptHashMismatchError) as exc:
+        replay_pin(
+            pin,
+            require_prompt_text=True,
+            prompt_text={
+                "generator": correct_gen,        # right
+                "evaluator": "p-eval-wrong",     # wrong
+            },
+        )
+    assert "evaluator" in str(exc.value)
+    assert "generator" not in str(exc.value)
