@@ -292,17 +292,24 @@ def test_run_one_query_survives_malformed_scope_llm_dict(
 
     monkeypatch.setattr(sweep, "run_scope_gate", _fake_run_scope_gate)
 
-    # Stub run_live_retrieval to short-circuit. Codex round-2
-    # MEDIUM: production run_live_retrieval is SYNC, not async.
-    # v2 used `async def` here, which caused asyncio.run to
-    # consume an unawaited-coroutine instead of actually
-    # exercising the sweep — the test could "pass" after an
-    # unrelated failure. v3 uses sync stub matching production.
+    # Stub run_live_retrieval to short-circuit. Codex round-3
+    # MEDIUM: stub must return a shape-compatible LiveRetrievalResult
+    # so run_one_query's downstream dereferences (total_candidates_pre_filter,
+    # candidates_fetched, classified_sources, evidence_rows, api_calls)
+    # don't AttributeError after the M-INT-4/5 path. Without this,
+    # the test passes for the wrong reason (raise was caught, but
+    # downstream AttributeError still aborts the run).
     def _fake_retrieval(**kwargs):
         return SimpleNamespace(
-            evidence=[],
-            run_dir=kwargs.get("run_dir") or tmp_path,
-            stats={"sources": 0},
+            classified_sources=[],
+            evidence_rows=[],
+            total_candidates_pre_filter=0,
+            candidates_kept_by_scope=0,
+            candidates_kept_by_offtopic=0,
+            candidates_fetched=0,
+            candidates_failed_fetch=0,
+            api_calls={},
+            notes=[],
         )
 
     monkeypatch.setattr(sweep, "run_live_retrieval", _fake_retrieval)
@@ -322,9 +329,17 @@ def test_run_one_query_survives_malformed_scope_llm_dict(
     # adequacy, etc.), but NOT due to malformed scope_llm_summary.
     summary = asyncio.run(sweep.run_one_query(q, out_root))
 
-    # The status must NOT be "error" with a KeyError — it can
-    # be any other valid pipeline status (success / abort_*).
+    # Codex round-3 MEDIUM: assert the run got PAST M-INT-4/5
+    # wiring to a downstream-reachable status. With shape-compatible
+    # retrieval stub, "fail_no_sources" / "abort_no_sources" is the
+    # expected outcome (zero classified sources). status="error"
+    # would mean an unrelated outer-fatal slipped through.
+    status = summary.get("status", "")
     error_msg = str(summary.get("error", ""))
+    assert status != "error", (
+        f"M-INT-4 malformed dict caused outer-fatal status=error: "
+        f"error={error_msg!r}"
+    )
     assert "KeyError" not in error_msg, (
         f"M-INT-4 malformed dict caused KeyError abort: {error_msg!r}"
     )
@@ -381,11 +396,20 @@ def test_run_one_query_survives_scope_llm_helper_raise(
 
     monkeypatch.setattr(sweep, "run_scope_gate", _fake_run_scope_gate)
 
+    # Codex round-3 MEDIUM: shape-compatible LiveRetrievalResult
+    # so downstream dereferences don't AttributeError after the
+    # M-INT-4 helper raise is correctly caught.
     def _fake_retrieval(**kwargs):
         return SimpleNamespace(
-            evidence=[],
-            run_dir=kwargs.get("run_dir") or tmp_path,
-            stats={"sources": 0},
+            classified_sources=[],
+            evidence_rows=[],
+            total_candidates_pre_filter=0,
+            candidates_kept_by_scope=0,
+            candidates_kept_by_offtopic=0,
+            candidates_fetched=0,
+            candidates_failed_fetch=0,
+            api_calls={},
+            notes=[],
         )
 
     monkeypatch.setattr(sweep, "run_live_retrieval", _fake_retrieval)
@@ -401,8 +425,15 @@ def test_run_one_query_survives_scope_llm_helper_raise(
 
     summary = asyncio.run(sweep.run_one_query(q, out_root))
 
-    # Helper raise must NOT propagate to outer fatal handler.
+    # Codex round-3 MEDIUM: assert run got PAST M-INT-4 helper
+    # raise to a downstream-reachable status. status="error"
+    # would indicate the raise propagated to the outer fatal.
+    status = summary.get("status", "")
     error_msg = str(summary.get("error", ""))
     assert "simulated classifier crash" not in error_msg, (
         f"M-INT-4 helper raise propagated to run_one_query: {error_msg!r}"
+    )
+    assert status != "error", (
+        f"M-INT-4 helper raise caused outer-fatal status=error: "
+        f"error={error_msg!r}"
     )
