@@ -55,6 +55,18 @@ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     reset_run_cost,
     set_current_run_id,
 )
+# M-INT-0b: pin capture + replay
+from src.polaris_graph.audit_ir.model_pin import (  # noqa: E402
+    DEFAULT_REPLAY_ENV_VARS,
+    ModelPin,
+    capture_pin,
+    pin_from_json,
+    pin_to_json,
+)
+from src.polaris_graph.audit_ir.pin_replay import (  # noqa: E402
+    apply_replay_plan,
+    build_replay_plan,
+)
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
 )
@@ -414,6 +426,65 @@ SWEEP_QUERIES: list[dict] = [
         ],
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# M-INT-0b — Pin capture on every sweep run (Phase E0)
+# ---------------------------------------------------------------------------
+#
+# Wires `model_pin.capture_pin(...)` into every sweep run, so each
+# completed query writes a `model_pin.json` to its run_dir. Enables
+# `--replay-from-pin <path>` to apply a captured pin's runtime
+# configuration (env vars + model assignments) before re-running.
+#
+# Per FINAL_PLAN.md M-INT-0b acceptance:
+#   - Substrate IS imported (capture_pin, replay primitives) — see imports
+#   - Substrate IS invoked (this helper called from run_one_query)
+#   - Run-log evidence: model_pin.json written to run_dir; manifest.json
+#     references it
+#   - PG_CAPTURE_PIN=0 disables (rollback)
+#
+# Reproducibility/nondeterminism risk (FINAL_PLAN.md §F risk #3) is
+# mitigated by capturing the pin BEFORE Phase E1's parallel fetch /
+# cache / freshness integrations land. Every subsequent run is then
+# replayable.
+
+
+def _capture_run_pin(
+    run_id: str,
+    run_dir: Path,
+    *,
+    notes: str = "",
+) -> Path | None:
+    """Best-effort sweep-run pin capture. Returns the path to the
+    written `model_pin.json`, or None when disabled / failed.
+
+    Failure does NOT raise — telemetry/observability writes must
+    not gate the actual sweep result.
+    """
+    if os.environ.get("PG_CAPTURE_PIN", "1") == "0":
+        return None
+    try:
+        # Minimal generator-role pin from current OPENROUTER_DEFAULT_MODEL.
+        # Future M-INT-0b v2 may extend with evaluator/judge/inductor roles.
+        generator_model = os.environ.get(
+            "OPENROUTER_DEFAULT_MODEL", "unknown"
+        )
+        pin = capture_pin(
+            run_id=run_id,
+            llm_models={"generator": generator_model},
+            llm_providers={"generator": "openrouter"},
+            capture_env_var_names=DEFAULT_REPLAY_ENV_VARS,
+            notes=notes,
+        )
+        pin_path = run_dir / "model_pin.json"
+        pin_path.write_text(pin_to_json(pin) + "\n", encoding="utf-8")
+        return pin_path
+    except Exception as exc:  # noqa: BLE001 — intentional broad
+        # Per LAW II + FINAL_PLAN risk #3 mitigation: pin capture
+        # failure must never gate the sweep. Log and continue.
+        print(f"[M-INT-0b] WARN: pin capture failed for {run_id}: {exc}")
+        return None
 
 
 async def run_one_query(
@@ -1992,7 +2063,36 @@ async def main_async() -> int:
         "--out-root", type=str, default=None,
         help="Output directory root. Default: outputs/honest_sweep_r3",
     )
+    parser.add_argument(
+        "--replay-from-pin", type=str, default=None,
+        help=(
+            "M-INT-0b: load a captured ModelPin from <path> and apply "
+            "its env-mutation plan before running the sweep. The "
+            "pin's env_snapshot is restored under a context manager "
+            "so the host environment is unaffected after the sweep "
+            "exits. Use to reproduce a prior sweep run."
+        ),
+    )
     args = parser.parse_args()
+
+    # M-INT-0b: --replay-from-pin handler. Build the replay plan
+    # from the captured pin and apply it via the
+    # `apply_replay_plan` context manager so the env mutation is
+    # scoped + reversible.
+    replay_pin_obj: ModelPin | None = None
+    if args.replay_from_pin:
+        replay_path = Path(args.replay_from_pin)
+        if not replay_path.exists():
+            print(f"ERROR: --replay-from-pin path not found: {replay_path}")
+            return 2
+        try:
+            replay_pin_obj = pin_from_json(replay_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"ERROR: --replay-from-pin: malformed pin at {replay_path}: {exc}")
+            return 2
+        print(f"[M-INT-0b] Loaded replay pin from {replay_path}")
+        print(f"[M-INT-0b] pin run_id={replay_pin_obj.run_id} "
+              f"models={replay_pin_obj.llm_models}")
 
     if args.out_root:
         out_root = Path(args.out_root)
@@ -2016,19 +2116,49 @@ async def main_async() -> int:
     else:
         print("R-3 CROSS-DOMAIN SWEEP — 8 queries across 4 domains")
     print(f"Output root: {out_root}")
+    if replay_pin_obj is not None:
+        print(f"REPLAY MODE — applying pin {replay_pin_obj.run_id}")
     print("=" * 72)
     print()
 
+    # M-INT-0b: enter replay context if a pin was loaded.
+    # apply_replay_plan returns a context manager that restores
+    # the prior env snapshot on exit, so this whole sweep is
+    # scoped + reversible. Use manual __enter__/__exit__ so we
+    # don't have to re-indent the existing sweep loop body.
+    from contextlib import nullcontext
+    if replay_pin_obj is not None:
+        replay_plan = build_replay_plan(replay_pin_obj)
+        replay_ctx_mgr = apply_replay_plan(replay_plan)
+    else:
+        replay_ctx_mgr = nullcontext()
+
     all_summaries: list[dict] = []
-    for q in queries_to_run:
-        print(f"\n>>> {q['domain']} / {q['slug']}")
-        t0 = time.time()
-        summary = await run_one_query(q, out_root)
-        dt = time.time() - t0
-        summary["wall_time_seconds"] = round(dt, 1)
-        all_summaries.append(summary)
-        print(f"<<< status={summary['status']} cost=${summary.get('cost_usd', 0):.4f} "
-              f"wall={dt:.1f}s\n")
+    replay_ctx_mgr.__enter__()
+    sweep_exc_info: tuple | None = None
+    try:
+        for q in queries_to_run:
+            print(f"\n>>> {q['domain']} / {q['slug']}")
+            t0 = time.time()
+            summary = await run_one_query(q, out_root)
+            dt = time.time() - t0
+            summary["wall_time_seconds"] = round(dt, 1)
+            # M-INT-0b: capture a ModelPin for every run so later
+            # replays can reproduce the exact runtime configuration.
+            # Best-effort — failure does NOT gate the sweep summary.
+            run_dir = Path(summary.get("run_dir", out_root))
+            run_id = summary.get("run_id", "unknown")
+            pin_path = _capture_run_pin(
+                run_id, run_dir,
+                notes=f"sweep {q['domain']}/{q['slug']} status={summary['status']}",
+            )
+            if pin_path is not None:
+                summary["model_pin_path"] = str(pin_path)
+            all_summaries.append(summary)
+            print(f"<<< status={summary['status']} cost=${summary.get('cost_usd', 0):.4f} "
+                  f"wall={dt:.1f}s\n")
+    finally:
+        replay_ctx_mgr.__exit__(None, None, None)
 
     # Write cross-run summary
     sweep_summary_path = out_root / "sweep_summary.json"
