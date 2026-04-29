@@ -85,6 +85,16 @@ from src.polaris_graph.audit_ir.slide_deck import (  # noqa: E402
     deck_to_dict,
     render_deck_html,
 )
+# M-INT-9: M-26 contract drafting endpoint
+from src.polaris_graph.audit_ir.contract_draft_store import (  # noqa: E402
+    ContractDraft,
+    ContractDraftError,
+    ContractDraftStateError,
+    ContractDraftStatus,
+    ContractDraftStore,
+    ContractKind,
+    draft_to_dict,
+)
 
 router = APIRouter()
 
@@ -130,6 +140,48 @@ from src.polaris_graph.audit_ir.decision_telemetry import (
 _INT_0A_LOGGER = logging.getLogger("polaris.m_int_0a.decision_telemetry")
 _DECISION_STORE: DecisionRecordStore | None = None
 _DECISION_STORE_LOCK = threading.Lock()
+
+# M-INT-9: contract draft store singleton (lazy init).
+_CONTRACT_DRAFT_STORE: ContractDraftStore | None = None
+_CONTRACT_DRAFT_STORE_LOCK = threading.Lock()
+
+
+def _contract_draft_db_path() -> Path:
+    """Contract draft SQLite path. Per LAW VI: env-overridable."""
+    raw = os.environ.get("PG_CONTRACT_DRAFT_DB_PATH")
+    if raw:
+        return Path(raw)
+    base = Path(__file__).resolve().parents[3] / "state"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "contract_drafts.sqlite"
+
+
+def _get_contract_draft_store() -> ContractDraftStore:
+    """Singleton contract-draft store. Lazily initialized so test
+    environments can monkeypatch PG_CONTRACT_DRAFT_DB_PATH before
+    first use."""
+    global _CONTRACT_DRAFT_STORE
+    with _CONTRACT_DRAFT_STORE_LOCK:
+        if _CONTRACT_DRAFT_STORE is None:
+            _CONTRACT_DRAFT_STORE = ContractDraftStore(
+                _contract_draft_db_path()
+            )
+        return _CONTRACT_DRAFT_STORE
+
+
+def _reset_contract_draft_store_for_test() -> None:
+    """Test helper: drop the singleton so the next
+    _get_contract_draft_store() call rebuilds against current
+    PG_CONTRACT_DRAFT_DB_PATH. Production code MUST NOT call this."""
+    global _CONTRACT_DRAFT_STORE
+    with _CONTRACT_DRAFT_STORE_LOCK:
+        _CONTRACT_DRAFT_STORE = None
+
+
+def _contract_draft_endpoint_enabled() -> bool:
+    return os.environ.get(
+        "PG_USE_CONTRACT_DRAFT_ENDPOINT", "1",
+    ) != "0"
 
 
 def _decision_db_path() -> Path:
@@ -782,6 +834,137 @@ async def get_slide_deck_html(
             detail=f"slide deck build failed: {exc}",
         )
     return render_deck_html(deck)
+
+
+# ---------------------------------------------------------------------------
+# M-INT-9 — M-26 contract drafting endpoints (Phase E4)
+# ---------------------------------------------------------------------------
+#
+# Org-scoped CRUD for contract drafts. Mirrors the substrate
+# pattern: every read/write is bound to caller.org_id. PG_USE_
+# CONTRACT_DRAFT_ENDPOINT=0 disables (returns 404).
+
+
+class _ContractDraftCreateRequest(BaseModel):
+    audit_run_id: str = Field(..., min_length=1)
+    kind: str = Field(
+        ..., min_length=1,
+        description="One of: msa, sow, dpa, baa",
+    )
+    title: str = Field(..., min_length=1)
+    counterparty_name: str = Field(..., min_length=1)
+    workspace_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional workspace_id; defaults to "
+            "f'ws_default_{caller.org_id}' for v1. Real workspace "
+            "selection is Phase F UI."
+        ),
+    )
+
+
+@router.post(
+    "/api/inspector/contract-drafts",
+    status_code=201,
+)
+async def create_contract_draft(
+    body: _ContractDraftCreateRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Create a new contract draft anchored to a specific audit run.
+
+    Per FINAL_PLAN M-INT-9: every contract is bound to a verified
+    audit run (audit_run_id is required). The store enforces this
+    invariant — the endpoint just routes the request.
+    """
+    if not _contract_draft_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="contract draft endpoint disabled",
+        )
+    try:
+        kind_enum = ContractKind(body.kind)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"invalid kind {body.kind!r}; must be one of: "
+                f"{', '.join(k.value for k in ContractKind)}"
+            ),
+        )
+    workspace_id = body.workspace_id or f"ws_default_{caller.org_id}"
+    store = _get_contract_draft_store()
+    try:
+        draft = store.create_draft(
+            org_id=caller.org_id,
+            workspace_id=workspace_id,
+            submitter_user_id=caller.user_id,
+            audit_run_id=body.audit_run_id,
+            kind=kind_enum,
+            title=body.title,
+            counterparty_name=body.counterparty_name,
+        )
+    except ContractDraftStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ContractDraftError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return draft_to_dict(draft)
+
+
+@router.get("/api/inspector/contract-drafts")
+async def list_contract_drafts(
+    status: str | None = None,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """List contract drafts for the caller's org. Optional
+    `status` filter (drafting / pending_approval / approved /
+    rejected)."""
+    if not _contract_draft_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="contract draft endpoint disabled",
+        )
+    status_enum: ContractDraftStatus | None = None
+    if status is not None:
+        try:
+            status_enum = ContractDraftStatus(status)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"invalid status {status!r}; must be one of: "
+                    f"{', '.join(s.value for s in ContractDraftStatus)}"
+                ),
+            )
+    store = _get_contract_draft_store()
+    drafts = store.list_drafts_for_org(
+        org_id=caller.org_id, status=status_enum,
+    )
+    return {"drafts": [draft_to_dict(d) for d in drafts]}
+
+
+@router.get("/api/inspector/contract-drafts/{draft_id}")
+async def get_contract_draft(
+    draft_id: str,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Fetch one contract draft by id. The store's get_draft
+    is org-scoped, so cross-org access returns None → 404."""
+    if not _contract_draft_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="contract draft endpoint disabled",
+        )
+    store = _get_contract_draft_store()
+    draft = store.get_draft(
+        draft_id=draft_id, org_id=caller.org_id,
+    )
+    if draft is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown draft_id: {draft_id}",
+        )
+    return draft_to_dict(draft)
 
 
 @router.get("/inspector", response_class=HTMLResponse)
