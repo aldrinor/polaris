@@ -1,0 +1,17 @@
+## Verdict
+PARTIAL
+
+## Round-1 fix integration
+- [x] HIGH _list_window count gate fails loud
+- [x] MEDIUM schema-drift validates BEFORE dedup
+- [x] LOW tests cover schema-drift in both modes
+
+## New findings (if any)
+[MEDIUM] src/polaris_graph/audit_ir/freshness_aggregates.py:152 — The new pre-flight `store.count()` gate ignores `since`/`until`, so any workspace over `_MAX_LIMIT` raises even for narrow recent windows that can still be computed exactly from the newest `_MAX_LIMIT` rows. Manual repro: `_MAX_LIMIT=2`, alerts at `1000/2000/3000`, query window `since=2500, until=3500`; the correct result is the single `3000` alert, but v2 raises before windowing.
+
+[LOW] tests/polaris_graph/test_md10_phase2_freshness_aggregates.py:350 — The oversize regression coverage only pins full-workspace over-cap behavior. There is no test for the over-cap + narrow-window case, so this new count-gate edge is not locked down.
+
+## Final word
+PARTIAL until the over-cap gate is made window-aware or the contract/docs are tightened to explicitly reject all queries once workspace cardinality exceeds `_MAX_LIMIT`.
+
+Verification note: the hinted `pytest` file could not complete in this sandbox because `tmp_path` creation/cleanup hit `PermissionError`; I verified the round-1 behaviors and the new edge with direct inline-Python probes against the phase-1 store.

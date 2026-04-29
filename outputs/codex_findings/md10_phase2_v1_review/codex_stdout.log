@@ -1,0 +1,16 @@
+## Verdict
+PARTIAL
+
+## New findings
+- [HIGH] [freshness_aggregates.py](/C:/POLARIS/src/polaris_graph/audit_ir/freshness_aggregates.py:141) — `_list_window()` pulls the newest `_MAX_LIMIT` rows and only then applies `since` / `until`. Once a workspace has more than 1,000,000 alerts, older in-window rows are silently excluded, so `total_alerts`, per-status counts, `unique_source_count`, and latest-mode rollups can all undercount with no error. I reproduced this by forcing `_MAX_LIMIT=2`; a window that should have matched the oldest alert returned `total_alerts=0`.
+- [MEDIUM] [freshness_aggregates.py](/C:/POLARIS/src/polaris_graph/audit_ir/freshness_aggregates.py:221) — schema-drift validation runs after latest-per-source dedup. In `only_latest_per_source=True` mode, an unknown older status for a `cache_key` is dropped if a newer known row exists, so the documented “unknown status raises” boundary is not actually enforced across the full window. I reproduced this with a `FreshnessAlertStore` subclass: all-alert mode raised `FreshnessAggregatesError`, latest mode returned a normal aggregate.
+- [LOW] [test_md10_phase2_freshness_aggregates.py](/C:/POLARIS/tests/polaris_graph/test_md10_phase2_freshness_aggregates.py:1) — the test file claims to pin schema-drift defense, but there is no test that injects an unknown status or covers the latest-mode masking case above. That gap is why finding #2 slipped through.
+
+## Boundary integration
+- [x] Pure substrate
+- [x] only_latest_per_source rollup correct
+- [x] Latest-after-window semantic correct
+- [x] Workspace isolation preserved
+
+## Final word
+PARTIAL until the 1M-cap path fails loud instead of silently truncating, and latest-mode validates windowed statuses before dedup. Targeted `pytest` execution was sandbox-blocked here by `WinError 5` in pytest temp-dir cleanup, so this verdict is from static review plus direct Python reproductions.

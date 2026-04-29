@@ -148,15 +148,38 @@ def _list_window(
     silently dropped older in-window rows if the workspace had
     more — making `total_alerts`, per-status counts, and rollups
     undercount without any error.
+
+    **v3 contract clarification (Codex round-2 MEDIUM)**: the
+    over-cap gate is intentionally workspace-wide, NOT window-
+    aware. The phase 1 store's query API has no SQL-side
+    windowed COUNT or WHERE-on-checked_at. Pulling
+    `_MAX_LIMIT` rows and filtering in Python returns the
+    *newest* cap-many rows — a narrow OLD window can still be
+    silently truncated. So once a workspace exceeds the cap,
+    NO `compute_freshness_aggregates` call (with or without
+    `since/until`) can be guaranteed correct. Per LAW II the
+    substrate raises uniformly rather than silently
+    miscounting on edge cases.
+
+    Operator paths once a workspace exceeds the cap:
+      1. Use `store.list_alerts(workspace_id, status=...)` +
+         caller-side aggregation against a phase-2-v2
+         SQL-aggregator (deferred).
+      2. Shard the workspace.
+      3. Wait for phase 2 v2 SQL-side aggregation.
     """
     total_in_workspace = store.count(workspace_id=workspace_id)
     if total_in_workspace > _MAX_LIMIT:
         raise FreshnessAggregatesError(
             f"workspace {workspace_id!r} has {total_in_workspace} "
             f"freshness alerts, exceeding _MAX_LIMIT={_MAX_LIMIT}. "
-            "v1 cannot aggregate this volume without silently "
-            "truncating; either narrow the window via since/until, "
-            "shard the workspace, or wait for v2 SQL-side aggregation."
+            "v1 cannot aggregate any window for this workspace "
+            "without risk of silent truncation on old or wide "
+            "windows (phase 1 store API lacks SQL-side windowed "
+            "COUNT). Either shard the workspace or wait for v2 "
+            "SQL-side aggregation. Note: this raise is uniform "
+            "across `since/until` — narrow recent windows that "
+            "would be safe in isolation also raise, by design."
         )
     all_alerts = store.list_alerts(
         workspace_id=workspace_id, limit=_MAX_LIMIT,

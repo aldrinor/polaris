@@ -1,8 +1,8 @@
 # M-D10 phase 2 v1 — citation freshness aggregation boundary
 
-**Status:** v2 / 2026-04-28
+**Status:** v3 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/freshness_aggregates.py`
-**Tests:** `tests/polaris_graph/test_md10_phase2_freshness_aggregates.py` (26 passing)
+**Tests:** `tests/polaris_graph/test_md10_phase2_freshness_aggregates.py` (27 passing)
 **Pairs with:** M-D10 phase 1 (`freshness_monitor.py`, commit a85812f).
 **Substrate:** stdlib + `freshness_monitor` only.
 
@@ -48,6 +48,25 @@ _MAX_LIMIT rows from the phase 1 store and silently dropped
 older in-window rows when the workspace had more — making
 `total_alerts`, per-status counts, and rollups undercount
 without any error. v2 fails loud per LAW II.
+
+**v3 Codex round-2 MEDIUM clarification**: the over-cap gate
+is intentionally workspace-wide, NOT window-aware. The phase
+1 store API has no SQL-side windowed COUNT or
+WHERE-on-checked_at, so even a narrow recent window can't be
+proven safe without pulling all rows (defeating the cap). Per
+LAW II the substrate raises uniformly across `since/until` —
+narrow windows that would be safe in isolation also raise, by
+design.
+
+Operator paths once a workspace exceeds the cap:
+1. Use `store.list_alerts(workspace_id, status=...)` directly
+   + caller-side aggregation
+2. Shard the workspace
+3. Wait for phase 2 v2 SQL-side aggregation
+
+Pinned by `test_over_cap_raises_even_for_narrow_window` (3
+sub-cases: narrow recent window, narrow old window, latest
+mode — all raise uniformly).
 
 ### 2. only_latest_per_source rollup is a query MODE, not a default
 

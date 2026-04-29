@@ -383,6 +383,42 @@ def test_under_cap_workspace_does_not_raise(
     assert agg.total_alerts == 2
 
 
+def test_over_cap_raises_even_for_narrow_window(
+    store: FreshnessAlertStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-2 MEDIUM fix (v3): the over-cap gate is
+    intentionally workspace-wide, NOT window-aware. A workspace
+    over _MAX_LIMIT raises ALL aggregation calls — including
+    narrow recent windows that would be safe in isolation.
+
+    Rationale: the phase 1 store API has no SQL-side windowed
+    COUNT or WHERE-on-checked_at, so we can't tell whether a
+    narrow OLD window would be silently truncated. Per LAW II
+    the substrate raises uniformly rather than silently
+    miscounting on edge cases.
+    """
+    import src.polaris_graph.audit_ir.freshness_aggregates as fa
+    monkeypatch.setattr(fa, "_MAX_LIMIT", 2)
+    # 3 alerts (over cap of 2)
+    for ts in (1000.0, 2000.0, 3000.0):
+        _record(store, source_url=f"https://x{ts}.com", checked_at=ts)
+    # Even a narrow window covering only the newest alert raises.
+    with pytest.raises(FreshnessAggregatesError, match="exceeding _MAX_LIMIT"):
+        compute_freshness_aggregates(
+            store, "ws1", since=2500.0, until=3500.0,
+        )
+    # And a window covering OLD alerts raises identically.
+    with pytest.raises(FreshnessAggregatesError, match="exceeding _MAX_LIMIT"):
+        compute_freshness_aggregates(
+            store, "ws1", since=500.0, until=1500.0,
+        )
+    # And only_latest_per_source mode raises identically.
+    with pytest.raises(FreshnessAggregatesError, match="exceeding _MAX_LIMIT"):
+        compute_freshness_aggregates(
+            store, "ws1", only_latest_per_source=True,
+        )
+
+
 def test_unknown_status_raises_in_default_mode(
     store: FreshnessAlertStore,
 ) -> None:
