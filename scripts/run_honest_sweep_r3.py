@@ -751,13 +751,27 @@ def _build_domain_router_adapters() -> dict[str, DomainAdapter]:
     }
 
 
-def _route_query_to_domain(classification) -> dict | None:
+def _route_query_to_domain(
+    classification,
+    *,
+    requested_domain: str | None = None,
+) -> dict | None:
     """Best-effort domain routing for the LLM scope classification.
     Telemetry only — does NOT gate retrieval. PG_USE_DOMAIN_ROUTER=0
     disables. Per LAW II, internal failure returns None (does not raise).
+
+    Codex round-1 MEDIUM fix (v2): when result.template is None
+    (UNKNOWN_DOMAIN, REJECTED_*, MISSING_ADAPTERS), the routing
+    summary's `domain` was None — the original LLM-asserted domain
+    tag was lost. v2 surfaces the original `requested_domain`
+    alongside `domain` so unknown-domain telemetry preserves
+    "user asked for X, registry doesn't know it" signal.
     """
     if os.environ.get("PG_USE_DOMAIN_ROUTER", "0") == "0":
         return None
+    # Default to classification.domain if caller didn't pass one.
+    if requested_domain is None and hasattr(classification, "domain"):
+        requested_domain = classification.domain
     try:
         registry = _build_domain_router_registry()
         adapters = _build_domain_router_adapters()
@@ -767,6 +781,7 @@ def _route_query_to_domain(classification) -> dict | None:
             "domain": (
                 result.template.domain_id if result.template else None
             ),
+            "requested_domain": requested_domain,
             "adapter_ids": [a.adapter_id for a in result.adapters],
             "rationale": result.rationale,
         }
@@ -871,12 +886,26 @@ async def run_one_query(
             domain=q["domain"],
         )
         if scope_llm_summary is not None:
-            _log(
-                f"[M-INT-4]     scope_llm: verdict={scope_llm_summary['verdict']} "
-                f"confidence={scope_llm_summary['confidence']:.2f} "
-                f"domain={scope_llm_summary['domain']} "
-                f"template_hint={scope_llm_summary['template_domain_hint']}"
-            )
+            # Codex round-1 HIGH fix (v2): use .get() to defend
+            # against a malformed M-INT-4 dict (e.g. missing
+            # "confidence" key). v1 used `dict["key"]` here which
+            # raised KeyError BEFORE the M-INT-5 try block — that
+            # aborted run_one_query via the outer fatal handler
+            # with status=error, violating LAW II's best-effort-
+            # telemetry semantic.
+            try:
+                _v4_verdict = scope_llm_summary.get("verdict")
+                _v4_conf = scope_llm_summary.get("confidence", 0.0)
+                _v4_domain = scope_llm_summary.get("domain")
+                _v4_hint = scope_llm_summary.get("template_domain_hint")
+                _log(
+                    f"[M-INT-4]     scope_llm: verdict={_v4_verdict} "
+                    f"confidence={float(_v4_conf):.2f} "
+                    f"domain={_v4_domain} "
+                    f"template_hint={_v4_hint}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[M-INT-4] WARN: scope_llm log line failed: {exc}")
 
             # M-INT-5: route the LLM scope verdict to a domain.
             # Best-effort, telemetry-only. PG_USE_DOMAIN_ROUTER=0 disables.
@@ -889,13 +918,34 @@ async def run_one_query(
                 "uncertain": ScopeVerdict.UNCERTAIN,
             }
             try:
-                _classification = ScopeClassification(
-                    verdict=verdict_enum_map[scope_llm_summary["verdict"]],
-                    confidence=scope_llm_summary["confidence"],
-                    domain=scope_llm_summary["domain"],
-                    rationale=scope_llm_summary.get("rationale", ""),
+                # Codex round-1 HIGH fix (v2): defensive against
+                # malformed M-INT-4 dict here too — KeyError on
+                # ["verdict"] was the actual abort path Codex
+                # found. .get() returns None on missing key, then
+                # the verdict_enum_map lookup falls back to UNCERTAIN.
+                _v_verdict_str = scope_llm_summary.get("verdict")
+                _v_verdict_enum = verdict_enum_map.get(
+                    _v_verdict_str, ScopeVerdict.UNCERTAIN,
                 )
-                domain_route_summary = _route_query_to_domain(_classification)
+                _v_conf_raw = scope_llm_summary.get("confidence", 0.0)
+                try:
+                    _v_conf = float(_v_conf_raw)
+                except (TypeError, ValueError):
+                    _v_conf = 0.0
+                _v_domain = scope_llm_summary.get("domain")
+                _v_rationale = scope_llm_summary.get("rationale", "")
+                if not isinstance(_v_rationale, str):
+                    _v_rationale = str(_v_rationale)
+                _classification = ScopeClassification(
+                    verdict=_v_verdict_enum,
+                    confidence=_v_conf,
+                    domain=_v_domain,
+                    rationale=_v_rationale,
+                )
+                domain_route_summary = _route_query_to_domain(
+                    _classification,
+                    requested_domain=_v_domain,
+                )
             except Exception as exc:  # noqa: BLE001
                 # Best-effort — telemetry write must not gate the sweep.
                 print(f"[M-INT-5] WARN: domain route synthesis failed: {exc}")
@@ -905,6 +955,7 @@ async def run_one_query(
                     f"[M-INT-5]     domain_router: "
                     f"outcome={domain_route_summary['outcome']} "
                     f"domain={domain_route_summary['domain']} "
+                    f"requested_domain={domain_route_summary.get('requested_domain')} "
                     f"adapters={domain_route_summary['adapter_ids']}"
                 )
 
