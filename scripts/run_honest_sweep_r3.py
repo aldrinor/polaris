@@ -2338,10 +2338,15 @@ async def main_async() -> int:
             out_root=out_root,
         )
         if sweep_freshness_summary is not None:
+            per_status_counts = ", ".join(
+                f"{status}={count}"
+                for status, count in sweep_freshness_summary["per_status"].items()
+            )
             print(
-                f"[M-INT-3] freshness: total_checked="
+                f"[M-INT-3] sweep_freshness_summary: total_checked="
                 f"{sweep_freshness_summary['total_checked']} "
-                f"evicted={sweep_freshness_summary['evicted_count']}"
+                f"per_status={{{per_status_counts}}} "
+                f"evicted_count={sweep_freshness_summary['evicted_count']}"
             )
 
     all_summaries: list[dict] = []
