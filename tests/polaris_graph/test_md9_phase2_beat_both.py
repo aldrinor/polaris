@@ -754,6 +754,42 @@ def test_claim_frames_treats_whitespace_only_as_missing() -> None:
     assert scores["claim_frames"].value == 1.0
 
 
+def test_claim_frames_treats_combining_marks_as_missing() -> None:
+    """Codex round-4 LOW fix (v6): Mn/Mc/Me Unicode mark
+    categories are non-rendering when standalone. CGJ U+034F,
+    VS16 U+FE0F, and Mongolian FVS1 U+180B all have category
+    Mn — a frame value of just `"\\u034f"` (lone CGJ) was
+    accepted as populated under v5, since v5 only skipped
+    Cf/Cc/Cn/Co/Cs.
+
+    A base character + Mn (e.g. `"a\\u0327"` = 'a̧') still
+    counts as populated because the base 'a' (Ll) breaks the
+    loop and returns False (not visually empty).
+    """
+    manifest = {
+        "claims": [
+            # Lone CGJ (combining grapheme joiner) = visually empty
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2,
+             "ci": "͏"},
+            # Lone VS16 (variation selector) = visually empty
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7,
+             "ci": "️"},
+            # Lone cedilla = visually empty (no base char)
+            {"n": 75, "baseline": 7.2, "endpoint": 5.9,
+             "ci": "̧"},
+            # Genuinely complete (with combining: 'a' + cedilla
+            # IS populated because 'a' is content)
+            {"n": 50, "baseline": 7.0, "endpoint": 5.5,
+             "ci": "[5.2, 5.8]"},
+            {"n": 60, "baseline": 7.1, "endpoint": 5.6,
+             "ci": "a̧"},
+        ],
+    }
+    scores = score_run(manifest)
+    # Two complete claims (the [5.2, 5.8] one and 'a̧' one).
+    assert scores["claim_frames"].value == 2.0
+
+
 def test_claim_frames_treats_invisible_unicode_as_missing() -> None:
     """Pre-emptive v5 hardening: `str.strip()` removes Zs/Zl/Zp
     + whitespace controls but NOT Cf-category characters

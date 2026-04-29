@@ -205,19 +205,38 @@ def _is_frame_field_populated(value: Any) -> bool:
 
 
 def _is_visually_empty_text(text: str) -> bool:
-    """Mirror of `scope_classifier._is_visually_empty` — kept
-    local to keep the M-D9 phase 2 module's import surface
-    stdlib-only (the scope_classifier helper imports through
-    classifier internals we don't want to depend on here)."""
+    """Mirror of `scope_classifier._is_visually_empty`,
+    extended in v6 (Codex round-4 LOW fix) to include the
+    Unicode mark categories Mn/Mc/Me. Standalone combining
+    marks have no base character to attach to and render as
+    nothing — `ci="\\u034f"` (lone CGJ) was previously
+    accepted as a populated frame value.
+
+    Categories rejected as non-content / non-rendering:
+      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, ...)
+      - Cc=Control (\\t \\n \\r and friends)
+      - Cn=Unassigned
+      - Co=Private Use
+      - Cs=Surrogate
+      - Mn=Mark Nonspacing (CGJ U+034F, VS16 U+FE0F, ...)
+      - Mc=Mark Spacing Combining (Devanagari vowel signs ...)
+      - Me=Mark Enclosing (enclosing circles, ...)
+
+    A base character + Mn (e.g. `"a\\u0327"` = 'a̧') still
+    counts as populated because the loop exits on the 'a'
+    (category Ll) and returns False. Only strings composed
+    *entirely* of skip categories return True.
+    """
     if not text:
         return True
     for ch in text:
         if ch.isspace():
             continue
         category = unicodedata.category(ch)
-        # Cf=Format, Cc=Control, Cn=Unassigned, Co=Private Use,
-        # Cs=Surrogate. All non-rendering / non-content.
-        if category in ("Cf", "Cc", "Cn", "Co", "Cs"):
+        if category in (
+            "Cf", "Cc", "Cn", "Co", "Cs",
+            "Mn", "Mc", "Me",
+        ):
             continue
         return False
     return True

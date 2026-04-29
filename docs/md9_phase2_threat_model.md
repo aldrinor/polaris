@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v5 / 2026-04-28
+**Status:** v6 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (52 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (53 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -149,13 +149,20 @@ empty-string field values via `_is_frame_field_populated`.
 v4 (Codex round-3 LOW fix) extends to whitespace-only.
 v5 (pre-emptive hardening, mirrors M-D5 phase 1
 `_is_visually_empty`) also rejects invisible Cf/Cc/Cn/Co/Cs
-characters that survive `str.strip()`:
+characters that survive `str.strip()`. v6 (Codex round-4 LOW
+fix) extends to Mn/Mc/Me Unicode mark categories (combining
+marks have no rendering when standalone — CGJ U+034F, VS16
+U+FE0F, FVS1 U+180B, lone cedilla U+0327 all bypassed v5):
   - `None` → missing
   - `""` (empty string) → missing
   - `"   "` / `"\t\n"` (whitespace-only string) → missing
   - `"​﻿"` (zero-width space + BOM) → missing
   - `"‌‍"` (ZWNJ + ZWJ) → missing
   - `"⁠\xa0"` (word joiner + NBSP) → missing
+  - `"͏"` (CGJ Mn) → missing (v6)
+  - `"️"` (VS16 Mn) → missing (v6)
+  - `"̧"` (lone cedilla Mn) → missing (v6)
+  - `"a̧"` ('a' + cedilla) → present (base char is content)
   - `0` / `0.0` → present (legitimate measurement; v2 fix)
   - any other non-None / non-blank / non-invisible value → present
 
