@@ -683,14 +683,27 @@ def _parse_scope_llm_json(
     # v2 explicitly rejects bool BEFORE float conversion — fall
     # back to confidence=0.0 with a rationale, mirroring the
     # malformed-JSON path.
+    # Codex round-3 LOW fix (v4): track whether confidence
+    # parsing fell back to 0.0 because the input was malformed
+    # (bool, list, dict, non-finite, or out-of-[0,1] range).
+    # When malformed, ALSO coerce verdict to uncertain so the
+    # caller sees a "fail-closed" signal instead of preserving
+    # the LLM's verdict at confidence=0.0. Round-3 finding:
+    # `-0.25`, `"-0.25"`, `[]`, `{}` previously all kept
+    # `verdict='in_scope'` with confidence clamped to 0.0,
+    # yielding misleading per-run telemetry like
+    # `scope_llm: verdict=in_scope confidence=0.00`.
     raw_conf = parsed.get("confidence", 0.0)
+    confidence_malformed = False
     if isinstance(raw_conf, bool):
         confidence = 0.0
+        confidence_malformed = True
     else:
         try:
             confidence = float(raw_conf)
         except (TypeError, ValueError):
             confidence = 0.0
+            confidence_malformed = True
     # Codex round-2 MEDIUM fix (v3): float("NaN") → nan, and
     # min(1.0, nan) returns 1.0 because nan comparisons are
     # always False (so min returns its first arg). Same trap
@@ -699,7 +712,14 @@ def _parse_scope_llm_json(
     # v3 explicitly rejects non-finite values BEFORE the clamp.
     if not math.isfinite(confidence):
         confidence = 0.0
-    confidence = max(0.0, min(1.0, confidence))
+        confidence_malformed = True
+    if not 0.0 <= confidence <= 1.0:
+        # Out-of-[0,1] (e.g. -0.25 or 2.0) is malformed too.
+        confidence = max(0.0, min(1.0, confidence))
+        confidence_malformed = True
+    if confidence_malformed:
+        # Don't trust the verdict either when confidence is bogus.
+        raw_verdict = "uncertain"
     raw_domain = parsed.get("domain")
     domain: str | None
     if raw_domain is None:

@@ -270,3 +270,85 @@ def test_parse_in_scope_with_unsupported_domain_still_coerces() -> None:
     verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
     assert verdict.verdict == "out_of_scope"
     assert verdict.domain is None
+
+
+# ---------------------------------------------------------------------------
+# Codex round-3 LOW fix (v4) — malformed confidence MUST also flip verdict
+# ---------------------------------------------------------------------------
+
+
+def test_parse_negative_confidence_coerces_verdict_to_uncertain() -> None:
+    """Codex round-3 LOW: -0.25 was clamped to 0.0 but verdict
+    stayed in_scope. Now any out-of-range confidence flips to uncertain."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":-0.25,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.confidence == 0.0
+    assert verdict.domain is None  # uncertain → domain stripped
+
+
+def test_parse_above_one_confidence_coerces_verdict() -> None:
+    """Codex round-3 LOW corner: 2.0 was clamped to 1.0 but
+    verdict stayed in_scope. v4 treats >1.0 as malformed too."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":2.0,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.confidence == 1.0  # clamped, BUT verdict flipped
+
+
+def test_parse_list_confidence_coerces_verdict() -> None:
+    """Codex round-3 LOW: float([]) raises TypeError, fallback
+    to 0.0. v3 kept verdict=in_scope. v4 flips to uncertain."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":[],'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.confidence == 0.0
+
+
+def test_parse_dict_confidence_coerces_verdict() -> None:
+    """Codex round-3 LOW corner: same for dict shape."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":{},'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.confidence == 0.0
+
+
+def test_parse_legit_zero_confidence_keeps_verdict() -> None:
+    """Regression check: confidence=0.0 (legit low) is NOT
+    malformed — it's just low confidence. Verdict must
+    survive."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":0.0,'
+        '"domain":"clinical","rationale":"low confidence"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "in_scope"  # NOT flipped to uncertain
+    assert verdict.confidence == 0.0
+    assert verdict.domain == "clinical"
