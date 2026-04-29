@@ -113,6 +113,18 @@ from src.polaris_graph.audit_ir.domain_router import (  # noqa: E402
     RoutingResult,
     route_to_domain,
 )
+# M-INT-6: LLMAugmentedInductor in operator-review queue + M-D1 CI
+from src.polaris_graph.auto_induction.keyword_inductor import (  # noqa: E402
+    KeywordInductor,
+)
+from src.polaris_graph.auto_induction.llm_inductor import (  # noqa: E402
+    LLMAugmentedInductor,
+    LLMAugmentedInductorConfig,
+    MockTemplateAffinityClassifier,
+)
+from src.polaris_graph.auto_induction.precision_metrics import (  # noqa: E402
+    InductorVerdict,
+)
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
@@ -790,6 +802,101 @@ def _route_query_to_domain(
         return None
 
 
+# ──────────────────────────────────────────────────────────────────────
+# M-INT-6 — LLMAugmentedInductor + operator-review queue (Phase E3)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _build_inductor():
+    """Factory for the production inductor. Tests monkeypatch this
+    to inject a known-abstaining or known-accepting inductor without
+    depending on the (mocked-or-real) LLM classifier path.
+
+    v1: KeywordInductor base + MockTemplateAffinityClassifier in
+    LLMAugmentedInductor. Real OpenRouter-backed classifier wiring
+    is Phase F (M-LIVE-2). Substrate import + invocation +
+    InductorVerdict shape demonstrated.
+    """
+    return LLMAugmentedInductor(
+        base_inductor=KeywordInductor(),
+        llm_classifier=MockTemplateAffinityClassifier(),
+        config=LLMAugmentedInductorConfig(),
+    )
+
+
+def _record_operator_review_item(
+    *,
+    run_dir: Path,
+    query: str,
+    verdict: InductorVerdict,
+) -> None:
+    """Append an abstaining inductor verdict to the run's
+    operator-review queue (one JSONL per sweep run). Called only
+    when verdict.decision == 'abstain' — the operator-review
+    queue is exactly the set of cases the inductor declined to
+    auto-induce."""
+    queue_path = run_dir / "operator_review_queue.jsonl"
+    item = {
+        "ts": _utc_now_iso(),
+        "query": query,
+        "decision": verdict.decision,
+        "confidence": verdict.confidence,
+        "abstain_reason": verdict.abstain_reason,
+    }
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    with queue_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(item, sort_keys=True) + "\n")
+
+
+def _utc_now_iso() -> str:
+    """ISO-8601 UTC timestamp for queue rows."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _induce_with_llm(
+    query: str,
+    run_dir: Path,
+) -> dict | None:
+    """Best-effort auto-induction. Telemetry only — does NOT
+    gate retrieval. PG_USE_AUTO_INDUCTION=0 disables.
+    Per LAW II, internal failure returns None (does not raise).
+
+    Abstain verdicts are recorded to operator_review_queue.jsonl
+    in run_dir, surfacing them for human review.
+    """
+    if os.environ.get("PG_USE_AUTO_INDUCTION", "0") == "0":
+        return None
+    if not query or not isinstance(query, str):
+        return None
+    try:
+        inductor = _build_inductor()
+        verdict = inductor.induce(query)
+        summary = {
+            "decision": verdict.decision,
+            "confidence": verdict.confidence,
+            "abstain_reason": verdict.abstain_reason,
+            "induced_slug": (
+                getattr(verdict.induced_contract, "slug", None)
+                if verdict.induced_contract is not None else None
+            ),
+        }
+        if verdict.decision == "abstain":
+            try:
+                _record_operator_review_item(
+                    run_dir=run_dir, query=query, verdict=verdict,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"[M-INT-6] WARN: operator-review queue write "
+                    f"failed: {exc}"
+                )
+        return summary
+    except Exception as exc:  # noqa: BLE001
+        print(f"[M-INT-6] WARN: inductor path failed: {exc}")
+        return None
+
+
 def _capture_run_pin(
     run_id: str,
     run_dir: Path,
@@ -970,6 +1077,27 @@ async def run_one_query(
                     f"requested_domain={domain_route_summary.get('requested_domain')} "
                     f"adapters={domain_route_summary['adapter_ids']}"
                 )
+
+        # M-INT-6: best-effort auto-induction. Telemetry only —
+        # abstain verdicts surface in operator_review_queue.jsonl.
+        # PG_USE_AUTO_INDUCTION=0 disables (default 0).
+        # Per LAW II — wrap in try/except for defense-in-depth.
+        try:
+            inductor_summary = _induce_with_llm(
+                query=q["question"],
+                run_dir=run_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[M-INT-6] WARN: inductor helper raised: {exc}")
+            inductor_summary = None
+        if inductor_summary is not None:
+            _log(
+                f"[M-INT-6]     inductor: "
+                f"decision={inductor_summary['decision']} "
+                f"confidence={inductor_summary['confidence']:.2f} "
+                f"slug={inductor_summary['induced_slug']} "
+                f"abstain_reason={inductor_summary['abstain_reason']!r}"
+            )
 
         # BUG-B-100 fix (deep-dive R3): the scope gate is now a real
         # gate. If it rejects, abort BEFORE retrieval with a pipeline-
