@@ -2814,19 +2814,51 @@ async def main_async() -> int:
         billing_summary = None
     if billing_summary is not None:
         if billing_summary.get("exceeded"):
+            # Codex round-1 HIGH fix (v2): EXCEEDED must GATE
+            # the sweep, not just log. Per FINAL_PLAN M-INT-7:
+            # "M-NEW billing/quota gates production". v1 only
+            # printed the EXCEEDED line and continued to run
+            # queries — Codex repro: exhausted quota + stubbed
+            # run_one_query showed the loop still executed.
+            # v2 returns rc=2 before the query loop, writing a
+            # quota-refusal sweep summary so callers can detect
+            # the refusal.
             print(
                 f"[M-INT-7] billing_quota: EXCEEDED "
                 f"org={billing_summary['org_id']} "
                 f"reason={billing_summary.get('reason', '<n/a>')!r}"
             )
-        else:
             print(
-                f"[M-INT-7] billing_quota: "
-                f"org={billing_summary['org_id']} "
-                f"used={billing_summary['used']} "
-                f"cap={billing_summary['cap']} "
-                f"remaining={billing_summary['remaining']}"
+                "[M-INT-7] sweep refused: org over quota; "
+                "no queries executed"
             )
+            try:
+                refusal_summary = {
+                    "status": "abort_quota_exceeded",
+                    "billing_quota": billing_summary,
+                    "queries_attempted": 0,
+                    "out_root": str(out_root),
+                }
+                refusal_path = out_root / "sweep_quota_refusal.json"
+                refusal_path.parent.mkdir(parents=True, exist_ok=True)
+                refusal_path.write_text(
+                    json.dumps(refusal_summary, indent=2, sort_keys=True)
+                    + "\n",
+                    encoding="utf-8",
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Best-effort artifact write — don't gate on FS errors.
+                print(
+                    f"[M-INT-7] WARN: refusal summary write failed: {exc}"
+                )
+            return 2
+        print(
+            f"[M-INT-7] billing_quota: "
+            f"org={billing_summary['org_id']} "
+            f"used={billing_summary['used']} "
+            f"cap={billing_summary['cap']} "
+            f"remaining={billing_summary['remaining']}"
+        )
 
     all_summaries: list[dict] = []
     replay_ctx_mgr.__enter__()

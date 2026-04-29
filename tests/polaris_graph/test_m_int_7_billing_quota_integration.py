@@ -155,3 +155,156 @@ def test_billing_failure_does_not_raise(
     summary = sweep._check_audit_run_quota()
     # Returns None on internal failure — does not raise.
     assert summary is None
+
+
+# ---------------------------------------------------------------------------
+# Codex round-1 HIGH fix (v2) — exceeded must GATE the sweep, not just log
+# ---------------------------------------------------------------------------
+
+
+def test_main_async_aborts_when_quota_exceeded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 HIGH: v1 only logged EXCEEDED but the sweep
+    still ran the queries. Per FINAL_PLAN M-INT-7, M-NEW gates
+    production. v2 returns rc=2 before the query loop, writes
+    sweep_quota_refusal.json, and runs zero queries."""
+    import asyncio
+
+    monkeypatch.setenv("PG_CAPTURE_PIN", "0")
+    monkeypatch.setenv("PG_USE_BILLING_QUOTA", "1")
+    monkeypatch.setenv(
+        "PG_BILLING_QUOTA_DB_PATH", str(tmp_path / "billing.sqlite"),
+    )
+    monkeypatch.setenv("PG_BILLING_ORG_ID", "exhausted_org")
+
+    # Pre-exhaust quota.
+    from src.polaris_graph.audit_ir.billing_quota_store import (
+        BillingQuotaStore, PlanTier, QuotaEventKind,
+    )
+    store = BillingQuotaStore(tmp_path / "billing.sqlite")
+    store.assign_plan(
+        org_id="exhausted_org",
+        tier=PlanTier.PILOT,
+        quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: 1},
+    )
+    store.consume(
+        org_id="exhausted_org",
+        kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+    )
+
+    out_root = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "run_honest_sweep_r3.py",
+            "--only", "quota_smoke",
+            "--out-root", str(out_root),
+        ],
+    )
+
+    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
+    monkeypatch.setattr(
+        sweep, "SWEEP_QUERIES",
+        [{
+            "domain": "test",
+            "slug": "quota_smoke",
+            "question": "Should be refused",
+        }],
+    )
+
+    # Track whether run_one_query gets called.
+    calls: list = []
+
+    async def _fake_run_one_query(query, out_root_arg):
+        calls.append(query["slug"])
+        return {
+            "domain": query["domain"], "slug": query["slug"],
+            "question": query["question"], "status": "ok",
+            "manifest": {}, "cost_usd": 0.0,
+            "run_dir": str(out_root_arg / query["slug"]),
+            "run_id": "RUN_QUOTA_SMOKE",
+        }
+    monkeypatch.setattr(sweep, "run_one_query", _fake_run_one_query)
+
+    rc = asyncio.run(sweep.main_async())
+
+    # GATE assertion: queries MUST NOT have run.
+    assert calls == [], (
+        f"M-INT-7 v2: quota exceeded but {len(calls)} queries still ran"
+    )
+    # Return code MUST signal refusal (non-zero, non-1 — 2 reserved
+    # for billing refusal).
+    assert rc == 2, f"expected rc=2 on quota refusal, got {rc}"
+
+    # Refusal artifact MUST exist with expected schema.
+    refusal_path = out_root / "sweep_quota_refusal.json"
+    assert refusal_path.exists()
+    import json
+    refusal = json.loads(refusal_path.read_text(encoding="utf-8"))
+    assert refusal["status"] == "abort_quota_exceeded"
+    assert refusal["queries_attempted"] == 0
+    assert refusal["billing_quota"]["exceeded"] is True
+
+
+def test_main_async_proceeds_when_quota_under_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inverse: when quota is available, main_async runs
+    normally (and consumes one unit)."""
+    import asyncio
+
+    monkeypatch.setenv("PG_CAPTURE_PIN", "0")
+    monkeypatch.setenv("PG_USE_BILLING_QUOTA", "1")
+    monkeypatch.setenv(
+        "PG_BILLING_QUOTA_DB_PATH", str(tmp_path / "billing.sqlite"),
+    )
+    monkeypatch.setenv("PG_BILLING_ORG_ID", "available_org")
+
+    from src.polaris_graph.audit_ir.billing_quota_store import (
+        BillingQuotaStore, PlanTier,
+    )
+    store = BillingQuotaStore(tmp_path / "billing.sqlite")
+    store.assign_plan(org_id="available_org", tier=PlanTier.STARTUP)
+
+    out_root = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "run_honest_sweep_r3.py",
+            "--only", "available_smoke",
+            "--out-root", str(out_root),
+        ],
+    )
+
+    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
+    monkeypatch.setattr(
+        sweep, "SWEEP_QUERIES",
+        [{
+            "domain": "test",
+            "slug": "available_smoke",
+            "question": "Should run",
+        }],
+    )
+
+    calls: list = []
+
+    async def _fake_run_one_query(query, out_root_arg):
+        run_dir = out_root_arg / query["slug"]
+        run_dir.mkdir(parents=True, exist_ok=True)
+        calls.append(query["slug"])
+        return {
+            "domain": query["domain"], "slug": query["slug"],
+            "question": query["question"], "status": "ok",
+            "manifest": {}, "cost_usd": 0.0,
+            "run_dir": str(run_dir),
+            "run_id": "RUN_AVAILABLE",
+        }
+    monkeypatch.setattr(sweep, "run_one_query", _fake_run_one_query)
+
+    rc = asyncio.run(sweep.main_async())
+    assert rc == 0
+    assert calls == ["available_smoke"]
+    # Refusal artifact MUST NOT exist.
+    refusal_path = out_root / "sweep_quota_refusal.json"
+    assert not refusal_path.exists()
