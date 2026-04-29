@@ -104,6 +104,15 @@ from src.polaris_graph.audit_ir.scope_classifier_llm import (  # noqa: E402
     LLMVerdict,
     OpenRouterScopeAffinityLLM,
 )
+# M-INT-5: Domain router into live retrieval flow
+from src.polaris_graph.audit_ir.domain_router import (  # noqa: E402
+    DomainAdapter,
+    DomainTemplate,
+    DomainTemplateRegistry,
+    RoutingOutcome,
+    RoutingResult,
+    route_to_domain,
+)
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
@@ -686,6 +695,86 @@ def _classify_scope_with_llm(
         return None
 
 
+# ──────────────────────────────────────────────────────────────────────
+# M-INT-5 — Domain router into live retrieval flow (Phase E2)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class _StubCrossrefAdapter:
+    """v1 stub DomainAdapter for clinical (Crossref).
+
+    Real HTTP wiring is Phase F. v1 demonstrates substrate
+    import + invocation + RoutingResult shape; the actual
+    Crossref retrieval will plug into adapter_id="crossref"
+    once concrete adapters land.
+    """
+
+    @property
+    def adapter_id(self) -> str:
+        return "crossref"
+
+
+class _StubPubmedAdapter:
+    """v1 stub DomainAdapter for clinical (PubMed)."""
+
+    @property
+    def adapter_id(self) -> str:
+        return "pubmed"
+
+
+def _build_domain_router_registry() -> DomainTemplateRegistry:
+    """Default registry. Tests can monkeypatch this for custom
+    template sets. Real config-driven registry comes in Phase F."""
+    return DomainTemplateRegistry(
+        templates=(
+            DomainTemplate(
+                domain_id="clinical",
+                display_name="Clinical research",
+                scope_template_path="config/scope_templates/clinical.yaml",
+                expected_adapter_ids=("crossref", "pubmed"),
+            ),
+            DomainTemplate(
+                domain_id="policy",
+                display_name="Policy / regulatory",
+                scope_template_path="config/scope_templates/policy.yaml",
+                expected_adapter_ids=("crossref",),
+            ),
+        )
+    )
+
+
+def _build_domain_router_adapters() -> dict[str, DomainAdapter]:
+    """Default adapter pool. Real HTTP-backed adapters in Phase F."""
+    return {
+        "crossref": _StubCrossrefAdapter(),
+        "pubmed": _StubPubmedAdapter(),
+    }
+
+
+def _route_query_to_domain(classification) -> dict | None:
+    """Best-effort domain routing for the LLM scope classification.
+    Telemetry only — does NOT gate retrieval. PG_USE_DOMAIN_ROUTER=0
+    disables. Per LAW II, internal failure returns None (does not raise).
+    """
+    if os.environ.get("PG_USE_DOMAIN_ROUTER", "0") == "0":
+        return None
+    try:
+        registry = _build_domain_router_registry()
+        adapters = _build_domain_router_adapters()
+        result = route_to_domain(classification, registry, adapters)
+        return {
+            "outcome": result.outcome.value,
+            "domain": (
+                result.template.domain_id if result.template else None
+            ),
+            "adapter_ids": [a.adapter_id for a in result.adapters],
+            "rationale": result.rationale,
+        }
+    except Exception as exc:
+        print(f"[M-INT-5] WARN: domain_router path failed: {exc}")
+        return None
+
+
 def _capture_run_pin(
     run_id: str,
     run_dir: Path,
@@ -788,6 +877,36 @@ async def run_one_query(
                 f"domain={scope_llm_summary['domain']} "
                 f"template_hint={scope_llm_summary['template_domain_hint']}"
             )
+
+            # M-INT-5: route the LLM scope verdict to a domain.
+            # Best-effort, telemetry-only. PG_USE_DOMAIN_ROUTER=0 disables.
+            from src.polaris_graph.audit_ir.scope_classifier import (
+                ScopeClassification, ScopeVerdict,
+            )
+            verdict_enum_map = {
+                "in_scope": ScopeVerdict.IN_SCOPE,
+                "out_of_scope": ScopeVerdict.OUT_OF_SCOPE,
+                "uncertain": ScopeVerdict.UNCERTAIN,
+            }
+            try:
+                _classification = ScopeClassification(
+                    verdict=verdict_enum_map[scope_llm_summary["verdict"]],
+                    confidence=scope_llm_summary["confidence"],
+                    domain=scope_llm_summary["domain"],
+                    rationale=scope_llm_summary.get("rationale", ""),
+                )
+                domain_route_summary = _route_query_to_domain(_classification)
+            except Exception as exc:  # noqa: BLE001
+                # Best-effort — telemetry write must not gate the sweep.
+                print(f"[M-INT-5] WARN: domain route synthesis failed: {exc}")
+                domain_route_summary = None
+            if domain_route_summary is not None:
+                _log(
+                    f"[M-INT-5]     domain_router: "
+                    f"outcome={domain_route_summary['outcome']} "
+                    f"domain={domain_route_summary['domain']} "
+                    f"adapters={domain_route_summary['adapter_ids']}"
+                )
 
         # BUG-B-100 fix (deep-dive R3): the scope gate is now a real
         # gate. If it rejects, abort BEFORE retrieval with a pipeline-
