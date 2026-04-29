@@ -167,6 +167,45 @@ def test_empty_question_short_circuits_to_uncertain() -> None:
     assert "empty" in result.rationale.lower()
 
 
+def test_visually_empty_question_short_circuits_via_direct_call() -> None:
+    """Codex round-2 MEDIUM fix (v3): direct
+    LLMScopeEligibilityClassifier.classify() must short-circuit
+    visually-empty questions (zero-width spaces, combining
+    marks, Hangul fillers) the same way phase 1's gate does
+    via `_is_visually_empty`. v2 only checked `if not question`,
+    missing inputs like `"​​"` that reached the LLM."""
+
+    @dataclass
+    class _CountingLLM:
+        called: int = 0
+
+        def classify(self, question, supported_domains):
+            self.called += 1
+            return LLMVerdict(
+                verdict="out_of_scope",
+                confidence=0.9,
+                domain=None,
+                rationale="should not be reached",
+            )
+
+    visually_empty_inputs = [
+        "​​",        # zero-width spaces (Cf)
+        "‌‍",        # ZWNJ + ZWJ (Cf)
+        "   \t\n",      # whitespace
+        "͏",         # CGJ (Mn) — v6 phase 1 boundary
+        "ᅟ",         # Hangul CHOSEONG FILLER (Lo)
+    ]
+    for q in visually_empty_inputs:
+        llm = _CountingLLM()
+        classifier = LLMScopeEligibilityClassifier(llm, _config())
+        result = classifier.classify(q)
+        assert result.verdict == ScopeVerdict.UNCERTAIN
+        assert result.domain is None
+        assert llm.called == 0, (
+            f"input {q!r} reached the LLM; should short-circuit"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Verdict adaptation
 # ---------------------------------------------------------------------------

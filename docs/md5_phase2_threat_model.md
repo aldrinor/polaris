@@ -1,8 +1,8 @@
 # M-D5 phase 2 v1 — LLM-augmented ScopeEligibilityClassifier boundary
 
-**Status:** v2 / 2026-04-29
+**Status:** v3 / 2026-04-29
 **Module:** `src/polaris_graph/audit_ir/scope_classifier_llm.py`
-**Tests:** `tests/polaris_graph/test_md5_phase2_llm_classifier.py` (36 passing)
+**Tests:** `tests/polaris_graph/test_md5_phase2_llm_classifier.py` (37 passing)
 **Pairs with:** M-D5 phase 1 (`scope_classifier.py`, v6 commit
 460234a + post-460234a doc bump). Inherits prompt-injection
 defense pattern from M-D2 phase b

@@ -45,6 +45,7 @@ from src.polaris_graph.audit_ir.scope_classifier import (
     ScopeClassification,
     ScopeClassifierError,
     ScopeVerdict,
+    _is_visually_empty,
 )
 
 
@@ -357,12 +358,18 @@ class LLMScopeEligibilityClassifier:
         # questions before reaching the classifier (per
         # `confidence_gated_match`). Defensive check here for
         # callers invoking us directly outside the gate.
-        if not question:
+        # Codex round-2 MEDIUM fix (v3): use phase 1's
+        # `_is_visually_empty` for parity. v2 only checked
+        # `if not question`, missing visually-empty inputs like
+        # `"​​"` (zero-width spaces) — those reached
+        # the LLM and got a normal verdict, so direct callers
+        # didn't get the promised empty-input protection.
+        if not question or _is_visually_empty(question):
             return ScopeClassification(
                 verdict=ScopeVerdict.UNCERTAIN,
                 confidence=0.0,
                 domain=None,
-                rationale="empty question",
+                rationale="empty or visually-empty question",
             )
 
         try:

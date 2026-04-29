@@ -1,0 +1,12 @@
+## Verdict
+PARTIAL
+
+## Round-1 fix integration
+- [x] MEDIUM verdict type-checked before normalization
+- [x] MEDIUM bool confidence rejected
+
+## New findings (if any)
+[MEDIUM] `src/polaris_graph/audit_ir/scope_classifier_llm.py:356` — The direct-call guard claims to short-circuit “empty / visually-empty” input, but it only checks `if not question`. A visually-empty string like `"\u200b\u200b"` still invokes the LLM and returns a normal verdict (`OUT_OF_SCOPE` in repro), so callers using `LLMScopeEligibilityClassifier` outside `confidence_gated_match()` do not get the promised empty-input protection. This needs `_is_visually_empty(question)` parity with phase 1 and a regression test.
+
+## Final word
+PARTIAL until the direct `LLMScopeEligibilityClassifier.classify()` path rejects visually-empty input the same way phase 1 already does.
