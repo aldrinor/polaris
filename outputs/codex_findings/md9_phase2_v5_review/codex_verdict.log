@@ -1,0 +1,12 @@
+## Verdict
+GREEN
+
+## Round-3 fix integration
+- [x] whitespace-only stripped
+- [x] invisible-unicode rejected
+
+## New findings (if any)
+None.
+
+## Final word
+GREEN
