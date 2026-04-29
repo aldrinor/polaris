@@ -77,6 +77,14 @@ from src.polaris_graph.audit_ir.registry import (
     list_available_runs,
 )
 from src.polaris_graph.audit_ir.serializer import to_json_dict
+# M-INT-8: M-22 slide deck endpoint
+from src.polaris_graph.audit_ir.slide_deck import (  # noqa: E402
+    SlideDeckEmptyReportError,
+    SlideDeckError,
+    build_slide_deck,
+    deck_to_dict,
+    render_deck_html,
+)
 
 router = APIRouter()
 
@@ -657,6 +665,108 @@ async def get_run_citation_health(slug: str) -> dict:
         )
     report = check_citation_health(ir)
     return report_to_dict(report)
+
+
+# ---------------------------------------------------------------------------
+# M-INT-8 — M-22 slide deck endpoint (Phase E4)
+# ---------------------------------------------------------------------------
+#
+# Wires build_slide_deck + deck_to_dict / render_deck_html into the
+# inspector router. Two endpoints:
+#   - /api/inspector/runs/{slug}/slide-deck → JSON deck dict
+#   - /api/inspector/runs/{slug}/slide-deck.html → rendered HTML
+#
+# Both require authenticated caller (M-15b retrofit). Both gate on
+# PG_USE_SLIDE_DECK_ENDPOINT (default 1 — feature ships ON; set to
+# 0 only for emergency rollback).
+
+
+def _slide_deck_endpoint_enabled() -> bool:
+    return os.environ.get("PG_USE_SLIDE_DECK_ENDPOINT", "1") != "0"
+
+
+@router.get("/api/inspector/runs/{slug}/slide-deck")
+async def get_slide_deck_json(
+    slug: str,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Return the slide deck for a run as a JSON-safe dict.
+
+    Wraps build_slide_deck → deck_to_dict. Per FINAL_PLAN
+    M-INT-8 acceptance:
+      - Title + scope + section + contradictions + appendix slides
+      - Empty-report runs return 422 with structured error
+      - Unknown slug returns 404
+    """
+    if not _slide_deck_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="slide deck endpoint disabled",
+        )
+    summary = find_run_by_slug(slug)
+    if summary is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown run slug: {slug}",
+        )
+    try:
+        ir = load_audit_ir(summary.artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load IR: {exc}",
+        )
+    try:
+        deck = build_slide_deck(ir)
+    except SlideDeckEmptyReportError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"slide deck unavailable (empty report): {exc}",
+        )
+    except SlideDeckError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"slide deck build failed: {exc}",
+        )
+    return deck_to_dict(deck)
+
+
+@router.get(
+    "/api/inspector/runs/{slug}/slide-deck.html",
+    response_class=HTMLResponse,
+)
+async def get_slide_deck_html(
+    slug: str,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> str:
+    """Return the slide deck for a run as rendered HTML."""
+    if not _slide_deck_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="slide deck endpoint disabled",
+        )
+    summary = find_run_by_slug(slug)
+    if summary is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown run slug: {slug}",
+        )
+    try:
+        ir = load_audit_ir(summary.artifact_dir)
+    except (FileNotFoundError, AuditIRSchemaError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load IR: {exc}",
+        )
+    try:
+        deck = build_slide_deck(ir)
+    except SlideDeckEmptyReportError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"slide deck unavailable (empty report): {exc}",
+        )
+    except SlideDeckError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"slide deck build failed: {exc}",
+        )
+    return render_deck_html(deck)
 
 
 @router.get("/inspector", response_class=HTMLResponse)
