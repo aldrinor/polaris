@@ -679,6 +679,21 @@ async def get_run_citation_health(slug: str) -> dict:
 # Both require authenticated caller (M-15b retrofit). Both gate on
 # PG_USE_SLIDE_DECK_ENDPOINT (default 1 — feature ships ON; set to
 # 0 only for emergency rollback).
+#
+# Codex round-1 cross-org note (system-wide, deferred): These
+# endpoints do require_authenticated_caller but do NOT enforce
+# run-level org authorization — same as get_run, get_audit_bundle,
+# get_report_markdown, get_run_citation_health (which don't even
+# require authentication). RunSummary has no org_id field; the
+# registry does a global allowlist scan. Cross-org access to runs
+# is a system-wide pattern that requires:
+#   1. Adding org_id to RunSummary (registry schema migration)
+#   2. Updating all 5+ /api/inspector/runs/{slug}/* endpoints to
+#      check caller.org_id == run.org_id
+#   3. Backfilling org_id on existing run artifacts
+# This is its own milestone — tracked for Phase F / M-PROD-1
+# (SOC2 dry-run scope). M-INT-8 ships AT PARITY with the existing
+# pattern, not introducing a new gap.
 
 
 def _slide_deck_endpoint_enabled() -> bool:
