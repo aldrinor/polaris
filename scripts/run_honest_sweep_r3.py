@@ -76,6 +76,14 @@ from src.polaris_graph.audit_ir.cache_warming import (  # noqa: E402
     FetchResult as WarmFetchResult,
     warm_cache,
 )
+# M-INT-3: freshness detector + eviction
+from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
+    FreshnessAlertStore,
+    FreshnessCheckResult,
+    FreshnessDetector,
+    FreshnessStatus,
+    check_freshness,
+)
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
 )
@@ -532,6 +540,87 @@ def _warm_canonical_corpus(
         }
     except Exception as exc:
         print(f"[M-INT-2] WARN: cache warming failed: {exc}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# M-INT-3 — Freshness detector + eviction (Phase E1)
+# ---------------------------------------------------------------------------
+#
+# Wires `freshness_monitor.check_freshness(...)` +
+# FreshnessAlertStore into the sweep. For each canonical URL,
+# run a freshness check; if status is in evicting set
+# (superseded/retracted/EoC), evict from the cache.
+#
+# v1 stub detector: returns UNCHANGED for everything. Real
+# Crossref `update-policy` integration is Phase F.
+# Substrate import + invocation + SQL writes are demonstrated.
+
+
+def _freshness_db_path(out_root: Path) -> Path:
+    raw = os.environ.get("PG_FRESHNESS_DB_PATH")
+    if raw:
+        return Path(raw)
+    return out_root / "freshness_alerts.sqlite"
+
+
+def _check_corpus_freshness(
+    workspace_id: str,
+    canonical_urls: list[str],
+    out_root: Path,
+) -> dict | None:
+    """Best-effort freshness check + eviction. Returns a summary
+    dict with per-status counts, or None when disabled."""
+    if os.environ.get("PG_USE_FRESHNESS_DETECTOR", "1") == "0":
+        return None
+    if not canonical_urls:
+        return None
+    try:
+        alert_store = FreshnessAlertStore(_freshness_db_path(out_root))
+        cache_store = RetrievalCacheStore(_cache_db_path(out_root))
+
+        class _StubFreshnessDetector:
+            """v1 detector: returns UNCHANGED for every URL.
+            Real Crossref update-policy probe is Phase F.
+            Demonstrates substrate import + invocation +
+            FreshnessCheckResult shape."""
+
+            def detect(self, source_url: str) -> FreshnessCheckResult:
+                return FreshnessCheckResult(
+                    source_url=source_url,
+                    status=FreshnessStatus.UNCHANGED,
+                    details="stub detector v1 (real Crossref in Phase F)",
+                    new_canonical_url=None,
+                    fetched_status_code=200,
+                )
+
+        detector = _StubFreshnessDetector()
+        per_status: dict[str, int] = {
+            s.value: 0 for s in FreshnessStatus
+        }
+        evicted = 0
+        for url in canonical_urls:
+            try:
+                alert = check_freshness(
+                    workspace_id=workspace_id,
+                    source_url=url,
+                    detector=detector,
+                    store=alert_store,
+                    cache=cache_store,
+                )
+                per_status[alert.status] = per_status.get(alert.status, 0) + 1
+                if alert.evicted_cache_key is not None:
+                    evicted += 1
+            except Exception as exc:
+                print(f"[M-INT-3] WARN: freshness check failed for "
+                      f"{url}: {exc}")
+        return {
+            "per_status": per_status,
+            "evicted_count": evicted,
+            "total_checked": len(canonical_urls),
+        }
+    except Exception as exc:
+        print(f"[M-INT-3] WARN: freshness path failed: {exc}")
         return None
 
 
@@ -2240,6 +2329,19 @@ async def main_async() -> int:
                 f"{sweep_warm_summary['fetched_count']} "
                 f"skipped={sweep_warm_summary['skipped_count']} "
                 f"errored={sweep_warm_summary['errored_count']}"
+            )
+
+        # M-INT-3: post-warm freshness check.
+        sweep_freshness_summary = _check_corpus_freshness(
+            workspace_id="sweep",
+            canonical_urls=canonical_urls,
+            out_root=out_root,
+        )
+        if sweep_freshness_summary is not None:
+            print(
+                f"[M-INT-3] freshness: total_checked="
+                f"{sweep_freshness_summary['total_checked']} "
+                f"evicted={sweep_freshness_summary['evicted_count']}"
             )
 
     all_summaries: list[dict] = []
