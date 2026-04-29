@@ -1,0 +1,15 @@
+## Verdict
+PARTIAL
+
+## Boundary integration
+- [x] Pure substrate
+- [x] RoutingOutcome taxonomy closed
+- [x] Adapter id consistency
+- [x] Defensive UNKNOWN_DOMAIN
+
+## New findings (if any)
+- [HIGH] `src/polaris_graph/audit_ir/domain_router.py:256` — `route_to_domain()` never validates `classification.verdict` is a `ScopeVerdict`. A malformed `ScopeClassification(verdict="bogus", ...)` falls through the `OUT_OF_SCOPE` / `UNCERTAIN` checks and is treated as the `IN_SCOPE` path, which can incorrectly return `ROUTED`.
+- [MEDIUM] `src/polaris_graph/audit_ir/domain_router.py:113` — `DomainTemplateRegistry` only checks `domain_id` truthiness, not type. `DomainTemplate(domain_id=123, ...)` is accepted at construction even though `get()` / `has()` only operate on string ids, so malformed manifests are not rejected at the boundary they’re documented to be rejected.
+
+## Final word
+PARTIAL until malformed `domain_id` values are rejected at registry construction and invalid classifier verdicts fail loudly instead of routing. Targeted pytest is green: `21/21` passed in `tests\polaris_graph\test_md6_phase1_domain_router.py`.

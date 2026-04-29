@@ -1,8 +1,8 @@
 # M-D6 phase 1 v1 — cross-domain routing substrate boundary
 
-**Status:** v1 / 2026-04-29
+**Status:** v2 / 2026-04-29
 **Module:** `src/polaris_graph/audit_ir/domain_router.py`
-**Tests:** `tests/polaris_graph/test_md6_phase1_domain_router.py` (21 passing)
+**Tests:** `tests/polaris_graph/test_md6_phase1_domain_router.py` (23 passing)
 **Pairs with:** M-D5 phase 1 (gate orchestrator), M-D5 phase 2
 (LLM classifier producing the domain tag).
 **Substrate:** stdlib + `scope_classifier` + `scope_classifier_llm`.

@@ -327,6 +327,57 @@ def test_route_adapters_must_be_mapping(
 # ---------------------------------------------------------------------------
 
 
+def test_registry_rejects_non_string_domain_id() -> None:
+    """Codex round-1 MEDIUM fix (v2): domain_id must be str.
+    v1 only checked truthiness — DomainTemplate(domain_id=123)
+    was accepted but get()/has() only handle str."""
+    with pytest.raises(DomainRouterError, match="domain_id must be str"):
+        DomainTemplateRegistry((
+            DomainTemplate(123, "X", "p", ()),  # type: ignore[arg-type]
+        ))
+
+
+def test_route_rejects_malformed_verdict_value(
+    registry: DomainTemplateRegistry,
+    adapters: dict[str, DomainAdapter],
+) -> None:
+    """Codex round-1 HIGH fix (v2): verdict MUST be a
+    ScopeVerdict enum. v1 fell through to IN_SCOPE path on any
+    non-OUT_OF_SCOPE / non-UNCERTAIN value, so a malformed
+    `ScopeClassification(verdict="bogus", ...)` could route
+    incorrectly."""
+    @dataclass(frozen=True)
+    class _BogusClassification:
+        verdict: str
+        confidence: float
+        domain: str | None
+        rationale: str
+
+    # Bypass dataclass type checks via a separate dataclass
+    # mimic — ScopeClassification's frozen dataclass would
+    # accept this too if Python doesn't enforce types at
+    # runtime.
+    cls = _BogusClassification(
+        verdict="bogus", confidence=0.9,
+        domain="clinical", rationale="",
+    )
+    with pytest.raises(DomainRouterError, match="classification must be"):
+        route_to_domain(cls, registry, adapters)  # type: ignore[arg-type]
+
+    # Also test a real ScopeClassification with a non-enum
+    # verdict (achievable via direct construction since
+    # ScopeClassification dataclass doesn't enforce enum at
+    # runtime).
+    bogus_real = ScopeClassification(
+        verdict="bogus",  # type: ignore[arg-type]
+        confidence=0.9,
+        domain="clinical",
+        rationale="",
+    )
+    with pytest.raises(DomainRouterError, match="verdict must be ScopeVerdict"):
+        route_to_domain(bogus_real, registry, adapters)
+
+
 def test_route_template_with_no_expected_adapters() -> None:
     """A template with empty expected_adapter_ids routes
     successfully even with empty adapter pool."""

@@ -110,6 +110,16 @@ class DomainTemplateRegistry:
                     f"templates[{i}] must be DomainTemplate, got "
                     f"{type(tpl).__name__}"
                 )
+            # Codex round-1 MEDIUM fix (v2): type-check domain_id.
+            # v1 only checked truthiness — DomainTemplate(domain_id=123)
+            # was accepted at construction even though get()/has()
+            # only operate on str ids, so malformed manifests
+            # weren't rejected at the documented boundary.
+            if not isinstance(tpl.domain_id, str):
+                raise DomainRouterError(
+                    f"templates[{i}].domain_id must be str, got "
+                    f"{type(tpl.domain_id).__name__}"
+                )
             if not tpl.domain_id:
                 raise DomainRouterError(
                     f"templates[{i}].domain_id must be non-empty"
@@ -241,6 +251,17 @@ def route_to_domain(
         raise DomainRouterError(
             f"classification must be ScopeClassification, got "
             f"{type(classification).__name__}"
+        )
+    # Codex round-1 HIGH fix (v2): validate verdict is a
+    # ScopeVerdict enum value. v1 fell through to the IN_SCOPE
+    # path on any non-OUT_OF_SCOPE / non-UNCERTAIN value — a
+    # malformed `ScopeClassification(verdict="bogus", ...)`
+    # could be incorrectly returned as ROUTED.
+    if not isinstance(classification.verdict, ScopeVerdict):
+        raise DomainRouterError(
+            f"classification.verdict must be ScopeVerdict enum, got "
+            f"{type(classification.verdict).__name__} "
+            f"({classification.verdict!r})"
         )
     if not isinstance(registry, DomainTemplateRegistry):
         raise DomainRouterError(
