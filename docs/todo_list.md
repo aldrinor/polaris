@@ -1,461 +1,112 @@
 # POLARIS Todo List
 
-**Last Updated**: 2026-04-23 (V29 halted §7#9 → V30 Report Contract Architecture in flight)
+**Last Updated:** 2026-04-29 (canonical roadmap GREEN-signed by
+Claude+Codex, 3 review rounds, locked at `docs/full_online_plan_FINAL.md`)
 
-## ACTIVE: V30 Report Contract Architecture (Layer 1 of 5 landed)
+## ACTIVE: From-today-to-fully-online integration autoloop
 
-**Current cycle**: V30 implementation in flight. V29 halted 2026-04-23
-per §7 trigger #9 (repeated root cause: V28+V29 both landed
-**3 BB + 0 BO + 4 LB** cross-reviewed). Custody-only fix was
-Codex-READY but dimensional outcome didn't move → FALSIFIES custody as
-root cause. Architectural diagnosis (both auditors): POLARIS is
-corpus-driven; competitors are frame-driven. True fix: report
-schema INSTANTIATES then fills, not retrieve-then-narrate. User
-approved Path A+B (Report Contract + hybrid licensed/human completion).
+The canonical plan is `docs/full_online_plan_FINAL.md` (Claude+Codex
+v4 GREEN). Todo items below are sequenced per that plan. Every
+milestone runs through the Claude+Codex autoloop:
 
-**V30 plan**: `outputs/audits/v29/fix_plan_v30.md`
-**Codex plan review pass-1**: `outputs/codex_findings/v30_fix_plan_review_pass1/findings.md` (**CONDITIONAL-no-blockers** — M-54 approved unchanged; M-58/59/60/61/62 have revisions woven into implementation)
+  1. Claude builds the integration → commits
+  2. Claude writes a Codex review brief
+  3. Codex reviews → emits GREEN | PARTIAL | BLOCKED
+  4. If PARTIAL: integrate findings → re-review (no human needed)
+  5. If GREEN: lock + move to next milestone (no human needed)
+  6. If BLOCKED: pause + flag user (the only human-intervention case)
 
-### V30 implementation layers (9 items M-54..M-62)
+Stop conditions per `feedback_autoloop_default_behavior.md` /
+`feedback_dont_pause_autoloop.md`:
+- BLOCKED verdict from Codex (substantive impossibility)
+- Asymptote: 5+ codex rounds with no convergence on the same surface
+- Primary-source conflict (Codex finds something contradicting locked memory)
+- Cost concern (per-day OpenRouter spend exceeds budget)
 
-| Layer | Item | Status | Note |
-|---|---|---|---|
-| 1. Schema | **M-54** Report contract YAML + loader | **✅ landed (53/53 tests)** | Entity-type-agnostic per Codex rev #7; awaits Codex M-54 audit |
-| 2. Compile | M-55 Frame compiler | in_progress (next) | Query → instantiated contract |
-| 3. Retrieve | M-56 Deterministic DOI/PMID/Unpaywall | pending | Replaces Serper/S2 non-determinism |
-| 4. Plan | M-57 Contract-instantiated outline | pending | Slots become section/subsection skeleton |
-| 5. Gen | M-58 Slot-bound generator (structured-first per Codex rev #1) | pending | field_name/status/value/bound_ev_id payload |
-| 5. Gen | M-59 Slot-completion validator | pending | Replaces M-44 soft injection |
-| 5. Gen | M-60 Explicit gap rendering + manifest metadata (Codex rev #4) | pending | No silent omission |
-| 5. Gen | M-61 Hybrid completion sidecar (structured provenance per Codex rev #6) | pending | artifact_sha256 + retention |
-| Guard | M-62 Non-clinical generalization (Codex rev #8: policy > materials) | pending | Preservation gate |
-
-### V30 stop condition (UNCHANGED)
-
-BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro DR on 7 dimensions. Competitor
-PDFs at `state/compare_chatgpt_dr.txt` / `state/compare_gemini_dr.txt`.
-strict_verify gate remains STRICT (both auditors); V30 changes the
-output contract from silent omission to explicit insufficiency.
-
-### V29 retrospective (kept for history)
-
-V29 completed 2026-04-22 23:14 with cross-reviewed verdict
-**3 BEAT_BOTH + 0 BEAT_ONE + 4 LOSE_BOTH** — identical to V28.
-Custody bundle (M-51/52/53) Codex-verified READY but ceiling didn't
-move. 7/11 anchors failed at retrieval (non-determinism), 4/11
-passed custody but LLM cite-rejected. § 7#9 fired.
-
-**Current handover**: `state/autoloop_handover_2026-04-22_v29_entry.md`
-**V28 gate verdict**: `outputs/audits/v28/gate_verdict.md`
-**V28 cross-review**: `outputs/audits/v28/cross_review.md`
-**Strategic path (Claude+Codex)**: `outputs/audits/v28/strategic_cross_review.md`
-
-**Stop condition UNCHANGED**: BEAT-BOTH ChatGPT DR + Gemini 3.1 Pro
-DR on 7 dimensions. Competitor PDFs at `state/compare_chatgpt_dr.txt`
-/ `state/compare_gemini_dr.txt`.
-
-### V29-V32 roadmap (Claude + Codex converged on Strategy β)
-
-Both auditors independently converged on "architectural pipeline
-rewrite" (strategy β). 7/7 BEAT_BOTH IS achievable autonomously —
-the ceiling is pipeline-ordering, not human curation.
-
-| Cycle | Scope | Projected | Cost |
-|---|---|---|---|
-| **V29** | Selector hard-reserves anchor-matched primaries + generator pulls from live_corpus + **per-anchor custody telemetry** | 4-5 BB + 2-3 BO + 0-1 LB | ~12h / $5 |
-| V30 | Two-stage generator: Phase 1 pivotal-primary skeleton (fail-loud, NO substitution) + Phase 2 meta/review enrichment | 5-6 BB + 1-2 BO + 0 LB | ~5d / $5 |
-| V31 | Apply two-stage pattern to Mechanism section — primary clamp/PK extraction first | **7/7 BEAT_BOTH** | ~3d / $5 |
-| V32 | Calibration: run on non-clinical slug to verify architecture generalizes (not tirzepatide-specific) | validation | ~2d / $2 |
-
-**Total**: ~11-12 days engineering + $17 + 4 sweep cycles.
-
-### V29 scope (Codex-constrained — custody only)
-
-Per strategic cross-review lower-verdict-controls adjudication,
-V29 is **narrow**:
-
-1. **V29-a**: Selector hard-reservation in
-   `src/polaris_graph/retrieval/evidence_selector.py`. For each
-   anchor in `primary_trial_anchors`, scan live_corpus (not just
-   selected_rows) for `_m42e_detect_primary_for_anchor`-positive
-   rows. If found in corpus but missing from selected, INSERT at
-   position 0. Cap at `len(anchors)` = 11.
-2. **V29-b**: Generator-side named-trial injection in
-   `src/polaris_graph/generator/multi_section_generator.py`. When
-   anchor's primary is in live_corpus but not evidence_pool, pull
-   into section ev_ids.
-3. **V29-c**: Per-anchor custody telemetry file
-   `v29_primary_custody.json` with 5 booleans per anchor (found /
-   selected / injected / quote_adequate / cited_in_prose) plus
-   supporting fields. M-49 extended to assert every anchor ends
-   with `cited_in_verified_prose=true`.
-
-**OUT OF V29 SCOPE** (per Codex discipline):
-- Trial Summary table cell correction (deferred — cosmetic
-  pending custody fix)
-- M-47 validator relaxation (deferred to V30)
-- Mechanism extraction architecture (V31)
-- Any prompt rewrites beyond injection hints
-
-### V28 result summary (just completed)
-
-V28 shipped 2026-04-22 23:14 (2h51m, $0.018). Manifest status
-`partial_qwen_advisory`, release_allowed=false (same baseline as
-V26/V27 — pipeline-level, not content-level flag).
-
-**Cross-reviewed scoreboard**:
-
-| Dim | V27 | V28 | Delta |
-|---|:-:|:-:|:-:|
-| 1. Citations | BEAT_ONE | LOSE_BOTH | ↓ |
-| 2. Regulatory | BEAT_ONE | BEAT_BOTH | ↑ |
-| 3. Jurisdictional | BEAT_ONE | BEAT_BOTH | ↑ |
-| 4. Claim frames | LOSE_BOTH | LOSE_BOTH | = |
-| 5. Structural depth | LOSE_BOTH | LOSE_BOTH | = |
-| 6. Contradictions | BEAT_BOTH | BEAT_BOTH | = |
-| 7. Narrative depth | BEAT_ONE | LOSE_BOTH | ↓ |
-
-**Root cause (both auditors agree)**: Primary papers landed in
-live_corpus but didn't become the spine. SURPASS-4 Del Prato +
-SURPASS-CVOT Nicholls both verified present in live_corpus_dump.json
-but absent from final bibliography. M-44 telemetry shows 0
-injections because the target primaries were already dropped by
-the selector before M-44 could act.
-
-All 4 current LOSE_BOTH dims (Citations, Claim frames, Structural
-depth, Narrative depth) root-cause to **one defect**: selector-to-
-generator flow doesn't preserve anchor-matched primaries. Fixing
-this lifts all 4 simultaneously.
-
-### 2026-04-22 note on autonomous launch
-
-V28 fired §7 trigger #7 (regression without compensating same-axis
-BEAT_BOTH) and #10 (net dimensional health regressed). User
-surfaced, reviewed both auditors' strategic briefs, and approved
-**Strategy β roadmap** — V29 scope is user-approved, implement
-without further check-in. V30-V32 await post-V29 reassessment
-(Codex recommendation adopted by Claude: "defer V30-V32 until
-V29 lands so per-anchor telemetry de-risks V30").
-
-### AUTONOMOUS LAUNCH RULE (load-bearing)
-
-> **Claude launches the next V{N} sweep WITHOUT asking for user
-> approval** as long as (a) code audit is Codex READY, (b) prior
-> V{N-1} did not produce a SHIPPABLE verdict, and (c) no halt
-> condition is triggered. Waiting for user "go" on every cycle
-> defeats the autonomous design.
-
-User intervention is triggered ONLY by V2 runbook §7 halt conditions:
-24h wall-clock, $100 USD spend, dimension regression,
-repeated-root-cause (2 cycles same failure), cross-review integrity,
-artifact integrity, plan ping-pong >3, test-quality gaming.
-
-**Cycle cap REMOVED** per user directive 2026-04-21 ("remove the
-fire cap"). No-cycle-cap restores the V1 "auto-continue" mandate.
-Wall-clock + spend caps substitute as runaway protection.
-
-Loop (no cycle cap, auto-continue):
-1. Claude fixes → unit tests → smoke
-2. Codex code audit line-by-line
-   - BLOCKED → claude fixes, loop
-   - GREEN → full-scale at MAX CAPACITY via `scripts/run_full_scale_v{N}.py`
-     wrapper (NEVER run `run_honest_sweep_r3.py` direct — narrow
-     defaults cause phantom regressions; see
-     `memory/autoloop_full_scale_launcher_pattern.md`)
-3. Codex DEEP DR-level output audit head-to-head
-   - BLOCKED / PARTIAL → full issues list → claude fixes, loop back
-   - BEAT_BOTH on all 7 dimensions → STOP
-
-### Current cycle state (V23 resume)
-
-**V23 post-M-34** is the latest sweep artifact. See the handover for
-the full breakdown. Abbreviated:
-
-- `outputs/full_scale_v23/clinical/clinical_tirzepatide_t2dm/`
-- status=success, release_allowed=true (after M-34 re-gate)
-- 1455 prose words, 31 citations, 5 sections, 35 verified / 35 dropped
-- Evaluator: 12/13 pass; PT13 advisory only
-- DR pass 11 verdict: **PARTIAL** (1 BEAT_BOTH / 2 BEAT_ONE / 4 LOSE_BOTH)
-  - BEAT_BOTH: Contradiction handling
-  - BEAT_ONE: Regulatory, Jurisdictional (both beat ChatGPT, lose Gemini
-    due to missing Health Canada)
-  - LOSE_BOTH: Citations, Claim frames, Structural depth, Narrative depth
-
-### V24 candidate fixes (Codex pass 11 gap list, ordered by leverage)
-
-- [ ] **M-35 (HIGH, retrieval)**: SURPASS-1..6 / SURPASS-CVOT /
-      SURMOUNT-2/4 primary-paper anchor queries in
-      `scripts/run_honest_sweep_r3.py`. Analogous to M-28's
-      regulatory-anchor pattern. Closes Citations LOSE_BOTH and most
-      of Claim frames.
-- [ ] **M-36 (MEDIUM, generator+schema)**: post-synthesis trial-summary
-      table + benefit-risk/NNT table. Outline allows table slot.
-      Closes Structural depth LOSE_BOTH.
-- [ ] **M-37 (MEDIUM, retrieval+prompt)**: Health Canada anchor queries
-      + jurisdictional-precision prompt extension. Lifts Regulatory /
-      Jurisdictional BEAT_ONE → BEAT_BOTH.
-- [ ] **M-38 (MEDIUM, prompt)**: trial-framed claim statements —
-      N / baseline / comparator / dose / endpoint / timepoint / effect
-      size in same clause. Closes remaining Claim-frames gap.
-- [ ] **M-39 (MEDIUM, generator)**: contradiction adjudication (not
-      just enumeration). Already BEAT_BOTH — consolidate, avoid
-      regression.
-- [ ] **M-40 (LOW, prompt)**: mechanism/pharmacology narrative
-      expansion. Closes Narrative depth.
-
-Batching per memory rule: ONE fix at a time, unit tests first, Codex
-audit green before sweep, Codex DR output audit before declaring.
-
-### Protocol compliance — retroactive Codex audits needed
-
-- [ ] **Audit `scripts/regate_v23.py`** (commit `9674405`). Higher-risk
-      script — it mutates `manifest.json` + `sweep_summary.{json,md}`
-      on existing sweep artifacts and flipped V23's release_allowed
-      false→true. Committed without a code review (user flagged).
-- [ ] **Audit `scripts/run_full_scale_v23.py`** (commit `408127f`).
-      Low-blast-radius wrapper over env vars + argv; cosmetic code
-      review expected.
-
-### Shipped fix chain M-25 through M-34 (all Codex READY)
-
-| ID   | Fix | Commit |
-|------|-----|--------|
-| M-25a | Trial-name match in strict_verify | `59b8f4a` |
-| M-25b | Outline `>=5` when corpus supports | `5df838f` |
-| M-25e | PT08 contradiction enumeration | `451f382` |
-| M-27  | Multi-source citation | `16ee8c7` |
-| M-28  | Regulatory-anchor retrieval | `8c54cd5` (pass 3) |
-| M-29  | Jurisdictional-precision prompt | `2ebe63a` |
-| M-30  | PT11 abbreviation boundary (5 passes) | `82b2625` |
-| M-31  | Outline JSON decode resilience | `e511b39` |
-| M-32  | Primary-study claim-frame prompt | `1d4c4b4` |
-| M-33  | `section_max_tokens` 1200→2400 | `23b00c9` |
-| M-34  | PT11 lookahead window 200→1000 | `bf78396` |
-
-### Trajectory
-
-| Sweep | Pass | Verdict | Release | Notes |
-|------:|-----:|---------|:-------:|:------|
-| V10   | 4    | MATERIAL-GAPS | no | 18 FAITHFUL / 1 FAB / 1 EMB / 4 UNV |
-| V11   | 5    | MATERIAL-GAPS | no | 16 / 0 / 1 / 3 — M-25a caught fabrication class |
-| V13   | 6    | MATERIAL-GAPS | yes | First release; 21 / 0 / 3 / 2 |
-| V16   | 7    | MATERIAL-GAPS | yes | 23 / 1 / 1 / 5 — M-27 density |
-| V17   | 8    | TOP-TIER (single-dim) | yes | 23 / 0 / 0 / 1 — pre-BEAT-BOTH mandate |
-| V18   | 9    | MATERIAL-GAPS | yes | M-28 regulatory landed |
-| V19   | —    | —             | no  | PT11 `vs.` false-fail; outline decode 3× fail |
-| V20   | —    | —             | —   | M-30 stack; not separately audited |
-| V21   | 10   | PARTIAL       | yes | M-31 — citations BEAT_ONE, regulatory BEAT_BOTH(*)/narrative LOSE_BOTH |
-| V22   | (skipped) | —        | —   | M-32 claim-frame prompt; cap hit at section_max_tokens=1200 |
-| V23   | 11   | **PARTIAL**   | yes | M-33 + M-34; 1 BEAT_BOTH / 2 BEAT_ONE / 4 LOSE_BOTH |
-
-(*) Pass 10 verdicts not re-audited at resume — see
-`outputs/codex_findings/dr_output_pass_10/` for the actual table.
+Otherwise the autoloop continues without per-round confirmation.
 
 ---
 
----
+## Phase E0 — Observability & repro prerequisites
 
-Highest-priority items at the top. Older entries are in
-`archive/2026-04-18-pre-audit-cleanup/docs/todo_list_legacy.md` (see
-note at end of this file).
+| ID | Milestone | Days | Rollback flag | Status |
+|---|---|---:|---|---|
+| **M-INT-0a** | Decision telemetry recording (M-D3 → production) | 2-3 | `PG_RECORD_DECISIONS` | **NEXT** |
+| M-INT-0b | Pin capture on every run (M-D11 → production) | 2-3 | `PG_CAPTURE_PIN` | pending |
 
----
+## Phase E1 — Data-plane integration
 
-## Active
+| ID | Milestone | Days | Rollback flag | Status |
+|---|---|---:|---|---|
+| M-INT-1 | Parallel fetch into live_retriever | 3 | `PG_USE_PARALLEL_FETCH` | pending |
+| M-INT-2 | Cache + cache-warming around sweep | 3 | `PG_USE_CACHE_WARMING` | pending |
+| M-INT-3 | Freshness detector + eviction | 4 | `PG_USE_FRESHNESS_DETECTOR` | pending |
 
-### Pass 5 ✅ CONDITIONAL → M-5 fixed — ready for 8-query sweep
+## Phase E2 — Decision-plane integration
 
-Codex pass 5 (commit `b2b6f5a`) declared **CONDITIONAL** with one
-gating medium (M-5 PT12 false positive). Fixed in commit `5cf6959`:
+| ID | Milestone | Days | Rollback flag | Status |
+|---|---|---:|---|---|
+| M-INT-4 | OpenRouter ScopeAffinityLLM | 3 | `PG_USE_LLM_SCOPE` | pending |
+| M-INT-5 | Domain router into live retrieval | 4 | `PG_USE_DOMAIN_ROUTER` | pending |
 
-- [x] **M-5 PT12 bibliography year bracket false positive** —
-  PT12 citation-marker scan restricted to pre-bibliography prose
-  (split at `\n## bibliography`). Bibliography entry titles like
-  "Best Guide on RAG Pipeline [2025]" no longer flag as out-of-range
-  citation markers. Two regression tests:
-  - `test_pt12_ignores_bibliography_title_year_brackets` (the exact
-    tech-smoke regression case)
-  - `test_pt12_still_flags_real_out_of_range_citation_in_prose`
-    (guard against fix being too permissive)
+## Phase E3 — Auto-induction surfacing
 
-Codex pass 5 confirmed non-gating:
-- M-1 substantive (no deadline-boundary race)
-- M-2 substantive (content-aware span doesn't trivialize strict_verify)
-- PT13 advisory-only (release_gate doesn't block on it)
+| ID | Milestone | Days | Rollback flag | Status |
+|---|---|---:|---|---|
+| M-INT-6 | LLMAugmentedInductor in operator-review queue + M-D1 CI | 3-4 | `PG_USE_AUTO_INDUCTION` | pending |
 
-Post-fix tech smoke: `status=success, release_allowed=true,
-12/13 rule checks pass, 19/20 fetched, 682 words, 3.8% drop rate`.
+## Phase E4 — Late Phase C wiring
 
-**Status: READY for 8-query full sweep pending user go.**
+| ID | Milestone | Days | Rollback flag | Status |
+|---|---|---:|---|---|
+| M-INT-7 | M-NEW billing/quota gating | 3 | `PG_ENFORCE_QUOTA` | pending |
+| M-INT-8 | M-22 slide deck endpoint | 2 | `PG_USE_SLIDE_DECK_EXPORT` | pending |
+| M-INT-9 | M-26 contract drafting endpoint | 2 | `PG_USE_CONTRACT_DRAFTING` | pending |
+| M-INT-10 | M-25 Drive connector v2 | 3 | `PG_USE_DRIVE_CONNECTOR` | pending |
+| M-INT-11 | M-24 customer support tickets | 2 | `PG_USE_SUPPORT_TICKETS` | pending |
 
-Remaining non-gating follow-ups (pass 4 + 5):
+## Phase F — End-to-end live audit + BEAT-BOTH
 
-- [x] **M-6 PT13 question-inherited superlative exemption** — fixed.
-  PT13 now skips the first `# ` title line and exempts
-  single-word superlatives that appear in
-  `protocol["research_question"]`. Multi-word phrases
-  ("better than placebo") still flag when unhedged. Two tests in
-  `test_external_evaluator.py::test_pt13_exempts_title_and_question_inherited_superlatives`
-  and `::test_pt13_still_flags_real_generator_superlatives`.
-- [x] **M-3 PT13 advisory surfacing** — fixed. Added `ADVISORY_RULES`
-  map in `evaluator_gate.py`; PT13 failures now emit
-  `advisory_pt13_unhedged_superlatives` into
-  `manifest.evaluator_gate.reasons` without changing `gate_class` or
-  `release_allowed`. Tests in `test_m205_evaluator_gate.py`.
-- [x] **M-4 tier material_deviation communications** — fixed.
-  `docs/runbook.md` §8 now has a "corpus.material_deviation=true on a
-  released manifest" section explaining that such runs are pipeline
-  reliability signals, not content-quality benchmarks, and listing
-  concrete re-run levers (PG_LIVE_MAX_SERPER_PER_Q, academic-first
-  backends, narrower question).
-- [x] **M-2 legacy content starvation mitigation options** —
-  DEFERRED. The content-aware span finder (commit `b2b6f5a`) already
-  addressed the dominant root cause: clinical smoke drop rate
-  80% → 15%, words 174 → 605; tech 32% → 3.7%, words 529 → 689.
-  Further levers (prompt tightening, per-template overlap, lenient
-  Methods mode) remain available if specific 8-query sweep queries
-  show thin output — not required pre-sweep.
+| ID | Milestone | Days | Status |
+|---|---|---:|---|
+| M-LIVE-1 | V19 single-query end-to-end smoke | 3 | pending |
+| M-LIVE-2 | BEAT-BOTH head-to-head vs ChatGPT/Gemini DR | 5 | pending |
+| M-LIVE-3 | Operator dashboard (Inspector aggregates) | 4 | pending |
+| M-LIVE-4 | M-D9 regression-lab CI gate | 1 | pending |
 
-### Pass 4 ✅ CONDITIONAL → M-1 fixed — 3 accepted mediums
+## Phase G — Close BEAT-BOTH gaps (indeterminate, 4-8 weeks)
 
-Codex pass 4 (commit `81b18de`) declared **CONDITIONAL** after live
-smoke testing exposed a real-world regression pass 3 didn't catch.
-Single gating medium fixed in commit `ac593e1`:
+Each dimension where V_N is BEHIND or BEAT-ONE → concrete fix
+milestone. Likely candidates (not yet milestoned, named after
+M-LIVE-2 verdict surfaces actual gaps):
+- dim 1 (unique_citations) — connector expansion + concurrency tuning
+- dim 2 (regulatory_coverage) — V34 expansion + M-D6 phase 2 adapters
+- dim 6 (contradiction_handling_grammar) — synthesizer hedging upgrade
+- dim 7 (narrative_length) — synthesis capacity tuning
 
-- [x] **M-1 worker-join deadline** — `live_retriever._fetch_content`
-  now uses `worker.join(timeout=PG_FETCH_DEADLINE_SECONDS)` (default
-  90s; override via env; set 0 to disable). On timeout: log a
-  warning, fall back to naive httpx, leave the daemon thread to
-  exit on its own so the sweep never hangs on a wedged Crawl4AI
-  browser cleanup. Regression test in
-  `tests/polaris_graph/test_fetch_access_bypass_wiring.py::test_fetch_content_times_out_falls_back`.
+## Phase H — Production hardening + pilot launch
 
-Remaining mediums accepted as follow-ups (non-blocking):
-
-- [ ] **M-2 content starvation risk** — clinical smoke produced
-  146 words total (3/4 sections kept, 20/24 sentences dropped by
-  strict_verify). By-design honesty discipline, transparent in the
-  manifest. Possible mitigation: widen generator prompts so more
-  sentences have verifiable provenance, or relax content-overlap
-  threshold for limitations-section claims.
-- [ ] **M-3 PT13 advisory rule** — tech smoke failed PT13 (unhedged
-  "best") but `release_allowed=True` because qwen-judge returned
-  5/5 good. Expected: the eval_gate treats qwen as primary gate and
-  PT13 as advisory. Consider surfacing the rule-check failure more
-  prominently in `manifest.evaluator_gate.reasons` even when release
-  is still allowed.
-- [ ] **M-4 tier material_deviation** — both smoke runs had
-  material_deviation=True (clinical 40% T7, tech 70% T4). Expected
-  for web retrieval; corpus_approval_gate enforces and the manifest
-  reports honestly. Documentation follow-up: add a runbook note
-  explaining that 8-query sweep outputs should be read as pipeline
-  reliability signal, not as a quality benchmark of the report content.
-
-### Deep-dive rounds in progress
-
-Priority order per Codex scoping pass:
-
-- [x] R1 orchestration — BUG-B-101 manifest status contract (commit `c764ddb`, 9 tests)
-- [~] R2 pipeline_b_parity — BUG-B-102 UI un-hardened. **SCOPED (strategy C accepted); implementation queued as R2a-R2h** (see below)
-- [x] R3 intake_scope — BUG-B-100 scope gate never rejects (commit `95a9709`, 7 tests)
-- [x] R4 generation — BUG-M-203 outline collapse + fallback (9 tests)
-- [x] R5 evaluator — BUG-M-205 evaluator gate (10 tests)
-- [x] R6 retrieval_tiering — BUG-M-201 tier-balanced selector (9 tests)
-- [~] R7 contradictions — BUG-M-202 MVP done (domain routing + 5-domain predicates + 9 tests); **followup R7b** = generic numeric-claim mining + domain YAML profile loader + per-row multi-claim emission per Codex R7 §4
-- [x] R8 + R11 — BUG-M-206 per-run cost ledger + BUG-N-301 ambient run_id (10 tests, combined commit)
-- [x] R9 testing — BUG-M-207 invariant coverage audit (11 tests)
-- [x] R10 strict_verify — BUG-M-204 limitations telemetry verifier (10 tests)
-- [x] R12 frozen_c_disposition — BUG-M-208 **decision: RETIRE** (staged in `src/orchestration/FROZEN_SINCE_2026-03-16.md`; archive move deferred to dedicated cleanup session because ~60 scripts import from `src/orchestration/`)
-
-### Pass 3 ✅ READY — follow-up mediums tracked as non-blockers
-
-Codex pass 3 (commit `427b6ff`) declared **READY**. Zero blockers. Two accepted-risk mediums tracked as follow-ups:
-
-- [ ] **M-210 v4 UI JSON auxiliary shape** — `_adapt_pipeline_a_to_ui_json` doesn't populate `evidence`, `sections`, `claims`, `iteration_count`, `trace_summary`, `smart_art_diagrams`, `evaluator_output` — citation-chain / source-preview / mindmap UI tabs degrade to empty for v4 runs. Main report + bibliography work. Fix: adapter loads `live_corpus_dump.json` + selected_evidence into auxiliary fields. ~2-3 hours.
-- [ ] **M-211 SSE trace granularity** — v4 only emits `pipeline_start`/`report_assembled`/`pipeline_end`. v3 had per-phase events. Users see dead period mid-run. Fix: thread tracer through `run_one_query` (or use ambient `_current_tracer` ContextVar from tracing.py) and emit per-phase events (scope/retrieval/adequacy/approval/generation/evaluation).
-
-### R2 (pipeline_b_parity) sub-tasks — multi-session implementation
-
-Strategy C per Codex: add `graph_v4` shim wrapping pipeline A. See
-`outputs/codex_findings/deep_dive_round_2/` for scope.
-
-- [ ] **R2a**: extract pipeline-A `run_one_query` into reusable
-  `src/polaris_graph/sweep_orchestrator.py::orchestrate_one_query`.
-  `scripts/run_honest_sweep_r3.py` becomes a thin wrapper. Zero behavior change.
-- [ ] **R2b**: add `config/scope_templates/custom.yaml` +
-  `config/completeness_checklists/custom.yaml` as fallbacks for free-form UI queries.
-- [ ] **R2c**: write `src/polaris_graph/graph_v4.py` with v1/v2/v3-compatible
-  signature delegating to orchestrator.
-- [ ] **R2d**: add trace-event sink to orchestrator so SSE progress events
-  emit during the run.
-- [ ] **R2e**: add `v4` branch to `live_server.py::_run_pipeline` as OPT-IN
-  via `PG_GRAPH_VERSION=v4`. Do not change default yet.
-- [ ] **R2f**: write the 8 integration tests Codex specified.
-- [ ] **R2g**: after R2a-R2f land + soak, flip default dispatch to v4.
-- [ ] **R2h**: either parameterize tests across v1/v2/v3 OR deprecate
-  legacy variants and remove from dispatch (prefer removal).
-
-Estimated total: 10-14 hours across 8 sub-rounds.
-
-### Frozen subsystem decision (pending)
-
-- [ ] **Pipeline C disposition** — decide retire / repair / leave for `src/orchestration/` + `scripts/full_cycle.py`. See `src/orchestration/FROZEN_SINCE_2026-03-16.md` for the decision tree. Blocking: the Docker `research` subcommand is broken (missing `final_audit.py`, `run_ragas_v3.py`).
-
-### Pipeline B alignment (deferred)
-
-- [ ] **Back-port honest-rebuild invariants to pipeline B (UI server)**. Pipeline A's strict_verify + corpus-approval + delimiter sanitization are not wired into `scripts/live_server.py`'s v1/v2/v3 paths. Users hitting the UI still get the old un-hardened behavior.
-- [ ] **Consolidate UI graphs** — `graph.py`, `graph_v2.py`, `graph_v3.py` all coexist. Pick one, deprecate the rest.
-
-### Scripts/ cleanup (second pass)
-
-- [ ] **Archive remaining one-off scripts**. Phase A archived 61 files but 130 remain — many are `loopback_*`, `pg_micro_test_*`, `pg_empirical_*`, `monitor_*`, `debug_*` scripts that are single-use. Second-pass cleanup needed after the full audit identifies which are still valuable as probes.
-
-### Tests
-
-- [ ] **Add a live-network integration test** for pipeline A so a Serper/OpenRouter outage doesn't cause a silent production failure caught only when the 8-query sweep runs.
-- [ ] **Mark unused `src/utils/` modules** — `circuit_breaker.py`, `quality_metrics.py`, `result_cache.py` are only kept because tests import them; if those tests become obsolete, these libs can be archived too.
-
-### Docs
-
-- [ ] **Write `docs/runbook.md`** — how to run each pipeline end-to-end, how to add a new query, how to add a new domain, how to replace the default model pair, how to interpret manifest statuses. (This is Task #61 in the cleanup plan.)
-- [ ] **Reconcile CLAUDE.md §5 Repository Layout** with the new three-pipeline reality. The template in CLAUDE.md mentions `src/phases/` (no longer exists) and a "13 phases as binaries" invariant that doesn't apply to the current pipelines.
-
-### Observability
-
-- [ ] **Add a PID/host/hash stamp to every run's `manifest.json`** so two concurrent runs on the same machine can be distinguished without guessing.
-- [ ] **Emit a `manifest.schema.json` file** alongside each sweep so consumers can validate the contract without reading `scripts/run_honest_sweep_r3.py` source.
+| ID | Milestone | Days | Status |
+|---|---|---:|---|
+| M-PROD-1 | SOC2 dry-run + remediation | 10 | pending |
+| M-PROD-2 | First paying pilot customer | 5 | pending |
+| M-PROD-3 | Production observability | 5 | pending |
+| M-PROD-4 | Public release notes + supported-scope page | 2 | pending |
 
 ---
 
-## Completed (recent)
+## Total ETA
 
-- [x] **5-round Codex↔Claude audit closed READY** (2026-04-18). Commits `724edf5`, `9493326`, `3a90b4f`, `c2570b2`, `248382e`, `db59e22`. Five blockers closed; 85 regression tests added. Test suite 220 → 305.
-- [x] **Phase 1a/1b/1c/1d (partial)/1e/1f** of the honest-by-construction rebuild — see
-  `archive/2026-04-18-pre-audit-cleanup/docs/todo_list_legacy.md` for the full history.
-- [x] **Repo cleanup Phase A-C** (2026-04-18): 162 orphan files archived, 37 stale
-  docs archived, 56MB of scratch dirs (`loopback/`, `tmp/`, `wiki/`, `cache/`)
-  archived, root-level junk cleaned, `.gitignore` updated to prevent re-accumulation,
-  README and `architecture.md` rewritten from scratch to reflect three-pipeline reality.
+84-115 engineering days = **14-23 calendar weeks** to fully online +
+tier-1 BEAT-BOTH parity + first paying pilot.
 
----
+## Acceptance bar (every Phase E milestone)
 
-## Deferred / explicit non-goals
+Codex verifies all 4:
+1. Substrate is **imported** by the named production file (grep)
+2. Substrate is **invoked** at the import site (grep)
+3. **Run-log evidence**: real run shows non-zero invocation count
+4. **Rollback flag** actually disables the new path
 
-- **Autonomous systematic review** — user-confirmed non-goal on 2026-04-17.
-  Honest-by-construction grounded research is the product, not machine-driven
-  literature review.
-- **ChromaDB as the primary LTM** — pipeline A does not use ChromaDB. It is
-  retained only for pipeline B's checkpoint/memory behavior.
-- **Model-ensemble evaluation** — currently one generator + one evaluator, with
-  two-family constraint enforced. Multi-model ensembling deferred indefinitely.
-
----
-
-## Note on prior todos
-
-The previous `todo_list.md` (~320 lines, session-60-through-62 detail from the
-honest-rebuild phase) was archived to
-`archive/2026-04-18-pre-audit-cleanup/docs/todo_list_legacy.md` as part of the
-repo cleanup. Historical decisions and completion records for the honest-rebuild
-phases are preserved there. The new file above focuses on what is ACTIONABLE
-going forward.
+"Imported but unused" doesn't pass. Locked memory rule:
+`feedback_substrate_is_not_product.md`.
