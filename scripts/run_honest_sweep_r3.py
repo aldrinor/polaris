@@ -881,10 +881,22 @@ async def run_one_query(
         # M-INT-4: best-effort LLM scope classification alongside
         # the deterministic template-driven gate. Telemetry only —
         # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
-        scope_llm_summary = _classify_scope_with_llm(
-            question=q["question"],
-            domain=q["domain"],
-        )
+        # Codex round-2 HIGH fix (v3): wrap the helper call itself
+        # in try/except. v2 only protected against malformed dict
+        # shapes; if the helper RAISES (e.g. unexpected internal
+        # path, monkeypatched test stub, future bug introduced),
+        # the exception escaped to the outer fatal handler with
+        # status=error. Defense-in-depth: helper has its own
+        # try/except internally; sweep adds a second layer per
+        # LAW II "best-effort telemetry must not gate sweep".
+        try:
+            scope_llm_summary = _classify_scope_with_llm(
+                question=q["question"],
+                domain=q["domain"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[M-INT-4] WARN: scope_llm helper raised: {exc}")
+            scope_llm_summary = None
         if scope_llm_summary is not None:
             # Codex round-1 HIGH fix (v2): use .get() to defend
             # against a malformed M-INT-4 dict (e.g. missing

@@ -292,9 +292,13 @@ def test_run_one_query_survives_malformed_scope_llm_dict(
 
     monkeypatch.setattr(sweep, "run_scope_gate", _fake_run_scope_gate)
 
-    # Stub run_live_retrieval to short-circuit (we just need the
-    # query path to NOT abort due to malformed M-INT-4 dict).
-    async def _fake_retrieval(**kwargs):
+    # Stub run_live_retrieval to short-circuit. Codex round-2
+    # MEDIUM: production run_live_retrieval is SYNC, not async.
+    # v2 used `async def` here, which caused asyncio.run to
+    # consume an unawaited-coroutine instead of actually
+    # exercising the sweep — the test could "pass" after an
+    # unrelated failure. v3 uses sync stub matching production.
+    def _fake_retrieval(**kwargs):
         return SimpleNamespace(
             evidence=[],
             run_dir=kwargs.get("run_dir") or tmp_path,
@@ -326,3 +330,79 @@ def test_run_one_query_survives_malformed_scope_llm_dict(
     )
     assert "'confidence'" not in error_msg
     assert "'template_domain_hint'" not in error_msg
+
+
+def test_run_one_query_survives_scope_llm_helper_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-2 HIGH: v2 only protected against malformed
+    dict shapes. If `_classify_scope_with_llm` itself raises
+    (helper bug, monkeypatched stub, future regression), the
+    exception escaped run_one_query's M-INT-4 wiring and aborted
+    via the outer fatal handler with status=error. v3 wraps
+    the helper call itself in try/except for defense-in-depth
+    per LAW II."""
+    import asyncio
+
+    monkeypatch.setenv("PG_USE_LLM_SCOPE", "1")
+    monkeypatch.setenv("PG_USE_DOMAIN_ROUTER", "1")
+    monkeypatch.setenv("PG_CAPTURE_PIN", "0")
+
+    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
+
+    # Stub _classify_scope_with_llm to RAISE directly (not
+    # return malformed dict). v2's defensive .get() doesn't
+    # help here — the helper call itself blows up.
+    def _broken_classifier(*args, **kwargs):
+        raise RuntimeError("simulated classifier crash")
+
+    monkeypatch.setattr(
+        sweep, "_classify_scope_with_llm", _broken_classifier,
+    )
+
+    # Stub run_scope_gate (sync) and run_live_retrieval (sync,
+    # matching production signature) so we isolate the M-INT-4
+    # raise path.
+    from types import SimpleNamespace
+
+    def _fake_run_scope_gate(*args, **kwargs):
+        protocol = SimpleNamespace(
+            scope_decision="accepted",
+            scope_rejected=False,
+            scope_rejection_code=None,
+            scope_reasons=[],
+            needs_user_review=False,
+            to_json_dict=lambda: {"decision": "accepted"},
+        )
+        return SimpleNamespace(
+            protocol=protocol,
+            protocol_sha256="0" * 64,
+        )
+
+    monkeypatch.setattr(sweep, "run_scope_gate", _fake_run_scope_gate)
+
+    def _fake_retrieval(**kwargs):
+        return SimpleNamespace(
+            evidence=[],
+            run_dir=kwargs.get("run_dir") or tmp_path,
+            stats={"sources": 0},
+        )
+
+    monkeypatch.setattr(sweep, "run_live_retrieval", _fake_retrieval)
+
+    q = {
+        "domain": "tech",
+        "slug": "helper_raise_smoke",
+        "question": "Test query for helper raise",
+    }
+
+    out_root = tmp_path / "out"
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    summary = asyncio.run(sweep.run_one_query(q, out_root))
+
+    # Helper raise must NOT propagate to outer fatal handler.
+    error_msg = str(summary.get("error", ""))
+    assert "simulated classifier crash" not in error_msg, (
+        f"M-INT-4 helper raise propagated to run_one_query: {error_msg!r}"
+    )
