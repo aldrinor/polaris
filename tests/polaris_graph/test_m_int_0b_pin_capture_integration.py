@@ -77,8 +77,14 @@ def test_capture_run_pin_writes_pin_file(
 def test_capture_run_pin_uses_default_replay_env_vars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """env_snapshot should contain the keys from DEFAULT_REPLAY_ENV_VARS
-    (None for unset, str for set)."""
+    """env_snapshot should contain ALL keys from
+    DEFAULT_REPLAY_ENV_VARS (None for unset, str for set).
+
+    Codex round-1 LOW fix (v2): pin the FULL coverage contract,
+    not just one representative key. This ensures M-D11 phase 2
+    replay can restore every env var the sweep depends on,
+    not just the one we happened to test.
+    """
     monkeypatch.setenv("OPENROUTER_DEFAULT_MODEL", "test/model")
     monkeypatch.setenv("PG_CAPTURE_PIN", "1")
     sweep = importlib.import_module("scripts.run_honest_sweep_r3")
@@ -88,9 +94,17 @@ def test_capture_run_pin_uses_default_replay_env_vars(
     pin_path = sweep._capture_run_pin("TEST_RUN_002", run_dir)
     assert pin_path is not None
     pin = sweep.pin_from_json(pin_path.read_text(encoding="utf-8"))
-    # OPENROUTER_DEFAULT_MODEL is in DEFAULT_REPLAY_ENV_VARS,
-    # so its value should be captured.
-    assert "OPENROUTER_DEFAULT_MODEL" in pin.env_snapshot
+
+    # Every DEFAULT_REPLAY_ENV_VARS key MUST appear in
+    # env_snapshot (with None when unset, str when set).
+    expected_keys = set(sweep.DEFAULT_REPLAY_ENV_VARS)
+    actual_keys = set(pin.env_snapshot.keys())
+    missing = expected_keys - actual_keys
+    assert not missing, (
+        f"env_snapshot missing {len(missing)} of "
+        f"{len(expected_keys)} DEFAULT_REPLAY_ENV_VARS keys: {missing}"
+    )
+    # Spot-check the value we set explicitly.
     assert pin.env_snapshot["OPENROUTER_DEFAULT_MODEL"] == "test/model"
 
 
