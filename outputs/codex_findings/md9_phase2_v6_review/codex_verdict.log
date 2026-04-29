@@ -1,0 +1,15 @@
+## Verdict
+GREEN
+
+## Round-4 fix integration
+- [x] Mn/Mc/Me skip extension closes round-4 bypass
+- [x] No regression on base+combining sequences
+
+## New findings (if any)
+None.
+
+## Cross-milestone note (M-D5 phase 1 alignment)
+M-D9 v6 is stricter than locked M-D5 `scope_classifier._is_visually_empty`; track separately, not a blocker for this milestone.
+
+## Final word
+GREEN
