@@ -165,11 +165,13 @@ def _list_window(
     substrate raises uniformly rather than silently
     miscounting on edge cases.
 
-    Operator paths once a workspace exceeds the cap:
-      1. Use `store.list_alerts(workspace_id, status=...)` +
-         caller-side aggregation against a phase-2-v2
-         SQL-aggregator (deferred).
-      2. Shard the workspace.
+    Operator paths once a workspace exceeds the cap (same
+    three paths documented in the `_MAX_LIMIT` block and
+    `docs/md10_phase2_threat_model.md`):
+      1. Shard the workspace.
+      2. Use the phase 1 store query API directly
+         (`store.list_alerts`, `store.count`,
+         `store.latest_for_url`) with caller-side aggregation.
       3. Wait for phase 2 v2 SQL-side aggregation.
     """
     total_in_workspace = store.count(workspace_id=workspace_id)
