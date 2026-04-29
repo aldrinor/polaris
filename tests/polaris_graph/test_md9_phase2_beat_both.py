@@ -790,6 +790,32 @@ def test_claim_frames_treats_combining_marks_as_missing() -> None:
     assert scores["claim_frames"].value == 2.0
 
 
+def test_claim_frames_treats_hangul_fillers_as_missing() -> None:
+    """Codex round-5 LOW fix (v7): the four remaining
+    Default_Ignorable_Code_Point values outside the skipped
+    Cf/Cc/Cn/Co/Cs/Mn/Mc/Me categories are Hangul fillers with
+    category Lo. They render as blank placeholder glyphs, so a
+    frame field composed entirely of them is still morally
+    missing.
+    """
+    manifest = {
+        "claims": [
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2,
+             "ci": "\u115f"},
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7,
+             "ci": "\u1160"},
+            {"n": 75, "baseline": 7.2, "endpoint": 5.9,
+             "ci": "\u3164"},
+            {"n": 80, "baseline": 7.3, "endpoint": 6.0,
+             "ci": "\uffa0"},
+            {"n": 50, "baseline": 7.0, "endpoint": 5.5,
+             "ci": "[5.2, 5.8]"},
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["claim_frames"].value == 1.0
+
+
 def test_claim_frames_treats_invisible_unicode_as_missing() -> None:
     """Pre-emptive v5 hardening: `str.strip()` removes Zs/Zl/Zp
     + whitespace controls but NOT Cf-category characters

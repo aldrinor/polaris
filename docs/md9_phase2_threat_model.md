@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v6 / 2026-04-28
+**Status:** v7 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (53 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (54 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -152,7 +152,11 @@ v5 (pre-emptive hardening, mirrors M-D5 phase 1
 characters that survive `str.strip()`. v6 (Codex round-4 LOW
 fix) extends to Mn/Mc/Me Unicode mark categories (combining
 marks have no rendering when standalone — CGJ U+034F, VS16
-U+FE0F, FVS1 U+180B, lone cedilla U+0327 all bypassed v5):
+U+FE0F, FVS1 U+180B, lone cedilla U+0327 all bypassed v5).
+v7 (Codex round-5 LOW fix) closes the remaining
+Default_Ignorable_Code_Point holes outside those categories:
+the four Hangul fillers U+115F/U+1160/U+3164/U+FFA0 (all
+category Lo) were still counted as populated under v6:
   - `None` → missing
   - `""` (empty string) → missing
   - `"   "` / `"\t\n"` (whitespace-only string) → missing
@@ -162,6 +166,8 @@ U+FE0F, FVS1 U+180B, lone cedilla U+0327 all bypassed v5):
   - `"͏"` (CGJ Mn) → missing (v6)
   - `"️"` (VS16 Mn) → missing (v6)
   - `"̧"` (lone cedilla Mn) → missing (v6)
+  - `"\u115f"` / `"\u1160"` → missing (Hangul fillers; v7)
+  - `"\u3164"` / `"\uffa0"` → missing (Hangul fillers; v7)
   - `"a̧"` ('a' + cedilla) → present (base char is content)
   - `0` / `0.0` → present (legitimate measurement; v2 fix)
   - any other non-None / non-blank / non-invisible value → present
@@ -172,6 +178,39 @@ None, empty-string→whitespace-only). v5 closes the next obvious
 edge (invisible Unicode) before round 4, on the same convergence
 chain — `str.strip()` only removes Zs/Zl/Zp + whitespace
 controls, NOT Cf/Cc/Cn/Co/Cs.
+
+**ASYMPTOTE BOUNDARY (v7 closure)**: the skip set
+{`isspace()`} ∪ {Cf, Cc, Cn, Co, Cs, Mn, Mc, Me} ∪
+{U+115F, U+1160, U+3164, U+FFA0} now exhaustively covers Unicode
+**Default_Ignorable_Code_Point** per the UCD `DerivedCoreProperties`
+file. There are no further "invisible Unicode codepoints"
+outside this skip set — the Hangul fillers were the only
+Default_Ignorable Lo characters.
+
+Round history (6 codex rounds total, all on the same
+`_is_frame_field_populated` predicate):
+  R1 → v2: regex URL parsing → urllib.parse.urlsplit
+  R2 → v3: truthy → is_not_None semantics
+  R3 → v4: empty-string → whitespace-only strip()
+  R4 → v5 (pre-emptive): strip() → Cf/Cc/Cn/Co/Cs
+  R5a → v6: + Mn/Mc/Me (combining marks, lone CGJ/VS16)
+  R5b → v7 (user-applied): + Hangul fillers (Lo Default_Ignorable)
+
+**Future findings on this predicate must argue a NEW SEMANTIC**
+("visually empty" is exhausted) rather than enumerate another
+invisible Unicode codepoint. Examples of legitimate next-cycle
+findings: NFKC compatibility decomposition handling
+(`"ﬁ" → "fi"` for content count purposes), Bidi override
+detection within meaningful text, hidden RLO/LRO sequences. None
+of these are about *emptiness* — they're about textual
+*meaning*.
+
+**Premature-lock pattern observed across 3 round attempts (v5,
+v6, v7)**: verdict-only follow-up briefs returned GREEN on the
+diff text but the actual full-investigation Codex sessions
+hit Windows cp1252 console encoding errors mid-Python-
+verification, then on retry surfaced new findings. The
+locking pattern was wrong, not the predicate.
 
 **Mitigation**: if downstream pipelines ship manifest schema
 v2 with new field names, scorers should be updated in v2 of

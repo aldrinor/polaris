@@ -171,6 +171,12 @@ class DimensionScorer(Protocol):
 
 
 _MISSING = object()
+_VISUALLY_EMPTY_TEXT_CODEPOINTS = frozenset({
+    "\u115f",  # HANGUL CHOSEONG FILLER
+    "\u1160",  # HANGUL JUNGSEONG FILLER
+    "\u3164",  # HANGUL FILLER
+    "\uffa0",  # HALFWIDTH HANGUL FILLER
+})
 
 
 def _is_frame_field_populated(value: Any) -> bool:
@@ -206,11 +212,16 @@ def _is_frame_field_populated(value: Any) -> bool:
 
 def _is_visually_empty_text(text: str) -> bool:
     """Mirror of `scope_classifier._is_visually_empty`,
-    extended in v6 (Codex round-4 LOW fix) to include the
-    Unicode mark categories Mn/Mc/Me. Standalone combining
-    marks have no base character to attach to and render as
-    nothing — `ci="\\u034f"` (lone CGJ) was previously
-    accepted as a populated frame value.
+    extended in v7 (Codex round-5 LOW fix) to cover the four
+    remaining Default_Ignorable_Code_Point values that are not
+    already captured by `isspace()` or the skipped Unicode
+    general categories below: the Hangul filler code points
+    U+115F/U+1160/U+3164/U+FFA0.
+
+    v6 added the Unicode mark categories Mn/Mc/Me. Standalone
+    combining marks have no base character to attach to and
+    render as nothing — `ci="\\u034f"` (lone CGJ) was
+    previously accepted as a populated frame value.
 
     Categories rejected as non-content / non-rendering:
       - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, ...)
@@ -221,6 +232,7 @@ def _is_visually_empty_text(text: str) -> bool:
       - Mn=Mark Nonspacing (CGJ U+034F, VS16 U+FE0F, ...)
       - Mc=Mark Spacing Combining (Devanagari vowel signs ...)
       - Me=Mark Enclosing (enclosing circles, ...)
+      - explicit Lo fillers: U+115F/U+1160/U+3164/U+FFA0
 
     A base character + Mn (e.g. `"a\\u0327"` = 'a̧') still
     counts as populated because the loop exits on the 'a'
@@ -237,6 +249,8 @@ def _is_visually_empty_text(text: str) -> bool:
             "Cf", "Cc", "Cn", "Co", "Cs",
             "Mn", "Mc", "Me",
         ):
+            continue
+        if ch in _VISUALLY_EMPTY_TEXT_CODEPOINTS:
             continue
         return False
     return True
