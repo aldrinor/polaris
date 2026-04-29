@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v3 / 2026-04-28
+**Status:** v4 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (50 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (51 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -145,11 +145,13 @@ and returns 0.0 with a rationale when fields are missing:
   `www.fda.gov` and `fda.gov` are unified.
 
 `_ClaimFramesScorer` v3 (Codex round-2 LOW fix) also rejects
-empty-string field values via `_is_frame_field_populated`:
+empty-string field values via `_is_frame_field_populated`.
+v4 (Codex round-3 LOW fix) extends to whitespace-only:
   - `None` → missing
   - `""` (empty string) → missing
+  - `"   "` / `"\t\n"` (whitespace-only string) → missing
   - `0` / `0.0` → present (legitimate measurement; v2 fix)
-  - any other non-None / non-empty value → present
+  - any other non-None / non-blank value → present
 
 **Mitigation**: if downstream pipelines ship manifest schema
 v2 with new field names, scorers should be updated in v2 of

@@ -736,6 +736,24 @@ def test_claim_frames_treats_empty_string_as_missing() -> None:
     assert scores["claim_frames"].value == 2.0
 
 
+def test_claim_frames_treats_whitespace_only_as_missing() -> None:
+    """Codex round-3 LOW fix (v4): a claim with `ci="   "` (or
+    other whitespace-only frame string) is morally missing.
+    """
+    manifest = {
+        "claims": [
+            # Whitespace-only CI = missing
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2, "ci": "   "},
+            # Tab/newline-only CI = missing
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7, "ci": "\t\n"},
+            # Genuinely complete
+            {"n": 50, "baseline": 7.0, "endpoint": 5.5, "ci": "[5.2, 5.8]"},
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["claim_frames"].value == 1.0
+
+
 def test_claim_frames_missing_key_treated_as_missing() -> None:
     """A claim that doesn't have the key at all is missing
     (sentinel != None != ""); pin that case distinctly."""

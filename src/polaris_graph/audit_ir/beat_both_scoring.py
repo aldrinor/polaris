@@ -177,14 +177,18 @@ def _is_frame_field_populated(value: Any) -> bool:
     populated when:
       - it's not the sentinel (key absent from dict)
       - it's not None
-      - it's not the empty string
+      - it's not an empty / whitespace-only string
 
     Numeric 0 / 0.0 (legitimate baseline / endpoint values) DO
     count as populated. This is the round-1 fix preserved.
+
+    Codex round-3 LOW fix (v4): also reject whitespace-only
+    strings (e.g. `ci="   "`). Equivalent to morally-empty for
+    the scorer's purpose (no [low, high] range present).
     """
     if value is _MISSING or value is None:
         return False
-    if isinstance(value, str) and value == "":
+    if isinstance(value, str) and value.strip() == "":
         return False
     return True
 
