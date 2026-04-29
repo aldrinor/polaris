@@ -1,0 +1,14 @@
+## Verdict
+GREEN
+
+## Round-1 fix integration
+- [x] HIGH executor.shutdown(wait=False) returns fast at timeout
+- [x] MEDIUM submit-anchored deadline documented in boundary 3
+- [x] MEDIUM FetcherProtocolError propagates promptly
+- [x] LOW timing test threshold loosened
+
+## New findings (if any)
+[LOW] `src/polaris_graph/audit_ir/parallel_fetch.py:139`, `src/polaris_graph/audit_ir/parallel_fetch.py:345`, `src/polaris_graph/audit_ir/parallel_fetch.py:472` — `TIMEOUT.started_at` was still using the call-level start timestamp, which could predate the task’s actual worker start under semaphore contention. Fixed in-round by tracking observed per-task start time and falling back to the shared submit-time timeout-budget anchor. Pinned by `tests/polaris_graph/test_md8_phase1_parallel_fetch.py:345` and `tests/polaris_graph/test_md8_phase1_parallel_fetch.py:463`.
+
+## Final word
+GREEN after the low timeout-metadata follow-up; `python -m pytest -q tests\polaris_graph\test_md8_phase1_parallel_fetch.py` is 32/32 passing.

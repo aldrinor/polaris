@@ -136,9 +136,13 @@ class FetchResultRecord:
     type is NOT preserved — callers wanting structured errors
     should make their Fetcher catch + convert.
 
-    `started_at` / `finished_at` are UNIX epoch floats marking
-    when the task began (after backend semaphore acquired)
-    and ended.
+    `started_at` / `finished_at` are UNIX epoch floats. For
+    SUCCESS / ERRORED they mark when the task began (after
+    backend semaphore acquired) and ended. For TIMEOUT,
+    `started_at` is best-effort actual task start if the
+    worker reached the fetch path; otherwise it falls back to
+    the submit-time timeout-budget anchor (a task can time out
+    before entering `fetcher.fetch` under contention).
 
     `task_metadata` echoes the FetchTask's metadata for
     correlation.
@@ -338,10 +342,17 @@ def parallel_fetch(
                 semaphores[backend_id] = sem
             return sem
 
-    def _run_task(task: FetchTask) -> FetchResultRecord:
+    task_started_by_index: dict[int, float] = {}
+    task_started_lock = threading.Lock()
+
+    def _run_task(
+        index: int, task: FetchTask,
+    ) -> FetchResultRecord:
         sem = _get_semaphore(task.backend_id)
         sem.acquire()
         task_started = time.time()
+        with task_started_lock:
+            task_started_by_index[index] = task_started
         try:
             try:
                 result = fetcher.fetch(task)
@@ -403,7 +414,7 @@ def parallel_fetch(
         deadline_per_future: dict[concurrent.futures.Future, float] = {}
         submit_now = time.time()
         for idx, task in enumerate(deduped):
-            fut = executor.submit(_run_task, task)
+            fut = executor.submit(_run_task, idx, task)
             future_to_index[fut] = idx
             if per_task_timeout is not None:
                 deadline_per_future[fut] = submit_now + per_task_timeout
@@ -458,6 +469,10 @@ def parallel_fetch(
                     idx = future_to_index[fut]
                     task = deduped[idx]
                     fut.cancel()  # best-effort
+                    with task_started_lock:
+                        timeout_started_at = task_started_by_index.get(
+                            idx, submit_now,
+                        )
                     results_by_index[idx] = FetchResultRecord(
                         source_url=task.source_url,
                         backend_id=task.backend_id,
@@ -466,7 +481,7 @@ def parallel_fetch(
                         content_type=None,
                         fetch_status_code=None,
                         error="per-task timeout exceeded",
-                        started_at=started_at,
+                        started_at=timeout_started_at,
                         finished_at=now,
                         task_metadata=task.task_metadata,
                     )

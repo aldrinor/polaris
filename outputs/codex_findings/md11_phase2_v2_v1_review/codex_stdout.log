@@ -1,0 +1,16 @@
+## Verdict
+PARTIAL
+
+## Boundary integration
+- [x] Pure derivation (no I/O)
+- [x] Out-of-order fails loudly
+- [x] None vs "" preserved
+- [ ] Verdict thresholds correct
+
+## New findings (if any)
+[MEDIUM] [src/polaris_graph/audit_ir/pin_trends.py:342](</C:/POLARIS/src/polaris_graph/audit_ir/pin_trends.py:342>) — drift events are emitted by iterating `seen_dims`, which is a `set`. When one transition changes multiple dimensions, the tuple order depends on Python’s hash seed, so identical input can produce different `drift_events` order across processes. That violates the module’s stated deterministic/pure-derivation contract and can make serialized reports or equality-based checks flap.
+
+[MEDIUM] [src/polaris_graph/audit_ir/pin_trends.py:297](</C:/POLARIS/src/polaris_graph/audit_ir/pin_trends.py:297>) — explicit `stable_threshold` / `unstable_threshold` kwargs are not clamped, even though the docstring and threat model say thresholds are clamped to `[0.0, 1.0]`. `analyze_pin_trends(..., stable_threshold=1.5, unstable_threshold=-0.2)` currently raises `PinTrendError` instead of behaving like the env-path and clamping first.
+
+## Final word
+PARTIAL until event ordering is made deterministic and explicit threshold kwargs are clamped the same way env overrides are. Targeted tests are green: `python -m pytest -q tests\polaris_graph\test_md11_phase2_v2_pin_trends.py` passed `34/34`.

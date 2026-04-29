@@ -2,7 +2,7 @@
 
 **Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/parallel_fetch.py`
-**Tests:** `tests/polaris_graph/test_md8_phase1_parallel_fetch.py` (30 passing)
+**Tests:** `tests/polaris_graph/test_md8_phase1_parallel_fetch.py` (32 passing)
 **Pairs with:** M-D7 phase 1 retrieval cache + M-D7 phase 2
 cache warming. Phase 2 of M-D8 will integrate with the
 production live retriever (`src/polaris_graph/retrieval/
@@ -102,6 +102,14 @@ returns; the report records TIMEOUT and the result is
 discarded. The backend semaphore IS released (in the
 worker's finally block), so subsequent calls don't deadlock.
 
+**TIMEOUT timestamp semantics (v2 follow-up)**:
+`FetchResultRecord.started_at` for a TIMEOUT is best-effort:
+if the worker reached the fetch path, the record preserves
+that observed worker start; otherwise it falls back to the
+shared submit-time timeout-budget anchor. This matters under
+semaphore contention because a task can time out before it
+ever enters `fetcher.fetch`.
+
 **v2 fix (Codex round-1 HIGH)**: caller latency now
 actually shrinks at timeout. v1 used a `with` block for the
 ThreadPoolExecutor, which calls `shutdown(wait=True)` on
@@ -147,7 +155,10 @@ errors should make their Fetcher catch and convert.
 `FetcherProtocolError` (the fetcher returned a non-tuple or
 wrong-arity tuple) is NOT caught by ERRORED — it's a
 programmer error that propagates up immediately, with
-remaining futures cancelled best-effort.
+remaining futures cancelled best-effort. v2 uses
+`shutdown(wait=False, cancel_futures=True)` on that branch
+too, so the protocol error returns promptly even if another
+worker is still running.
 
 ### 7. FetchResultRecord shape validation at the substrate
 
@@ -192,7 +203,8 @@ Round-1 brief incoming. Tool hints:
 - `python -m pytest -q tests\polaris_graph\test_md8_phase1_parallel_fetch.py`
 - DO NOT run rg/find — read source/tests/threat-model directly
 - DO NOT run Python verification scripts that print Unicode
-- 29 tests pin all 7 boundaries
+- 32 tests pin all 7 boundaries plus the timeout/protocol-error
+  latency guarantees
 
 Targeted at 1-2 round convergence per the M-D7 phase 2 +
 M-D11 phase 2 v1 patterns (substrate work with v1-shipped

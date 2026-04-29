@@ -94,6 +94,17 @@ class _ConditionalFetcher:
         return (b"ok", "text/html", 200)
 
 
+@dataclass
+class _DelayByUrlFetcher:
+    delays_by_url: dict[str, float]
+
+    def fetch(self, task: FetchTask) -> tuple[bytes, str, int]:
+        delay = self.delays_by_url.get(task.source_url, 0.0)
+        if delay:
+            time.sleep(delay)
+        return (task.source_url.encode("utf-8"), "text/html", 200)
+
+
 # ---------------------------------------------------------------------------
 # Empty / no-op
 # ---------------------------------------------------------------------------
@@ -331,6 +342,37 @@ def test_timeout_actually_returns_fast_not_just_relabels() -> None:
     assert report.timeout_count == 1
 
 
+def test_timeout_started_at_reflects_actual_start_when_known() -> None:
+    """A timed-out task that did begin running should carry its
+    actual worker start time, not the overall call start."""
+    fetcher = _DelayByUrlFetcher(
+        delays_by_url={
+            "https://first.com": 0.20,
+            "https://second.com": 0.50,
+        },
+    )
+    tasks = [
+        FetchTask("https://first.com", "serial_backend"),
+        FetchTask("https://second.com", "serial_backend"),
+    ]
+    report = parallel_fetch(
+        tasks, fetcher, max_workers=2,
+        per_backend_max_concurrent={"serial_backend": 1},
+        per_task_timeout=0.30,
+    )
+    timed_out = next(
+        rec for rec in report.results
+        if rec.source_url == "https://second.com"
+    )
+    assert report.success_count == 1
+    assert report.timeout_count == 1
+    assert timed_out.outcome == FetchOutcome.TIMEOUT
+    assert timed_out.started_at - report.started_at >= 0.10, (
+        "timeout record should preserve the task's observed "
+        "worker start when it began after semaphore contention"
+    )
+
+
 def test_no_timeout_with_none() -> None:
     """per_task_timeout=None disables timeout — slow task
     completes successfully."""
@@ -416,6 +458,33 @@ def test_fetcher_returning_str_payload_raises() -> None:
             [FetchTask("https://a.com", "default")],
             _BadFetcher(),  # type: ignore[arg-type]
         )
+
+
+def test_protocol_error_returns_fast_not_after_other_workers_finish(
+) -> None:
+    """Protocol errors should propagate promptly even if another
+    worker is still sleeping."""
+
+    @dataclass
+    class _BadAndSlowFetcher:
+        def fetch(self, task: FetchTask):
+            if task.source_url.endswith("/bad"):
+                return "not a tuple"
+            time.sleep(0.50)
+            return (b"ok", "text/html", 200)
+
+    tasks = [
+        FetchTask("https://example.com/bad", "backend_a"),
+        FetchTask("https://example.com/slow", "backend_b"),
+    ]
+    t0 = time.time()
+    with pytest.raises(FetcherProtocolError):
+        parallel_fetch(tasks, _BadAndSlowFetcher(), max_workers=2)
+    elapsed = time.time() - t0
+    assert elapsed < 0.30, (
+        f"elapsed {elapsed:.3f}s - protocol error path is waiting "
+        "for other workers instead of raising promptly"
+    )
 
 
 # ---------------------------------------------------------------------------

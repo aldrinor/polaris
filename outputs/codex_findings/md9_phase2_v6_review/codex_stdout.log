@@ -1,0 +1,13 @@
+## Verdict
+PARTIAL
+
+## Round-4 fix integration
+- [x] Mn/Mc/Me skip extension closes round-4 bypass
+
+## New findings (if any)
+[LOW] [src/polaris_graph/audit_ir/beat_both_scoring.py](/C:/POLARIS/src/polaris_graph/audit_ir/beat_both_scoring.py:213) — `c6612f0` still accepted the four Hangul filler code points `U+115F` / `U+1160` / `U+3164` / `U+FFA0` as populated frame values. They are `Default_Ignorable_Code_Point` placeholders, but category `Lo`, so v6’s `Cf/Cc/Cn/Co/Cs/Mn/Mc/Me` skip set did not catch them.
+
+## Final word
+GREEN after v7 lands
+
+I patched the same predicate family with an explicit filler-codepoint skip at [src/polaris_graph/audit_ir/beat_both_scoring.py](/C:/POLARIS/src/polaris_graph/audit_ir/beat_both_scoring.py:174), added a regression at [tests/polaris_graph/test_md9_phase2_beat_both.py](/C:/POLARIS/tests/polaris_graph/test_md9_phase2_beat_both.py:793), and updated the boundary doc at [docs/md9_phase2_threat_model.md](/C:/POLARIS/docs/md9_phase2_threat_model.md:156). `python -m pytest -q tests\polaris_graph\test_md9_phase2_beat_both.py` now passes with `54 passed` (plus the existing `.pytest_cache` access warning).
