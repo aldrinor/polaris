@@ -1,0 +1,14 @@
+## Verdict
+PARTIAL
+
+## Round-1 fix integration
+- [x] HIGH verdict type-validated
+- [x] MEDIUM domain_id type-validated
+
+## New findings (if any)
+[MEDIUM] src/polaris_graph/audit_ir/domain_router.py:300 — `classification.domain` is still not type-validated on the `IN_SCOPE` path. A malformed `ScopeClassification(domain=123)` now returns `UNKNOWN_DOMAIN` instead of raising `DomainRouterError`, which masks classifier/caller schema drift as a normal routing miss.
+
+[MEDIUM] src/polaris_graph/audit_ir/domain_router.py:107 — `DomainTemplateRegistry` still trusts `expected_adapter_ids` runtime annotations. Malformed manifests such as `expected_adapter_ids=(123,)` construct successfully and later degrade into `MISSING_ADAPTERS` at route time instead of failing at registry construction.
+
+## Final word
+PARTIAL until `classification.domain` and `expected_adapter_ids` are type-validated and pinned by negative tests.

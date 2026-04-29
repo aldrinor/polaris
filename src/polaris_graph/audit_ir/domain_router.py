@@ -124,6 +124,29 @@ class DomainTemplateRegistry:
                 raise DomainRouterError(
                     f"templates[{i}].domain_id must be non-empty"
                 )
+            # Codex round-2 MEDIUM fix (v3): type-check
+            # expected_adapter_ids tuple. v2 trusted the
+            # runtime annotation; `expected_adapter_ids=(123,)`
+            # constructed successfully and later degraded into
+            # MISSING_ADAPTERS at route time instead of failing
+            # at registry construction.
+            if not isinstance(tpl.expected_adapter_ids, tuple):
+                raise DomainRouterError(
+                    f"templates[{i}].expected_adapter_ids must be "
+                    f"tuple, got "
+                    f"{type(tpl.expected_adapter_ids).__name__}"
+                )
+            for j, aid in enumerate(tpl.expected_adapter_ids):
+                if not isinstance(aid, str):
+                    raise DomainRouterError(
+                        f"templates[{i}].expected_adapter_ids[{j}] "
+                        f"must be str, got {type(aid).__name__}"
+                    )
+                if not aid:
+                    raise DomainRouterError(
+                        f"templates[{i}].expected_adapter_ids[{j}] "
+                        "must be non-empty"
+                    )
             if tpl.domain_id in ids:
                 raise DomainRouterError(
                     f"duplicate domain_id {tpl.domain_id!r} in templates"
@@ -306,6 +329,16 @@ def route_to_domain(
             template=None,
             adapters=(),
             rationale="IN_SCOPE classification missing domain tag",
+        )
+    # Codex round-2 MEDIUM fix (v3): type-validate domain on
+    # the IN_SCOPE path. v2 returned UNKNOWN_DOMAIN for
+    # malformed `ScopeClassification(domain=123)`, masking
+    # classifier/caller schema drift as a normal routing miss.
+    # v3 raises DomainRouterError on non-str domain.
+    if not isinstance(domain_id, str):
+        raise DomainRouterError(
+            f"classification.domain must be str (or None), got "
+            f"{type(domain_id).__name__} ({domain_id!r})"
         )
     if not registry.has(domain_id):
         return RoutingResult(

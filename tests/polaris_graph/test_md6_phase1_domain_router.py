@@ -378,6 +378,57 @@ def test_route_rejects_malformed_verdict_value(
         route_to_domain(bogus_real, registry, adapters)
 
 
+def test_registry_rejects_non_tuple_expected_adapter_ids() -> None:
+    """Codex round-2 MEDIUM fix (v3): expected_adapter_ids
+    must be a tuple. v2 trusted annotations; a list would
+    construct fine then degrade into MISSING_ADAPTERS at
+    route time."""
+    with pytest.raises(DomainRouterError, match="expected_adapter_ids must be tuple"):
+        DomainTemplateRegistry((
+            DomainTemplate(
+                "x", "X", "p",
+                ["crossref", "pubmed"],  # type: ignore[arg-type]
+            ),
+        ))
+
+
+def test_registry_rejects_non_string_adapter_id() -> None:
+    """Codex round-2 MEDIUM fix (v3): each adapter_id in
+    expected_adapter_ids must be str."""
+    with pytest.raises(DomainRouterError, match="must be str"):
+        DomainTemplateRegistry((
+            DomainTemplate(
+                "x", "X", "p",
+                (123,),  # type: ignore[arg-type]
+            ),
+        ))
+
+
+def test_registry_rejects_empty_adapter_id() -> None:
+    """Empty-string adapter_id rejected at construction."""
+    with pytest.raises(DomainRouterError, match="must be non-empty"):
+        DomainTemplateRegistry((
+            DomainTemplate("x", "X", "p", ("",)),
+        ))
+
+
+def test_route_rejects_non_string_domain(
+    registry: DomainTemplateRegistry,
+    adapters: dict[str, DomainAdapter],
+) -> None:
+    """Codex round-2 MEDIUM fix (v3): IN_SCOPE classification
+    with non-str domain raises DomainRouterError. v2 returned
+    UNKNOWN_DOMAIN, masking schema drift as a routing miss."""
+    cls = ScopeClassification(
+        verdict=ScopeVerdict.IN_SCOPE,
+        confidence=0.9,
+        domain=123,  # type: ignore[arg-type]
+        rationale="",
+    )
+    with pytest.raises(DomainRouterError, match="domain must be str"):
+        route_to_domain(cls, registry, adapters)
+
+
 def test_route_template_with_no_expected_adapters() -> None:
     """A template with empty expected_adapter_ids routes
     successfully even with empty adapter pool."""
