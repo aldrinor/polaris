@@ -113,3 +113,83 @@ def test_openrouter_scope_llm_implements_protocol() -> None:
     assert hasattr(OpenRouterScopeAffinityLLM, "classify")
     # Cannot instantiate without OPENROUTER_API_KEY in CI; the
     # Protocol check is structural and verified on use.
+
+
+# ---------------------------------------------------------------------------
+# Codex round-1 MEDIUM fixes (v2) — _parse_scope_llm_json regressions
+# ---------------------------------------------------------------------------
+
+
+def test_parse_strips_domain_when_verdict_not_in_scope() -> None:
+    """Codex round-1 medium 1: parser must strip domain when
+    verdict is not in_scope, otherwise the adapter raises
+    'domain must be None for non-IN_SCOPE' and telemetry is lost."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"out_of_scope","confidence":0.8,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "out_of_scope"
+    assert verdict.domain is None  # stripped per adapter contract
+
+
+def test_parse_strips_domain_when_verdict_uncertain() -> None:
+    """Same medium 1 — verdict=uncertain must strip domain too."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"uncertain","confidence":0.4,'
+        '"domain":"policy","rationale":"borderline"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.domain is None
+
+
+def test_parse_rejects_bool_confidence() -> None:
+    """Codex round-1 medium 2: JSON `true` becomes Python bool
+    `True`, and `float(True)` is `1.0`. Without explicit bool
+    guard, malformed `{"confidence": true}` becomes a perfect-
+    confidence verdict. v2 explicitly falls back to 0.0."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":true,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.confidence == 0.0  # NOT 1.0
+
+
+def test_parse_rejects_false_confidence_via_bool_guard() -> None:
+    """Same medium 2 — `false` should also be rejected (not become 0.0
+    via float coercion silently — explicit fallback path)."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":false,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.confidence == 0.0
+
+
+def test_parse_invalid_verdict_string_strips_domain() -> None:
+    """Codex round-1 medium 1 corner: invalid verdict ("bogus")
+    coerces to "uncertain", and uncertain must have domain=None."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"bogus","confidence":0.7,'
+        '"domain":"clinical","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.domain is None  # coerced to uncertain → domain stripped

@@ -674,11 +674,22 @@ def _parse_scope_llm_json(
     raw_verdict = str(parsed.get("verdict", "uncertain")).lower()
     if raw_verdict not in _VALID_VERDICT_STRINGS:
         raw_verdict = "uncertain"
+    # Codex round-1 MEDIUM fix (v2): JSON `true` parses as Python
+    # `True`, and `float(True)` is `1.0`. v1 silently turned a
+    # malformed `{"confidence": true}` into perfect-confidence
+    # telemetry. Adapter's bool guard (line ~428) never saw the
+    # original type because the parser had already coerced.
+    # v2 explicitly rejects bool BEFORE float conversion — fall
+    # back to confidence=0.0 with a rationale, mirroring the
+    # malformed-JSON path.
     raw_conf = parsed.get("confidence", 0.0)
-    try:
-        confidence = float(raw_conf)
-    except (TypeError, ValueError):
+    if isinstance(raw_conf, bool):
         confidence = 0.0
+    else:
+        try:
+            confidence = float(raw_conf)
+        except (TypeError, ValueError):
+            confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
     raw_domain = parsed.get("domain")
     domain: str | None
@@ -695,6 +706,16 @@ def _parse_scope_llm_json(
                 f"supported={supported_domains}"
             ),
         )
+    # Codex round-1 MEDIUM fix (v2): adapter contract requires
+    # domain=None for non-IN_SCOPE verdicts. v1's parser preserved
+    # the LLM-returned domain regardless of verdict, so JSON like
+    # `{"verdict": "out_of_scope", "domain": "clinical"}` raised
+    # ScopeClassifierError("domain must be None") inside the
+    # adapter — `_classify_scope_with_llm` then dropped the
+    # telemetry. v2 strips the domain when the verdict isn't
+    # IN_SCOPE so the contract holds at parse time.
+    if raw_verdict != "in_scope":
+        domain = None
     rationale = parsed.get("rationale", "")
     if not isinstance(rationale, str):
         rationale = str(rationale)
