@@ -1,8 +1,8 @@
 # M-D5 phase 2 v1 — LLM-augmented ScopeEligibilityClassifier boundary
 
-**Status:** v1 / 2026-04-29
+**Status:** v2 / 2026-04-29
 **Module:** `src/polaris_graph/audit_ir/scope_classifier_llm.py`
-**Tests:** `tests/polaris_graph/test_md5_phase2_llm_classifier.py` (34 passing)
+**Tests:** `tests/polaris_graph/test_md5_phase2_llm_classifier.py` (36 passing)
 **Pairs with:** M-D5 phase 1 (`scope_classifier.py`, v6 commit
 460234a + post-460234a doc bump). Inherits prompt-injection
 defense pattern from M-D2 phase b
@@ -53,10 +53,18 @@ classifier internals.
 
 ### 2. Closed verdict-string taxonomy
 
-`LLMVerdict.verdict` MUST be one of `"in_scope"`,
+`LLMVerdict.verdict` MUST be a `str` and one of `"in_scope"`,
 `"out_of_scope"`, `"uncertain"` (case-insensitive at adapt
 time — `"IN_SCOPE"` is accepted and normalized). Anything
 else raises `LLMScopeClassifierError` at `classify()` time.
+
+**v2 Codex round-1 MEDIUM fix**: type-check `verdict` BEFORE
+normalization. v1 called `.lower().strip()` on
+`llm_out.verdict` first, so a malformed
+`LLMVerdict(verdict=None, ...)` raised raw `AttributeError`
+instead of `LLMScopeClassifierError` — bad LLM output bubbled
+through the adapter contract as an unexpected hard failure.
+v2 raises a typed contract error first.
 
 This protects against LLM misalignment (the LLM emits a
 wrong-shape verdict) AND against silent taxonomy drift if
@@ -88,9 +96,17 @@ Rationale:
 
 ### 4. Confidence range enforced at adapter time
 
-`LLMVerdict.confidence` MUST be numeric (int or float) and in
-`[0.0, 1.0]`. Out-of-range or non-numeric values raise
-`LLMScopeClassifierError`.
+`LLMVerdict.confidence` MUST be numeric (int or float, but
+NOT bool) and in `[0.0, 1.0]`. Out-of-range, non-numeric, or
+bool values raise `LLMScopeClassifierError`.
+
+**v2 Codex round-1 MEDIUM fix**: explicitly reject bool
+before the int/float check. `bool` is a subclass of `int` in
+Python, so v1's `isinstance(confidence, (int, float))`
+accepted `confidence=True` and silently adapted to 1.0 — a
+malformed LLM response with `confidence=True` could become a
+high-confidence IN_SCOPE result instead of being rejected.
+v2 raises a typed contract error.
 
 Phase 1's gate already validates classifier confidence at
 gate-time too (per phase 1 boundary 2), but defense in depth

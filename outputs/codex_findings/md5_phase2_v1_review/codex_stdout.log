@@ -1,0 +1,17 @@
+## Verdict
+PARTIAL
+
+## Boundary integration
+- [x] Pure substrate
+- [ ] Verdict taxonomy enforced
+- [x] Domain validation correct
+- [x] Floor demotion correct
+- [x] Prompt-injection delimiters
+
+## New findings (if any)
+[MEDIUM] [scope_classifier_llm.py:393](</C:/POLARIS/src/polaris_graph/audit_ir/scope_classifier_llm.py:393>) — `llm_out.verdict` is normalized with `.lower().strip()` before any type check. A malformed `LLMVerdict(verdict=None, ...)` raises raw `AttributeError` instead of `LLMScopeClassifierError`, so bad LLM output can escape the adapter contract and bubble through the phase-1 gate as an unexpected hard failure.
+
+[MEDIUM] [scope_classifier_llm.py:401](</C:/POLARIS/src/polaris_graph/audit_ir/scope_classifier_llm.py:401>) — `confidence` validation accepts `bool` because `bool` is a subclass of `int`. A backend returning `confidence=True` is silently adapted as `1.0`, which can turn malformed LLM output into a high-confidence `IN_SCOPE` result instead of rejecting it.
+
+## Final word
+PARTIAL until malformed `verdict` values are type-checked and boolean `confidence` values are rejected at adapter time. Targeted verification passed: `python -m pytest -q tests\polaris_graph\test_md5_phase2_llm_classifier.py` (`34 passed`).

@@ -389,7 +389,18 @@ class LLMScopeEligibilityClassifier:
                 "expected LLMVerdict"
             )
 
-        # Validate verdict string.
+        # Codex round-1 MEDIUM fix (v2): type-check verdict
+        # before normalization. v1 called `.lower().strip()` on
+        # `llm_out.verdict` first, so a malformed
+        # `LLMVerdict(verdict=None, ...)` raised raw
+        # AttributeError instead of LLMScopeClassifierError —
+        # bad LLM output bubbled through the adapter contract
+        # as an unexpected hard failure.
+        if not isinstance(llm_out.verdict, str):
+            raise LLMScopeClassifierError(
+                f"LLM verdict must be str, got "
+                f"{type(llm_out.verdict).__name__}"
+            )
         verdict_str = llm_out.verdict.lower().strip()
         if verdict_str not in _VALID_VERDICT_STRINGS:
             raise LLMScopeClassifierError(
@@ -397,7 +408,16 @@ class LLMScopeEligibilityClassifier:
                 f"expected one of {sorted(_VALID_VERDICT_STRINGS)}"
             )
 
-        # Validate confidence range.
+        # Codex round-1 MEDIUM fix (v2): reject bool. `bool` is
+        # a subclass of `int` in Python, so v1's
+        # `isinstance(confidence, (int, float))` accepted
+        # `confidence=True` and silently adapted to 1.0 — a
+        # malformed LLM response could become a high-confidence
+        # IN_SCOPE result. v2 explicitly excludes bool.
+        if isinstance(llm_out.confidence, bool):
+            raise LLMScopeClassifierError(
+                f"LLM confidence must be numeric (int/float), got bool"
+            )
         if not isinstance(llm_out.confidence, (int, float)):
             raise LLMScopeClassifierError(
                 f"LLM confidence must be numeric, got "

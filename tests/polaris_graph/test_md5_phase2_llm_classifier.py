@@ -305,6 +305,44 @@ def test_llm_returning_non_llm_verdict_raises() -> None:
         classifier.classify("anything")
 
 
+def test_non_string_verdict_raises_classifier_error() -> None:
+    """Codex round-1 MEDIUM fix (v2): malformed
+    LLMVerdict(verdict=None, ...) must raise
+    LLMScopeClassifierError, not raw AttributeError. v1 called
+    .lower() before any type check."""
+    llm = _FixedLLM(LLMVerdict(
+        verdict=None,  # type: ignore[arg-type]
+        confidence=0.8, domain=None, rationale="",
+    ))
+    classifier = LLMScopeEligibilityClassifier(llm, _config())
+    with pytest.raises(LLMScopeClassifierError, match="verdict must be str"):
+        classifier.classify("anything")
+
+
+def test_bool_confidence_rejected() -> None:
+    """Codex round-1 MEDIUM fix (v2): bool is a subclass of
+    int, so v1's `isinstance(confidence, (int, float))`
+    accepted `confidence=True` and silently adapted to 1.0.
+    A malformed LLM response with `confidence=True` could
+    become a high-confidence IN_SCOPE result. v2 explicitly
+    rejects bool."""
+    llm = _FixedLLM(LLMVerdict(
+        verdict="in_scope", confidence=True,  # type: ignore[arg-type]
+        domain="clinical", rationale="",
+    ))
+    classifier = LLMScopeEligibilityClassifier(llm, _config())
+    with pytest.raises(LLMScopeClassifierError, match="bool"):
+        classifier.classify("anything")
+    # Also reject False
+    llm_false = _FixedLLM(LLMVerdict(
+        verdict="in_scope", confidence=False,  # type: ignore[arg-type]
+        domain="clinical", rationale="",
+    ))
+    classifier_false = LLMScopeEligibilityClassifier(llm_false, _config())
+    with pytest.raises(LLMScopeClassifierError, match="bool"):
+        classifier_false.classify("anything")
+
+
 # ---------------------------------------------------------------------------
 # LLM-side exception handling
 # ---------------------------------------------------------------------------
