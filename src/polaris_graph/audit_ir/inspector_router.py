@@ -39,6 +39,7 @@ from fastapi.responses import (
 # appropriate dependency or the M-15b authz invariant is broken.
 from src.polaris_graph.audit_ir.auth_middleware import (
     Caller,
+    optional_caller,
     require_authenticated_caller,
     require_job_member,
     require_job_viewer,
@@ -81,6 +82,119 @@ router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "scripts" / "templates"
 INSPECTOR_HTML_PATH = TEMPLATES_DIR / "inspector_shell.html"
+
+
+# ---------------------------------------------------------------------------
+# M-INT-0a — Decision telemetry integration (Phase E0)
+# ---------------------------------------------------------------------------
+#
+# Wires decision_telemetry.record_decision(...) into the production
+# scope-gate call site (/api/inspector/templates/route). Every
+# scope-gate call by an authenticated caller writes a DecisionRecord
+# in PENDING state. M-D3 phase 2 (decision_aggregates) consumes
+# these records for trust-gate calibration (M-D4, calendar-blocked).
+#
+# Telemetry is best-effort:
+#   - Failure to write MUST NOT gate the scope-gate decision
+#   - Anonymous callers skip telemetry (no workspace_id available)
+#   - PG_RECORD_DECISIONS=0 disables the write path entirely
+#
+# Per locked memory feedback_substrate_is_not_product.md: this is
+# the integration that converts M-D3 substrate into product. The
+# substrate writes the decision; the production code path now
+# imports and invokes it.
+#
+# Per FINAL_PLAN.md M-INT-0a + state/restart_instructions.md:
+#   - PG_RECORD_DECISIONS=1 (default) records decisions
+#   - PG_RECORD_DECISIONS=0 disables (rollback)
+#   - PG_DECISION_DB_PATH overrides the SQLite path (for tests)
+
+
+import logging
+import os
+import threading
+
+from src.polaris_graph.audit_ir.decision_telemetry import (
+    DecisionKind,
+    DecisionRecordStore,
+)
+
+_INT_0A_LOGGER = logging.getLogger("polaris.m_int_0a.decision_telemetry")
+_DECISION_STORE: DecisionRecordStore | None = None
+_DECISION_STORE_LOCK = threading.Lock()
+
+
+def _decision_db_path() -> Path:
+    """Decision-telemetry SQLite path. Per LAW VI: env-overridable."""
+    raw = os.environ.get("PG_DECISION_DB_PATH")
+    if raw:
+        return Path(raw)
+    base = Path(__file__).resolve().parents[3] / "state"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "decision_records.sqlite"
+
+
+def _get_decision_store() -> DecisionRecordStore:
+    """Singleton decision-telemetry store. Lazily initialized so
+    test environments can monkeypatch PG_DECISION_DB_PATH before
+    first use."""
+    global _DECISION_STORE
+    with _DECISION_STORE_LOCK:
+        if _DECISION_STORE is None:
+            _DECISION_STORE = DecisionRecordStore(_decision_db_path())
+        return _DECISION_STORE
+
+
+def _reset_decision_store_for_test() -> None:
+    """Test helper: drop the singleton so the next _get_decision_store()
+    call rebuilds it against the current PG_DECISION_DB_PATH env value.
+    Production code MUST NOT call this."""
+    global _DECISION_STORE
+    with _DECISION_STORE_LOCK:
+        _DECISION_STORE = None
+
+
+def _record_scope_gate_decision(
+    question: str,
+    routing_result: object,
+    *,
+    workspace_id: str | None,
+) -> None:
+    """Best-effort scope-gate decision record.
+
+    Failure to write is logged but does NOT raise — telemetry must
+    never gate the actual scope-gate decision. PG_RECORD_DECISIONS=0
+    disables the write path.
+
+    `workspace_id` is the auth caller's org_id (one record per
+    org's scope-gate calls). Anonymous calls (workspace_id=None)
+    skip telemetry silently.
+    """
+    if os.environ.get("PG_RECORD_DECISIONS", "1") == "0":
+        return
+    if not workspace_id:
+        return
+    try:
+        store = _get_decision_store()
+        store.record_decision(
+            workspace_id=workspace_id,
+            decision_kind=DecisionKind.SCOPE_GATE,
+            query=question,
+            proposed_payload={
+                "verdict": getattr(
+                    getattr(routing_result, "verdict", None), "value", None,
+                ),
+                "template_id": getattr(routing_result, "template_id", None),
+            },
+            proposed_confidence=float(
+                getattr(routing_result, "confidence", 0.0) or 0.0
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — intentional broad
+        _INT_0A_LOGGER.warning(
+            "scope-gate decision telemetry failed (workspace_id=%s): %s",
+            workspace_id, exc,
+        )
 
 # ---------------------------------------------------------------------------
 # Job queue lifecycle (Phase B M-8)
@@ -694,12 +808,22 @@ async def list_template_catalog() -> dict:
 
 
 @router.post("/api/inspector/templates/route")
-async def route_query(req: RouteQueryRequest) -> dict:
+async def route_query(
+    req: RouteQueryRequest,
+    caller: Caller | None = Depends(optional_caller),
+) -> dict:
     """Classify a user query against the curated template catalog.
 
     Advisory only — does NOT enqueue a job. UI flow: call this, surface
     the verdict + rationale to the user, on confirmation call
     /api/inspector/jobs to actually enqueue.
+
+    M-INT-0a (Phase E0): when the caller is authenticated, the
+    classification result is also recorded via
+    `decision_telemetry.record_decision(...)` for downstream
+    M-D4 trust-gate calibration. Anonymous callers skip telemetry.
+    Telemetry write failure is logged but does NOT gate the
+    decision (returned to the user regardless).
 
     Returns:
       verdict: one of 'routed' / 'operator_review_required' /
@@ -712,6 +836,12 @@ async def route_query(req: RouteQueryRequest) -> dict:
     """
     from src.polaris_graph.audit_ir.template_classifier import classify_query
     result = classify_query(req.question)
+    # M-INT-0a integration: record the scope-gate decision.
+    # Best-effort: failure to write does NOT change the response.
+    _record_scope_gate_decision(
+        req.question, result,
+        workspace_id=caller.org_id if caller else None,
+    )
     return {
         "verdict": result.verdict.value,
         "template_id": result.template_id,

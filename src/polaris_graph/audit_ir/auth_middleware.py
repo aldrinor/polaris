@@ -169,6 +169,43 @@ def _resolve_test_caller(header_value: str | None) -> Caller | None:
     )
 
 
+async def optional_caller(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_polaris_caller: str | None = Header(default=None),
+) -> Caller | None:
+    """FastAPI dependency. Returns Caller if a valid auth header is
+    present, None otherwise. Does NOT raise on missing auth.
+
+    M-INT-0a integration: lets endpoints that are publicly callable
+    record telemetry opportunistically when a caller is present
+    (e.g. /api/inspector/templates/route).
+
+    Same resolution order as require_authenticated_caller:
+       1. X-Polaris-Caller test header (only when env-trusted)
+       2. Authorization: Bearer <api_key>
+    Failure on either path returns None silently.
+    """
+    test_caller = _resolve_test_caller(x_polaris_caller)
+    if test_caller is not None:
+        request.state.caller = test_caller
+        return test_caller
+    plaintext = _resolve_api_key_header(authorization)
+    if plaintext is None:
+        return None
+    try:
+        store = get_auth_store()
+        api_key = store.verify_api_key(plaintext)
+    except Exception:
+        return None
+    caller = Caller(
+        user_id=api_key.user_id, org_id=api_key.org_id,
+        role=api_key.role, via="api_key",
+    )
+    request.state.caller = caller
+    return caller
+
+
 async def require_authenticated_caller(
     request: Request,
     authorization: str | None = Header(default=None),
