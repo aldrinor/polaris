@@ -97,6 +97,13 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     save_approval_decision,
 )
 from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
+# M-INT-4: OpenRouter ScopeAffinityLLM in production scope-gate path
+from src.polaris_graph.audit_ir.scope_classifier_llm import (  # noqa: E402
+    LLMScopeEligibilityClassifier,
+    LLMScopeEligibilityClassifierConfig,
+    LLMVerdict,
+    OpenRouterScopeAffinityLLM,
+)
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
@@ -624,6 +631,61 @@ def _check_corpus_freshness(
         return None
 
 
+# ──────────────────────────────────────────────────────────────────────
+# M-INT-4 — OpenRouter ScopeAffinityLLM in production (Phase E2)
+# ──────────────────────────────────────────────────────────────────────
+
+
+# Closed taxonomy of supported domains for the LLM scope classifier.
+# Mirrors `scope_gate.SUPPORTED_DOMAINS` minus `custom` (LLM is asked
+# to pick a real domain, not the catch-all UI bucket).
+_SCOPE_LLM_SUPPORTED_DOMAINS: tuple[str, ...] = (
+    "clinical", "policy", "tech", "due_diligence",
+)
+
+
+def _build_scope_llm():
+    """Factory for the production scope LLM. Tests monkeypatch this
+    to inject a Mock or broken classifier without instantiating the
+    OpenRouter client (which requires OPENROUTER_API_KEY)."""
+    return OpenRouterScopeAffinityLLM()
+
+
+def _classify_scope_with_llm(
+    question: str,
+    domain: str,
+) -> dict | None:
+    """Best-effort LLM scope classification, run alongside the
+    deterministic template-driven `run_scope_gate`. Returns a
+    summary dict or None when disabled / empty input.
+
+    Per LAW II — failure must NOT gate the sweep. Any exception
+    in the LLM path is caught and logged; an UNCERTAIN verdict
+    is recorded so operator-review can pick it up.
+    """
+    if os.environ.get("PG_USE_LLM_SCOPE", "0") == "0":
+        return None
+    if not question or not isinstance(question, str):
+        return None
+    try:
+        llm = _build_scope_llm()
+        config = LLMScopeEligibilityClassifierConfig(
+            supported_domains=_SCOPE_LLM_SUPPORTED_DOMAINS,
+        )
+        classifier = LLMScopeEligibilityClassifier(llm, config)
+        classification = classifier.classify(question)
+        return {
+            "verdict": classification.verdict.value,
+            "confidence": classification.confidence,
+            "domain": classification.domain,
+            "rationale": classification.rationale,
+            "template_domain_hint": domain,
+        }
+    except Exception as exc:
+        print(f"[M-INT-4] WARN: scope LLM path failed: {exc}")
+        return None
+
+
 def _capture_run_pin(
     run_id: str,
     run_dir: Path,
@@ -711,6 +773,21 @@ async def run_one_query(
         _log(f"[scope]       sha256={scope.protocol_sha256[:16]}... "
              f"decision={scope.protocol.scope_decision} "
              f"needs_review={scope.protocol.needs_user_review}")
+
+        # M-INT-4: best-effort LLM scope classification alongside
+        # the deterministic template-driven gate. Telemetry only —
+        # does NOT gate retrieval. PG_USE_LLM_SCOPE=0 disables.
+        scope_llm_summary = _classify_scope_with_llm(
+            question=q["question"],
+            domain=q["domain"],
+        )
+        if scope_llm_summary is not None:
+            _log(
+                f"[M-INT-4]     scope_llm: verdict={scope_llm_summary['verdict']} "
+                f"confidence={scope_llm_summary['confidence']:.2f} "
+                f"domain={scope_llm_summary['domain']} "
+                f"template_hint={scope_llm_summary['template_domain_hint']}"
+            )
 
         # BUG-B-100 fix (deep-dive R3): the scope gate is now a real
         # gate. If it rejects, abort BEFORE retrieval with a pipeline-
