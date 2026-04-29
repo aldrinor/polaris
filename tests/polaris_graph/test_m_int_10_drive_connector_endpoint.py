@@ -72,7 +72,7 @@ def test_register_drive_source_round_trips(
         json={
             "workspace_id": "ws_test",
             "name": "Engineering Drive",
-            "external_uri": "1abcDriveFolder",
+            "external_uri": "1abcDriveFolderId123456_AAA",
             "credential_ref": "vault://secrets/drive-key",
         },
     )
@@ -101,8 +101,9 @@ def test_register_rejects_non_drive_connector(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Per FINAL_PLAN narrow scope: only Drive shipped in v1.
-    Endpoint hardcodes connector=google_drive — no field accepted
-    in body, so callers can't even ask for SharePoint/Confluence."""
+    Codex round-1 v2: extra='forbid' on Pydantic model + URL/path
+    rejection on external_uri. Mislabeled SharePoint URLs MUST
+    be rejected, not silently relabeled."""
     monkeypatch.setenv("PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1")
     monkeypatch.setenv(
         "PG_PRIVATE_CORPUS_DB_PATH", str(tmp_path / "corpus.sqlite"),
@@ -113,8 +114,7 @@ def test_register_rejects_non_drive_connector(
     _reset_private_corpus_sync_store_for_test()
 
     client = _make_client(role="member")
-    # Even if the caller tries to pass a different connector,
-    # the endpoint ignores it and uses google_drive.
+    # Connector field in body → 422 (extra='forbid')
     response = client.post(
         "/api/inspector/private-corpus-sources",
         json={
@@ -122,16 +122,103 @@ def test_register_rejects_non_drive_connector(
             "name": "SharePoint test",
             "external_uri": "https://contoso.sharepoint.com",
             "credential_ref": "vault://sp-key",
-            "connector": "sharepoint",  # ignored by endpoint
+            "connector": "sharepoint",
         },
     )
-    if response.status_code == 201:
-        # Endpoint accepted, but stored as google_drive
-        assert response.json()["connector"] == "google_drive"
-    else:
-        # Or rejected the extra field; both are acceptable v1
-        # behavior as long as non-Drive isn't accepted.
-        assert response.status_code in {400, 422}
+    assert response.status_code == 422
+
+
+def test_register_rejects_url_external_uri(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 MEDIUM: URL-shaped external_uri MUST be
+    rejected. v1 silently accepted SharePoint URL as
+    connector='google_drive', mislabeling the source. v2 validates
+    Drive folder ID shape at endpoint."""
+    monkeypatch.setenv("PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_PRIVATE_CORPUS_DB_PATH", str(tmp_path / "corpus.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_private_corpus_sync_store_for_test,
+    )
+    _reset_private_corpus_sync_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/private-corpus-sources",
+        json={
+            "workspace_id": "ws_test",
+            "name": "SharePoint mislabel",
+            "external_uri": "https://contoso.sharepoint.com/sites/eng",
+            "credential_ref": "vault://sp-key",
+        },
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert "Drive folder ID" in body["detail"]
+
+
+def test_register_rejects_short_external_uri(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive folder IDs are 20+ chars; reject obviously-short
+    inputs (less than 20 chars) at the endpoint."""
+    monkeypatch.setenv("PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_PRIVATE_CORPUS_DB_PATH", str(tmp_path / "corpus.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_private_corpus_sync_store_for_test,
+    )
+    _reset_private_corpus_sync_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/private-corpus-sources",
+        json={
+            "workspace_id": "ws_test",
+            "name": "Too short",
+            "external_uri": "abc123",
+            "credential_ref": "vault://test",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_list_empty_workspace_id_returns_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 LOW: empty workspace_id (?workspace_id=)
+    must be 400, not silently 200 with empty list. Omitting the
+    param entirely still returns []."""
+    monkeypatch.setenv("PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_PRIVATE_CORPUS_DB_PATH", str(tmp_path / "corpus.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_private_corpus_sync_store_for_test,
+    )
+    _reset_private_corpus_sync_store_for_test()
+
+    client = _make_client()
+
+    # Omitted query param → 200 + []
+    r1 = client.get("/api/inspector/private-corpus-sources")
+    assert r1.status_code == 200
+    assert r1.json()["sources"] == []
+
+    # Explicitly empty query param → 400
+    r2 = client.get("/api/inspector/private-corpus-sources?workspace_id=")
+    assert r2.status_code == 400
+    body = r2.json()
+    assert "non-empty" in body["detail"]
+
+    # Whitespace-only → 400
+    r3 = client.get(
+        "/api/inspector/private-corpus-sources?workspace_id=%20%20%20"
+    )
+    assert r3.status_code == 400
 
 
 def test_viewer_role_cannot_register(
@@ -153,7 +240,7 @@ def test_viewer_role_cannot_register(
         json={
             "workspace_id": "ws_test",
             "name": "Should fail",
-            "external_uri": "1xyzFolder",
+            "external_uri": "1xyzFolderId12345678_BBB",
             "credential_ref": "vault://test",
         },
     )
@@ -205,7 +292,7 @@ def test_cross_org_cannot_see_other_orgs_sources(
         json={
             "workspace_id": "ws_a",
             "name": "A's Drive",
-            "external_uri": "1aaaa",
+            "external_uri": "1aaaaCrossOrgFolder123_CCC",
             "credential_ref": "vault://a",
         },
     )

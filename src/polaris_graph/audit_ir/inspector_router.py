@@ -1061,11 +1061,20 @@ async def get_contract_draft(
 
 
 class _PrivateCorpusSourceCreateRequest(BaseModel):
+    """Codex round-1 MEDIUM fix (v2): enforce extra='forbid' so
+    callers cannot pass a `connector` field at all (v1 used
+    Pydantic default which silently dropped extras, leaving room
+    for confusion). v2 explicitly rejects unknown fields with 422.
+    """
+    model_config = {"extra": "forbid"}
     workspace_id: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
     external_uri: str = Field(
         ..., min_length=1,
-        description="Google Drive folder ID (e.g. '1AbC...')",
+        description=(
+            "Google Drive folder ID (e.g. '1AbC...'). "
+            "URLs and other non-folder-ID values are rejected."
+        ),
     )
     credential_ref: str = Field(
         ..., min_length=1,
@@ -1074,6 +1083,31 @@ class _PrivateCorpusSourceCreateRequest(BaseModel):
             "Raw secrets are rejected at substrate level."
         ),
     )
+
+
+# Codex round-1 MEDIUM fix (v2): validate external_uri shape.
+# Drive folder IDs are 28-44 chars of [A-Za-z0-9_-], no slashes
+# or dots. Reject URLs (anything containing '://', '.', or '/')
+# at endpoint level — substrate only checks non-empty.
+import re as _re  # local alias to avoid shadowing top-level imports
+_DRIVE_FOLDER_ID_RE = _re.compile(r"^[A-Za-z0-9_-]{20,80}$")
+
+
+def _validate_drive_folder_id(uri: str) -> None:
+    """Raise HTTPException(400) if uri doesn't look like a Drive
+    folder ID. Per FINAL_PLAN narrow scope, we want callers to
+    fail fast at the endpoint instead of mislabeled SharePoint
+    URLs landing as connector=google_drive."""
+    if not _DRIVE_FOLDER_ID_RE.match(uri):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"external_uri {uri!r} is not a valid Google Drive "
+                "folder ID; expected 20-80 chars of [A-Za-z0-9_-] "
+                "(e.g. '1AbC...DEF'). URLs and other shapes are not "
+                "accepted at this endpoint."
+            ),
+        )
 
 
 @router.post(
@@ -1100,6 +1134,9 @@ async def register_private_corpus_source(
                 "register corpus sources; member+ required"
             ),
         )
+    # Codex round-1 MEDIUM fix (v2): validate external_uri shape
+    # at endpoint before substrate sees it.
+    _validate_drive_folder_id(body.external_uri)
     store = _get_private_corpus_sync_store()
     try:
         source = store.register_source(
@@ -1126,9 +1163,22 @@ async def list_private_corpus_sources(
     caller: Caller = Depends(require_authenticated_caller),
 ) -> dict:
     """List corpus sources for a workspace (caller's org enforced).
-    If `workspace_id` is omitted, returns []."""
-    if not workspace_id:
+
+    Codex round-1 LOW fix (v2): differentiate omitted (returns [])
+    from explicitly empty (returns 400). v1 conflated both via
+    `if not workspace_id` which hid client bugs.
+    """
+    if workspace_id is None:
         return {"sources": []}
+    if not workspace_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "workspace_id query parameter must be non-empty if "
+                "provided; omit the parameter entirely for an empty "
+                "list"
+            ),
+        )
     store = _get_private_corpus_sync_store()
     sources = store.list_sources_for_workspace(
         workspace_id=workspace_id,
