@@ -124,10 +124,14 @@ class FreshnessAggregates:
 # Hard cap for list_alerts() pagination — phase 1 defaults to 100
 # but we need the full window. SQLite can handle 1M+ rows; this
 # cap is just to avoid OOM on a misconfigured store. Callers
-# who legitimately have >1M alerts in one workspace must move
-# to a phase 2 v2 SQL-side aggregator (deferred) or split into
-# narrower windows. Codex round-1 HIGH fix (v2): pre-flight
-# count gate raises rather than silently truncating.
+# who legitimately have >1M alerts in one workspace must shard
+# the workspace, use the phase 1 store query API directly with
+# caller-side aggregation, or wait for phase 2 v2 SQL-side
+# aggregation. v3 contract clarification (Codex round-2):
+# narrowing the since/until window does NOT bypass the cap —
+# the gate is workspace-wide because phase 1 store API has no
+# SQL-side windowed COUNT. Codex round-1 HIGH fix (v2):
+# pre-flight count gate raises rather than silently truncating.
 _MAX_LIMIT = 1_000_000
 
 
