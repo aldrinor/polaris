@@ -1,0 +1,13 @@
+## Verdict
+PARTIAL
+
+## Round-1 fix integration
+- [x] MEDIUM workspace_id verbatim pass-through
+
+## New findings (if any)
+[LOW] src/polaris_graph/audit_ir/decision_aggregates.py:153 — `compute_aggregates()` still rejects whitespace-only `workspace_id` values via `.strip()`, but phase 1 accepts and queries those IDs verbatim in `record_decision()` / `list_for_workspace()` ([decision_telemetry.py](/abs/path/not/available)). The updated test suite also pins that stricter phase-2 behavior at [tests/polaris_graph/test_md3_phase2_decision_aggregates.py:124](/C:/POLARIS/tests/polaris_graph/test_md3_phase2_decision_aggregates.py:124), so phase 2 still cannot aggregate a subset of phase-1-valid rows.
+
+## Final word
+PARTIAL until phase-1 and phase-2 `workspace_id` validation semantics are aligned.
+
+Focused `pytest` was not runnable in this sandbox because its temp-root setup hit Windows ACL errors; I verified the padded-ID fix and the whitespace-only mismatch with a direct Python harness instead.

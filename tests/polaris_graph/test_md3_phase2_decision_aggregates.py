@@ -121,11 +121,25 @@ def test_empty_store_returns_zero_counts(store: DecisionRecordStore) -> None:
     assert agg.rejection_rate is None
 
 
-def test_workspace_id_required(store: DecisionRecordStore) -> None:
+def test_empty_workspace_id_required(store: DecisionRecordStore) -> None:
     with pytest.raises(DecisionAggregatesError, match="workspace_id"):
         compute_aggregates(store, "")
-    with pytest.raises(DecisionAggregatesError, match="workspace_id"):
-        compute_aggregates(store, "   ")
+
+
+def test_whitespace_only_workspace_id_accepted_per_phase1(
+    store: DecisionRecordStore,
+) -> None:
+    """Codex round-2 LOW fix (v3): align with phase 1 store
+    semantics. Phase 1's `record_decision` accepts
+    whitespace-only workspace_id (`if not workspace_id` only
+    rejects ""). v2 was stricter, leaving phase-1-valid rows
+    written under whitespace-only IDs unreachable by
+    aggregation. v3 matches phase 1 exactly."""
+    rid = _record(store, workspace_id="   ")
+    _accept(store, rid, ws="   ")
+    agg = compute_aggregates(store, "   ")
+    assert agg.workspace_id == "   "
+    assert agg.total_decisions == 1
 
 
 def test_workspace_id_passed_through_verbatim(

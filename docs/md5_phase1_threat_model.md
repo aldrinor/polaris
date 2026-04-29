@@ -1,8 +1,8 @@
 # M-D5 phase 1 — confidence-gated template matching boundary
 
-**Status:** v5 / 2026-04-28
+**Status:** v6 / 2026-04-29
 **Module:** `src/polaris_graph/audit_ir/scope_classifier.py`
-**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (32 passing)
+**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (33 passing)
 **Pairs with:** M-20 router (`template_classifier.classify_query`),
 M-D1 validation set (43 cases)
 **Substrate:** stdlib + `template_classifier` only — no LLM client coupling
@@ -199,6 +199,18 @@ visible-Unicode inputs). Critically, base+combining sequences
 are NOT visually empty — the loop exits on the first non-skip
 character (verified by
 `test_combining_marks_with_base_char_do_not_short_circuit`).
+
+**v6 mark-category coverage (Codex round-1 LOW fix)**: v5
+boundary doc claimed full Mn/Mc/Me skip surface but tests
+covered only Mn (CGJ, VS16, cedilla) + Hangul fillers. v6
+adds `test_standalone_mc_me_categories_short_circuit` with
+explicit Mc cases (DEVANAGARI VISARGA U+0903, DEVANAGARI VOWEL
+SIGN OOE U+093B, DEVANAGARI VOWEL SIGN AA U+093E), Me cases
+(CYRILLIC HUNDRED THOUSANDS U+0488, CYRILLIC MILLIONS U+0489,
+COMBINING PARENTHESES OVERLAY U+1ABE), plus a mixed Mc+Me+Mn
+short-circuit input. The v5 boundary's "exhaustive on Unicode
+Default_Ignorable_Code_Point" claim is now backed by 33 tests
+(was 32).
 
 The short-circuit emits a sentinel `ScopeClassification` with
 `verdict=UNCERTAIN, confidence=0.0` so callers retain a uniform

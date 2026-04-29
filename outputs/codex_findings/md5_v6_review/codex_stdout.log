@@ -1,0 +1,11 @@
+## Verdict
+PARTIAL
+
+## Round-1 fix integration
+- [x] LOW Mc/Me explicit tests added
+
+## New findings (if any)
+[LOW] `docs/md5_phase1_threat_model.md:3` — The M-D5 boundary doc is still on `v5` / `32 passing`, while commit `460234a` ships M-D5 `v6` with `33/33` tests. Its pinned-test narrative also stops short of the new Mc/Me regression pin, so the audit trail is now one revision behind the actual test surface.
+
+## Final word
+PARTIAL until `docs/md5_phase1_threat_model.md` is synced to the v6 / 33-pass state and mentions the new Mc/Me coverage. The targeted round-1 gap itself is closed; `python -m pytest -q tests\\polaris_graph\\test_md5_scope_classifier.py` passed `33/33`.

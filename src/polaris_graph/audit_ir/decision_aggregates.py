@@ -150,7 +150,14 @@ def compute_aggregates(
             f"store must be DecisionRecordStore, got "
             f"{type(store).__name__}"
         )
-    if not workspace_id or not workspace_id.strip():
+    # Codex round-2 LOW fix (v3): align validation with phase 1
+    # store. Phase 1's record_decision uses `if not workspace_id`
+    # (rejects "" but accepts "   "). v2 used `not workspace_id
+    # or not workspace_id.strip()`, rejecting whitespace-only IDs
+    # — which means phase 2 couldn't aggregate phase-1-valid rows
+    # written under whitespace-only IDs. v3 matches phase 1
+    # semantics exactly.
+    if not workspace_id:
         raise DecisionAggregatesError("workspace_id must be non-empty")
     if since is not None and until is not None and since > until:
         raise DecisionAggregatesError(
