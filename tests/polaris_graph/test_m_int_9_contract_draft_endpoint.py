@@ -222,3 +222,122 @@ def test_endpoint_requires_caller(
     client = TestClient(app)
     response = client.get("/api/inspector/contract-drafts")
     assert response.status_code in {401, 403}
+
+
+# ---------------------------------------------------------------------------
+# Codex round-1 fixes (v2)
+# ---------------------------------------------------------------------------
+
+
+def test_viewer_role_cannot_create_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 MEDIUM 1: write must require member+ role.
+    v1 used require_authenticated_caller which let viewer create."""
+    monkeypatch.setenv("PG_USE_CONTRACT_DRAFT_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_CONTRACT_DRAFT_DB_PATH", str(tmp_path / "drafts.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_contract_draft_store_for_test,
+    )
+    _reset_contract_draft_store_for_test()
+
+    client = _make_client(role="viewer")
+    response = client.post(
+        "/api/inspector/contract-drafts",
+        json={
+            "audit_run_id": "RUN_VIEWER",
+            "kind": "dpa",
+            "title": "Viewer's attempt",
+            "counterparty_name": "Acme",
+        },
+    )
+    assert response.status_code == 403
+    body = response.json()
+    assert "viewer" in body["detail"]
+
+
+def test_member_role_can_create_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inverse of above: member role IS allowed."""
+    monkeypatch.setenv("PG_USE_CONTRACT_DRAFT_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_CONTRACT_DRAFT_DB_PATH", str(tmp_path / "drafts.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_contract_draft_store_for_test,
+    )
+    _reset_contract_draft_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/contract-drafts",
+        json={
+            "audit_run_id": "RUN_MEMBER",
+            "kind": "dpa",
+            "title": "Member's draft",
+            "counterparty_name": "Acme",
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_disabled_flag_returns_404_for_anonymous(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 MEDIUM 2: PG_USE_CONTRACT_DRAFT_ENDPOINT=0
+    must return 404 even for anonymous callers. v1 returned 401
+    because flag check was inside handler, after auth dep ran.
+    v2 hoists the flag check to a FastAPI dependency that runs
+    before auth resolution."""
+    monkeypatch.setenv("PG_USE_CONTRACT_DRAFT_ENDPOINT", "0")
+    from src.polaris_graph.audit_ir.inspector_router import router
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)  # No X-Polaris-Caller header
+    response = client.get("/api/inspector/contract-drafts")
+    # MUST be 404 (feature off), NOT 401 (auth challenge).
+    assert response.status_code == 404
+
+
+def test_status_filter_uses_correct_enum_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 LOW: v1 docstring listed 'drafting /
+    pending_approval' but actual values are 'draft /
+    awaiting_approval'. v2 docstring corrected; verify the
+    correct values now work."""
+    monkeypatch.setenv("PG_USE_CONTRACT_DRAFT_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_CONTRACT_DRAFT_DB_PATH", str(tmp_path / "drafts.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_contract_draft_store_for_test,
+    )
+    _reset_contract_draft_store_for_test()
+
+    client = _make_client()
+    # Correct enum value 'draft' → 200 with empty list.
+    response_ok = client.get(
+        "/api/inspector/contract-drafts?status=draft",
+    )
+    assert response_ok.status_code == 200
+    assert response_ok.json()["drafts"] == []
+
+    # 'awaiting_approval' (v1 doc said 'pending_approval' wrongly).
+    response_aw = client.get(
+        "/api/inspector/contract-drafts?status=awaiting_approval",
+    )
+    assert response_aw.status_code == 200
+
+    # The wrong v1-doc value 'drafting' returns 400 with the
+    # correct enum list in the error message.
+    response_bad = client.get(
+        "/api/inspector/contract-drafts?status=drafting",
+    )
+    assert response_bad.status_code == 400
+    body = response_bad.json()
+    # Error message should list the correct enum values.
+    assert "draft" in body["detail"]

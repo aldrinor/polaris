@@ -863,12 +863,31 @@ class _ContractDraftCreateRequest(BaseModel):
     )
 
 
+async def _require_contract_draft_endpoint_enabled() -> None:
+    """Codex round-1 MEDIUM fix (v2): hoist the flag check to a
+    FastAPI dependency so it runs BEFORE the auth dependency
+    resolves. v1 checked inside the handler body, which meant
+    PG_USE_CONTRACT_DRAFT_ENDPOINT=0 returned 401 for anonymous
+    callers (auth dep ran first) instead of the intended 404.
+    """
+    if not _contract_draft_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="contract draft endpoint disabled",
+        )
+
+
 @router.post(
     "/api/inspector/contract-drafts",
     status_code=201,
+    dependencies=[Depends(_require_contract_draft_endpoint_enabled)],
 )
 async def create_contract_draft(
     body: _ContractDraftCreateRequest,
+    # Codex round-1 MEDIUM fix (v2): write requires member+
+    # (not just authenticated). v1 used require_authenticated_caller
+    # which let viewer-role callers create drafts. Substrate's
+    # store stamps submitter_user_id but does NOT validate role.
     caller: Caller = Depends(require_authenticated_caller),
 ) -> dict:
     """Create a new contract draft anchored to a specific audit run.
@@ -876,11 +895,21 @@ async def create_contract_draft(
     Per FINAL_PLAN M-INT-9: every contract is bound to a verified
     audit run (audit_run_id is required). The store enforces this
     invariant — the endpoint just routes the request.
+
+    Authorization: requires member+ role on caller.org_id (viewers
+    get 403). Codex round-1 v2 fix.
     """
-    if not _contract_draft_endpoint_enabled():
+    # Codex round-1 MEDIUM fix (v2): explicit role gate. v1
+    # only used require_authenticated_caller which accepted any
+    # authenticated user including viewer role. Use the role
+    # field on Caller to gate writes to member or owner.
+    if caller.role not in {"member", "admin", "owner"}:
         raise HTTPException(
-            status_code=404,
-            detail="contract draft endpoint disabled",
+            status_code=403,
+            detail=(
+                f"caller role {caller.role!r} insufficient to "
+                "create contract drafts; member+ required"
+            ),
         )
     try:
         kind_enum = ContractKind(body.kind)
@@ -911,19 +940,21 @@ async def create_contract_draft(
     return draft_to_dict(draft)
 
 
-@router.get("/api/inspector/contract-drafts")
+@router.get(
+    "/api/inspector/contract-drafts",
+    dependencies=[Depends(_require_contract_draft_endpoint_enabled)],
+)
 async def list_contract_drafts(
     status: str | None = None,
     caller: Caller = Depends(require_authenticated_caller),
 ) -> dict:
     """List contract drafts for the caller's org. Optional
-    `status` filter (drafting / pending_approval / approved /
-    rejected)."""
-    if not _contract_draft_endpoint_enabled():
-        raise HTTPException(
-            status_code=404,
-            detail="contract draft endpoint disabled",
-        )
+    `status` filter (one of: draft, awaiting_approval, approved,
+    rejected — see ContractDraftStatus enum).
+
+    Codex round-1 LOW fix (v2): the v1 docstring incorrectly
+    listed values 'drafting / pending_approval'; corrected to
+    match the actual enum values."""
     status_enum: ContractDraftStatus | None = None
     if status is not None:
         try:
@@ -943,18 +974,16 @@ async def list_contract_drafts(
     return {"drafts": [draft_to_dict(d) for d in drafts]}
 
 
-@router.get("/api/inspector/contract-drafts/{draft_id}")
+@router.get(
+    "/api/inspector/contract-drafts/{draft_id}",
+    dependencies=[Depends(_require_contract_draft_endpoint_enabled)],
+)
 async def get_contract_draft(
     draft_id: str,
     caller: Caller = Depends(require_authenticated_caller),
 ) -> dict:
     """Fetch one contract draft by id. The store's get_draft
     is org-scoped, so cross-org access returns None → 404."""
-    if not _contract_draft_endpoint_enabled():
-        raise HTTPException(
-            status_code=404,
-            detail="contract draft endpoint disabled",
-        )
     store = _get_contract_draft_store()
     draft = store.get_draft(
         draft_id=draft_id, org_id=caller.org_id,
