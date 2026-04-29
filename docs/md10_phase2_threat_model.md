@@ -58,11 +58,14 @@ LAW II the substrate raises uniformly across `since/until` —
 narrow windows that would be safe in isolation also raise, by
 design.
 
-Operator paths once a workspace exceeds the cap:
-1. Use `store.list_alerts(workspace_id, status=...)` directly
-   + caller-side aggregation
-2. Shard the workspace
-3. Wait for phase 2 v2 SQL-side aggregation
+Operator paths once a workspace exceeds the cap (canonical
+3-path wording, matches `_MAX_LIMIT` comment, `_list_window`
+docstring, and the over-cap exception message):
+1. Shard the workspace.
+2. Use the phase 1 store query API directly
+   (`store.list_alerts`, `store.count`, `store.latest_for_url`)
+   with caller-side aggregation.
+3. Wait for phase 2 v2 SQL-side aggregation.
 
 Pinned by `test_over_cap_raises_even_for_narrow_window` (3
 sub-cases: narrow recent window, narrow old window, latest

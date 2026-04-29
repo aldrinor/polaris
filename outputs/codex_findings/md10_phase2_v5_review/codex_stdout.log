@@ -1,0 +1,13 @@
+## Verdict
+PARTIAL
+
+## Round-4 fix integration
+- [x] LOW operator-paths wording aligned
+
+## New findings (if any)
+[LOW] docs/md10_phase2_threat_model.md:61 — Boundary 1 still does not use the canonical three-path wording now present in `_MAX_LIMIT` and `_list_window`: it lists `Use store.list_alerts(...)+caller-side aggregation` first, then `Shard the workspace`, and omits the broader phase-1 store API wording (`store.list_alerts`, `store.count`, `store.latest_for_url`).
+
+[LOW] src/polaris_graph/audit_ir/freshness_aggregates.py:185 — The over-cap exception text still advertises only two operator paths (`shard` or `wait for v2`) and omits the direct phase-1 store API path documented in the surrounding contract text.
+
+## Final word
+PARTIAL until `docs/md10_phase2_threat_model.md:61` is aligned to the same canonical three-path wording; if runtime caller-facing text is in scope, align the over-cap exception text at `freshness_aggregates.py:185` too.

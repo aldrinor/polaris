@@ -182,10 +182,14 @@ def _list_window(
             "v1 cannot aggregate any window for this workspace "
             "without risk of silent truncation on old or wide "
             "windows (phase 1 store API lacks SQL-side windowed "
-            "COUNT). Either shard the workspace or wait for v2 "
-            "SQL-side aggregation. Note: this raise is uniform "
-            "across `since/until` — narrow recent windows that "
-            "would be safe in isolation also raise, by design."
+            "COUNT). Operator paths: (1) shard the workspace, "
+            "(2) use the phase 1 store query API directly "
+            "(`store.list_alerts`, `store.count`, "
+            "`store.latest_for_url`) with caller-side aggregation, "
+            "or (3) wait for phase 2 v2 SQL-side aggregation. "
+            "Note: this raise is uniform across `since/until` — "
+            "narrow recent windows that would be safe in "
+            "isolation also raise, by design."
         )
     all_alerts = store.list_alerts(
         workspace_id=workspace_id, limit=_MAX_LIMIT,
