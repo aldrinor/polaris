@@ -1212,15 +1212,114 @@ def run_live_retrieval(
     fetched = 0
     failed_fetch = 0
 
-    for i, cand in enumerate(candidates):
-        # Rate-limit gently (Serper doesn't but S2 prefers <= 1rps)
-        if i > 0 and i % 5 == 0:
-            time.sleep(0.2)
+    # ------------------------------------------------------------------
+    # M-INT-1 — Parallel fetch into live_retriever (Phase E1)
+    # ------------------------------------------------------------------
+    # Wires `parallel_fetch.parallel_fetch(...)` into the content-fetch
+    # loop. Per FINAL_PLAN.md M-INT-1: imported, invoked, run-log
+    # evidence, and PG_USE_PARALLEL_FETCH=0 disables (rollback).
+    #
+    # The substrate's ParallelFetcher Protocol expects (bytes, str,
+    # int). Live retrieval's existing _fetch_content returns
+    # (content, ok, title, body_type) — we wrap it in an adapter
+    # that stashes the full 4-tuple in a side dict keyed by URL,
+    # then post-process serially using the side dict.
+    use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+    fetched_side: dict[str, tuple[str, bool, str, str]] = {}
 
-        # Fetch content (for tier classification + evidence)
-        content, ok, content_title_from_fetch, body_article_type = _fetch_content(
-            cand.url, DEFAULT_CONTENT_MAX_CHARS,
+    if use_parallel and candidates:
+        from src.polaris_graph.audit_ir.parallel_fetch import (
+            FetchTask,
+            parallel_fetch,
         )
+
+        class _LiveContentParallelFetcher:
+            """Adapter wrapping `_fetch_content(url, max_chars)` for
+            the parallel_fetch substrate's ParallelFetcher Protocol.
+            Stashes the full 4-tuple (content, ok, title, body_type)
+            in a thread-safe side dict so the post-processing loop
+            can read it back per-candidate."""
+
+            def __init__(self, max_chars: int) -> None:
+                self.max_chars = max_chars
+                self._lock = threading.Lock()
+                self.results = fetched_side
+
+            def fetch(
+                self, task: "FetchTask"
+            ) -> tuple[bytes, str, int]:
+                content, ok, title, body_type = _fetch_content(
+                    task.source_url, self.max_chars,
+                )
+                with self._lock:
+                    self.results[task.source_url] = (
+                        content, ok, title, body_type,
+                    )
+                payload = (content or "").encode("utf-8", errors="replace")
+                return (payload, "text/plain", 200 if ok else 502)
+
+        try:
+            max_workers = int(os.environ.get(
+                "PG_LIVE_RETRIEVER_MAX_WORKERS", "8",
+            ))
+        except ValueError:
+            max_workers = 8
+        try:
+            per_task_timeout = float(os.environ.get(
+                "PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS", "120",
+            ))
+        except ValueError:
+            per_task_timeout = 120.0
+
+        fetch_tasks = [
+            FetchTask(
+                source_url=c.url,
+                backend_id="default",
+                task_metadata={"index": idx},
+            )
+            for idx, c in enumerate(candidates)
+        ]
+        fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
+        parallel_report = parallel_fetch(
+            fetch_tasks, fetcher,
+            max_workers=max_workers,
+            per_task_timeout=per_task_timeout,
+        )
+        # Run-log evidence: persist the substrate's report into
+        # api_calls so the manifest sees a non-zero invocation count.
+        api_calls["parallel_fetch_success_count"] = (
+            parallel_report.success_count
+        )
+        api_calls["parallel_fetch_errored_count"] = (
+            parallel_report.errored_count
+        )
+        api_calls["parallel_fetch_timeout_count"] = (
+            parallel_report.timeout_count
+        )
+        logger.info(
+            "[live_retriever] M-INT-1 parallel_fetch: %d success, "
+            "%d errored, %d timeout (max_workers=%d, "
+            "per_task_timeout=%.0fs)",
+            parallel_report.success_count,
+            parallel_report.errored_count,
+            parallel_report.timeout_count,
+            max_workers, per_task_timeout,
+        )
+
+    for i, cand in enumerate(candidates):
+        if use_parallel:
+            content, ok, content_title_from_fetch, body_article_type = (
+                fetched_side.get(cand.url, ("", False, "", ""))
+            )
+        else:
+            # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
+            # Rate-limit gently (Serper doesn't but S2 prefers <= 1rps)
+            if i > 0 and i % 5 == 0:
+                time.sleep(0.2)
+            # Fetch content (for tier classification + evidence)
+            content, ok, content_title_from_fetch, body_article_type = (
+                _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+            )
         api_calls["fetch"] += 1
         if not ok:
             failed_fetch += 1
