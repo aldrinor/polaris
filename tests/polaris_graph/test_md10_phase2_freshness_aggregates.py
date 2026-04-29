@@ -347,6 +347,113 @@ def test_unique_source_count_after_window_filter(
 # ---------------------------------------------------------------------------
 
 
+def test_oversize_workspace_raises_rather_than_truncating(
+    store: FreshnessAlertStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-1 HIGH fix (v2): when a workspace exceeds
+    `_MAX_LIMIT`, the aggregator raises rather than silently
+    returning the newest cap-many alerts and undercounting
+    older in-window rows.
+
+    v1 passed `limit=_MAX_LIMIT` to `list_alerts`, which the
+    phase 1 store honors as "newest cap-many". A workspace
+    with more than cap alerts had its older history silently
+    dropped from the aggregate.
+    """
+    # Force a tiny cap to make the test cheap.
+    import src.polaris_graph.audit_ir.freshness_aggregates as fa
+    monkeypatch.setattr(fa, "_MAX_LIMIT", 2)
+    # Insert 3 alerts (> cap of 2)
+    for ts in (1000.0, 2000.0, 3000.0):
+        _record(store, source_url=f"https://x{ts}.com", checked_at=ts)
+    with pytest.raises(FreshnessAggregatesError, match="exceeding _MAX_LIMIT"):
+        compute_freshness_aggregates(store, "ws1")
+
+
+def test_under_cap_workspace_does_not_raise(
+    store: FreshnessAlertStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At-cap is OK; over-cap raises. Pin the boundary."""
+    import src.polaris_graph.audit_ir.freshness_aggregates as fa
+    monkeypatch.setattr(fa, "_MAX_LIMIT", 2)
+    for ts in (1000.0, 2000.0):
+        _record(store, source_url=f"https://x{ts}.com", checked_at=ts)
+    # Exactly at cap — should not raise
+    agg = compute_freshness_aggregates(store, "ws1")
+    assert agg.total_alerts == 2
+
+
+def test_unknown_status_raises_in_default_mode(
+    store: FreshnessAlertStore,
+) -> None:
+    """Codex round-1 LOW fix (v2): the schema-drift defense
+    boundary documented as 'unknown status raises' was
+    untested. This pins the all-alerts mode case."""
+
+    class _DriftStore(FreshnessAlertStore):
+        """Subclass override that returns an alert with a
+        bogus status to simulate phase 1 schema drift (e.g. a
+        future status added to the SQL CHECK without
+        updating the aggregator)."""
+
+        def list_alerts(self, *, workspace_id, status=None, limit=100):
+            real = super().list_alerts(
+                workspace_id=workspace_id, status=status, limit=limit,
+            )
+            if not real:
+                return real
+            from dataclasses import replace
+            # Bogus the first one
+            return [replace(real[0], status="future_unknown_status")] + real[1:]
+
+    drift_store = _DriftStore(store._db_path)
+    _record(drift_store, source_url="https://x.com")
+    with pytest.raises(FreshnessAggregatesError, match="unknown status"):
+        compute_freshness_aggregates(drift_store, "ws1")
+
+
+def test_unknown_status_raises_in_latest_mode_too(
+    store: FreshnessAlertStore,
+) -> None:
+    """Codex round-1 MEDIUM fix (v2): in latest-per-source
+    mode, an unknown OLDER status for a cache_key was masked
+    by a newer known status (the dedup ran first, then the
+    drift check on the deduped list — so the older unknown
+    was dropped silently). v2 runs schema-drift validation
+    against the full windowed set BEFORE dedup."""
+
+    class _DriftStore(FreshnessAlertStore):
+        def list_alerts(self, *, workspace_id, status=None, limit=100):
+            real = super().list_alerts(
+                workspace_id=workspace_id, status=status, limit=limit,
+            )
+            if not real:
+                return real
+            # Two alerts on the same cache_key. The newer (first
+            # in DESC order) keeps its real status; the older
+            # has a bogus status. In latest-mode, dedup would
+            # drop the older one — but v2 validates first.
+            from dataclasses import replace
+            if len(real) >= 2:
+                return [
+                    real[0],
+                    replace(real[1], status="future_unknown_status"),
+                ] + real[2:]
+            return real
+
+    drift_store = _DriftStore(store._db_path)
+    url = "https://x.com"
+    _record(drift_store, source_url=url, checked_at=1000.0)
+    _record(drift_store, source_url=url, checked_at=2000.0)
+    # latest-mode would dedup to 1 alert (the newest, status OK)
+    # but v2 validates the full windowed set first, so it MUST
+    # see the older bogus status and raise.
+    with pytest.raises(FreshnessAggregatesError, match="unknown status"):
+        compute_freshness_aggregates(
+            drift_store, "ws1", only_latest_per_source=True,
+        )
+
+
 def test_status_counts_sum_to_total(store: FreshnessAlertStore) -> None:
     _record(store, source_url="https://a.com", status=FreshnessStatus.UNCHANGED)
     _record(store, source_url="https://b.com", status=FreshnessStatus.SUPERSEDED)

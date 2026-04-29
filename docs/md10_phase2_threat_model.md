@@ -1,8 +1,8 @@
 # M-D10 phase 2 v1 — citation freshness aggregation boundary
 
-**Status:** v1 / 2026-04-28
+**Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/freshness_aggregates.py`
-**Tests:** `tests/polaris_graph/test_md10_phase2_freshness_aggregates.py` (22 passing)
+**Tests:** `tests/polaris_graph/test_md10_phase2_freshness_aggregates.py` (26 passing)
 **Pairs with:** M-D10 phase 1 (`freshness_monitor.py`, commit a85812f).
 **Substrate:** stdlib + `freshness_monitor` only.
 
@@ -39,6 +39,15 @@ may add a SQL-side `GROUP BY status` query if performance
 demands. Hard cap of 1M alerts per workspace (defensive
 upper bound — operationally, one workspace with 1M+
 freshness alerts is doing something pathological).
+
+**v2 Codex round-1 HIGH fix**: pre-flight count gate raises
+`FreshnessAggregatesError` if `store.count(workspace_id) >
+_MAX_LIMIT` rather than silently truncating. v1 used
+`limit=_MAX_LIMIT` directly, which returned the *newest*
+_MAX_LIMIT rows from the phase 1 store and silently dropped
+older in-window rows when the workspace had more — making
+`total_alerts`, per-status counts, and rollups undercount
+without any error. v2 fails loud per LAW II.
 
 ### 2. only_latest_per_source rollup is a query MODE, not a default
 
@@ -120,19 +129,29 @@ were retracted?").
 **Mitigation**: `test_unique_source_count_with_repeats` +
 `test_unique_source_count_after_window_filter`.
 
-### 7. Schema-drift defense
+### 7. Schema-drift defense (v2: validates BEFORE dedup)
 
-The aggregator iterates alerts and dispatches on
-`alert.status` (the FreshnessStatus.value string per phase 1
-schema). An unknown status string raises
-`FreshnessAggregatesError` with the alert_id — surfacing
-schema drift loudly per LAW II rather than silently
-miscounting.
+The aggregator iterates the WINDOWED alert set and validates
+every `alert.status` against the known FreshnessStatus.value
+strings BEFORE the latest-per-source dedup happens. An
+unknown status raises `FreshnessAggregatesError` with the
+alert_id — surfacing schema drift loudly per LAW II rather
+than silently miscounting.
 
 This protects against future M-D10 phase 1 schema bumps
 that add new status values without updating the aggregator.
 The phase 1 SQL CHECK constraint also rejects unknown
 statuses at INSERT time, but defense in depth is cheap.
+
+**v2 Codex round-1 MEDIUM fix**: v1 ran the schema-drift
+check on the post-dedup `counted_alerts` list. In latest-
+mode, an unknown OLDER status for a cache_key was silently
+dropped if a newer known status existed for the same key,
+masking the drift. v2 validates the full windowed set up
+front so latest-mode and default mode behave identically
+on drift. Pinned by
+`test_unknown_status_raises_in_default_mode` and
+`test_unknown_status_raises_in_latest_mode_too`.
 
 ---
 

@@ -124,8 +124,10 @@ class FreshnessAggregates:
 # Hard cap for list_alerts() pagination — phase 1 defaults to 100
 # but we need the full window. SQLite can handle 1M+ rows; this
 # cap is just to avoid OOM on a misconfigured store. Callers
-# who legitimately have >1M alerts in one window are doing
-# something pathological.
+# who legitimately have >1M alerts in one workspace must move
+# to a phase 2 v2 SQL-side aggregator (deferred) or split into
+# narrower windows. Codex round-1 HIGH fix (v2): pre-flight
+# count gate raises rather than silently truncating.
 _MAX_LIMIT = 1_000_000
 
 
@@ -137,7 +139,25 @@ def _list_window(
 ) -> list[FreshnessAlert]:
     """Pull all alerts for a workspace, then filter by time
     window in Python. Mirrors the M-D3 phase 2 pattern (no new
-    SQL paths, defer query optimization to v2 if needed)."""
+    SQL paths, defer query optimization to v2 if needed).
+
+    Codex round-1 HIGH fix (v2): pre-flight count check fails
+    loud per LAW II rather than silently truncating older rows
+    when a workspace exceeds `_MAX_LIMIT`. v1 used `limit=_MAX_LIMIT`
+    directly, which returned the *newest* _MAX_LIMIT rows and
+    silently dropped older in-window rows if the workspace had
+    more — making `total_alerts`, per-status counts, and rollups
+    undercount without any error.
+    """
+    total_in_workspace = store.count(workspace_id=workspace_id)
+    if total_in_workspace > _MAX_LIMIT:
+        raise FreshnessAggregatesError(
+            f"workspace {workspace_id!r} has {total_in_workspace} "
+            f"freshness alerts, exceeding _MAX_LIMIT={_MAX_LIMIT}. "
+            "v1 cannot aggregate this volume without silently "
+            "truncating; either narrow the window via since/until, "
+            "shard the workspace, or wait for v2 SQL-side aggregation."
+        )
     all_alerts = store.list_alerts(
         workspace_id=workspace_id, limit=_MAX_LIMIT,
     )
@@ -218,6 +238,27 @@ def compute_freshness_aggregates(
     unique_keys = {a.cache_key for a in windowed}
     unique_source_count = len(unique_keys)
 
+    # Codex round-1 MEDIUM fix (v2): schema-drift validation
+    # runs against the FULL windowed set BEFORE the latest-per-
+    # source dedup. v1 ran the check post-dedup, so an unknown
+    # older status was masked by a known newer status for the
+    # same cache_key in latest-mode — boundary 7 said "unknown
+    # status raises" but the latest-mode path didn't enforce it.
+    # Now every windowed alert is validated regardless of mode.
+    _known_statuses = frozenset({
+        FreshnessStatus.UNCHANGED.value,
+        FreshnessStatus.SUPERSEDED.value,
+        FreshnessStatus.RETRACTED.value,
+        FreshnessStatus.EXPRESSION_OF_CONCERN.value,
+        FreshnessStatus.UNREACHABLE.value,
+    })
+    for alert in windowed:
+        if alert.status not in _known_statuses:
+            raise FreshnessAggregatesError(
+                f"unknown status {alert.status!r} for alert "
+                f"{alert.alert_id} — store may have schema drift"
+            )
+
     if only_latest_per_source:
         # The phase 1 store returns alerts ordered by
         # checked_at DESC. So the first alert per cache_key in
@@ -239,13 +280,6 @@ def compute_freshness_aggregates(
         FreshnessStatus.UNREACHABLE.value: 0,
     }
     for alert in counted_alerts:
-        # alert.status is the FreshnessStatus.value string per
-        # phase 1 schema; defensive against unknown values.
-        if alert.status not in counts:
-            raise FreshnessAggregatesError(
-                f"unknown status {alert.status!r} for alert "
-                f"{alert.alert_id} — store may have schema drift"
-            )
         counts[alert.status] += 1
 
     total_alerts = sum(counts.values())
