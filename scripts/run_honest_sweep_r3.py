@@ -113,6 +113,13 @@ from src.polaris_graph.audit_ir.domain_router import (  # noqa: E402
     RoutingResult,
     route_to_domain,
 )
+# M-INT-7: Billing quota gating
+from src.polaris_graph.audit_ir.billing_quota_store import (  # noqa: E402
+    BillingQuotaStore,
+    PlanTier,
+    QuotaEventKind,
+    QuotaExceededError,
+)
 # M-INT-6: LLMAugmentedInductor in operator-review queue + M-D1 CI
 from src.polaris_graph.auto_induction.keyword_inductor import (  # noqa: E402
     KeywordInductor,
@@ -799,6 +806,66 @@ def _route_query_to_domain(
         }
     except Exception as exc:
         print(f"[M-INT-5] WARN: domain_router path failed: {exc}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# M-INT-7 — Billing quota gating (Phase E4)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _check_audit_run_quota() -> dict | None:
+    """Best-effort billing quota check + consume for one audit run.
+    Returns a summary dict or None when disabled / no org configured.
+
+    Per LAW II — internal failure returns None (does not raise).
+    QuotaExceededError is caught and returned as a structured
+    summary with `consumed=False, exceeded=True` so the caller
+    can decide whether to abort the run with a quota status.
+
+    PG_USE_BILLING_QUOTA=0 disables (default 0 in v1).
+    PG_BILLING_ORG_ID specifies which org to charge.
+    """
+    if os.environ.get("PG_USE_BILLING_QUOTA", "0") == "0":
+        return None
+    org_id = os.environ.get("PG_BILLING_ORG_ID", "").strip()
+    if not org_id:
+        # No org configured — best-effort, don't gate sweep without
+        # an explicit assignment.
+        return None
+    try:
+        db_path = Path(os.environ.get(
+            "PG_BILLING_QUOTA_DB_PATH",
+            str(Path("state") / "billing_quota.sqlite"),
+        ))
+        store = BillingQuotaStore(db_path)
+        try:
+            event = store.consume(
+                org_id=org_id,
+                kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+            )
+            check = store.check_quota(
+                org_id=org_id,
+                kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+            )
+            return {
+                "consumed": True,
+                "exceeded": False,
+                "org_id": org_id,
+                "event_id": event.event_id,
+                "used": check.used,
+                "cap": check.cap,
+                "remaining": check.remaining,
+            }
+        except QuotaExceededError as exc:
+            return {
+                "consumed": False,
+                "exceeded": True,
+                "org_id": org_id,
+                "reason": str(exc),
+            }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[M-INT-7] WARN: billing quota path failed: {exc}")
         return None
 
 
@@ -2734,6 +2801,31 @@ async def main_async() -> int:
                 f"{sweep_freshness_summary['total_checked']} "
                 f"per_status={{{per_status_counts}}} "
                 f"evicted_count={sweep_freshness_summary['evicted_count']}"
+            )
+
+    # M-INT-7: sweep-level billing quota check + consume.
+    # Charges one AUDIT_RUN_ENQUEUED unit per sweep invocation
+    # (not per query — the sweep is the unit of work).
+    # Per LAW II — wrap in try/except for defense-in-depth.
+    try:
+        billing_summary = _check_audit_run_quota()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[M-INT-7] WARN: billing quota helper raised: {exc}")
+        billing_summary = None
+    if billing_summary is not None:
+        if billing_summary.get("exceeded"):
+            print(
+                f"[M-INT-7] billing_quota: EXCEEDED "
+                f"org={billing_summary['org_id']} "
+                f"reason={billing_summary.get('reason', '<n/a>')!r}"
+            )
+        else:
+            print(
+                f"[M-INT-7] billing_quota: "
+                f"org={billing_summary['org_id']} "
+                f"used={billing_summary['used']} "
+                f"cap={billing_summary['cap']} "
+                f"remaining={billing_summary['remaining']}"
             )
 
     all_summaries: list[dict] = []
