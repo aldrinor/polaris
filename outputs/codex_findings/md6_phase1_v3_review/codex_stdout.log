@@ -1,0 +1,14 @@
+## Verdict
+GREEN
+
+## Round-2 fix integration
+- [x] MEDIUM expected_adapter_ids type-validated
+- [x] MEDIUM domain type-validated
+
+## New findings (if any)
+None.
+
+## Final word
+GREEN
+
+Verified on `HEAD` (`8e4def1`): `tests/polaris_graph/test_md6_phase1_domain_router.py` passed `27/27`, and the adjacent `md5 phase 2 + md6 phase 1` suites passed `64/64`.
