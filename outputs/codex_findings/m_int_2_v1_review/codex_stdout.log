@@ -1,0 +1,10 @@
+GREEN
+
+No blocking findings against the stated M-INT-2 v1 bar. The required imports are present in [run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:71), `_warm_canonical_corpus` wires `RetrievalCacheStore` + `warm_cache(...)` and returns `None` when `PG_USE_CACHE_WARMING=0` in [run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:485), and the pre-sweep block calls it and prints `fetched/skipped/errored` counts in [run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:2221). I also exercised the runtime path directly: first warm fetched `2`, second warm skipped `2`, and `main_async` emitted the expected cache-warming log line.
+
+Residual gaps:
+- [test_m_int_2_cache_warming_integration.py](/C:/POLARIS/tests/polaris_graph/test_m_int_2_cache_warming_integration.py:12) covers the helper path, but not the `main_async` call/log path.
+- The current `SWEEP_QUERIES` table in [run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:293) does not define `canonical_urls`, so the warm-up path is wired but dormant in default runs until that data is populated.
+- The v1 caveat is real and acceptable: `_StubHttpFetcher` in [run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:503) writes empty `b""` payloads, proving import/invocation/SQLite write, not real HTTP fetch behavior.
+
+The provided `pytest` command hit sandbox tempdir permission errors in this environment, so the runtime verification above was done with a direct local harness instead of trusting the reported `6/6`.
