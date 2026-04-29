@@ -477,6 +477,39 @@ def test_fetcher_without_fetch_method_raises(
         )
 
 
+def test_workspace_id_must_be_str(
+    cache_store: RetrievalCacheStore,
+) -> None:
+    """Codex round-1 MEDIUM fix (v2): non-string workspace_id
+    types must raise. v1 accepted bytes silently (creating
+    orphaned cache namespace) and leaked AttributeError on int
+    (no .strip())."""
+    fetcher = _StubFetcher()
+    with pytest.raises(CacheWarmingError, match="workspace_id must be str"):
+        warm_cache(cache_store, b"ws1", [], fetcher)  # type: ignore[arg-type]
+    with pytest.raises(CacheWarmingError, match="workspace_id must be str"):
+        warm_cache(cache_store, 123, [], fetcher)  # type: ignore[arg-type]
+
+
+def test_fetcher_with_non_callable_fetch_attr_raises(
+    cache_store: RetrievalCacheStore,
+) -> None:
+    """Codex round-1 MEDIUM fix (v2): hasattr check alone
+    isn't enough — v1 accepted fetchers with non-callable
+    `fetch` attribute, resulting in TypeError being caught as
+    a per-URL ERRORED instead of surfacing as contract error.
+    """
+    @dataclass
+    class _BadFetcher:
+        fetch: str = "not callable"
+
+    with pytest.raises(CacheWarmingError, match="callable"):
+        warm_cache(
+            cache_store, "ws1", [],
+            _BadFetcher(),  # type: ignore[arg-type]
+        )
+
+
 # ---------------------------------------------------------------------------
 # FetchResult shape validation
 # ---------------------------------------------------------------------------

@@ -428,6 +428,50 @@ def test_invalid_threshold_relationship_raises() -> None:
         )
 
 
+def test_explicit_threshold_kwargs_clamped_to_unit_interval() -> None:
+    """Codex round-1 MEDIUM fix (v2): explicit threshold kwargs
+    are clamped to [0.0, 1.0] just like env overrides. v1
+    raised on out-of-range values, contradicting the docstring
+    contract that thresholds are clamped."""
+    pins = [_pin(captured_at=1000.0), _pin(captured_at=2000.0)]
+    # 1.5 clamps to 1.0; -0.2 clamps to 0.0 — should not raise
+    report = analyze_pin_trends(
+        pins, stable_threshold=1.5, unstable_threshold=-0.2,
+    )
+    assert report.verdict == PinTrendVerdict.STABLE
+
+
+def test_drift_events_ordering_deterministic() -> None:
+    """Codex round-1 MEDIUM fix (v2): drift events are emitted
+    in dimension-sorted order within each transition. v1
+    iterated `seen_dims` (a set), so order depended on Python's
+    hash seed — same input could yield different drift_events
+    tuples across processes, violating pure-derivation contract.
+    """
+    # Two pins with multiple dimension changes in one transition.
+    pins = [
+        _pin(
+            captured_at=1000.0,
+            models={"generator": "a", "evaluator": "x"},
+            prompts={"sys": "h1", "user": "h2"},
+        ),
+        _pin(
+            captured_at=2000.0,
+            models={"generator": "b", "evaluator": "y"},
+            prompts={"sys": "h3", "user": "h4"},
+        ),
+    ]
+    # Run twice, collect drift_events both times — must match
+    # exactly across runs (with same Python process the hash
+    # seed is fixed, but the ASSERT is that they're SORTED).
+    report = analyze_pin_trends(pins)
+    dims_in_event_order = [e.dimension for e in report.drift_events
+                           if e.pin_index == 1]
+    assert dims_in_event_order == sorted(dims_in_event_order), (
+        f"drift_events not in sorted order: {dims_in_event_order}"
+    )
+
+
 def test_threshold_clamped_to_unit_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

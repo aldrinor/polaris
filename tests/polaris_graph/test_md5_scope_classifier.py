@@ -557,6 +557,45 @@ def test_combining_marks_and_hangul_fillers_short_circuit() -> None:
         assert result.action == GatedAction.OPERATOR_REVIEW
 
 
+def test_standalone_mc_me_categories_short_circuit() -> None:
+    """Codex round-1 LOW fix (v6): explicitly exercise
+    standalone Mc (Mark Spacing Combining) and Me (Mark
+    Enclosing) cases, not just Mn. v5 tests covered Mn (CGJ,
+    VS16, cedilla) + Hangul fillers but not Mc/Me. Pin the
+    full mark-category surface claimed by the v5 boundary doc.
+    """
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError("classifier reached for Mc/Me input")
+
+    visually_empty_inputs = [
+        # Mc — Mark Spacing Combining
+        "ः",        # DEVANAGARI SIGN VISARGA U+0903
+        "ऻ",        # DEVANAGARI VOWEL SIGN OOE U+093B
+        "ा",        # DEVANAGARI VOWEL SIGN AA U+093E
+        # Me — Mark Enclosing
+        "҈",        # COMBINING CYRILLIC HUNDRED THOUSANDS SIGN U+0488
+        "҉",        # COMBINING CYRILLIC MILLIONS SIGN U+0489
+        "᪾",        # COMBINING PARENTHESES OVERLAY U+1ABE
+        # Mixed Mc+Me+Mn
+        "ः҈͏",
+    ]
+    for query in visually_empty_inputs:
+        raising = _RaisingClassifier()
+        result = confidence_gated_match(
+            query, classifier=raising, threshold=0.70,
+        )
+        assert raising.called is False, (
+            f"query {query!r} reached classifier; should short-circuit"
+        )
+        assert result.action == GatedAction.OPERATOR_REVIEW
+
+
 def test_combining_marks_with_base_char_do_not_short_circuit() -> None:
     """Pin non-regression: a base character + combining mark (e.g.
     "a̧" = 'a' + combining cedilla) is real content. Only strings

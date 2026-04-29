@@ -128,12 +128,27 @@ def test_workspace_id_required(store: DecisionRecordStore) -> None:
         compute_aggregates(store, "   ")
 
 
-def test_workspace_id_stripped(store: DecisionRecordStore) -> None:
-    rid = _record(store, workspace_id="ws1")
-    _accept(store, rid)
-    agg = compute_aggregates(store, "  ws1  ")
-    assert agg.workspace_id == "ws1"
-    assert agg.total_decisions == 1
+def test_workspace_id_passed_through_verbatim(
+    store: DecisionRecordStore,
+) -> None:
+    """Codex round-1 MEDIUM fix (v2): aggregator passes
+    workspace_id verbatim to phase 1 store. v1 stripped before
+    query, but phase 1 persists verbatim — so padded IDs
+    written via `record_decision(workspace_id="  ws1  ")` were
+    invisible to `compute_aggregates(store, "  ws1  ")` (which
+    queried against stripped `"ws1"`).
+
+    Now: padded query MATCHES padded write."""
+    rid = _record(store, workspace_id="  ws1  ")
+    _accept(store, rid, ws="  ws1  ")
+    # Padded query finds padded-stored rows
+    agg_padded = compute_aggregates(store, "  ws1  ")
+    assert agg_padded.workspace_id == "  ws1  "
+    assert agg_padded.total_decisions == 1
+    # Stripped query does NOT find padded rows (this is the
+    # phase 1 store's semantic — verbatim match required)
+    agg_stripped = compute_aggregates(store, "ws1")
+    assert agg_stripped.total_decisions == 0
 
 
 def test_non_store_argument_raises(store: DecisionRecordStore) -> None:

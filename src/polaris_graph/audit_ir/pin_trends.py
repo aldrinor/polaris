@@ -294,20 +294,23 @@ def analyze_pin_trends(
             )
         last_ts = pin.captured_at
 
-    stable_t = (
-        stable_threshold
-        if stable_threshold is not None
-        else _read_stable_threshold_from_env()
-    )
-    unstable_t = (
-        unstable_threshold
-        if unstable_threshold is not None
-        else _read_unstable_threshold_from_env()
-    )
-    if not (0.0 <= unstable_t <= stable_t <= 1.0):
+    # Codex round-1 MEDIUM fix (v2): explicit kwargs are clamped
+    # to [0.0, 1.0] the same way env overrides are. v1 only
+    # clamped env values; explicit kwargs went unclamped and
+    # raised on out-of-range values, contradicting the docstring
+    # contract.
+    if stable_threshold is None:
+        stable_t = _read_stable_threshold_from_env()
+    else:
+        stable_t = max(0.0, min(1.0, stable_threshold))
+    if unstable_threshold is None:
+        unstable_t = _read_unstable_threshold_from_env()
+    else:
+        unstable_t = max(0.0, min(1.0, unstable_threshold))
+    if not (unstable_t <= stable_t):
         raise PinTrendError(
-            f"thresholds must satisfy 0.0 <= unstable ({unstable_t}) <= "
-            f"stable ({stable_t}) <= 1.0"
+            f"thresholds must satisfy unstable ({unstable_t}) <= "
+            f"stable ({stable_t}) after clamping to [0.0, 1.0]"
         )
 
     window_start = pins[0].captured_at
@@ -327,11 +330,14 @@ def analyze_pin_trends(
     total_transitions = n - 1
 
     # Walk pin pairs, collect drift events per dimension.
+    # Codex round-1 MEDIUM fix (v2): iterate dimensions in
+    # SORTED order so drift_events tuple is deterministic
+    # across processes. v1 iterated `seen_dims` (a set), which
+    # has hash-seed-dependent order — same input could yield
+    # different drift_events tuples, violating the pure-
+    # derivation contract.
     drift_events: list[PinDriftEvent] = []
     change_counts: dict[str, int] = {}
-    # Track dimensions ever seen so a key absent in pin[i] but
-    # present in pin[i-1] (or vice versa) still appears in the
-    # report at stability 1.0 / 0.0 as appropriate.
     seen_dims: set[str] = set()
 
     prev_flat = _extract_dimensions(pins[0])
@@ -339,8 +345,11 @@ def analyze_pin_trends(
     for i in range(1, n):
         cur_flat = _extract_dimensions(pins[i])
         seen_dims.update(cur_flat.keys())
-        all_dims = seen_dims  # tracking running union
-        for dim in all_dims:
+        # Sorted iteration: drift events for one transition
+        # appear in dimension-name lexicographic order. Across
+        # transitions, pin_index orders the events
+        # chronologically (preserved).
+        for dim in sorted(seen_dims):
             before = prev_flat.get(dim)
             after = cur_flat.get(dim)
             if before != after:

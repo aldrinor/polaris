@@ -157,7 +157,15 @@ def compute_aggregates(
             f"since ({since}) must be <= until ({until})"
         )
 
-    ws = workspace_id.strip()
+    # Codex round-1 MEDIUM fix (v2): pass workspace_id THROUGH
+    # to the phase 1 store verbatim. v1 stripped before query,
+    # but phase 1's `record_decision` persists workspace IDs
+    # verbatim — so rows written under padded IDs like
+    # `"  ws1  "` were invisible to aggregation that
+    # compared against the stripped `"ws1"`. We now match
+    # phase 1 store semantics: don't normalize, don't strip.
+    # The dataclass echoes the input verbatim too.
+    ws = workspace_id
 
     # Use the v1 store's query API. Pull all records (no limit)
     # for the workspace+kind filter, then filter+aggregate in

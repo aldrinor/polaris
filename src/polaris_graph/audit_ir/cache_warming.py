@@ -232,6 +232,15 @@ def warm_cache(
             f"store must be RetrievalCacheStore, got "
             f"{type(store).__name__}"
         )
+    # Codex round-1 MEDIUM fix (v2): workspace_id must be str.
+    # v1 accepted bytes/int silently — bytes would create an
+    # orphaned cache namespace invisible to normal str lookups,
+    # and int would leak AttributeError on .strip().
+    if not isinstance(workspace_id, str):
+        raise CacheWarmingError(
+            f"workspace_id must be str, got "
+            f"{type(workspace_id).__name__}"
+        )
     if not workspace_id or not workspace_id.strip():
         raise CacheWarmingError("workspace_id must be non-empty")
     if not isinstance(source_urls, Sequence) or isinstance(
@@ -241,10 +250,19 @@ def warm_cache(
             f"source_urls must be a sequence of str, got "
             f"{type(source_urls).__name__}"
         )
-    if fetcher is None or not hasattr(fetcher, "fetch"):
+    # Codex round-1 MEDIUM fix (v2): fetcher.fetch must be
+    # callable. v1 only checked hasattr, accepting fetchers
+    # with non-callable `fetch` attribute — the resulting
+    # TypeError was caught as ERRORED instead of surfacing as
+    # a contract error.
+    if (
+        fetcher is None
+        or not hasattr(fetcher, "fetch")
+        or not callable(getattr(fetcher, "fetch"))
+    ):
         raise CacheWarmingError(
             "fetcher must implement the CacheFetcher Protocol "
-            "(must have a `fetch(url) -> FetchResult` method)"
+            "(must have a callable `fetch(url) -> FetchResult` method)"
         )
     if on_fetcher_error not in _VALID_ON_ERROR:
         raise CacheWarmingError(
