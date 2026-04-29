@@ -40,6 +40,7 @@ import asyncio
 import concurrent.futures
 import contextvars
 import json
+import math
 import re
 import secrets
 from dataclasses import dataclass
@@ -690,6 +691,14 @@ def _parse_scope_llm_json(
             confidence = float(raw_conf)
         except (TypeError, ValueError):
             confidence = 0.0
+    # Codex round-2 MEDIUM fix (v3): float("NaN") → nan, and
+    # min(1.0, nan) returns 1.0 because nan comparisons are
+    # always False (so min returns its first arg). Same trap
+    # for float("1e309") → inf clamped to 1.0. Both produced
+    # perfect-confidence telemetry from clearly malformed input.
+    # v3 explicitly rejects non-finite values BEFORE the clamp.
+    if not math.isfinite(confidence):
+        confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
     raw_domain = parsed.get("domain")
     domain: str | None
@@ -716,6 +725,20 @@ def _parse_scope_llm_json(
     # IN_SCOPE so the contract holds at parse time.
     if raw_verdict != "in_scope":
         domain = None
+    # Codex round-2 MEDIUM fix (v3): the inverse — `verdict=in_scope`
+    # with domain=None or domain=null also violated the adapter
+    # contract ("LLM returned in_scope verdict but domain=None")
+    # so the sweep helper dropped the telemetry. v3 coerces to
+    # UNCERTAIN with a rationale, mirroring the unsupported-domain
+    # path above so the malformed-output fallback stays consistent.
+    if raw_verdict == "in_scope" and domain is None:
+        return LLMVerdict(
+            verdict="uncertain", confidence=confidence, domain=None,
+            rationale=(
+                "LLM returned in_scope verdict but no domain; "
+                f"expected one of supported={supported_domains}"
+            ),
+        )
     rationale = parsed.get("rationale", "")
     if not isinstance(rationale, str):
         rationale = str(rationale)

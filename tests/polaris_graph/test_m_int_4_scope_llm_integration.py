@@ -193,3 +193,80 @@ def test_parse_invalid_verdict_string_strips_domain() -> None:
     verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
     assert verdict.verdict == "uncertain"
     assert verdict.domain is None  # coerced to uncertain → domain stripped
+
+
+# ---------------------------------------------------------------------------
+# Codex round-2 MEDIUM fixes (v3) — incomplete domain check + NaN/inf bypass
+# ---------------------------------------------------------------------------
+
+
+def test_parse_in_scope_with_null_domain_coerces_to_uncertain() -> None:
+    """Codex round-2 medium 3: in_scope with domain=null violated
+    adapter contract (in_scope MUST have a domain). v2 only stripped
+    domain on non-in_scope verdicts; v3 coerces in_scope+None to
+    UNCERTAIN so the malformed-output fallback stays consistent."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":0.8,'
+        '"domain":null,"rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"  # NOT in_scope
+    assert verdict.domain is None
+
+
+def test_parse_in_scope_missing_domain_field_coerces_to_uncertain() -> None:
+    """Same medium 3 corner: domain key entirely missing."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = '{"verdict":"in_scope","confidence":0.8,"rationale":"x"}'
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "uncertain"
+    assert verdict.domain is None
+
+
+def test_parse_rejects_nan_confidence() -> None:
+    """Codex round-2 medium 4: float('NaN') is nan, and
+    min(1.0, nan) returns 1.0 because nan comparisons are always
+    False. v2's bool guard didn't catch this. v3 rejects
+    non-finite via math.isfinite()."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    # JSON has no NaN literal; emit it manually as Python value
+    # via json.loads tolerance? Use Python literal in raw string —
+    # standard JSON rejects NaN, but some LLMs emit it.
+    raw = '{"verdict":"in_scope","confidence":NaN,"domain":"clinical"}'
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    # confidence MUST be 0.0 not 1.0
+    assert verdict.confidence == 0.0
+
+
+def test_parse_rejects_inf_confidence_via_string() -> None:
+    """Same medium 4: '1e309' parses to inf in Python; min(1.0, inf)
+    is 1.0. v3 rejects via isfinite check."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    # If LLM returns confidence as string "1e309", parser may try
+    # float() in fallback path. Test the direct float-coercion path.
+    raw = '{"verdict":"in_scope","confidence":"1e309","domain":"clinical"}'
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.confidence == 0.0
+
+
+def test_parse_in_scope_with_unsupported_domain_still_coerces() -> None:
+    """v2 fix preserved: unsupported domain → out_of_scope."""
+    from src.polaris_graph.audit_ir.scope_classifier_llm import (
+        _parse_scope_llm_json,
+    )
+    raw = (
+        '{"verdict":"in_scope","confidence":0.9,'
+        '"domain":"cooking","rationale":"x"}'
+    )
+    verdict = _parse_scope_llm_json(raw, ("clinical", "policy"))
+    assert verdict.verdict == "out_of_scope"
+    assert verdict.domain is None
