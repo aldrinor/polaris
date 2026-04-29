@@ -1,8 +1,8 @@
 # M-D8 phase 1 v1 — parallel-fetch substrate boundary
 
-**Status:** v1 / 2026-04-28
+**Status:** v2 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/parallel_fetch.py`
-**Tests:** `tests/polaris_graph/test_md8_phase1_parallel_fetch.py` (29 passing)
+**Tests:** `tests/polaris_graph/test_md8_phase1_parallel_fetch.py` (30 passing)
 **Pairs with:** M-D7 phase 1 retrieval cache + M-D7 phase 2
 cache warming. Phase 2 of M-D8 will integrate with the
 production live retriever (`src/polaris_graph/retrieval/
@@ -81,6 +81,19 @@ loop with per-future deadlines. Naïve approach (`as_completed`
 until the future is done — so the timeout never fires. v1
 uses a proper deadline-based wait loop.
 
+**Deadline anchored at submit time, not fetch-start (v2
+disclosure, Codex round-1 MEDIUM)**: each task's deadline is
+`submit_time + per_task_timeout`. Under heavy semaphore
+contention (e.g. 100 tasks on a backend with limit=1 and
+per_task_timeout < total_serialization_time), a task can be
+marked TIMEOUT before its `fetcher.fetch` is called at all.
+This is intentional: the substrate's timeout reflects the
+operator's overall responsiveness budget, not just the
+fetch's wire time. Operators should size `max_workers` and
+`per_backend_max_concurrent` to avoid contention if they
+want timeout to mean "fetch wire time" rather than "from
+submit".
+
 **Cancel is best-effort**: Python threads can't be
 interrupted. `fut.cancel()` only succeeds if the worker
 hasn't started yet. For an in-flight fetcher, the worker
@@ -88,6 +101,16 @@ continues running in the background after parallel_fetch
 returns; the report records TIMEOUT and the result is
 discarded. The backend semaphore IS released (in the
 worker's finally block), so subsequent calls don't deadlock.
+
+**v2 fix (Codex round-1 HIGH)**: caller latency now
+actually shrinks at timeout. v1 used a `with` block for the
+ThreadPoolExecutor, which calls `shutdown(wait=True)` on
+exit — defeating the caller-latency promise (a 0.5s task
+with 0.05s timeout still returned in ~0.5s). v2 manages
+the executor manually with
+`shutdown(wait=False, cancel_futures=True)` in a finally
+block, so caller gets control back at the timeout. Pinned
+by `test_timeout_actually_returns_fast_not_just_relabels`.
 
 **Mitigation**: callers wanting hard cancellation should
 wrap their Fetcher with subprocess isolation or use an

@@ -390,9 +390,15 @@ def parallel_fetch(
 
     results_by_index: dict[int, FetchResultRecord] = {}
 
-    with concurrent.futures.ThreadPoolExecutor(
+    # Codex round-1 HIGH fix (v2): manage executor manually so we
+    # can shutdown(wait=False, cancel_futures=True) on TIMEOUT.
+    # The `with` block's __exit__ calls shutdown(wait=True) which
+    # blocks until all in-flight workers finish — defeating
+    # boundary 3's caller-latency promise.
+    executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=max_workers,
-    ) as executor:
+    )
+    try:
         future_to_index: dict[concurrent.futures.Future, int] = {}
         deadline_per_future: dict[concurrent.futures.Future, float] = {}
         submit_now = time.time()
@@ -470,7 +476,17 @@ def parallel_fetch(
         if protocol_error_to_raise is not None:
             for other_fut in remaining:
                 other_fut.cancel()
+            # Codex round-1 MEDIUM fix (v2): release the executor
+            # without waiting so the protocol error propagates
+            # promptly. In-flight workers continue but caller
+            # gets control back.
+            executor.shutdown(wait=False, cancel_futures=True)
             raise protocol_error_to_raise
+    finally:
+        # Codex round-1 HIGH fix (v2): non-blocking shutdown.
+        # Pending (not-yet-started) futures are cancelled;
+        # in-flight workers continue but don't gate our return.
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # Reorder by input index.
     results = tuple(

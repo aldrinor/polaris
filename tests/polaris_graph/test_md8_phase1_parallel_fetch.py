@@ -201,7 +201,13 @@ def test_per_backend_limit_serializes_same_backend() -> None:
 
 
 def test_per_backend_limit_independent_across_backends() -> None:
-    """semantic_scholar limit=1 doesn't slow down a serper task."""
+    """semantic_scholar limit=1 doesn't slow down a serper task.
+
+    Codex round-1 LOW fix (v2): tightened CI floor from 0.12 to
+    0.20 — original threshold was flaky on this host (0.1229s
+    on one run). Concurrent should be ~0.05s; serial would be
+    ~0.10s; 0.20s gives generous CI margin.
+    """
     fetcher = _StubFetcher(delay_seconds=0.05)
     tasks = [
         FetchTask("https://ss.com/1", "semantic_scholar"),
@@ -213,8 +219,8 @@ def test_per_backend_limit_independent_across_backends() -> None:
         per_backend_max_concurrent={"semantic_scholar": 1, "serper": 10},
     )
     elapsed = time.time() - t0
-    # Both run concurrently — ~0.05s.
-    assert elapsed < 0.12
+    # Both run concurrently — ~0.05s. 0.20s is the CI margin.
+    assert elapsed < 0.20
     assert report.success_count == 2
 
 
@@ -297,6 +303,32 @@ def test_per_task_timeout_marks_timeout() -> None:
     rec = report.results[0]
     assert rec.outcome == FetchOutcome.TIMEOUT
     assert rec.error == "per-task timeout exceeded"
+
+
+def test_timeout_actually_returns_fast_not_just_relabels() -> None:
+    """Codex round-1 HIGH fix (v2): the original code marked
+    timeout but the ThreadPoolExecutor's `with` block waited for
+    workers to finish before returning, defeating boundary 3's
+    caller-latency promise. v2 manages the executor manually
+    and shutdown(wait=False, cancel_futures=True) so caller
+    gets control back at the timeout, NOT after the 0.5s
+    fetcher finishes.
+    """
+    fetcher = _StubFetcher(delay_seconds=0.5)
+    tasks = [FetchTask("https://slow.com", "default")]
+    t0 = time.time()
+    report = parallel_fetch(
+        tasks, fetcher, max_workers=2,
+        per_task_timeout=0.05,
+    )
+    elapsed = time.time() - t0
+    # Should return fast (~0.05s), NOT wait for the 0.5s task.
+    # Allow 0.30s CI margin for thread cleanup overhead.
+    assert elapsed < 0.30, (
+        f"elapsed {elapsed:.3f}s — substrate is blocking on "
+        "executor shutdown instead of returning at timeout"
+    )
+    assert report.timeout_count == 1
 
 
 def test_no_timeout_with_none() -> None:
