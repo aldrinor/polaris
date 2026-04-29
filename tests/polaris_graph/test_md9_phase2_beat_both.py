@@ -754,6 +754,36 @@ def test_claim_frames_treats_whitespace_only_as_missing() -> None:
     assert scores["claim_frames"].value == 1.0
 
 
+def test_claim_frames_treats_invisible_unicode_as_missing() -> None:
+    """Pre-emptive v5 hardening: `str.strip()` removes Zs/Zl/Zp
+    + whitespace controls but NOT Cf-category characters
+    (zero-width space U+200B, BOM U+FEFF, ZWNJ U+200C, ZWJ U+200D).
+    A claim with `ci="\\u200b\\ufeff"` is visually empty and must
+    not count as a populated frame field.
+
+    Mirrors `_is_visually_empty` from M-D5 phase 1 v3+v4.
+    """
+    manifest = {
+        "claims": [
+            # Zero-width space + BOM = visually empty
+            {"n": 100, "baseline": 7.5, "endpoint": 6.2,
+             "ci": "​﻿"},
+            # ZWNJ + ZWJ = visually empty
+            {"n": 200, "baseline": 8.0, "endpoint": 5.7,
+             "ci": "‌‍"},
+            # Word joiner + non-breaking space — strip catches NBSP
+            # but not the word joiner; combined still visually empty.
+            {"n": 75, "baseline": 7.2, "endpoint": 5.9,
+             "ci": "⁠\xa0"},
+            # Genuinely complete
+            {"n": 50, "baseline": 7.0, "endpoint": 5.5,
+             "ci": "[5.2, 5.8]"},
+        ],
+    }
+    scores = score_run(manifest)
+    assert scores["claim_frames"].value == 1.0
+
+
 def test_claim_frames_missing_key_treated_as_missing() -> None:
     """A claim that doesn't have the key at all is missing
     (sentinel != None != ""); pin that case distinctly."""

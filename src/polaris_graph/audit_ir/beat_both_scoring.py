@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Protocol
@@ -178,17 +179,46 @@ def _is_frame_field_populated(value: Any) -> bool:
       - it's not the sentinel (key absent from dict)
       - it's not None
       - it's not an empty / whitespace-only string
+      - it's not composed entirely of invisible / non-rendering
+        characters (Cf/Cc/Cn/Co/Cs Unicode categories)
 
     Numeric 0 / 0.0 (legitimate baseline / endpoint values) DO
     count as populated. This is the round-1 fix preserved.
 
-    Codex round-3 LOW fix (v4): also reject whitespace-only
+    Codex round-3 LOW fix (v4): reject whitespace-only
     strings (e.g. `ci="   "`). Equivalent to morally-empty for
     the scorer's purpose (no [low, high] range present).
+
+    Pre-emptive v5 hardening (mirrors M-D5 phase 1
+    `_is_visually_empty`): `str.strip()` removes Zs/Zl/Zp +
+    whitespace controls but NOT Cf (zero-width space U+200B,
+    BOM U+FEFF, ZWNJ, ZWJ, word joiner). A frame value of
+    `ci="\\u200b\\ufeff"` survives strip() but renders as
+    nothing. Reject those too — the scorer's job is to count
+    *meaningful* claim frames, not invisible-character noise.
     """
     if value is _MISSING or value is None:
         return False
-    if isinstance(value, str) and value.strip() == "":
+    if isinstance(value, str) and _is_visually_empty_text(value):
+        return False
+    return True
+
+
+def _is_visually_empty_text(text: str) -> bool:
+    """Mirror of `scope_classifier._is_visually_empty` — kept
+    local to keep the M-D9 phase 2 module's import surface
+    stdlib-only (the scope_classifier helper imports through
+    classifier internals we don't want to depend on here)."""
+    if not text:
+        return True
+    for ch in text:
+        if ch.isspace():
+            continue
+        category = unicodedata.category(ch)
+        # Cf=Format, Cc=Control, Cn=Unassigned, Co=Private Use,
+        # Cs=Surrogate. All non-rendering / non-content.
+        if category in ("Cf", "Cc", "Cn", "Co", "Cs"):
+            continue
         return False
     return True
 

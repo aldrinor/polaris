@@ -1,8 +1,8 @@
 # M-D9 phase 2 — BEAT-BOTH dimension scoring boundary
 
-**Status:** v4 / 2026-04-28
+**Status:** v5 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/beat_both_scoring.py`
-**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (51 passing)
+**Tests:** `tests/polaris_graph/test_md9_phase2_beat_both.py` (52 passing)
 **Pairs with:** M-D9 phase 1 (`regression_lab.py`, commit 8abf160) —
 the new module is independent but consumers can integrate via
 `report_to_exit_code` matching the same convention.
@@ -146,12 +146,25 @@ and returns 0.0 with a rationale when fields are missing:
 
 `_ClaimFramesScorer` v3 (Codex round-2 LOW fix) also rejects
 empty-string field values via `_is_frame_field_populated`.
-v4 (Codex round-3 LOW fix) extends to whitespace-only:
+v4 (Codex round-3 LOW fix) extends to whitespace-only.
+v5 (pre-emptive hardening, mirrors M-D5 phase 1
+`_is_visually_empty`) also rejects invisible Cf/Cc/Cn/Co/Cs
+characters that survive `str.strip()`:
   - `None` → missing
   - `""` (empty string) → missing
   - `"   "` / `"\t\n"` (whitespace-only string) → missing
+  - `"​﻿"` (zero-width space + BOM) → missing
+  - `"‌‍"` (ZWNJ + ZWJ) → missing
+  - `"⁠\xa0"` (word joiner + NBSP) → missing
   - `0` / `0.0` → present (legitimate measurement; v2 fix)
-  - any other non-None / non-blank value → present
+  - any other non-None / non-blank / non-invisible value → present
+
+Why pre-emptive: Codex rounds 1-3 each found a tighter version
+of the same predicate (regex→urllib host parse, truthy→is-not-
+None, empty-string→whitespace-only). v5 closes the next obvious
+edge (invisible Unicode) before round 4, on the same convergence
+chain — `str.strip()` only removes Zs/Zl/Zp + whitespace
+controls, NOT Cf/Cc/Cn/Co/Cs.
 
 **Mitigation**: if downstream pipelines ship manifest schema
 v2 with new field names, scorers should be updated in v2 of
