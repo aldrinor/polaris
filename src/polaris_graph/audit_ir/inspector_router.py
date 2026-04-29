@@ -95,6 +95,16 @@ from src.polaris_graph.audit_ir.contract_draft_store import (  # noqa: E402
     ContractKind,
     draft_to_dict,
 )
+# M-INT-10: M-25 Drive connector v2 (narrow) endpoint
+from src.polaris_graph.audit_ir.private_corpus_sync import (  # noqa: E402
+    CorpusSource,
+    PrivateCorpusSyncError,
+    PrivateCorpusSyncStore,
+    SourceConnector,
+    SourceStateError,
+    SourceStatus,
+    source_to_dict,
+)
 
 router = APIRouter()
 
@@ -144,6 +154,49 @@ _DECISION_STORE_LOCK = threading.Lock()
 # M-INT-9: contract draft store singleton (lazy init).
 _CONTRACT_DRAFT_STORE: ContractDraftStore | None = None
 _CONTRACT_DRAFT_STORE_LOCK = threading.Lock()
+
+# M-INT-10: private corpus sync store singleton (lazy init).
+_PRIVATE_CORPUS_SYNC_STORE: PrivateCorpusSyncStore | None = None
+_PRIVATE_CORPUS_SYNC_STORE_LOCK = threading.Lock()
+
+
+def _private_corpus_db_path() -> Path:
+    raw = os.environ.get("PG_PRIVATE_CORPUS_DB_PATH")
+    if raw:
+        return Path(raw)
+    base = Path(__file__).resolve().parents[3] / "state"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "private_corpus_sync.sqlite"
+
+
+def _get_private_corpus_sync_store() -> PrivateCorpusSyncStore:
+    global _PRIVATE_CORPUS_SYNC_STORE
+    with _PRIVATE_CORPUS_SYNC_STORE_LOCK:
+        if _PRIVATE_CORPUS_SYNC_STORE is None:
+            _PRIVATE_CORPUS_SYNC_STORE = PrivateCorpusSyncStore(
+                _private_corpus_db_path()
+            )
+        return _PRIVATE_CORPUS_SYNC_STORE
+
+
+def _reset_private_corpus_sync_store_for_test() -> None:
+    global _PRIVATE_CORPUS_SYNC_STORE
+    with _PRIVATE_CORPUS_SYNC_STORE_LOCK:
+        _PRIVATE_CORPUS_SYNC_STORE = None
+
+
+def _drive_connector_endpoint_enabled() -> bool:
+    return os.environ.get(
+        "PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1",
+    ) != "0"
+
+
+async def _require_drive_connector_endpoint_enabled() -> None:
+    if not _drive_connector_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="drive connector endpoint disabled",
+        )
 
 
 def _contract_draft_db_path() -> Path:
@@ -994,6 +1047,115 @@ async def get_contract_draft(
             detail=f"unknown draft_id: {draft_id}",
         )
     return draft_to_dict(draft)
+
+
+# ---------------------------------------------------------------------------
+# M-INT-10 — M-25 Drive connector v2 (narrow) endpoints (Phase E4)
+# ---------------------------------------------------------------------------
+#
+# Per FINAL_PLAN: NARROW scope — Google Drive only. SharePoint and
+# Confluence connectors exist in the substrate enum but are NOT
+# exposed at the endpoint layer in v1. The endpoint hardcodes
+# connector=GOOGLE_DRIVE so callers cannot register non-Drive
+# sources.
+
+
+class _PrivateCorpusSourceCreateRequest(BaseModel):
+    workspace_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    external_uri: str = Field(
+        ..., min_length=1,
+        description="Google Drive folder ID (e.g. '1AbC...')",
+    )
+    credential_ref: str = Field(
+        ..., min_length=1,
+        description=(
+            "Vault pointer (e.g. vault://secrets/drive-key). "
+            "Raw secrets are rejected at substrate level."
+        ),
+    )
+
+
+@router.post(
+    "/api/inspector/private-corpus-sources",
+    status_code=201,
+    dependencies=[Depends(_require_drive_connector_endpoint_enabled)],
+)
+async def register_private_corpus_source(
+    body: _PrivateCorpusSourceCreateRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Register a new Google Drive source for the caller's workspace.
+
+    Per FINAL_PLAN narrow scope: connector is hardcoded to
+    GOOGLE_DRIVE. Source lands in PENDING state — admin must
+    call approve_source() before sync_now() will run (admin-only
+    write, deferred to Phase F UI).
+    """
+    if caller.role not in {"member", "admin", "owner"}:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"caller role {caller.role!r} insufficient to "
+                "register corpus sources; member+ required"
+            ),
+        )
+    store = _get_private_corpus_sync_store()
+    try:
+        source = store.register_source(
+            workspace_id=body.workspace_id,
+            org_id=caller.org_id,
+            connector=SourceConnector.GOOGLE_DRIVE,
+            name=body.name,
+            external_uri=body.external_uri,
+            credential_ref=body.credential_ref,
+        )
+    except SourceStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PrivateCorpusSyncError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return source_to_dict(source)
+
+
+@router.get(
+    "/api/inspector/private-corpus-sources",
+    dependencies=[Depends(_require_drive_connector_endpoint_enabled)],
+)
+async def list_private_corpus_sources(
+    workspace_id: str | None = None,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """List corpus sources for a workspace (caller's org enforced).
+    If `workspace_id` is omitted, returns []."""
+    if not workspace_id:
+        return {"sources": []}
+    store = _get_private_corpus_sync_store()
+    sources = store.list_sources_for_workspace(
+        workspace_id=workspace_id,
+        org_id=caller.org_id,
+    )
+    return {"sources": [source_to_dict(s) for s in sources]}
+
+
+@router.get(
+    "/api/inspector/private-corpus-sources/{source_id}",
+    dependencies=[Depends(_require_drive_connector_endpoint_enabled)],
+)
+async def get_private_corpus_source(
+    source_id: str,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Fetch one corpus source. Org-scoped — cross-org → 404."""
+    store = _get_private_corpus_sync_store()
+    source = store.get_source(
+        source_id=source_id, org_id=caller.org_id,
+    )
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown source_id: {source_id}",
+        )
+    return source_to_dict(source)
 
 
 @router.get("/inspector", response_class=HTMLResponse)
