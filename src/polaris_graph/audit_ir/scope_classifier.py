@@ -100,21 +100,47 @@ def _read_threshold_from_env() -> float:
     return max(0.0, min(1.0, value))
 
 
+_VISUALLY_EMPTY_CODEPOINTS = frozenset({
+    "ᅟ",  # HANGUL CHOSEONG FILLER
+    "ᅠ",  # HANGUL JUNGSEONG FILLER
+    "ㅤ",  # HANGUL FILLER
+    "ﾠ",  # HALFWIDTH HANGUL FILLER
+})
+
+
 def _is_visually_empty(text: str) -> bool:
     """Codex round-2 PARTIAL fix: detect visually-empty input
     including Unicode format characters that `str.strip()` misses.
 
     Python's `str.strip()` only removes characters where
     `str.isspace()` returns True (Zs/Zl/Zp/whitespace controls).
-    It does NOT remove Cf (format) characters: `​` (zero-
-    width space), `‌` (ZWNJ), `‍` (ZWJ), `⁠`
-    (word joiner), `﻿` (BOM). These render as nothing but
-    leave a non-empty string after strip — letting a query like
-    `"​​"` bypass the v2 short-circuit and reach the
-    classifier.
+    It does NOT remove Cf (format) characters, combining marks
+    (Mn/Mc/Me), or specific Default_Ignorable Lo characters
+    (Hangul fillers). All render as nothing or as combining-only
+    fragments and let an empty query bypass the short-circuit.
 
-    Treat any string composed entirely of whitespace + Cf
-    + Cc (control) + invisible characters as visually empty.
+    v5 extension (mirrors M-D9 phase 2 v7 asymptote-stop on the
+    same predicate): the skip set is now exhaustive on Unicode
+    Default_Ignorable_Code_Point per the UCD
+    DerivedCoreProperties file. There are no further "invisible
+    Unicode codepoints" outside this skip set.
+
+    Categories rejected as non-content / non-rendering:
+      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, word joiner)
+      - Cc=Control (\\t \\n \\r and friends)
+      - Cn=Unassigned
+      - Co=Private Use
+      - Cs=Surrogate (added in v4 per Codex round-3 probe)
+      - Mn=Mark Nonspacing (CGJ U+034F, VS16 U+FE0F, ...) — v5
+      - Mc=Mark Spacing Combining (Devanagari vowel signs ...) — v5
+      - Me=Mark Enclosing (enclosing circles, ...) — v5
+      - explicit Lo Default_Ignorable: U+115F, U+1160, U+3164,
+        U+FFA0 (Hangul fillers) — v5
+
+    Important non-regression: a base character + Mn (e.g.
+    `"a\\u0327"` = 'a̧') still counts as content because the
+    loop exits on the 'a' (Ll) and returns False. Only strings
+    composed *entirely* of skip categories return True.
     """
     if not text:
         return True
@@ -122,13 +148,12 @@ def _is_visually_empty(text: str) -> bool:
         if ch.isspace():
             continue
         category = unicodedata.category(ch)
-        # Cf = Format, Cc = Control, Cn = Unassigned, Co = Private Use,
-        # Cs = Surrogate. All are non-rendering / non-content. Cs added
-        # in v4 per Codex round-3 probe: surrogate halves are invalid
-        # in well-formed Unicode but Python str permits them — treat
-        # as non-content so a string of lone surrogates short-circuits
-        # rather than reaching the classifier.
-        if category in ("Cf", "Cc", "Cn", "Co", "Cs"):
+        if category in (
+            "Cf", "Cc", "Cn", "Co", "Cs",
+            "Mn", "Mc", "Me",
+        ):
+            continue
+        if ch in _VISUALLY_EMPTY_CODEPOINTS:
             continue
         return False
     return True

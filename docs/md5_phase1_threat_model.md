@@ -1,8 +1,8 @@
 # M-D5 phase 1 — confidence-gated template matching boundary
 
-**Status:** v4 / 2026-04-28
+**Status:** v5 / 2026-04-28
 **Module:** `src/polaris_graph/audit_ir/scope_classifier.py`
-**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (30 passing)
+**Tests:** `tests/polaris_graph/test_md5_scope_classifier.py` (32 passing)
 **Pairs with:** M-20 router (`template_classifier.classify_query`),
 M-D1 validation set (43 cases)
 **Substrate:** stdlib + `template_classifier` only — no LLM client coupling
@@ -167,10 +167,38 @@ and treats a string as empty when every character is one of:
   Python `str` permits them; treating them as non-content
   denies that bypass class.
 
+**v5 alignment with M-D9 phase 2 v7 asymptote-stop**: extends
+the skip set to include the Mark categories and the
+Default_Ignorable Lo Hangul fillers:
+- `Mn` (Mark Nonspacing) — CGJ U+034F, VS16 U+FE0F, FVS1 U+180B,
+  lone combining accents (cedilla U+0327, etc.)
+- `Mc` (Mark Spacing Combining) — Devanagari vowel signs and
+  similar combining marks that take a column when standalone
+- `Me` (Mark Enclosing) — enclosing circles
+- explicit Lo Default_Ignorable: U+115F (HANGUL CHOSEONG FILLER),
+  U+1160 (HANGUL JUNGSEONG FILLER), U+3164 (HANGUL FILLER),
+  U+FFA0 (HALFWIDTH HANGUL FILLER) — these are Letter-Other
+  category but render as invisible placeholders in Korean
+  composition, and are listed in UCD `DerivedCoreProperties` as
+  Default_Ignorable_Code_Point.
+
+The skip set after v5 is **exhaustive on Unicode
+Default_Ignorable_Code_Point** per the UCD `DerivedCoreProperties`
+file. There are no further "invisible Unicode codepoints"
+outside this skip set. Future findings on `_is_visually_empty`
+must argue a NEW SEMANTIC (e.g. NFKC compatibility decomposition,
+Bidi override detection) rather than enumerate another invisible
+codepoint. Mirrors the M-D9 phase 2 v7 boundary in
+`docs/md9_phase2_threat_model.md`.
+
 Visible Unicode (Japanese, accented Latin, Greek, em-dashes,
 etc.) is NOT treated as empty (verified by
 `test_visible_unicode_query_does_not_short_circuit` covering 5
-visible-Unicode inputs).
+visible-Unicode inputs). Critically, base+combining sequences
+(`"a̧"`, `"ré"`, Devanagari `"नमस्ते"`, composed Hangul `"한"`)
+are NOT visually empty — the loop exits on the first non-skip
+character (verified by
+`test_combining_marks_with_base_char_do_not_short_circuit`).
 
 The short-circuit emits a sentinel `ScopeClassification` with
 `verdict=UNCERTAIN, confidence=0.0` so callers retain a uniform

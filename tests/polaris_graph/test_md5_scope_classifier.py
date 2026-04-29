@@ -509,6 +509,88 @@ def test_surrogate_only_query_short_circuits() -> None:
     assert result.action == GatedAction.OPERATOR_REVIEW
 
 
+def test_combining_marks_and_hangul_fillers_short_circuit() -> None:
+    """v5 alignment with M-D9 phase 2 v7: extend `_is_visually_empty`
+    to cover combining marks (Mn/Mc/Me) and the Default_Ignorable
+    Lo Hangul fillers. These rendered as nothing but bypassed v4's
+    Cf/Cc/Cn/Co/Cs skip set.
+
+    The skip set after v5 is exhaustive on Unicode
+    Default_Ignorable_Code_Point per the UCD DerivedCoreProperties
+    file. Mirrors the M-D9 phase 2 v7 asymptote-stop boundary
+    (see `docs/md9_phase2_threat_model.md`).
+    """
+
+    @dataclass
+    class _RaisingClassifier:
+        called: bool = False
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called = True
+            raise RuntimeError(
+                "classifier reached for visually-empty input"
+            )
+
+    visually_empty_inputs = [
+        # Mn — Mark Nonspacing
+        "͏",        # CGJ U+034F
+        "️",        # VS16 U+FE0F
+        "᠋",        # Mongolian FVS1 U+180B
+        "̧",        # lone cedilla U+0327
+        "͏️",       # multiple Mn
+        # Lo — explicit Hangul fillers (Default_Ignorable)
+        "ᅟ",        # CHOSEONG FILLER U+115F
+        "ᅠ",        # JUNGSEONG FILLER U+1160
+        "ㅤ",        # HANGUL FILLER U+3164
+        "ﾠ",        # HALFWIDTH HANGUL FILLER U+FFA0
+        # Mixed: Cf + Mn + Hangul filler + whitespace
+        "​͏ᅟ \t",
+    ]
+    for query in visually_empty_inputs:
+        raising = _RaisingClassifier()
+        result = confidence_gated_match(
+            query, classifier=raising, threshold=0.70,
+        )
+        assert raising.called is False, (
+            f"query {query!r} reached classifier; should short-circuit"
+        )
+        assert result.action == GatedAction.OPERATOR_REVIEW
+
+
+def test_combining_marks_with_base_char_do_not_short_circuit() -> None:
+    """Pin non-regression: a base character + combining mark (e.g.
+    "a̧" = 'a' + combining cedilla) is real content. Only strings
+    composed *entirely* of skip categories should short-circuit.
+    """
+
+    @dataclass
+    class _CountingClassifier:
+        called: int = 0
+
+        def classify(self, question: str) -> ScopeClassification:
+            self.called += 1
+            return ScopeClassification(
+                verdict=ScopeVerdict.IN_SCOPE,
+                confidence=0.95,
+                domain="clinical",
+                rationale="real content with combining mark",
+            )
+
+    base_plus_combining_inputs = [
+        "a̧",          # 'a' + combining cedilla
+        "ré",          # 'r' + combining acute → 'ré'
+        "Hindi नमस्ते",  # Devanagari (contains Mn but base chars Lo)
+        "한",           # composed Hangul (Lo, NOT a filler)
+    ]
+    for query in base_plus_combining_inputs:
+        clf = _CountingClassifier()
+        confidence_gated_match(query, classifier=clf, threshold=0.70)
+        assert clf.called == 1, (
+            f"query {query!r} should reach classifier; "
+            f"called={clf.called}"
+        )
+
+
 def test_visible_unicode_query_does_not_short_circuit() -> None:
     """Negative case: queries with actual Unicode content (non-Latin
     scripts, accented chars, em-dashes, etc.) MUST reach the
