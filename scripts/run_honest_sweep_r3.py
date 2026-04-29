@@ -2807,11 +2807,27 @@ async def main_async() -> int:
     # Charges one AUDIT_RUN_ENQUEUED unit per sweep invocation
     # (not per query — the sweep is the unit of work).
     # Per LAW II — wrap in try/except for defense-in-depth.
-    try:
-        billing_summary = _check_audit_run_quota()
-    except Exception as exc:  # noqa: BLE001
-        print(f"[M-INT-7] WARN: billing quota helper raised: {exc}")
+    #
+    # Codex round-2 MEDIUM fix (v3): only consume quota when
+    # there's actual work to bill for. v1+v2 consumed
+    # unconditionally; an empty sweep (e.g. --only matched no
+    # slugs, or SWEEP_QUERIES=[]) burned one unit per invocation.
+    # Codex repro: cap=1 + SWEEP_QUERIES=[] → first empty sweep
+    # returned rc=0 but used the unit; second empty sweep was
+    # then refused. Fix: skip the helper entirely when
+    # queries_to_run is empty.
+    if not queries_to_run:
+        print(
+            "[M-INT-7] billing_quota: skipped (no queries to run; "
+            "no charge incurred)"
+        )
         billing_summary = None
+    else:
+        try:
+            billing_summary = _check_audit_run_quota()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[M-INT-7] WARN: billing quota helper raised: {exc}")
+            billing_summary = None
     if billing_summary is not None:
         if billing_summary.get("exceeded"):
             # Codex round-1 HIGH fix (v2): EXCEEDED must GATE

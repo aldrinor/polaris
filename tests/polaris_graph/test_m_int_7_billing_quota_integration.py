@@ -247,6 +247,120 @@ def test_main_async_aborts_when_quota_exceeded(
     assert refusal["billing_quota"]["exceeded"] is True
 
 
+def test_main_async_empty_sweep_does_not_consume_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-2 MEDIUM: v2 consumed quota unconditionally.
+    With cap=1 and SWEEP_QUERIES=[], an empty first sweep used
+    the unit; an empty second sweep was then refused. v3 skips
+    the consume when there's no work — no charge for a no-op.
+    """
+    import asyncio
+
+    monkeypatch.setenv("PG_CAPTURE_PIN", "0")
+    monkeypatch.setenv("PG_USE_BILLING_QUOTA", "1")
+    monkeypatch.setenv(
+        "PG_BILLING_QUOTA_DB_PATH", str(tmp_path / "billing.sqlite"),
+    )
+    monkeypatch.setenv("PG_BILLING_ORG_ID", "empty_org")
+
+    from src.polaris_graph.audit_ir.billing_quota_store import (
+        BillingQuotaStore, PlanTier, QuotaEventKind,
+    )
+    store = BillingQuotaStore(tmp_path / "billing.sqlite")
+    store.assign_plan(
+        org_id="empty_org",
+        tier=PlanTier.PILOT,
+        quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: 1},
+    )
+
+    out_root = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "run_honest_sweep_r3.py",
+            "--out-root", str(out_root),
+        ],
+    )
+
+    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
+    # Empty SWEEP_QUERIES = empty sweep.
+    monkeypatch.setattr(sweep, "SWEEP_QUERIES", [])
+
+    rc = asyncio.run(sweep.main_async())
+
+    # Empty sweep: rc=0 (nothing to do), and quota unchanged.
+    assert rc == 0
+    check = store.check_quota(
+        org_id="empty_org",
+        kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+    )
+    # Used MUST stay at 0 — empty sweep didn't consume.
+    assert check.used == 0, (
+        f"M-INT-7 v3: empty sweep consumed {check.used} unit(s); "
+        f"expected 0"
+    )
+    assert check.remaining == 1
+
+
+def test_main_async_only_no_match_does_not_consume_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same medium corner: --only with no matching slug → no
+    queries_to_run → no charge."""
+    import asyncio
+
+    monkeypatch.setenv("PG_CAPTURE_PIN", "0")
+    monkeypatch.setenv("PG_USE_BILLING_QUOTA", "1")
+    monkeypatch.setenv(
+        "PG_BILLING_QUOTA_DB_PATH", str(tmp_path / "billing.sqlite"),
+    )
+    monkeypatch.setenv("PG_BILLING_ORG_ID", "no_match_org")
+
+    from src.polaris_graph.audit_ir.billing_quota_store import (
+        BillingQuotaStore, PlanTier, QuotaEventKind,
+    )
+    store = BillingQuotaStore(tmp_path / "billing.sqlite")
+    store.assign_plan(
+        org_id="no_match_org",
+        tier=PlanTier.PILOT,
+        quotas_override={QuotaEventKind.AUDIT_RUN_ENQUEUED: 1},
+    )
+
+    out_root = tmp_path / "out"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "run_honest_sweep_r3.py",
+            "--only", "nonexistent_slug",
+            "--out-root", str(out_root),
+        ],
+    )
+
+    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
+    monkeypatch.setattr(
+        sweep, "SWEEP_QUERIES",
+        [{
+            "domain": "test", "slug": "actual_slug",
+            "question": "Should not run",
+        }],
+    )
+
+    rc = asyncio.run(sweep.main_async())
+
+    # --only nonexistent → main_async returns rc=2 BEFORE
+    # billing path (queries_to_run check happens earlier).
+    # Either way, quota MUST NOT have been consumed.
+    check = store.check_quota(
+        org_id="no_match_org",
+        kind=QuotaEventKind.AUDIT_RUN_ENQUEUED,
+    )
+    assert check.used == 0, (
+        f"M-INT-7 v3: --only no-match sweep consumed {check.used} "
+        "unit(s); expected 0"
+    )
+
+
 def test_main_async_proceeds_when_quota_under_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
