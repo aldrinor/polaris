@@ -336,3 +336,53 @@ def test_endpoint_requires_caller(
     client = TestClient(app)
     response = client.get("/api/inspector/private-corpus-sources")
     assert response.status_code in {401, 403}
+
+
+def test_workspace_id_normalization_consistent_post_vs_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex round-2 LOW: POST stripped workspace_id (substrate
+    .strip()) but GET passed raw text through. v3 strips at
+    endpoint on GET so '  ws_test  ' on POST is findable via
+    '%20%20ws_test%20%20' on GET (or any whitespace-padded form)."""
+    monkeypatch.setenv("PG_USE_DRIVE_CONNECTOR_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_PRIVATE_CORPUS_DB_PATH", str(tmp_path / "corpus.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_private_corpus_sync_store_for_test,
+    )
+    _reset_private_corpus_sync_store_for_test()
+
+    client = _make_client(role="member")
+
+    # POST with padded workspace_id — substrate strips, stores "ws_pad".
+    r_post = client.post(
+        "/api/inspector/private-corpus-sources",
+        json={
+            "workspace_id": "  ws_pad  ",
+            "name": "Padded test",
+            "external_uri": "1abcDriveFolderId123456_AAA",
+            "credential_ref": "vault://test",
+        },
+    )
+    assert r_post.status_code == 201
+    assert r_post.json()["workspace_id"] == "ws_pad"
+
+    # GET with same padded workspace_id MUST find it.
+    r_get_padded = client.get(
+        "/api/inspector/private-corpus-sources?workspace_id=%20%20ws_pad%20%20"
+    )
+    assert r_get_padded.status_code == 200
+    body = r_get_padded.json()
+    assert len(body["sources"]) == 1, (
+        f"M-INT-10 v3: padded workspace_id on GET should find the "
+        f"posted source; got {body!r}"
+    )
+
+    # GET with stripped workspace_id should also find it.
+    r_get_stripped = client.get(
+        "/api/inspector/private-corpus-sources?workspace_id=ws_pad"
+    )
+    assert r_get_stripped.status_code == 200
+    assert len(r_get_stripped.json()["sources"]) == 1

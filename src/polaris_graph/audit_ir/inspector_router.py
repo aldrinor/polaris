@@ -1170,7 +1170,14 @@ async def list_private_corpus_sources(
     """
     if workspace_id is None:
         return {"sources": []}
-    if not workspace_id.strip():
+    # Codex round-2 LOW fix (v3): normalize workspace_id by
+    # stripping. v1+v2 had POST strip whitespace via substrate
+    # (workspace_id.strip() in register_source), but GET passed
+    # raw query text through, so "  ws  " on POST stored "ws"
+    # but GET ?workspace_id=%20%20ws%20%20 returned []. v3 strips
+    # consistently before the substrate call.
+    stripped = workspace_id.strip()
+    if not stripped:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1181,7 +1188,7 @@ async def list_private_corpus_sources(
         )
     store = _get_private_corpus_sync_store()
     sources = store.list_sources_for_workspace(
-        workspace_id=workspace_id,
+        workspace_id=stripped,
         org_id=caller.org_id,
     )
     return {"sources": [source_to_dict(s) for s in sources]}
