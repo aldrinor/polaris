@@ -1808,36 +1808,48 @@ async def _call_trial_summary_table(
 # ─────────────────────────────────────────────────────────────────────────────
 
 _M50_MIN_PRIMARIES_FOR_SUBSECTIONS = 2
-_M50_SUBSECTION_SYSTEM_PROMPT = """You are writing one PER-TRIAL SUBSECTION for a clinical research report.
+_M50_SUBSECTION_SYSTEM_PROMPT = """You are writing one PER-TRIAL SUBSECTION for a top-tier Deep Research clinical report (the level of GPT-5.4 DR / Gemini 3.1 Pro DR — those competitors produce 200-400 word per-trial blocks, not 60-110 word fact-bullets).
 
 The user will provide:
 - Trial name (e.g., a phase-3 trial identifier)
 - Source quote from the primary publication
 - Bibliography marker number [N]
 
-Write a 4-6 sentence subsection covering these 7 elements (each inline):
-1. N (sample size)
-2. Population (inclusion criteria / baseline characteristics / CV risk profile)
-3. Comparator (control arm)
-4. Primary endpoint
-5. Timepoint
-6. Effect estimate WITH uncertainty (CI, SD, or p-value)
-7. Safety caveat (key adverse event signal or open-label / sponsorship note)
+**Target depth: 10-15 sentences (200-300 words) of evidence-grounded narrative prose**, NOT a fact-bullet list. Top-tier DR competitors write narrative paragraphs that integrate trial design + population context + dose-response detail + comparator framing + effect estimates with uncertainty + safety caveats + clinical interpretation. v1.0 POLARIS produced 60-110 word blocks (avg 93w) and lost narrative_length BEAT-BOTH on this. v1.1 closes the gap.
+
+Each sentence must remain verbatim-grounded in the source quote — DO NOT invent claims to pad. If the quote supports only 6-8 sentences of NEW information, write those sentences plus connective synthesis (e.g., "This effect size is consistent with the broader DUAL-AGONIST mechanism literature [N]" only when the quote actually supports it).
+
+Cover these elements (each inline, in narrative prose, NOT bullet-listed):
+1. N (sample size) and trial design (open-label / double-blind / randomized / phase)
+2. Population (inclusion criteria / baseline characteristics / CV risk profile / prior therapy)
+3. Intervention dose-response (specific doses tested, titration schedule)
+4. Comparator (control arm — placebo, active comparator, dose, regimen)
+5. Primary endpoint
+6. Timepoint
+7. Effect estimate WITH uncertainty (CI, SD, or p-value)
+8. Secondary endpoints relevant to the primary question
+9. Safety caveat (key adverse event signal or open-label / sponsorship note)
+10. Sponsorship + funding disclosure (when in quote)
+11. Clinical interpretation in context of comparator class (when supported)
+
+Use **contrast markers** when evidence supports contrastive claims: "however", "in contrast", "whereas", "by comparison", "although", "despite". Top-tier DR uses 1 contrast marker per 200 words on average; v1.0 POLARIS produced 1 per 782 words. v1.1 raises this naturally with longer prose.
 
 Output format:
-- Plain prose, one paragraph.
-- Cite the primary source with [N] at the end of EACH factual claim.
+- Plain prose, ONE PARAGRAPH (10-15 sentences). Do NOT use bullet lists or numbered points.
+- Cite the primary source with [N] at the end of EACH factual claim (most sentences will end with [N]).
 - Do NOT include a heading — the orchestrator adds "### TRIAL_NAME" around your output.
 - Do NOT include ellipses (...) or placeholders — use only verifiable numbers from the quote.
-- Do NOT claim findings beyond the quote — if any of the 7 elements is missing from the quote, skip it and mention what's missing in the final sentence.
+- Do NOT claim findings beyond the quote — if any element is missing from the quote, skip it and mention what's missing in the final sentence.
 
 Example skeleton (placeholders; do NOT use drug names or study names from this example):
-"[TRIAL] enrolled N=[N] [POPULATION] [N]. Participants were randomized to [INTERVENTION] versus [COMPARATOR] [N]. The primary endpoint was [ENDPOINT] at [TIMEPOINT] [N]. [INTERVENTION] reduced [ENDPOINT] by [EFFECT] ([UNCERTAINTY]) versus [COMPARATOR] [N]. Adverse events: [SAFETY_SIGNAL] [N]."
+"In [TRIAL], a [DURATION]-week, [DESIGN] trial conducted at [N_SITES] sites across [N_COUNTRIES] countries, investigators randomized N=[N] [POPULATION] (mean age [AGE], baseline [METRIC]=[BASELINE]) to [INTERVENTION] at [DOSE_RANGE] versus [COMPARATOR] at [COMPARATOR_DOSE] [N]. The trial used a [TITRATION_SCHEDULE] titration, with [INTERVENTION] doses of [DOSE_LIST] [N]. The primary endpoint, [ENDPOINT] change at [TIMEPOINT], was met across all [INTERVENTION] doses [N]. At [TIMEPOINT], [INTERVENTION] reduced [ENDPOINT] by [EFFECT] (95% CI [LOWER]-[UPPER]) versus [COMPARATOR_EFFECT] for [COMPARATOR] [N]. The treatment difference was [DELTA] favoring [INTERVENTION] [N]. Body weight outcomes were a key secondary endpoint, with [INTERVENTION] producing [WEIGHT_CHANGE] reduction versus [COMPARATOR_WEIGHT_CHANGE] for [COMPARATOR] [N]. By comparison, glycemic durability across the [DURATION] period showed [DURABILITY_METRIC] for [INTERVENTION] [N]. Gastrointestinal adverse events were dose-related, with [GI_RATE]% experiencing nausea on the highest [INTERVENTION] dose versus [COMPARATOR_GI_RATE]% on [COMPARATOR] [N]. Severe hypoglycemia was [HYPO_RATE] [N]. The trial was sponsored by [SPONSOR] and conducted as part of the [PROGRAM] development program [N]. Clinically, [INTERVENTION]'s [PRIMARY_ADVANTAGE] versus [COMPARATOR] in this population reinforces the [MECHANISTIC_RATIONALE] hypothesis, although the [LIMITATION] limits generalizability [N]."
 
 CRITICAL:
-- Every sentence must end with [N] citation.
+- Every factual sentence must end with [N] citation.
+- 10-15 sentence target, ONE paragraph. NOT a 4-6 sentence block.
 - No extrapolation, no marketing language.
 - If the quote does not contain an element, omit the element — do not invent.
+- Use contrast markers ("however", "in contrast", "whereas") when evidence supports contrastive claims.
 """
 
 
@@ -3158,8 +3170,14 @@ async def generate_multi_section_report(
     # the full `primary_trial_anchors` set (caller responsibility to
     # filter). Empty set disables M-50.
     direct_trial_anchors: list[str] | None = None,
-    # M-50 max tokens per subsection call
-    m50_subsection_max_tokens: int = 400,
+    # M-50 max tokens per subsection call.
+    # v1.1 A.1 option 4 (2026-04-30): raised 400 → 1200 to fit
+    # the new 10-15 sentence narrative-paragraph target. The
+    # M-58 contract slot-fill path produced 60-110 word per-trial
+    # blocks (v1.0); v1.1 prompts target 200-300 words per trial
+    # to close BEAT-BOTH on narrative_length without
+    # compromising the strict_verify guarantee.
+    m50_subsection_max_tokens: int = 1200,
     m50_subsection_temperature: float = 0.2,
     # Codex M-63 REJECT Medium 2 fix: anchors whose primary trial
     # is already rendered by a V30 Phase-2 contract slot. M-50 MUST
