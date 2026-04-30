@@ -437,9 +437,15 @@ async def run_contract_section(
             # the narrative paragraph drops without affecting the
             # deterministic prose.
             #
-            # Skipped for regulatory entities (regulatory_synthesizer
-            # already produces multi-sentence paragraphs) and gap
-            # payloads (no extracted fields to narrate).
+            # v1.1 A.1 4c v3: also enable narrative for regulatory
+            # entities — render_regulatory_prose already gives a
+            # multi-sentence paragraph but it's still ~80-120 words
+            # per slot; competitors integrate regulatory context
+            # into 250+ word narrative blocks. Adds the LLM
+            # narrative paragraph alongside the existing
+            # render_regulatory_prose output (two-tier).
+            #
+            # Gap payloads still skipped (no extracted fields).
             import os as _os
             narrative_enabled = (
                 _os.environ.get("PG_USE_NARRATIVE_PARAGRAPH", "1") != "0"
@@ -447,11 +453,7 @@ async def run_contract_section(
             has_extracted = any(
                 f.status == "extracted" for f in payload.fields
             )
-            if (
-                narrative_enabled
-                and has_extracted
-                and not is_regulatory_entity(contract_entity)
-            ):
+            if narrative_enabled and has_extracted:
                 narr_prompt = build_slot_narrative_prompt(
                     payload,
                     subsection_title=slot.subsection_title,
