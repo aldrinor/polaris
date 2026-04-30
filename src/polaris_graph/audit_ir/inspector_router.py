@@ -105,6 +105,17 @@ from src.polaris_graph.audit_ir.private_corpus_sync import (  # noqa: E402
     SourceStatus,
     source_to_dict,
 )
+# M-INT-11: M-24 customer support tickets endpoint
+from src.polaris_graph.audit_ir.support_ticket_store import (  # noqa: E402
+    SupportTicket,
+    SupportTicketError,
+    SupportTicketStateError,
+    SupportTicketStore,
+    TicketCategory,
+    TicketPriority,
+    TicketStatus,
+    ticket_to_dict,
+)
 
 router = APIRouter()
 
@@ -196,6 +207,49 @@ async def _require_drive_connector_endpoint_enabled() -> None:
         raise HTTPException(
             status_code=404,
             detail="drive connector endpoint disabled",
+        )
+
+# M-INT-11: support ticket store singleton (lazy init).
+_SUPPORT_TICKET_STORE: SupportTicketStore | None = None
+_SUPPORT_TICKET_STORE_LOCK = threading.Lock()
+
+
+def _support_ticket_db_path() -> Path:
+    raw = os.environ.get("PG_SUPPORT_TICKET_DB_PATH")
+    if raw:
+        return Path(raw)
+    base = Path(__file__).resolve().parents[3] / "state"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "support_tickets.sqlite"
+
+
+def _get_support_ticket_store() -> SupportTicketStore:
+    global _SUPPORT_TICKET_STORE
+    with _SUPPORT_TICKET_STORE_LOCK:
+        if _SUPPORT_TICKET_STORE is None:
+            _SUPPORT_TICKET_STORE = SupportTicketStore(
+                _support_ticket_db_path()
+            )
+        return _SUPPORT_TICKET_STORE
+
+
+def _reset_support_ticket_store_for_test() -> None:
+    global _SUPPORT_TICKET_STORE
+    with _SUPPORT_TICKET_STORE_LOCK:
+        _SUPPORT_TICKET_STORE = None
+
+
+def _support_ticket_endpoint_enabled() -> bool:
+    return os.environ.get(
+        "PG_USE_SUPPORT_TICKET_ENDPOINT", "1",
+    ) != "0"
+
+
+async def _require_support_ticket_endpoint_enabled() -> None:
+    if not _support_ticket_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="support ticket endpoint disabled",
         )
 
 
@@ -1213,6 +1267,142 @@ async def get_private_corpus_source(
             detail=f"unknown source_id: {source_id}",
         )
     return source_to_dict(source)
+
+
+# ---------------------------------------------------------------------------
+# M-INT-11 — M-24 customer support tickets endpoints (Phase E4)
+# ---------------------------------------------------------------------------
+#
+# Final integration milestone before LIVE phase. Ships narrow CRUD
+# (open + read); assignment/resolve/close/message-append are
+# admin-only flows deferred to Phase F UI.
+
+
+class _SupportTicketCreateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    category: str = Field(
+        ..., min_length=1,
+        description="One of: billing, audit, integration, data_request, other",
+    )
+    priority: str = Field(
+        default="normal",
+        description="One of: low, normal, high, urgent",
+    )
+    related_run_slug: str | None = None
+    related_review_id: str | None = None
+    related_workspace_id: str | None = None
+
+
+@router.post(
+    "/api/inspector/support-tickets",
+    status_code=201,
+    dependencies=[Depends(_require_support_ticket_endpoint_enabled)],
+)
+async def open_support_ticket(
+    body: _SupportTicketCreateRequest,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """Open a new support ticket bound to caller.org_id.
+
+    Member+ role required. Categories and priorities are closed
+    enums; invalid values return 400."""
+    if caller.role not in {"member", "admin", "owner"}:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"caller role {caller.role!r} insufficient to open "
+                "support tickets; member+ required"
+            ),
+        )
+    try:
+        category_enum = TicketCategory(body.category)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"invalid category {body.category!r}; must be one of: "
+                f"{', '.join(c.value for c in TicketCategory)}"
+            ),
+        )
+    try:
+        priority_enum = TicketPriority(body.priority)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"invalid priority {body.priority!r}; must be one of: "
+                f"{', '.join(p.value for p in TicketPriority)}"
+            ),
+        )
+    store = _get_support_ticket_store()
+    try:
+        ticket = store.open_ticket(
+            org_id=caller.org_id,
+            submitter_user_id=caller.user_id,
+            title=body.title,
+            description=body.description,
+            category=category_enum,
+            priority=priority_enum,
+            related_run_slug=body.related_run_slug,
+            related_review_id=body.related_review_id,
+            related_workspace_id=body.related_workspace_id,
+        )
+    except SupportTicketStateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except SupportTicketError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return ticket_to_dict(ticket)
+
+
+@router.get(
+    "/api/inspector/support-tickets",
+    dependencies=[Depends(_require_support_ticket_endpoint_enabled)],
+)
+async def list_support_tickets(
+    status: str | None = None,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    """List support tickets for caller's org. Optional `status`
+    filter (open / in_progress / resolved / closed)."""
+    status_enum: TicketStatus | None = None
+    if status is not None:
+        try:
+            status_enum = TicketStatus(status)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"invalid status {status!r}; must be one of: "
+                    f"{', '.join(s.value for s in TicketStatus)}"
+                ),
+            )
+    store = _get_support_ticket_store()
+    tickets = store.list_by_org(
+        org_id=caller.org_id, status=status_enum,
+    )
+    return {"tickets": [ticket_to_dict(t) for t in tickets]}
+
+
+@router.get(
+    "/api/inspector/support-tickets/{ticket_id}",
+    dependencies=[Depends(_require_support_ticket_endpoint_enabled)],
+)
+async def get_support_ticket(
+    ticket_id: str,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict:
+    store = _get_support_ticket_store()
+    ticket = store.get_ticket(
+        ticket_id=ticket_id, org_id=caller.org_id,
+    )
+    if ticket is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown ticket_id: {ticket_id}",
+        )
+    return ticket_to_dict(ticket)
 
 
 @router.get("/inspector", response_class=HTMLResponse)
