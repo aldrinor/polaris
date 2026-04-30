@@ -206,30 +206,77 @@ def _verify_m_int_1(out_root: Path) -> dict:
     }
 
 
-def _verify_m_int_0b(out_root: Path) -> dict:
+def _verify_m_int_0b(out_root: Path, sweep_rc: int) -> dict:
+    """v2 R1 P0 #2 fix: require sweep_rc == 0 AND model_pin.json
+    file. v1 only checked file existence — would inherit a stale
+    model_pin.json from a prior run if sweep aborted.
+
+    Note: the production code path emits no success [M-INT-0b]
+    stdout marker; only WARN markers on failure
+    (run_honest_sweep_r3.py:1000). Acceptance is therefore
+    'file written + sweep succeeded' rather than 'marker emitted'.
+    """
     files = [str(p) for p in out_root.rglob("model_pin.json")]
+    fired = sweep_rc == 0 and bool(files)
     return {
-        "fired": bool(files),
-        "invocation_count": len(files),
+        "fired": fired,
+        "invocation_count": len(files) if fired else 0,
         "sink_files": files,
+        "sweep_rc": sweep_rc,
+        "rationale": (
+            "sweep_rc==0 + model_pin.json present"
+            if fired
+            else f"NOT FIRED: sweep_rc={sweep_rc}, files={len(files)}"
+        ),
     }
 
 
-def _verify_m_int_6(out_root: Path) -> dict:
-    files: list[str] = []
-    rows = 0
+def _verify_m_int_6(out_root: Path, captured_stdout: str) -> dict:
+    """v2 R1 P0 #3 fix: queue file is conditional on abstain
+    decision. Accept-decision runs do NOT write a queue row but
+    DO emit the [M-INT-6] inductor: marker. v1 verifier passed
+    via OR fallback; v2 requires the marker explicitly and
+    treats the queue file as informational, not load-bearing.
+    """
+    queue_files: list[str] = []
+    queue_rows = 0
     for q in out_root.rglob("operator_review_queue.jsonl"):
-        files.append(str(q))
+        queue_files.append(str(q))
         try:
-            rows += sum(1 for _ in q.read_text(
+            queue_rows += sum(1 for _ in q.read_text(
                 encoding="utf-8", errors="replace",
             ).splitlines() if _.strip())
         except Exception:
             pass
+
+    log_text = captured_stdout
+    for lf in out_root.rglob("run_log.txt"):
+        try:
+            log_text += "\n" + lf.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    marker_count = len(re.findall(r"\[M-INT-6\]\s+inductor:", log_text))
+    accept_count = len(re.findall(
+        r"\[M-INT-6\]\s+inductor:\s+decision=accept", log_text,
+    ))
+    abstain_count = len(re.findall(
+        r"\[M-INT-6\]\s+inductor:\s+decision=abstain", log_text,
+    ))
+
+    fired = marker_count > 0
     return {
-        "fired": rows > 0 or len(files) > 0,
-        "invocation_count": rows,
-        "sink_files": files,
+        "fired": fired,
+        "invocation_count": marker_count,
+        "marker_count": marker_count,
+        "accept_count": accept_count,
+        "abstain_count": abstain_count,
+        "queue_files": queue_files,
+        "queue_rows": queue_rows,
+        "rationale": (
+            f"marker fired {marker_count}x; queue rows={queue_rows} "
+            f"(queue write only on abstain; accept={accept_count} "
+            f"abstain={abstain_count})"
+        ),
     }
 
 
@@ -323,7 +370,7 @@ def _smoke_endpoints() -> dict:
     results["M-INT-9"] = {
         "endpoint": "POST /api/inspector/contract-drafts",
         "status_code": r9.status_code,
-        "fired": r9.status_code in (200, 201),
+        "fired": r9.status_code == 201,
         "invocation_count": 1,
     }
 
@@ -339,7 +386,7 @@ def _smoke_endpoints() -> dict:
     results["M-INT-10"] = {
         "endpoint": "POST /api/inspector/private-corpus-sources",
         "status_code": r10.status_code,
-        "fired": r10.status_code in (200, 201),
+        "fired": r10.status_code == 201,
         "invocation_count": 1,
     }
 
@@ -355,7 +402,7 @@ def _smoke_endpoints() -> dict:
     results["M-INT-11"] = {
         "endpoint": "POST /api/inspector/support-tickets",
         "status_code": r11.status_code,
-        "fired": r11.status_code in (200, 201),
+        "fired": r11.status_code == 201,
         "invocation_count": 1,
     }
 
@@ -365,7 +412,14 @@ def _smoke_endpoints() -> dict:
 def main() -> int:
     _apply_env()
 
-    out_root = REPO_ROOT / "outputs" / "m_live_1_smoke"
+    # v2 R1 P0 #1 fix: run-scoped artifact path. v1 used a
+    # reusable `outputs/m_live_1_smoke/` tree, so a failed sweep
+    # could inherit stale model_pin.json / queue files from a
+    # prior run and still pass verification. v2 creates a
+    # timestamped subdir per run; verifiers only scan that dir.
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    out_base = REPO_ROOT / "outputs" / "m_live_1_smoke"
+    out_root = out_base / f"run_{timestamp}"
     out_root.mkdir(parents=True, exist_ok=True)
 
     if "--only" not in sys.argv:
@@ -374,7 +428,7 @@ def main() -> int:
         sys.argv.extend(["--out-root", str(out_root)])
 
     print("=" * 72)
-    print("M-LIVE-1 single-query end-to-end smoke")
+    print("M-LIVE-1 single-query end-to-end smoke (v2 — Codex R1 fixes)")
     print("=" * 72)
     print(f"out_root: {out_root}")
     print()
@@ -404,9 +458,8 @@ def main() -> int:
     print("=" * 72)
 
     log_subst = _verify_log_substrates(out_root, captured_text)
-    log_subst["M-INT-0b"] = _verify_m_int_0b(out_root)
-    if not log_subst.get("M-INT-6", {}).get("fired"):
-        log_subst["M-INT-6"] = _verify_m_int_6(out_root)
+    log_subst["M-INT-0b"] = _verify_m_int_0b(out_root, sweep_rc=rc)
+    log_subst["M-INT-6"] = _verify_m_int_6(out_root, captured_text)
     parallel = _verify_m_int_1(out_root)
 
     print()
@@ -421,12 +474,17 @@ def main() -> int:
 
     # Phase E has 13 distinct substrates (M-INT-0a + 0b + 1..11).
     # The "12 substrates" framing in FINAL_PLAN groups 0a+0b into
-    # "M-INT-0" but the real count is 13. Logic: all_phase_e_fired
-    # is true iff every expected substrate has fired (not_fired
-    # list is empty).
+    # "M-INT-0" but the real count is 13. v2 brief is updated to
+    # match.
+    #
+    # v2 R1 P0 #1 fix: GREEN requires sweep_rc == 0 AND
+    # not_fired_substrates == []. v1 only checked the latter, so
+    # an aborted sweep could still report GREEN if stale
+    # artifacts inherited from a prior run.
+    all_phase_e_fired = (rc == 0) and (len(not_fired) == 0)
     manifest = {
         "milestone": "M-LIVE-1",
-        "version": "v1",
+        "version": "v2",
         "elapsed_sweep_seconds": round(sweep_dt, 1),
         "sweep_rc": rc,
         "out_root": str(out_root),
@@ -434,7 +492,7 @@ def main() -> int:
         "fired_substrates": fired,
         "not_fired_substrates": not_fired,
         "fired_count": len(fired),
-        "all_phase_e_fired": len(not_fired) == 0,
+        "all_phase_e_fired": all_phase_e_fired,
         "details": all_subst,
     }
     smoke_manifest_path = out_root / "smoke_manifest.json"
@@ -446,15 +504,16 @@ def main() -> int:
     print()
     print("=" * 72)
     print(
-        f"M-LIVE-1 smoke result: {len(fired)}/13 substrates fired "
-        f"({'GREEN' if not not_fired else 'INCOMPLETE'})"
+        f"M-LIVE-1 smoke result: {len(fired)}/13 substrates fired, "
+        f"sweep_rc={rc} "
+        f"({'GREEN' if all_phase_e_fired else 'INCOMPLETE'})"
     )
     print(f"  fired:     {fired}")
     print(f"  not_fired: {not_fired}")
     print(f"manifest:    {smoke_manifest_path}")
     print("=" * 72)
 
-    return 0 if not not_fired else 1
+    return 0 if all_phase_e_fired else 1
 
 
 class _TeeStream:
