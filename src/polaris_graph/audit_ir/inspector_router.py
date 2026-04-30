@@ -20,6 +20,7 @@ Trust boundary (Codex M-2 review correction):
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -115,6 +116,28 @@ from src.polaris_graph.audit_ir.support_ticket_store import (  # noqa: E402
     TicketPriority,
     TicketStatus,
     ticket_to_dict,
+)
+# M-LIVE-3: operator dashboard aggregates
+from src.polaris_graph.audit_ir.decision_aggregates import (  # noqa: E402
+    DecisionAggregates,
+    DecisionAggregatesError,
+    compute_aggregates,
+)
+from src.polaris_graph.audit_ir.freshness_aggregates import (  # noqa: E402
+    FreshnessAggregates,
+    FreshnessAggregatesError,
+    compute_freshness_aggregates,
+)
+from src.polaris_graph.audit_ir.freshness_monitor import (  # noqa: E402
+    FreshnessAlertStore,
+)
+from src.polaris_graph.audit_ir.pin_trends import (  # noqa: E402
+    PinTrendError,
+    PinTrendReport,
+    analyze_pin_trends,
+)
+from src.polaris_graph.audit_ir.model_pin import (  # noqa: E402
+    pin_from_dict,
 )
 
 router = APIRouter()
@@ -2587,3 +2610,272 @@ async def get_review_version_diff(
         "current_review": review_to_dict(item),
         "diff": diff_to_dict(d),
     }
+
+
+# ════════════════════════════════════════════════════════════════════
+# M-LIVE-3 — Operator dashboard (Inspector aggregates panel)
+# ════════════════════════════════════════════════════════════════════
+#
+# Endpoints:
+#   - GET /api/inspector/dashboard/decision-aggregates
+#   - GET /api/inspector/dashboard/freshness-aggregates
+#   - GET /api/inspector/dashboard/pin-trends
+#
+# All require authentication; all org-scoped via caller.org_id.
+# Rollback: PG_USE_OPERATOR_DASHBOARD=0 returns 404 (default ON).
+# ════════════════════════════════════════════════════════════════════
+
+
+def _operator_dashboard_endpoint_enabled() -> bool:
+    return os.environ.get(
+        "PG_USE_OPERATOR_DASHBOARD", "1",
+    ) != "0"
+
+
+async def _require_operator_dashboard_endpoint_enabled() -> None:
+    if not _operator_dashboard_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="operator dashboard endpoint disabled",
+        )
+
+
+def _freshness_db_path() -> Path:
+    raw = os.environ.get("PG_FRESHNESS_DB_PATH")
+    if raw:
+        return Path(raw)
+    base = Path(__file__).resolve().parents[3] / "state"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "freshness_alerts.sqlite"
+
+
+_FRESHNESS_STORE: FreshnessAlertStore | None = None
+_FRESHNESS_STORE_LOCK = threading.Lock()
+
+
+def _get_freshness_store() -> FreshnessAlertStore:
+    global _FRESHNESS_STORE
+    with _FRESHNESS_STORE_LOCK:
+        if _FRESHNESS_STORE is None:
+            _FRESHNESS_STORE = FreshnessAlertStore(_freshness_db_path())
+        return _FRESHNESS_STORE
+
+
+def _reset_freshness_store_for_test() -> None:
+    global _FRESHNESS_STORE
+    with _FRESHNESS_STORE_LOCK:
+        _FRESHNESS_STORE = None
+
+
+def _decision_aggregates_to_dict(agg: DecisionAggregates) -> dict[str, Any]:
+    return {
+        "workspace_id": agg.workspace_id,
+        "decision_kind": (
+            agg.decision_kind.value
+            if agg.decision_kind is not None
+            else None
+        ),
+        "window_start": agg.window_start,
+        "window_end": agg.window_end,
+        "total_decisions": agg.total_decisions,
+        "total_terminal": agg.total_terminal,
+        "pending_count": agg.pending_count,
+        "accepted_count": agg.accepted_count,
+        "modified_count": agg.modified_count,
+        "overridden_count": agg.overridden_count,
+        "rejected_count": agg.rejected_count,
+        "acceptance_rate": agg.acceptance_rate,
+        "modification_rate": agg.modification_rate,
+        "override_rate": agg.override_rate,
+        "rejection_rate": agg.rejection_rate,
+    }
+
+
+def _freshness_aggregates_to_dict(
+    agg: FreshnessAggregates,
+) -> dict[str, Any]:
+    return {
+        "workspace_id": agg.workspace_id,
+        "window_start": agg.window_start,
+        "window_end": agg.window_end,
+        "only_latest_per_source": agg.only_latest_per_source,
+        "total_alerts": agg.total_alerts,
+        "unchanged_count": agg.unchanged_count,
+        "superseded_count": agg.superseded_count,
+        "retracted_count": agg.retracted_count,
+        "expression_of_concern_count":
+            agg.expression_of_concern_count,
+        "unreachable_count": agg.unreachable_count,
+        "evicting_count": agg.evicting_count,
+        "unique_source_count": agg.unique_source_count,
+    }
+
+
+def _pin_trend_report_to_dict(report: PinTrendReport) -> dict[str, Any]:
+    return {
+        "pin_count": report.pin_count,
+        "window_start": report.window_start,
+        "window_end": report.window_end,
+        "verdict": (
+            report.verdict.value
+            if hasattr(report.verdict, "value")
+            else str(report.verdict)
+        ),
+        "drift_event_count": len(report.drift_events),
+        "drift_events": [
+            {
+                "captured_at": e.captured_at,
+                "dimension": (
+                    e.dimension.value
+                    if hasattr(e.dimension, "value")
+                    else str(e.dimension)
+                ),
+                "from_value": e.from_value,
+                "to_value": e.to_value,
+            }
+            for e in report.drift_events
+        ],
+        "dimension_stats": [
+            {
+                "dimension": (
+                    s.dimension.value
+                    if hasattr(s.dimension, "value")
+                    else str(s.dimension)
+                ),
+                "stability_score": s.stability_score,
+                "change_count": s.change_count,
+            }
+            for s in report.dimension_stats
+        ],
+    }
+
+
+@router.get(
+    "/api/inspector/dashboard/decision-aggregates",
+    dependencies=[Depends(_require_operator_dashboard_endpoint_enabled)],
+)
+async def get_decision_aggregates(
+    decision_kind: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict[str, Any]:
+    """Operator dashboard: decision aggregates for caller's org.
+
+    Workspace is the caller's `org_id`. Time-windowed via
+    `since` / `until` (UNIX epoch seconds; both inclusive).
+    """
+    kind: DecisionKind | None = None
+    if decision_kind is not None:
+        try:
+            kind = DecisionKind(decision_kind)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"invalid decision_kind: {decision_kind!r}; "
+                    f"expected one of "
+                    f"{[k.value for k in DecisionKind]}"
+                ),
+            )
+    store = _get_decision_store()
+    try:
+        agg = compute_aggregates(
+            store,
+            workspace_id=caller.org_id,
+            decision_kind=kind,
+            since=since,
+            until=until,
+        )
+    except DecisionAggregatesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _decision_aggregates_to_dict(agg)
+
+
+@router.get(
+    "/api/inspector/dashboard/freshness-aggregates",
+    dependencies=[Depends(_require_operator_dashboard_endpoint_enabled)],
+)
+async def get_freshness_aggregates(
+    since: float | None = None,
+    until: float | None = None,
+    only_latest_per_source: bool = False,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict[str, Any]:
+    """Operator dashboard: freshness aggregates for caller's org."""
+    store = _get_freshness_store()
+    try:
+        agg = compute_freshness_aggregates(
+            store,
+            workspace_id=caller.org_id,
+            since=since,
+            until=until,
+            only_latest_per_source=only_latest_per_source,
+        )
+    except FreshnessAggregatesError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _freshness_aggregates_to_dict(agg)
+
+
+@router.get(
+    "/api/inspector/dashboard/pin-trends",
+    dependencies=[Depends(_require_operator_dashboard_endpoint_enabled)],
+)
+async def get_pin_trends(
+    out_root: str | None = None,
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict[str, Any]:
+    """Operator dashboard: pin trends across recent runs.
+
+    Pins are loaded by globbing `model_pin.json` files under
+    `out_root` (default: `outputs/`). Org-scoping for v1 is
+    best-effort: pin files do not currently carry an org_id;
+    auth gates access but per-org pin filtering is deferred to
+    when M-INT-0b adds org_id to the capture path.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    if out_root is None:
+        scan_root = repo_root / "outputs"
+    else:
+        cand = Path(out_root)
+        scan_root = (
+            cand if cand.is_absolute() else (repo_root / cand)
+        ).resolve()
+        try:
+            scan_root.relative_to(repo_root.resolve())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="out_root must be inside the repository",
+            )
+    if not scan_root.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"out_root does not exist: {scan_root}",
+        )
+
+    pin_files = sorted(
+        scan_root.rglob("model_pin.json"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    pins = []
+    for pf in pin_files:
+        try:
+            data = json.loads(pf.read_text(encoding="utf-8"))
+            pins.append(pin_from_dict(data))
+        except Exception:
+            continue
+    pins.sort(key=lambda p: p.captured_at)
+    if not pins:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"no valid model_pin.json files found under "
+                f"{scan_root}"
+            ),
+        )
+    try:
+        report = analyze_pin_trends(pins)
+    except PinTrendError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _pin_trend_report_to_dict(report)
