@@ -48,19 +48,24 @@ POLARIS_SMOKE_ROOT = REPO_ROOT / "outputs" / "m_live_1_smoke"
 
 
 def _find_latest_polaris_manifest_path() -> Path:
-    """v2 R1 P0 fix: M-LIVE-1 v2 introduced run-scoped paths
-    (`outputs/m_live_1_smoke/run_<timestamp>/...`). v1 hard-coded
-    the old flat path which broke after M-LIVE-1 v2. Find the
-    latest run_<timestamp> dir and return its manifest path.
+    """Find the latest M-LIVE-1 smoke run's manifest.
+
+    v3 R2 P1 fix: order by the timestamp embedded in the dir name
+    (`run_YYYYMMDD_HHMMSS`), NOT by `st_mtime`. mtime is mutable —
+    `git checkout`, `cp -r`, or `touch` change it without changing
+    the run identity. The timestamp suffix IS the run identity per
+    M-LIVE-1's `time.strftime("%Y%m%d_%H%M%S")` convention.
 
     Falls back to the canonical baseline at
-    `tests/fixtures/m_live_4_baseline/` so M-LIVE-2 can be
-    exercised offline / in CI without a fresh smoke run.
+    `tests/fixtures/m_live_4_baseline/` so M-LIVE-2 can be exercised
+    offline / in CI without a fresh smoke run.
     """
     if POLARIS_SMOKE_ROOT.exists():
+        # Sort by name (timestamp string is lexicographically equal
+        # to chronological for the YYYYMMDD_HHMMSS format).
         run_dirs = sorted(
             (p for p in POLARIS_SMOKE_ROOT.glob("run_*") if p.is_dir()),
-            key=lambda p: p.stat().st_mtime,
+            key=lambda p: p.name,
             reverse=True,
         )
         for rd in run_dirs:
@@ -146,33 +151,48 @@ def _load_polaris_manifest() -> dict[str, Any]:
                 for entry in bib if isinstance(entry, dict)
             ]
 
+    # v3 R2 P1 #2 fix: structural_depth was scored asymmetrically.
+    # v1+v2 used POLARIS's `generator.outline_sections` metadata
+    # (6 entries) while competitors got Markdown-heading regex on
+    # raw text (0). The actual rendered report.md HAS 23 `###`
+    # headings + 6 table rows — those are the comparable surface.
+    # v3 parses POLARIS report.md with the SAME regex the
+    # competitor extractor uses on its prose, so the two are
+    # measured against an identical surface.
     sections: list[dict[str, str]] = []
-    gen = manifest.get("generator", {}) or {}
-    outline = gen.get("outline_sections")
-    if isinstance(outline, list):
-        for s in outline:
-            if isinstance(s, dict) and s.get("title"):
-                sections.append({"title": s["title"]})
-            elif isinstance(s, str):
-                sections.append({"title": s})
+    tables: list[dict[str, Any]] = []
+    report_md_path = run_dir / "report.md"
+    body_text: str | None = None
+    if report_md_path.exists():
+        try:
+            body_text = report_md_path.read_text(encoding="utf-8")
+            from src.polaris_graph.audit_ir.competitor_manifest_extractor import (
+                _SECTION_HEADER_RE,
+                _TABLE_RE,
+            )
+            for m in _SECTION_HEADER_RE.finditer(body_text):
+                title = m.group(1).strip()
+                if title:
+                    sections.append({"title": title})
+            row_count = sum(1 for _ in _TABLE_RE.finditer(body_text))
+            if row_count:
+                tables.append({"row_count": row_count})
+        except Exception:
+            body_text = None
     manifest["sections"] = sections
+    manifest["tables"] = tables
 
     # v2 R1 P1 #2 fix: M-D9 narrative_length / contradiction
     # scorers read `report.body` / `body`, NOT
     # `report.narrative_word_count`. v1 only populated word-count
     # so both scorers returned 0 across all 3 manifests.
     # v2 also populates `report.body` with the actual narrative.
-    report_md_path = run_dir / "report.md"
-    if report_md_path.exists():
-        try:
-            text = report_md_path.read_text(encoding="utf-8")
-            manifest.setdefault("report", {})
-            manifest["report"]["narrative_word_count"] = (
-                len(text.split())
-            )
-            manifest["report"]["body"] = text
-        except Exception:
-            pass
+    if body_text is not None:
+        manifest.setdefault("report", {})
+        manifest["report"]["narrative_word_count"] = (
+            len(body_text.split())
+        )
+        manifest["report"]["body"] = body_text
 
     return manifest
 
@@ -336,7 +356,7 @@ def main() -> int:
 
     manifest = {
         "milestone": "M-LIVE-2",
-        "version": "v1",
+        "version": "v3",
         "polaris_manifest_path": str(POLARIS_MANIFEST_PATH),
         "chatgpt_source": str(CHATGPT_DR_PATH),
         "gemini_source": str(GEMINI_DR_PATH),
