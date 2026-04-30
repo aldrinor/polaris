@@ -73,12 +73,16 @@ PHASE_G_ENV: dict[str, str] = {
     # narrative_length BEHIND-BOTH. Result: 2346w → 2032w
     # (REGRESSION). Default: leave at 2400 (v1.0 release config).
     #
-    # v1.1 backlog A.1 option 3 (2026-04-30):
-    # Lower kept_fraction floor 0.4 → 0.35. Less aggressive
-    # retry, accept slightly less verified prose. Risk:
-    # hallucination drift on contradiction_handling. Will be
-    # measured against v1.0 baseline.
-    "PG_MIN_KEPT_FRACTION": "0.35",
+    # v1.1 backlog A.1 option 3 NEGATIVE RESULT (2026-04-30):
+    # PG_MIN_KEPT_FRACTION=0.35 also FAILED. Result: 2346w → 2285w
+    # (-2.6% regression). Both v1.1 retry-knob options invalidated.
+    # The narrative_length bottleneck is structural (synthesizer
+    # produces shorter prose because the strict_verify-passing
+    # CONTENT pool is bounded by the evidence — more drafting
+    # doesn't generate more verifiable claims). Closure requires
+    # option 2 (more sections / sub-section composition) or
+    # option 4 (synthesizer prompt rewrite to bias toward
+    # verbatim-grounded prose).
 }
 
 

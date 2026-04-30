@@ -31,11 +31,13 @@ The generator drafts ~6000 words, strict_verify drops ~60-70%, leaving 2346.
 
 2. **Add 1-2 more sections to outline.** Current outline has 3 sections; competitors have 8-15 narrative blocks. Compose at outline-time to have 5-6 sections and fold the existing prose-blocks into separate sub-sections. Mostly a synthesizer prompt change. **Risk:** more sections = more strict_verify failures = more retries.
 
-3. **Raise the kept_fraction floor 0.4 → 0.35.** Allows slightly less verified prose to ship. **Risk:** nudges hallucination rate up; needs M-D9 regression test runs to confirm BEAT-BOTH on contradiction_handling doesn't regress.
+3. **~~Raise the kept_fraction floor 0.4 → 0.35.~~** **EMPIRICALLY INVALIDATED 2026-04-30.** Tested via `PG_MIN_KEPT_FRACTION=0.35`. Result: 2346 → 2285 (-2.6% regression). Confirms the bottleneck is structural — synthesizer produces shorter prose because the strict_verify-passing CONTENT pool is bounded by the evidence pool, not by retry threshold. Both retry-knob options (1 + 3) now invalidated.
 
 4. **Better evidence-grounding so kept_fraction goes up naturally.** Refactor the M-58 slot-fill prompt to bias toward verbatim verification matches. **Risk:** synthesizer rewrite.
 
-**Recommended first attempt:** option 1 (raise cap). Codex review can verify no regression on strict_verify acceptance + cost stays in budget.
+**Empirical state (2026-04-30):** options 1 + 3 invalidated. The narrative_length bottleneck is structural — both retry knobs failed to increase word count. Closure requires option 2 (more sections / sub-section composition) or option 4 (synthesizer prompt rewrite to bias toward verbatim-grounded prose). Neither is a single-knob change; both require synthesizer engineering.
+
+**Recommended next attempt:** option 2 (more sections). The outline has 3 sections; competitors structure into 8-15 narrative blocks. Compose at outline-time to produce 5-6 sections, fold existing prose into sub-sections. Lower implementation risk than option 4 (prompt rewrite).
 
 ### A.2 contradiction_handling_grammar — POLARIS=3 vs ChatGPT=27 / Gemini=18
 
