@@ -2725,13 +2725,19 @@ def _pin_trend_report_to_dict(report: PinTrendReport) -> dict[str, Any]:
         "drift_events": [
             {
                 "captured_at": e.captured_at,
+                "pin_index": e.pin_index,
                 "dimension": (
                     e.dimension.value
                     if hasattr(e.dimension, "value")
                     else str(e.dimension)
                 ),
-                "from_value": e.from_value,
-                "to_value": e.to_value,
+                # v2 R1 P0 fix: PinDriftEvent uses `before`/`after`,
+                # not `from_value`/`to_value`. v1 attribute name was
+                # wrong → endpoint 500'd whenever the pin set had
+                # any drift event. Repro: 2 pins with one model
+                # change → AttributeError.
+                "before": e.before,
+                "after": e.after,
             }
             for e in report.drift_events
         ],

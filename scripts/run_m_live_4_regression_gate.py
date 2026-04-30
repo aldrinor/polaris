@@ -187,8 +187,12 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("Pin drift detail:")
         for pd in report.pin_drift:
+            # v2 R1 P0 fix: PinDriftField uses `field_name`, not
+            # `dimension`. v1 attribute crashed gate with
+            # AttributeError on any non-empty pin drift, falsely
+            # exiting rc=1 for a YELLOW verdict.
             print(
-                f"  {pd.dimension!r}: "
+                f"  {pd.field_name!r}: "
                 f"baseline={pd.baseline_value!r} -> "
                 f"current={pd.current_value!r} "
                 f"(severity={pd.severity})"
@@ -197,8 +201,15 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print("Manifest drift detail:")
         for md in report.manifest_drift:
+            # v2 R1 P0 fix: ManifestDriftField uses `field`
+            # (ManifestDrift enum), not `field_path`.
+            field_name = (
+                md.field.value
+                if hasattr(md.field, "value")
+                else str(md.field)
+            )
             print(
-                f"  {md.field_path!r}: "
+                f"  {field_name!r}: "
                 f"baseline={md.baseline_value!r} -> "
                 f"current={md.current_value!r} "
                 f"(is_regression={md.is_regression})"
