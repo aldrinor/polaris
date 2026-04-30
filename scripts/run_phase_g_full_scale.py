@@ -68,6 +68,11 @@ PHASE_G_ENV: dict[str, str] = {
     "PG_M41D_HC_QUOTA":                "2",
     "PG_SWEEP_MAX_REGULATORY_ANCHORS": "12",
     "PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS": "15",
+    # v1.1 backlog A.1: synthesizer capacity tuning. v1.0 default
+    # is 2400 tokens/section; raising to 4800 to test narrative_length
+    # closure on full-scale. Strict_verify still gates kept_fraction,
+    # so hallucination risk is bounded.
+    "PG_SECTION_MAX_TOKENS": "4800",
 }
 
 

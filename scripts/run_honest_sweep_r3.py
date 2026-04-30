@@ -1930,7 +1930,15 @@ async def run_one_query(
             # limiting per-trial framing and narrative depth (1964 words
             # vs ChatGPT DR 4830 / Gemini DR 6054). Same regression
             # class as M-31 (script override clobbers module default).
-            section_max_tokens=2400,
+            #
+            # v1.1 backlog A.1 (2026-04-30): expose env override for
+            # narrative_length tuning. v1.0 BEAT-BOTH on 4 of 7 dims;
+            # narrative_length is BEHIND-BOTH at 2346 vs 4830/6835.
+            # PG_SECTION_MAX_TOKENS lets Phase G capacity tuning
+            # adjust without code change. Default unchanged (2400).
+            section_max_tokens=int(os.environ.get(
+                "PG_SECTION_MAX_TOKENS", "2400",
+            )),
             min_kept_fraction=0.4,
             max_parallel_sections=3,
             tier_fractions=dist.tier_fractions,
