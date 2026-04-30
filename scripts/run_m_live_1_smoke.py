@@ -341,20 +341,47 @@ def _smoke_endpoints() -> dict:
     except Exception:
         CANONICAL_DEMO_SLUG = "v30_phase2_clinical_tirzepatide_t2dm"
 
+    # v3 R2 P0 #1+#2 fix: M-INT-8 (slide-deck endpoint) verifies
+    # the FastAPI substrate is wired against the canonical demo
+    # run from the static registry. By design, the slide-deck
+    # endpoint reads from `find_run_by_slug()` allowlist
+    # (outputs/full_scale_v30_phase2_run14/...), NOT from the
+    # fresh smoke run's out_root — the substrate is endpoint +
+    # auth + flag wiring, decoupled from sweep state.
+    #
+    # v2 accepted 200 OR 404; that allowed all_phase_e_fired=true
+    # even when the slide-deck route is missing/disabled. v3
+    # requires 200 strictly. The substrate's behavior on missing
+    # slug is exercised by the test suite, not the smoke.
+    #
+    # Body sanity check: confirm the response body actually
+    # references the canonical demo slug, ruling out stale
+    # boilerplate.
     r8 = client.get(
         f"/api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck",
+    )
+    body8 = r8.json() if r8.status_code == 200 else {}
+    r8_body_references_slug = (
+        isinstance(body8, dict)
+        and any(
+            CANONICAL_DEMO_SLUG in str(v) for v in body8.values()
+        )
     )
     results["M-INT-8"] = {
         "endpoint": (
             f"GET /api/inspector/runs/{CANONICAL_DEMO_SLUG}/slide-deck"
         ),
         "status_code": r8.status_code,
-        "fired": r8.status_code in (200, 404),
+        "fired": r8.status_code == 200 and r8_body_references_slug,
         "invocation_count": 1,
+        "body_references_canonical_slug": r8_body_references_slug,
         "note": (
-            "404 acceptable when canonical demo run not present in "
-            "this output tree; substrate fired (FastAPI handler "
-            "executed)"
+            "Substrate is the FastAPI slide-deck endpoint, which "
+            "reads from the static registry (find_run_by_slug). "
+            "Verification is endpoint+auth+flag wiring against the "
+            "canonical demo, not the fresh smoke run. Fresh-run "
+            "coupling would require registry-bypass plumbing "
+            "outside M-LIVE-1 scope."
         ),
     }
 
