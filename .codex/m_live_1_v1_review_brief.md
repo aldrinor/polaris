@@ -2,7 +2,7 @@
 
 ## Pre-flight
 - Branch: `PL-honest-rebuild-phase-1`
-- Commit: `<FILL_AFTER_COMMIT>`
+- Commit: `7266b87` (pushed to origin/PL-honest-rebuild-phase-1)
 - New file: `scripts/run_m_live_1_smoke.py` (~280 lines)
 - New brief format: `.codex/REVIEW_BRIEF_FORMAT_v2.md`
   (severity-stratified, anti-nits, skepticism gate)
