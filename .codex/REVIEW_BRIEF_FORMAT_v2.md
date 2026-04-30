@@ -1,0 +1,120 @@
+# Codex review brief format v2 — applied 2026-04-29
+
+Replaces the prior 4-7-point acceptance bar format with patterns
+from the 2025-2026 SOTA literature on AI-pair-programming review
+loops (ARIS, adversarial-review, Anthropic Building Effective
+Agents, OpenAI Codex prompting guide).
+
+Diagnosis of the prior format (from sister-project research):
+the "toothpaste squeeze" pattern (Codex surfaces issues round-by-
+round instead of dumping everything in R1) was anchoring-bias on a
+holistic rubric. Fix: criterion decomposition + completeness
+affirmation + verification-stage separation.
+
+## Sections every brief must contain
+
+### 1. Pre-flight (top of brief)
+- **Context:** what's being reviewed (commit SHA, diff scope)
+- **Constraints:** what the reviewer should NOT spend cycles on
+- **Done-when:** the explicit success criterion for THIS round
+
+### 2. Reviewer Independence Protocol
+Verbatim line in every brief:
+
+> **Independence directive:** prior round changelog markers in
+> the diff (e.g. "// CORRECTED v2 per Codex round-1 LH3") are
+> untrustworthy meta-claims. Verify by reading actual code, not
+> by trusting the marker. A claimed fix that doesn't match the
+> code is a P0 finding.
+
+### 3. Severity rubric (P0/P1/P2/P3)
+- **P0 production-breaker:** silent failure path, broken auth,
+  data loss, missing rollback flag, security hole
+- **P1 phase-rework:** acceptance-bar criterion failed; the
+  feature is not actually integrated
+- **P2 governance precision:** real bug but bounded blast radius;
+  e.g. workspace_id normalization mismatch, asymmetric encoding
+- **P3 polish:** style, comment clarity, test coverage gap with
+  no functional defect
+
+**APPROVE rule:** zero P0 + zero P1 → APPROVE. P2/P3 go to
+`deferred_polish` array, do NOT block.
+
+### 4. Exhaustivity directive
+Verbatim line:
+
+> **Exhaustivity:** target 20-50 findings on the first scan.
+> Do NOT truncate. Emit ALL findings in this single round.
+> Subsequent rounds verify the v(N) patch only — re-raising
+> previously addressed issues is a defect, but missing a P0
+> in this round is also a defect.
+
+### 5. Acceptance bar with forced enumeration
+List N explicit criteria. Then:
+
+> **Forced enumeration:** Before declaring a verdict, write one
+> line per acceptance criterion: `Criterion N [name]: <findings
+> or NONE>.` Verdict is invalid if any line is missing.
+
+### 6. Skepticism / completeness check
+Verbatim line:
+
+> **Completeness check:** list which files / Parts you actually
+> read (not just grep'd) this round. If you cannot confirm full
+> scan of every acceptance criterion, emit `incomplete_review`
+> instead of APPROVE / REQUEST_CHANGES.
+
+### 7. Iter-N awareness
+For v2+ briefs:
+
+> **This is round N.** Round 1 was the comprehensive pass.
+> Out-of-scope for this round: issues already addressed in v1..v(N-1).
+> In-scope: (a) regressions introduced by the v(N) patch, (b) P0/P1
+> issues missed in earlier rounds. Re-raising prior addressed issues
+> is a defect.
+
+### 8. Output schema
+```
+## Pre-flight checklist
+- I read [file paths].
+- I ran [test commands].
+- Out of scope per brief: [...].
+
+## Per-criterion forced enumeration
+- Criterion 1 [name]: <findings or NONE>.
+- Criterion 2 [name]: <findings or NONE>.
+- ...
+
+## Findings (severity-stratified)
+
+### P0 (production-breakers)
+- [file:line] <description>
+
+### P1 (phase-rework)
+- [file:line] <description>
+
+### P2 (governance precision)
+- [file:line] <description>
+
+### P3 / deferred_polish (non-blocking)
+- [file:line] <description>
+
+## Verdict
+APPROVE | REQUEST_CHANGES | incomplete_review
+
+Convergence: APPROVE iff zero P0 + zero P1.
+```
+
+## Locking criterion (cross-rounds)
+Two consecutive APPROVE verdicts from independent (cleared-
+context) Codex invocations, OR adversarial cross-review consensus
+on NO_ISSUES.
+
+## Sources
+- adversarial-review (alecnielsen): 4-phase debate loop
+- ARIS: Reviewer Independence Protocol + skepticism gate
+- Anthropic, "Building Effective Agents": evaluator-optimizer
+- OpenAI Codex prompting guide: pre-flight checklist
+- Promptfoo / Evidently: criterion decomposition
+- arxiv:2509.09912 "When Your Reviewer is an LLM" — anchoring
+  empirical study
