@@ -455,7 +455,7 @@ def main() -> int:
         sys.argv.extend(["--out-root", str(out_root)])
 
     print("=" * 72)
-    print("M-LIVE-1 single-query end-to-end smoke (v2 — Codex R1 fixes)")
+    print("M-LIVE-1 single-query end-to-end smoke (v3 — LOCKED Codex R3 GREEN)")
     print("=" * 72)
     print(f"out_root: {out_root}")
     print()
@@ -511,7 +511,7 @@ def main() -> int:
     all_phase_e_fired = (rc == 0) and (len(not_fired) == 0)
     manifest = {
         "milestone": "M-LIVE-1",
-        "version": "v2",
+        "version": "v3",
         "elapsed_sweep_seconds": round(sweep_dt, 1),
         "sweep_rc": rc,
         "out_root": str(out_root),
