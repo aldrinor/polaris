@@ -2947,10 +2947,23 @@ def _reset_metrics_for_test() -> None:
 
 
 def _percentile_ns(values: list[int], q: float) -> int:
+    """Nearest-rank percentile.
+
+    v2 R1 P1 fix: v1 used `int(q * len(s))` which selects the
+    NEXT-higher element instead of the correct sorted-list
+    index. Codex repro:
+      _percentile_ns([10, 20], 0.50) returned 20 (should be 10)
+      _percentile_ns(range(1, 101), 0.95) returned 96 (should be 95)
+      _percentile_ns(range(1, 101), 0.99) returned 100 (should be 99)
+    Correct nearest-rank formula: idx = ceil(q * n) - 1
+    (1-indexed → 0-indexed conversion).
+    """
     if not values:
         return 0
     s = sorted(values)
-    idx = max(0, min(len(s) - 1, int(q * len(s))))
+    n = len(s)
+    import math
+    idx = max(0, min(n - 1, math.ceil(q * n) - 1))
     return s[idx]
 
 
