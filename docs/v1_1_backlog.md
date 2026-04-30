@@ -35,9 +35,18 @@ The generator drafts ~6000 words, strict_verify drops ~60-70%, leaving 2346.
 
 4. **Better evidence-grounding so kept_fraction goes up naturally.** Refactor the M-58 slot-fill prompt to bias toward verbatim verification matches. **Risk:** synthesizer rewrite.
 
-**Empirical state (2026-04-30):** options 1 + 3 invalidated. The narrative_length bottleneck is structural — both retry knobs failed to increase word count. Closure requires option 2 (more sections / sub-section composition) or option 4 (synthesizer prompt rewrite to bias toward verbatim-grounded prose). Neither is a single-knob change; both require synthesizer engineering.
+**Empirical state (2026-04-30):** options 1 + 3 invalidated. Inspecting actual output revealed:
 
-**Recommended next attempt:** option 2 (more sections). The outline has 3 sections; competitors structure into 8-15 narrative blocks. Compose at outline-time to produce 5-6 sections, fold existing prose into sub-sections. Lower implementation risk than option 4 (prompt rewrite).
+- POLARIS outline IS already at 6 sections (`sections_kept=6`)
+- The 6 outline sections expand to 28 sub-sections in the rendered report
+- Total prose: 2606 words across 28 sub-sections (avg 93 words/sub-section)
+- BEAT-BOTH extractor sees 2285 (some sub-section prose is in contract-render path)
+
+The bottleneck is **per-sub-section brevity**, not section count. M-58 slot-fill produces concise per-trial summaries (60-110 words each). Competitors (ChatGPT 4830w, Gemini 6835w) write 200-400 word narrative blocks per topic, not 60-110.
+
+**Closure requires option 4** (synthesizer prompt rewrite) — explicit instruction to expand each slot-fill into 200-300 word narrative paragraphs while remaining strict-verify-grounded. **Option 2 invalidated** (we already have 28 effective sub-sections; adding more makes them shorter, not longer).
+
+This is a multi-day synthesizer engineering effort, not a tuning loop. Deferred to v1.1 active development by user.
 
 ### A.2 contradiction_handling_grammar — POLARIS=3 vs ChatGPT=27 / Gemini=18
 
