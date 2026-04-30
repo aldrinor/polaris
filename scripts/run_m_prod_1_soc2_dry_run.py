@@ -47,8 +47,43 @@ _PATH_LIKE_RE = re.compile(
     r"|"
     # 3. v2 R1 P0 #2 fix: dotfile refs (.env, .gitignore, etc.)
     r"\.[A-Za-z][A-Za-z0-9_-]*"
+    r"|"
+    # 4. v3 R2 P1 fix: slash-prefixed FastAPI route refs
+    # (/health, /api/events, etc.). Resolved against
+    # `scripts/live_server.py` via @app.{get,post,etc} grep.
+    r"/[a-z][a-z0-9_/-]*"
     r")`"
 )
+
+
+_LIVE_SERVER_PATH = REPO_ROOT / "scripts" / "live_server.py"
+_INSPECTOR_ROUTER_PATH = (
+    REPO_ROOT / "src" / "polaris_graph" / "audit_ir" / "inspector_router.py"
+)
+
+
+def _live_server_routes() -> set[str]:
+    """Extract all FastAPI route paths declared in live_server.py
+    + inspector_router.py via @app.get / @app.post / @router.get
+    decorators. Cached via module global since the file is large."""
+    if not hasattr(_live_server_routes, "_cache"):
+        routes: set[str] = set()
+        for src in (_LIVE_SERVER_PATH, _INSPECTOR_ROUTER_PATH):
+            if not src.exists():
+                continue
+            try:
+                text = src.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            # Match @app.METHOD("/path") and @router.METHOD("/path")
+            for m in re.finditer(
+                r"@(?:app|router)\.(?:get|post|put|patch|delete|head|"
+                r"options|websocket)\s*\(\s*[\"']([^\"']+)[\"']",
+                text,
+            ):
+                routes.add(m.group(1))
+        _live_server_routes._cache = routes  # type: ignore[attr-defined]
+    return _live_server_routes._cache  # type: ignore[attr-defined]
 
 
 # Some evidence references include f-string-like placeholders
@@ -71,15 +106,52 @@ def _classify(path_str: str) -> dict[str, Any]:
     it exists. Treats `{var}` and `<var>` placeholders as glob
     wildcards.
 
-    v2 R1 P0 #1 fix: dropped the rglob-anywhere fallback. v1
-    fell back to `REPO_ROOT.rglob(tail)` when the documented
-    path didn't match — that matched the same basename ANYWHERE
-    in the repo, so `config/settings/*.yaml` falsely passed when
-    `config/settings/` was renamed but YAML files existed
-    elsewhere. v2 binds the glob to the documented prefix
-    strictly: if the path doesn't exist where the doc claims,
-    it's a gap.
+    v2 R1 P0 #1 fix: dropped the rglob-anywhere fallback.
+    v3 R2 P1 fix: slash-prefixed refs (`/health`, `/api/events`)
+    are resolved as FastAPI routes against the live server +
+    inspector router. Doc references that don't match either a
+    filesystem path or a registered route count as a gap.
     """
+    # v3 R2 P1: route-style refs.
+    if path_str.startswith("/") and not path_str.startswith("/api/inspector"):
+        # Bare endpoint refs (e.g. /health, /api/events)
+        routes = _live_server_routes()
+        # Some routes use {param} placeholders; doc may name them
+        # without placeholders (e.g. doc says /health but route
+        # is /health). Try exact + prefix match.
+        match = path_str in routes
+        if not match:
+            for r in routes:
+                # Normalize {param} placeholders to wildcards
+                # for comparison.
+                r_pattern = re.sub(r"\{[^}]+\}", "*", r)
+                if r_pattern == path_str:
+                    match = True
+                    break
+        return {
+            "path": path_str,
+            "kind": "route",
+            "exists": match,
+            "matched_against": "live_server + inspector_router routes",
+        }
+    if path_str.startswith("/api/inspector"):
+        # Routes registered on the inspector router (M-LIVE-3,
+        # M-PROD-3, etc.)
+        routes = _live_server_routes()
+        match = path_str in routes
+        if not match:
+            for r in routes:
+                r_pattern = re.sub(r"\{[^}]+\}", "*", r)
+                if r_pattern == path_str:
+                    match = True
+                    break
+        return {
+            "path": path_str,
+            "kind": "route",
+            "exists": match,
+            "matched_against": "inspector_router routes",
+        }
+
     glob_str = _to_glob(path_str)
     is_glob = "*" in glob_str or "?" in glob_str
     abs_candidate = REPO_ROOT / glob_str
@@ -141,7 +213,7 @@ def main() -> int:
     ]
 
     print("=" * 72)
-    print("M-PROD-1 v2 — SOC2 dry-run evidence audit")
+    print("M-PROD-1 v3 — SOC2 dry-run evidence audit")
     print("=" * 72)
     print(f"  evidence map: {SOC2_DOC}")
     print(f"  references found: {len(paths)}")
@@ -163,7 +235,7 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     manifest = {
         "milestone": "M-PROD-1",
-        "version": "v2",
+        "version": "v3",
         "soc2_evidence_map": str(SOC2_DOC),
         "total_references": len(paths),
         "intact_count": len(intact),
