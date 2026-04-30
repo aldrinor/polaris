@@ -227,3 +227,179 @@ def test_endpoint_requires_caller(
     client = TestClient(app)
     response = client.get("/api/inspector/support-tickets")
     assert response.status_code in {401, 403}
+
+
+# ---------------------------------------------------------------------------
+# Codex round-1 LOW fix (v2) — explicit coverage for missing acceptance cases
+# ---------------------------------------------------------------------------
+
+
+def test_open_rejects_invalid_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/support-tickets",
+        json={
+            "title": "Test",
+            "description": "Test description",
+            "category": "billing",
+            "priority": "ultra-mega",  # invalid
+        },
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert "priority" in body["detail"].lower()
+
+
+def test_open_rejects_extra_field_with_422(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pydantic extra='forbid' must reject unknown fields."""
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/support-tickets",
+        json={
+            "title": "Test",
+            "description": "Test",
+            "category": "audit",
+            "priority": "normal",
+            "ticket_id": "fake_injection",  # extra
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_open_rejects_empty_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pydantic min_length=1 rejects empty strings → 422."""
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/support-tickets",
+        json={
+            "title": "",  # empty
+            "description": "Test",
+            "category": "audit",
+            "priority": "normal",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_open_rejects_whitespace_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whitespace-only title passes Pydantic min_length but
+    substrate's strip().strip() rejects → 400."""
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client(role="member")
+    response = client.post(
+        "/api/inspector/support-tickets",
+        json={
+            "title": "   ",  # whitespace
+            "description": "Test",
+            "category": "audit",
+            "priority": "normal",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_list_invalid_status_filter_returns_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client()
+    response = client.get(
+        "/api/inspector/support-tickets?status=nonexistent_status"
+    )
+    assert response.status_code == 400
+    body = response.json()
+    # Should list valid status values
+    for valid_status in ("open", "in_progress", "resolved", "closed"):
+        assert valid_status in body["detail"]
+
+
+def test_list_status_filter_works_for_valid_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid status values pass through to substrate."""
+    monkeypatch.setenv("PG_USE_SUPPORT_TICKET_ENDPOINT", "1")
+    monkeypatch.setenv(
+        "PG_SUPPORT_TICKET_DB_PATH", str(tmp_path / "tickets.sqlite"),
+    )
+    from src.polaris_graph.audit_ir.inspector_router import (
+        _reset_support_ticket_store_for_test,
+    )
+    _reset_support_ticket_store_for_test()
+
+    client = _make_client(role="member")
+    # Open a ticket so we have something to filter on
+    r_post = client.post(
+        "/api/inspector/support-tickets",
+        json={
+            "title": "Filter test",
+            "description": "Test",
+            "category": "other",
+            "priority": "normal",
+        },
+    )
+    assert r_post.status_code == 201
+
+    # Filter by 'open' should find it
+    r_open = client.get(
+        "/api/inspector/support-tickets?status=open"
+    )
+    assert r_open.status_code == 200
+    assert len(r_open.json()["tickets"]) == 1
+
+    # Filter by 'closed' should be empty
+    r_closed = client.get(
+        "/api/inspector/support-tickets?status=closed"
+    )
+    assert r_closed.status_code == 200
+    assert r_closed.json()["tickets"] == []
