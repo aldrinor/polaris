@@ -151,14 +151,15 @@ def _load_polaris_manifest() -> dict[str, Any]:
                 for entry in bib if isinstance(entry, dict)
             ]
 
-    # v3 R2 P1 #2 fix: structural_depth was scored asymmetrically.
-    # v1+v2 used POLARIS's `generator.outline_sections` metadata
-    # (6 entries) while competitors got Markdown-heading regex on
-    # raw text (0). The actual rendered report.md HAS 23 `###`
-    # headings + 6 table rows — those are the comparable surface.
-    # v3 parses POLARIS report.md with the SAME regex the
-    # competitor extractor uses on its prose, so the two are
-    # measured against an identical surface.
+    # v4 R3 P1 fix: use `_extract_sections()` and `_extract_tables()`
+    # DIRECTLY (the same functions competitor manifests pass through),
+    # not just the underlying regex. v3 inlined `_SECTION_HEADER_RE`
+    # but skipped `_extract_sections`'s 80-char + digit-only filters,
+    # producing an off-by-1 vs the competitor surface (the report's
+    # 132-char H1 was counted by v3 but dropped by competitor rules).
+    # v4 calls the same helper functions on POLARIS report.md as
+    # the competitor extractor calls on competitor prose →
+    # identical extraction semantics on both sides.
     sections: list[dict[str, str]] = []
     tables: list[dict[str, Any]] = []
     report_md_path = run_dir / "report.md"
@@ -167,16 +168,11 @@ def _load_polaris_manifest() -> dict[str, Any]:
         try:
             body_text = report_md_path.read_text(encoding="utf-8")
             from src.polaris_graph.audit_ir.competitor_manifest_extractor import (
-                _SECTION_HEADER_RE,
-                _TABLE_RE,
+                _extract_sections,
+                _extract_tables,
             )
-            for m in _SECTION_HEADER_RE.finditer(body_text):
-                title = m.group(1).strip()
-                if title:
-                    sections.append({"title": title})
-            row_count = sum(1 for _ in _TABLE_RE.finditer(body_text))
-            if row_count:
-                tables.append({"row_count": row_count})
+            sections = _extract_sections(body_text)
+            tables = _extract_tables(body_text)
         except Exception:
             body_text = None
     manifest["sections"] = sections
@@ -356,7 +352,7 @@ def main() -> int:
 
     manifest = {
         "milestone": "M-LIVE-2",
-        "version": "v3",
+        "version": "v4",
         "polaris_manifest_path": str(POLARIS_MANIFEST_PATH),
         "chatgpt_source": str(CHATGPT_DR_PATH),
         "gemini_source": str(GEMINI_DR_PATH),
