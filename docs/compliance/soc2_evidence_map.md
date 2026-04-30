@@ -23,7 +23,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 
 | Criterion | Requirement | POLARIS Control | Evidence Artifact |
 |-----------|-------------|-----------------|-------------------|
-| CC1.1 | Organization demonstrates commitment to integrity and ethical values | System enforces "No Fake Working" policy (LAW II): no placeholders, no mocked data, no silent downgrades. Preflight static analysis (`scripts/preflight.py`) rejects forbidden patterns | `scripts/preflight.py` output; `ground_rules.md` Section: Reward Hacking Prevention |
+| CC1.1 | Organization demonstrates commitment to integrity and ethical values | System enforces "No Fake Working" policy (LAW II): no placeholders, no mocked data, no silent downgrades. Preflight static analysis (`scripts/pg_preflight_v2.py`) rejects forbidden patterns | `scripts/pg_preflight_v2.py` output; `ground_rules.md` Section: Reward Hacking Prevention |
 | CC1.2 | Board of directors demonstrates independence | N/A — Organizational control (outside POLARIS scope) | Customer responsibility |
 | CC1.3 | Management establishes structures, reporting lines, and authorities | RBAC role definitions: Researcher, Operator, Manager, Auditor, Admin with defined access levels and oversight responsibilities | `docs/todo_list.md` Phase 2B.2 — RBAC specification |
 | CC1.4 | Organization demonstrates commitment to competence | Automated quality gates enforce minimum competence thresholds at every pipeline node; no manual override without explicit audit trail | Quality gate configuration in `src/polaris_graph/state.py`; gate outcomes in JSONL trace |
@@ -41,9 +41,9 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 
 | Criterion | Requirement | POLARIS Control | Evidence Artifact |
 |-----------|-------------|-----------------|-------------------|
-| CC3.1 | Entity specifies objectives with sufficient clarity | Research query validated (5-2,000 characters); depth preset (quick/standard/deep) with defined time budgets; vector ID format enforced | `ResearchRequest` Pydantic model in `src/live_server.py`; `DEPTH_PRESETS` configuration |
+| CC3.1 | Entity specifies objectives with sufficient clarity | Research query validated (5-2,000 characters); depth preset (quick/standard/deep) with defined time budgets; vector ID format enforced | `ResearchRequest` Pydantic model in `scripts/live_server.py`; `DEPTH_PRESETS` configuration |
 | CC3.2 | Entity identifies risks to achievement of objectives | Quality gates at every pipeline node with defined thresholds and failure actions; gating cases (CASE_1 through CASE_4) for evidence sufficiency assessment | Quality gate table in `architecture.md` Section 9.2; gating case definitions in Section 9.3 |
-| CC3.3 | Entity considers potential for fraud | Preflight static analysis (`scripts/preflight.py`) detects and rejects: silent exception handling, hard-coded values, placeholder implementations, sleep-based simulation, TODO/FIXME comments | Preflight scan results; forbidden pattern definitions in `ground_rules.md` |
+| CC3.3 | Entity considers potential for fraud | Preflight static analysis (`scripts/pg_preflight_v2.py`) detects and rejects: silent exception handling, hard-coded values, placeholder implementations, sleep-based simulation, TODO/FIXME comments | Preflight scan results; forbidden pattern definitions in `ground_rules.md` |
 | CC3.4 | Entity identifies and assesses changes | Session log (`logs/session_log.md`) provides chronological audit trail of all changes; file directory (`docs/file_directory.md`) maintains hierarchical inventory | `logs/session_log.md`; `docs/file_directory.md` |
 
 ### CC4 — Monitoring Activities
@@ -68,7 +68,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 | CC6.1 | Entity implements logical access security | API key authentication for external services (OPENROUTER_API_KEY, SERPER_API_KEY, SEMANTIC_SCHOLAR_API_KEY); SSO/SAML integration planned (Okta, Azure AD, Google Workspace) | `.env` configuration; Phase 2B.1 RBAC specification |
 | CC6.2 | Entity registers and authorizes new users | User registration and role assignment through admin panel; JWT token-based session management | Phase 2B.1-2B.3 implementation plan |
 | CC6.3 | Entity manages access credentials | API keys stored in `.env` file (not hard-coded); environment variable isolation between cloud and sovereign deployment modes | `.env` file excluded from version control via `.gitignore` |
-| CC6.6 | Entity manages system accounts | Single-concurrency pipeline lock prevents unauthorized concurrent access; per-user isolation in multi-user mode | `PipelineRunner` async lock in `src/live_server.py` |
+| CC6.6 | Entity manages system accounts | Single-concurrency pipeline lock prevents unauthorized concurrent access; per-user isolation in multi-user mode | `PipelineRunner` async lock in `scripts/live_server.py` |
 | CC6.7 | Entity restricts access to information assets | Role-based access: Researcher (use), Manager (review), Admin (configure), Auditor (read-only trace); per-user result storage isolation | RBAC role definitions in Phase 2B.2 |
 | CC6.8 | Entity prevents or detects unauthorized access | Rate limiting on API endpoints; input validation on all user-facing endpoints; vector_id format validation | Phase I.1 rate limiting; `ResearchRequest` Pydantic validation |
 
@@ -78,7 +78,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 |-----------|-------------|-----------------|-------------------|
 | CC7.1 | Entity manages infrastructure changes | Version-controlled codebase; session log tracks all operational changes with timestamps, rationale, and affected files | `logs/session_log.md` — append-only audit trail |
 | CC7.2 | Entity monitors system components | Pipeline tracer with 1,302+ events per run; Rich dashboard for real-time progress; health check endpoint (`GET /health`) | JSONL trace files; `/health` endpoint response |
-| CC7.3 | Entity evaluates changes to system components | Preflight static analysis on every change; quality gates validated on test runs; regression test suite | `scripts/preflight.py`; `tests/` directory |
+| CC7.3 | Entity evaluates changes to system components | Preflight static analysis on every change; quality gates validated on test runs; regression test suite | `scripts/pg_preflight_v2.py`; `tests/` directory |
 | CC7.4 | Entity designs, develops, and implements changes | Mandatory documentation synchronization (LAW I): changes to project scope immediately update todo list, session log, file directory, and restart instructions | `docs/todo_list.md`; `state/restart_instructions.md` |
 
 ### CC8 — Change Management
@@ -100,9 +100,9 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 
 | Criterion | Requirement | POLARIS Control | Evidence Artifact |
 |-----------|-------------|-----------------|-------------------|
-| A1.1 | Entity maintains availability commitments | Health check endpoint returns status, version, uptime; SSE auto-reconnection; pipeline resumability from last checkpoint | `/health` endpoint; `state/last_pointer.json`; `state/progress_ledger.jsonl` |
+| A1.1 | Entity maintains availability commitments | Health check endpoint returns status, version, uptime; SSE auto-reconnection; pipeline resumability via job-queue checkpoints + per-run timestamped output dirs | `/health` endpoint; `state/pg_batch_progress.sqlite`; `state/cost_ledger.json`; per-run `outputs/<phase>/run_<timestamp>/` |
 | A1.2 | Entity manages capacity | Configurable concurrency controls: web_concurrency=20, academic_concurrency=1, analysis_concurrency=12, verify_concurrency=20, section_write_concurrency=4; evidence caps prevent unbounded growth (1,500 verify, 1,000 synthesis) | Environment variable configuration in `src/polaris_graph/state.py` |
-| A1.3 | Entity recovers from disruptions | Checkpoint-and-resume architecture: progress ledger (JSONL append-only), last_pointer.json for crash recovery, _snapshot state for timeout recovery; Docker restart policies | `src/polaris_graph/checkpoint_manager.py`; `state/progress_ledger.jsonl` |
+| A1.3 | Entity recovers from disruptions | Checkpoint-and-resume architecture: SQLite-backed batch progress (`pg_batch_progress.sqlite`), JSON cost ledger (append-only), per-run timestamped output dirs (`outputs/.../run_<ts>/`); Docker restart policies; M-INT-0b model_pin replay for deterministic re-run | `src/polaris_graph/audit_ir/job_runner.py`; `src/polaris_graph/audit_ir/model_pin.py`; `state/pg_batch_progress.sqlite`; `state/cost_ledger.json` |
 
 ---
 
@@ -149,7 +149,7 @@ For SOC 2 Type II examination, the following evidence should be collected over t
 | Session Logs | Continuous (append-only) | `logs/session_log.md` | Minimum 12 months |
 | Cost Ledger | Per research run | `logs/pg_cost_ledger.jsonl` | Minimum 12 months |
 | Quality Gate Outcomes | Per research run | Embedded in trace files (quality_gate event type) | Minimum 12 months |
-| Preflight Scan Results | Per code change | `scripts/preflight.py` output | Minimum 12 months |
+| Preflight Scan Results | Per code change | `scripts/pg_preflight_v2.py` output | Minimum 12 months |
 | Bug Log | Continuous (active tracking) | `logs/bug_log.md` | Minimum 12 months |
 | Configuration Snapshots | Per deployment | `.env` (redacted), `config/settings/*.yaml` | Minimum 12 months |
 | Access Logs | Continuous | Server access logs | Minimum 12 months |
@@ -166,7 +166,7 @@ For SOC 2 Type II examination, the following evidence should be collected over t
 
 2. **Output JSON** (`outputs/polaris_graph/{vector_id}.json`): Complete research output including report text, evidence database, verification results, bibliography, quality metrics, and cost summary.
 
-3. **Preflight Report** (`scripts/preflight.py` output): Static analysis results showing absence of forbidden patterns (silent exceptions, hard-coded values, placeholders, mock data in production).
+3. **Preflight Report** (`scripts/pg_preflight_v2.py` output): Static analysis results showing absence of forbidden patterns (silent exceptions, hard-coded values, placeholders, mock data in production).
 
 4. **Session Log** (`logs/session_log.md`): Chronological audit trail of all operational decisions, changes, and their rationale.
 
