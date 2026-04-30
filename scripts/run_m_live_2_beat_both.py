@@ -44,14 +44,42 @@ from src.polaris_graph.audit_ir.competitor_manifest_extractor import (  # noqa: 
 )
 
 
-POLARIS_MANIFEST_PATH = (
-    REPO_ROOT
-    / "outputs"
-    / "m_live_1_smoke"
-    / "clinical"
-    / "clinical_tirzepatide_t2dm"
-    / "manifest.json"
-)
+POLARIS_SMOKE_ROOT = REPO_ROOT / "outputs" / "m_live_1_smoke"
+
+
+def _find_latest_polaris_manifest_path() -> Path:
+    """v2 R1 P0 fix: M-LIVE-1 v2 introduced run-scoped paths
+    (`outputs/m_live_1_smoke/run_<timestamp>/...`). v1 hard-coded
+    the old flat path which broke after M-LIVE-1 v2. Find the
+    latest run_<timestamp> dir and return its manifest path.
+
+    Falls back to the canonical baseline at
+    `tests/fixtures/m_live_4_baseline/` so M-LIVE-2 can be
+    exercised offline / in CI without a fresh smoke run.
+    """
+    if POLARIS_SMOKE_ROOT.exists():
+        run_dirs = sorted(
+            (p for p in POLARIS_SMOKE_ROOT.glob("run_*") if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for rd in run_dirs:
+            manifests = list(rd.rglob("manifest.json"))
+            if manifests:
+                return manifests[0]
+    fixture = REPO_ROOT / "tests" / "fixtures" / "m_live_4_baseline"
+    if fixture.exists():
+        manifests = list(fixture.rglob("manifest.json"))
+        if manifests:
+            return manifests[0]
+    raise SystemExit(
+        "no POLARIS manifest found. Run "
+        "scripts/run_m_live_1_smoke.py first, or commit a baseline "
+        "to tests/fixtures/m_live_4_baseline/"
+    )
+
+
+POLARIS_MANIFEST_PATH = _find_latest_polaris_manifest_path()
 CHATGPT_DR_PATH = REPO_ROOT / "state" / "compare_chatgpt_dr.txt"
 GEMINI_DR_PATH = REPO_ROOT / "state" / "compare_gemini_dr.txt"
 
@@ -129,6 +157,11 @@ def _load_polaris_manifest() -> dict[str, Any]:
                 sections.append({"title": s})
     manifest["sections"] = sections
 
+    # v2 R1 P1 #2 fix: M-D9 narrative_length / contradiction
+    # scorers read `report.body` / `body`, NOT
+    # `report.narrative_word_count`. v1 only populated word-count
+    # so both scorers returned 0 across all 3 manifests.
+    # v2 also populates `report.body` with the actual narrative.
     report_md_path = run_dir / "report.md"
     if report_md_path.exists():
         try:
@@ -137,6 +170,7 @@ def _load_polaris_manifest() -> dict[str, Any]:
             manifest["report"]["narrative_word_count"] = (
                 len(text.split())
             )
+            manifest["report"]["body"] = text
         except Exception:
             pass
 
@@ -175,6 +209,12 @@ def _per_dimension_verdict(
     For each dimension, classify POLARIS vs each competitor as
     AHEAD / TIE / BEHIND (using `tolerance_for(dim)`); aggregate
     into BEAT-BOTH / BEAT-ONE / TIE / BEHIND.
+
+    v2 R1 P1 #3 fix: when all 3 scores are 0.0 on a dimension,
+    that dimension is structurally not measurable (e.g. claim_frames
+    requires N+baseline+endpoint+CI fields none of the manifests
+    populate yet). Report verdict=N/A rather than TIE — TIE would
+    falsely imply the comparison is meaningful.
     """
     verdicts: dict[str, dict[str, Any]] = {}
     common = sorted(set(polaris) & set(chatgpt) & set(gemini))
@@ -183,6 +223,25 @@ def _per_dimension_verdict(
         c = chatgpt[dim]
         g = gemini[dim]
         tol = tolerance_for(dim)
+        if p.value == 0.0 and c.value == 0.0 and g.value == 0.0:
+            verdicts[dim] = {
+                "verdict": "N/A",
+                "polaris": p.value,
+                "chatgpt": c.value,
+                "gemini": g.value,
+                "tolerance": tol,
+                "delta_chatgpt": 0.0,
+                "delta_gemini": 0.0,
+                "vs_chatgpt": "n/a",
+                "vs_gemini": "n/a",
+                "higher_is_better": p.higher_is_better,
+                "rationale": (
+                    "All 3 manifests scored 0.0 — dimension not "
+                    "measurable on current inputs (likely missing "
+                    "extraction support)."
+                ),
+            }
+            continue
 
         def cmp_one(competitor: DimensionScore) -> str:
             delta = p.value - competitor.value
@@ -236,7 +295,7 @@ def _per_dimension_verdict(
 def _summarize(verdicts: dict[str, dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {
         "BEAT-BOTH": 0, "BEAT-ONE": 0, "TIE": 0,
-        "BEHIND": 0, "BEHIND-BOTH": 0,
+        "BEHIND": 0, "BEHIND-BOTH": 0, "N/A": 0,
     }
     for v in verdicts.values():
         counts[v["verdict"]] = counts.get(v["verdict"], 0) + 1
@@ -322,7 +381,7 @@ def main() -> int:
         )
     print()
     print("Summary:")
-    for k in ("BEAT-BOTH", "BEAT-ONE", "TIE", "BEHIND", "BEHIND-BOTH"):
+    for k in ("BEAT-BOTH", "BEAT-ONE", "TIE", "BEHIND", "BEHIND-BOTH", "N/A"):
         print(f"  {k:14}: {summary.get(k, 0)}")
     print()
     print(f"manifest: {manifest_path}")

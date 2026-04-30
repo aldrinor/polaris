@@ -60,8 +60,13 @@ _PMID_RE = re.compile(
 )
 
 
+# v2 R1 P1 #1 fix: v1 regex matched ANY short uppercase line,
+# inflating section_count to 145 for ChatGPT (page-break residue
+# fragments like "Trial", "Design and", "Sou" classified as
+# sections). v2 requires Markdown-style heading prefix `#{1,4}`
+# explicitly — far fewer false positives.
 _SECTION_HEADER_RE = re.compile(
-    r"^(?:#{1,3}\s+(.+)|([A-Z][A-Za-z 0-9\-]{2,80})\s*$)",
+    r"^#{1,4}\s+(.+?)\s*$",
     re.MULTILINE,
 )
 
@@ -138,24 +143,15 @@ def _extract_citations(text: str) -> list[dict[str, Any]]:
             seen.add(url)
             cites.append({"url": url, "kind": "pmid"})
 
-    for hint in _REGULATORY_TEXT_HINTS:
-        if hint in text:
-            host_proxy = {
-                "FDA": "https://www.fda.gov/",
-                "EMA": "https://www.ema.europa.eu/",
-                "Health Canada": "https://health-products.canada.ca/",
-                "NICE": "https://www.nice.org.uk/",
-                "PMDA": "https://www.pmda.go.jp/",
-                "TGA": "https://www.tga.gov.au/",
-                "MHRA": "https://www.gov.uk/government/organisations/"
-                        "medicines-and-healthcare-products-regulatory-agency",
-            }.get(hint)
-            if host_proxy and host_proxy not in seen:
-                seen.add(host_proxy)
-                cites.append({
-                    "url": host_proxy,
-                    "kind": "regulatory_text_proxy",
-                })
+    # v2 R1 P1 #4 fix: v1 injected synthetic regulatory proxy URLs
+    # from plain-text mentions ("FDA", "EMA", etc.) into the same
+    # citations bag that feeds unique_citations + regulatory_coverage
+    # + jurisdictional_precision. One extractor error cross-poisoned
+    # 3 verdicts. v2 drops the proxy injection: competitors that
+    # don't cite regulatory URLs explicitly will (correctly) score
+    # lower on regulatory_coverage. POLARIS's pipeline DOES cite
+    # regulatory URLs explicitly, which is the right
+    # comparative signal.
 
     return cites
 
@@ -235,12 +231,17 @@ def extract_competitor_manifest(
 
     word_count = len(re.findall(r"\b\w+\b", text))
 
+    # v2 R1 P1 #2 fix: M-D9 narrative_length / contradiction
+    # scorers read `report.body`. v1 only set `narrative_word_count`,
+    # forcing both scorers to 0. v2 also populates `report.body`
+    # with the full prose so scorers compute meaningful values.
     return {
         "citations": citations,
         "claims": claims,
         "sections": sections,
         "tables": tables,
         "report": {
+            "body": text,
             "narrative_word_count": word_count,
             "source": source,
         },
