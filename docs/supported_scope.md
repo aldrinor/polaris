@@ -3,105 +3,91 @@
 **Version:** v1.0
 **Last updated:** 2026-04-30
 
-This document defines what research questions POLARIS will and will not accept, and the criteria the scope-classification substrates (`M-INT-4` LLM scope + `M-INT-5` domain router) use to route each query.
+This document defines what research questions POLARIS will and will not accept in v1.0, and the criteria the production code uses to route each query. **All claims here are backed by code references; if the code doesn't enforce something, this document does not claim it does.**
 
 ---
 
-## In-scope (5 curated domains)
+## Public template surface (3 clinical variants in v1.0)
 
-POLARIS v1.0 routes incoming research questions to one of 5 scope templates. Each template defines the evidence sources, claim structure, and quality gates the pipeline applies.
+POLARIS v1.0 ships **3 curated templates** in the public `TEMPLATE_CATALOG` (`src/polaris_graph/audit_ir/template_catalog.py:520-523`):
 
-### 1. `clinical` — Clinical efficacy + safety
+| Template ID | Domain | Coverage |
+|---|---|---|
+| `v30_clinical` | Clinical (general) | Drug trial efficacy + safety, comparative therapeutics, regulatory submissions |
+| `v30_clinical_oncology` | Clinical oncology | Oncology drug efficacy + safety, biomarker outcomes |
+| `v30_clinical_cardio` | Clinical cardiovascular | Cardiovascular outcomes, MACE endpoints |
 
-**Accepts:**
+The 5 YAML scope templates in `config/scope_templates/` (`clinical`, `due_diligence`, `policy`, `tech`, `custom`) are **scaffolding for future expansion**. Only the 3 clinical variants above are wired through the production routing path in v1.0. `due_diligence`, `policy`, `tech`, `custom` are not exposed in `TEMPLATE_CATALOG`.
+
+---
+
+## In-scope research questions
+
+The 3 v1.0 templates accept questions in their respective scopes:
+
+### `v30_clinical` (general clinical)
+
+Accepts:
 - Drug trial efficacy comparisons (e.g., "tirzepatide vs semaglutide HbA1c outcomes in T2DM")
 - Comparative therapeutics across drug classes
 - Regulatory submission summaries (FDA, EMA, Health Canada, NICE, PMDA, TGA, MHRA)
 - Adverse event surveillance (FAERS, EudraVigilance)
 - Mechanism-of-action questions when grounded in clinical trial evidence
 
-**Rejects:**
-- Patient-specific medical advice
-- Off-label use recommendations
-- Predictive prognosis for individuals
+### `v30_clinical_oncology`
 
-### 2. `due_diligence` — Investment due diligence
+Accepts:
+- Oncology drug efficacy + safety in specific tumor types
+- Biomarker-stratified outcomes (PD-L1, HER2, EGFR, etc.)
+- Comparative oncology trial analyses
 
-**Accepts:**
-- Company financial profile + comparative market positioning
-- Industry sizing + growth projections
-- Competitive landscape mapping
-- Regulatory + macro risk surveys
+### `v30_clinical_cardio`
 
-**Rejects:**
-- Buy/sell recommendations on specific securities
-- Real-time market data (POLARIS evidence is dated)
-
-### 3. `policy` — Public policy + regulation
-
-**Accepts:**
-- Legislative + regulatory text analysis
-- Comparative policy across jurisdictions
-- Agency guidance summarization (federal + state + international)
-- Impact assessment of proposed regulation
-
-**Rejects:**
-- Voting recommendations
-- Lobbying-targeted content
-
-### 4. `tech` — Technology + engineering
-
-**Accepts:**
-- Software architecture pattern surveys
-- Deployment + scaling pattern comparisons
-- Open-source ecosystem analysis
-- Standards body output (W3C, IETF, ISO, IEEE)
-
-**Rejects:**
-- Specific vendor recommendations
-- Performance benchmarking on user-supplied workloads
-
-### 5. `custom` — Operator-defined
-
-Any scope explicitly defined by an operator with a documented `custom.yaml` template. Requires:
-- Explicit `domain` field
-- At least one `evidence_tier` definition
-- A claim-structure rubric
+Accepts:
+- Cardiovascular outcomes trials (CVOTs)
+- MACE endpoints, HF outcomes, stroke prevention
+- Lipid management + comparative agent analyses
 
 ---
 
-## Out-of-scope (explicit refusals)
+## What v1.0 actually enforces (refusal logic per substrate)
 
-POLARIS v1.0 will **refuse** the following query classes:
+**Honest accounting** of what code in v1.0 actually refuses, vs what FINAL_PLAN aspires to:
 
-| Class | Why | Substrate that catches it |
+| Refusal class | Enforced by | v1.0 status |
 |---|---|---|
-| Real-time market quotes | Evidence has provenance dates, not live ticker | M-INT-4 scope LLM |
-| Patient-specific medical advice | Not certified for clinical decision support | M-INT-4 scope LLM |
-| Children's safety / CSAM-adjacent | Hard refuse | M-INT-4 scope LLM |
-| Bioweapon / CBRN synthesis | Hard refuse | M-INT-4 scope LLM |
-| Active election misinformation | Refuse pending legal framework | M-INT-4 scope LLM |
-| Multi-language non-English | Extraction substrates assume English | Scope template `language` field |
-| Multi-step reasoning > 3 hops | V19 is single-query | M-INT-5 domain router |
+| Question outside the 3 clinical templates | `template_classifier.py` confidence threshold | **Enforced**: returns `unsupported` if no template matches above threshold |
+| Patient-specific medical advice | None (v1.0) | **Not enforced**: operator review responsibility |
+| Real-time market quotes | Structural (evidence has provenance dates) | **Not enforced**: scope_gate doesn't refuse, but evidence is dated |
+| Bioweapon / CBRN synthesis | None (v1.0) | **Not enforced** in v1.0 — relies on upstream LLM provider safety |
+| Active election misinformation | None (v1.0) | **Not enforced** in v1.0 |
+| Non-English questions | None (v1.0) — `language` field in scope_gate copies but doesn't refuse (`src/polaris_graph/nodes/scope_gate.py:419-421`) | **Not enforced**: documented as out-of-scope but not auto-refused |
+| Multi-step reasoning > 3 hops | None (v1.0) — no hop-count logic in `domain_router.py:250-398` | **Not enforced**: V19 is single-query by `--only` semantics |
+
+The original v1 of this document claimed M-INT-4 and M-INT-5 enforce non-English and multi-hop refusals. **They don't in v1.0.** M-INT-4 (LLM scope classifier) and M-INT-5 (domain router) run in telemetry-only mode in v1.0 — they observe and log routing decisions but do not gate retrieval. Production routing decisions in v1.0 come from the deterministic `template_classifier` + curated catalog.
+
+M-INT-4/5 enforcement (gating instead of telemetry) is a v1.1 milestone.
 
 ---
 
-## Routing flow
+## v1.0 routing flow (actual code path)
 
 ```
 Research question
    ↓
-M-INT-4 (LLM scope classifier)
-   ├── verdict: in_scope     → continue
-   ├── verdict: out_of_scope → refuse with reason
-   └── verdict: uncertain    → operator review queue
+template_classifier.classify_query() → CuratedTemplate match or unsupported
+   ├── verdict: routed (high confidence on a v30_clinical_* template)
+   ├── verdict: ambiguous → operator review
+   └── verdict: unsupported → refuse
    ↓
-M-INT-5 (domain router)
-   ├── outcome: routed       → use template's evidence adapters
-   ├── outcome: ambiguous    → fallback to keyword classifier
-   └── outcome: refused      → refuse (template doesn't support)
+[scope_gate] → strict checks on protocol fields → live retrieval
    ↓
-[Phase 2b: scope gate] → strict checks → live retrieval
+M-INT-4 / M-INT-5 / M-INT-6 → telemetry-only observation
+   (do NOT gate; v1.1 will promote to enforcement)
+   ↓
+live_retriever (M-INT-1 parallel + M-INT-2 cache + M-INT-3 freshness)
+   ↓
+generator + strict_verify → report.md or abort_no_verified_sections
 ```
 
 ---
@@ -124,7 +110,7 @@ A query whose generated prose fails strict verify on every section → `abort_no
 
 Operators with `admin` or `owner` role on an org can:
 
-- Override the M-INT-5 domain routing decision (logged in M-D3 telemetry)
+- Override the `template_classifier` routing decision (logged in M-D3 telemetry)
 - Inject a custom evidence corpus via `M-INT-10` Drive connector
 - Adjust the corpus adequacy threshold per-run (logged with reason)
 
@@ -136,6 +122,8 @@ Each override generates a decision-telemetry record (M-D3 phase 1) for downstrea
 
 | Stretch goal | Earliest version |
 |---|---|
+| M-INT-4/5 promoted from telemetry to enforcement | v1.1 |
+| Public exposure of `due_diligence`, `policy`, `tech`, `custom` templates | v1.2 |
 | Multilingual scope classifier (DE/FR/ES/JA/ZH) | v1.2 |
 | Real-time financial data integration | v1.3 (requires licensed feed) |
 | Patient-specific clinical decision support | NEVER (legal moat) |
@@ -148,9 +136,9 @@ Each override generates a decision-telemetry record (M-D3 phase 1) for downstrea
 
 POLARIS v1.0 supports:
 
-- SOC2 Type II evidence map (`docs/compliance/soc2_evidence_map.md`)
-- HIPAA audit trail (`docs/compliance/hipaa_audit_trail.md`) — for clinical template only, when run under a BAA
-- EU AI Act Article 14 (human oversight) via M-INT-6 operator review queue + M-INT-9 contract drafting
-- GDPR data minimization via M-INT-10 narrow Drive connector + workspace_id scoping
+- **SOC2 Type II evidence map** (`docs/compliance/soc2_evidence_map.md`) — 28/28 evidence references intact per M-PROD-1 audit
+- **HIPAA audit trail** (`docs/compliance/hipaa_audit_trail.md`) — clinical template only, deployer-side prerequisites still apply (BAA + tenant isolation per `hipaa_audit_trail.md:386-394`)
+- **EU AI Act Article 14** (human oversight) — POLARIS v1.0 supports operator review via M-INT-6 induction queue + M-INT-9 contract drafting + M-LIVE-3 dashboard. Full Article 14 compliance per `docs/compliance/eu_ai_act_template.md:254-267` is operator-implemented control surfaces, not a single milestone
+- **GDPR data minimization** via M-INT-10 narrow Drive connector + workspace_id scoping
 
-Multi-tenant isolation requires either separate FastAPI processes per tenant OR explicit org-role checks on every endpoint (M-15a/b auth substrate).
+Multi-tenant isolation requires either separate FastAPI processes per tenant OR explicit org-role checks on every endpoint (M-15a/b auth substrate). Per-tenant metric isolation (the M-PROD-3 metrics endpoint is process-global) deferred to v1.1.
