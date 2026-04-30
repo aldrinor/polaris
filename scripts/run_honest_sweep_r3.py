@@ -1939,7 +1939,9 @@ async def run_one_query(
             section_max_tokens=int(os.environ.get(
                 "PG_SECTION_MAX_TOKENS", "2400",
             )),
-            min_kept_fraction=0.4,
+            min_kept_fraction=float(os.environ.get(
+                "PG_MIN_KEPT_FRACTION", "0.4",
+            )),
             max_parallel_sections=3,
             tier_fractions=dist.tier_fractions,
             contradictions=[asdict(c) for c in contradictions],

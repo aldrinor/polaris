@@ -71,12 +71,14 @@ PHASE_G_ENV: dict[str, str] = {
     # v1.1 backlog A.1 NEGATIVE RESULT (2026-04-30):
     # PG_SECTION_MAX_TOKENS=4800 was tested and FAILED to close
     # narrative_length BEHIND-BOTH. Result: 2346w → 2032w
-    # (REGRESSION). Hypothesis: larger draft → more sentences
-    # at strict_verify boundary → more retries → final word
-    # count drops. v1.1 must use options 2/3/4 from backlog
-    # (more sections, lower kept_fraction floor, or evidence-
-    # grounded synthesizer rewrite). Not option 1.
-    # Default: leave at 2400 (v1.0 release config).
+    # (REGRESSION). Default: leave at 2400 (v1.0 release config).
+    #
+    # v1.1 backlog A.1 option 3 (2026-04-30):
+    # Lower kept_fraction floor 0.4 → 0.35. Less aggressive
+    # retry, accept slightly less verified prose. Risk:
+    # hallucination drift on contradiction_handling. Will be
+    # measured against v1.0 baseline.
+    "PG_MIN_KEPT_FRACTION": "0.35",
 }
 
 
