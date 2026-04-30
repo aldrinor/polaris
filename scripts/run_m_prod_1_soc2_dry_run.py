@@ -36,11 +36,17 @@ OUT_DIR = REPO_ROOT / "outputs" / "m_prod_1_soc2"
 # patterns).
 _PATH_LIKE_RE = re.compile(
     r"`("
-    r"(?:[A-Za-z_][A-Za-z0-9_./{}*?-]+)"
-    r"\.(?:py|md|json|jsonl|sqlite|yaml|yml|toml|sh|html)"
+    # 1. Files with a known extension (any path)
+    r"(?:[A-Za-z_.][A-Za-z0-9_./{}<>*?-]*)"
+    r"\.(?:py|md|json|jsonl|sqlite|yaml|yml|toml|sh|html|env)"
     r"|"
-    r"(?:scripts|src|state|outputs|logs|docs|config|tests)/"
-    r"[A-Za-z0-9_./{}*?-]+"
+    # 2. Paths rooted at top-level repo dirs (with optional
+    # trailing slash for directory-only references)
+    r"(?:scripts|src|state|outputs|logs|docs|config|tests)"
+    r"(?:/[A-Za-z0-9_./{}<>*?-]+|/)"
+    r"|"
+    # 3. v2 R1 P0 #2 fix: dotfile refs (.env, .gitignore, etc.)
+    r"\.[A-Za-z][A-Za-z0-9_-]*"
     r")`"
 )
 
@@ -48,25 +54,38 @@ _PATH_LIKE_RE = re.compile(
 # Some evidence references include f-string-like placeholders
 # (e.g. `{vector_id}`). Treat those as glob wildcards.
 def _to_glob(path_str: str) -> str:
-    return re.sub(r"\{[^}]+\}", "*", path_str)
+    """Normalize SOC2 doc placeholders into glob wildcards.
+
+    `{vector_id}` and `<phase>` both become `*`. Bare `...`
+    placeholders also become `*` (used in doc prose as
+    "any-subdir"). Trailing `/` is preserved (a directory
+    reference)."""
+    s = re.sub(r"\{[^}]+\}", "*", path_str)
+    s = re.sub(r"<[^>]+>", "*", s)
+    s = re.sub(r"\.{3,}", "*", s)
+    return s
 
 
 def _classify(path_str: str) -> dict[str, Any]:
     """Resolve a referenced path against the repo and report whether
-    it exists. Treats `{var}` placeholders as wildcards via glob.
+    it exists. Treats `{var}` and `<var>` placeholders as glob
+    wildcards.
+
+    v2 R1 P0 #1 fix: dropped the rglob-anywhere fallback. v1
+    fell back to `REPO_ROOT.rglob(tail)` when the documented
+    path didn't match — that matched the same basename ANYWHERE
+    in the repo, so `config/settings/*.yaml` falsely passed when
+    `config/settings/` was renamed but YAML files existed
+    elsewhere. v2 binds the glob to the documented prefix
+    strictly: if the path doesn't exist where the doc claims,
+    it's a gap.
     """
     glob_str = _to_glob(path_str)
     is_glob = "*" in glob_str or "?" in glob_str
     abs_candidate = REPO_ROOT / glob_str
     if is_glob:
-        # Use rglob via the wildcard pattern. For paths with
-        # wildcards in the parent, fall back to glob from REPO_ROOT.
         try:
             matches = list(REPO_ROOT.glob(glob_str))
-            if not matches:
-                # Try as recursive glob fallback
-                tail = glob_str.split("/")[-1]
-                matches = list(REPO_ROOT.rglob(tail))
         except Exception as exc:
             return {
                 "path": path_str,
@@ -122,7 +141,7 @@ def main() -> int:
     ]
 
     print("=" * 72)
-    print("M-PROD-1 v1 — SOC2 dry-run evidence audit")
+    print("M-PROD-1 v2 — SOC2 dry-run evidence audit")
     print("=" * 72)
     print(f"  evidence map: {SOC2_DOC}")
     print(f"  references found: {len(paths)}")
@@ -144,7 +163,7 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     manifest = {
         "milestone": "M-PROD-1",
-        "version": "v1",
+        "version": "v2",
         "soc2_evidence_map": str(SOC2_DOC),
         "total_references": len(paths),
         "intact_count": len(intact),
