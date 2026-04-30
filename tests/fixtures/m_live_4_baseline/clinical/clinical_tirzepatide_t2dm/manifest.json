@@ -1,0 +1,879 @@
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 7,
+    "findings_total": 7
+  },
+  "budget_cap_usd": 2.0,
+  "completeness": {
+    "covered_fraction": 0.714,
+    "total_applicable": 7,
+    "total_covered": 5,
+    "total_uncovered": 2,
+    "uncovered_topic_ids": [
+      "contraindications",
+      "drug_interactions"
+    ]
+  },
+  "contradictions_found": 3,
+  "corpus": {
+    "approved": true,
+    "count": 32,
+    "material_deviation": false,
+    "tier_fractions": {
+      "T1": 0.25,
+      "T2": 0.1562,
+      "T4": 0.3125,
+      "T5": 0.0312,
+      "T6": 0.0938,
+      "T7": 0.1562
+    }
+  },
+  "cost_usd": 0.00502573,
+  "domain": "clinical",
+  "evaluator_gate": {
+    "gate_class": "partial",
+    "qwen_critical_axes": [
+      "citation_tightness",
+      "hedging_appropriateness",
+      "tone_consistency",
+      "completeness"
+    ],
+    "qwen_parse_ok": true,
+    "reasons": [
+      "qwen_citation_tightness_needs_revision",
+      "qwen_hedging_tone_needs_revision",
+      "qwen_multi_axis_needs_revision"
+    ],
+    "release_allowed": false,
+    "rule_blockers": []
+  },
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "evidence_selection": {
+    "dropped_count": 0,
+    "evidence_selected": 20,
+    "evidence_total": 20,
+    "full_tier_counts": {
+      "T1": 5,
+      "T2": 3,
+      "T4": 8,
+      "T5": 1,
+      "T6": 2,
+      "T7": 1
+    },
+    "notes": [
+      "pool_size<=max_rows (20/30)",
+      "m46_short_pool_ordered_selection",
+      "m42c_mechanism_floor pool_mech_rows=16 reserved=3 slots=3"
+    ],
+    "selected_tier_counts": {
+      "T1": 5,
+      "T2": 3,
+      "T4": 8,
+      "T5": 1,
+      "T6": 2,
+      "T7": 1
+    },
+    "selection_strategy": "tier_balanced_v1_all_m46_ordered"
+  },
+  "frame_coverage_report": {
+    "by_status": {
+      "fail_min_fields": 2,
+      "pass": 13
+    },
+    "entries": [
+      {
+        "available_artifacts": [
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1016/S0140-6736(21)01324-6",
+        "entity_id": "surpass_1_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "34186022",
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "study_design",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/S0140-6736(21)01324-6"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/S0140-6736(21)01324-6?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=34186022&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_1",
+        "status": "pass",
+        "subsection_title": "SURPASS-1 (Rosenstock et al., Lancet 2021)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1056/NEJMoa2107519",
+        "entity_id": "surpass_2_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "34170647",
+        "provenance_class": "open_access",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "study_design",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1056/NEJMoa2107519"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1056/NEJMoa2107519?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "error:fetch_returned_no_content",
+            "source": "access_bypass",
+            "url": "oa_full_text:https://figshare.com/articles/journal_contribution/Tirzepatide_versus_Semaglutide_Once_Weekly_in_Patients_with_Type_2_Diabetes/16972132"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=34170647&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_2",
+        "status": "pass",
+        "subsection_title": "SURPASS-2 (Frias et al., NEJM 2021)"
+      },
+      {
+        "available_artifacts": [
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1016/S0140-6736(21)01443-4",
+        "entity_id": "surpass_3_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "34370970",
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "study_design",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/S0140-6736(21)01443-4"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/S0140-6736(21)01443-4?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=34370970&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_3",
+        "status": "pass",
+        "subsection_title": "SURPASS-3 (Ludvik et al., Lancet 2021)"
+      },
+      {
+        "available_artifacts": [
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1016/S0140-6736(21)02188-7",
+        "entity_id": "surpass_4_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "34672967",
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "durability_104wk",
+          "safety_signal",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/S0140-6736(21)02188-7"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/S0140-6736(21)02188-7?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=34672967&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_4",
+        "status": "pass",
+        "subsection_title": "SURPASS-4 (Del Prato et al., Lancet 2021)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1001/jama.2022.0078",
+        "entity_id": "surpass_5_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "35133415",
+        "provenance_class": "open_access",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1001/jama.2022.0078"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1001/jama.2022.0078?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "error:fetch_returned_no_content",
+            "source": "access_bypass",
+            "url": "oa_full_text:https://jamanetwork.com/journals/jama/articlepdf/2788781/jama_dahl_2022_oi_220003_1644261864.35143.pdf"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=35133415&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_5",
+        "status": "pass",
+        "subsection_title": "SURPASS-5 (Dahl et al., JAMA 2022)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "oa_full_text",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1001/jama.2023.20294",
+        "entity_id": "surpass_6_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "37786396",
+        "provenance_class": "open_access",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1001/jama.2023.20294"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1001/jama.2023.20294?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "oa_full_text:https://www.ncbi.nlm.nih.gov/pmc/articles/10548360"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surpass_6",
+        "status": "pass",
+        "subsection_title": "SURPASS-6 (Rosenstock et al., JAMA 2023)"
+      },
+      {
+        "available_artifacts": [
+          "doi"
+        ],
+        "doi": "10.1056/NEJMoa2509079",
+        "entity_id": "surpass_cvot_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": "all sources failed: crossref=not_found(404); unpaywall=not_found(404)",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": null,
+        "provenance_class": "frame_gap_unrecoverable",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "primary_endpoint",
+          "timepoint",
+          "hr_with_uncertainty",
+          "noninferiority_p",
+          "superiority_p",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 404,
+            "outcome": "not_found",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1056/NEJMoa2509079"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 404,
+            "outcome": "not_found",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1056/NEJMoa2509079?email=aldrin.or@c-polarbiotech.com"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_cvot",
+        "status": "fail_min_fields",
+        "subsection_title": "SURPASS-CVOT (Nicholls et al., NEJM 2025)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "oa_full_text",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1016/S0140-6736(23)01200-X",
+        "entity_id": "surmount_2_primary",
+        "entity_type": "pivotal_trial",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 5,
+        "pmid": "37385275",
+        "provenance_class": "open_access",
+        "required_fields": [
+          "N",
+          "population",
+          "comparator",
+          "baseline_hba1c",
+          "baseline_weight",
+          "primary_endpoint",
+          "timepoint",
+          "etd_with_uncertainty",
+          "safety_signal",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/S0140-6736(23)01200-X"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/S0140-6736(23)01200-X?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "oa_full_text:https://pure.ulster.ac.uk/ws/files/123196826/Tirzepatide_once_weekly_for_the_treatment_of_obesity_in_people_with_type_2_diabetes.pdf"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=37385275&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Efficacy",
+        "slot_id": "efficacy_surmount_2",
+        "status": "pass",
+        "subsection_title": "SURMOUNT-2 T2D+Obesity (Garvey et al., Lancet 2023)"
+      },
+      {
+        "available_artifacts": [
+          "pubmed_abstract",
+          "crossref_metadata",
+          "doi",
+          "pmid"
+        ],
+        "doi": "10.1016/S2213-8587(22)00085-7",
+        "entity_id": "thomas_clamp_2022",
+        "entity_type": "mechanism_primary",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": "35468322",
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "population",
+          "comparator",
+          "primary_endpoint",
+          "timepoint",
+          "m_value_insulin_sensitivity",
+          "total_insulin_secretion_rate",
+          "glucagon_suppression",
+          "study_design",
+          "participant_n",
+          "sponsor"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/S2213-8587(22)00085-7"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/S2213-8587(22)00085-7?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "pubmed",
+            "url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=35468322&retmode=xml&rettype=abstract"
+          }
+        ],
+        "section": "Mechanism",
+        "slot_id": "mechanism_clamp",
+        "status": "pass",
+        "subsection_title": "Human hyperinsulinemic-euglycemic clamp (Thomas et al., Lancet D&E 2022)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "fda_mounjaro_label",
+        "entity_type": "regulatory",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "indications",
+          "boxed_warning",
+          "contraindications",
+          "warnings_and_precautions",
+          "dosing"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955f-cf7e355c8cc0"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_fda_t2d",
+        "status": "pass",
+        "subsection_title": "US FDA (Mounjaro for T2D)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "fda_zepbound_label",
+        "entity_type": "regulatory",
+        "failure_reason": "phase-1 synth (retrieval-coverage): non-gap row but direct_quote + oa_pdf_url both empty \u2014 degraded retrieval \u2192 curator-actionable",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "metadata_only",
+        "required_fields": [
+          "indications",
+          "bmi_thresholds",
+          "boxed_warning",
+          "contraindications",
+          "dosing"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "error:fetch_returned_no_content",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_fda_obesity",
+        "status": "fail_min_fields",
+        "subsection_title": "US FDA (Zepbound for chronic weight management)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "ema_mounjaro_epar",
+        "entity_type": "regulatory",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "indications",
+          "pediatric_indication",
+          "contraindications",
+          "additional_monitoring",
+          "osa_extension"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_ema",
+        "status": "pass",
+        "subsection_title": "EU EMA (Mounjaro including pediatric >=10 yrs)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "nice_ta924_t2d",
+        "entity_type": "regulatory",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "triple_therapy_criteria",
+          "bmi_threshold",
+          "ethnic_adjusted_thresholds",
+          "occupational_implications",
+          "commercial_arrangement"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.nice.org.uk/guidance/ta924"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_nice_t2d",
+        "status": "pass",
+        "subsection_title": "UK NICE TA924 (tirzepatide for T2D access criteria)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "nice_ta1026_obesity",
+        "entity_type": "regulatory",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "indication",
+          "managed_access_agreement",
+          "specialist_services_requirement"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.nice.org.uk/guidance/ta1026"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_nice_obesity",
+        "status": "pass",
+        "subsection_title": "UK NICE TA1026 (managed access for obesity)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "hc_mounjaro_monograph",
+        "entity_type": "regulatory",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "indications",
+          "serious_warnings_box",
+          "contraindications",
+          "dosing"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type=prod"
+          }
+        ],
+        "section": "Regulatory",
+        "slot_id": "regulatory_hc",
+        "status": "pass",
+        "subsection_title": "Health Canada Product Monograph"
+      }
+    ],
+    "frame_gap_count": 1,
+    "partial_count": 1,
+    "pass_count": 13,
+    "pipeline_fault_count": 0,
+    "research_question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+    "schema_version": "v30.1",
+    "total_entities": 15,
+    "total_slots": 15
+  },
+  "generator": {
+    "limitations_words": 82,
+    "outline_sections": [
+      "Efficacy",
+      "Mechanism",
+      "Regulatory",
+      "Safety",
+      "Comparative",
+      "Population Subgroups"
+    ],
+    "sections_kept": 6,
+    "sentences_dropped": 36,
+    "sentences_verified": 90,
+    "words": 1377
+  },
+  "protocol_sha256": "fc70d24facd8e99289c24e1b8d615eb15f8822ee48810d27862b2df5015af462",
+  "question": "What is the efficacy and safety of tirzepatide for glycemic control and weight loss in adults with type 2 diabetes?",
+  "qwen_verdicts": {
+    "acceptable": 0,
+    "good": 1,
+    "needs_revision": 4,
+    "unknown": 0
+  },
+  "release_allowed": false,
+  "retrieval": {
+    "api_calls": {
+      "fetch": 30,
+      "openalex": 28,
+      "parallel_fetch_errored_count": 0,
+      "parallel_fetch_success_count": 30,
+      "parallel_fetch_timeout_count": 0,
+      "s2": 41,
+      "serper": 41
+    },
+    "failed": 9,
+    "fetched": 21,
+    "pre_filter": 473
+  },
+  "run_id": "SWEEP_clinical_clinical_tirzepatide_t2dm_1777530575",
+  "slug": "clinical_tirzepatide_t2dm",
+  "status": "partial_qwen_advisory",
+  "v30_enabled": true,
+  "v30_warnings": [
+    "phase1_retrieval_coverage_only: Phase-1 V30 manifest.frame_coverage_report reflects retrieval success only, NOT whether the legacy generator cited each entity in the verified report. Phase-2 (M-58 slot-bound generator integration) will populate the same key with true report-coverage semantics. See manifest.frame_coverage_report.entries[*].status = 'pass' only confirms M-56 fetched the entity."
+  ]
+}
