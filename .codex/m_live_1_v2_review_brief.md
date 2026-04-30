@@ -2,7 +2,7 @@
 
 ## Pre-flight
 - Branch: `polaris`
-- Commit: `<FILL_AFTER_COMMIT>`
+- Commit: `f93d9b2` (pushed to origin/polaris)
 - Brief format: `.codex/REVIEW_BRIEF_FORMAT_v2.md` (autoloop V3)
 - Smoke output: `outputs/m_live_1_smoke/run_<timestamp>/smoke_manifest.json`
 
