@@ -31,7 +31,7 @@ POLARIS V19 ships every Phase D substrate wired into the production audit pipeli
 
 ### Phase F — Live audit + BEAT-BOTH (4 milestones LOCKED)
 
-- **M-LIVE-1** — V19 single-query end-to-end smoke (13/13 substrates fired, $0.0067/run, ~13 min wallclock)
+- **M-LIVE-1** — V19 single-query end-to-end smoke (13/13 substrates fired, $0.0050/run, ~13 min wallclock)
 - **M-LIVE-2** — BEAT-BOTH head-to-head driver vs ChatGPT DR + Gemini DR
 - **M-LIVE-3** — Operator dashboard (3 endpoints exposing decision aggregates, freshness aggregates, pin trends)
 - **M-LIVE-4** — M-D9 regression-lab CI gate (GREEN/YELLOW → merge OK; RED → block)
@@ -143,13 +143,21 @@ git pull origin polaris
 python scripts/run_m_prod_1_soc2_dry_run.py
 # Expect: 28/28 intact, exit 0
 
-# 3. Smoke single query end-to-end (REQUIRED FIRST — produces baseline manifest)
+# 3. Smoke single query end-to-end (REQUIRED FIRST — produces "current" manifest)
 python scripts/run_m_live_1_smoke.py
 # Expect: 13/13 substrates fired, all_phase_e_fired=true, ~13 min wallclock
 
-# 4. Run regression gate (uses fresh smoke manifest from step 3)
+# 4. Run regression gate (uses fresh smoke manifest as "current" against
+#    the checked-in fixture at tests/fixtures/m_live_4_baseline/ as baseline)
 python scripts/run_m_live_4_regression_gate.py
-# Expect: verdict=GREEN, exit 0
+# Expect: verdict=YELLOW (or GREEN), exit 0
+#
+# YELLOW is the expected default in v1.0 because the fixture baseline is
+# `partial_qwen_advisory` / release_allowed=false (a SMOKE-time snapshot),
+# while a fresh full smoke produces `status=success` / release_allowed=true.
+# That manifest drift is non-regressive (status improved) → YELLOW per
+# `regression_lab.py:693` (verdict logic). RED would block merge;
+# GREEN/YELLOW pass with exit 0.
 
 # 5. Score against competitors (uses Phase G full-scale baseline by default)
 python scripts/run_m_live_2_beat_both.py
