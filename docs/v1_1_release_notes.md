@@ -7,7 +7,7 @@
 
 ## Headline result: 5 of 7 BEAT-BOTH dimensions
 
-POLARIS v1.1 closes 1 of the 2 BEHIND-BOTH gaps from v1.0 and ships at:
+POLARIS v1.1 closes 1 of the 2 BEHIND-BOTH gaps from v1.0 and ships at 5 BEAT-BOTH + 1 TIE + 1 BEHIND. The remaining TIE on `claim_frames` is gated by `strict_verify` rejecting M-58 slot-fill output for 5 of 8 trial subsections — a retrieval / slot-extraction problem upstream of the scorer.
 
 | Dimension | POLARIS v1.0 | POLARIS v1.1 | ChatGPT DR | Gemini 3.1 Pro DR | Verdict |
 |---|---:|---:|---:|---:|---|
@@ -17,9 +17,9 @@ POLARIS v1.1 closes 1 of the 2 BEHIND-BOTH gaps from v1.0 and ships at:
 | regulatory_coverage | 49 | 47 | 4 | 10 | BEAT-BOTH ✓ |
 | **contradiction_handling_grammar** | 3 | **37** ↑ | 27 | 18 | **BEAT-BOTH ✓ NEW** |
 | narrative_length | 2346 | 4994 | 4830 | 6835 | BEHIND (Gemini only) |
-| claim_frames | 0 | 0 | 0 | 0 | N/A (regex extractor — v1.2) |
+| claim_frames | 0 | 3 | 0 | 0 | TIE (tolerance=5; need ≥6) |
 
-**v1.1 summary**: 5 BEAT-BOTH, 0 BEAT-ONE, 0 TIE, 1 BEHIND, 0 BEHIND-BOTH, 1 N/A.
+**v1.1 summary**: 5 BEAT-BOTH, 0 BEAT-ONE, 1 TIE, 1 BEHIND, 0 BEHIND-BOTH, 0 N/A.
 
 The single remaining BEHIND is on Gemini's narrative_length (6835w vs POLARIS 4994w, 27% gap). POLARIS's strict_verify-gated narrative is bounded by the verifiable evidence pool; Gemini's larger word count includes substantial unverifiable speculation that POLARIS deliberately filters. The BEHIND is a deliberate design tradeoff, not a quality regression.
 
@@ -75,7 +75,7 @@ Pricing tier, supported scope, compliance posture: all unchanged.
 
 ## Known limitations carried forward
 
-- **claim_frames N/A**: extraction of N + baseline + endpoint + CI from prose is regex-based; LLM extraction deferred to v1.2
+- **claim_frames TIE (3 vs 0/0)**: deterministic regex extracts N + baseline + endpoint + CI for SURMOUNT-2, SURPASS-2, SURPASS-5. SURPASS-1/3/4/6/CVOT subsections render `not extractable from available primary content` because M-58 slot-fill output didn't survive `strict_verify` against retrieved primary text. The fix is upstream (better retrieval or smarter slot extraction), not in the scorer. POLARIS still beats ChatGPT/Gemini (both 0) but doesn't clear the tolerance=5 threshold to flip TIE→BEAT-BOTH. Same architectural-tradeoff character as the Gemini narrative_length BEHIND.
 - **Pin trends org-scoping**: pins still don't carry org_id; closes when M-INT-0b v2 lands
 - **CI workflow YAML**: deferred to user-side push (OAuth `workflow` scope)
 - **M-INT-4/5 telemetry-only**: enforcement deferred to v1.2

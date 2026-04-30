@@ -133,23 +133,273 @@ def _load_polaris_manifest() -> dict[str, Any]:
                     })
     manifest["citations"] = citations
 
+    # v1.1 A.3 (2026-04-30): claim_frames extraction from rendered
+    # report.md. Each per-trial subsection has both:
+    #   - Deterministic "Field: value [N]." prose with sample_size,
+    #     baseline_*, etd_with_uncertainty, primary_endpoint
+    #   - Markdown comparison table | trial | N | baseline | comparator | endpoint | effect | [N] |
+    # v1.0 set all fields to None → claim_frames N/A across all 3
+    # manifests. v1.1 parses the table rows AND the per-trial
+    # deterministic prose to populate n / baseline / endpoint / ci.
     bib_path = run_dir / "bibliography.json"
+    bib_entries: list[dict[str, Any]] = []
     if bib_path.exists():
         with bib_path.open(encoding="utf-8") as f:
             bib = json.load(f)
         if isinstance(bib, list):
-            manifest["claims"] = [
-                {
-                    "raw": entry.get("statement", ""),
-                    "n": None,
-                    "baseline": None,
-                    "endpoint": None,
-                    "ci": None,
-                    "tier": entry.get("tier"),
-                    "evidence_id": entry.get("evidence_id"),
-                }
-                for entry in bib if isinstance(entry, dict)
-            ]
+            bib_entries = [b for b in bib if isinstance(b, dict)]
+
+    claims: list[dict[str, Any]] = []
+    if (run_dir / "report.md").exists():
+        try:
+            import re as _re
+            text = (run_dir / "report.md").read_text(encoding="utf-8")
+
+            # v1.1 A.5 (post-advisor fix): hoist `_real_value` so BOTH
+            # the table branch and the per-subsection branch reject
+            # "not stated" / "not extractable" placeholder strings.
+            # Without this filter, M-58 placeholder fields (e.g. table
+            # cells like "HbA1c not stated") get counted as populated
+            # by the M-D9 claim_frames scorer's non-empty check —
+            # inflating the count and violating LAW II (no fake
+            # working). Per-subsection branch had this filter; table
+            # branch did not. This corrects the asymmetry.
+            def _real_value(text: str | None) -> str | None:
+                if not text:
+                    return None
+                s = text.strip().rstrip(".,;").strip()
+                if not s:
+                    return None
+                lower = s.lower()
+                if "not extractable" in lower:
+                    return None
+                if "not stated" in lower:
+                    return None
+                if "not reported" in lower:
+                    return None
+                return s
+
+            # Extract claims from comparison table rows.
+            # Format: | trial | N | baseline | comparator | endpoint | effect_estimate | [N] |
+            for m in _re.finditer(
+                r"^\|\s*([A-Z][A-Za-z0-9 \-]*?)\s*\|\s*(\d{2,5})\s*\|"
+                r"\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
+                r"\s*([^|]+?)\s*\|\s*\[\d+\]\s*\|\s*$",
+                text, flags=_re.MULTILINE,
+            ):
+                trial_name = m.group(1).strip()
+                n_val = int(m.group(2))
+                baseline = _real_value(m.group(3))
+                comparator = _real_value(m.group(4))
+                endpoint = _real_value(m.group(5))
+                effect = _real_value(m.group(6))
+                ci_val: str | None = None
+                if effect:
+                    ci_match = _re.search(
+                        r"(\([^)]*(?:CI|p<|p=|–|-)[^)]*\)|"
+                        r"95%\s*CI[^,;.]*|"
+                        r"p\s*[<=]\s*0?\.\d+)",
+                        effect,
+                    )
+                    if ci_match:
+                        ci_val = ci_match.group(0).strip()
+                    else:
+                        ci_val = effect
+                # All-fields gate: same as per-subsection branch.
+                # A claim_frame requires N + baseline + endpoint + CI
+                # all real (not placeholders). If any field is a
+                # placeholder, the row contributes 0 to claim_frames.
+                if (
+                    n_val is not None
+                    and baseline
+                    and endpoint
+                    and ci_val
+                ):
+                    claims.append({
+                        "raw": (
+                            f"{trial_name} N={n_val} "
+                            f"baseline={baseline} "
+                            f"comparator={comparator} "
+                            f"endpoint={endpoint} "
+                            f"effect={effect}"
+                        ),
+                        "trial": trial_name,
+                        "n": n_val,
+                        "baseline": baseline,
+                        "endpoint": endpoint,
+                        "ci": ci_val,
+                        "comparator": comparator,
+                    })
+
+            # Also extract from the per-subsection deterministic
+            # prose ("### TRIAL-NAME" + "Sample size: 1879 [N]." +
+            # "Baseline hba1c: 8.07% [N]." + "Etd with uncertainty:
+            # ... [N]." + "Primary endpoint: ... [N].").
+            # This catches the 20+ per-trial blocks the comparison
+            # table doesn't cover. Trials already in `claims` from
+            # the table extractor are deduped by trial name.
+            seen_trials = {c["trial"].lower() for c in claims}
+            sub_blocks = _re.split(
+                r"^###\s+", text, flags=_re.MULTILINE,
+            )
+            for block in sub_blocks[1:]:
+                title_line, _, body = block.partition("\n")
+                title = title_line.strip()
+                # Trial-style title heuristics: contains a known
+                # trial-name token like "SURPASS-N", "SURMOUNT-N",
+                # "SELECT", "STEP-N" — clinical-domain shorthand.
+                trial_match = _re.search(
+                    r"\b([A-Z][A-Z0-9-]{2,})\b", title,
+                )
+                if not trial_match:
+                    continue
+                trial_short = trial_match.group(1)
+                if trial_short.lower() in seen_trials:
+                    continue
+                # N: prefer "Sample size: N" labeled value, else
+                # narrative phrase "enrolled N participants" / "N=N"
+                # / "randomized N participants" / "study randomized
+                # a total of N participants".
+                n_val: int | None = None
+                ss_m = _re.search(
+                    r"Sample size:\s*([^\[]+?)\.\[\d+\]",
+                    body, flags=_re.IGNORECASE,
+                )
+                if ss_m:
+                    num_match = _re.search(
+                        r"\b(\d{2,5})\b",
+                        ss_m.group(1),
+                    )
+                    if num_match:
+                        try:
+                            n_val = int(num_match.group(1))
+                        except ValueError:
+                            pass
+                if n_val is None:
+                    # v1.1 A.4: allow up to 5 noun-phrase words between
+                    # verb and digit, but require "participants?" /
+                    # "patients?" after the digit so we don't mistake
+                    # a year or other 2-5 digit number for the cohort.
+                    # Catches: "enrolled a population of 1879 patients"
+                    # (SURPASS-2), "randomly assigned a total of 117
+                    # participants" (Thomas), "enrolled 478 adult
+                    # participants" (SURPASS-1 narrative).
+                    narr_n = _re.search(
+                        r"(?:enrolled|randomized|randomised|"
+                        r"randomly assigned)(?:\s+\w+){0,5}"
+                        r"\s+(\d{2,5})\s+"
+                        r"(?:adult\s+)?(?:participants?|patients?)",
+                        body, flags=_re.IGNORECASE,
+                    )
+                    if narr_n:
+                        try:
+                            n_val = int(narr_n.group(1))
+                        except ValueError:
+                            pass
+
+                # Baseline: anchor on labeled "Baseline X: Y.[N]"
+                # only — not "at baseline" prose elsewhere.
+                baseline_m = _re.search(
+                    r"^Baseline[a-z0-9_ ]*?:\s*([^\[]+?)\.\[\d+\]",
+                    body, flags=_re.IGNORECASE | _re.MULTILINE,
+                )
+                endpoint_m = _re.search(
+                    r"Primary endpoint:\s*([^\[]+?)\.\[\d+\]",
+                    body, flags=_re.IGNORECASE,
+                )
+                # Etd value may itself contain `[` brackets (e.g.
+                # "[97.5% CI, ...]"). Anchor terminator on the
+                # FIRST `.[\d+]` after the label.
+                etd_m = _re.search(
+                    r"Etd with uncertainty:\s*(.+?)\.\[\d+\]",
+                    body, flags=_re.IGNORECASE | _re.DOTALL,
+                )
+                baseline_val = _real_value(
+                    baseline_m.group(1) if baseline_m else None,
+                )
+                endpoint_val = _real_value(
+                    endpoint_m.group(1) if endpoint_m else None,
+                )
+                ci_val = _real_value(
+                    etd_m.group(1) if etd_m else None,
+                )
+
+                # Narrative-style fallbacks from the paragraph body.
+                if not endpoint_val:
+                    narr_ep = _re.search(
+                        r"primary endpoint (?:was|assessed|"
+                        r"objective was) (?:the )?([^\.]{15,200}?)\.\[\d+\]",
+                        body, flags=_re.IGNORECASE,
+                    )
+                    if narr_ep:
+                        endpoint_val = _real_value(narr_ep.group(1))
+                if not baseline_val:
+                    # Multiple narrative shapes:
+                    # 1. "baseline HbA1c 8.31%"
+                    # 2. "HbA1c of 8.31% at baseline"
+                    # 3. "mean baseline HbA1c was 8.0%"
+                    # 4. "BMI 36·1 kg/m2"
+                    candidates = [
+                        r"baseline\s+(?:HbA1c|glycated hemoglobin"
+                        r"|glycated haemoglobin|body weight|BMI)"
+                        r"[^\.\[]+",
+                        r"(?:HbA1c|BMI|body weight)\s+(?:of|=|at)\s*"
+                        r"\d+(?:[.,·]\d+)?%?[^\.\[]{0,40}",
+                        r"(?:mean )?baseline\s+(?:was|of|=)\s*"
+                        r"\d+(?:[.,·]\d+)?[^\.\[]{0,40}",
+                    ]
+                    for pat in candidates:
+                        narr_bl = _re.search(
+                            pat, body, flags=_re.IGNORECASE,
+                        )
+                        if narr_bl:
+                            baseline_val = _real_value(narr_bl.group(0))
+                            if baseline_val:
+                                break
+                if not ci_val:
+                    narr_ci = _re.search(
+                        r"(?:p\s*[<=]\s*0?\.\d+|"
+                        r"\[?9[57](?:\.\d+)?%\s*CI[^\]\.]+|"
+                        r"difference (?:vs|versus) placebo[^\.\[]+|"
+                        r"-?\d+\.\d+%?\s*\([^)]*(?:CI|p\s*[<=])[^)]*\))",
+                        body, flags=_re.IGNORECASE,
+                    )
+                    if narr_ci:
+                        ci_val = _real_value(narr_ci.group(0))
+
+                if (
+                    n_val is not None
+                    and baseline_val
+                    and endpoint_val
+                    and ci_val
+                ):
+                    claims.append({
+                        "raw": title,
+                        "trial": trial_short,
+                        "n": n_val,
+                        "baseline": baseline_val,
+                        "endpoint": endpoint_val,
+                        "ci": ci_val,
+                    })
+                    seen_trials.add(trial_short.lower())
+        except Exception:
+            pass
+
+    if not claims and bib_entries:
+        # Fallback to v1.0 behavior (no frame fields populated).
+        claims = [
+            {
+                "raw": e.get("statement", ""),
+                "n": None,
+                "baseline": None,
+                "endpoint": None,
+                "ci": None,
+                "tier": e.get("tier"),
+                "evidence_id": e.get("evidence_id"),
+            }
+            for e in bib_entries
+        ]
+    manifest["claims"] = claims
 
     # v4 R3 P1 fix: use `_extract_sections()` and `_extract_tables()`
     # DIRECTLY (the same functions competitor manifests pass through),
