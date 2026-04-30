@@ -2885,3 +2885,124 @@ async def get_pin_trends(
     except PinTrendError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _pin_trend_report_to_dict(report)
+
+
+# ════════════════════════════════════════════════════════════════════
+# M-PROD-3 — Production observability (Prometheus-style metrics)
+# ════════════════════════════════════════════════════════════════════
+#
+# Exposes a `/api/inspector/metrics` endpoint with substrate
+# invocation counters + endpoint latency histograms. JSON format
+# in v1; v2 may add a Prometheus text-format variant for direct
+# scrape integration.
+#
+# Counters are in-memory + per-process. Production deployment
+# should use a proper metrics backend (StatsD / Prometheus
+# pushgateway / OTel) but this v1 surface is the minimum
+# operator-visible signal for a dry-run.
+#
+# Rollback: PG_USE_METRICS_ENDPOINT=0 returns 404 (default ON).
+# ════════════════════════════════════════════════════════════════════
+
+
+_METRICS_LOCK = threading.Lock()
+_SUBSTRATE_COUNTERS: dict[str, int] = {}
+_ENDPOINT_COUNTERS: dict[str, int] = {}
+_ENDPOINT_LATENCY_NS: dict[str, list[int]] = {}
+
+
+def increment_substrate_counter(substrate_id: str) -> None:
+    """Increment a per-substrate invocation counter. Called by
+    Phase E substrates (M-INT-0a, M-INT-1, ..., M-INT-11) when
+    they fire in production. Thread-safe."""
+    if not isinstance(substrate_id, str) or not substrate_id.strip():
+        return
+    with _METRICS_LOCK:
+        _SUBSTRATE_COUNTERS[substrate_id] = (
+            _SUBSTRATE_COUNTERS.get(substrate_id, 0) + 1
+        )
+
+
+def record_endpoint_latency(
+    endpoint: str, latency_ns: int,
+) -> None:
+    """Record one endpoint request + its latency. Thread-safe."""
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        return
+    with _METRICS_LOCK:
+        _ENDPOINT_COUNTERS[endpoint] = (
+            _ENDPOINT_COUNTERS.get(endpoint, 0) + 1
+        )
+        _ENDPOINT_LATENCY_NS.setdefault(endpoint, []).append(
+            int(latency_ns),
+        )
+
+
+def _reset_metrics_for_test() -> None:
+    """Test helper. Production code MUST NOT call this."""
+    with _METRICS_LOCK:
+        _SUBSTRATE_COUNTERS.clear()
+        _ENDPOINT_COUNTERS.clear()
+        _ENDPOINT_LATENCY_NS.clear()
+
+
+def _percentile_ns(values: list[int], q: float) -> int:
+    if not values:
+        return 0
+    s = sorted(values)
+    idx = max(0, min(len(s) - 1, int(q * len(s))))
+    return s[idx]
+
+
+def _metrics_endpoint_enabled() -> bool:
+    return os.environ.get("PG_USE_METRICS_ENDPOINT", "1") != "0"
+
+
+async def _require_metrics_endpoint_enabled() -> None:
+    if not _metrics_endpoint_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail="metrics endpoint disabled",
+        )
+
+
+@router.get(
+    "/api/inspector/metrics",
+    dependencies=[Depends(_require_metrics_endpoint_enabled)],
+)
+async def get_metrics(
+    caller: Caller = Depends(require_authenticated_caller),
+) -> dict[str, Any]:
+    """Operator-visible metrics: substrate invocation counts +
+    per-endpoint request count + latency p50/p95/p99.
+
+    Auth required. Any authenticated caller in any role can
+    read; per-org filtering is not applied because metrics are
+    process-global (operator observability, not per-tenant
+    billing). Production deployments using multi-tenant
+    isolation should run separate FastAPI processes per tenant
+    or wrap this endpoint behind an admin-role check.
+    """
+    with _METRICS_LOCK:
+        substrates = dict(_SUBSTRATE_COUNTERS)
+        endpoints = dict(_ENDPOINT_COUNTERS)
+        latencies_snapshot = {
+            k: list(v) for k, v in _ENDPOINT_LATENCY_NS.items()
+        }
+    endpoint_latency: dict[str, dict[str, float]] = {}
+    for ep, ns_list in latencies_snapshot.items():
+        if not ns_list:
+            continue
+        endpoint_latency[ep] = {
+            "p50_ms": _percentile_ns(ns_list, 0.50) / 1_000_000,
+            "p95_ms": _percentile_ns(ns_list, 0.95) / 1_000_000,
+            "p99_ms": _percentile_ns(ns_list, 0.99) / 1_000_000,
+            "max_ms": max(ns_list) / 1_000_000,
+            "count": len(ns_list),
+        }
+    return {
+        "substrate_invocations_total": substrates,
+        "endpoint_requests_total": endpoints,
+        "endpoint_latency": endpoint_latency,
+        "metrics_version": "v1",
+    }
