@@ -44,7 +44,7 @@ from src.polaris_graph.audit_ir.competitor_manifest_extractor import (  # noqa: 
 )
 
 
-POLARIS_SMOKE_ROOT = REPO_ROOT / "outputs" / "m_live_1_smoke"
+POLARIS_SMOKE_ROOT = REPO_ROOT / "outputs" / "phase_g_full_scale"
 
 
 def _find_latest_polaris_manifest_path() -> Path:
