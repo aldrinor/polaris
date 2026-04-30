@@ -46,7 +46,24 @@ The bottleneck is **per-sub-section brevity**, not section count. M-58 slot-fill
 
 **Closure requires option 4** (synthesizer prompt rewrite) — explicit instruction to expand each slot-fill into 200-300 word narrative paragraphs while remaining strict-verify-grounded. **Option 2 invalidated** (we already have 28 effective sub-sections; adding more makes them shorter, not longer).
 
-This is a multi-day synthesizer engineering effort, not a tuning loop. Deferred to v1.1 active development by user.
+### A.1.1 Option 4 attempt #1 (2026-04-30): WRONG TARGET
+
+First attempted option 4 by rewriting `_M50_SUBSECTION_SYSTEM_PROMPT` (LLM-generated per-trial subsections, target 4-6 sentences → 10-15 sentences). Result: narrative_length 2346 → 2097 (-10.6% regression). Reverted.
+
+**Root-cause inspection:** the per-trial sub-sections in the rendered report (60-110w SURPASS-N blocks) come from **`render_slot_prose()` in `slot_fill.py:594`**, NOT from M-50. `render_slot_prose` is **deterministic field-by-field rendering** — "Field1: value [N]. Field2: value [N]." — with NO LLM call. The M-50 path generated 0 entries on this run; it's a dead code path on the current contract-rendering flow.
+
+The actual bottleneck is the SLOT-FILL ARCHITECTURE: M-58 produces structured field extraction (verbatim quotes per field) → `render_slot_prose` deterministically formats them as one sentence per field. To get narrative paragraphs, we need either:
+
+**Option 4a: LLM post-processor on `render_slot_prose` output.**
+Take the deterministic "Field1: value [N]. Field2: value [N]." prose and pass it through an LLM with explicit instruction to rewrite as one narrative paragraph while preserving every [N] citation and every verbatim quoted value. strict_verify still gates the output. Engineering effort: ~1-2 days. Risk: LLM may rewrite in ways that fail verbatim verification.
+
+**Option 4b: Bypass slot-fill entirely for narrative sections.**
+Use the existing M-50 path (which has the LLM prompt now correctly targeting 200-300w) but make it actually fire by promoting the per-trial subsections from contract-rendering to narrative-generation. Engineering effort: ~3-5 days. Risk: harder to keep the M-58 frame-coverage manifest accurate when M-50 prose replaces slot-fill prose.
+
+**Option 4c: Two-tier rendering.**
+Keep `render_slot_prose` for the structured contract section (preserves frame-coverage manifest), AND ALSO emit an LLM-generated narrative paragraph from the same M-58 payload (preserves verbatim citations). Total prose ~2x. Engineering effort: ~3 days.
+
+This is multi-day synthesizer engineering, not an autoloop tuning iteration. Deferred to user-side v1.1 active development. The autoloop already saved the engineering effort by ruling out wrong paths cheaply: $0.024 + ~80 min wallclock validated 4 hypotheses (cap, kept_fraction floor, more sections, M-50 prompt rewrite) all dead-end.
 
 ### A.2 contradiction_handling_grammar — POLARIS=3 vs ChatGPT=27 / Gemini=18
 
