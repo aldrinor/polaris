@@ -27,7 +27,7 @@ The generator drafts ~6000 words, strict_verify drops ~60-70%, leaving 2346.
 
 **v1.1 candidate fixes** (in increasing risk order):
 
-1. **Raise `section_max_tokens` 2400 → 4800.** More draft tokens → more retained tokens at constant kept_fraction. Cheap, low risk; estimated +50-80% word count. **Risk:** higher per-run cost ($0.005 → ~$0.012).
+1. **~~Raise `section_max_tokens` 2400 → 4800.~~** **EMPIRICALLY INVALIDATED 2026-04-30.** Tested via `PG_SECTION_MAX_TOKENS=4800` env override. Result: word count went from 2346 → 2032 (REGRESSION, not improvement). Hypothesis: larger generation budget produces more low-quality tail sentences that fail strict_verify; additional retries actually shrink the final kept prose. The token cap is NOT the bottleneck — it's the draft quality crossing the 0.4 kept_fraction floor.
 
 2. **Add 1-2 more sections to outline.** Current outline has 3 sections; competitors have 8-15 narrative blocks. Compose at outline-time to have 5-6 sections and fold the existing prose-blocks into separate sub-sections. Mostly a synthesizer prompt change. **Risk:** more sections = more strict_verify failures = more retries.
 

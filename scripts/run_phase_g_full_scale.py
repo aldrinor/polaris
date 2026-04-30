@@ -68,11 +68,15 @@ PHASE_G_ENV: dict[str, str] = {
     "PG_M41D_HC_QUOTA":                "2",
     "PG_SWEEP_MAX_REGULATORY_ANCHORS": "12",
     "PG_SWEEP_MAX_PRIMARY_TRIAL_ANCHORS": "15",
-    # v1.1 backlog A.1: synthesizer capacity tuning. v1.0 default
-    # is 2400 tokens/section; raising to 4800 to test narrative_length
-    # closure on full-scale. Strict_verify still gates kept_fraction,
-    # so hallucination risk is bounded.
-    "PG_SECTION_MAX_TOKENS": "4800",
+    # v1.1 backlog A.1 NEGATIVE RESULT (2026-04-30):
+    # PG_SECTION_MAX_TOKENS=4800 was tested and FAILED to close
+    # narrative_length BEHIND-BOTH. Result: 2346w → 2032w
+    # (REGRESSION). Hypothesis: larger draft → more sentences
+    # at strict_verify boundary → more retries → final word
+    # count drops. v1.1 must use options 2/3/4 from backlog
+    # (more sections, lower kept_fraction floor, or evidence-
+    # grounded synthesizer rewrite). Not option 1.
+    # Default: leave at 2400 (v1.0 release config).
 }
 
 
