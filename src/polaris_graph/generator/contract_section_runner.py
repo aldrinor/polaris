@@ -54,6 +54,7 @@ from .slot_fill import (
     SlotFillParseError,
     SlotFillPayload,
     build_slot_fill_prompt,
+    build_slot_narrative_prompt,
     compose_gap_payload,
     parse_slot_fill_response,
     render_slot_prose,
@@ -421,6 +422,56 @@ async def run_contract_section(
             else:
                 prose = render_slot_prose(payload)
             slot_body_prose.append(prose)
+
+            # v1.1 A.1 option 4c (2026-04-30): two-tier rendering.
+            # Append an LLM-generated 200-300w narrative paragraph
+            # FROM THE SAME PAYLOAD. Preserves M-58 frame-coverage
+            # manifest + audit trail (the deterministic prose
+            # above stays intact) AND adds narrative depth to
+            # close BEAT-BOTH on narrative_length +
+            # contradiction_handling_grammar.
+            #
+            # Rollback: PG_USE_NARRATIVE_PARAGRAPH=0 disables.
+            # Default ON. Strict_verify gates the LLM output
+            # independently — if hallucination drift fails verify,
+            # the narrative paragraph drops without affecting the
+            # deterministic prose.
+            #
+            # Skipped for regulatory entities (regulatory_synthesizer
+            # already produces multi-sentence paragraphs) and gap
+            # payloads (no extracted fields to narrate).
+            import os as _os
+            narrative_enabled = (
+                _os.environ.get("PG_USE_NARRATIVE_PARAGRAPH", "1") != "0"
+            )
+            has_extracted = any(
+                f.status == "extracted" for f in payload.fields
+            )
+            if (
+                narrative_enabled
+                and has_extracted
+                and not is_regulatory_entity(contract_entity)
+            ):
+                narr_prompt = build_slot_narrative_prompt(
+                    payload,
+                    subsection_title=slot.subsection_title,
+                    research_question=plan.research_question,
+                )
+                if narr_prompt:
+                    try:
+                        narr_text, narr_in, narr_out = await llm_call(
+                            narr_prompt,
+                        )
+                        total_in_tok += narr_in
+                        total_out_tok += narr_out
+                        if narr_text and narr_text.strip():
+                            slot_body_prose.append(narr_text.strip())
+                    except Exception as exc:
+                        logger.warning(
+                            "[m63] narrative-paragraph LLM call "
+                            "failed for slot %r: %s",
+                            slot.slot_id, exc,
+                        )
 
         if slot_body_prose:
             raw_body_blocks.append(" ".join(slot_body_prose))

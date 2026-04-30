@@ -591,6 +591,69 @@ assert GAP_PROSE_MARKER in _GAP_PHRASE, (
 )
 
 
+def build_slot_narrative_prompt(
+    payload: SlotFillPayload,
+    *,
+    subsection_title: str,
+    research_question: str,
+) -> str:
+    """v1.1 A.1 option 4c (2026-04-30): build the LLM prompt for
+    a narrative paragraph rendered FROM the same SlotFillPayload
+    as `render_slot_prose`.
+
+    Two-tier rendering: deterministic field-by-field prose (the
+    existing audit-trail path) is emitted first by the caller,
+    then this LLM prompt produces a 200-300 word narrative
+    paragraph integrating the SAME extracted values into a
+    DR-grade paragraph. strict_verify still gates the LLM output.
+
+    The LLM is given verbatim quoted values + their source spans;
+    its job is to weave those values into narrative prose without
+    inventing new facts. Citation marker (the bound ev_id) is
+    pre-determined; LLM injects [#ev:bound_ev_id] tokens after
+    each value.
+
+    Why a separate path from M-50: this re-uses the M-58 payload
+    that the contract section runner already has in hand, so we
+    don't duplicate the slot-fill LLM call.
+    """
+    bound = payload.bound_ev_id
+    field_lines: list[str] = []
+    for field in payload.fields:
+        if field.status == "extracted":
+            field_lines.append(
+                f"- {field.field_name}: \"{field.value}\""
+            )
+    if not field_lines:
+        return ""
+    fields_block = "\n".join(field_lines)
+    return f"""You are writing one PER-ENTITY NARRATIVE PARAGRAPH for a top-tier Deep Research clinical report (the depth of GPT-5.4 DR / Gemini 3.1 Pro DR — those competitors produce 200-400 word per-entity narrative blocks, not 60-110 word fact-bullets).
+
+Subsection: {subsection_title}
+Research question: {research_question}
+
+VERBATIM-EXTRACTED FIELDS FROM PRIMARY SOURCE (use ONLY these values, do not invent):
+{fields_block}
+
+Source citation token (use verbatim with no modification): [#ev:{bound}]
+
+TASK: Weave the extracted fields above into a 10-15 sentence narrative paragraph (200-300 words). Each factual sentence must end with the citation token [#ev:{bound}] before the period.
+
+NARRATIVE STYLE (matching top-tier DR competitors):
+- ONE flowing paragraph, NOT bullet points or "Field: value" listings
+- Integrate fields contextually: lead with study/entity introduction, then design + population, then dose/comparator, then primary endpoint + result, then secondary findings, then safety/limitation context
+- Use connective synthesis: "In this trial...", "By comparison...", "However...", "In contrast...", "The treatment difference was...", "Secondary outcomes included...", "Adverse events were dose-related..."
+- USE CONTRAST MARKERS when supported by the extracted values: "however", "in contrast", "whereas", "by comparison", "although", "despite". Top-tier DR uses 1 contrast marker per ~200 words.
+- Integrate clinical interpretation in the comparator-class context (e.g., "consistent with the broader GLP-1 / GIP dual-agonist mechanism literature") ONLY when the extracted fields support that framing — do NOT invent context.
+
+VERBATIM CONSTRAINT (CRITICAL — strict_verify will reject hallucinations):
+- Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly)
+- Do not introduce numbers, study names, or claims that aren't in the extracted fields
+- If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source"
+
+OUTPUT: plain prose, ONE paragraph (10-15 sentences). No heading, no bullet list, no preamble. Just the paragraph body. Every factual sentence ends with [#ev:{bound}] before its period."""
+
+
 def render_slot_prose(payload: SlotFillPayload) -> str:
     """Render the SlotFillPayload into deterministic BODY-ONLY
     prose with `[bound_ev_id]` citations INSIDE each sentence
