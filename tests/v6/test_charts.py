@@ -101,3 +101,91 @@ def test_all_charts_carry_evidence_ids():
         assert "polaris_provenance" in spec
         assert "evidence_ids" in spec["polaris_provenance"]
         assert len(spec["polaris_provenance"]["evidence_ids"]) >= 1
+
+
+# Coverage gap fixes — exercise the from_bundle.py fallback paths that
+# only fire on edge-case bundles (no frame_coverage, no verified_sentences,
+# unknown chart_type). Closes the 3 uncovered lines (81, 116, 149).
+
+
+def _make_bundle(**overrides):
+    """Build a minimal valid EvidenceContract for from_bundle tests."""
+    from polaris_v6.schemas.evidence_contract import (
+        EvidenceContract,
+        SourceSpan,
+        VerifiedSentence,
+    )
+
+    base = dict(
+        contract_version="1.0",
+        run_id="test_bundle",
+        template="clinical",
+        question="q?",
+        queued_at="2026-05-01T10:00:00Z",
+        finished_at="2026-05-01T10:01:00Z",
+        pipeline_status="success",
+        evidence_pool=[
+            SourceSpan(
+                evidence_id="ev_x",
+                source_url="https://example.gov",
+                source_tier="T1",
+                span_start=0,
+                span_end=100,
+                span_text="x",
+            )
+        ],
+        verified_sentences=[
+            VerifiedSentence(
+                section_id="summary",
+                sentence_text="x [#ev:ev_x:0-100].",
+                provenance_tokens=["[#ev:ev_x:0-100]"],
+                verifier_local_pass=True,
+                verifier_global_pass=True,
+                drop_reason=None,
+            )
+        ],
+        frame_coverage=[],
+        contradictions=[],
+        cost_usd=0.1,
+        generator_model="deepseek-v4-flash",
+        verifier_model="gemma-4-31b-it",
+        family_segregation_passed=True,
+    )
+    base.update(overrides)
+    return EvidenceContract.model_validate(base)
+
+
+def test_from_bundle_comparison_table_falls_back_to_evidence_pool():
+    """Cover from_bundle.py:81 — comparison_table with no frame_coverage
+    falls back to per-source-tier rows from the evidence_pool."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle(frame_coverage=[])
+    spec = chart_from_bundle(bundle=bundle, chart_type="comparison_table")
+    assert spec["polaris_provenance"]["chart_type"] == "comparison_table"
+    # Should use the evidence_pool fallback (entity = "tier T1" etc).
+    assert any("tier" in str(d) for d in spec["data"]["values"])
+
+
+def test_from_bundle_timeline_falls_back_when_no_verified_sentences():
+    """Cover from_bundle.py:116 — timeline placeholder when bundle has
+    no verified_sentences."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle(verified_sentences=[])
+    spec = chart_from_bundle(bundle=bundle, chart_type="timeline")
+    assert spec["polaris_provenance"]["chart_type"] == "timeline"
+    # Placeholder series.
+    assert any(
+        "no sentences" in str(d.get("series", "")).lower()
+        for d in spec["data"]["values"]
+    )
+
+
+def test_from_bundle_unknown_chart_type_raises():
+    """Cover from_bundle.py:149 — ValueError on unknown chart_type."""
+    from polaris_v6.charts.from_bundle import chart_from_bundle
+
+    bundle = _make_bundle()
+    with pytest.raises(ValueError, match=r"unknown chart_type"):
+        chart_from_bundle(bundle=bundle, chart_type="bogus")  # type: ignore[arg-type]
