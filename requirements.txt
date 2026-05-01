@@ -132,6 +132,18 @@ python-multipart>=0.0.6  # Required by FastAPI for form parsing
 slowapi>=0.1.8  # Rate limiting middleware
 
 # ===================
+# POLARIS v6 — Dramatiq queue + OpenTelemetry GenAI semconv
+# ===================
+# Tracked deps for v6 backend modernization (Phase 0 Task 0.5 + Task 0.10).
+# Per cycle-3 audit P1.2 (outputs/audits/continuous/bb60495_audit.md): the
+# new test_*_middleware tests use pytest.importorskip against these — without
+# pinning here CI silently SKIPS them (LAW II / CLAUDE.md §9.4 violation).
+dramatiq>=2.1.0  # actors, brokers, middleware base class
+opentelemetry-api>=1.36.0  # tracer + propagate APIs
+opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
+opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
+
+# ===================
 # Document Export
 # ===================
 weasyprint>=60.0  # Server-side PDF generation (requires system libs: pango, cairo)
