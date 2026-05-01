@@ -228,6 +228,33 @@ export async function getBundle(runId: string): Promise<EvidenceContract> {
   return asJsonOrThrow<EvidenceContract>(response);
 }
 
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await fetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
 export function downloadBundleAsJson(bundle: EvidenceContract): void {
   const blob = new Blob([JSON.stringify(bundle, null, 2)], {
     type: "application/json",

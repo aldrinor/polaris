@@ -15,8 +15,11 @@ import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
 import {
   downloadBundleAsJson,
   getBundle,
+  getChart,
+  type ChartType,
   type EvidenceContract,
   type SourceSpan,
+  type VegaLiteSpec,
 } from "@/lib/api";
 
 interface InspectorPageProps {
@@ -31,7 +34,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
     null,
   );
   const [activeTab, setActiveTab] = useState<
-    "sentences" | "frames" | "contradictions" | "pool"
+    "sentences" | "frames" | "contradictions" | "pool" | "charts"
   >("sentences");
 
   useEffect(() => {
@@ -73,6 +76,11 @@ export default function InspectorPage({ params }: InspectorPageProps) {
           id: "pool",
           label: "Evidence pool",
           count: bundle.evidence_pool.length,
+        },
+        {
+          id: "charts",
+          label: "Charts",
+          count: 3,
         },
       ]
     : [];
@@ -211,6 +219,12 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 {activeTab === "pool" && (
                   <PoolTab
                     bundle={bundle}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
+                {activeTab === "charts" && (
+                  <ChartsTab
+                    runId={runId}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
                   />
                 )}
@@ -421,6 +435,105 @@ function ContradictionsTab({
         </li>
       ))}
     </ul>
+  );
+}
+
+function ChartsTab({
+  runId,
+  onSelect,
+}: {
+  runId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [chartType, setChartType] = useState<ChartType>("forest_plot");
+  const [spec, setSpec] = useState<VegaLiteSpec | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getChart(runId, chartType)
+      .then((s) => {
+        if (!cancelled) {
+          setSpec(s);
+          setChartError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSpec(null);
+          setChartError(
+            err instanceof Error ? err.message : "Chart load failed",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, chartType]);
+
+  const types: ChartType[] = ["forest_plot", "comparison_table", "timeline"];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
+        {types.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setChartType(t)}
+            className={`rounded-md border px-3 py-1.5 text-xs transition ${
+              chartType === t
+                ? "border-foreground bg-foreground text-background"
+                : "border-border hover:border-foreground"
+            }`}
+          >
+            {t.replace("_", " ")}
+          </button>
+        ))}
+      </div>
+      {chartError && (
+        <p
+          role="alert"
+          className="text-destructive border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm"
+        >
+          {chartError}
+        </p>
+      )}
+      {spec && (
+        <Card>
+          <CardHeader>
+            <CardDescription className="text-xs tracking-widest uppercase">
+              {spec.polaris_provenance.chart_type} ·{" "}
+              {spec.polaris_provenance.evidence_ids.length} evidence ids
+            </CardDescription>
+            <CardTitle className="text-base">
+              {(spec.title as string) ?? "Chart"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground mb-2 text-xs">
+              Vega-Lite v5 spec returned by the backend. Phase 2B wires
+              vega-embed client-side. Click any evidence id to inspect.
+            </p>
+            <div className="mb-3 flex flex-wrap gap-1">
+              {spec.polaris_provenance.evidence_ids.slice(0, 12).map((eid) => (
+                <button
+                  key={eid}
+                  type="button"
+                  onClick={() => onSelect(eid)}
+                  className="bg-muted hover:bg-foreground hover:text-background rounded px-1.5 py-0.5 font-mono text-[11px]"
+                >
+                  {eid}
+                </button>
+              ))}
+            </div>
+            <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+              {JSON.stringify(spec, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
