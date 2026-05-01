@@ -12,6 +12,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  downloadBundleAsJson,
+  getBundle,
   getRun,
   subscribeToRun,
   type RunStatusResponse,
@@ -69,13 +71,32 @@ export default function RunDetailPage({ params }: RunPageProps) {
               Sovereign Deep Research
             </span>
           </Link>
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<Link href="/dashboard" />}
-          >
-            New run
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const bundle = await getBundle(runId);
+                  downloadBundleAsJson(bundle);
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? `Bundle export failed: ${err.message}`
+                      : "Bundle export failed",
+                  );
+                }
+              }}
+            >
+              Export bundle
+            </Button>
+            <Button
+              variant="default"
+              nativeButton={false}
+              render={<Link href="/dashboard" />}
+            >
+              New run
+            </Button>
+          </div>
         </div>
       </header>
 
