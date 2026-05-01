@@ -1,0 +1,26 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_abort_003",
+  "template": "trade",
+  "question": "Quantify Canada's NAFTA tariff exposure to widget Z by 2027.",
+  "queued_at": "2026-05-01T12:00:00Z",
+  "finished_at": "2026-05-01T12:01:30Z",
+  "pipeline_status": "abort_no_verified_sections",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_trade_001",
+      "source_url": "https://www.international.gc.ca/trade-commerce/index.aspx",
+      "source_tier": "T2",
+      "span_start": 100,
+      "span_end": 200,
+      "span_text": "Trade Canada general overview of bilateral trade agreements."
+    }
+  ],
+  "verified_sentences": [],
+  "frame_coverage": [],
+  "contradictions": [],
+  "cost_usd": 0.05,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}

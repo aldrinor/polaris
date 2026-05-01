@@ -1,0 +1,60 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_housing_002",
+  "template": "housing",
+  "question": "What did Q3 2025 housing starts data show?",
+  "queued_at": "2026-05-01T11:00:00Z",
+  "finished_at": "2026-05-01T11:09:12Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_house_001",
+      "source_url": "https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research",
+      "source_tier": "T1",
+      "span_start": 500,
+      "span_end": 700,
+      "span_text": "CMHC reports national housing starts rose 3.4% in Q3 2025 compared to Q2 2025."
+    },
+    {
+      "evidence_id": "ev_house_002",
+      "source_url": "https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410014301",
+      "source_tier": "T1",
+      "span_start": 200,
+      "span_end": 380,
+      "span_text": "StatCan series 34-10-0143-01 records a 0.2% decline in seasonally-adjusted housing starts in Q3 2025."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "CMHC and StatCan disagree on Q3 2025 housing starts: CMHC reports a 3.4% rise [#ev:ev_house_001:500-700] while StatCan reports a 0.2% decline [#ev:ev_house_002:200-380].",
+      "provenance_tokens": ["[#ev:ev_house_001:500-700]", "[#ev:ev_house_002:200-380]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "supply",
+      "frame_name": "Supply-side dynamics",
+      "sources_assigned": 2,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [
+    {
+      "contradiction_id": "c_house_001",
+      "section_id": "summary",
+      "claim_a": "Housing starts rose 3.4% in Q3 2025.",
+      "claim_b": "Housing starts fell 0.2% in Q3 2025.",
+      "evidence_a": ["ev_house_001"],
+      "evidence_b": ["ev_house_002"],
+      "resolution": "noted_both"
+    }
+  ],
+  "cost_usd": 0.31,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}
