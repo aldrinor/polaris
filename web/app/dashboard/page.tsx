@@ -7,12 +7,18 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createRun, type TemplateId } from "@/lib/api";
+import {
+  checkScope,
+  createRun,
+  type ScopeDecision,
+  type TemplateId,
+} from "@/lib/api";
 
 const templates: { id: TemplateId; title: string; domain: string }[] = [
   {
@@ -39,11 +45,33 @@ export default function DashboardPage() {
   const [question, setQuestion] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scopeDecision, setScopeDecision] = useState<ScopeDecision | null>(
+    null,
+  );
+  const [scopeChecking, setScopeChecking] = useState(false);
+
+  const runScopeCheck = async () => {
+    if (question.trim().length < 1) return;
+    setScopeChecking(true);
+    setError(null);
+    try {
+      const decision = await checkScope(template, question.trim());
+      setScopeDecision(decision);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scope check failed");
+    } finally {
+      setScopeChecking(false);
+    }
+  };
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (question.trim().length < 4) {
       setError("Question must be at least 4 characters.");
+      return;
+    }
+    if (scopeDecision?.verdict === "rejected") {
+      setError("Scope gate rejected this question. Reframe before submitting.");
       return;
     }
     setSubmitting(true);
@@ -131,6 +159,41 @@ export default function DashboardPage() {
             />
           </div>
 
+          {scopeDecision && (
+            <Card
+              className={
+                scopeDecision.verdict === "rejected"
+                  ? "border-destructive/50 bg-destructive/5"
+                  : scopeDecision.verdict === "needs_clarification"
+                    ? "border-yellow-500/40 bg-yellow-50/40"
+                    : "border-emerald-500/40 bg-emerald-50/40"
+              }
+            >
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Scope discovery
+                </CardDescription>
+                <CardTitle className="text-base capitalize">
+                  {scopeDecision.verdict.replace("_", " ")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{scopeDecision.rationale}</p>
+                {scopeDecision.refusals.length > 0 && (
+                  <p className="text-destructive mt-2 text-xs">
+                    Refused: {scopeDecision.refusals.join(", ")}
+                  </p>
+                )}
+                {scopeDecision.intended_source_tiers.length > 0 && (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Source tiers:{" "}
+                    {scopeDecision.intended_source_tiers.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {error && (
             <p
               role="alert"
@@ -148,7 +211,18 @@ export default function DashboardPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={runScopeCheck}
+              disabled={scopeChecking || question.trim().length < 1}
+            >
+              {scopeChecking ? "Checking…" : "Check scope"}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || scopeDecision?.verdict === "rejected"}
+            >
               {submitting ? "Queuing…" : "Start run"}
             </Button>
           </div>
