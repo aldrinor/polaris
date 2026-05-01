@@ -65,7 +65,7 @@ All 10 tasks must GREEN before Phase 1 starts.
 
 - [x] **2C.1** Cross-feature integration testing — `web/tests/e2e/inspector.spec.ts` 9/9 Playwright tests passing live against backend + frontend (Inspector / Charts / Dashboard scope flows)
 - [ ] **2C.2** Visual regression baseline established
-- [ ] **2C.3** Cross-browser (Chromium/Firefox/WebKit) verification
+- [x] **2C.3** Cross-browser (Chromium/Firefox/WebKit) verification — 27/27 tests pass on all 3 engines (38s wall-clock); Vega-Lite SVG, scope discovery, all Inspector tabs work uniformly
 - [ ] **2C.4** Performance optimization (long-report hover-latency <100ms target)
 - [ ] **2C.5** Accessibility audit (WCAG-AA pass)
 - [ ] **2C.6** End-of-Phase 2C walkthrough on full feature set
