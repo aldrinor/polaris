@@ -1,0 +1,198 @@
+# Task Acceptance Matrix — POLARIS Carney Delivery Plan v5.2
+# Created: 2026-05-01. Owner: Claude (planning) + Codex (review).
+# This file defines GREEN criteria for every task in the build.
+# It is referenced by .codex/codex_red_team_checklist.md item U2.
+# Mid-build modifications require explicit user approval.
+
+version: "1.0"
+plan_ref: "docs/carney_delivery_plan_v5_1_redline.md"
+
+# ============================================================
+# PHASE 0 — Foundation (5-8 business days, May 1-12)
+# ============================================================
+
+phase_0:
+
+  task_0_1:
+    title: "Blocker decisions written + evaluator contracting started"
+    owner: "user (decisions) + claude (documentation)"
+    estimate_hours: 8
+    green_criteria:
+      - "docs/blockers.md committed with decisions on all 10 blockers"
+      - "Layer 3 evaluator(s) sourced (1 minimum, 3 ideal)"
+      - "At least 1 evaluator retainer signed (proof: contract scan in .private/)"
+      - "Buyer segment confirmed in writing"
+      - "Pilot deadline confirmed in writing"
+    required_artifacts:
+      - "docs/blockers.md"
+      - ".private/evaluator_retainer_*.pdf"
+    blocking_consequence: "Phase 1 cannot start"
+    codex_review_brief: ".codex/task_0_1_review_brief.md"
+    walkthrough_required: false
+    notes: "Evaluator sourcing may take 2-4 weeks. Phase 0 can proceed in parallel; Phase 1 cannot start until evaluator signed."
+
+  task_0_2:
+    title: "Architecture pattern adoption doc + MiroThinker license scan"
+    owner: "claude"
+    estimate_hours: 12
+    green_criteria:
+      - "docs/agent_architecture.md committed with Local + Global Verifier pattern documented"
+      - "MiroThinker public repo Apache 2.0 license confirmed; no fork plan"
+      - "Native POLARIS verifier implementation plan written"
+      - "Attribution statement to MiroThinker pattern documented"
+    required_artifacts:
+      - "docs/agent_architecture.md"
+      - "docs/observability/genai_semconv_pinned.md (initial draft)"
+    blocking_consequence: "Phase 1 ambiguity-detector and verifier work cannot start"
+
+  task_0_3:
+    title: "Vast.ai US 4× H100 dev cluster operational"
+    owner: "claude"
+    estimate_hours: 8
+    green_criteria:
+      - "SGLang serving DeepSeek V4 Flash on 4× H100 confirmed"
+      - "OpenAI-compatible endpoint reachable"
+      - "POLARIS smoke test (existing tirzepatide query) succeeds against new endpoint"
+      - "Per-second billing verified working"
+    required_artifacts:
+      - "scripts/dev_cluster_setup.sh"
+      - "tests/smoke/dev_cluster_smoke.py output (committed)"
+    blocking_consequence: "Tasks 0.7, 0.8, 0.10 cannot start"
+
+  task_0_4:
+    title: "Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4)"
+    owner: "claude (with frontend-developer agent)"
+    estimate_hours: 16
+    green_criteria:
+      - "web/ directory created and `npm run build` succeeds"
+      - "TypeScript 5 + strict mode enabled"
+      - "shadcn/ui CLI initialized with MIT license confirmed"
+      - "Tailwind v4 working (theme tokens visible)"
+      - "Sign-in shell renders"
+      - "Lint + format CI configured"
+    required_artifacts:
+      - "web/package.json"
+      - "web/tsconfig.json"
+      - "web/.eslintrc.json"
+      - "screenshots: empty dashboard + sign-in screen"
+    blocking_consequence: "All frontend work in Phase 1+ blocked"
+
+  task_0_5:
+    title: "Backend modernization + Dramatiq queue acceptance test"
+    owner: "claude"
+    estimate_hours: 20
+    green_criteria:
+      - "FastAPI 0.136.x + Pydantic v2 + Python 3.12+ on existing POLARIS backend"
+      - "Dramatiq + Redis worker pool running"
+      - "Queue acceptance test passes:"
+      - "  - Cancel in-flight LLM job within 5s; partial state persisted"
+      - "  - Retry failed retrieval; trace_id preserved"
+      - "  - Survive worker SIGKILL; resume on new worker"
+      - "  - Job status visible to orchestrator"
+      - "  - Trace ID propagates to OpenTelemetry"
+      - "If Dramatiq fails: Celery + Redis substituted and tested"
+    required_artifacts:
+      - "src/queue/dramatiq_workers.py (or celery_workers.py)"
+      - "tests/queue/test_acceptance.py"
+      - "manifest with test pass output"
+    blocking_consequence: "Phase 1 job queue + SSE work blocked"
+
+  task_0_6:
+    title: "DeepSeek V4 Pro hardware decision (Path A/B/C committed)"
+    owner: "user (commits) + claude (analysis)"
+    estimate_hours: 16
+    green_criteria:
+      - "docs/hardware_decision.md committed with Path A/B/C selected"
+      - "If Path A (16× H200 FP8): hardware quote on file + bakeoff baseline data"
+      - "If Path B (8× H200 reduced-context): bakeoff data confirms 512K context viable"
+      - "If Path C (V4 Flash only): rationale documented + capability gap acknowledged"
+      - "Decision artifact signed by user (commit hash)"
+    required_artifacts:
+      - "docs/hardware_decision.md"
+      - ".private/hardware_quote_*.pdf (if A or B)"
+      - "tests/hardware/bakeoff_results.json"
+    blocking_consequence: "Phase 4 sovereign hardware procurement cannot start"
+    notes: "Default before commit is Path C (Flash-only); Paths A/B require extra justification."
+
+  task_0_7:
+    title: "SGLang vs vLLM bakeoff (one engine frozen)"
+    owner: "claude"
+    estimate_hours: 12
+    green_criteria:
+      - "Bakeoff run on dev cluster (Task 0.3) with: identical hardware, identical model (V4 Flash), 5 representative POLARIS prompts × 50 iterations"
+      - "Measured: throughput tok/s, latency P50/P95/P99, prefix-cache hit rate, KV cache pressure, error rate"
+      - "docs/engine_decision.md committed with chosen engine + rationale + measured deltas"
+      - "Decision signed by user; engine choice frozen for entire build"
+    required_artifacts:
+      - "tests/bakeoff/sglang_results.json"
+      - "tests/bakeoff/vllm_results.json"
+      - "docs/engine_decision.md"
+    blocking_consequence: "Phase 1 LLM serving cannot start"
+    dependencies: ["task_0_3"]
+
+  task_0_8:
+    title: "Gemma 4 31B verification (or fallback)"
+    owner: "claude"
+    estimate_hours: 6
+    green_criteria:
+      - "Official Google model card link confirmed in docs/evaluator_decision.md"
+      - "Apache 2.0 license text on file"
+      - "Benchmark table from Google confirming GPQA Diamond / AIME 2026 scores"
+      - "vLLM/SGLang serving recipe verified"
+      - "If Gemma 4 31B fails verification: Llama 4 Scout (109B MoE) is named fallback with same proof level"
+    required_artifacts:
+      - "docs/evaluator_decision.md"
+      - "config: model registration in family_segregation.py"
+    blocking_consequence: "Phase 1 evaluator verification work blocked"
+
+  task_0_9:
+    title: "OVH Canada BHS H200 verification (HARD GATE)"
+    owner: "user (procurement) + claude (verification)"
+    estimate_hours: 16
+    green_criteria:
+      - "OVH Canada API confirmation: H200 SKU available in BHS region (or written denial)"
+      - "If available: written quote/reservation with quota, topology, hourly price, start date, data residency, jurisdiction note, security posture"
+      - "If unavailable: backup path (1-5 from plan) selected and procurement initiated"
+      - "Decision committed in docs/sovereign_hardware_decision.md"
+    required_artifacts:
+      - "docs/sovereign_hardware_decision.md"
+      - ".private/ovh_quote_*.pdf OR .private/backup_proc_*.pdf"
+    blocking_consequence: "Phase 4 cannot start"
+    notes: "OVH H200 page says 'Coming soon' as of May 2026. Must produce real reservation, not sales conversation."
+
+  task_0_10:
+    title: "OpenTelemetry wired (gen_ai semconv pinned)"
+    owner: "claude"
+    estimate_hours: 8
+    green_criteria:
+      - "FastAPI auto-instrumentation working"
+      - "OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev set"
+      - "semconv 1.30.0-dev pinned in pyproject.toml"
+      - "docs/observability/genai_semconv_pinned.md describes pinned version + dependent attributes"
+      - "Sample LLM call produces a trace with proper gen_ai.* attributes"
+    required_artifacts:
+      - "config: pyproject.toml dependency pin"
+      - "docs/observability/genai_semconv_pinned.md"
+      - "trace_id from sample call (committed in test fixture)"
+    blocking_consequence: "Phase 1 observability work blocked"
+    dependencies: ["task_0_5"]
+
+# ============================================================
+# PHASE 1 — BPEI spine (3 weeks)
+# ============================================================
+# (Detailed acceptance for each task added at start of Phase 1)
+
+phase_1:
+  status: "PENDING — entries will be filled at end of Phase 0"
+  expected_tasks: 7
+  expected_duration_weeks: 3
+
+# Phases 2-5 similar — detailed acceptance added at start of each phase.
+
+phase_2: { status: "PENDING", expected_tasks: 14, expected_duration_weeks: 5 }
+phase_3: { status: "PENDING", expected_tasks: 6, expected_duration_weeks: 3 }
+phase_4: { status: "PENDING", expected_tasks: 5, expected_duration_weeks: 2 }
+phase_4_5: { status: "PENDING", expected_tasks: "buffer-as-needed", expected_duration_weeks: 1 }
+phase_5: { status: "PENDING", expected_tasks: 4, expected_duration_weeks: 1 }
+
+# Total: 14 weeks (May 1 → Aug 8, 2026)
