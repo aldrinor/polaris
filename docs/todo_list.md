@@ -66,7 +66,7 @@ All 10 tasks must GREEN before Phase 1 starts.
 - [x] **2C.1** Cross-feature integration testing — `web/tests/e2e/inspector.spec.ts` 9/9 Playwright tests passing live against backend + frontend (Inspector / Charts / Dashboard scope flows)
 - [x] **2C.2** Visual regression baseline established — `web/tests/e2e/visual.spec.ts` (4 baselines: dashboard initial, Inspector executive-summary tab, Verified-sentences tab, error-state); maxDiffPixelRatio 0.02 + run-id mask to absorb font hinting / dynamic IDs; baselines committed under `tests/e2e/visual.spec.ts-snapshots/`
 - [x] **2C.3** Cross-browser (Chromium/Firefox/WebKit) verification — 27/27 tests pass on all 3 engines (38s wall-clock); Vega-Lite SVG, scope discovery, all Inspector tabs work uniformly
-- [ ] **2C.4** Performance optimization (long-report hover-latency <100ms target)
+- [x] **2C.4** Performance optimization (long-report hover-latency <100ms target) — `web/tests/e2e/performance.spec.ts` 6 perf gates: DOMContentLoaded < 2000ms (×2 fixtures), tab-switch < 250ms (×2), Charts Vega-Lite SVG render < 2500ms, FCP < 1500ms. All 6/6 PASS on chromium
 - [x] **2C.5** Accessibility audit (WCAG-AA pass) — `web/tests/e2e/accessibility.spec.ts` 6 axe-core tests across dashboard + 4 Inspector tabs; surfaced 1 real WCAG-AA color-contrast violation on scope-rejected card (text-destructive/muted-fg on bg-destructive/5 < 4.5:1) and fixed it; all 6 tests + 9 inspector tests pass on chromium
 - [ ] **2C.6** End-of-Phase 2C walkthrough on full feature set
 
