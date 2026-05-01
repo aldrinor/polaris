@@ -29,6 +29,9 @@ _GOLDEN_RUN_INDEX = {
     "golden_clinical_001": "golden_run_clinical.json",
     "golden_housing_002": "golden_run_with_contradiction.json",
     "golden_abort_003": "golden_run_abort_no_verified.json",
+    "golden_defense_004": "golden_run_defense.json",
+    "golden_climate_005": "golden_run_climate.json",
+    "golden_ai_006": "golden_run_ai_sovereignty.json",
 }
 
 

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from polaris_v6 import __version__
 from polaris_v6.api.ambiguity import router as ambiguity_router
 from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
 from polaris_v6.api.health import router as health_router
 from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.scope import router as scope_router
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(bundle_router)
     app.include_router(scope_router)
     app.include_router(upload_router)
+    app.include_router(charts_router)
     return app
 
 
