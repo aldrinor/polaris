@@ -23,6 +23,7 @@ from polaris_v6.api.memory import router as memory_router
 from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.scope import router as scope_router
 from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
 from polaris_v6.api.upload import router as upload_router
 
 
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(followup_router)
     app.include_router(compare_router)
     app.include_router(memory_router)
+    app.include_router(templates_router)
     return app
 
 
