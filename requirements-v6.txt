@@ -27,6 +27,10 @@ opentelemetry-exporter-otlp==1.41.1
 opentelemetry-instrumentation-fastapi==0.62b1
 opentelemetry-instrumentation-httpx==0.62b1
 
+# Transitive pin: protobuf is pulled by opentelemetry-exporter-otlp; CVE-2026-0994
+# (GHSA-7gcm-g887-7qv7) affects 6.30.0rc1..6.33.4. Pin to patched range.
+protobuf==6.33.6
+
 # --- Test ---
 pytest==8.4.1
 pytest-asyncio==1.3.0

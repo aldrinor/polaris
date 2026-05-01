@@ -101,7 +101,11 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
+  /* Dark-mode destructive bg is LIGHTER than light-mode (oklch L=0.704 vs 0.577).
+     White text on the lighter red gives only 2.77:1 contrast (cycle-6 audit P2.2,
+     fails WCAG-AA 4.5:1). Use near-black text instead — dark-on-light-warning is
+     the conventional inverse pattern. */
+  --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

@@ -63,6 +63,22 @@ Verdict: APPROVE | APPROVE_WITH_FIXES | REJECT
 Lock check: if your findings are all P2+ AND the previous cycle was also all-P2+, recommend LOCK.
 ```
 
+## Audit-trail integrity model (cycle-6 P3.1)
+
+Audit files at `outputs/audits/continuous/<sha>_audit.md` and `_cross_review.md` are PART of the audit trail. Editing them post-commit is sometimes necessary (typo fixes, follow-up cross-review notes) but must be traceable.
+
+**Rules:**
+1. **Every post-commit edit to an audit file** must land via a commit whose message carries an explicit `F-N` fix-ID line and an `audit-trail-edit:` line identifying the file + reason. Example:
+   ```
+   F-15: commit working-tree edit on bb60495_audit.md (P1=2→P1=1)
+   audit-trail-edit: outputs/audits/continuous/bb60495_audit.md
+   ```
+2. **Backfill briefs** at `.codex/continuous/<sha>_*.md` for previously-shipped commits MUST begin with `**BACKFILL**` in the title and explicitly state what the original brief MISSED.
+3. **Future cycles probe the discipline**: any commit after cycle-6 that touches `outputs/audits/continuous/*.md` without an `F-N` line in the commit message is a P1 audit-trail-integrity finding for the next cycle to flag.
+4. **Git history is authoritative** — the audit file's content at HEAD is truth; older versions visible via `git log -p outputs/audits/continuous/<sha>_audit.md`.
+
+This model lets us correct mistakes (typos, P-level miscounts caught later) without losing the original verdict. Without the model, post-commit silent edits are an attack surface (someone could downgrade P1→P2 to claim the lock).
+
 ## Provenance
 
-This protocol was authored by Claude on 2026-05-01 in response to the user's "Pls think deeply" question. The honest self-assessment is captured in the conversation history; the design choices here are extracted from that.
+This protocol was authored by Claude on 2026-05-01 in response to the user's "Pls think deeply" question. The honest self-assessment is captured in the conversation history; the design choices here are extracted from that. **Updated 2026-05-01 (post-cycle-5 P2.1 correction)** to honestly state the lock criterion is unchanged from v1. **Updated 2026-05-01 (post-cycle-6 P3.1)** to codify the audit-trail integrity model.

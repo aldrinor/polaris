@@ -35,7 +35,13 @@ coverage.xml
 logs/
 outputs/*
 !outputs/codex_findings/
+# Cycle-6 P2.3: tighten outputs/audits/ exemption to continuous/ only.
+# Older outputs/audits/v25..v27 dirs are bloat (~1MB) — historical sweep
+# stdouts that weren't meant to be tracked. continuous/ holds the durable
+# A+C audit trail.
 !outputs/audits/
+!outputs/audits/continuous/
+!outputs/audits/continuous/*.md
 state/
 
 # --- Large trace files ---
