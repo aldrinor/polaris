@@ -29,13 +29,21 @@ Cycle-N selects ONE of these adversarial lenses (round-robin or threat-driven):
 
 Each cycle's prompt explicitly scopes the lens. The subagent ignores findings outside its lens (or flags them as P3 "out of scope, observed").
 
-### Change 3: Soft-lock criterion (diminishing-returns)
+### Change 3: Lock criterion clarification (NOT softened — Cycle-5 P2.1 correction)
 
-Replace "2 consecutive clean APPROVE (P1=0)" with:
+**Original v2 claim** (now corrected): "Replace v1's '2 consecutive clean APPROVE (P1=0)' with 'all P2+'." Cycle-5 audit P2.1 caught the math: "no P0, no P1" is mathematically equivalent to "P0=0 AND P1=0" — the exact v1 clean-APPROVE condition. The framing claimed softening; the rule was identical.
 
-> **Lock when 2 consecutive cycles return findings that are ALL P2 or below** (no P0, no P1).
+**Corrected v2 lock criterion (unchanged from v1):**
 
-Rationale: a real codebase always has SOME issues. Holding out for P1=0 is unrealistic and pushes the loop toward "always finds nits forever." P2-only is the diminishing-returns floor — you've found the things that matter; the rest is gardening.
+> **Lock when 2 consecutive cycles return APPROVE (P0=0 AND P1=0).**
+
+**What v2 actually changes** (real changes that affect convergence rate):
+- **Inputs to the reviewer**: brief-blinding (the reviewer doesn't see author's self-flagged P0/P1), so independent-finding rate goes UP.
+- **Lens diversity**: rotating role per cycle surfaces orthogonal issue classes.
+
+**The bar is the same.** What changes is the SIGNAL the bar is measuring against — better-quality, more-orthogonal findings. The trade-off: with better inputs, the lock criterion is reachable in fewer cycles (because each cycle catches different issues, exhausting the find-pool faster) — but the criterion itself isn't relaxed.
+
+If a future v3 wants to ACTUALLY soften: candidates include "≤1 P1 across the 2-cycle window" or "P1 count strictly decreasing across 3 cycles". Not adopted in v2.
 
 ### Change 4 (optional, future): Pre-commit audit
 
