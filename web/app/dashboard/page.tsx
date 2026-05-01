@@ -335,14 +335,14 @@ export default function DashboardPage() {
             <Card
               className={
                 scopeDecision.verdict === "rejected"
-                  ? "border-destructive/50 bg-destructive/5"
+                  ? "border-destructive/60"
                   : scopeDecision.verdict === "needs_clarification"
-                    ? "border-yellow-500/40 bg-yellow-50/40"
-                    : "border-emerald-500/40 bg-emerald-50/40"
+                    ? "border-yellow-500/60"
+                    : "border-emerald-500/60"
               }
             >
               <CardHeader>
-                <CardDescription className="text-xs tracking-widest uppercase">
+                <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
                   Scope discovery
                 </CardDescription>
                 <CardTitle className="text-base capitalize">
@@ -352,12 +352,12 @@ export default function DashboardPage() {
               <CardContent>
                 <p className="text-sm">{scopeDecision.rationale}</p>
                 {scopeDecision.refusals.length > 0 && (
-                  <p className="text-destructive mt-2 text-xs">
+                  <p className="text-foreground mt-2 text-sm font-medium">
                     Refused: {scopeDecision.refusals.join(", ")}
                   </p>
                 )}
                 {scopeDecision.intended_source_tiers.length > 0 && (
-                  <p className="text-muted-foreground mt-2 text-xs">
+                  <p className="text-foreground mt-2 text-xs font-medium">
                     Source tiers:{" "}
                     {scopeDecision.intended_source_tiers.join(", ")}
                   </p>

@@ -67,7 +67,7 @@ All 10 tasks must GREEN before Phase 1 starts.
 - [ ] **2C.2** Visual regression baseline established
 - [x] **2C.3** Cross-browser (Chromium/Firefox/WebKit) verification — 27/27 tests pass on all 3 engines (38s wall-clock); Vega-Lite SVG, scope discovery, all Inspector tabs work uniformly
 - [ ] **2C.4** Performance optimization (long-report hover-latency <100ms target)
-- [ ] **2C.5** Accessibility audit (WCAG-AA pass)
+- [x] **2C.5** Accessibility audit (WCAG-AA pass) — `web/tests/e2e/accessibility.spec.ts` 6 axe-core tests across dashboard + 4 Inspector tabs; surfaced 1 real WCAG-AA color-contrast violation on scope-rejected card (text-destructive/muted-fg on bg-destructive/5 < 4.5:1) and fixed it; all 6 tests + 9 inspector tests pass on chromium
 - [ ] **2C.6** End-of-Phase 2C walkthrough on full feature set
 
 ## Phase 3 — Follow-up + benchmark (July 20 - Aug 9, 3 weeks)
