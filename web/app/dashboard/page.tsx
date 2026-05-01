@@ -14,9 +14,11 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  checkAmbiguity,
   checkScope,
   createRun,
   uploadDocument,
+  type AmbiguityResult,
   type ScopeDecision,
   type TemplateId,
   type UploadResponse,
@@ -54,6 +56,8 @@ export default function DashboardPage() {
   const [uploads, setUploads] = useState<UploadResponse[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
+  const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
 
   const handleFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
@@ -86,9 +90,23 @@ export default function DashboardPage() {
     if (question.trim().length < 1) return;
     setScopeChecking(true);
     setError(null);
+    setAmbiguity(null);
+    setAcknowledgedAmbiguity(false);
     try {
       const decision = await checkScope(template, question.trim());
       setScopeDecision(decision);
+      if (decision.verdict === "accepted" && uploads.length > 0) {
+        const candidates = uploads.flatMap((u, ui) =>
+          u.chunk_preview.map((text, ci) => ({
+            source_id: `${u.document_id}:${ui}-${ci}`,
+            text,
+          })),
+        );
+        if (candidates.length > 0) {
+          const result = await checkAmbiguity(question.trim(), candidates);
+          setAmbiguity(result);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Scope check failed");
     } finally {
@@ -104,6 +122,12 @@ export default function DashboardPage() {
     }
     if (scopeDecision?.verdict === "rejected") {
       setError("Scope gate rejected this question. Reframe before submitting.");
+      return;
+    }
+    if (ambiguity?.is_ambiguous && !acknowledgedAmbiguity) {
+      setError(
+        "Ambiguity detected. Acknowledge in the panel below or refine the question.",
+      );
       return;
     }
     setSubmitting(true);
@@ -298,6 +322,52 @@ export default function DashboardPage() {
                     {scopeDecision.intended_source_tiers.join(", ")}
                   </p>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {ambiguity?.is_ambiguous && (
+            <Card className="border-yellow-500/50 bg-yellow-50/40">
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  Disambiguation needed (BPEI guard)
+                </CardDescription>
+                <CardTitle className="text-base">
+                  {ambiguity.clusters.length} possible meanings detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  Your question or uploads suggest more than one topic. Pick one
+                  to refine the question, or acknowledge to proceed with all of
+                  them in scope.
+                </p>
+                <ul className="mt-3 flex flex-col gap-2 text-sm">
+                  {ambiguity.clusters.map((c) => (
+                    <li
+                      key={c.cluster_id}
+                      className="border-border bg-background rounded-md border p-2"
+                    >
+                      <span className="text-foreground font-medium">
+                        Cluster {c.cluster_id + 1}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {c.representative_text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant={acknowledgedAmbiguity ? "default" : "outline"}
+                    onClick={() => setAcknowledgedAmbiguity((v) => !v)}
+                  >
+                    {acknowledgedAmbiguity
+                      ? "Acknowledged — will run on all clusters"
+                      : "Acknowledge ambiguity"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
