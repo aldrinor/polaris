@@ -55,6 +55,26 @@ const targets = [
       await page.waitForSelector("text=/Accepted/i", { timeout: 5000 });
     },
   },
+  {
+    name: "inspector_clinical_golden",
+    path: "/inspector/golden_clinical_001",
+    description: "Inspector view of clinical golden run",
+    interact: async (page) => {
+      await page.waitForSelector("text=/Verified sentences/i", {
+        timeout: 8000,
+      });
+    },
+  },
+  {
+    name: "inspector_contradiction_golden",
+    path: "/inspector/golden_housing_002",
+    description: "Inspector view of housing contradiction golden run",
+    interact: async (page) => {
+      await page.waitForSelector("text=/Contradictions/i", { timeout: 8000 });
+      await page.getByRole("button", { name: /Contradictions/ }).first().click();
+      await page.waitForTimeout(300);
+    },
+  },
 ];
 
 const viewport = { width: 1440, height: 900 };
