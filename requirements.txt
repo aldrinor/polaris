@@ -142,11 +142,14 @@ dramatiq>=2.1.0  # actors, brokers, middleware base class
 opentelemetry-api>=1.36.0  # tracer + propagate APIs
 opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
 opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
-# Defend against CVE-2026-0994 (GHSA-7gcm-g887-7qv7) — protobuf 6.30.0rc1..6.33.4
-# is vulnerable. The OTLP exporter pulls protobuf transitively; without this
-# floor a fresh CI install could land in the vulnerable range. Fix per cycle-6
-# audit P2.1 (outputs/audits/continuous/40b4d30_audit.md).
-protobuf>=6.33.5,<7.0.0  # 7.x is a major bump; pin within 6.x patched range
+# F-21 (cycle-7 P1.1 fix): protobuf is pulled transitively by both the OTLP
+# exporter AND google-generativeai (line 99). The latter pins
+# protobuf<5.0.0dev via google-ai-generativelanguage. CVE-2026-0994 affects
+# protobuf 6.30.0rc1..6.33.4 — entirely above the <5.0.0 ceiling, so any
+# satisfiable version is automatically CVE-patched.
+# Cycle-6 P2.1 originally proposed >=6.33.5,<7.0.0 (F-17); cycle-7 caught
+# the ResolutionImpossible. Cycle-7 P1.1 fix.
+protobuf<5.0.0  # CVE-2026-0994 patched (vulnerable range starts at 6.30.0rc1)
 
 # ===================
 # Document Export

@@ -148,10 +148,36 @@ jobs:
           path: web/test-results/**/trace.zip
           retention-days: 7
 
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
   pytest_v6_backend:
     name: pytest tests/v6/ (Phase 0 backend coverage)
     runs-on: ubuntu-latest
-    needs: lint_format_typecheck_build
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
     defaults:
       run:
         working-directory: ${{ github.workspace }}

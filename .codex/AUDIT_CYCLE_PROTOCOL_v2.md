@@ -79,6 +79,20 @@ Audit files at `outputs/audits/continuous/<sha>_audit.md` and `_cross_review.md`
 
 This model lets us correct mistakes (typos, P-level miscounts caught later) without losing the original verdict. Without the model, post-commit silent edits are an attack surface (someone could downgrade P1→P2 to claim the lock).
 
+## Dependency-pin discipline (cycle-7 F-23)
+
+**Rule:** Any commit that adds, removes, or changes a version pin in `requirements.txt`, `requirements-v6.txt`, `web/package.json`, or any other dependency manifest MUST include in its commit message a line:
+
+```
+pip-dry-run: PASSED  (or: NPM_RESOLVED, or equivalent for the toolchain)
+```
+
+The author MUST run the dry-run and confirm clean resolution BEFORE committing the pin change. CI's `verify_pip_resolution` job (added under F-22) is the safety net, not the primary check.
+
+**Why:** Cycle-7 caught F-17's `protobuf>=6.33.5,<7.0.0` pin breaking `pip install -r requirements.txt` because `google-generativeai>=0.3.0` (in the same file) transitively requires `protobuf<5.0.0dev`. F-17's commit message claimed "Verified: 247/247 v6 tests pass" — true on the operator's machine (already had the pin satisfied) but irrelevant to fresh-install paths. A `pip install --dry-run -r requirements.txt` step in the F-17 verification would have caught the ResolutionImpossible immediately.
+
+The discipline applies symmetrically: any pin change requires fresh-environment verification, not just "tests still pass on my box."
+
 ## Provenance
 
-This protocol was authored by Claude on 2026-05-01 in response to the user's "Pls think deeply" question. The honest self-assessment is captured in the conversation history; the design choices here are extracted from that. **Updated 2026-05-01 (post-cycle-5 P2.1 correction)** to honestly state the lock criterion is unchanged from v1. **Updated 2026-05-01 (post-cycle-6 P3.1)** to codify the audit-trail integrity model.
+This protocol was authored by Claude on 2026-05-01 in response to the user's "Pls think deeply" question. The honest self-assessment is captured in the conversation history; the design choices here are extracted from that. **Updated 2026-05-01 (post-cycle-5 P2.1 correction)** to honestly state the lock criterion is unchanged from v1. **Updated 2026-05-01 (post-cycle-6 P3.1)** to codify the audit-trail integrity model. **Updated 2026-05-01 (post-cycle-7 F-23)** to require pip-dry-run evidence on dep-change commits.
