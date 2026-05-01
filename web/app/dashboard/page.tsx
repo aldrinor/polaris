@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,31 +17,54 @@ import {
   checkAmbiguity,
   checkScope,
   createRun,
+  listTemplates,
   uploadDocument,
   type AmbiguityResult,
   type ScopeDecision,
+  type TemplateContent,
   type TemplateId,
   type UploadResponse,
 } from "@/lib/api";
 
-const templates: { id: TemplateId; title: string; domain: string }[] = [
-  {
-    id: "clinical",
-    title: "Clinical drug audit",
-    domain: "Health Canada / FDA",
-  },
-  { id: "trade", title: "Trade & tariff", domain: "USMCA / WTO" },
-  { id: "housing", title: "Housing & productivity", domain: "StatCan / CMHC" },
-  { id: "defense", title: "Defense & Arctic", domain: "DND / NORAD" },
-  {
-    id: "climate",
-    title: "Climate & critical minerals",
-    domain: "ECCC / NRCan",
-  },
-  { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
-  { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
-  { id: "workforce", title: "Workforce & productivity", domain: "ESDC / IRCC" },
-];
+// Static fallback if /templates is unreachable. Keeps the dashboard usable
+// even if the backend is down; live data preferred when available.
+const FALLBACK_TEMPLATES: { id: TemplateId; title: string; domain: string }[] =
+  [
+    {
+      id: "clinical",
+      title: "Clinical drug audit",
+      domain: "Health Canada / FDA",
+    },
+    { id: "trade", title: "Trade & tariff", domain: "USMCA / WTO" },
+    {
+      id: "housing",
+      title: "Housing & productivity",
+      domain: "StatCan / CMHC",
+    },
+    { id: "defense", title: "Defense & Arctic", domain: "DND / NORAD" },
+    {
+      id: "climate",
+      title: "Climate & critical minerals",
+      domain: "ECCC / NRCan",
+    },
+    { id: "ai_sovereignty", title: "AI sovereignty", domain: "ISED / CIFAR" },
+    { id: "canada_us", title: "Canada–US relations", domain: "GAC / DFAIT" },
+    {
+      id: "workforce",
+      title: "Workforce & productivity",
+      domain: "ESDC / IRCC",
+    },
+  ];
+
+function templatesToCards(
+  list: TemplateContent[],
+): { id: TemplateId; title: string; domain: string }[] {
+  return list.map((t) => ({
+    id: t.template_id as TemplateId,
+    title: t.template_name,
+    domain: t.primary_domains.slice(0, 2).join(" / "),
+  }));
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -58,6 +81,23 @@ export default function DashboardPage() {
   const [dragOver, setDragOver] = useState(false);
   const [ambiguity, setAmbiguity] = useState<AmbiguityResult | null>(null);
   const [acknowledgedAmbiguity, setAcknowledgedAmbiguity] = useState(false);
+  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+
+  useEffect(() => {
+    let cancelled = false;
+    listTemplates()
+      .then((live) => {
+        if (!cancelled && live.length > 0) {
+          setTemplates(templatesToCards(live));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure; dashboard still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
