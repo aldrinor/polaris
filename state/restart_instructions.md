@@ -62,7 +62,9 @@ If halt triggered: surface to user, wait for direction. Otherwise: continue.
 - ⛔ Tasks 0.3, 0.6, 0.7, 0.9 — pending user $ commitment / downstream dependency
 
 **Next action on resume:**
-1. Check frontend agent (background ID `aab25b18`) completion notification — it was running at end of session
-2. If complete: triangle-loop Task 0.4 (Claude self-audit + Codex audit + cross-review)
-3. Resume Task 0.5 code-side: write `requirements-v6.txt` + FastAPI router skeleton + Dramatiq acceptance test stub
-4. Surface Tasks 0.3 + 0.6 + 0.9 to user for $ commitment (per `docs/blockers.md` action-pending dates)
+1. Check `git log --oneline -6 polaris` — should show: 6bd1557 → 3b89caf → b5a4e0f → 003ed2d → e3e3714 (v6.2 plan + 4 Phase 0 batches)
+2. Confirm Phase 0 status from todo_list.md: 3 done (0.1, 0.2, 0.4), 3 substrate-shipped (0.5, 0.8, 0.10), 4 user-blocked (0.3, 0.6, 0.7, 0.9)
+3. Check user has signalled on Tasks 0.3 + 0.9 (Vast.ai $1.8-3.2k commit + OVH BHS procurement)
+4. **If user signalled $ OK**: spin Vast.ai cluster (Task 0.3), then `pip install -r requirements-v6.txt` + `pytest tests/v6` to actually run the 14 v6 contract tests, then Task 0.7 SGLang/vLLM bakeoff begins
+5. **If user not signalled**: write Codex review briefs at `.codex/task_0_X_review_brief.md` for the 6 substrate-shipped tasks so triangle-loop Codex pass is ready
+6. **Halt only if** asymptoting (≥6 "deferred to phase 2" framings stacking) — surface to user with concrete options

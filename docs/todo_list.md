@@ -21,14 +21,14 @@ All 10 tasks must GREEN before Phase 1 starts.
 
 - [x] **0.1** Blocker decisions written + paid sample evaluator sourcing initiated → `docs/blockers.md`
 - [x] **0.2** Architecture pattern adoption doc (no MiroThinker fork) + license scan → `docs/agent_architecture.md`
-- [ ] **0.3** Vast.ai US 4× H100 dev cluster operational (V4 Flash via SGLang/vLLM) — needs user $ commitment
-- [~] **0.4** Frontend scaffold (Next.js 16 + React 19 + shadcn 4.6 MIT + Tailwind v4 + TypeScript 5) — agent in progress at `web/`
-- [~] **0.5** Backend modernization (FastAPI 0.136.x + Pydantic v2 + Dramatiq queue acceptance test) → plan: `docs/backend_modernization.md`; code stubs pending
-- [ ] **0.6** DeepSeek V4 hardware Path A/B/C decision committed (default Path C V4 Flash only)
-- [ ] **0.7** SGLang vs vLLM bakeoff → one engine frozen for entire build
-- [~] **0.8** Gemma 4 31B verification → `docs/gemma_4_verification.md` (Apache 2.0 + Gemma Use Policy, LOW severity); smoke test pending Task 0.3
-- [ ] **0.9** OVH Canada BHS H200 verification (HARD GATE) or backup procurement initiated
-- [~] **0.10** OpenTelemetry pinned (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`, semconv 1.36.0+) → `docs/opentelemetry_genai.md`
+- [ ] **0.3** Vast.ai US 4× H100 dev cluster operational — needs user $ commitment ($1.8-3.2k); auto-loop CAN spin instances on confirm
+- [x] **0.4** Frontend scaffold (Next.js 16 + React 19 + shadcn 4.6 MIT + Tailwind v4 + TypeScript 5 + ESLint 9 + Prettier) → `web/`; 4/4 CI gates green; 2 screenshots verified
+- [~] **0.5** Backend modernization → `docs/backend_modernization.md` + skeleton (`requirements-v6.txt` 18 PyPI-verified pins + `src/polaris_v6/{api,queue,schemas,observability}/` + 10 contract+acceptance tests). Remainder needs venv install (depends on Task 0.3 budget)
+- [ ] **0.6** DeepSeek V4 hardware Path A/B/C decision committed (default Path C V4 Flash only) — needs Task 0.7 bakeoff data
+- [ ] **0.7** SGLang vs vLLM bakeoff → one engine frozen for entire build — needs Task 0.3 cluster
+- [~] **0.8** Gemma 4 31B verification → `docs/gemma_4_verification.md` (Errata E-1: Apache 2.0 + Gemma Use Policy, LOW severity); smoke test pending Task 0.3
+- [ ] **0.9** OVH Canada BHS H200 procurement (HARD GATE for Phase 4 sovereign) — user must engage OVH Sales by 2026-05-12
+- [~] **0.10** OpenTelemetry → `docs/opentelemetry_genai.md` (Errata E-2: `gen_ai_latest_experimental`, semconv 1.36.0+) + code (`src/polaris_v6/observability/otel_init.py` with fail-loudly contract + 4 contract tests)
 
 ## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31, 3 weeks)
 
