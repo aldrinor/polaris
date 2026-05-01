@@ -1,0 +1,20 @@
+{
+  "pin_id": "baseline_golden_climate_005",
+  "workspace_id": "ws_baseline",
+  "run_id": "golden_climate_005",
+  "template": "climate",
+  "question": "How did Canadian oil-sands GHG emissions intensity per barrel change between 2010 and 2023 according to ECCC?",
+  "document_ids": [],
+  "pinned_at": "2026-05-01T14:00:00Z",
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "generator_seed": 42,
+  "sealed_evidence_pool_ids": [
+    "ev_clim_001",
+    "ev_clim_002"
+  ],
+  "sealed_verified_sentence_count": 1,
+  "sealed_pipeline_status": "success",
+  "sealed_cost_usd": 0.41,
+  "notes": "Baseline pin captured from golden fixture golden_run_climate.json on 2026-05-01 for handover regression-lab seed."
+}

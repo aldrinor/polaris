@@ -1,0 +1,20 @@
+{
+  "pin_id": "baseline_golden_housing_002",
+  "workspace_id": "ws_baseline",
+  "run_id": "golden_housing_002",
+  "template": "housing",
+  "question": "What did Q3 2025 housing starts data show?",
+  "document_ids": [],
+  "pinned_at": "2026-05-01T11:00:00Z",
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "generator_seed": 42,
+  "sealed_evidence_pool_ids": [
+    "ev_house_001",
+    "ev_house_002"
+  ],
+  "sealed_verified_sentence_count": 1,
+  "sealed_pipeline_status": "success",
+  "sealed_cost_usd": 0.31,
+  "notes": "Baseline pin captured from golden fixture golden_run_with_contradiction.json on 2026-05-01 for handover regression-lab seed."
+}

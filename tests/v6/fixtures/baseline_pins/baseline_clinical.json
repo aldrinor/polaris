@@ -1,0 +1,20 @@
+{
+  "pin_id": "baseline_golden_clinical_001",
+  "workspace_id": "ws_baseline",
+  "run_id": "golden_clinical_001",
+  "template": "clinical",
+  "question": "What does the latest evidence show for ozempic cardiovascular outcomes?",
+  "document_ids": [],
+  "pinned_at": "2026-05-01T10:00:00Z",
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "generator_seed": 42,
+  "sealed_evidence_pool_ids": [
+    "ev_clin_001",
+    "ev_clin_002"
+  ],
+  "sealed_verified_sentence_count": 1,
+  "sealed_pipeline_status": "success",
+  "sealed_cost_usd": 0.42,
+  "notes": "Baseline pin captured from golden fixture golden_run_clinical.json on 2026-05-01 for handover regression-lab seed."
+}
