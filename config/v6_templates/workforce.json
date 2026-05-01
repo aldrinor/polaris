@@ -1,0 +1,50 @@
+{
+  "template_id": "workforce",
+  "template_name": "Workforce & productivity",
+  "summary": "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic transition, Indigenous workforce participation.",
+  "primary_domains": ["ESDC", "IRCC", "StatCan", "Department of Finance", "Bank of Canada"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/employment-social-development.html",
+      "https://www.canada.ca/en/immigration-refugees-citizenship.html",
+      "https://www150.statcan.gc.ca",
+      "https://www.bankofcanada.ca",
+      "https://www.canada.ca/en/department-finance.html"
+    ],
+    "T2": [
+      "https://www.csls.ca",
+      "https://www.cdhowe.org",
+      "https://www.macdonaldlaurier.ca",
+      "https://www.bcg.com",
+      "https://www.deloitte.com/ca"
+    ],
+    "T3": [
+      "https://www.theglobeandmail.com",
+      "https://www.bnnbloomberg.ca",
+      "https://www.thestar.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "labour_productivity_gap", "frame_name": "Canada–US labour productivity gap" },
+    { "frame_id": "immigration_skills_mismatch", "frame_name": "Immigration + skills mismatch" },
+    { "frame_id": "demographic_transition", "frame_name": "Demographic ageing + labour-force participation" },
+    { "frame_id": "indigenous_participation", "frame_name": "Indigenous workforce participation" },
+    { "frame_id": "regional_unemployment", "frame_name": "Regional unemployment + interprovincial mobility" }
+  ],
+  "refusal_patterns": [
+    "individual_career_advice",
+    "individual_immigration_application_advice",
+    "specific_employer_recommendation"
+  ],
+  "sample_questions": [
+    "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    "How has the IRCC 2025 immigration target adjustment affected labour-market dynamics?",
+    "What does the 2024 federal-provincial workforce training agreement commit on apprenticeship intake?",
+    "How has Indigenous workforce participation changed since the 2015 TRC Calls to Action?"
+  ],
+  "out_of_scope_examples": [
+    "How do I apply for permanent residency?",
+    "Should I move to Alberta for work?"
+  ]
+}

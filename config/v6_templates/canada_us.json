@@ -1,0 +1,50 @@
+{
+  "template_id": "canada_us",
+  "template_name": "Canada–US relations",
+  "summary": "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability, post-Trump-2 alignment posture.",
+  "primary_domains": ["GAC", "DFAIT", "Privy Council Office", "Department of Finance Canada", "Export Development Canada"],
+  "source_tiers": {
+    "T1": [
+      "https://www.international.gc.ca",
+      "https://www.canada.ca/en/department-finance.html",
+      "https://www.canada.ca/en/global-affairs.html",
+      "https://www.edc.ca",
+      "https://www.bankofcanada.ca"
+    ],
+    "T2": [
+      "https://www.cgai.ca",
+      "https://www.cigionline.org",
+      "https://www.csis.org",
+      "https://www.brookings.edu",
+      "https://www.peterson.ie"
+    ],
+    "T3": [
+      "https://www.theglobeandmail.com",
+      "https://www.bnnbloomberg.ca",
+      "https://www.reuters.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "cusma_review", "frame_name": "CUSMA / USMCA 2026 review + renegotiation triggers" },
+    { "frame_id": "ira_spillover", "frame_name": "Inflation Reduction Act spillover on Canadian industry" },
+    { "frame_id": "critical_minerals_integration", "frame_name": "Critical minerals supply integration" },
+    { "frame_id": "energy_integration", "frame_name": "Cross-border energy infrastructure" },
+    { "frame_id": "defense_interop", "frame_name": "NORAD + Five Eyes defense interoperability" }
+  ],
+  "refusal_patterns": [
+    "individual_immigration_advice",
+    "personal_political_endorsement",
+    "investment_recommendation"
+  ],
+  "sample_questions": [
+    "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    "How has the IRA's Section 30D EV tax credit changed Canadian auto-sector investment flows since 2023?",
+    "What does the 2024 Canada–US Critical Minerals Joint Action Plan commit to on lithium and rare earths?",
+    "What are the post-Section-232 steel and aluminum tariff expectations under the Trump-2 administration?"
+  ],
+  "out_of_scope_examples": [
+    "Should I move to the US for tax reasons?",
+    "Who should I vote for to improve Canada-US relations?"
+  ]
+}

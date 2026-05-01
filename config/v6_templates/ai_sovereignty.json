@@ -1,0 +1,50 @@
+{
+  "template_id": "ai_sovereignty",
+  "template_name": "AI sovereignty",
+  "summary": "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+  "primary_domains": ["ISED", "CIFAR", "Treasury Board", "Office of the Privacy Commissioner", "Statistics Canada"],
+  "source_tiers": {
+    "T1": [
+      "https://ised-isde.canada.ca",
+      "https://www.priv.gc.ca",
+      "https://www.canada.ca/en/treasury-board-secretariat.html",
+      "https://cifar.ca",
+      "https://www150.statcan.gc.ca"
+    ],
+    "T2": [
+      "https://www.brookings.edu",
+      "https://www.cigionline.org",
+      "https://www.csis.org",
+      "https://www.iisd.org",
+      "https://www.standfordhai.org"
+    ],
+    "T3": [
+      "https://www.theglobeandmail.com",
+      "https://www.thelogic.co",
+      "https://betakit.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "sovereign_compute", "frame_name": "Sovereign compute capacity (domestic GPU/TPU)" },
+    { "frame_id": "talent_retention", "frame_name": "AI talent retention vs US/UK brain drain" },
+    { "frame_id": "data_residency", "frame_name": "Data residency + cross-border AI training data" },
+    { "frame_id": "aida_regulation", "frame_name": "AIDA / Bill C-27 + ISED commitments" },
+    { "frame_id": "alignment_posture", "frame_name": "Federal alignment + safety posture" }
+  ],
+  "refusal_patterns": [
+    "individual_career_advice",
+    "specific_company_endorsement",
+    "individual_legal_compliance"
+  ],
+  "sample_questions": [
+    "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    "How does Bill C-27 AIDA compare to the EU AI Act on prohibited-practices scope?",
+    "What does the 2024 Canadian Sovereign AI Compute Strategy commit on dollars and capacity?",
+    "How has Canadian AI researcher retention tracked vs US and UK from 2018 to 2024?"
+  ],
+  "out_of_scope_examples": [
+    "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    "Is OpenAI or Anthropic a better partner for the Canadian government?"
+  ]
+}

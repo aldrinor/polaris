@@ -11,13 +11,22 @@ from polaris_v6.templates.registry import (
 )
 
 
-def test_defense_and_climate_load():
+def test_all_six_templates_load():
     ids = list_template_ids()
-    assert "defense" in ids
-    assert "climate" in ids
+    for expected in [
+        "defense",
+        "climate",
+        "ai_sovereignty",
+        "canada_us",
+        "workforce",
+    ]:
+        assert expected in ids, f"missing template: {expected}"
 
 
-@pytest.mark.parametrize("template_id", ["defense", "climate"])
+@pytest.mark.parametrize(
+    "template_id",
+    ["defense", "climate", "ai_sovereignty", "canada_us", "workforce"],
+)
 def test_template_validates_against_schema(template_id):
     content = load_template(template_id)
     assert isinstance(content, TemplateContent)
