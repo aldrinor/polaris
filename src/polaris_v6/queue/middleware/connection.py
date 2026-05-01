@@ -34,10 +34,12 @@ class StickyConnectionMiddleware(dramatiq.Middleware):
         if client is not None:
             try:
                 client.close()
-            except Exception as exc:  # pragma: no cover - cleanup-time guard
+            except Exception as exc:
                 # CLAUDE.md §9.4: never `except: pass` silently. Log and
                 # continue; failing to close a Redis connection during worker
-                # shutdown is non-fatal but operators should see it.
+                # shutdown is non-fatal but operators should see it. Branch
+                # is covered by tests/v6/test_sticky_connection_middleware.py
+                # ::test_close_errors_are_logged_not_swallowed.
                 _log.warning(
                     "StickyConnectionMiddleware: client.close() raised %s during"
                     " after_worker_shutdown; continuing teardown.",

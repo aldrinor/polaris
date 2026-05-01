@@ -94,6 +94,39 @@ test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () =>
   });
 });
 
+test.describe("WCAG-AA — dashboard upload list with files", () => {
+  test("Upload list \"remove\" button is WCAG-AA clean (real upload)", async ({
+    page,
+  }) => {
+    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
+    // (\"remove\" button on upload list) but no test exercised it because
+    // no fixture populated the upload state. This test posts a real file
+    // through the live /api/upload endpoint, then asserts axe-clean once
+    // the upload-list <li> renders with the destructive-class \"remove\"
+    // button.
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: "polaris_a11y_probe.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello-from-a11y-probe"),
+    });
+
+    // Wait for the upload-list item to appear with our filename + the
+    // \"remove\" button. The list rendering depends on POST /api/upload
+    // returning successfully.
+    await expect(
+      page.getByText("polaris_a11y_probe.txt"),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(
+      page.getByRole("button", { name: /^remove$/ }),
+    ).toBeVisible();
+
+    await expectNoA11yViolations(page);
+  });
+});
+
 test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
   test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
     page,
