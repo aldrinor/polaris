@@ -1,9 +1,9 @@
 # POLARIS v6.2 — pinned production dependencies
 # Owning task: Phase 0 Task 0.5 (docs/backend_modernization.md)
-# Pin policy: minor-version pinning for libs in active maintenance; tighter pins for pre-stable specs (OTEL GenAI semconv).
+# Pin policy: pin to a specific PyPI release; verified against PyPI on 2026-05-01.
 
 # --- Web framework ---
-fastapi==0.136.2
+fastapi==0.136.1
 pydantic==2.11.7
 pydantic-settings==2.6.1
 uvicorn[standard]==0.36.0
@@ -12,23 +12,26 @@ sse-starlette==2.4.1
 httpx==0.28.1
 
 # --- Queue + broker ---
+# Dramatiq 2.1.0 requires redis<8.0,>=4.0 (PyPI verified).
 dramatiq[redis,watch]==2.1.0
-redis==5.4.1
+redis==7.4.0
 
 # --- Observability (Errata E-2: gen_ai_latest_experimental, semconv 1.36.0+ baseline) ---
-opentelemetry-api==1.30.0
-opentelemetry-sdk==1.30.0
-opentelemetry-semantic-conventions==0.51b0
-opentelemetry-exporter-otlp==1.30.0
-opentelemetry-instrumentation-fastapi==0.51b0
-opentelemetry-instrumentation-httpx==0.51b0
-opentelemetry-instrumentation-dramatiq==0.51b0
+# Latest stable as of 2026-05-01. opentelemetry-instrumentation-dramatiq is NOT a
+# published package; Dramatiq instrumentation is provided by POLARIS middleware (see
+# backend_modernization.md §4 — src/polaris_v6/queue/middleware/otel_propagate.py).
+opentelemetry-api==1.41.1
+opentelemetry-sdk==1.41.1
+opentelemetry-semantic-conventions==0.62b1
+opentelemetry-exporter-otlp==1.41.1
+opentelemetry-instrumentation-fastapi==0.62b1
+opentelemetry-instrumentation-httpx==0.62b1
 
 # --- Test ---
 pytest==8.4.1
-pytest-asyncio==0.25.4
-pytest-anyio==0.0.0  # placeholder; remove if unused
+pytest-asyncio==1.3.0
 anyio==4.8.0
+fakeredis==2.31.1
 
 # --- Lint + format ---
 ruff==0.7.4

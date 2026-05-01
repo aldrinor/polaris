@@ -44,15 +44,15 @@ OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
 ### 2.2 Version pin (`requirements-v6.txt`)
 
 ```
-opentelemetry-api==1.30.0
-opentelemetry-sdk==1.30.0
-opentelemetry-semantic-conventions==0.51b0
-opentelemetry-exporter-otlp==1.30.0
-opentelemetry-instrumentation-fastapi==0.51b0
-opentelemetry-instrumentation-httpx==0.51b0
+opentelemetry-api==1.41.1
+opentelemetry-sdk==1.41.1
+opentelemetry-semantic-conventions==0.62b1
+opentelemetry-exporter-otlp==1.41.1
+opentelemetry-instrumentation-fastapi==0.62b1
+opentelemetry-instrumentation-httpx==0.62b1
 ```
 
-**Note:** `opentelemetry-semantic-conventions==0.51b0` is the current pre-stable release that ships GenAI semconv 1.36.0+ definitions. Pin must be re-verified at `requirements-v6.txt` write time (Phase 0 Task 0.5 deliverable).
+**Verified via PyPI on 2026-05-01.** `opentelemetry-instrumentation-dramatiq` is **NOT** a published package — Dramatiq instrumentation must be provided by POLARIS middleware (see `docs/backend_modernization.md` §4 — `src/polaris_v6/queue/middleware/otel_propagate.py`). `opentelemetry-semantic-conventions==0.62b1` ships the latest GenAI semconv definitions including the `gen_ai_latest_experimental` opt-in.
 
 ### 2.3 Code-side instrumentation pattern
 

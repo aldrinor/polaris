@@ -18,8 +18,8 @@ This document fixes the backend modernization stack for v6.2 build, sequences th
 | Uvicorn | 0.36.x | ASGI server | BSD-3 |
 | Dramatiq | 2.1.0 | latest stable; replaces ARQ (maintenance-only) | LGPL-3 (cleared for service-side use) |
 | Redis | 7.4.x | Dramatiq broker + cache substrate | BSD-3 (pre-RSAL fork OK; using Valkey 8.0 if RSAL becomes issue) |
-| OpenTelemetry SDK | 1.30+ | latest with GenAI semconv `gen_ai_latest_experimental` | Apache 2.0 |
-| OpenTelemetry GenAI semconv | 1.36.0 baseline + experimental | opt-in via `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` | Apache 2.0 |
+| OpenTelemetry SDK | 1.41.1 | verified on PyPI 2026-05-01; supports `gen_ai_latest_experimental` opt-in | Apache 2.0 |
+| OpenTelemetry GenAI semconv (Python pkg) | 0.62b1 | latest pre-stable; ships GenAI semconv 1.36.0+ definitions | Apache 2.0 |
 | pytest | 8.x | unit + integration | MIT |
 | ruff | 0.7.x | lint + format | MIT |
 
