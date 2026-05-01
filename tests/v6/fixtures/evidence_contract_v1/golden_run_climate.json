@@ -1,0 +1,56 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_climate_005",
+  "template": "climate",
+  "question": "How did Canadian oil-sands GHG emissions intensity per barrel change between 2010 and 2023 according to ECCC?",
+  "queued_at": "2026-05-01T14:00:00Z",
+  "finished_at": "2026-05-01T14:11:32Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_clim_001",
+      "source_url": "https://www.canada.ca/en/environment-climate-change/services/climate-change/greenhouse-gas-emissions/inventory.html",
+      "source_tier": "T1",
+      "span_start": 800,
+      "span_end": 1080,
+      "span_text": "ECCC's National Inventory Report shows oil-sands GHG emissions intensity declined from approximately 0.080 tCO2e per barrel in 2010 to 0.066 tCO2e per barrel in 2023, a 17.5% reduction in emissions per unit of production."
+    },
+    {
+      "evidence_id": "ev_clim_002",
+      "source_url": "https://www.iisd.org/articles/policy-analysis/canada-oil-and-gas-emissions-cap",
+      "source_tier": "T2",
+      "span_start": 200,
+      "span_end": 380,
+      "span_text": "Absolute oil-sands emissions rose 64% over the same period despite intensity declines, because production volumes nearly doubled."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "ECCC reports oil-sands emissions intensity declined from 0.080 to 0.066 tCO2e per barrel from 2010 to 2023, a 17.5% intensity reduction [#ev:ev_clim_001:800-1080]; absolute emissions still rose 64% as production nearly doubled [#ev:ev_clim_002:200-380].",
+      "provenance_tokens": ["[#ev:ev_clim_001:800-1080]", "[#ev:ev_clim_002:200-380]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "emissions_intensity",
+      "frame_name": "Oil-sands GHG intensity per barrel",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    },
+    {
+      "frame_id": "absolute_vs_intensity",
+      "frame_name": "Absolute vs intensity emissions decoupling",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [],
+  "cost_usd": 0.41,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}

@@ -46,6 +46,9 @@ def evidence_contract_cls():
         "golden_run_clinical.json",
         "golden_run_with_contradiction.json",
         "golden_run_abort_no_verified.json",
+        "golden_run_defense.json",
+        "golden_run_climate.json",
+        "golden_run_ai_sovereignty.json",
     ],
 )
 def test_golden_artifact_parses(evidence_contract_cls, fixture_name):

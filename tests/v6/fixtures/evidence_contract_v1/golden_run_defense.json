@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_defense_004",
+  "template": "defense",
+  "question": "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+  "queued_at": "2026-05-01T13:00:00Z",
+  "finished_at": "2026-05-01T13:09:18Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_def_001",
+      "source_url": "https://www.nato.int/cps/en/natohq/news_226465.htm",
+      "source_tier": "T1",
+      "span_start": 200,
+      "span_end": 420,
+      "span_text": "Canada is projected to reach 1.4% of GDP on defense in 2025, below the 2% NATO target agreed at the 2014 Wales Summit; the 2024 Defence Policy Update commits to 1.76% by 2029-30."
+    },
+    {
+      "evidence_id": "ev_def_002",
+      "source_url": "https://www.canada.ca/en/department-national-defence/corporate/policies-standards/defence-policy-update.html",
+      "source_tier": "T1",
+      "span_start": 1100,
+      "span_end": 1320,
+      "span_text": "Our North, Strong and Free defence-policy update sets a path to 1.76% of GDP by FY 2029-30 with a forward investment of $73B over 20 years."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "Canada is projected at 1.4% of GDP on defense in 2025, below the NATO 2% target [#ev:ev_def_001:200-420]; the 2024 policy update commits to 1.76% by FY 2029-30 [#ev:ev_def_002:1100-1320].",
+      "provenance_tokens": ["[#ev:ev_def_001:200-420]", "[#ev:ev_def_002:1100-1320]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "nato_burden_share",
+      "frame_name": "NATO 2% GDP burden-sharing",
+      "sources_assigned": 2,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [],
+  "cost_usd": 0.38,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}

@@ -1,0 +1,72 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_ai_006",
+  "template": "ai_sovereignty",
+  "question": "What sovereign compute capacity does Canada have for training frontier AI models as of 2025?",
+  "queued_at": "2026-05-01T15:00:00Z",
+  "finished_at": "2026-05-01T15:12:09Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_ai_001",
+      "source_url": "https://ised-isde.canada.ca/site/ised/en/canadian-sovereign-ai-compute-strategy",
+      "source_tier": "T1",
+      "span_start": 400,
+      "span_end": 700,
+      "span_text": "ISED's Canadian Sovereign AI Compute Strategy commits $2B to domestic training-grade compute through 2027, targeting deployment of approximately 11,000 advanced GPUs across federally-supported facilities."
+    },
+    {
+      "evidence_id": "ev_ai_002",
+      "source_url": "https://cifar.ca/ai/canada-cifar-ai-chairs/",
+      "source_tier": "T1",
+      "span_start": 100,
+      "span_end": 280,
+      "span_text": "CIFAR Canada AI Chair retention rate sat at approximately 71% over 2018-2024, against an estimated 65-80% peer-country range."
+    },
+    {
+      "evidence_id": "ev_ai_003",
+      "source_url": "https://www.brookings.edu/articles/national-ai-strategies-comparison-2024",
+      "source_tier": "T2",
+      "span_start": 600,
+      "span_end": 820,
+      "span_text": "Canada's per-capita sovereign-compute commitment in 2024 was approximately 25% of the US figure and 60% of the UK figure, normalised by population."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "Canada's 2024 Sovereign AI Compute Strategy commits $2B and targets ~11,000 advanced GPUs by 2027 [#ev:ev_ai_001:400-700]; per-capita this is roughly 25% of US and 60% of UK commitments [#ev:ev_ai_003:600-820].",
+      "provenance_tokens": ["[#ev:ev_ai_001:400-700]", "[#ev:ev_ai_003:600-820]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    },
+    {
+      "section_id": "talent",
+      "sentence_text": "CIFAR Canada AI Chair retention sits at ~71% over 2018-2024 [#ev:ev_ai_002:100-280].",
+      "provenance_tokens": ["[#ev:ev_ai_002:100-280]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "sovereign_compute",
+      "frame_name": "Sovereign compute capacity (domestic GPU/TPU)",
+      "sources_assigned": 2,
+      "coverage_percent": 100.0
+    },
+    {
+      "frame_id": "talent_retention",
+      "frame_name": "AI talent retention vs US/UK brain drain",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [],
+  "cost_usd": 0.52,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}
