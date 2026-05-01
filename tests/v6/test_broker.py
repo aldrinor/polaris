@@ -28,6 +28,21 @@ from polaris_v6.queue.broker import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_session_broker():
+    """Save the session-shared broker before each test and restore after.
+
+    Cycle-4 audit P3.1 fix: get_broker() side-effects dramatiq.set_broker(),
+    so calling it in a test would replace the session-shared StubBroker
+    installed by tests/v6/conftest.py. Subsequent tests (notably the
+    acceptance suite that depends on the session broker) would then run
+    against whatever broker the last test left behind.
+    """
+    saved = dramatiq.get_broker()
+    yield
+    dramatiq.set_broker(saved)
+
+
 def test_use_stub_explicit_true_returns_stubbroker():
     broker = get_broker(use_stub=True)
     assert isinstance(broker, StubBroker)

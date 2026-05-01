@@ -18,20 +18,25 @@ import pytest
 
 @pytest.fixture
 def stub_broker(monkeypatch):
+    """Reuse the session-shared StubBroker installed by tests/v6/conftest.py.
+
+    Cycle-4 audit P1.1 fix: previously this fixture created a NEW
+    StubBroker per test, but the dramatiq actor decorators in
+    polaris_v6.queue.actors are bound to whatever broker exists at
+    first-import. Creating a fresh broker here breaks that binding and
+    raises `QueueNotFound: default` on broker.join().
+    """
     pytest.importorskip("dramatiq")
-    from dramatiq.brokers.stub import StubBroker
-    from dramatiq.worker import Worker
     import dramatiq
+    from dramatiq.worker import Worker
 
     monkeypatch.setenv("POLARIS_V6_QUEUE_USE_STUB", "1")
-    broker = StubBroker()
-    broker.emit_after("process_boot")
-    dramatiq.set_broker(broker)
+    broker = dramatiq.get_broker()
     worker = Worker(broker, worker_timeout=100)
     worker.start()
     yield broker, worker
     worker.stop()
-    broker.close()
+    # Don't close the broker — it's session-shared (see conftest.py).
 
 
 def test_scenario_1_enqueue_and_complete(stub_broker):

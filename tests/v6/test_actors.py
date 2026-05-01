@@ -18,12 +18,9 @@ import pytest
 
 pytest.importorskip("dramatiq")
 
-from polaris_v6.queue.broker import get_broker  # noqa: E402
-
-# Activate stub broker BEFORE importing actors so the @dramatiq.actor
-# decorator registers against the right broker.
-get_broker(use_stub=True)
-
+# Session-shared StubBroker is installed by tests/v6/conftest.py so the
+# @dramatiq.actor decorators in polaris_v6.queue.actors bind against the
+# SAME broker that the acceptance suite uses. (Cycle-4 audit P1.1 fix.)
 from polaris_v6.queue.actors import (  # noqa: E402
     ENQUEUE_MAX_RETRIES,
     cancel_research_run,
