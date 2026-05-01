@@ -1,0 +1,49 @@
+{
+  "template_id": "defense",
+  "template_name": "Defense & Arctic",
+  "summary": "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
+  "primary_domains": ["DND", "NORAD", "Privy Council Office", "RAND", "CDA Institute"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/department-national-defence.html",
+      "https://www.norad.mil",
+      "https://www.nato.int",
+      "https://www.dnd-mdn.gc.ca",
+      "https://www.cda-cdai.ca"
+    ],
+    "T2": [
+      "https://www.rand.org",
+      "https://www.csis.org",
+      "https://www.iiss.org",
+      "https://www.cgai.ca"
+    ],
+    "T3": [
+      "https://www.theglobeandmail.com",
+      "https://www.thestar.com",
+      "https://www.cbc.ca/news/politics"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "norad_modernization", "frame_name": "NORAD modernization (radar, JADC2, OTH)" },
+    { "frame_id": "arctic_sovereignty", "frame_name": "Arctic sovereignty + Northwest Passage" },
+    { "frame_id": "nato_burden_share", "frame_name": "NATO 2% GDP burden-sharing" },
+    { "frame_id": "industrial_base", "frame_name": "Defense industrial base + procurement" },
+    { "frame_id": "interoperability", "frame_name": "Five Eyes / AUKUS interoperability" }
+  ],
+  "refusal_patterns": [
+    "operational_security_violation",
+    "individual_recruitment_advice",
+    "weapons_acquisition_individual"
+  ],
+  "sample_questions": [
+    "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+    "What does the 2024 NORAD modernization announcement commit to on Arctic radar?",
+    "How does the Royal Canadian Navy frigate replacement timeline compare to the US FFG-62 program?",
+    "What policy options has Canada announced on undersea infrastructure protection in the Arctic since 2023?"
+  ],
+  "out_of_scope_examples": [
+    "How do I join the Canadian Armed Forces?",
+    "Should I buy Lockheed Martin stock?"
+  ]
+}
