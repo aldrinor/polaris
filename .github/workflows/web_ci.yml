@@ -1,0 +1,45 @@
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build

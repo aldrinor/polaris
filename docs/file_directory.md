@@ -241,3 +241,26 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 
 See `archive/2026-04-18-pre-audit-cleanup/docs/architecture_legacy_2026-01-31.md`
 for the document that described these now-deprecated concepts.
+
+## v6 backend skeleton (added 2026-05-01, Phase 0 Task 0.5)
+
+```
+src/polaris_v6/                     # POLARIS v6.2 backend
+├── __init__.py                     # __version__ = "6.2.0"
+├── api/
+│   ├── __init__.py                 # FastAPI router aggregation
+│   └── health.py                   # GET /health (liveness/readiness)
+├── observability/
+│   ├── __init__.py
+│   └── otel_init.py                # OTEL SDK init, fail-loudly on misconfig (Errata E-2)
+└── queue/
+    └── __init__.py                 # Dramatiq queue substrate (actors pending)
+
+tests/v6/
+├── __init__.py
+└── test_otel_init.py               # 4 tests: env missing | legacy gen_ai_dev rejected | correct value | csv list
+```
+
+`requirements-v6.txt` at repo root: pinned production dependencies for
+v6 (FastAPI 0.136, Pydantic 2.11, Dramatiq 2.1, OTEL 1.30, semconv
+0.51b0, pytest 8.4, ruff 0.7).

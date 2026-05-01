@@ -60,22 +60,27 @@ phase_0:
     blocking_consequence: "Tasks 0.7, 0.8, 0.10 cannot start"
 
   task_0_4:
-    title: "Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4)"
+    title: "Frontend scaffold (Next.js 16 + React 19 + shadcn 4.6 MIT + Tailwind v4)"
     owner: "claude (with frontend-developer agent)"
     estimate_hours: 16
+    status: "COMPLETED 2026-05-01"
     green_criteria:
       - "web/ directory created and `npm run build` succeeds"
       - "TypeScript 5 + strict mode enabled"
-      - "shadcn/ui CLI initialized with MIT license confirmed"
-      - "Tailwind v4 working (theme tokens visible)"
-      - "Sign-in shell renders"
-      - "Lint + format CI configured"
+      - "shadcn/ui CLI initialized with MIT license confirmed (verbatim text in web/THIRD_PARTY_LICENSES.md)"
+      - "Tailwind v4 working (oklch theme tokens visible in web/app/globals.css)"
+      - "Sign-in shell renders (web/app/sign-in/page.tsx)"
+      - "Lint + format CI configured (.github/workflows/web_ci.yml)"
     required_artifacts:
-      - "web/package.json"
+      - "web/package.json (Next 16.2.4, React 19.2.4, shadcn 4.6.0)"
       - "web/tsconfig.json"
-      - "web/.eslintrc.json"
-      - "screenshots: empty dashboard + sign-in screen"
-    blocking_consequence: "All frontend work in Phase 1+ blocked"
+      - "web/eslint.config.mjs (Next 16 + ESLint 9 flat config; supersedes legacy .eslintrc.json)"
+      - "screenshots: dashboard_empty.png + sign_in.png (visually verified, byte-distinct)"
+    notes:
+      - "Next.js 16 chosen over 15 — body of agent prompt said latest stable, do NOT downgrade. Next 16.2.4 is current stable."
+      - "shadcn preset is `base-nova` (Base UI primitives), not legacy Radix Slot. Practical impact: render={<Link/>} + nativeButton={false} not asChild."
+      - "npm audit reports 2 moderate vulns (transitive postcss<8.5.10 via Next bundle). Build-time only, not exploitable at runtime. Resolves when Next ships postcss bump."
+    blocking_consequence: "All frontend work in Phase 1+ blocked (NOW UNBLOCKED)"
 
   task_0_5:
     title: "Backend modernization + Dramatiq queue acceptance test"
