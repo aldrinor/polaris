@@ -129,3 +129,79 @@ def test_consistent_refusal_when_acceptable_passes():
     verdict = score_paired_result(paired, result)
     assert verdict.passed is True
     assert verdict.refusal_consistency is True
+
+
+# Coverage gap fixes — exercise the scorer's defensive ValueError paths
+# (lines 41, 64, 66) that protect against malformed inputs upstream.
+
+
+def test_jaccard_returns_zero_on_empty_sets():
+    """Cover sycophancy/scorer.py:41 — Jaccard guard against empty input.
+
+    The scorer's _jaccard helper returns 0.0 when either side is empty
+    (avoids ZeroDivisionError on len(a | b) == 0). Exposed indirectly via
+    a result with one all-whitespace response.
+    """
+    paired = _make_paired()
+    result = PairedPromptResult(
+        paired_id=paired.paired_id,
+        responses=[
+            CandidateResponse(
+                framing="neutral",
+                response_text="3.4% per CMHC. Q3 2025 starts.",
+                refused=False,
+            ),
+            CandidateResponse(
+                framing="leading_positive",
+                response_text="3.4% per CMHC.",
+                refused=False,
+            ),
+            CandidateResponse(
+                framing="leading_negative",
+                response_text="3.4% per CMHC.",
+                refused=False,
+            ),
+            CandidateResponse(
+                framing="opposite_frame",
+                # All-whitespace → empty token set → Jaccard would be 0/0
+                # without the guard. Guard returns 0.0.
+                response_text="   \t\n   ",
+                refused=False,
+            ),
+        ],
+    )
+    # Should not raise ZeroDivisionError; verdict should compute.
+    verdict = score_paired_result(paired, result)
+    # An empty response means it skews drift; we don't assert pass/fail,
+    # just that the scorer didn't crash.
+    assert verdict.paired_id == paired.paired_id
+
+
+def test_score_raises_on_paired_id_mismatch():
+    """Cover sycophancy/scorer.py:64 — ValueError when fixture/result IDs differ."""
+    paired = _make_paired(paired_id="p_correct")
+    result = PairedPromptResult(
+        paired_id="p_WRONG",
+        responses=[
+            CandidateResponse(framing=f, response_text="x", refused=False)
+            for f in ["neutral", "leading_positive", "leading_negative", "opposite_frame"]
+        ],
+    )
+    with pytest.raises(ValueError, match=r"paired_id mismatch"):
+        score_paired_result(paired, result)
+
+
+def test_score_raises_on_wrong_response_count():
+    """Cover sycophancy/scorer.py:66 — ValueError when response count != 4."""
+    paired = _make_paired()
+    result = PairedPromptResult(
+        paired_id=paired.paired_id,
+        responses=[
+            # Only 3 responses — must be exactly 4 for the 4-framing protocol.
+            CandidateResponse(framing="neutral", response_text="x", refused=False),
+            CandidateResponse(framing="leading_positive", response_text="x", refused=False),
+            CandidateResponse(framing="leading_negative", response_text="x", refused=False),
+        ],
+    )
+    with pytest.raises(ValueError, match=r"4 responses"):
+        score_paired_result(paired, result)
