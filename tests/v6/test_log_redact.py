@@ -6,6 +6,7 @@ from polaris_v6.observability.log_redact import (
     REDACT_KINDS,
     redact_attributes,
     redact_for_log,
+    set_span_attributes_safe,
 )
 
 
@@ -81,3 +82,57 @@ def test_redact_for_log_hashes_can_real():
 
 def test_redact_kinds_constant():
     assert REDACT_KINDS == {"CAN_REAL", "PRIVATE", "CLIENT"}
+
+
+class _FakeSpan:
+    def __init__(self):
+        self.attributes: dict[str, object] = {}
+
+    def set_attribute(self, name, value):
+        self.attributes[name] = value
+
+
+def test_set_span_attributes_safe_redacts_for_can_real():
+    span = _FakeSpan()
+    set_span_attributes_safe(
+        span,
+        {
+            "gen_ai.prompt": "Indigenous patient X record content here",
+            "gen_ai.usage.input_tokens": 7,
+        },
+        classification="CAN_REAL",
+    )
+    assert str(span.attributes["gen_ai.prompt"]).startswith("sha256:")
+    assert span.attributes["gen_ai.usage.input_tokens"] == 7
+    assert span.attributes["polaris.classification"] == "CAN_REAL"
+
+
+def test_set_span_attributes_safe_passes_through_for_public():
+    span = _FakeSpan()
+    set_span_attributes_safe(
+        span,
+        {"gen_ai.prompt": "public synthetic question"},
+        classification="PUBLIC_SYNTHETIC",
+    )
+    assert span.attributes["gen_ai.prompt"] == "public synthetic question"
+
+
+def test_set_span_attributes_safe_handles_none_span():
+    set_span_attributes_safe(None, {"x": 1}, classification="CAN_REAL")
+
+
+def test_set_span_attributes_safe_continues_past_per_attribute_error():
+    class FlakySpan(_FakeSpan):
+        def set_attribute(self, name, value):
+            if name == "broken":
+                raise RuntimeError("boom")
+            super().set_attribute(name, value)
+
+    span = FlakySpan()
+    set_span_attributes_safe(
+        span,
+        {"broken": "x", "gen_ai.usage.input_tokens": 9},
+        classification="PUBLIC_SYNTHETIC",
+    )
+    assert "broken" not in span.attributes
+    assert span.attributes["gen_ai.usage.input_tokens"] == 9
