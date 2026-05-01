@@ -15,6 +15,12 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
   timeout: 30_000,
   fullyParallel: false, // single browser instance to keep memory bounded on dev
   retries: 0,

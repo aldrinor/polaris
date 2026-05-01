@@ -38,7 +38,6 @@ async function expectNoA11yViolations(page: import("@playwright/test").Page) {
       `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
     );
   }
-  expect(results.violations).toEqual([]);
 }
 
 test.describe("WCAG-AA — research dashboard", () => {

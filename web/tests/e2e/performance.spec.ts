@@ -4,14 +4,20 @@ import { expect, test, type Page } from "@playwright/test";
  * Phase 2C.4 — performance gates.
  *
  * Each test measures one user-facing latency budget against the live build.
- * Targets are deliberately loose-but-meaningful: we want regressions to fail
- * the gate, not flaky perf numbers from a busy CI runner.
+ * Budgets follow the rule `max(2 × baseline_observed, hard_floor)` — tight
+ * enough to catch a 2-3x regression, loose enough not to flake on a busy
+ * CI runner. F-3 fix from outputs/audits/continuous/4fe03f7_audit.md
+ * tightened these from the original 2x-5x slack baselines.
  *
  * Budgets:
- *   - Inspector cold load → DOMContentLoaded < 2.0s
- *   - Inspector tab switch → first paint of new tab < 250ms
- *   - Hover → tooltip-visible after open-delay completes < 1.0s (cap on open-delay)
- *   - Charts tab → first Vega SVG inserted in DOM < 2.5s
+ *   - Inspector cold load → DOMContentLoaded < 1000ms (observed: ~270-450ms)
+ *   - Inspector tab switch → click-to-content < 250ms (observed: ~100ms)
+ *   - Charts tab → first Vega SVG inserted in DOM < 2000ms (observed: ~1.0s)
+ *   - Inspector first contentful paint < 800ms (observed: ~400ms)
+ *
+ * Hover-latency budget is measured separately in
+ * `tests/e2e/performance_hover.spec.ts` (instruments PerformanceMark on
+ * mouseenter → [role="tooltip"] visible).
  */
 
 async function measureLoadMs(page: Page, url: string): Promise<number> {
@@ -21,14 +27,14 @@ async function measureLoadMs(page: Page, url: string): Promise<number> {
 }
 
 test.describe("Performance — Inspector cold load", () => {
-  test("DOMContentLoaded < 2000ms on golden_clinical_001", async ({ page }) => {
+  test("DOMContentLoaded < 1000ms on golden_clinical_001", async ({ page }) => {
     const loadMs = await measureLoadMs(page, "/inspector/golden_clinical_001");
-    expect(loadMs).toBeLessThan(2000);
+    expect(loadMs).toBeLessThan(1000);
   });
 
-  test("DOMContentLoaded < 2000ms on golden_climate_005", async ({ page }) => {
+  test("DOMContentLoaded < 1000ms on golden_climate_005", async ({ page }) => {
     const loadMs = await measureLoadMs(page, "/inspector/golden_climate_005");
-    expect(loadMs).toBeLessThan(2000);
+    expect(loadMs).toBeLessThan(1000);
   });
 });
 
@@ -41,11 +47,12 @@ test.describe("Performance — Inspector tab switch latency", () => {
 
     const start = Date.now();
     await tab.click();
-    // The verified-sentences tab renders provenance tokens; wait for one to
-    // be visible as proof the tab has actually painted.
+    // F-4: wait timeout > budget so a slow render surfaces as a budget
+    // failure (`expected < 250, got ${switchMs}`) rather than a misleading
+    // locator-timeout.
     await page.locator("text=/\\[#ev:ev_clin_001:1200-1450\\]/").first().waitFor({
       state: "visible",
-      timeout: 1_000,
+      timeout: 5_000,
     });
     const switchMs = Date.now() - start;
     expect(switchMs).toBeLessThan(250);
@@ -61,7 +68,7 @@ test.describe("Performance — Inspector tab switch latency", () => {
     await tab.click();
     await page.getByText(/noted_both/).first().waitFor({
       state: "visible",
-      timeout: 1_000,
+      timeout: 5_000,
     });
     const switchMs = Date.now() - start;
     expect(switchMs).toBeLessThan(250);
@@ -69,7 +76,7 @@ test.describe("Performance — Inspector tab switch latency", () => {
 });
 
 test.describe("Performance — Charts tab first SVG", () => {
-  test("Charts tab Vega-Lite SVG appears < 2500ms", async ({ page }) => {
+  test("Charts tab Vega-Lite SVG appears < 2000ms", async ({ page }) => {
     await page.goto("/inspector/golden_climate_005", {
       waitUntil: "networkidle",
     });
@@ -77,14 +84,14 @@ test.describe("Performance — Charts tab first SVG", () => {
 
     const start = Date.now();
     await tab.click();
-    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 2_500 });
+    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 5_000 });
     const renderMs = Date.now() - start;
-    expect(renderMs).toBeLessThan(2500);
+    expect(renderMs).toBeLessThan(2000);
   });
 });
 
 test.describe("Performance — page-load Web Vitals", () => {
-  test("Inspector first contentful paint < 1500ms after navigation", async ({
+  test("Inspector first contentful paint < 800ms after navigation", async ({
     page,
   }) => {
     await page.goto("/inspector/golden_clinical_001", { waitUntil: "load" });
@@ -116,6 +123,6 @@ test.describe("Performance — page-load Web Vitals", () => {
       });
     });
     expect(fcpMs).toBeGreaterThanOrEqual(0);
-    expect(fcpMs).toBeLessThan(1500);
+    expect(fcpMs).toBeLessThan(800);
   });
 });
