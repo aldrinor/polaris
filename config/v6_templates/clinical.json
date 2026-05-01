@@ -1,0 +1,48 @@
+{
+  "template_id": "clinical",
+  "template_name": "Clinical drug audit",
+  "summary": "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical-trial registries.",
+  "primary_domains": ["Health Canada", "FDA", "EMA", "ClinicalTrials.gov", "PubMed"],
+  "source_tiers": {
+    "T1": [
+      "https://www.canada.ca/en/health-canada.html",
+      "https://www.fda.gov/drugs",
+      "https://www.ema.europa.eu",
+      "https://clinicaltrials.gov",
+      "https://pubmed.ncbi.nlm.nih.gov"
+    ],
+    "T2": [
+      "https://www.cochranelibrary.com",
+      "https://www.bmj.com",
+      "https://jamanetwork.com",
+      "https://www.thelancet.com"
+    ],
+    "T3": [
+      "https://www.medscape.com",
+      "https://www.statnews.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "efficacy", "frame_name": "Efficacy outcomes (primary endpoints)" },
+    { "frame_id": "safety", "frame_name": "Safety / adverse events" },
+    { "frame_id": "labelling", "frame_name": "Regulatory labelling deltas" },
+    { "frame_id": "post_market", "frame_name": "Post-market surveillance signals" },
+    { "frame_id": "subgroup", "frame_name": "Subgroup analyses + heterogeneity" }
+  ],
+  "refusal_patterns": [
+    "clinical_treatment_recommendation",
+    "individual_drug_dose_advice",
+    "off_label_endorsement"
+  ],
+  "sample_questions": [
+    "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    "How did the FDA labelling for atorvastatin change between 2020 and 2025?",
+    "What are the post-market safety signals for SGLT2 inhibitors in elderly patients?",
+    "What does Cochrane say about HRT and breast cancer risk in postmenopausal women?"
+  ],
+  "out_of_scope_examples": [
+    "Should I take ozempic for my diabetes?",
+    "What dose of atorvastatin should my mother take?"
+  ]
+}

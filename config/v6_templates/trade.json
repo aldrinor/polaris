@@ -1,0 +1,50 @@
+{
+  "template_id": "trade",
+  "template_name": "Trade & tariff",
+  "summary": "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
+  "primary_domains": ["Global Affairs Canada", "USTR", "WTO", "StatCan", "Bank of Canada"],
+  "source_tiers": {
+    "T1": [
+      "https://www.international.gc.ca",
+      "https://ustr.gov",
+      "https://www.wto.org",
+      "https://www150.statcan.gc.ca",
+      "https://www.bankofcanada.ca"
+    ],
+    "T2": [
+      "https://www.cdhowe.org",
+      "https://www.cigionline.org",
+      "https://www.peterson.ie",
+      "https://www.brookings.edu",
+      "https://www.csis.org"
+    ],
+    "T3": [
+      "https://www.theglobeandmail.com",
+      "https://www.bnnbloomberg.ca",
+      "https://www.reuters.com"
+    ]
+  },
+  "min_sources_per_tier": { "T1": 3, "T2": 2, "T3": 0 },
+  "frame_manifest": [
+    { "frame_id": "tariff_exposure", "frame_name": "Sector-level tariff exposure" },
+    { "frame_id": "cusma_disputes", "frame_name": "CUSMA dispute resolution" },
+    { "frame_id": "supply_chain", "frame_name": "Supply-chain resilience + reshoring" },
+    { "frame_id": "trade_flows", "frame_name": "Bilateral trade-flow trends" },
+    { "frame_id": "retaliation", "frame_name": "Retaliation scenarios + exposed sectors" }
+  ],
+  "refusal_patterns": [
+    "individual_business_advice",
+    "specific_company_endorsement",
+    "investment_recommendation"
+  ],
+  "sample_questions": [
+    "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+    "How has CUSMA dispute settlement evolved since 2022 across dairy and softwood lumber?",
+    "What are Canada's IRA Section 30D EV-credit eligibility risks in 2025?",
+    "How exposed is Ontario's auto sector to a 25% reciprocal US tariff?"
+  ],
+  "out_of_scope_examples": [
+    "Should I move my supply chain to Mexico?",
+    "Which steel stock should I buy?"
+  ]
+}
