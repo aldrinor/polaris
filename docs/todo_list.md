@@ -1,112 +1,105 @@
-# POLARIS Todo List
+# POLARIS Todo List — v6.2 Carney Delivery
 
-**Last Updated:** 2026-04-29 (canonical roadmap GREEN-signed by
-Claude+Codex, 3 review rounds, locked at `docs/full_online_plan_FINAL.md`)
+**Last Updated:** 2026-05-01 (v6.2 plan Codex GREEN; previous full_online_plan_FINAL superseded)
 
-## ACTIVE: From-today-to-fully-online integration autoloop
+**Canonical plan:** `docs/carney_delivery_plan_FINAL.md` (v6.2 — substrate-aware, frontier-comparable)
+**Codex Red-Team Checklist:** `.codex/codex_red_team_checklist.md`
+**Per-task acceptance matrix:** `docs/task_acceptance_matrix.yaml`
+**Substrate audit:** `docs/substrate_audit_2026-05-01.md`
+**Triangle loop protocol:** `memory/autoloop_v2_audit_cross_review.md`
 
-The canonical plan is `docs/full_online_plan_FINAL.md` (Claude+Codex
-v4 GREEN). Todo items below are sequenced per that plan. Every
-milestone runs through the Claude+Codex autoloop:
+## Mission
 
-  1. Claude builds the integration → commits
-  2. Claude writes a Codex review brief
-  3. Codex reviews → emits GREEN | PARTIAL | BLOCKED
-  4. If PARTIAL: integrate findings → re-review (no human needed)
-  5. If GREEN: lock + move to next milestone (no human needed)
-  6. If BLOCKED: pause + flag user (the only human-intervention case)
+Deliver sovereign Canadian deep research AI to Mark Carney as a gift. Match or beat ChatGPT 5.5 Pro DR + Gemini 3.1 Pro DR on every user-facing function. Substrate is ~80% built (270 Python files, 47 audit_ir modules, 113 prior milestones); the build is "expose + fix + sovereign migrate + 10 genuinely-new pieces."
 
-Stop conditions per `feedback_autoloop_default_behavior.md` /
-`feedback_dont_pause_autoloop.md`:
-- BLOCKED verdict from Codex (substantive impossibility)
-- Asymptote: 5+ codex rounds with no convergence on the same surface
-- Primary-source conflict (Codex finds something contradicting locked memory)
-- Cost concern (per-day OpenRouter spend exceeds budget)
+**Timeline**: 18 weeks (May 1 → Sep 6).
+**Budget**: $32-70k external cash ceiling.
 
-Otherwise the autoloop continues without per-round confirmation.
+## Active: Phase 0 — Foundation (May 1-12, 2026, 8 business days)
 
----
+All 10 tasks must GREEN before Phase 1 starts.
 
-## Phase E0 — Observability & repro prerequisites
+- [ ] **0.1** Blocker decisions written + paid sample evaluator sourcing initiated (mandatory; for Phase 3 benchmark legitimacy)
+- [ ] **0.2** Architecture pattern adoption doc (no MiroThinker fork) + license scan
+- [ ] **0.3** Vast.ai US 4× H100 dev cluster operational (V4 Flash via SGLang/vLLM)
+- [ ] **0.4** Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4 + TypeScript 5)
+- [ ] **0.5** Backend modernization (FastAPI 0.136.x + Pydantic v2 + Dramatiq queue acceptance test)
+- [ ] **0.6** DeepSeek V4 hardware Path A/B/C decision committed (default Path C V4 Flash only)
+- [ ] **0.7** SGLang vs vLLM bakeoff → one engine frozen for entire build
+- [ ] **0.8** Gemma 4 31B verification (model card + license + serving recipe)
+- [ ] **0.9** OVH Canada BHS H200 verification (HARD GATE) or backup procurement initiated
+- [ ] **0.10** OpenTelemetry wired (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev`, semconv 1.30.0-dev pinned)
 
-| ID | Milestone | Days | Rollback flag | Status |
-|---|---|---:|---|---|
-| **M-INT-0a** | Decision telemetry recording (M-D3 → production) | 2-3 | `PG_RECORD_DECISIONS` | **NEXT** |
-| M-INT-0b | Pin capture on every run (M-D11 → production) | 2-3 | `PG_CAPTURE_PIN` | pending |
+## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31, 3 weeks)
 
-## Phase E1 — Data-plane integration
+- [ ] **1.1** F1 scope discovery panel in Next.js frontend
+- [ ] **1.2** F2 ambiguity detector backend (HDBSCAN clustering on candidate embeddings) + disambiguation modal UI
+- [ ] **1.3** F3a backend wiring of document_ids into graph_v4 evidence pool (the biggest hidden work)
+- [ ] **1.4** **Evidence Contract Gate** — canonical JSON schema + golden corpus + sample artifact
+- [ ] **1.5** F3b drag-drop upload UI + parse status + chunk preview + sovereignty router
+- [ ] **1.6** F15 audit bundle export with embedded source spans (legal review in parallel)
+- [ ] **1.7** Sycophancy + refusal CI suite (paired prompts neutral/leading/opposite-frame)
+- [ ] **1.8** End-of-Phase 1 walkthrough (3 evaluators)
 
-| ID | Milestone | Days | Rollback flag | Status |
-|---|---|---:|---|---|
-| M-INT-1 | Parallel fetch into live_retriever | 3 | `PG_USE_PARALLEL_FETCH` | pending |
-| M-INT-2 | Cache + cache-warming around sweep | 3 | `PG_USE_CACHE_WARMING` | pending |
-| M-INT-3 | Freshness detector + eviction | 4 | `PG_USE_FRESHNESS_DETECTOR` | pending |
+## Phase 2A — Core inspection (June 1-21, 3 weeks)
 
-## Phase E2 — Decision-plane integration
+- [ ] **2A.1** F4 live audit run UI consuming SSE (5 user-question affordances)
+- [ ] **2A.2** F5 generalized Inspector view 1 (click-to-evidence for ANY user-submitted run)
+- [ ] **2A.3** F7 frame coverage panel above-the-fold
+- [ ] **2A.4** F8 contradiction navigation (badges + side pane + T1-vs-T1 handling)
+- [ ] **2A.5** F9 two-family disagreement signal surfacing
+- [ ] **2A.6** Templates 4-5 added (defense, climate) — content + eval set + smoke test
+- [ ] **2A.7** End-of-Phase 2A walkthrough
 
-| ID | Milestone | Days | Rollback flag | Status |
-|---|---|---:|---|---|
-| M-INT-4 | OpenRouter ScopeAffinityLLM | 3 | `PG_USE_LLM_SCOPE` | pending |
-| M-INT-5 | Domain router into live retrieval | 4 | `PG_USE_DOMAIN_ROUTER` | pending |
+## Phase 2B — Visualization + memory + replay (June 22 - July 12, 3 weeks)
 
-## Phase E3 — Auto-induction surfacing
+- [ ] **2B.1** F6 live citation overlay (basic hover-card MVP — Perplexity-grade lifted to v2.5)
+- [ ] **2B.2** F10a Vega-Lite renderer (forest plot + comparison table + timeline = 3 chart types)
+- [ ] **2B.3** F10b chart provenance schema + click-through-to-source-data
+- [ ] **2B.4** F10c executive-summary infographic
+- [ ] **2B.5** F13 pin replay UI + "what changed" diff
+- [ ] **2B.6** F14 auditable research memory (workspace_memory → Chroma migration + memory controls UI)
+- [ ] **2B.7** End-of-Phase 2B walkthrough
 
-| ID | Milestone | Days | Rollback flag | Status |
-|---|---|---:|---|---|
-| M-INT-6 | LLMAugmentedInductor in operator-review queue + M-D1 CI | 3-4 | `PG_USE_AUTO_INDUCTION` | pending |
+## Phase 2C — UI polish + integration (July 13-19, 1 week)
 
-## Phase E4 — Late Phase C wiring
+- [ ] **2C.1** Cross-feature integration testing
+- [ ] **2C.2** Visual regression baseline established
+- [ ] **2C.3** Cross-browser (Chromium/Firefox/WebKit) verification
+- [ ] **2C.4** Performance optimization (long-report hover-latency <100ms target)
+- [ ] **2C.5** Accessibility audit (WCAG-AA pass)
+- [ ] **2C.6** End-of-Phase 2C walkthrough on full feature set
 
-| ID | Milestone | Days | Rollback flag | Status |
-|---|---|---:|---|---|
-| M-INT-7 | M-NEW billing/quota gating | 3 | `PG_ENFORCE_QUOTA` | pending |
-| M-INT-8 | M-22 slide deck endpoint | 2 | `PG_USE_SLIDE_DECK_EXPORT` | pending |
-| M-INT-9 | M-26 contract drafting endpoint | 2 | `PG_USE_CONTRACT_DRAFTING` | pending |
-| M-INT-10 | M-25 Drive connector v2 | 3 | `PG_USE_DRIVE_CONNECTOR` | pending |
-| M-INT-11 | M-24 customer support tickets | 2 | `PG_USE_SUPPORT_TICKETS` | pending |
+## Phase 3 — Follow-up + benchmark (July 20 - Aug 9, 3 weeks)
 
-## Phase F — End-to-end live audit + BEAT-BOTH
+- [ ] **3.1** F11 report-scoped auditable follow-up agent
+- [ ] **3.2** F12 side-by-side compare two reports
+- [ ] **3.3** Templates 6-8 added (AI sovereignty, Canada-US, workforce)
+- [ ] **3.4** Benchmark suite design (50 questions × 8 templates × 4 systems × 6 dimensions)
+- [ ] **3.5** Run benchmark + paid sample evaluator scoring (mandatory)
+- [ ] **3.6** Sycophancy stress-test report
+- [ ] **3.7** Industry benchmark suite run (BrowseComp, GAIA, DeepResearch Bench)
+- [ ] **3.8** Proof package PDF for Carney's office
 
-| ID | Milestone | Days | Status |
-|---|---|---:|---|
-| M-LIVE-1 | V19 single-query end-to-end smoke | 3 | pending |
-| M-LIVE-2 | BEAT-BOTH head-to-head vs ChatGPT/Gemini DR | 5 | pending |
-| M-LIVE-3 | Operator dashboard (Inspector aggregates) | 4 | pending |
-| M-LIVE-4 | M-D9 regression-lab CI gate | 1 | pending |
+## Phase 4 — Sovereign migration (Aug 10-23, 2 weeks)
 
-## Phase G — Close BEAT-BOTH gaps (indeterminate, 4-8 weeks)
+- [ ] **4.1** Provision Canadian sovereign cluster per Phase 0 hardware decision
+- [ ] **4.2** Migrate vLLM/SGLang serving + DeepSeek V4 weights + Gemma 4 evaluator
+- [ ] **4.3** Wire auto-scale: warm pool + spin-up via API on queue depth ≥3
+- [ ] **4.4** Re-run benchmark on sovereign cluster (no regression)
+- [ ] **4.5** Handover package documentation
 
-Each dimension where V_N is BEHIND or BEAT-ONE → concrete fix
-milestone. Likely candidates (not yet milestoned, named after
-M-LIVE-2 verdict surfaces actual gaps):
-- dim 1 (unique_citations) — connector expansion + concurrency tuning
-- dim 2 (regulatory_coverage) — V34 expansion + M-D6 phase 2 adapters
-- dim 6 (contradiction_handling_grammar) — synthesizer hedging upgrade
-- dim 7 (narrative_length) — synthesis capacity tuning
+## Phase 4.5 — Buffer (Aug 24-30, 1 week)
 
-## Phase H — Production hardening + pilot launch
+- [ ] **4.5.1** Address Phase 4 walkthrough findings
 
-| ID | Milestone | Days | Status |
-|---|---|---:|---|
-| M-PROD-1 | SOC2 dry-run + remediation | 10 | pending |
-| M-PROD-2 | First paying pilot customer | 5 | pending |
-| M-PROD-3 | Production observability | 5 | pending |
-| M-PROD-4 | Public release notes + supported-scope page | 2 | pending |
+## Phase 5 — Carney handover (Aug 31 - Sep 6, 1 week)
 
----
+- [ ] **5.1** Final user walkthrough with full corpus, recorded
+- [ ] **5.2** Final Codex sweep all 10 crown jewels + all flows
+- [ ] **5.3** Carney handover package (one-pager + 5-min video + URL + bundle)
+- [ ] **5.4** Schedule + execute handover with Carney's office
 
-## Total ETA
-
-84-115 engineering days = **14-23 calendar weeks** to fully online +
-tier-1 BEAT-BOTH parity + first paying pilot.
-
-## Acceptance bar (every Phase E milestone)
-
-Codex verifies all 4:
-1. Substrate is **imported** by the named production file (grep)
-2. Substrate is **invoked** at the import site (grep)
-3. **Run-log evidence**: real run shows non-zero invocation count
-4. **Rollback flag** actually disables the new path
-
-"Imported but unused" doesn't pass. Locked memory rule:
-`feedback_substrate_is_not_product.md`.
+## Superseded by v6 (no longer pending)
+- ~~Phase D: Top-tier — auto-induction + faster audit + governance~~ (replaced by v6 phase plan)
+- ~~M-PROD-2: First paying pilot customer~~ (replaced by Carney handover; no commercial pilot)

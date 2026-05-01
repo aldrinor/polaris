@@ -319,9 +319,41 @@ Every feature passes ALL of these gates:
 | Layer 3 walkthrough | Product-owner (user) + paid sample evaluator (Phase 3) | Recorded fresh-state, async-reviewed |
 | Fixture governance + flake budget | Test infra discipline | Flake rate <2%; fixtures versioned and refreshed quarterly |
 
-## Codex loop discipline (unchanged from FINAL+5)
+## Per-task triangle loop (Claude ⇄ Codex ⇄ artifact)
 
-Same per-task workflow + escalation rules + structured manifest + Codex Red-Team Checklist. See `.codex/codex_red_team_checklist.md`.
+**This is the autoloop V2 protocol** from `memory/autoloop_v2_audit_cross_review.md`. Per-task execution follows the triangle: Claude builds, Claude self-audits, Codex independently audits, both cross-review, gate adjudicates, fix plan classified root_cause vs band_aid, codex reviews plan, implement, codex code-audits, loop.
+
+**Per-task workflow (TRIANGLE LOOP, replaces v5 single-reviewer pattern):**
+
+1. **Brief**: `.codex/task_<id>_review_brief.md` (Claude writes, declares acceptance criteria + adversarial inputs)
+2. **Build**: Claude implements per brief
+3. **Self-test**: Claude runs unit + integration + Playwright + accessibility + sovereignty + anti-sycophancy gates from the test matrix
+4. **Claude self-audit**: `outputs/audits/task_<id>/claude_audit.md` — line-by-line vs acceptance criteria + adversarial corpus + match-or-beat bar; concrete evidence per finding
+5. **Codex independent audit**: `outputs/audits/task_<id>/codex_audit.md` — using Red-Team Checklist; concrete evidence per finding (no metadata-only verdicts; no intent-adjudication)
+6. **Cross-review**: each adjudicates the other in `outputs/audits/task_<id>/cross_review.md`. Disagreements surfaced with concrete evidence.
+7. **Gate**: BOTH GREEN → ship task. Lower verdict controls if cross-review can't disprove with concrete evidence.
+8. **If continue: fix plan** in `outputs/audits/task_<id>/fix_plan.md`. Each item tagged `root_cause` / `guardrail_only` / `band_aid`. **band_aid = always RED.** guardrail_only passes only paired with upstream root_cause.
+9. **Codex plan review**: `outputs/audits/task_<id>/codex_plan_review.md` — band-aid-vs-root-cause check. GREEN → implement. RED → revise plan.
+10. **Implement fix → loop back to step 4** (re-audit, cross-review, gate)
+11. **Walkthrough** (UI/flow tasks): user (product-owner) runs in fresh browser within 48h, recording → BLOCKED if missed. Phase 3 paid sample evaluator blind-scores benchmark slice.
+12. **Doc updates** (mandatory before commit): todo, file_directory, plan, session_log, restart_instructions, handover, memory if applicable, structured manifest.json
+13. **Git**: branch + commit + PR + GitHub merge on triangle GREEN + walkthrough.
+14. **Auto-resume next task** without user "go" if (a) no halt triggered, (b) prior task triangle GREEN, (c) walkthrough recorded within 48h.
+
+**Halt conditions (hardcoded):**
+- 24h wall-clock per task
+- $100 per-task spend cap
+- Dimension regression auto-halt
+- Repeated-root-cause 2-cycle halt
+- Cross-review-integrity halt (e.g., Codex won't engage with concrete evidence)
+- Same P1 finding twice across cycles → escalate
+- Acceptance criterion changed mid-task → RED
+
+**Concrete evidence rule**: every verdict (Claude or Codex) must cite POLARIS-output line + competitor-line OR test-output line + source URL where applicable. No "the generator intended to..." adjudication.
+
+**Codex Red-Team Checklist** (`.codex/codex_red_team_checklist.md`) is the structured-manifest input Codex uses for step 5. Independent of Claude's brief.
+
+This protocol is hardened from autoloop V2 (2026-04-21 user directive). The previous v5 plan used a degraded single-reviewer pattern. v6 corrects.
 
 ## Realistic budget — external cash ceiling
 

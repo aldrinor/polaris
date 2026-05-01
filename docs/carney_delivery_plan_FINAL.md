@@ -1,344 +1,401 @@
-# POLARIS Carney Delivery — Final Plan
+# POLARIS Carney Delivery Plan v6 — substrate-aware, frontier-comparable
 
-**Status:** FINAL — consolidates v5 + v5.1 redlines + v5.2 surgical redlines + all user decisions through 2026-05-01.
+**Status:** v6 DRAFT — anchored on actual codebase audit, not greenfield assumption.
 **Date:** 2026-05-01.
-**Supersedes:** `docs/carney_delivery_plan_v5_draft.md`, `docs/carney_delivery_plan_v5_1_redline.md`, all earlier shippable plan versions.
-**Mission:** From today (May 1, 2026) to a working sovereign Canadian deep research AI delivered to Mark Carney as a gift to Canada.
+**Supersedes:** all earlier plan versions including FINAL+5.
+**Mission:** From today to a working sovereign Canadian deep research AI delivered to Mark Carney that **matches or beats ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR** on every user-facing function and feature.
 
 ---
 
-## North star
+## Anchor: codebase audit
 
-POLARIS Canada — a sovereign, audit-traceable, refusal-aware deep research agent that:
-- Runs cognition entirely on Canadian-controlled hardware (brainless services may use US providers)
-- Matches or beats ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR on the dimensions Canada cares about (audit trace, refusal honesty, contradiction surfacing, sovereignty, no sycophancy)
-- Surfaces all 10 crown jewels in the UI
-- Hands to Mark Carney as a gift, no profit, no contract — Carney decides what Canada does with it
+Read `docs/substrate_audit_2026-05-01.md` first. Headline: 270 Python files, 47 audit_ir modules, 123 routes, 113 completed milestones. **~80% of frontier-product capabilities are already built; not exposed in modern UI.**
 
-**Marketing claim**: *audit-traceable, refusal-aware, locally deployable.* Not "live reasoning at every step" — that's a v2.5 stretch.
+Genuinely-missing builds (not greenfield, but real new work):
+1. Modern Next.js 15 + React 19 + shadcn/ui frontend that surfaces existing endpoints
+2. Sovereign vLLM cluster running DeepSeek V4 (replace OpenRouter cognition path)
+3. Ambiguity detector for BPEI-class queries
+4. Anti-sycophancy CI suite (paired-prompt evaluation per ELEPHANT/SycEval methodology)
+5. Evidence Contract Gate (canonical JSON schema for run artifact)
+6. Live citation overlay (Perplexity-grade hover-tooltip with quote)
+7. Inline visual rendering (Vega-Lite consuming `smart_art_generator.py` output)
+8. Conversational follow-up on completed reports
+9. Side-by-side compare two reports
+10. 5 new templates (defense, climate, AI sovereignty, Canada-US, workforce) — content work
 
-## The 10 crown jewels — all in scope
+Plus operational hardening:
+- Sovereignty enforcement (code-level data classification + provider routing)
+- Hardware Path A/B/C selection + on-demand spin-up
+- Mandatory paid sample evaluator for Phase 3
+- Exhaustive Playwright e2e + visual testing per feature
+- Per-task Codex Red-Team review
 
-| # | Crown jewel |
-|---|---|
-| 1 | Audit-traceability (per-sentence evidence binding) |
-| 2 | Refusal-with-explanation (BPEI prevention) |
-| 3 | Click-through audit on every claim |
-| 4 | Contradictions surfaced and navigable |
-| 5 | Frame coverage as lead, not appendix |
-| 6 | Two-family disagreement signal |
-| 7 | Reproducibility / pin replay UI |
-| 8 | Source admissibility decision tree |
-| 9 | Python execution on retrieved data |
-| 10 | Provenance bundle as deliverable |
+## North star, sharpened
 
-## 8 templates spanning Carney's priorities — explicit content calendar (Codex redline #5)
+POLARIS Canada must:
 
-| # | Template | Carney priority served | Content week | Owner | Acceptance packet |
-|---|---|---|---|---|---|
-| 1 | **Clinical drug audit** (existing — tirzepatide T2D) | Healthcare / pharmacare debate | Phase 0 (refresh only) | user + Claude | refreshed packet: existing charter audited, source policy verified, 10 example queries verified, 15-question eval set added if missing, smoke test re-run. Template 1 is NOT exempt from packet standard — existing artifacts are validated against it. |
-| 2 | **Trade & tariff impact analysis** | Trump tariffs / USMCA July 1 deadline | Phase 0-1 (week 1-2) | user + Claude | charter, source policy, 10 example queries, 15-question eval set, smoke test |
-| 3 | **Housing supply & productivity policy** | 500,000 homes/year + 0.7% GDP | Phase 1 (week 2-3) | user + Claude | same packet |
-| 4 | **Defense / Arctic / NATO** | $40B+ Northern plan | Phase 2 week 1 | user + Claude | same packet |
-| 5 | **Climate & energy policy** | Carney's climate plan | Phase 2 week 2 | user + Claude | same packet |
-| 6 | **AI / tech / data sovereignty** | Digital Sovereignty Framework | Phase 2 week 3 | user + Claude | same packet |
-| 7 | **Canada-US economic & security partnership** | New partnership progress area | Phase 2 week 4 | user + Claude | same packet |
-| 8 | **Skilled trades & workforce policy** | $8k apprenticeship coverage | Phase 3 week 1 | user + Claude | same packet |
-
-**Content calendar is parallel to engineering** — templates aren't "incidental Phase 2-3 polish." Each template has its own dedicated content-week with explicit owner + acceptance packet (charter / source policy / 10 example queries / 15-question eval set / smoke test passing through pipeline).
-
-Per-template acceptance gate: Codex reviews the packet; user signs off; smoke test of 5 queries passes through the pipeline. Template not "delivered" until packet complete.
-
-Templates 1-3 lock in Phase 0-1. Templates 4-8 in Phase 2-3 with explicit content-weeks.
-
-## Tech stack — May 2026 grounded
-
-### LLM cognition
-- **Generator (benchmark + Carney demo)**: DeepSeek V4 Pro (1.6T MoE, 49B active, MIT license, 1M context, hybrid CSA+HCA attention)
-- **Generator (steady-state)**: DeepSeek V4 Flash (284B MoE, 13B active, MIT, 1M context)
-- **Evaluator**: Gemma 4 31B Dense (Apache 2.0, US/Google) — Phase 0 verifies official model card; fallback Llama 4 Scout
-- **Two-family invariant**: DeepSeek (China) generator + Gemma (US) evaluator; family lineages enforced by `openrouter_client.check_family_segregation`
-
-### Inference engine
-- **Phase 0 bakeoff**: SGLang vs vLLM measured on dev cluster, **one engine frozen**, no fallback
-- Existing research baseline: SGLang +29% throughput on H100 for RAG workloads, used by xAI/Microsoft/LinkedIn
-
-### Hardware paths (Phase 0 selects ONE)
-- **Path A — V4 Pro on 16× H200 FP8** (full 1M context, frontier-comparable benchmark)
-- **Path B — V4 Pro on 8× H200 FP4** (reduced ~512K context)
-- **Path C — V4 Flash only on 1× H200 or 2× H100** (5-7% capability gap, simplest sovereign)
-- **Default before Phase 0 commits: Path C.** Paths A/B require quote + bakeoff data + signed decision.
-
-### Frontend
-- **Next.js 15 + React 19** (Server Components default, Server Actions for forms)
-- **shadcn/ui (MIT) + Tailwind v4 (MIT)** — vendored components, no lock-in
-- **TypeScript 5** strict mode
-- **SSE** for live progress (browser-native EventSource API)
-
-### Backend
-- **FastAPI 0.136.x** (current as of late April 2026)
-- **Pydantic v2**
-- **Python 3.12+**
-- **Dramatiq + Redis** for async job queue (Phase 0 acceptance test required: cancel/retry/worker-kill/resume/trace-id-propagation; Celery fallback if Dramatiq fails acceptance)
-- Existing POLARIS Python substrate preserved — modernize only what blocks crown jewels
-
-### Observability
-- **OpenTelemetry** with `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev`, semconv 1.30.0-dev pinned
-- Per-LLM-call critical span (capture retries, timeouts, errors for latency/cost/debug)
-
-### Agent architecture
-- **MiroThinker pattern, native implementation** — Local Verifier (per-step audit) + Global Verifier (full chain audit) extending existing strict_verify
-- License-scan MiroThinker public repo (Apache 2.0); reference patterns OK, no fork
-- ReAct loop with context management + tool-call correction
-
-### Citation verification
-- Index-RAG: every material claim maps to retrieved chunks; if not supportable → re-retrieve, clarify, or abstain
-- CiteFix-style post-processing (BERTScore + keyword + semantic)
-- POLARIS strict_verify already implements per-sentence binding; extends to per-claim with multi-span support
-
-### Sovereign hardware (Canadian)
-- **Primary target**: OVH Canada Beauharnois H200 (Phase 0 verifies BHS region availability — page currently says "Coming soon"; written reservation required, not sales conversation)
-- **Backup paths** (executable procurement, not just names):
-  1. DRAC Rapid Access (Nibi 288× H100 / Killarney AI cluster) — requires Canadian university affiliation
-  2. Bell Canada Business Cloud — Toronto/Quebec H100 inventory (~$5-8/hr; 2-4 wk procurement)
-  3. Hyperstack Canadian DC if confirmed (verify in Phase 0)
-  4. Owned hardware ($25-30k per H100, Cogeco/iWeb colo) — 4-12 wk lead, fallback only
-  5. Path C V4 Flash on smaller cluster (most realistic if H200 fails)
-
-## Hardware strategy — on-demand, never always-on (with enforcement, Codex redline #4)
-
-| Phase | GPU pattern | Rationale |
+| Dimension | Bar | How POLARIS clears it |
 |---|---|---|
-| Phase 0-2 (build) | DeepSeek API for V4 Pro testing + Vast.ai US 1× H200 on-demand for V4 Flash dev cluster | Cheap, fast iteration; sovereignty deferred (build queries are synthetic/public — enforced by code, see below) |
-| Phase 3 (benchmark) | DeepSeek API for V4 Pro runs + self-hosted runs for sovereign validation, batched | Defensible benchmark proof requires self-hosted runs |
-| Phase 4 (sovereign migration) | Canadian cluster spun up business-hours only during validation | Validate works, don't pay for idle |
-| Phase 4.5 (buffer week) | On-demand only when fixing migration findings | Same |
-| Phase 5 (Carney demo) | Warm pool 1× H200 always-on + V4 Pro 8-16× H200 burst on-demand | First-query latency stays low; expensive cluster only when justified |
+| Audit-traceability | Better than incumbents (they handwave) | Per-sentence strict_verify + click-to-evidence + Evidence Contract |
+| Refusal honesty | Better than incumbents (they don't refuse cleanly) | Explicit refusal-with-explanation; ambiguity disambiguation |
+| Contradiction surfacing | Better (incumbents average them away) | PT08 disclosure + navigable contradiction badges |
+| Sovereignty | Only POLARIS can claim this | Cognition on Canadian hardware; code-enforced data classification |
+| Anti-sycophancy | Match or beat (incumbents are 48% sycophantic per ELEPHANT) | Paired-prompt CI suite; reframe-as-question pre-prompt mitigation |
+| Document upload | Match | M-11 substrate + drag-drop UI + grounding flow |
+| Inline charts/tables | Match | smart_art_generator.py + Vega-Lite renderer |
+| Live citation tracing | Match Perplexity (gold standard) | Hover-tooltip with quote + tier + retrieval timestamp |
+| Conversational follow-up | Match | Follow-up agent + parent-context preservation |
+| Multi-jurisdiction comparison | Match | M-14 substrate + side-by-side UI |
+| Knowledge snowballing | Match | evidence_deepener.py + visualize as graph |
+| Memory across sessions | Match | M-21 substrate + memory UI surface |
+| Reproducibility | Better (incumbents have none) | Pin replay UI |
+| Speed | Match (5-10 min per query) | Existing pipeline + warm pool |
+| UI polish | Match (frontier-grade) | Next.js 15 + React 19 + shadcn/ui + Tailwind v4 |
 
-**No always-on cluster except the Phase 5 warm pool.** Default: GPUs OFF.
+**No "half-ass" features. Every feature meets or beats incumbent.**
 
-**Enforcement (Codex redline #4) — TTL / autostop / budget audit gates:**
-- Every GPU instance is provisioned with a TTL tag (default: 4h max, configurable per task)
-- Idle detection (no API calls for 10 min) triggers autostop
-- Daily budget cap per phase enforced at the orchestration layer (`scripts/gpu_budget_guard.py`)
-- Weekly cost/uptime audit committed to `docs/gpu_audit_log.md`
-- Phase gate: each phase end requires actual uptime + cost evidence reviewed by Codex; over-budget by >10% = RED escalation
+## 15 user-visible feature areas (each with match-or-beat acceptance)
 
-**Provider routing enforcement (Codex redline #3) — code-level data classification:**
-- Every LLM call carries a `data_classification` tag: `PUBLIC_SYNTHETIC`, `CAN_REAL`, `PRIVATE`, `CLIENT`, or `UNKNOWN`
-- LLM router (`src/polaris_graph/llm/sovereign_router.py`) is **default-deny** for external API calls
-- ONLY `PUBLIC_SYNTHETIC` may route to DeepSeek API (or any non-sovereign provider)
-- `CAN_REAL`, `PRIVATE`, `CLIENT`, `UNKNOWN` route to local sovereign cluster only
-- CI test (`tests/sovereignty/test_routing_policy.py`) proves all four classifications with attempted external-API call → blocked
-- Routing decisions logged with classification + destination (no payload content) for audit
+Each feature below has: substrate status, what to build, best-practice reference, and Playwright+AI test matrix.
 
-## Validation roles — honestly named (Codex redline)
+### F1 — Scope discovery + template browse
 
-**User = product-owner acceptance.** Not "Layer 3 independent validation." User has authority and domain literacy; user also has commercial interest in shipping. That role is product acceptance, not independent validation.
+**Substrate**: `template_catalog.py`, `template_classifier.py`, scope examples per template.
+**New build**: Next.js landing page with 8 template cards (3 active + 5 to-build) with scope summaries, in-scope examples, out-of-scope examples; live template-suggestion as user types.
+**Best practice**: shadcn/ui Card + Command palette + `react-hotkeys-hook` for keyboard nav.
+**Tests** (Playwright + AI agents):
+- Visual: card grid renders at 1920px, 1024px, 768px, 375px (4 viewport screenshots)
+- Functional: type "tirzepatide" → clinical drug audit suggested within 200ms
+- Adversarial: type "BPEI" → no false-positive template match shown
+- Accessibility: WCAG-AA compliance via axe-core
+- Multi-tab: open in 3 tabs, type different queries, no state pollution
+**Match-or-beat bar**: cleaner than ChatGPT (has no template browse), comparable to Gemini's Gem gallery.
 
-**Mandatory paid sample evaluator (Codex redline #1)**: $3-8k for Phase 3 benchmark legitimacy. Not optional. The evaluator does NOT review everything. They blind-score a representative slice:
-- Benchmark sample (10-15 questions across templates)
-- Smoke test of all 8 templates
-- Adversarial / sycophancy paired-prompt cases
-- Evidence Contract behavior on accepted + refused queries
+### F2 — Query input with disambiguation modal
 
-Without this, the Carney handover proof package weakens to "the builder validated themselves." Cheap insurance.
+**Substrate (HONEST per Codex review)**: candidate acquisition (`live_retriever.py`) and embedding similarity (`pooled_embedder.py`, `prefetch_offtopic_filter.py`) exist; scope_classifier_llm.py exists. **Primary-entity clustering / HDBSCAN path / disambiguation API are NEW backend builds.** spaCy is NOT installed; if NER needed, must be added to requirements.
+**New build**: ambiguity detector (cluster top-K retrieval candidates by primary entity; if >1 cluster above threshold → disambiguation modal). Modal shows candidate meanings with one-line description per candidate. User picks → query proceeds with disambiguation tag.
+**Best practice**: Diversify-then-Verify pipeline (Agentic Verification, ICLR 2025); HDBSCAN clustering on candidate embeddings; LLM labels each cluster with its primary entity.
+**Tests**:
+- Visual: modal renders with 2 candidates, 3 candidates, 5 candidates
+- Functional: "What is BPEI?" → disambiguation modal appears with at least syndrome / institute / chemical
+- Adversarial: "tirzepatide" → no false disambiguation (single primary entity)
+- Edge: query in French → handled or refused; PDF dropped → routed to upload
+- Recording: 3 fresh-state evaluator walkthroughs through 22-input adversarial corpus
+**Match-or-beat bar**: ChatGPT/Gemini both fail BPEI silently. POLARIS detects and asks.
 
-**Carney's office = final acceptance gate** at handover. They are the ultimate validation. Pre-handover validation must combine product-owner (user) + paid sample evaluator (independent slice) + Codex (code-level review).
+### F3 — Document upload + grounding
 
-## Phase plan — 14 weeks, May 1 → Aug 8
+**Substrate (HONEST per Codex review)**:
+- DocumentIngester parses locally (real); LocalDocumentRAG chunks/embeds/queries (real)
+- 10+ existing API endpoints
+- **CRITICAL GAP**: production `graph_v4.py:149` accepts `document_ids` parameter but DOES NOT USE IT. v1 path wires docs into state; v4 (the live default) ignores them. Uploaded-doc evidence is NOT actually grounding anything in the production pipeline today.
+- **CLIENT classification + router enforcement + external-provider redaction are NEW backend tasks**, not "just a CI test"
+
+**New build**: (a) backend wiring of document_ids into graph_v4 evidence pool — this is the biggest hidden work in the plan; (b) drag-drop upload zone; (c) per-file parse status; (d) doc preview with chunk highlights; (e) "use these docs as evidence" toggle; (f) data classification taxonomy + sovereignty router (new code, not just config).
+**Best practice**: shadcn/ui dropzone + react-dropzone + uploadthing for streaming; PDF.js for in-browser preview with span coordinates.
+**Sovereignty enforcement**: uploaded docs tagged `CLIENT` classification → router blocks any external API processing of these docs. CI test proves blocking.
+**Tests**:
+- Visual: drag a 50MB PDF → progress bar visible, parsed chunks list appears
+- Functional: upload PDF → query references its content → strict_verify cites span with page+coordinate
+- Adversarial: 100MB file (over limit), 0-byte file, malformed PDF, password-protected PDF, image-only PDF (OCR), Word doc, plain text, EPUB
+- Sovereignty test: attempt to send CLIENT-tagged doc to DeepSeek API → router blocks → CI fail if not blocked
+- Recording: walkthrough of "upload my draft regulation, ask POLARIS to fact-check it"
+**Match-or-beat bar**: matches ChatGPT/Gemini upload; beats them on sovereignty (their uploads leave Canadian jurisdiction).
+
+### F4 — Live audit run with reasoning visibility
+
+**Substrate**: M-13 progress_surfaces.py, job_queue.py, /jobs/{id}/stream SSE, checkpoint_manager.py.
+**New build**: live progress UI consuming SSE. Must answer 5 specific user questions visibly:
+1. What was searched? (query reformulations + retrieval candidates appearing)
+2. What was rejected? (sources dropped + reasons inline)
+3. What changed the answer? (synthesis decisions, regeneration triggers)
+4. What contradiction exists? (contradiction-detection events as they fire)
+5. What evidence supports each claim? (per-sentence verify decisions)
+**Best practice**: SSE EventSource with reconnect/backoff; React Suspense for streaming; render each event-type as dedicated UI affordance, not raw log.
+**Tests**:
+- Visual: full-run recording 5-10min — every event appears within 1s of server emit
+- Functional: SSE connection drops mid-run → reconnects automatically; state preserved
+- Multi-tab: open same run in 2 tabs → both update independently; cancel in one cancels for both
+- Adversarial: 80% source fetch failure → UI shows partial-evidence warning; strict_verify drops every sentence → UI shows zero-verified abort with cause
+- Recording: walkthrough on 200-sentence run; latency stays <1s on hover/click
+**Match-or-beat bar**: BEATS incumbents (they show only spinner). POLARIS shows reasoning live.
+
+### F5 — Report inspection with click-through audit
+
+**Substrate**: provenance.py + verifier_v2.py + Inspector view 1 (M-3); /api/inspector/runs/{slug}/report.md.
+**New build**: every claim sentence in report is hover-highlight-able + clickable. Click → Inspector pane (right side, 40% width) with:
+- Source span highlighted in source context
+- Source URL, tier (T1-T7) with rationale, retrieval trace
+- Two-family evaluator agreement signal
+- Multi-span support (claims with N spans show all N)
+- Synthesis-claim badge (no direct span) when applicable
+- Retracted-source badge, stale (>2y) badge
+**Best practice**: shadcn/ui Sheet for Inspector pane; intersection observer for hover-highlight; debounced for performance on long reports.
+**Tests**:
+- Visual: 50, 100, 200, 500-sentence report — all sentences clickable; latency <1s
+- Functional: every user-visible factual assertion (regardless of container — prose, table cell, summary bullet, limitation, caption, heading) is gated-and-clickable OR visibly marked `ungated — no accepted evidence span`
+- Adversarial: paywalled span (text in bundle, URL marked unavailable); multi-span claim shows all N; T1-vs-T1 conflict shows both with sample sizes
+- Empty state: report with zero contradictions → empty-state copy "no contradictions detected"
+- AI agent test: independent agent navigates 10 random sentences → confirms each opens evidence within 1s
+**Match-or-beat bar**: BEATS Perplexity (POLARIS adds tier + multi-span + evaluator-disagreement signal Perplexity doesn't have).
+
+### F6 — Live citation overlay (MVP, not Perplexity-grade)
+
+**Substrate (HONEST per Codex)**: same as F5 IS NOT enough. Hover-overlay needs **token/span indexing, typed numeric cross-reference, caching, mobile affordances, edge-position behavior** — all new.
+**Scope adjusted**: F6 in Phase 2 is **basic hover-card MVP** (hover sentence → tooltip with source title + tier + click-for-detail), NOT full Perplexity polish. Perplexity-grade typed-number-cross-ref + entity hover lifted to **post-handover v2.5**.
+**New build (v6)**: basic hover-card with debounced rendering + edge-aware positioning + mobile tap-to-show fallback.
+**Best practice**: shadcn.io InlineCitation component (`https://www.shadcn.io/ai/inline-citation`); typed number cross-ref (year vs p-value vs sample-size vs percentage handled differently).
+**Tests**:
+- Visual: hover a percentage → tooltip with quote + tier + timestamp
+- Functional: hover same percentage 100 times → tooltip renders consistently <100ms
+- Edge: tooltip near viewport edge → repositions; long quote → truncates with "more"; mobile (no hover) → tap-to-show
+- Multi-source claim: tooltip shows count "5 sources" → click opens cross-ref panel with all 5
+**Match-or-beat bar**: matches Perplexity; beats ChatGPT/Gemini (they don't have hover-quote).
+
+### F7 — Frame coverage as lead
+
+**Substrate**: M-12 corpus_brief.py + frame_manifest.py + corpus_retriever.py. `/api/inspector/runs/{slug}/...` endpoints.
+**New build**: top-of-report panel rendered ABOVE-the-fold. "Got 14 of 15 contract-required entities. 1 gap: [name], reason: [paywalled / no OA / source-tier ineligible / etc.]." Each gap is clickable → opens detail panel with "what would unblock this" action.
+**Best practice**: shadcn/ui Alert + Progress; gap-reason taxonomy frozen as enum.
+**Tests**:
+- Visual: 15-entity contract with 14 populated, 1 gap → panel shows correct count + gap detail
+- Functional: every gap reason has a documented unblock action; user can copy gap details to clipboard
+- Adversarial: 0/15 (all gaps), 15/15 (no gaps), 1/15 (almost all gaps) — panel renders correctly each
+**Match-or-beat bar**: BEATS incumbents (they show "complete answer" without disclosing gaps). Frame coverage is unique to POLARIS.
+
+### F8 — Contradiction navigation
+
+**Substrate**: contradiction_detector.py + contradiction_hedging.py + Inspector view 2 (M-4). `contradictions.json` artifact.
+**New build**: every flagged contradiction has inline badge `⚠ N sources disagree` in body. Click → side pane with all sides + tiers + sample sizes + hedge language POLARIS used + per-flag PT08 enumeration.
+**Best practice**: shadcn/ui Badge + Sheet; non-numeric contradiction support (e.g., "is approved" vs "is not approved"); guideline-vs-trial conflicts; jurisdictional disagreements.
+**Tests**:
+- Visual: 0 contradictions, 5 contradictions, 50 contradictions — UI handles each
+- Functional: T1-vs-T1 conflict (no false hierarchy); multi-claim contradiction (one flag spans 5 sentences)
+- Adversarial: contradicting paragraphs (e.g., "X is safe" + "X is dangerous" same source) → flagged
+**Match-or-beat bar**: BEATS incumbents (they suppress contradictions; POLARIS surfaces).
+
+### F9 — Two-family disagreement signal
+
+**Substrate**: openrouter_client.check_family_segregation + verifier_v2 + qwen_judge_output.json.
+**New build**: when generator and evaluator disagree on a claim, claim shows `⚠ Internal evaluator flagged this` badge. Click → side pane shows the disagreement detail (generator's reading vs evaluator's reading + which evidence each cited).
+**Best practice**: dual-evaluator consensus pattern (MiroThinker Local Verifier inspiration).
+**Tests**: visual, functional, edge (no disagreements, all disagreements), recording.
+**Match-or-beat bar**: UNIQUE to POLARIS — incumbents don't run two-family.
+
+### F10 — Inline visual generation (charts, tables, infographics)
+
+**Substrate (HONEST per Codex)**:
+- `smart_art_generator.py:243` generates **Mermaid diagrams**, NOT Vega-Lite chart specs
+- `data_analyzer.py` has Matplotlib/base64 PNG (LLM-scripted, often gated off)
+- code_executor.py + analysis_notebook.py + pdf_table_extractor.py exist
+- **Vega-Lite spec generation, chart provenance, click-through-to-source-data, infographic generation are ALL new builds.**
+**Scope adjusted**: claim is "audit-traceable charts/tables FIRST" not "full visual parity with Gemini." Gemini Ultra has interactive simulators; POLARIS won't match that in v1.
+**New build**: Vega-Lite renderer for forest plot + comparison table + timeline (3 chart types, not 6); auto-generated table when comparing N entities; chart provenance schema; click-through-to-source-data. Mermaid for diagrams (substrate exists). Matplotlib PNG fallback for complex visuals (substrate exists, gate it on).
+**Best practice**: react-vega + Vega-Lite v5; chart provenance schema (every chart cites source data via Evidence Contract spans); chart code + data snapshot stored in audit bundle.
+**Tests**:
+- Visual: 6 chart types render correctly at 4 viewports
+- Functional: chart click → opens source data; chart code visible (transparency)
+- Sovereignty: charts execute in sandboxed Python (no-egress, resource-capped)
+- Recording: walkthrough of "compare tirzepatide vs semaglutide" → table auto-generated with citations
+**Match-or-beat bar**: matches Gemini DR; beats ChatGPT (which sometimes only shows charts in download). POLARIS charts are audit-traceable to source data.
+
+### F11 — Report-scoped auditable follow-up
+
+**Substrate (HONEST per Codex)**: `campaign_store` is persistence only; `session_feedback` is search-strategy feedback only; `workspace_memory` is keyword retrieval only. **These are storage and memory primitives, NOT a follow-up agent.** The follow-up agent itself is a new build.
+**Scope adjusted**: claim is "report-scoped auditable follow-up" not "matches ChatGPT conversational fluidity." ChatGPT memory + chat-history reference is best-in-class; POLARIS beats on traceability per follow-up, not on fluid multi-turn conversation.
+**New build**: follow-up agent with parent-run-context preservation, append-to-existing-report rendering, Evidence Contract inheritance, refusal handling for out-of-scope follow-ups.
+**Best practice**: agent context-window management (CLAUDE.md memory says 1M context = use it); follow-up Evidence Contract inherits parent's accepted-source pool.
+**Tests**:
+- Visual: follow-up appended below original report with clear separator
+- Functional: follow-up references claims from parent; no re-running of parent retrieval
+- Adversarial: follow-up question that's actually out-of-scope → refusal-with-explanation
+- Multi-turn: 5 sequential follow-ups → each grounded correctly
+**Match-or-beat bar**: BEATS incumbents on auditable follow-up (every follow-up is its own auditable run with Evidence Contract). Does NOT claim to match ChatGPT's general conversational fluidity in v1; that's a v2.5 stretch. POLARIS's differentiator is per-follow-up traceability, not multi-turn polish.
+
+### F12 — Side-by-side compare two reports
+
+**Substrate**: run_diff.py + Inspector compare endpoint.
+**New build**: pick any two completed runs → split-screen view; differences highlighted (claims agree, disagree, evidence-pool overlap/diverge).
+**Best practice**: shadcn/ui ResizablePanels; claim-level diff algorithm (more nuanced than pin-replay's metadata diff).
+**Tests**: visual at all viewports; functional (different jurisdictions, same query — show jurisdictional differences); recording.
+**Match-or-beat bar**: UNIQUE to POLARIS — incumbents don't have this.
+
+### F13 — Pin replay / "what changed since last run"
+
+**Substrate**: pin_replay.py + pin_trends.py + model_pin.py + regression_alerts.py + regression_lab.py.
+**New build**: pin replay UI showing same query re-run on different dates; diff visualization highlighting new/retracted/changed sources; regression alerts inline.
+**Best practice**: time-series visualization (Vega-Lite); diff as side-panel.
+**Tests**: visual, functional (re-run after 1 day / 1 week / 1 month), adversarial (source retraction during replay).
+**Match-or-beat bar**: UNIQUE to POLARIS.
+
+### F14 — Auditable research memory (NOT general ChatGPT memory)
+
+**Substrate (HONEST per Codex)**:
+- `local_document_rag.py` is real RAG with chunk/embed/query
+- `chroma_client.py` exists, ChromaDB initialized at server start
+- BUT `workspace_memory.py` is deterministic keyword/Jaccard v1, **NOT Chroma-backed semantic memory**
+- Migration of workspace_memory to Chroma + memory controls UI + automatic save policy + searchable past runs + deletion + cited recall = ALL new build
+
+**Scope adjusted**: match-or-beat bar is **"beats incumbents on auditable research memory"**, NOT "matches ChatGPT memory." ChatGPT memory's cross-conversation behavior without manual artifact management is not the v1 target. POLARIS adds research-specific cited recall + deletion + searchable past runs — these are differentiators.
+**New build**: memory page with explicit controls (save / pin / forget); migrate workspace_memory to Chroma semantic; cross-session surfacing ("you researched X last week"); memory-as-corpus for new queries; cited recall (when memory contributes to current run, surface which past run + which claim).
+
+### F15 — Audit bundle export with embedded source spans
+
+**Substrate**: serializer.py + slide_deck.py + audit-bundle.zip endpoint.
+**New build**: button in report header; preview pane lists contents; generates standalone-verifiable zip including: report.md + bibliography.json + evidence_pool.json (with extracted span text ≤500 chars per Codex redline) + manifest.json + frame_coverage.json + verification_details.json + contradictions.json + decision_telemetry.json + methodology.md + reviewer README.
+**Best practice**: standalone reproducibility (third-party with no POLARIS access can verify any claim); license-cleared embedding; bundle progress + size warning if >100MB.
+**Tests**:
+- Functional: third-party tester (no POLARIS access) traces randomly-selected claim back to source span text in <5min, no instruction beyond README
+- Adversarial: paywalled source (span text in bundle, URL marked unavailable); 500MB bundle (resumable download); partial/aborted run (bundle marked PARTIAL)
+- Sovereignty: legal-cleared spans only; CI test proves no copyrighted spans included without license check
+**Match-or-beat bar**: UNIQUE to POLARIS — incumbents don't ship audit bundles.
+
+## Phase plan — 16 weeks, May 1 → Aug 22
+
+Realistic given 15 features each requiring exhaustive testing.
 
 ### Phase 0 — Foundation (8 business days, May 1-12)
+Same 10 tasks as v5, plus:
+- 0.11: Substrate audit verification (this doc) reviewed by Codex
+- 0.12: Anti-sycophancy CI suite scaffold (paired prompts neutral/leading/opposite-frame)
 
-10 tasks, all GREEN before Phase 1 starts. Detail in `docs/task_acceptance_matrix.yaml`:
+### Phase 1 — BPEI spine + Evidence Contract Gate (3 weeks, May 13-31)
+F1, F2, F3 (upload), F15 (audit bundle), Evidence Contract Gate (Task 1.4 from v5.1).
 
-| # | Task |
-|---|---|
-| 0.1 | Blocker decisions written + paid sample evaluator sourcing initiated (mandatory; for Phase 3 benchmark legitimacy) |
-| 0.2 | Architecture pattern adoption doc + MiroThinker license scan |
-| 0.3 | Vast.ai US 1× H200 dev cluster (V4 Flash serving) |
-| 0.4 | Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4 + TypeScript 5) |
-| 0.5 | Backend modernization (FastAPI 0.136.x + Pydantic v2 + Dramatiq queue acceptance test) |
-| 0.6 | Hardware Path A/B/C decision committed (default Path C) |
-| 0.7 | SGLang vs vLLM bakeoff → one engine frozen |
-| 0.8 | Gemma 4 31B verification (model card + license + serving recipe) |
-| 0.9 | OVH Canada BHS H200 verification (or backup procurement initiated) |
-| 0.10 | OpenTelemetry wired (semconv 1.30.0-dev pinned) |
+### Phase 2A — Core inspection (3 weeks, June 1 - June 21)
+F4 (live audit), F5 (report inspection), F7 (frame coverage), F8 (contradictions), F9 (two-family) — features that primarily surface existing substrate.
+Templates 4-5 added in parallel content workstream (defense, climate).
 
-### Phase 1 — BPEI spine (3 weeks, May 13-31)
+### Phase 2B — Visualization + memory + replay (3 weeks, June 22 - July 12)
+F6 (citation overlay MVP), F10 (charts/tables — 3 chart types), F13 (pin replay), F14 (auditable memory) — features with substantial new build.
 
-| # | Task | Output |
+### Phase 2C — UI polish + integration (1 week, July 13 - July 19)
+Cross-feature integration testing; visual regression; mobile/Safari/cross-browser; performance optimization.
+
+### Phase 3 — Follow-up + benchmark (3 weeks, July 20 - Aug 9)
+F11 (auditable follow-up), F12 (side-by-side compare), Templates 6-8 added (AI sovereignty, Canada-US, workforce).
+Benchmark proof package: 50 questions × 4 systems × 6 dimensions, paid sample evaluator scoring (mandatory).
+
+### Phase 4 — Sovereign migration (2 weeks, Aug 10 - Aug 23)
+Replace OpenRouter cognition path with Canadian sovereign vLLM cluster. Validate quality unchanged.
+
+### Phase 4.5 — Buffer (1 week, Aug 24-30)
+Migration findings, regression fixes, restored buffer per Codex.
+
+### Phase 5 — Carney handover (1 week, Aug 31 - Sep 6)
+Final walkthrough + Codex sweep + handover package + execute.
+
+**Total: 18 weeks (May 1 → Sep 6).** Was 16 in v6 draft; Codex flagged Phase 2 as "fantasy"; split into 2A/2B/2C added 2 weeks of honest scope.
+
+## Testing matrix — exhaustive per feature (expanded per Codex review)
+
+Every feature passes ALL of these gates:
+
+| Test type | Tool | Pass criteria |
 |---|---|---|
-| 1.1 | Templates 1+2+3 scope-discovery panel in frontend (Flow 1) | Browser-reachable scope discovery |
-| 1.2 | Ambiguity detector (retrieval-clustering + 50-term locked corpus) | Detects BPEI-class queries |
-| 1.3 | Refusal view UI with class-specific copy (Flow 2) | Out-of-scope, ambiguous, threshold-edge, insufficient-corpus all handled |
-| **1.4** | **Evidence Contract Gate** — schema + golden corpus + sample artifact | **Blocks Phase 2** |
-| 1.5 | Job queue + SSE progress endpoint wiring | Async pipeline with cancel/refresh/resume |
-| 1.6 | Sycophancy + refusal CI suite (paired prompts: neutral / leading / opposite-frame) | Runs on every commit; nightly full eval |
-| 1.7 | End-of-Phase 1 walkthrough | User reviews Flow 1+2 against corpus |
+| Unit tests | pytest | 100% of new code covered |
+| Integration tests | pytest + httpx | Every endpoint tested with mocked + real LLM |
+| Artifact contract / schema versioning | jsonschema validator | Evidence Contract artifacts validate; version migration tested |
+| Visual regression | Playwright + percy.io | 4 viewports (1920/1024/768/375), 0 unintended pixel diffs |
+| E2E happy path | Playwright | Fresh-account walkthrough recorded |
+| E2E adversarial | Playwright + Test Agent (mandatory supplemental, NOT primary gate) | 22-input + 17-content adversarial corpus |
+| Cross-browser | Playwright (Chromium, Firefox, WebKit/Safari) | All pass |
+| Accessibility | axe-core | WCAG-AA pass |
+| Multi-tab safety | Playwright (parallel contexts) | No state pollution; cancel in one cancels for both |
+| Network resilience | Playwright (offline mode + slow-3G) | Graceful degradation; reconnect; no white screen |
+| Streaming SSE ordering / backpressure | Playwright EventSource consumer | Events arrive in order; backpressure handled |
+| Cancellation / resume | Playwright | Cancel in <5s; resume on refresh from checkpoint |
+| Performance | Playwright + Lighthouse | Core Web Vitals green; LCP <2.5s; INP <200ms; long-report (200+ sentences) hover-latency <100ms |
+| Security | Playwright Security Agent + standard tools | XSS, CSRF, injection, prompt-injection in user docs |
+| Tenant isolation + data deletion | pytest + Playwright | Org A cannot see Org B; deletion is real (no log residue) |
+| Privacy / log redaction | grep-based audit on log fixtures | No PII / no source-content-leakage in logs |
+| Sovereignty (data classification routing) | CI test on `sovereign_router.py` | All non-PUBLIC_SYNTHETIC classifications blocked from external API |
+| Migration tests | DB migration on copy of prod data | Rollback works; no data loss |
+| LLM quality gates | Eval set per template (15 questions) | Citation precision/recall ≥ baseline |
+| Semantic chart correctness | Pytest + Vega-Lite spec validation | Chart data matches Evidence Contract spans |
+| Anti-sycophancy | Paired-prompt CI per ELEPHANT methodology | Stance delta <5% on 20 paired prompts; nightly full eval |
+| Codex code review | Codex Red-Team Checklist | GREEN per task |
+| Layer 3 walkthrough | Product-owner (user) + paid sample evaluator (Phase 3) | Recorded fresh-state, async-reviewed |
+| Fixture governance + flake budget | Test infra discipline | Flake rate <2%; fixtures versioned and refreshed quarterly |
 
-### Phase 2 — Crown jewels build (5 weeks, June 1 - July 5)
+## Per-task triangle loop (Claude ⇄ Codex ⇄ artifact)
 
-| # | Task | Crown jewel |
-|---|---|---|
-| 2.1 | Generalized Inspector view 1 — click-to-evidence for ANY user-submitted run | #1, #3 |
-| 2.2 | Frame coverage panel above-the-fold (lead, not appendix) | #5 |
-| 2.3 | Contradiction navigation (badges → side pane → all sides + tiers + hedge) | #4 |
-| 2.4 | Two-family disagreement badge surfacing | #6 |
-| 2.5 | Source admissibility decision tree view | #8 |
-| 2.6a | Python sandbox execution environment (containerized, no-egress, resource-capped) | #9 |
-| 2.6b | Chart provenance schema (charts cite source data via Evidence Contract spans) | #9 |
-| 2.6c | Reproducibility (chart code + data snapshot in audit bundle) | #9 |
-| 2.6d | UI surface for Python charts in report | #9 |
-| 2.7a | Audit bundle export (button + preview + zip + reviewer README) | #10 |
-| 2.7b | Legal review of bundle contents + license-clearing for embedded source spans | #10 |
-| 2.8 | Pin replay / "what changed since last run" UI | #7 |
-| 2.9 | Live audit run UI consuming SSE — must answer 5 user questions visibly (what was searched, what was rejected, what changed the answer, what contradiction exists, what evidence supports each claim) | #1, #2 live element |
-| 2.10 | Templates 4-5 added (defense, climate) — content work in parallel | scope expansion |
-| 2.11 | Deployment / install / account / sharing reality (Flow 5) | infrastructure |
-| 2.12 | End-of-Phase 2 walkthrough | User reviews all crown jewels against corpus |
+**This is the autoloop V2 protocol** from `memory/autoloop_v2_audit_cross_review.md`. Per-task execution follows the triangle: Claude builds, Claude self-audits, Codex independently audits, both cross-review, gate adjudicates, fix plan classified root_cause vs band_aid, codex reviews plan, implement, codex code-audits, loop.
 
-### Phase 3 — Benchmark proof package (3 weeks, July 6-26)
+**Per-task workflow (TRIANGLE LOOP, replaces v5 single-reviewer pattern):**
 
-| # | Task | Output |
-|---|---|---|
-| 3.1 | Benchmark question set (50 questions × 8 templates = 400 questions, but cap to 50 representative) | benchmark_v1.json |
-| 3.2 | Run benchmark: POLARIS (Pro + Flash) vs ChatGPT 5.5 Pro DR vs Gemini 3.1 Pro DR vs Claude Opus DR | results_table.md + raw transcripts |
-| 3.3 | Score by user (product-owner) AND mandatory paid sample evaluator (independent blind-score on representative slice) on 6 dimensions | scored_results.json |
-| 3.4 | Sycophancy stress-test (paired-prompt deltas) | sycophancy_report.md |
-| 3.5 | Industry benchmark suite run (BrowseComp, GAIA, DeepResearch Bench) for transparency | leaderboard_position.md |
-| 3.6 | Templates 6-8 added (AI sovereignty, US partnership, workforce) — content + initial scoring | scope expansion |
-| 3.7 | Proof package PDF for Carney's office | proof_package_v1.pdf |
+1. **Brief**: `.codex/task_<id>_review_brief.md` (Claude writes, declares acceptance criteria + adversarial inputs)
+2. **Build**: Claude implements per brief
+3. **Self-test**: Claude runs unit + integration + Playwright + accessibility + sovereignty + anti-sycophancy gates from the test matrix
+4. **Claude self-audit**: `outputs/audits/task_<id>/claude_audit.md` — line-by-line vs acceptance criteria + adversarial corpus + match-or-beat bar; concrete evidence per finding
+5. **Codex independent audit**: `outputs/audits/task_<id>/codex_audit.md` — using Red-Team Checklist; concrete evidence per finding (no metadata-only verdicts; no intent-adjudication)
+6. **Cross-review**: each adjudicates the other in `outputs/audits/task_<id>/cross_review.md`. Disagreements surfaced with concrete evidence.
+7. **Gate**: BOTH GREEN → ship task. Lower verdict controls if cross-review can't disprove with concrete evidence.
+8. **If continue: fix plan** in `outputs/audits/task_<id>/fix_plan.md`. Each item tagged `root_cause` / `guardrail_only` / `band_aid`. **band_aid = always RED.** guardrail_only passes only paired with upstream root_cause.
+9. **Codex plan review**: `outputs/audits/task_<id>/codex_plan_review.md` — band-aid-vs-root-cause check. GREEN → implement. RED → revise plan.
+10. **Implement fix → loop back to step 4** (re-audit, cross-review, gate)
+11. **Walkthrough** (UI/flow tasks): user (product-owner) runs in fresh browser within 48h, recording → BLOCKED if missed. Phase 3 paid sample evaluator blind-scores benchmark slice.
+12. **Doc updates** (mandatory before commit): todo, file_directory, plan, session_log, restart_instructions, handover, memory if applicable, structured manifest.json
+13. **Git**: branch + commit + PR + GitHub merge on triangle GREEN + walkthrough.
+14. **Auto-resume next task** without user "go" if (a) no halt triggered, (b) prior task triangle GREEN, (c) walkthrough recorded within 48h.
 
-### Phase 4 — Sovereign Canadian migration (2 weeks, July 27 - Aug 9)
+**Halt conditions (hardcoded):**
+- 24h wall-clock per task
+- $100 per-task spend cap
+- Dimension regression auto-halt
+- Repeated-root-cause 2-cycle halt
+- Cross-review-integrity halt (e.g., Codex won't engage with concrete evidence)
+- Same P1 finding twice across cycles → escalate
+- Acceptance criterion changed mid-task → RED
 
-| # | Task | Output |
-|---|---|---|
-| 4.1 | Provision Canadian sovereign cluster (per Phase 0 hardware decision) | working cluster |
-| 4.2 | Migrate vLLM/SGLang serving + V4 Pro/Flash weights + Gemma 4 evaluator | quality validated |
-| 4.3 | Wire auto-scale loop: warm pool + spin-up additional via API on queue depth ≥3 | auto-scale demonstrably works |
-| 4.4 | Re-run benchmark on sovereign cluster — confirm no regression | new proof package |
-| 4.5 | Document handover package (install runbook + ops runbook + threat model) | handover_package_v1.zip |
+**Concrete evidence rule**: every verdict (Claude or Codex) must cite POLARIS-output line + competitor-line OR test-output line + source URL where applicable. No "the generator intended to..." adjudication.
 
-### Phase 4.5 — Buffer (1 week, Aug 10-16)
+**Codex Red-Team Checklist** (`.codex/codex_red_team_checklist.md`) is the structured-manifest input Codex uses for step 5. Independent of Claude's brief.
 
-Address findings from Phase 4 walkthrough. If findings are minor: hardening + regression. If major: rebuild affected piece. If catastrophic: halt and escalate.
+This protocol is hardened from autoloop V2 (2026-04-21 user directive). The previous v5 plan used a degraded single-reviewer pattern. v6 corrects.
 
-### Phase 5 — Carney handover (1 week, Aug 17-23)
+## Realistic budget — external cash ceiling
 
-| # | Task | Output |
-|---|---|---|
-| 5.1 | Final user walkthrough — fresh accounts, full corpus, recorded session | walkthrough_final.mp4 |
-| 5.2 | Final Codex sweep — all 10 crown jewels, all flows, all acceptance criteria | final_codex_review.md GREEN |
-| 5.3 | Carney handover package — one-pager + 5-min video walkthrough + working URL + handover bundle | carney_handover_v1.zip |
-| 5.4 | Schedule + execute handover with Carney's office | done |
-
-## Codex loop protocol (mandatory, per task)
-
-**Per-task workflow:**
-1. Brief: `.codex/task_<id>_review_brief.md`
-2. Build per brief
-3. Self-test: relevant tests pass; new tests cover new code
-4. Manifest: `task_<id>_manifest.json` with structured fields (task_id, changed_files, test_commands, artifacts, recordings, trace_ids, open_bugs, evidence_links — see `.codex/codex_red_team_checklist.md` for schema)
-5. Codex review using fixed Red-Team Checklist (independent of brief)
-6. Verdict: GREEN / YELLOW / RED
-7. Documentation update (mandatory before commit): todo, file_directory, plan, session_log, restart_instructions, handover, memory if applicable
-8. Git: branch + commit + PR + GitHub merge on GREEN
-9. Walkthrough (UI/flow tasks): user runs in fresh browser within 48h, recording → BLOCKED if missed
-
-**Escalation rules:**
-- Same P1 finding twice → escalate to user
-- Acceptance criterion changed mid-task → RED escalation
-- Task >150% of estimate → escalate
-- 48h no walkthrough → task auto-reverts to BLOCKED, plan halts
-- 3 YELLOW cycles → escalate
-
-**Anti-patterns refused:**
-- "Iterate until Codex GREEN" without walkthrough
-- "Backend exists = done"
-- "While we're at it..." scope creep
-- Re-entering autoloop
-- Prose-only doc updates (must be structured manifest)
-
-## Documentation discipline (mandatory per task)
-
-After every task completion, before next task starts:
-
-| File | Updated with |
-|---|---|
-| `docs/todo_list.md` | task complete; next task front-loaded |
-| `docs/file_directory.md` | new/modified files |
-| `docs/carney_delivery_plan_FINAL.md` | task marked done |
-| `docs/task_acceptance_matrix.yaml` | task GREEN/YELLOW/RED + actual_hours |
-| `logs/session_log.md` | timestamped entry |
-| `logs/bug_log.md` | any blockers |
-| `state/restart_instructions.md` | resume point |
-| `state/handover.md` | one-paragraph next-session summary |
-| `memory/MEMORY.md` (if applicable) | new lessons |
-| GitHub | branch + commit + PR + merge + tag for milestone tasks |
-
-A task is NOT complete until docs are updated. Codex Red-Team Checklist enforces this via manifest inspection.
-
-## Realistic budget — external cash ceiling (Codex redline)
-
-**Important framing**: this is the **EXTERNAL CASH CEILING**, EXCLUDING user labor, Codex API costs, and internal review labor. The cash savings vs $170-210k were achieved by moving work from vendors into user/Codex labor, NOT by deleting the work. Be honest about this with anyone reviewing the budget.
+Per-feature exhaustive testing adds compute and evaluator hours. Honest revision:
 
 | Category | Estimate |
 |---|---|
-| **Build phase compute + API** (Phases 0-2, ~7 weeks) | **~$450-850** |
-| **Benchmark phase** (Phase 3): API + competitor subscriptions + self-hosted validation | **~$5.7-10.7k** |
-| **Sovereign migration + Carney demo** (Phases 4-5): on-demand Canadian cluster | **~$7-17k** |
-| **MANDATORY paid sample evaluator** (Codex redline #1, was optional) | **~$3-8k** |
-| **Non-compute** (legal review for bundle, handover prep, sourcing/admin, domain registration) | **~$5-12k** |
-| **20% contingency** (Codex redline) | **~$5-10k** |
-| **TOTAL external cash ceiling** | **~$26-58k** |
+| **Build phase compute + API** (Phases 0-2, ~7 weeks) | $1-2k |
+| **Benchmark phase** (Phase 3): API + competitor subscriptions + self-hosted validation | $7-12k |
+| **Sovereign migration + Carney demo** (Phases 4-5): on-demand Canadian cluster | $8-18k |
+| **Mandatory paid sample evaluator** (Phase 3 + walkthroughs in Phases 1-2) | $5-12k |
+| **Visual regression + Playwright cloud (BrowserStack/Percy)** | $1-2k |
+| **Non-compute** (legal review for bundle, handover prep, sourcing/admin) | $5-12k |
+| **20% contingency** | $5-12k |
+| **TOTAL external cash ceiling** | **~$32-70k** |
 
-**Expected delivery band: $35-55k** WITH mandatory paid sample evaluator + 20% contingency retained.
+**Expected delivery band: $40-60k.** EXCLUDES user/Codex/internal labor.
 
-Reduce-scope option (Path C only, drop V4 Pro entirely, fewer benchmark runs): ~$25-32k.
+## Blockers — same 10 from v5 + 1 new
 
-**NOT included** (user/internal time):
-- User time during build phase (review, walkthroughs, decisions, content authorship across 8 templates)
-- Codex token consumption for the per-task review loop
-- Any internal engineering labor not contracted out
+1-10: same as v5 (all answered)
+11: **NEW — paid sample evaluator sourcing initiated by end of Phase 0** (was already mandatory in FINAL+5)
 
-## Blockers — user commitments needed before Phase 0 starts
+## What changed from FINAL+5
 
-All answered through 2026-04-30 / 2026-05-01 conversation:
+- **Anchored on real audit, not greenfield** — most engineering reframed as "expose substrate" not "build from scratch"
+- **15 features documented with substrate status + best-practice references + exhaustive test matrices** (not 5 flows + 10 jewels)
+- **Match-or-beat bar specified per feature** (not generic "frontier-comparable")
+- **Document upload + grounding** elevated to F3 (not deferred)
+- **Inline visuals** elevated to F10 with Vega-Lite + chart provenance (not buried in audit bundle)
+- **Live citation overlay** elevated to F6 with Perplexity-grade hover-tooltip
+- **Conversational follow-up** elevated to F11 (was deferred)
+- **Side-by-side compare** elevated to F12
+- **Memory across sessions** elevated to F14
+- **Pin replay** elevated to F13 (was deferred)
+- **Timeline 14 → 16 weeks** (more realistic for 15 features each with exhaustive testing)
+- **Budget $26-58k → $32-70k** (Playwright infrastructure + walkthrough hours per feature)
 
-| # | Blocker | Status |
-|---|---|---|
-| 1 | Validation roles | ✅ Product-owner acceptance = user during build (NOT independent validation); mandatory paid sample evaluator for Phase 3 independent blind-scoring; Carney's office = final acceptance gate |
-| 2 | Buyer segment | ✅ Canadian sovereign deep research, ultimately Carney's gov |
-| 3 | Hardware path | ✅ Phase 0 selects A/B/C, default C |
-| 4 | Pilot deadline | ✅ Quality over speed; ~14 weeks target, flexible |
-| 5 | Source-text license | ✅ Phase 2 legal review; brainless services US OK |
-| 6 | Support ownership | ✅ Carney's team after handover |
-| 7 | Email infrastructure | ✅ N/A for build phase |
-| 8 | Budget ceiling | ✅ $26-58k external cash ceiling (excluding user/Codex/internal labor); much lower than earlier estimates |
-| 9 | Security posture | ✅ Sovereign Canadian for cognition; cloud-isolated for build |
-| 10 | First 3 templates | ✅ Clinical (existing) + Trade + Housing for Phase 0; +5 templates added Phases 2-3 |
+## Honest framing
 
-**No blockers remaining.** Phase 0 is start-ready.
-
-## What changed from earlier plan versions
-
-- **Templates: 3 → 8** (covering Carney's seven priorities + healthcare baseline)
-- **Validation roles: paid contractor (full coverage) → product-owner acceptance (user) + mandatory paid sample evaluator (independent slice for Phase 3)** (saves ~$15-40k; user has authority for product acceptance, paid sample evaluator preserves independent blind-score on benchmark slice)
-- **Build phase compute: self-host → DeepSeek API** (saves $10-20k; sovereignty deferred to benchmark+demo phases when handling real data)
-- **Always-on cluster: removed** in favor of on-demand spin-up (saves $30-35k)
-- **Budget: $170-210k → $26-58k external cash ceiling** (~70-85% reduction by combining all the smart-spending levers; user/Codex/internal labor not included)
-- **Timeline: 14 weeks unchanged**, but with Phase 4.5 buffer week
-
-## What's the same as v5/v5.1/v5.2
-
-- Mission and crown jewels
-- Tech stack (DeepSeek V4 + Gemma 4 + SGLang/vLLM + Next.js 15 + FastAPI 0.136.x + Dramatiq + OpenTelemetry)
-- Codex Red-Team Checklist + per-task acceptance matrix discipline
-- Evidence Contract Gate (Phase 1 Task 1.4) blocking Phase 2
-- 14-week phase structure with 4.5 buffer
-- Anti-phantom-completion discipline
+POLARIS substrate is ~80% of frontier-product capability already. The build is 15 weeks of exposing existing capability + 1 week of buffer + handover. Each feature must match-or-beat ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR. No half-ass. Each feature has Playwright + Test Agent + accessibility + sovereignty + anti-sycophancy testing, recorded.
 
 ---
 
-**Next step**: send this consolidated plan to Codex for final GREEN verification. If GREEN: Phase 0 starts. If YELLOW: one surgical pass max.
+**Next step**: send v6 to Codex for review.

@@ -1,118 +1,53 @@
-# Restart Instructions — 2026-04-29 (full-online integration autoloop)
+# Restart Instructions — 2026-05-01 (v6.2 Carney Delivery)
 
 ## Active state
 
-**Canonical roadmap:** `docs/full_online_plan_FINAL.md` (v4
-GREEN-signed by Claude+Codex across 3 review rounds, locked
-2026-04-29).
+**Canonical plan:** `docs/carney_delivery_plan_FINAL.md` (v6.2, Codex GREEN 2026-05-01)
+**Active phase:** Phase 0 — Foundation (May 1-12)
+**Current task:** Phase 0 Task 0.1
+**Triangle loop protocol:** `memory/autoloop_v2_audit_cross_review.md`
+**Codex Red-Team Checklist:** `.codex/codex_red_team_checklist.md`
 
-**Active phase:** Phase E0 — Observability & repro prerequisites.
+## Resume sequence
 
-**Current milestone:** M-INT-0a — Decision telemetry recording.
-Wires `decision_telemetry.record_decision(...)` into production
-scope-gate + induction call sites.
+1. Read `CLAUDE.md` completely (project directives)
+2. Read `state/handover.md` (this session's context)
+3. Read `docs/carney_delivery_plan_FINAL.md` (the canonical v6.2 plan)
+4. Read `docs/substrate_audit_2026-05-01.md` (what's already built)
+5. Read `docs/todo_list.md` (current task list)
+6. Read `docs/task_acceptance_matrix.yaml` (Phase 0 GREEN criteria)
+7. Check `logs/session_log.md` for last session's decisions
+8. Find current task ID in todo_list.md (in progress or next pending)
+9. Read its brief at `.codex/task_<id>_review_brief.md` if exists; else write one
+10. Apply triangle loop per `state/handover.md` § "The triangle loop"
 
-## Autoloop semantics (canonical, no human-intervention)
+## Auto-loop status
 
-For each milestone in `docs/todo_list.md` Phase E0..H sequence:
+User directive 2026-05-01: "make sure Claude and Codex continue working hard until full completion of the entire v6." Auto-loop is LIVE.
 
-  1. Claude builds the integration → commits
-  2. Claude writes a Codex review brief
-  3. Codex reviews → GREEN | PARTIAL | BLOCKED
-  4. **PARTIAL → integrate findings → re-review (NO human)**
-  5. **GREEN → lock + move to next milestone (NO human)**
-  6. **BLOCKED → pause + flag user (ONLY human-intervention case)**
+Halt conditions (only):
+- 24h wall-clock per task exceeded
+- $100/task spend cap exceeded
+- Dimension regression detected
+- Same root cause for 2 cycles in a row
+- Cross-review-integrity halt (Codex won't engage with concrete evidence)
+- Same P1 finding twice across cycles
+- Acceptance criterion changed mid-task
 
-Stop conditions (per `feedback_autoloop_default_behavior.md` +
-`feedback_dont_pause_autoloop.md`):
-- BLOCKED Codex verdict
-- Asymptote: 5+ rounds same surface, no convergence
-- Primary-source conflict (Codex contradicts locked memory)
-- Cost concern (per-day OpenRouter spend over budget)
+If halt triggered: surface to user, wait for direction. Otherwise: continue.
 
-Otherwise continue without per-round confirmation.
+## Where to find things
 
-## Acceptance bar (every Phase E milestone)
+- Plan: `docs/carney_delivery_plan_FINAL.md`
+- Substrate audit: `docs/substrate_audit_2026-05-01.md`
+- Acceptance matrix: `docs/task_acceptance_matrix.yaml`
+- Codex Red-Team Checklist: `.codex/codex_red_team_checklist.md`
+- Codex review briefs (history): `.codex/carney_delivery_plan_v6*.md`
+- Triangle loop runbook: `memory/autoloop_v2_audit_cross_review.md`
+- Session log: `logs/session_log.md`
+- Bug log: `logs/bug_log.md`
+- Memory index: `memory/MEMORY.md` at `C:\Users\msn\.claude\projects\C--POLARIS\memory\`
 
-Codex grep-verifies all 4:
-1. Substrate is **imported** by the named production file
-2. Substrate is **invoked** at the import site
-3. **Run-log evidence** with non-zero invocation count
-4. **`PG_USE_*` rollback flag** actually disables the new path
+## What just happened (last session)
 
-"Imported but unused" doesn't pass.
-Locked memory rule: `feedback_substrate_is_not_product.md`.
-
-## To resume mid-autoloop
-
-1. Read this file
-2. Read `docs/todo_list.md` for current milestone position
-3. Read `docs/full_online_plan_FINAL.md` for full context
-4. `git log --oneline -10` for last commits
-5. Check `outputs/codex_findings/` for in-flight Codex reviews
-6. Continue from wherever the autoloop stopped
-
-## Per-milestone process
-
-```
-For each M-INT-N in docs/todo_list.md:
-
-  1. TaskUpdate → in_progress
-  2. Read M-INT-N spec from docs/full_online_plan_FINAL.md
-  3. Build:
-     - Implement integration touching the named production file
-     - Add PG_USE_* rollback flag (defaults to enabled)
-     - Add tests proving:
-       * substrate IS imported (import statement assertion)
-       * substrate IS invoked (callsite assertion)
-       * flag=0 disables (monkeypatch test)
-       * existing behavior preserved (regression tests pass)
-     - Update threat-model doc if applicable
-     - git commit
-  4. Write Codex review brief at .codex/M-INT-N_v{N}_review_brief.md
-  5. Launch Codex sync review:
-     cat brief | codex exec --model gpt-5.4 -c reasoning.effort=xhigh
-     output → outputs/codex_findings/M-INT-N_v{N}_review/codex_stdout.log
-  6. Read verdict:
-     - GREEN → lock, TaskUpdate completed, next milestone
-     - PARTIAL → integrate findings → v{N+1} → loop step 4
-     - BLOCKED → pause + flag user
-  7. After GREEN-lock:
-     - Update docs/todo_list.md status
-     - Append to logs/session_log.md
-     - Continue autoloop
-```
-
-## Files-of-record
-
-- **Plan**: `docs/full_online_plan_FINAL.md`
-- **Todo**: `docs/todo_list.md`
-- **Memory (load-on-startup)**:
-  `~/.claude/projects/C--POLARIS/memory/MEMORY.md`
-- **Autoloop default behavior**: locked memory
-  `feedback_autoloop_default_behavior.md`
-- **Don't-pause rule**: locked memory
-  `feedback_dont_pause_autoloop.md`
-- **Substrate-not-product rule**: locked memory
-  `feedback_substrate_is_not_product.md`
-
-## What "fully online" means
-
-End of Phase H: public URL → FastAPI Evidence Inspector →
-controlled-access pilot users sign in → workspaces → audit-grade
-clinical research → click-to-source citations → contradiction
-matrix → citation-preserving exports → BEAT-BOTH telemetry vs
-ChatGPT/Gemini DR → one paying pilot live.
-
-Not a ChatGPT clone — audit-grade clinical research engine.
-Deliberate scope per FINAL_PLAN.md positioning. 14-23 calendar
-weeks ETA from 2026-04-29.
-
----
-
-## Predecessor: Autoloop V2 was in force from 2026-04-21
-
-Original V28→V29 runbook archived at
-`state/autoloop_v2_runbook.md`. The integration autoloop
-(this doc) supersedes the model-version-bump autoloop pattern,
-but inherits the same Claude+Codex cross-review discipline.
+2026-05-01: substrate audit completed → v6.1 plan drafted (substrate-aware) → Codex YELLOW with 8 surgical redlines → all applied → Codex YELLOW on line-214 contradiction → fixed → Codex GREEN. Triangle loop added (v6.2). Plan canonical. Todo and handover updated. Phase 0 Task 0.1 ready to start under triangle loop.
