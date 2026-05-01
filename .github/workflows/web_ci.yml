@@ -43,3 +43,101 @@ jobs:
 
       - name: build
         run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
