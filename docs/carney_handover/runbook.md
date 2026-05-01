@@ -53,7 +53,13 @@ Approved pairings:
 1. Pull new weights to a staging volume.
 2. Run benchmark suite: `pytest tests/v6/test_benchmark_schema.py` + the Phase 3 industry benchmark adapters against the live model.
 3. Run sycophancy CI: `pytest tests/v6/test_sycophancy_ci.py` + the 7 paired-prompt fixtures.
-4. Run pin replay against last-known-good fixtures: `python scripts/v6/run_pin_replay.py --against=goldens`.
+4. Run pin replay against last-known-good fixtures:
+   ```
+   python scripts/v6/run_pin_replay.py \
+       --baseline-dir tests/v6/fixtures/baseline_pins/ \
+       --candidate-dir outputs/replay/$(date +%F)/
+   ```
+   Exit 0 = no regression; exit 1 = at least one regression detected; exit 2 = missing dir.
 5. Cutover via `POLARIS_V6_GENERATOR_MODEL` + `POLARIS_V6_VERIFIER_MODEL` env vars.
 
 ---
@@ -83,12 +89,14 @@ Hard ceiling: `PG_MAX_COST_PER_RUN` (default $50/run; raise via env var with sig
 
 Pins are append-only and never deleted. Backed up daily to encrypted Canadian S3-compatible storage at `s3://polaris-pins-bhs/` (key custody with Carney's office IT).
 
-To replay an old pin:
+To diff a stored original pin against a freshly-replayed pin:
 ```
-python scripts/v6/replay_pin.py --pin-id <pin_id>
+python scripts/v6/replay_pin.py \
+    --original  s3/polaris-pins-bhs/<pin_id>.json \
+    --replay    outputs/replay/<pin_id>.json
 ```
 
-The diff output (PinDiff schema) flags any regression vs the original pin.
+Add `--json` for machine-consumable PinDiff output. Exit 1 if `is_regression=True`.
 
 ---
 
