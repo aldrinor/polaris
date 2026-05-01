@@ -56,7 +56,7 @@ All 10 tasks must GREEN before Phase 1 starts.
 - [x] **2B.1** F6 live citation overlay — `web/components/ui/evidence-tooltip.tsx` (base-ui Tooltip, hover preview of source span)
 - [x] **2B.2** F10a Vega-Lite renderer — `src/polaris_v6/charts/spec_builder.py` + `from_bundle.py` + `api/charts.py` + `web/components/ui/vega-chart.tsx` (vega-embed v5) + Inspector Charts tab + live screenshot
 - [x] **2B.3** F10b chart provenance schema — `polaris_provenance.evidence_ids` extension on every spec + click-through-to-source via VegaChart onPointClick
-- [ ] **2B.4** F10c executive-summary infographic — composed from 3 chart types; UI glue remaining
+- [x] **2B.4** F10c executive-summary infographic — Inspector "Executive summary" tab composes 4-KPI strip + 3 charts (forest_plot + comparison_table + timeline) with click-to-evidence on every datum
 - [x] **2B.5** F13 pin replay + diff — `src/polaris_v6/replay/{schema,differ}.py` + `regression_lab/runner.py` + 14 tests
 - [x] **2B.6** F14 workspace memory — `src/polaris_v6/memory/{schema,store}.py` + `api/memory.py` (5 endpoints, 14 tests); Chroma swap deferred to cluster
 - [ ] **2B.7** End-of-Phase 2B walkthrough — needs user

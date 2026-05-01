@@ -83,14 +83,22 @@ const targets = [
     path: "/inspector/golden_climate_005",
     description: "Inspector charts tab — rendered Vega-Lite forest plot",
     interact: async (page) => {
-      await page.waitForSelector("text=/Verified sentences/i", {
+      await page.waitForSelector("text=/Executive summary/i", {
         timeout: 8000,
       });
       await page
-        .getByRole("button", { name: /Charts/ })
+        .getByRole("button", { name: /^Charts/ })
         .first()
         .click();
       await page.waitForSelector(".polaris-vega-chart svg", { timeout: 8000 });
+    },
+  },
+  {
+    name: "inspector_executive_summary",
+    path: "/inspector/golden_climate_005",
+    description: "F10c executive summary tab — KPI strip + 3 charts stacked",
+    interact: async (page) => {
+      await page.waitForSelector(".polaris-vega-chart svg", { timeout: 12000 });
     },
   },
 ];
