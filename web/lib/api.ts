@@ -80,6 +80,37 @@ export async function getRun(runId: string): Promise<RunStatusResponse> {
   return asJsonOrThrow<RunStatusResponse>(response);
 }
 
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
 export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
 export type RefusalReason =
   | "clinical_treatment_recommendation"

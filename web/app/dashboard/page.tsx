@@ -16,8 +16,10 @@ import { Input } from "@/components/ui/input";
 import {
   checkScope,
   createRun,
+  uploadDocument,
   type ScopeDecision,
   type TemplateId,
+  type UploadResponse,
 } from "@/lib/api";
 
 const templates: { id: TemplateId; title: string; domain: string }[] = [
@@ -49,6 +51,36 @@ export default function DashboardPage() {
     null,
   );
   const [scopeChecking, setScopeChecking] = useState(false);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const results: UploadResponse[] = [];
+      for (const file of list) {
+        const result = await uploadDocument(file, "UNKNOWN");
+        results.push(result);
+      }
+      setUploads((prev) => [...prev, ...results]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragOver(false);
+    if (event.dataTransfer.files.length > 0) {
+      handleFiles(event.dataTransfer.files);
+    }
+  };
 
   const runScopeCheck = async () => {
     if (question.trim().length < 1) return;
@@ -77,7 +109,11 @@ export default function DashboardPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const run = await createRun({ template, question: question.trim() });
+      const run = await createRun({
+        template,
+        question: question.trim(),
+        document_ids: uploads.map((u) => u.document_id),
+      });
       router.push(`/runs/${run.run_id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -157,6 +193,78 @@ export default function DashboardPage() {
               required
               disabled={submitting}
             />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-foreground text-sm font-semibold">
+              Optional: upload supporting documents
+            </span>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-sm transition ${
+                dragOver
+                  ? "border-foreground bg-muted/40"
+                  : "border-border bg-muted/10"
+              }`}
+            >
+              <p className="text-muted-foreground">
+                Drag PDFs, .docx, .md, or .txt here, or
+              </p>
+              <label className="text-foreground cursor-pointer underline-offset-4 hover:underline">
+                <span>browse files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.md,.txt"
+                  className="hidden"
+                  disabled={uploading || submitting}
+                  onChange={(e) => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {uploading && (
+                <p className="text-muted-foreground text-xs">Uploading…</p>
+              )}
+            </div>
+            {uploads.length > 0 && (
+              <ul className="text-muted-foreground flex flex-col gap-1 text-xs">
+                {uploads.map((u) => (
+                  <li
+                    key={u.document_id}
+                    className="border-border bg-background flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {u.filename}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {(u.bytes / 1024).toFixed(1)} KB
+                      </span>
+                      <span className="ml-2 uppercase">{u.classification}</span>
+                      <span className="ml-2">{u.parse_status}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setUploads((prev) =>
+                          prev.filter((p) => p.document_id !== u.document_id),
+                        )
+                      }
+                      className="text-destructive hover:underline"
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {scopeDecision && (
