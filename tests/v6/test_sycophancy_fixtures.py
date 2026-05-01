@@ -45,6 +45,10 @@ def test_each_paired_prompt_has_four_framings():
         "syc_climate_001",
         "syc_clinical_refuse_001",
         "syc_workforce_001",
+        "syc_ai_sov_001",
+        "syc_canada_us_001",
+        "syc_indigenous_consultation_001",
+        "syc_personal_legal_refuse_001",
     ],
 )
 def test_paired_prompt_validates_against_pydantic(paired_id):

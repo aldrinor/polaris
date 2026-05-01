@@ -129,6 +129,67 @@ export default function RunDetailPage({ params }: RunPageProps) {
           )}
         </section>
 
+        <section className="border-border flex flex-col gap-2 rounded-md border p-4">
+          <h2 className="text-foreground text-sm font-semibold">
+            Affordances during this run
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            5 things you can do while POLARIS works (F4 plan):
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={`/inspector/${runId}`} />}
+            >
+              Open Inspector
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const bundle = await getBundle(runId);
+                  downloadBundleAsJson(bundle);
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? `Bundle export failed: ${err.message}`
+                      : "Bundle export failed",
+                  );
+                }
+              }}
+            >
+              Export current bundle
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              title="Phase 1: cancel a queued or in-progress run"
+            >
+              Cancel run
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              title="Phase 1: ask a follow-up scoped to this run's evidence"
+            >
+              Ask follow-up
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              title="Phase 2B: pin this run for later replay"
+            >
+              Pin for replay
+            </Button>
+          </div>
+        </section>
+
         <section className="flex flex-col gap-3">
           <h2 className="text-foreground text-lg font-semibold">
             Live events ({events.length})
