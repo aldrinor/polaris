@@ -10,6 +10,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from polaris_v6 import __version__
 from polaris_v6.api.ambiguity import router as ambiguity_router
@@ -36,6 +37,17 @@ def create_app() -> FastAPI:
         version=__version__,
         description="Sovereign Canadian deep research AI",
         lifespan=_lifespan,
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.include_router(health_router)
     app.include_router(runs_router)

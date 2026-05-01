@@ -32,6 +32,29 @@ const targets = [
     path: "/dashboard",
     description: "Research-run dashboard with 8-template selector",
   },
+  {
+    name: "research_dashboard_scope_rejected",
+    path: "/dashboard",
+    description: "Dashboard with scope-rejected response visible",
+    interact: async (page) => {
+      await page.fill("#question", "Should I take ozempic for my diabetes?");
+      await page.getByRole("button", { name: /Check scope/ }).click();
+      await page.waitForSelector("text=/Refused/i", { timeout: 5000 });
+    },
+  },
+  {
+    name: "research_dashboard_scope_accepted",
+    path: "/dashboard",
+    description: "Dashboard with scope-accepted research question",
+    interact: async (page) => {
+      await page.fill(
+        "#question",
+        "What does the latest CMHC data say about Q3 2025 housing starts across Canadian metros?",
+      );
+      await page.getByRole("button", { name: /Check scope/ }).click();
+      await page.waitForSelector("text=/Accepted/i", { timeout: 5000 });
+    },
+  },
 ];
 
 const viewport = { width: 1440, height: 900 };
@@ -55,6 +78,14 @@ try {
       throw new Error(
         `Unexpected page title at ${url}: "${title}". Wrong server bound to this port?`,
       );
+    }
+    if (target.interact) {
+      try {
+        await target.interact(page);
+        await page.waitForTimeout(300);
+      } catch (err) {
+        console.warn(`  (interact failed for ${target.name}: ${err.message})`);
+      }
     }
     const out = resolve(screenshots_dir, `${target.name}.png`);
     await page.screenshot({ path: out, fullPage: true });
