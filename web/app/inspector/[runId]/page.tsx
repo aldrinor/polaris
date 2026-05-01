@@ -122,7 +122,13 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                   </CardTitle>
                 </CardHeader>
               </Card>
-              <Card>
+              <Card
+                className={
+                  bundle.family_segregation_passed
+                    ? "border-emerald-500/40 bg-emerald-50/30"
+                    : "border-destructive/60 bg-destructive/10"
+                }
+              >
                 <CardHeader>
                   <CardDescription className="text-xs tracking-widest uppercase">
                     Two-family invariant
@@ -132,6 +138,13 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                     {bundle.generator_model} → {bundle.verifier_model}
                   </CardTitle>
                 </CardHeader>
+                {!bundle.family_segregation_passed && (
+                  <CardContent className="text-destructive text-xs">
+                    CLAUDE.md §9.1 invariant violated. Run output is suspect:
+                    generator and verifier share lineage. Re-run with
+                    family-segregated models before trusting verdicts.
+                  </CardContent>
+                )}
               </Card>
               <Card>
                 <CardHeader>
@@ -181,6 +194,9 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                   <SentencesTab
                     bundle={bundle}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                    onJumpToContradictions={() =>
+                      setActiveTab("contradictions")
+                    }
                   />
                 )}
                 {activeTab === "frames" && <FramesTab bundle={bundle} />}
@@ -214,9 +230,11 @@ export default function InspectorPage({ params }: InspectorPageProps) {
 function SentencesTab({
   bundle,
   onSelect,
+  onJumpToContradictions,
 }: {
   bundle: EvidenceContract;
   onSelect: (id: string) => void;
+  onJumpToContradictions: () => void;
 }) {
   if (bundle.verified_sentences.length === 0) {
     return (
@@ -226,6 +244,9 @@ function SentencesTab({
       </p>
     );
   }
+  const sectionsWithContradictions = new Set(
+    bundle.contradictions.map((c) => c.section_id),
+  );
   return (
     <ul className="flex flex-col gap-3">
       {bundle.verified_sentences.map((s, idx) => (
@@ -235,6 +256,15 @@ function SentencesTab({
               <CardDescription className="text-xs tracking-widest uppercase">
                 {s.section_id} · {s.verifier_local_pass ? "local✓" : "local✗"} ·{" "}
                 {s.verifier_global_pass ? "global✓" : "global✗"}
+                {sectionsWithContradictions.has(s.section_id) && (
+                  <button
+                    type="button"
+                    onClick={onJumpToContradictions}
+                    className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
+                  >
+                    contradiction in section →
+                  </button>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent>
