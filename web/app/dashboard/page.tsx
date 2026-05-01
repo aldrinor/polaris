@@ -321,7 +321,7 @@ export default function DashboardPage() {
                           prev.filter((p) => p.document_id !== u.document_id),
                         )
                       }
-                      className="text-destructive hover:underline"
+                      className="text-foreground font-medium hover:underline"
                     >
                       remove
                     </button>

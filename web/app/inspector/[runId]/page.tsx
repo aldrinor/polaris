@@ -312,7 +312,7 @@ function SentencesTab({
                 )}
               </p>
               {s.drop_reason && (
-                <p className="text-destructive mt-2 text-xs">
+                <p className="text-foreground mt-2 text-xs font-medium">
                   Dropped: {s.drop_reason}
                 </p>
               )}
