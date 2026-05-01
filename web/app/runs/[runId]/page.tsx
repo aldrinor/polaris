@@ -122,7 +122,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
           {error && (
             <p
               role="alert"
-              className="text-destructive border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
             >
               {error}
             </p>
@@ -211,7 +211,7 @@ export default function RunDetailPage({ params }: RunPageProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <pre className="bg-muted text-muted-foreground overflow-x-auto rounded-md p-3 text-xs">
+                  <pre className="bg-muted text-foreground overflow-x-auto rounded-md p-3 text-xs">
                     {JSON.stringify(evt.data, null, 2)}
                   </pre>
                 </CardContent>

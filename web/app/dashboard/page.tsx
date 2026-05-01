@@ -415,7 +415,7 @@ export default function DashboardPage() {
           {error && (
             <p
               role="alert"
-              className="text-destructive border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm"
+              className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
             >
               {error}
             </p>

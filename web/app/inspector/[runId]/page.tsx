@@ -146,11 +146,11 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 className={
                   bundle.family_segregation_passed
                     ? "border-emerald-500/40 bg-emerald-50/30"
-                    : "border-destructive/60 bg-destructive/10"
+                    : "border-destructive/60"
                 }
               >
                 <CardHeader>
-                  <CardDescription className="text-xs tracking-widest uppercase">
+                  <CardDescription className="text-foreground text-xs font-semibold tracking-widest uppercase">
                     Two-family invariant
                   </CardDescription>
                   <CardTitle className="text-sm">
@@ -159,7 +159,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                   </CardTitle>
                 </CardHeader>
                 {!bundle.family_segregation_passed && (
-                  <CardContent className="text-destructive text-xs">
+                  <CardContent className="text-foreground text-sm font-medium">
                     CLAUDE.md §9.1 invariant violated. Run output is suspect:
                     generator and verifier share lineage. Re-run with
                     family-segregated models before trusting verdicts.
@@ -664,7 +664,7 @@ function ChartsTab({
       {chartError && (
         <p
           role="alert"
-          className="text-destructive border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm"
+          className="border-destructive/60 text-foreground rounded-md border p-3 text-sm font-medium"
         >
           {chartError}
         </p>
