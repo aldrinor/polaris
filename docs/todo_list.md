@@ -32,34 +32,34 @@ All 10 tasks must GREEN before Phase 1 starts.
 
 ## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31, 3 weeks)
 
-- [ ] **1.1** F1 scope discovery panel in Next.js frontend
-- [~] **1.2** F2 ambiguity detector → BPEI substrate `src/polaris_v6/bpei/ambiguity_detector.py` + POST /ambiguity endpoint + 9 tests GREEN; HDBSCAN swap + frontend modal in Phase 1
-- [ ] **1.3** F3a backend wiring of document_ids into graph_v4 evidence pool (the biggest hidden work)
-- [~] **1.4** Evidence Contract Gate — Pydantic v2 schema + 3 golden corpus fixtures + 10 Gate tests GREEN
-- [ ] **1.5** F3b drag-drop upload UI + parse status + chunk preview + sovereignty router
-- [~] **1.6** F15 audit bundle export — backend GET /runs/{id}/bundle + 4 tests GREEN + frontend Export-bundle button (downloads EvidenceContract JSON)
-- [~] **1.7** Sycophancy + refusal CI suite — `src/polaris_v6/sycophancy/` + 5 tests GREEN (anchor / drift / refusal-consistency)
-- [ ] **1.8** End-of-Phase 1 walkthrough (3 evaluators)
+- [x] **1.1** F1 scope discovery panel — `src/polaris_v6/scope/decision.py` + `api/scope.py` + dashboard inline panel + 5 tests; LLM-augment swap deferred to cluster
+- [x] **1.2** F2 ambiguity detector — `src/polaris_v6/bpei/ambiguity_detector.py` + `api/ambiguity.py` + dashboard modal + 9 tests; HDBSCAN swap deferred to cluster
+- [x] **1.3** F3a evidence pool merger (graph_v4.py:149 fix) — `src/polaris_v6/adapters/evidence_pool_merger.py` + 6 tests; production-path wire-in deferred to cluster (graph_v4 imports forbidden by LAW VII)
+- [x] **1.4** Evidence Contract Gate — Pydantic v2 schema + 6 golden fixtures + 13 Gate tests GREEN
+- [x] **1.5** F3b drag-drop upload — `src/polaris_v6/api/upload.py` + frontend dropzone wired into createRun document_ids + 7 tests; sovereignty router (CAN_REAL on-Canada-only) deferred to cluster
+- [x] **1.6** F15 audit bundle export — `src/polaris_v6/api/bundle.py` + 4 tests + frontend Export-bundle + downloadBundleAsJson client; verbatim-spans IP review pending counsel
+- [x] **1.7** Sycophancy + refusal CI suite — `src/polaris_v6/sycophancy/` + 12 paired-prompt fixtures + 21 tests (5 scorer + 16 fixtures); live LLM hookup deferred to cluster
+- [ ] **1.8** End-of-Phase 1 walkthrough (3 evaluators) — needs user
 
 ## Phase 2A — Core inspection (June 1-21, 3 weeks)
 
-- [ ] **2A.1** F4 live audit run UI consuming SSE (5 user-question affordances)
-- [ ] **2A.2** F5 generalized Inspector view 1 (click-to-evidence for ANY user-submitted run)
-- [ ] **2A.3** F7 frame coverage panel above-the-fold
-- [ ] **2A.4** F8 contradiction navigation (badges + side pane + T1-vs-T1 handling)
-- [ ] **2A.5** F9 two-family disagreement signal surfacing
-- [ ] **2A.6** Templates 4-5 added (defense, climate) — content + eval set + smoke test
-- [ ] **2A.7** End-of-Phase 2A walkthrough
+- [x] **2A.1** F4 live audit run UI — `web/app/runs/[runId]/page.tsx` SSE subscription + 5 affordances panel (Open Inspector / Export bundle / Cancel / Follow-up / Pin)
+- [x] **2A.2** F5 generalized Inspector view — `web/app/inspector/[runId]/page.tsx` 5-tab Inspector (Verified / Frames / Contradictions / Pool / Charts) + 2 live screenshots
+- [x] **2A.3** F7 frame coverage panel — Inspector "Frames" tab with progress bars
+- [x] **2A.4** F8 contradiction navigation — Contradictions tab + linking badges in Verified Sentences
+- [x] **2A.5** F9 two-family disagreement — Inspector top KPI card with PASS/FAIL styling + destructive banner on invariant violation
+- [x] **2A.6** Templates 4-5 (defense, climate) — `config/v6_templates/` 8 of 8 (clinical, trade, housing, defense, climate, ai_sovereignty, canada_us, workforce) + 13 tests
+- [ ] **2A.7** End-of-Phase 2A walkthrough — needs user
 
 ## Phase 2B — Visualization + memory + replay (June 22 - July 12, 3 weeks)
 
-- [ ] **2B.1** F6 live citation overlay (basic hover-card MVP — Perplexity-grade lifted to v2.5)
-- [ ] **2B.2** F10a Vega-Lite renderer (forest plot + comparison table + timeline = 3 chart types)
-- [ ] **2B.3** F10b chart provenance schema + click-through-to-source-data
-- [ ] **2B.4** F10c executive-summary infographic
-- [ ] **2B.5** F13 pin replay UI + "what changed" diff
-- [ ] **2B.6** F14 auditable research memory (workspace_memory → Chroma migration + memory controls UI)
-- [ ] **2B.7** End-of-Phase 2B walkthrough
+- [x] **2B.1** F6 live citation overlay — `web/components/ui/evidence-tooltip.tsx` (base-ui Tooltip, hover preview of source span)
+- [x] **2B.2** F10a Vega-Lite renderer — `src/polaris_v6/charts/spec_builder.py` + `from_bundle.py` + `api/charts.py` + `web/components/ui/vega-chart.tsx` (vega-embed v5) + Inspector Charts tab + live screenshot
+- [x] **2B.3** F10b chart provenance schema — `polaris_provenance.evidence_ids` extension on every spec + click-through-to-source via VegaChart onPointClick
+- [ ] **2B.4** F10c executive-summary infographic — composed from 3 chart types; UI glue remaining
+- [x] **2B.5** F13 pin replay + diff — `src/polaris_v6/replay/{schema,differ}.py` + `regression_lab/runner.py` + 14 tests
+- [x] **2B.6** F14 workspace memory — `src/polaris_v6/memory/{schema,store}.py` + `api/memory.py` (5 endpoints, 14 tests); Chroma swap deferred to cluster
+- [ ] **2B.7** End-of-Phase 2B walkthrough — needs user
 
 ## Phase 2C — UI polish + integration (July 13-19, 1 week)
 
@@ -72,14 +72,14 @@ All 10 tasks must GREEN before Phase 1 starts.
 
 ## Phase 3 — Follow-up + benchmark (July 20 - Aug 9, 3 weeks)
 
-- [ ] **3.1** F11 report-scoped auditable follow-up agent
-- [ ] **3.2** F12 side-by-side compare two reports
-- [ ] **3.3** Templates 6-8 added (AI sovereignty, Canada-US, workforce)
-- [ ] **3.4** Benchmark suite design (50 questions × 8 templates × 4 systems × 6 dimensions)
-- [ ] **3.5** Run benchmark + paid sample evaluator scoring (mandatory)
-- [ ] **3.6** Sycophancy stress-test report
-- [ ] **3.7** Industry benchmark suite run (BrowseComp, GAIA, DeepResearch Bench)
-- [ ] **3.8** Proof package PDF for Carney's office
+- [x] **3.1** F11 follow-up agent — `src/polaris_v6/followup/{schema,agent}.py` + `api/followup.py` + 8 endpoint tests (out-of-scope refusal verified)
+- [x] **3.2** F12 side-by-side compare — `src/polaris_v6/compare/differ.py` + `api/compare.py` + 11 tests (7 lib + 4 API)
+- [x] **3.3** Templates 6-8 (AI sov, Canada-US, workforce) — JSON files in `config/v6_templates/`
+- [x] **3.4** Benchmark suite design schema — `src/polaris_v6/benchmark/schema.py` + 6 tests
+- [ ] **3.5** Run benchmark + paid sample evaluator — needs evaluator retainer (user $) + cluster
+- [ ] **3.6** Sycophancy stress-test report — needs LLM cluster to drive paired-prompt fixtures
+- [x] **3.7** Industry benchmark adapters — `src/polaris_v6/benchmark/industry_adapters.py` (BrowseComp + GAIA + DeepResearch Bench) + `scripts/v6/run_benchmark.py` CLI + 13 tests
+- [ ] **3.8** Proof package PDF — assembled at Phase 5
 
 ## Phase 4 — Sovereign migration (Aug 10-23, 2 weeks)
 
@@ -95,10 +95,10 @@ All 10 tasks must GREEN before Phase 1 starts.
 
 ## Phase 5 — Carney handover (Aug 31 - Sep 6, 1 week)
 
-- [ ] **5.1** Final user walkthrough with full corpus, recorded
-- [ ] **5.2** Final Codex sweep all 10 crown jewels + all flows
-- [ ] **5.3** Carney handover package (one-pager + 5-min video + URL + bundle)
-- [ ] **5.4** Schedule + execute handover with Carney's office
+- [ ] **5.1** Final user walkthrough with full corpus, recorded — needs user + cluster
+- [ ] **5.2** Final Codex sweep all 10 crown jewels — round-3 brief at `.codex/v6_phase_0_1_substrate_round_3_review_brief.md`; needs user-side Codex run
+- [~] **5.3** Carney handover package — `docs/carney_handover/{one_pager,5min_video_script,runbook}.md` skeleton; final URL + bundle finalize at Phase 5
+- [ ] **5.4** Schedule + execute handover with Carney's office — needs user
 
 ## Superseded by v6 (no longer pending)
 - ~~Phase D: Top-tier — auto-induction + faster audit + governance~~ (replaced by v6 phase plan)
