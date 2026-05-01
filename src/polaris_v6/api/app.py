@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from polaris_v6 import __version__
 from polaris_v6.api.health import router as health_router
 from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.stream import router as stream_router
 
 
 @asynccontextmanager
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(runs_router)
+    app.include_router(stream_router)
     return app
 
 
