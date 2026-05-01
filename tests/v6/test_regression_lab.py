@@ -110,3 +110,50 @@ def test_format_ci_summary_includes_verdict():
     summary = format_ci_summary(report)
     assert "PASS" in summary
     assert "matched 1/1" in summary
+
+
+def test_format_ci_summary_lists_unmatched_baselines():
+    """Cover regression_lab/runner.py:77 — Unmatched baseline section."""
+    baseline = [_pin("r1"), _pin("r_dropped")]
+    candidate = [_pin("r1", pin_id="pin_r1_replay")]
+    report = run_regression_lab(baseline=baseline, candidate=candidate)
+    summary = format_ci_summary(report)
+    assert "Unmatched baselines" in summary
+    assert "r_dropped" in summary
+
+
+def test_format_ci_summary_lists_new_candidates():
+    """Cover regression_lab/runner.py:81 — New candidate section."""
+    baseline = [_pin("r1")]
+    candidate = [_pin("r1", pin_id="pin_r1_replay"), _pin("r_brand_new")]
+    report = run_regression_lab(baseline=baseline, candidate=candidate)
+    summary = format_ci_summary(report)
+    assert "New candidates" in summary
+    assert "r_brand_new" in summary
+
+
+def test_format_ci_summary_lists_regression_details():
+    """Cover regression_lab/runner.py:85-89 — REGRESSION DETAILS section.
+
+    Per-field regression formatting only fires when a matched pair has at
+    least one field with severity='regression' (not 'warn'). Pipeline-status
+    success → abort_no_verified_sections produces a regression-severity field.
+    """
+    baseline = [_pin("r1", sentence_count=10)]
+    candidate = [
+        _pin(
+            "r1",
+            pin_id="pin_r1_replay",
+            status="abort_no_verified_sections",
+            sentence_count=0,
+        )
+    ]
+    report = run_regression_lab(baseline=baseline, candidate=candidate)
+    assert report.passed is False
+    summary = format_ci_summary(report)
+    assert "REGRESSION DETAILS" in summary
+    assert "FAIL" in summary
+    # The arrow + field-level diff must include both pin_ids and the
+    # field name that regressed.
+    assert "pin_r1" in summary
+    assert "pin_r1_replay" in summary
