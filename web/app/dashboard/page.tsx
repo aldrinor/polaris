@@ -217,25 +217,40 @@ export default function DashboardPage() {
             <legend className="text-foreground text-sm font-semibold">
               Template
             </legend>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {templates.map((t) => (
-                <Card
-                  key={t.id}
-                  className={`cursor-pointer transition ${
-                    template === t.id
-                      ? "border-foreground"
-                      : "border-border hover:border-muted-foreground"
-                  }`}
-                  onClick={() => setTemplate(t.id)}
-                >
-                  <CardHeader>
-                    <CardDescription className="text-xs tracking-widest uppercase">
+            <div
+              role="radiogroup"
+              aria-label="Research template"
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              {templates.map((t) => {
+                const selected = template === t.id;
+                return (
+                  // F-26 (cycle-8 P1.2 root_cause): native button + role=radio
+                  // makes template selection keyboard-operable. Survived 7
+                  // prior cycles as <Card onClick=...> (React onClick on a
+                  // <div> — keyboard-only users locked out of non-default
+                  // templates, WCAG 2.1.1 Level A failure).
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setTemplate(t.id)}
+                    className={`text-left rounded-lg border bg-card p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                      selected
+                        ? "border-foreground"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                  >
+                    <span className="block text-card-foreground text-xs font-medium tracking-widest uppercase">
                       {t.domain}
-                    </CardDescription>
-                    <CardTitle className="text-base">{t.title}</CardTitle>
-                  </CardHeader>
-                </Card>
-              ))}
+                    </span>
+                    <span className="text-card-foreground mt-1 block text-base font-semibold">
+                      {t.title}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </fieldset>
 
@@ -279,7 +294,7 @@ export default function DashboardPage() {
               <p className="text-muted-foreground">
                 Drag PDFs, .docx, .md, or .txt here, or
               </p>
-              <label className="text-foreground cursor-pointer underline-offset-4 hover:underline">
+              <label className="text-foreground inline-flex min-h-[24px] cursor-pointer items-center px-2 underline-offset-4 hover:underline">
                 <span>browse files</span>
                 <input
                   type="file"
@@ -321,7 +336,7 @@ export default function DashboardPage() {
                           prev.filter((p) => p.document_id !== u.document_id),
                         )
                       }
-                      className="text-foreground font-medium hover:underline"
+                      className="text-foreground inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded px-1 font-medium hover:underline"
                     >
                       remove
                     </button>
@@ -333,6 +348,8 @@ export default function DashboardPage() {
 
           {scopeDecision && (
             <Card
+              role="status"
+              aria-live="polite"
               className={
                 scopeDecision.verdict === "rejected"
                   ? "border-destructive/60"
@@ -367,7 +384,11 @@ export default function DashboardPage() {
           )}
 
           {ambiguity?.is_ambiguous && (
-            <Card className="border-yellow-500/50 bg-yellow-50/40">
+            <Card
+              role="status"
+              aria-live="polite"
+              className="border-yellow-500/50 bg-yellow-50/40"
+            >
               <CardHeader>
                 <CardDescription className="text-xs tracking-widest uppercase">
                   Disambiguation needed (BPEI guard)

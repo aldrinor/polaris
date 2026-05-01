@@ -296,7 +296,7 @@ function SentencesTab({
                   <button
                     type="button"
                     onClick={onJumpToContradictions}
-                    className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
+                    className="ml-2 inline-flex min-h-[24px] items-center rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-900 normal-case hover:bg-yellow-200"
                   >
                     contradiction in section →
                   </button>

@@ -32,7 +32,7 @@ export function EvidenceTooltip({
           <button
             type="button"
             onClick={onClickToInspect}
-            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 cursor-pointer rounded px-1 font-mono text-xs transition"
+            className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 inline-flex min-h-[24px] cursor-pointer items-center rounded px-1.5 py-0.5 font-mono text-xs transition"
           />
         }
       >

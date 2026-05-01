@@ -147,6 +147,122 @@ test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => 
   });
 });
 
+test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
+  // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
+  // P1.4 surfaced multiple <button>/<label>/<a role="button"> surfaces
+  // that pass axe but fail strict WCAG 2.2 SC 2.5.8 AA (24x24 minimum).
+  // This sweep walks every clickable element + asserts ≥24x24 directly.
+
+  test("Dashboard — all clickable targets ≥24x24", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      // Exclude <label htmlFor=...> — labels paired with a form control
+      // delegate the hit target to the control itself (WCAG 2.5.8 "inline"
+      // exemption). The "browse files" label has no htmlFor (it wraps the
+      // hidden file input directly) so it remains in scope.
+      const sel =
+        'button, label:not([for]), [role="button"], [role="radio"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return; // hidden / pre-render
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+
+  test("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      const sel = 'button, label, [role="button"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+});
+
+test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () => {
+  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
+  // selection MUST be reachable via Tab + activatable via Space/Enter.
+  // Survived 7 prior cycles as <Card onClick> with no keyboard handler.
+  test("Dashboard template radiogroup is keyboard-operable", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    // The radiogroup should expose role="radiogroup".
+    const group = page.locator('[role="radiogroup"]');
+    await expect(group).toBeVisible();
+    // Each template option should expose role="radio" with aria-checked.
+    const radios = page.locator('[role="radio"]');
+    expect(await radios.count()).toBeGreaterThanOrEqual(2);
+    // Default selection.
+    const initiallyChecked = await page
+      .locator('[role="radio"][aria-checked="true"]')
+      .count();
+    expect(initiallyChecked).toBe(1);
+    // Tab into the first radio + Space-activate; aria-checked moves.
+    await radios.nth(1).focus();
+    await page.keyboard.press("Space");
+    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 test.describe("WCAG-AA — Inspector error states", () => {
   test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
     page,
