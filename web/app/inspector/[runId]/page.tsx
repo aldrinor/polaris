@@ -196,7 +196,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                   key={t.id}
                   type="button"
                   onClick={() => setActiveTab(t.id)}
-                  className={`border-b-2 px-3 py-2 text-sm transition ${
+                  className={`border-b-2 px-3 py-2.5 min-h-[44px] text-sm transition ${
                     activeTab === t.id
                       ? "border-foreground text-foreground"
                       : "text-muted-foreground hover:text-foreground border-transparent"
@@ -651,7 +651,7 @@ function ChartsTab({
             key={t}
             type="button"
             onClick={() => setChartType(t)}
-            className={`rounded-md border px-3 py-1.5 text-xs transition ${
+            className={`rounded-md border px-3 py-2 min-h-[28px] text-xs transition ${
               chartType === t
                 ? "border-foreground bg-foreground text-background"
                 : "border-border hover:border-foreground"
