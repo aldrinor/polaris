@@ -71,8 +71,25 @@ const targets = [
     description: "Inspector view of housing contradiction golden run",
     interact: async (page) => {
       await page.waitForSelector("text=/Contradictions/i", { timeout: 8000 });
-      await page.getByRole("button", { name: /Contradictions/ }).first().click();
+      await page
+        .getByRole("button", { name: /Contradictions/ })
+        .first()
+        .click();
       await page.waitForTimeout(300);
+    },
+  },
+  {
+    name: "inspector_charts_tab",
+    path: "/inspector/golden_climate_005",
+    description: "Inspector charts tab showing climate run forest plot spec",
+    interact: async (page) => {
+      await page.waitForSelector("text=/Verified sentences/i", {
+        timeout: 8000,
+      });
+      await page.getByRole("button", { name: /Charts/ }).first().click();
+      await page.waitForSelector("text=/Vega-Lite v5 spec/i", {
+        timeout: 5000,
+      });
     },
   },
 ];
