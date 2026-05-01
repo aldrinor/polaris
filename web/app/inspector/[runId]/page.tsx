@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
+import { VegaChart } from "@/components/ui/vega-chart";
 import {
   downloadBundleAsJson,
   getBundle,
@@ -511,25 +512,36 @@ function ChartsTab({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground mb-2 text-xs">
-              Vega-Lite v5 spec returned by the backend. Phase 2B wires
-              vega-embed client-side. Click any evidence id to inspect.
-            </p>
-            <div className="mb-3 flex flex-wrap gap-1">
-              {spec.polaris_provenance.evidence_ids.slice(0, 12).map((eid) => (
-                <button
-                  key={eid}
-                  type="button"
-                  onClick={() => onSelect(eid)}
-                  className="bg-muted hover:bg-foreground hover:text-background rounded px-1.5 py-0.5 font-mono text-[11px]"
-                >
-                  {eid}
-                </button>
-              ))}
-            </div>
-            <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
-              {JSON.stringify(spec, null, 2)}
-            </pre>
+            <VegaChart
+              spec={spec}
+              onPointClick={(datum) => {
+                const evidenceId = datum.evidence_id;
+                if (typeof evidenceId === "string") onSelect(evidenceId);
+              }}
+            />
+            <details className="mt-4">
+              <summary className="text-muted-foreground cursor-pointer text-xs">
+                View raw Vega-Lite spec (
+                {spec.polaris_provenance.evidence_ids.length} evidence ids)
+              </summary>
+              <div className="mt-2 mb-3 flex flex-wrap gap-1">
+                {spec.polaris_provenance.evidence_ids
+                  .slice(0, 12)
+                  .map((eid) => (
+                    <button
+                      key={eid}
+                      type="button"
+                      onClick={() => onSelect(eid)}
+                      className="bg-muted hover:bg-foreground hover:text-background rounded px-1.5 py-0.5 font-mono text-[11px]"
+                    >
+                      {eid}
+                    </button>
+                  ))}
+              </div>
+              <pre className="bg-muted text-muted-foreground max-h-96 overflow-auto rounded-md p-3 text-[11px]">
+                {JSON.stringify(spec, null, 2)}
+              </pre>
+            </details>
           </CardContent>
         </Card>
       )}
