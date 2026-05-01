@@ -19,16 +19,16 @@ Deliver sovereign Canadian deep research AI to Mark Carney as a gift. Match or b
 
 All 10 tasks must GREEN before Phase 1 starts.
 
-- [ ] **0.1** Blocker decisions written + paid sample evaluator sourcing initiated (mandatory; for Phase 3 benchmark legitimacy)
-- [ ] **0.2** Architecture pattern adoption doc (no MiroThinker fork) + license scan
-- [ ] **0.3** Vast.ai US 4× H100 dev cluster operational (V4 Flash via SGLang/vLLM)
-- [ ] **0.4** Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4 + TypeScript 5)
-- [ ] **0.5** Backend modernization (FastAPI 0.136.x + Pydantic v2 + Dramatiq queue acceptance test)
+- [x] **0.1** Blocker decisions written + paid sample evaluator sourcing initiated → `docs/blockers.md`
+- [x] **0.2** Architecture pattern adoption doc (no MiroThinker fork) + license scan → `docs/agent_architecture.md`
+- [ ] **0.3** Vast.ai US 4× H100 dev cluster operational (V4 Flash via SGLang/vLLM) — needs user $ commitment
+- [~] **0.4** Frontend scaffold (Next.js 16 + React 19 + shadcn 4.6 MIT + Tailwind v4 + TypeScript 5) — agent in progress at `web/`
+- [~] **0.5** Backend modernization (FastAPI 0.136.x + Pydantic v2 + Dramatiq queue acceptance test) → plan: `docs/backend_modernization.md`; code stubs pending
 - [ ] **0.6** DeepSeek V4 hardware Path A/B/C decision committed (default Path C V4 Flash only)
 - [ ] **0.7** SGLang vs vLLM bakeoff → one engine frozen for entire build
-- [ ] **0.8** Gemma 4 31B verification (model card + license + serving recipe)
+- [~] **0.8** Gemma 4 31B verification → `docs/gemma_4_verification.md` (Apache 2.0 + Gemma Use Policy, LOW severity); smoke test pending Task 0.3
 - [ ] **0.9** OVH Canada BHS H200 verification (HARD GATE) or backup procurement initiated
-- [ ] **0.10** OpenTelemetry wired (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev`, semconv 1.30.0-dev pinned)
+- [~] **0.10** OpenTelemetry pinned (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`, semconv 1.36.0+) → `docs/opentelemetry_genai.md`
 
 ## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31, 3 weeks)
 

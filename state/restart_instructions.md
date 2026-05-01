@@ -50,4 +50,19 @@ If halt triggered: surface to user, wait for direction. Otherwise: continue.
 
 ## What just happened (last session)
 
-2026-05-01: substrate audit completed → v6.1 plan drafted (substrate-aware) → Codex YELLOW with 8 surgical redlines → all applied → Codex YELLOW on line-214 contradiction → fixed → Codex GREEN. Triangle loop added (v6.2). Plan canonical. Todo and handover updated. Phase 0 Task 0.1 ready to start under triangle loop.
+2026-05-01: substrate audit completed → v6.1 plan drafted (substrate-aware) → Codex YELLOW with 8 surgical redlines → all applied → Codex YELLOW on line-214 contradiction → fixed → Codex GREEN. Triangle loop added (v6.2). Plan canonical. Todo and handover updated.
+
+**Phase 0 progress (v6.2 execution started, 2026-05-01):**
+- ✅ Task 0.1 — `docs/blockers.md` (10 blockers register: 6 CONFIRMED, 4 ACTION-PENDING with dates+owners)
+- ✅ Task 0.2 — `docs/agent_architecture.md` (Local+Global Verifier; no MiroThinker fork; 9 existing modules mapped)
+- ⏳ Task 0.4 — frontend agent (background ID `aab25b18`) scaffolded `web/`: Next.js 16.2.4 + React 19.2.4 + shadcn 4.6 (MIT) + Tailwind v4 + TypeScript 5 + ESLint 9 + Prettier
+- ⏳ Task 0.5 — `docs/backend_modernization.md` (FastAPI 0.136 + Pydantic v2.11 + Dramatiq 2.1 + 8-scenario acceptance test); code stubs pending
+- ⏳ Task 0.8 — `docs/gemma_4_verification.md` (model card + license scan + vLLM recipe). **Errata E-1**: license is Apache 2.0 + Gemma Use Policy, LOW severity for Carney scope
+- ⏳ Task 0.10 — `docs/opentelemetry_genai.md` (OTEL pin). **Errata E-2**: env var is `gen_ai_latest_experimental` (NOT `gen_ai_dev`); semconv baseline 1.36.0+ (NOT 1.30.0-dev). Plan amended with errata section.
+- ⛔ Tasks 0.3, 0.6, 0.7, 0.9 — pending user $ commitment / downstream dependency
+
+**Next action on resume:**
+1. Check frontend agent (background ID `aab25b18`) completion notification — it was running at end of session
+2. If complete: triangle-loop Task 0.4 (Claude self-audit + Codex audit + cross-review)
+3. Resume Task 0.5 code-side: write `requirements-v6.txt` + FastAPI router skeleton + Dramatiq acceptance test stub
+4. Surface Tasks 0.3 + 0.6 + 0.9 to user for $ commitment (per `docs/blockers.md` action-pending dates)

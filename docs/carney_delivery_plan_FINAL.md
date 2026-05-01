@@ -1,8 +1,24 @@
 # POLARIS Carney Delivery Plan v6 — substrate-aware, frontier-comparable
 
-**Status:** v6 DRAFT — anchored on actual codebase audit, not greenfield assumption.
+**Status:** v6.2 — Codex GREEN; **v6.3 errata applied 2026-05-01** (Phase 0 Tasks 0.8 + 0.10 surfaced two material corrections; see Errata section below).
 **Date:** 2026-05-01.
 **Supersedes:** all earlier plan versions including FINAL+5.
+
+## Errata (2026-05-01, applied during Phase 0 execution)
+
+**E-1 Gemma 4 license** (Task 0.8 — `docs/gemma_4_verification.md`)
+- v6 plan said "Apache 2.0"
+- Actual: **Apache 2.0 + Gemma Prohibited Use Policy + Intended Use Statement + Terms of Use** (verified at https://ai.google.dev/gemma/docs/gemma_4_license)
+- Severity for Carney scope: LOW (no government / sovereign / weight-redistribution / derivative-model restrictions)
+- Action items captured in Task 0.8 doc
+
+**E-2 OpenTelemetry GenAI semconv opt-in env var** (Task 0.10 — `docs/opentelemetry_genai.md`)
+- v6 plan / v5 redline said `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev` and "semconv 1.30.0-dev pinned"
+- Actual: **`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`** and baseline **1.36.0+** (verified at https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+- Status: still "Development" (experimental, not yet stable)
+- Plan amendment: any code or config referencing `gen_ai_dev` or `1.30.0-dev` MUST use the corrected values
+
+
 **Mission:** From today to a working sovereign Canadian deep research AI delivered to Mark Carney that **matches or beats ChatGPT 5.5 Pro DR / Gemini 3.1 Pro DR** on every user-facing function and feature.
 
 ---
