@@ -35,8 +35,8 @@ export default function InspectorPage({ params }: InspectorPageProps) {
     null,
   );
   const [activeTab, setActiveTab] = useState<
-    "sentences" | "frames" | "contradictions" | "pool" | "charts"
-  >("sentences");
+    "summary" | "sentences" | "frames" | "contradictions" | "pool" | "charts"
+  >("summary");
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +58,11 @@ export default function InspectorPage({ params }: InspectorPageProps) {
 
   const tabs: { id: typeof activeTab; label: string; count: number }[] = bundle
     ? [
+        {
+          id: "summary",
+          label: "Executive summary",
+          count: 3,
+        },
         {
           id: "sentences",
           label: "Verified sentences",
@@ -200,6 +205,13 @@ export default function InspectorPage({ params }: InspectorPageProps) {
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="flex flex-col gap-3 lg:col-span-2">
+                {activeTab === "summary" && (
+                  <ExecutiveSummaryTab
+                    runId={runId}
+                    bundle={bundle}
+                    onSelect={(id) => setSelectedEvidence(evidenceById(id))}
+                  />
+                )}
                 {activeTab === "sentences" && (
                   <SentencesTab
                     bundle={bundle}
@@ -436,6 +448,158 @@ function ContradictionsTab({
         </li>
       ))}
     </ul>
+  );
+}
+
+function ExecutiveSummaryTab({
+  runId,
+  bundle,
+  onSelect,
+}: {
+  runId: string;
+  bundle: EvidenceContract;
+  onSelect: (id: string) => void;
+}) {
+  /**
+   * F10c executive-summary infographic — composes all 3 chart types
+   * (forest_plot + comparison_table + timeline) into a single page-
+   * level briefing view, anchored by the run question + key counts.
+   */
+  const chartTypes: ChartType[] = [
+    "forest_plot",
+    "comparison_table",
+    "timeline",
+  ];
+  const [specs, setSpecs] = useState<Record<ChartType, VegaLiteSpec | null>>({
+    forest_plot: null,
+    comparison_table: null,
+    timeline: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(chartTypes.map((t) => getChart(runId, t).catch(() => null)))
+      .then((results) => {
+        if (cancelled) return;
+        setSpecs({
+          forest_plot: results[0],
+          comparison_table: results[1],
+          timeline: results[2],
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSpecs({
+            forest_plot: null,
+            comparison_table: null,
+            timeline: null,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
+  const verifiedCount = bundle.verified_sentences.length;
+  const droppedCount = bundle.verified_sentences.filter(
+    (s) => s.drop_reason,
+  ).length;
+  const contradictionCount = bundle.contradictions.length;
+  const tierCounts = bundle.evidence_pool.reduce<Record<string, number>>(
+    (acc, span) => {
+      acc[span.source_tier] = (acc[span.source_tier] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="border-foreground/30 bg-muted/20">
+        <CardHeader>
+          <CardDescription className="text-xs tracking-widest uppercase">
+            Executive briefing — at a glance
+          </CardDescription>
+          <CardTitle className="text-base">{bundle.template} run</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-foreground text-sm">{bundle.question}</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">
+                Verified
+              </p>
+              <p className="text-foreground text-xl font-semibold">
+                {verifiedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">Dropped</p>
+              <p className="text-foreground text-xl font-semibold">
+                {droppedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">
+                Contradictions
+              </p>
+              <p className="text-foreground text-xl font-semibold">
+                {contradictionCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs uppercase">Sources</p>
+              <p className="text-foreground text-xl font-semibold">
+                {bundle.evidence_pool.length}
+                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                  T1:{tierCounts.T1 ?? 0} · T2:{tierCounts.T2 ?? 0} · T3:
+                  {tierCounts.T3 ?? 0}
+                </span>
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartTypes.map((t) => {
+        const spec = specs[t];
+        if (!spec) {
+          return (
+            <Card key={t}>
+              <CardHeader>
+                <CardDescription className="text-xs tracking-widest uppercase">
+                  {t.replace("_", " ")}
+                </CardDescription>
+                <CardTitle className="text-sm">Loading…</CardTitle>
+              </CardHeader>
+            </Card>
+          );
+        }
+        return (
+          <Card key={t}>
+            <CardHeader>
+              <CardDescription className="text-xs tracking-widest uppercase">
+                {t.replace("_", " ")} ·{" "}
+                {spec.polaris_provenance.evidence_ids.length} evidence ids
+              </CardDescription>
+              <CardTitle className="text-sm">
+                {(spec.title as string) ?? "Chart"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <VegaChart
+                spec={spec}
+                onPointClick={(datum) => {
+                  const evidenceId = datum.evidence_id;
+                  if (typeof evidenceId === "string") onSelect(evidenceId);
+                }}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
