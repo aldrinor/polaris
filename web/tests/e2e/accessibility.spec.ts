@@ -94,6 +94,26 @@ test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () =>
   });
 });
 
+test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+  test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // Exercises the inspector/[runId]/page.tsx:315 surface (the
+    // \"Dropped: <reason>\" annotation) which axe never saw before because
+    // no golden fixture populated drop_reason. Cycle-2 audit P1.1
+    // demonstrated this was a real WCAG-AA color-contrast hazard until F-7.
+    await page.goto("/inspector/golden_with_drop_reason", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    await expect(page.getByText(/Dropped:/i)).toBeVisible({ timeout: 8_000 });
+    await expectNoA11yViolations(page);
+  });
+});
+
 test.describe("WCAG-AA — Inspector error states", () => {
   test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
     page,

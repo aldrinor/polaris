@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_with_drop_reason",
+  "template": "clinical",
+  "question": "Did metformin reduce all-cause mortality in T2DM patients?",
+  "queued_at": "2026-05-01T11:00:00Z",
+  "finished_at": "2026-05-01T11:09:13Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_drop_001",
+      "source_url": "https://www.cochrane.org/CD002966/ENDOC_metformin-monotherapy",
+      "source_tier": "T1",
+      "span_start": 0,
+      "span_end": 200,
+      "span_text": "Metformin monotherapy reduced all-cause mortality versus placebo over 10 years in the UKPDS cohort."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "Metformin reduced all-cause mortality vs placebo over 10 years [#ev:ev_drop_001:0-200].",
+      "provenance_tokens": ["[#ev:ev_drop_001:0-200]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    },
+    {
+      "section_id": "summary",
+      "sentence_text": "Effect sizes were uniformly stronger in younger cohorts.",
+      "provenance_tokens": [],
+      "verifier_local_pass": false,
+      "verifier_global_pass": false,
+      "drop_reason": "no_provenance_tokens; verifier_local_pass=false"
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "efficacy",
+      "frame_name": "Efficacy outcomes",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [],
+  "cost_usd": 0.31,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}

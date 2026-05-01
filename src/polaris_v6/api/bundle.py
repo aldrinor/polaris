@@ -32,6 +32,7 @@ _GOLDEN_RUN_INDEX = {
     "golden_defense_004": "golden_run_defense.json",
     "golden_climate_005": "golden_run_climate.json",
     "golden_ai_006": "golden_run_ai_sovereignty.json",
+    "golden_with_drop_reason": "golden_run_with_drop_reason.json",
 }
 
 
