@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from polaris_v6 import __version__
 from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.bundle import router as bundle_router
 from polaris_v6.api.health import router as health_router
 from polaris_v6.api.runs import router as runs_router
 from polaris_v6.api.stream import router as stream_router
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(runs_router)
     app.include_router(stream_router)
     app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
     return app
 
 
