@@ -116,12 +116,17 @@ export default function InspectorPage({ params }: InspectorPageProps) {
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-8">
         {error && (
-          <p
-            role="alert"
-            className="text-destructive border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm"
-          >
-            {error}
-          </p>
+          <section role="alert" aria-labelledby="inspector-error-heading">
+            <h1
+              id="inspector-error-heading"
+              className="text-foreground text-2xl font-semibold tracking-tight"
+            >
+              Bundle load failed
+            </h1>
+            <p className="border-destructive/60 text-foreground mt-2 rounded-md border p-3 text-sm font-medium">
+              {error}
+            </p>
+          </section>
         )}
 
         {bundle && (

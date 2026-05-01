@@ -94,3 +94,19 @@ test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () =>
     await expectNoA11yViolations(page);
   });
 });
+
+test.describe("WCAG-AA — Inspector error states", () => {
+  test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/does_not_exist_runid_404", {
+      waitUntil: "networkidle",
+    });
+    // The error banner uses bg-destructive/10 + text-destructive — make sure
+    // axe doesn't flag this combination either.
+    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
+      timeout: 8_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+});
