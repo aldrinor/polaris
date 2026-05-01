@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { EvidenceTooltip } from "@/components/ui/evidence-tooltip";
 import {
   downloadBundleAsJson,
   getBundle,
@@ -193,6 +194,7 @@ export default function InspectorPage({ params }: InspectorPageProps) {
                 {activeTab === "sentences" && (
                   <SentencesTab
                     bundle={bundle}
+                    evidenceById={evidenceById}
                     onSelect={(id) => setSelectedEvidence(evidenceById(id))}
                     onJumpToContradictions={() =>
                       setActiveTab("contradictions")
@@ -229,10 +231,12 @@ export default function InspectorPage({ params }: InspectorPageProps) {
 
 function SentencesTab({
   bundle,
+  evidenceById,
   onSelect,
   onJumpToContradictions,
 }: {
   bundle: EvidenceContract;
+  evidenceById: (id: string) => SourceSpan | null;
   onSelect: (id: string) => void;
   onJumpToContradictions: () => void;
 }) {
@@ -269,7 +273,11 @@ function SentencesTab({
             </CardHeader>
             <CardContent>
               <p className="text-sm">
-                {renderSentenceWithTokens(s.sentence_text, onSelect)}
+                {renderSentenceWithTokens(
+                  s.sentence_text,
+                  onSelect,
+                  evidenceById,
+                )}
               </p>
               {s.drop_reason && (
                 <p className="text-destructive mt-2 text-xs">
@@ -287,6 +295,7 @@ function SentencesTab({
 function renderSentenceWithTokens(
   text: string,
   onSelect: (id: string) => void,
+  evidenceById?: (id: string) => SourceSpan | null,
 ): React.ReactNode {
   const parts: React.ReactNode[] = [];
   const re = /\[#ev:([^:\]]+):\d+-\d+\]/g;
@@ -295,15 +304,18 @@ function renderSentenceWithTokens(
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
     const evidenceId = match[1];
+    const span = evidenceById?.(evidenceId);
     parts.push(
-      <button
+      <EvidenceTooltip
         key={`${match.index}-${evidenceId}`}
-        type="button"
-        onClick={() => onSelect(evidenceId)}
-        className="text-foreground bg-muted hover:bg-foreground hover:text-background mx-0.5 rounded px-1 font-mono text-xs transition"
+        evidenceId={evidenceId}
+        sourceUrl={span?.source_url}
+        spanText={span?.span_text}
+        sourceTier={span?.source_tier}
+        onClickToInspect={() => onSelect(evidenceId)}
       >
         {match[0]}
-      </button>,
+      </EvidenceTooltip>,
     );
     last = match.index + match[0].length;
   }
