@@ -9,9 +9,12 @@ This is a no-op for StubBroker; useful only against RedisBroker.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import dramatiq
+
+_log = logging.getLogger(__name__)
 
 
 class StickyConnectionMiddleware(dramatiq.Middleware):
@@ -31,6 +34,13 @@ class StickyConnectionMiddleware(dramatiq.Middleware):
         if client is not None:
             try:
                 client.close()
-            except Exception:
-                pass
+            except Exception as exc:  # pragma: no cover - cleanup-time guard
+                # CLAUDE.md §9.4: never `except: pass` silently. Log and
+                # continue; failing to close a Redis connection during worker
+                # shutdown is non-fatal but operators should see it.
+                _log.warning(
+                    "StickyConnectionMiddleware: client.close() raised %s during"
+                    " after_worker_shutdown; continuing teardown.",
+                    type(exc).__name__,
+                )
             self._local.client = None
