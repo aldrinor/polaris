@@ -23,7 +23,7 @@ All 10 tasks must GREEN before Phase 1 starts.
 - [x] **0.2** Architecture pattern adoption doc (no MiroThinker fork) + license scan → `docs/agent_architecture.md`
 - [ ] **0.3** Vast.ai US 4× H100 dev cluster operational — needs user $ commitment ($1.8-3.2k); auto-loop CAN spin instances on confirm
 - [x] **0.4** Frontend scaffold (Next.js 16 + React 19 + shadcn 4.6 MIT + Tailwind v4 + TypeScript 5 + ESLint 9 + Prettier) → `web/`; 4/4 CI gates green; 2 screenshots verified
-- [~] **0.5** Backend modernization → `docs/backend_modernization.md` + skeleton (`requirements-v6.txt` 18 PyPI-verified pins + `src/polaris_v6/{api,queue,schemas,observability}/` + 10 contract+acceptance tests). Remainder needs venv install (depends on Task 0.3 budget)
+- [~] **0.5** Backend modernization → 43 v6 tests PASSING (BPEI ambiguity 5, /ambiguity API 4, /health+runs 6, /bundle 4, OTEL 4, schemas 5, evidence contract gate 10, sycophancy 5). Acceptance scenarios 2-8 xfailed pending Task 0.3 cluster.
 - [ ] **0.6** DeepSeek V4 hardware Path A/B/C decision committed (default Path C V4 Flash only) — needs Task 0.7 bakeoff data
 - [ ] **0.7** SGLang vs vLLM bakeoff → one engine frozen for entire build — needs Task 0.3 cluster
 - [~] **0.8** Gemma 4 31B verification → `docs/gemma_4_verification.md` (Errata E-1: Apache 2.0 + Gemma Use Policy, LOW severity); smoke test pending Task 0.3
@@ -33,12 +33,12 @@ All 10 tasks must GREEN before Phase 1 starts.
 ## Phase 1 — BPEI spine + Evidence Contract Gate (May 13-31, 3 weeks)
 
 - [ ] **1.1** F1 scope discovery panel in Next.js frontend
-- [ ] **1.2** F2 ambiguity detector backend (HDBSCAN clustering on candidate embeddings) + disambiguation modal UI
+- [~] **1.2** F2 ambiguity detector → BPEI substrate `src/polaris_v6/bpei/ambiguity_detector.py` + POST /ambiguity endpoint + 9 tests GREEN; HDBSCAN swap + frontend modal in Phase 1
 - [ ] **1.3** F3a backend wiring of document_ids into graph_v4 evidence pool (the biggest hidden work)
-- [ ] **1.4** **Evidence Contract Gate** — canonical JSON schema + golden corpus + sample artifact
+- [~] **1.4** Evidence Contract Gate — Pydantic v2 schema + 3 golden corpus fixtures + 10 Gate tests GREEN
 - [ ] **1.5** F3b drag-drop upload UI + parse status + chunk preview + sovereignty router
-- [ ] **1.6** F15 audit bundle export with embedded source spans (legal review in parallel)
-- [ ] **1.7** Sycophancy + refusal CI suite (paired prompts neutral/leading/opposite-frame)
+- [~] **1.6** F15 audit bundle export — backend GET /runs/{id}/bundle + 4 tests GREEN + frontend Export-bundle button (downloads EvidenceContract JSON)
+- [~] **1.7** Sycophancy + refusal CI suite — `src/polaris_v6/sycophancy/` + 5 tests GREEN (anchor / drift / refusal-consistency)
 - [ ] **1.8** End-of-Phase 1 walkthrough (3 evaluators)
 
 ## Phase 2A — Core inspection (June 1-21, 3 weeks)
