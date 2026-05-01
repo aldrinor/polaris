@@ -1,0 +1,56 @@
+{
+  "contract_version": "1.0",
+  "run_id": "golden_clinical_001",
+  "template": "clinical",
+  "question": "What does the latest evidence show for ozempic cardiovascular outcomes?",
+  "queued_at": "2026-05-01T10:00:00Z",
+  "finished_at": "2026-05-01T10:08:42Z",
+  "pipeline_status": "success",
+  "evidence_pool": [
+    {
+      "evidence_id": "ev_clin_001",
+      "source_url": "https://www.canada.ca/en/health-canada/services/drugs-health-products/drug-products/database.html",
+      "source_tier": "T1",
+      "span_start": 1200,
+      "span_end": 1450,
+      "span_text": "Health Canada notes a 22% reduction in major adverse cardiovascular events in the SELECT trial cohort over 36 months."
+    },
+    {
+      "evidence_id": "ev_clin_002",
+      "source_url": "https://www.fda.gov/drugs/drug-approvals-and-databases",
+      "source_tier": "T1",
+      "span_start": 800,
+      "span_end": 1100,
+      "span_text": "FDA labelling for semaglutide updated 2025 to include cardiovascular risk reduction in adults with established cardiovascular disease and obesity."
+    }
+  ],
+  "verified_sentences": [
+    {
+      "section_id": "summary",
+      "sentence_text": "Semaglutide showed a 22% reduction in major adverse cardiovascular events in the SELECT trial [#ev:ev_clin_001:1200-1450].",
+      "provenance_tokens": ["[#ev:ev_clin_001:1200-1450]"],
+      "verifier_local_pass": true,
+      "verifier_global_pass": true,
+      "drop_reason": null
+    }
+  ],
+  "frame_coverage": [
+    {
+      "frame_id": "efficacy",
+      "frame_name": "Efficacy outcomes",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    },
+    {
+      "frame_id": "safety",
+      "frame_name": "Safety / adverse events",
+      "sources_assigned": 1,
+      "coverage_percent": 100.0
+    }
+  ],
+  "contradictions": [],
+  "cost_usd": 0.42,
+  "generator_model": "deepseek-v4-flash",
+  "verifier_model": "gemma-4-31b-it",
+  "family_segregation_passed": true
+}
