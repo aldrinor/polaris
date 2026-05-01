@@ -36,7 +36,7 @@ POLARIS Canada — a sovereign, audit-traceable, refusal-aware deep research age
 
 | # | Template | Carney priority served | Content week | Owner | Acceptance packet |
 |---|---|---|---|---|---|
-| 1 | **Clinical drug audit** (existing — tirzepatide T2D) | Healthcare / pharmacare debate | Phase 0 | existing | already shipped |
+| 1 | **Clinical drug audit** (existing — tirzepatide T2D) | Healthcare / pharmacare debate | Phase 0 (refresh only) | user + Claude | refreshed packet: existing charter audited, source policy verified, 10 example queries verified, 15-question eval set added if missing, smoke test re-run. Template 1 is NOT exempt from packet standard — existing artifacts are validated against it. |
 | 2 | **Trade & tariff impact analysis** | Trump tariffs / USMCA July 1 deadline | Phase 0-1 (week 1-2) | user + Claude | charter, source policy, 10 example queries, 15-question eval set, smoke test |
 | 3 | **Housing supply & productivity policy** | 500,000 homes/year + 0.7% GDP | Phase 1 (week 2-3) | user + Claude | same packet |
 | 4 | **Defense / Arctic / NATO** | $40B+ Northern plan | Phase 2 week 1 | user + Claude | same packet |
@@ -154,7 +154,7 @@ Without this, the Carney handover proof package weakens to "the builder validate
 
 | # | Task |
 |---|---|
-| 0.1 | Blocker decisions written + (optional) one paid sample evaluator sourced for Phase 3 benchmark legitimacy |
+| 0.1 | Blocker decisions written + paid sample evaluator sourcing initiated (mandatory; for Phase 3 benchmark legitimacy) |
 | 0.2 | Architecture pattern adoption doc + MiroThinker license scan |
 | 0.3 | Vast.ai US 1× H200 dev cluster (V4 Flash serving) |
 | 0.4 | Frontend scaffold (Next.js 15 + React 19 + shadcn/ui MIT + Tailwind v4 + TypeScript 5) |
@@ -204,7 +204,7 @@ Without this, the Carney handover proof package weakens to "the builder validate
 |---|---|---|
 | 3.1 | Benchmark question set (50 questions × 8 templates = 400 questions, but cap to 50 representative) | benchmark_v1.json |
 | 3.2 | Run benchmark: POLARIS (Pro + Flash) vs ChatGPT 5.5 Pro DR vs Gemini 3.1 Pro DR vs Claude Opus DR | results_table.md + raw transcripts |
-| 3.3 | Score by user (and optionally one paid sample evaluator) on 6 dimensions | scored_results.json |
+| 3.3 | Score by user (product-owner) AND mandatory paid sample evaluator (independent blind-score on representative slice) on 6 dimensions | scored_results.json |
 | 3.4 | Sycophancy stress-test (paired-prompt deltas) | sycophancy_report.md |
 | 3.5 | Industry benchmark suite run (BrowseComp, GAIA, DeepResearch Bench) for transparency | leaderboard_position.md |
 | 3.6 | Templates 6-8 added (AI sovereignty, US partnership, workforce) — content + initial scoring | scope expansion |
@@ -308,14 +308,14 @@ All answered through 2026-04-30 / 2026-05-01 conversation:
 
 | # | Blocker | Status |
 |---|---|---|
-| 1 | Layer 3 evaluator | ✅ User during build, Carney's office at handover |
+| 1 | Validation roles | ✅ Product-owner acceptance = user during build (NOT independent validation); mandatory paid sample evaluator for Phase 3 independent blind-scoring; Carney's office = final acceptance gate |
 | 2 | Buyer segment | ✅ Canadian sovereign deep research, ultimately Carney's gov |
 | 3 | Hardware path | ✅ Phase 0 selects A/B/C, default C |
 | 4 | Pilot deadline | ✅ Quality over speed; ~14 weeks target, flexible |
 | 5 | Source-text license | ✅ Phase 2 legal review; brainless services US OK |
 | 6 | Support ownership | ✅ Carney's team after handover |
 | 7 | Email infrastructure | ✅ N/A for build phase |
-| 8 | Budget ceiling | ✅ $25-55k (much lower than earlier estimates) |
+| 8 | Budget ceiling | ✅ $26-58k external cash ceiling (excluding user/Codex/internal labor); much lower than earlier estimates |
 | 9 | Security posture | ✅ Sovereign Canadian for cognition; cloud-isolated for build |
 | 10 | First 3 templates | ✅ Clinical (existing) + Trade + Housing for Phase 0; +5 templates added Phases 2-3 |
 
@@ -324,10 +324,10 @@ All answered through 2026-04-30 / 2026-05-01 conversation:
 ## What changed from earlier plan versions
 
 - **Templates: 3 → 8** (covering Carney's seven priorities + healthcare baseline)
-- **Layer 3: paid contractor → user** (saves $20-50k; less independent but user has authority)
+- **Validation roles: paid contractor (full coverage) → product-owner acceptance (user) + mandatory paid sample evaluator (independent slice for Phase 3)** (saves ~$15-40k; user has authority for product acceptance, paid sample evaluator preserves independent blind-score on benchmark slice)
 - **Build phase compute: self-host → DeepSeek API** (saves $10-20k; sovereignty deferred to benchmark+demo phases when handling real data)
 - **Always-on cluster: removed** in favor of on-demand spin-up (saves $30-35k)
-- **Budget: $170-210k → $25-55k** (~70-85% reduction by combining all the smart-spending levers)
+- **Budget: $170-210k → $26-58k external cash ceiling** (~70-85% reduction by combining all the smart-spending levers; user/Codex/internal labor not included)
 - **Timeline: 14 weeks unchanged**, but with Phase 4.5 buffer week
 
 ## What's the same as v5/v5.1/v5.2
