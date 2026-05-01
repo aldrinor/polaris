@@ -33,7 +33,9 @@ coverage.xml
 
 # --- Runtime / transient state ---
 logs/
-outputs/
+outputs/*
+!outputs/codex_findings/
+!outputs/audits/
 state/
 
 # --- Large trace files ---
@@ -97,3 +99,11 @@ outputs/codex_findings/round_*/stdout.log
 outputs/codex_findings/round_*/stderr.log
 outputs/codex_findings/round_*/tmp_probe/
 outputs/codex_findings/round_*/last_message.txt
+
+# --- A+C continuous audit + cross-review artifacts (TRACKED) ---
+# These are the durable Codex-as-subagent audit records produced under
+# the per-K=5 triangle scheme. Paired with .codex/continuous/<sha>_*.md
+# briefs they are the audit-trail for every shipped substrate commit.
+!outputs/audits/
+!outputs/audits/continuous/
+!outputs/audits/continuous/*.md
