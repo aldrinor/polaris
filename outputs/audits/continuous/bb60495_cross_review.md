@@ -30,9 +30,17 @@ This is the second cycle-N finding the A+C subagent has caught that I would have
 Per `REVIEW_BRIEF_FORMAT_v2.md`: lock = TWO consecutive APPROVE rounds (P1=0).
 - Cycle 1: APPROVE_WITH_FIXES (P1=3) → F-1..F-6 → cycle 2.
 - Cycle 2: APPROVE_WITH_FIXES (P1=1, fresh) → F-7+F-7b+F-8 → cycle 3.
-- Cycle 3: APPROVE_WITH_FIXES (P1=2, fresh) → **F-9+F-10+F-11** → cycle 4.
+- Cycle 3: APPROVE_WITH_FIXES (P1=1, fresh + new P2.3 root_cause) → **F-9+F-10+F-11+F-12** → cycle 4.
 - Cycle 4 (target): clean APPROVE (P1=0).
 - Cycle 5 (target): clean APPROVE (P1=0) → **LOCK**.
+
+## Note on audit revision
+
+The cycle-3 subagent rewrote the audit during its 16-min run. Initial mid-run snapshot showed P1=2 (one of which I addressed as F-9 — pinning deps in `requirements.txt`). The final audit consolidated to P1=1 (only F-7b half-complete) PLUS a fresh **P2.3 root_cause**: the CI workflow installs `requirements.txt` and runs ONLY Playwright e2e — no `pytest tests/v6/` step at all, so the new backend tests would silently skip on CI even with deps pinned.
+
+F-9 (deps in legacy requirements.txt) is still correct AND defensive — it ensures any CI step that installs `requirements.txt` picks up the new deps. F-12 (added below) is the actual fix for cycle-3 P2.3.
+
+**F-12 (root_cause):** new `pytest_v6_backend` job in `.github/workflows/web_ci.yml`. Installs `requirements-v6.txt` (canonical) and runs `pytest tests/v6/ --ignore=tests/v6/acceptance`. Verified locally: 237/237 PASS in 18.07s. Closes the LAW II "silent skip on CI" hazard.
 
 Three cycles in, two more audit cycles needed minimum. Each cycle has cost ~$1-2 in subagent tokens; that's ~$8-12 total to lock.
 
