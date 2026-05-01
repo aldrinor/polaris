@@ -103,8 +103,12 @@ export default function HomePage() {
                   <p className="text-muted-foreground text-sm">
                     {template.description}
                   </p>
-                  <Button variant="outline" disabled>
-                    Coming in Phase 1
+                  <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<Link href="/dashboard" />}
+                  >
+                    Start a research run
                   </Button>
                 </CardContent>
               </Card>

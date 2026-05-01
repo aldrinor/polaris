@@ -27,6 +27,11 @@ const targets = [
     path: "/sign-in",
     description: "Sign-in screen (placeholder form)",
   },
+  {
+    name: "research_dashboard",
+    path: "/dashboard",
+    description: "Research-run dashboard with 8-template selector",
+  },
 ];
 
 const viewport = { width: 1440, height: 900 };
