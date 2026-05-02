@@ -141,11 +141,16 @@ jobs:
           # Caddy sidecar acts as egress restriction point ONLY.
           # No Authorization-header injection — Codex authenticates with its own
           # OAuth tokens (mounted from host).
+          # Codex round-3 P1 fix: Caddy needs writable /config and /data for runtime
+          # state (cert storage etc, even with auto_https off). Mount as tmpfs.
           docker run -d --name polaris-codex-proxy \
                      --network polaris-internal \
                      --user 1000:1000 \
                      --cap-drop ALL \
-                     --read-only --tmpfs /tmp \
+                     --read-only \
+                     --tmpfs /tmp:rw,size=64m \
+                     --tmpfs /config:rw,size=16m \
+                     --tmpfs /data:rw,size=16m \
                      --security-opt no-new-privileges \
                      --volume /etc/polaris/Caddyfile:/etc/caddy/Caddyfile:ro \
                      caddy:2-alpine
@@ -304,10 +309,16 @@ EOF
     needs: [trusted-setup, codex-rerun]
     environment: hmac_validator
     steps:
-      - name: Checkout validator from trusted main ref
+      - name: Checkout validator from trusted base ref (Codex round-3 P0 fix)
         uses: actions/checkout@v4
         with:
-          ref: refs/heads/main
+          # Use PR's base branch (`polaris`), NOT `refs/heads/main`. main doesn't
+          # have the validator code yet (only initial commit until end-of-Phase-0
+          # PR lands `polaris -> main`). The trust property (PR can't tamper with
+          # validator) holds because branch protection on `polaris` requires this
+          # very workflow's status check before merging — so PR code can never
+          # bypass-merge into polaris and then exploit the validator.
+          ref: ${{ github.event.pull_request.base.ref }}
           path: validator
           sparse-checkout: |
             scripts/autoloop/verdict_validator.py

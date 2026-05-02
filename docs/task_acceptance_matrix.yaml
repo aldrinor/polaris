@@ -462,7 +462,8 @@ phase_2a:
       - id: "2a_7_prep_briefing_pack"
         green_criteria:
           - "docs/walkthroughs/2A.7/briefing.md"
-          - "docs/walkthroughs/2A.7/test_scenarios.md"
+          - "docs/walkthroughs/2A.7/test_inputs.md"
+          - "docs/walkthroughs/2A.7/recording_template.md"
         changed_files_glob:
           - "docs/walkthroughs/2A.7/**"
     blocking_consequence: "Phase 2B cannot start"

@@ -85,12 +85,14 @@ The following files are the authoritative record of the project state. They must
 
 ### 2.1 Authoritative Files
 - `logs/session_log.md`: A chronological, append-only audit trail. Critical component of the APD.
-- `docs/todo_list.md`: The prioritized backlog of remaining tasks. Updated in place; highest priority items must be at the front/top.
+- `docs/task_acceptance_matrix.yaml`: **The Scope.** Per-task GREEN criteria, user_action flags, substrate_prep entries, changed_files_glob. Authoritative for task state per Plan v13 §K Step 14b. (`docs/todo_list.md` is a deprecation stub redirecting here; do not write to it.)
+- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
 - `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
 - `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
 - `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
 - `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
 - `state/last_pointer.json`: Resume point after crash/restart.
+- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
 
 ### 2.2 Session Log Format (MANDATORY)
 Every action must be appended to `logs/session_log.md` using this structure:

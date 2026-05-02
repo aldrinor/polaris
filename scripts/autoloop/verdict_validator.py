@@ -160,6 +160,20 @@ def main() -> int:
 
     failures = []
 
+    # Codex round-3 P0 fix: verdict.task_id MUST match --task-id arg from workflow.
+    # Was: only verdict_gate.py local-side checked this; CI side wasn't.
+    # A bypassed local hook could land an HMAC-valid verdict under the wrong
+    # task directory + wrong task scope.
+    if committed.get("task_id") != args.task_id:
+        failures.append(
+            f"committed.task_id={committed.get('task_id')!r} does not match --task-id={args.task_id!r} "
+            f"(directory placement vs verdict-content mismatch — replay/aliasing detected)"
+        )
+    if rerun.get("task_id") != args.task_id and rerun.get("task_id") is not None:
+        failures.append(
+            f"rerun.task_id={rerun.get('task_id')!r} does not match --task-id={args.task_id!r}"
+        )
+
     # 1. Schema validity (committed); rerun is unsigned (Codex direct output) so we
     # validate it against a relaxed view that doesn't require hmac_sha256.
     # Codex round-2 P1 fix.

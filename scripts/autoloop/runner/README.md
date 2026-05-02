@@ -74,26 +74,25 @@ sudo cp scripts/autoloop/runner/polaris_egress_firewall.sh /usr/local/bin/polari
 sudo chmod +x /usr/local/bin/polaris_egress_firewall.sh
 ```
 
-## Step 6 — Configure Docker for rootless mode (Codex round-2 P0 — runner containment)
+## Step 6 — Configure Docker for userns-remap (REQUIRED for firewall script compat)
 
-```bash
-# Enable rootless Docker
-sudo apt install -y dbus-user-session uidmap
-dockerd-rootless-setuptool.sh install
-systemctl --user start docker
-loginctl enable-linger $(whoami)  # so user services persist after logout
-```
-
-OR alternatively, configure userns-remap on root Docker:
+**Use userns-remap on root Docker.** Rootless Docker is theoretically more secure
+but is INCOMPATIBLE with `polaris_egress_firewall.sh` (needs host-visible Docker
+bridge + `sudo iptables` against it). Codex round-3 P1 fix: README previously
+offered rootless as primary; corrected to userns-remap as REQUIRED.
 
 ```bash
 sudo bash -c 'cat > /etc/docker/daemon.json <<EOF
 {
   "userns-remap": "default",
-  "live-restore": true
+  "live-restore": true,
+  "iptables": true
 }
 EOF'
 sudo systemctl restart docker
+
+# Verify userns-remap active
+docker info | grep "userns"   # should show: userns
 ```
 
 ## Step 7 — AppArmor profile for Codex container

@@ -21,10 +21,12 @@ This is the final gate before Carney delivery. Everything must work end-to-end o
 | Performance | All Phase 2C latencies maintained on sovereign infra |
 
 ## Test corpus
-See `test_inputs.md` — full corpus walkthrough across 8 templates.
+See `full_corpus_test_inputs.md` — full corpus walkthrough across 8 templates.
 
 ## Recording
-See `recording_template.md`. Recording is **the** handover artifact alongside the proof-package PDF.
+Use the same per-input observation format as Phase 1.8 / 2A.7 / 2B.7 / 2C.6
+(see `docs/walkthroughs/1.8/recording_template.md` for the canonical template).
+Recording is **the** handover artifact alongside the proof-package PDF.
 
 ## Failure flags
 
@@ -39,7 +41,11 @@ ANY of the following = halt + escalate to user before handover:
 1. GPG-signed attestation per §C-private
 2. Recording uploaded to `.private/walkthroughs/5.1_final.mp4`
 3. Summary written to `outputs/audits/walkthroughs/5.1_findings.md`
-4. **DO NOT delete state/bootstrap_active until 5.1 attestation lands** (it's the last handover gate)
+
+(Codex round-3 P0 correction 2026-05-02: removed an erroneous instruction here
+about deleting `state/bootstrap_active`. That flag governs the BOOTSTRAP commit
+exemption and is unrelated to the Phase 5.1 walkthrough verdict — it's deleted
+at end of Bootstrap §K Step 16 smoke when gate becomes strict, NOT at Phase 5.)
 
 ## Compensation
 

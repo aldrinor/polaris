@@ -500,31 +500,30 @@ def _commit_substrate_with_verdict(task_id: str, iter_n: int, verdict_path: Path
 
 
 def _push_to_origin(task_id: str, iter_n: int) -> None:
-    """Push to a task-scoped branch and open PR (Codex round-2 P0 fix).
+    """Push to a task-scoped branch and open PR.
+
+    Codex round-3 P0 fix: fail-CLOSED on push/PR failure. Was: WARN+continue
+    (which let task be locally APPROVE'd while CI never ran → server-side
+    cryptographic gate bypassed). Now: HaltCondition #7 raises on any push/PR
+    failure that isn't "PR already exists" idempotency.
 
     Per Plan v13 §C-server: orchestrator must NOT push directly to `polaris`.
     Branch protection on `polaris` requires PR-only via merge queue.
-    Flow:
-      1. Create/update branch `task/<task_id>/iter_<n>` from current HEAD
-      2. Push that branch to origin
-      3. Open PR `task/<task_id>/iter_<n> -> polaris` via `gh pr create`
-      4. CI Phase A/B/C run; merge queue handles the merge
     """
     branch = f"task/{task_id}/iter_{iter_n}"
-    # Create branch at HEAD
     subprocess.run(
         ["git", "branch", "-f", branch, "HEAD"],
         cwd=str(POLARIS_ROOT), check=True, timeout=10,
     )
-    # Push branch
     r = subprocess.run(
         ["git", "push", "-f", "origin", branch],
         cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=120,
     )
     if r.returncode != 0:
-        print(f"WARN push of {branch} failed for {task_id}: {r.stderr[:300]}", file=sys.stderr)
-        return
-    # Open PR (best-effort — gh may need auth, may fail)
+        raise HaltCondition(
+            7, f"git push of {branch} failed (server-side gate cannot run): {r.stderr[:300]}",
+            task_id=task_id,
+        )
     pr_title = f"task {task_id}: iter {iter_n} APPROVE"
     pr_body = (
         f"Per Plan v13 autoloop. Task {task_id} iteration {iter_n}.\n\n"
@@ -538,11 +537,14 @@ def _push_to_origin(task_id: str, iter_n: int) -> None:
         cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=30,
     )
     if pr_r.returncode != 0:
-        # PR may already exist; try `gh pr edit` to update body, else log
-        if "already exists" in pr_r.stderr or "already exists" in pr_r.stdout:
+        if "already exists" in (pr_r.stderr or "") or "already exists" in (pr_r.stdout or ""):
             print(f"INFO PR for {branch} already exists; reusing", file=sys.stderr)
-        else:
-            print(f"WARN gh pr create failed for {branch}: {pr_r.stderr[:300]}", file=sys.stderr)
+            return
+        # Any other failure → halt (CI gate cannot run without PR)
+        raise HaltCondition(
+            7, f"gh pr create for {branch} failed (CI gate cannot run): {pr_r.stderr[:300]}",
+            task_id=task_id,
+        )
 
 
 # ---------- Main loop ----------
