@@ -1,0 +1,39 @@
+# POLARIS Codex Runner — minimal container for `codex exec` invocations in CI.
+#
+# Plan v13 §C-rerun: this image runs in Phase B of the verdict-validate workflow
+# inside the polaris-internal Docker network with apparmor + seccomp + cap-drop +
+# read-only FS + no network egress except via the Caddy proxy sidecar.
+#
+# Build:
+#   docker build -t polaris-codex-runner:pinned-sha -f Dockerfile.codex-runner .
+#
+# Pinned base for reproducibility — bump only via signed canonical edit.
+
+FROM ubuntu:24.04
+
+# Pin tools for reproducibility. NO LLM-related secrets in the image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs npm \
+    ca-certificates \
+    curl \
+    jq \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Codex CLI at known version (matches user's local 0.128.0)
+RUN npm install -g @openai/codex-cli@0.128.0
+
+# Non-root user for runtime
+RUN useradd -u 1001 -m -s /bin/bash codex
+USER codex
+
+# Codex reads OAuth from CODEX_HOME (mounted from runner's $HOME/.codex via
+# workflow `--volume "$HOME/.codex:/codex_auth:ro"`). Override via env in workflow:
+ENV HOME=/tmp
+ENV CODEX_HOME=/codex_auth
+
+WORKDIR /input
+
+# Default command — workflow overrides with explicit `codex exec ...` invocation
+CMD ["codex", "--version"]

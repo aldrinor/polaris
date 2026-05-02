@@ -1,0 +1,103 @@
+#include <tunables/global>
+
+# POLARIS Codex Runner — AppArmor profile.
+# Plan v13 §C-rerun runner containment. Loaded via:
+#   sudo cp apparmor-polaris-codex-runner /etc/apparmor.d/polaris-codex-runner
+#   sudo apparmor_parser -r /etc/apparmor.d/polaris-codex-runner
+# Used in Docker via `--security-opt apparmor=polaris-codex-runner`.
+#
+# Scope: kernel-level escape prevention. Destination pinning lives at the
+# Docker network + iptables firewall layer, NOT here.
+
+profile polaris-codex-runner flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Allow basic file operations within the container's mounted volumes
+  /input/{,**} r,
+  /output/{,**} rw,
+  /codex_auth/{,**} r,    # OAuth tokens, read-only
+  /tmp/{,**} rwk,           # tmpfs scratch
+  /usr/{,**} rmix,          # binaries + libs
+  /lib/{,**} rmix,
+  /lib64/{,**} rmix,
+  /etc/{,**} r,
+  /var/log/{,**} rw,
+  /proc/sys/kernel/random/boot_id r,
+  /proc/cpuinfo r,
+  /proc/loadavg r,
+  /proc/meminfo r,
+  /proc/stat r,
+  /proc/uptime r,
+  /proc/version r,
+  /proc/self/{,**} r,
+  /proc/[0-9]*/{,**} r,    # readable but not writable
+
+  # DENY: kernel/proc/sys writes (escape attempts)
+  deny /proc/*/oom_score_adj w,
+  deny /proc/*/oom_adj w,
+  deny /proc/sysrq-trigger rw,
+  deny /proc/sys/** w,
+  deny /proc/kcore rw,
+  deny /sys/** w,
+  deny /sys/firmware/** rw,
+  deny /sys/kernel/** rw,
+
+  # DENY: device files
+  deny /dev/mem rw,
+  deny /dev/kmem rw,
+  deny /dev/port rw,
+  deny /dev/sd* rw,
+  deny /dev/loop* rw,
+
+  # Network: deny raw and packet sockets (only TCP/UDP/UNIX through Docker network)
+  deny network raw,
+  deny network packet,
+
+  # Capabilities: deny all (--cap-drop ALL is enforced at Docker layer; this
+  # is defense-in-depth in case Docker layer regresses)
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_rawio,
+  deny capability sys_chroot,
+  deny capability sys_ptrace,
+  deny capability sys_pacct,
+  deny capability sys_resource,
+  deny capability sys_boot,
+  deny capability sys_nice,
+  deny capability sys_time,
+  deny capability sys_tty_config,
+  deny capability mknod,
+  deny capability lease,
+  deny capability audit_write,
+  deny capability audit_control,
+  deny capability mac_override,
+  deny capability mac_admin,
+  deny capability syslog,
+  deny capability fsetid,
+  deny capability setpcap,
+  deny capability setfcap,
+  deny capability linux_immutable,
+  deny capability net_bind_service,
+  deny capability net_broadcast,
+  deny capability net_admin,
+  deny capability net_raw,
+  deny capability ipc_lock,
+  deny capability ipc_owner,
+  deny capability sys_unicode,
+  deny capability dac_read_search,
+  deny capability dac_override,
+  deny capability fowner,
+
+  # Mount/pivot_root/unshare are denied via seccomp; AppArmor adds belt-and-suspenders
+  deny mount,
+  deny remount,
+  deny umount,
+  deny pivot_root,
+
+  # Ptrace deny (also in seccomp; defense-in-depth)
+  deny ptrace,
+
+  # Audit log denied writes loudly so we see escape attempts in journalctl
+  audit deny @{HOME}/** rwx,
+  audit deny /root/** rwx,
+}
