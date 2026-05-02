@@ -421,15 +421,30 @@ def _invoke_codex_review(
 
     review_brief = _build_review_brief(task_id, task_def, diff_sha)
 
+    # Real Codex CLI invocation. On Windows: shell=True for .cmd shim resolution
+    # AND forward-slash paths (Codex CLI rejects backslashes with os error 123).
+    # Drop --output-schema (over-constrains generation; smoke ran clean without).
+    import platform
+    use_shell = platform.system() == "Windows"
+    cmd_list = ["codex", "exec",
+                "--cd", str(POLARIS_ROOT).replace("\\", "/"),
+                "--sandbox", "read-only",
+                "--output-last-message", str(out_path).replace("\\", "/"),
+                "-"]
+    if use_shell:
+        import shlex
+        cmd_run = " ".join(shlex.quote(c) for c in cmd_list)
+    else:
+        cmd_run = cmd_list
     try:
         r = subprocess.run(
-            ["codex", "exec", "--cd", str(POLARIS_ROOT), "--sandbox", "read-only",
-             "--json", "--output-file", str(out_path), "-"],
+            cmd_run,
             input=review_brief.encode("utf-8"),
             capture_output=True, timeout=1800, cwd=str(POLARIS_ROOT),
+            shell=use_shell,
         )
     except Exception as e:
-        raise HaltCondition(7, f"codex exec invocation failed: {e}", task_id=task_id)
+        raise HaltCondition(7, f"codex exec invocation failed: {e!r}", task_id=task_id)
 
     if r.returncode != 0:
         raise HaltCondition(7, f"codex exec exit {r.returncode}: {r.stderr.decode('utf-8', errors='replace')[:500]}", task_id=task_id)
