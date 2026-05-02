@@ -21,7 +21,7 @@ The file is a single JSON object conforming to `polaris_v6.schemas.evidence_cont
 | `evidence_pool` | Array of every source span the generator was allowed to cite. Each has an `evidence_id`, source URL, tier (T1/T2/T3), char span. |
 | `verified_sentences` | Every sentence the generator wrote that passed strict_verify. Each has a list of `[#ev:<evidence_id>:<start>-<end>]` provenance tokens. |
 | `frame_coverage` | Which template frames were covered + by how many verified sentences. |
-| `contradictions` | Array of detected contradictions between sources. Each has a resolution badge (`noted_both`, `tier_winner`, `unresolved`). |
+| `contradictions` | Array of detected contradictions between sources. Each has a resolution badge — one of `unresolved`, `claim_a_preferred`, `claim_b_preferred`, `noted_both` (canonical enum from `src/polaris_v6/schemas/evidence_contract.py` line 80). |
 
 ## How to verify the bundle independently
 

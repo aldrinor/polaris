@@ -52,8 +52,9 @@ Every claim in every report ships with a **provenance token** that points to the
 
 ## Handover support
 
-- **First 30 days post-handover (2026-09-06 → 2026-10-06):** warm support from POLARIS build team. Bug reports answered same-day, no new feature commitments.
-- **After 2026-10-06:** best-effort. Your office's team owns operational ownership thereafter (per `docs/blockers.md` §6).
+- **From 2026-09-06 handover onward**: your office's team owns operational support (per `docs/blockers.md` §6).
+- **30-day warm-support window (2026-09-06 → 2026-10-06):** POLARIS build team responds to bug reports same-day; no new feature commitments. Your team's operational ownership is unchanged during this window — warm support is supplementary.
+- **After 2026-10-06:** best-effort responses only.
 - **Runbook:** `docs/runbook.md` (deployment, model rotation, evaluator-failure escalation).
 - **Source code:** GitHub repo handed over; commit history is the audit trail.
 
@@ -63,7 +64,7 @@ Every claim in every report ships with a **provenance token** that points to the
 
 1. This one-pager (you are here).
 2. `5min_video_script.md` — 5-minute walkthrough script + recording.
-3. `bundle_export_sample.json` — a real EvidenceContract v1.0 audit bundle sampled from the launch run, so your team can inspect the artifact format without standing up the cluster.
+3. `bundle_export_sample.json` — a real EvidenceContract v1.0 audit bundle from the POLARIS golden-fixture suite (`golden_clinical_001`; same fixture used by all 9 Inspector Playwright e2e tests), so your team can inspect the canonical artifact format without standing up the cluster.
 
 ---
 

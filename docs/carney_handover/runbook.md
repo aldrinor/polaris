@@ -1,6 +1,8 @@
 # POLARIS Runbook (Carney Handover)
 
-**Owners after 2026-10-06:** Carney's office operations team
+**Operational owner from 2026-09-06 onward:** Carney's office operations team (per `docs/blockers.md` §6).
+**Warm-support window (2026-09-06 → 2026-10-06):** POLARIS build team responds same-day to bug reports; supplementary to your team's ownership, not a substitute.
+**After 2026-10-06:** best-effort responses from POLARIS build team only.
 **Author of this runbook:** POLARIS build team, 2026-09 (placeholder; final fill at Phase 5)
 
 ---
@@ -12,7 +14,7 @@
 | Frontend (Next.js 16) | (TBD CDN) | Canada-East POP | static + SSE proxy to backend |
 | Backend (FastAPI 0.136) | OVH BHS | Canada (sovereign) | uvicorn, exposes /health /runs /stream /ambiguity /scope/check /upload /runs/{id}/bundle |
 | Queue (Dramatiq + Redis 7.4) | OVH BHS | Canada (sovereign) | StubBroker in dev; RedisBroker in prod |
-| LLM serving (vLLM) | OVH BHS H200 | Canada (sovereign) | DeepSeek V4 (Flash or Pro per Path A/B/C) generator + Gemma 4 31B verifier |
+| LLM serving (vLLM or SGLang per Phase 0.7 bakeoff) | OVH BHS H200 (8×) | Canada (sovereign, Beauharnois) | DeepSeek V4 Flash generator (Path C LOCKED per Plan v13 §F + blockers.md §3) + Gemma 4 31B verifier (different lineage; `openrouter_client.check_family_segregation` invariant) |
 | ChromaDB (workspace memory) | OVH BHS | Canada (sovereign) | Phase 2B substrate |
 | Observability (OTEL) | (TBD US dashboards) | US (brainless) | trace IDs only; CAN_REAL data redacted |
 
@@ -42,12 +44,17 @@ docker compose -f docker-compose.sovereign.yml down
 
 Generator + verifier MUST come from different lineages (CLAUDE.md §9.1 invariant 1). The `openrouter_client.check_family_segregation` raises `RuntimeError` at construction if violated.
 
-Approved pairings:
-- DeepSeek V4 Pro / Flash (DeepSeek lineage) + Gemma 4 31B (Google lineage) — current
-- DeepSeek V4 + Llama 4 (Meta lineage) — fallback if Gemma 4 deprecated
-- Qwen 3.5 (Alibaba lineage) + Gemma 4 — fallback if DeepSeek deprecated
+Active pairing (LOCKED per Plan v13 §F):
+- **DeepSeek V4 Flash (DeepSeek lineage) + Gemma 4 31B (Google lineage)** — Path C, sovereign cluster
 
-**Forbidden:** any pair from the same lineage (e.g., DeepSeek + DeepSeek-Coder; Gemma + Gemma-Code).
+Per Plan v13 §F "no SILENT fallback" semantics — alternate pairings below are NOT auto-fallbacks. They are halt-and-decide options if the active pairing becomes unavailable (e.g., model deprecation, license revocation). When that happens, the orchestrator emits a halt marker; user explicitly authorizes one of:
+
+- DeepSeek V4 + Llama 4 (Meta lineage) — option if Gemma 4 deprecated
+- Qwen 3.5 (Alibaba lineage) + Gemma 4 — option if DeepSeek deprecated
+
+Either switch requires user-signed canonical reconciliation commit (Plan v13 §A); the orchestrator does not silently swap models.
+
+**Forbidden:** any pair from the same lineage (e.g., DeepSeek + DeepSeek-Coder; Gemma + Gemma-Code) — `family_segregation` invariant raises RuntimeError at construction.
 
 ### To rotate
 1. Pull new weights to a staging volume.
@@ -115,11 +122,13 @@ Build team contact during 30-day warm support: (TBD email at handover).
 
 ## 8. End of warm support (2026-10-06)
 
-After this date, your operations team owns:
+Your operations team has owned the following since 2026-09-06 handover (per `docs/blockers.md` §6) — warm support did not change ownership:
 - Daily health checks
 - Monthly model-rotation evaluation
 - Quarterly benchmark re-run
 - Pin replay on every model swap
 - Incident response per §7
+
+What 2026-10-06 changes is only the build team's response level: same-day bug-report turnaround drops to best-effort.
 
 POLARIS source-code authoritative reference: GitHub repo at handover. Commit history is the audit trail.
