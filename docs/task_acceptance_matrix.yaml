@@ -52,7 +52,9 @@ phase_0:
 
   task_0_3:
     title: "Vast.ai US 4× H100 dev cluster operational"
-    owner: "claude"
+    owner: "user (cluster $) + claude (provisioning script)"
+    user_action: true   # Plan v13 §G #3 — needs user $ commitment ($1.8-3.2k); orchestrator skips until verdict lands
+    user_action_description: "User commits $1.8-3.2k to Vast.ai for 7-day burst; runs `vastai create instance --gpu_name 'H100 SXM'`"
     estimate_hours: 8
     green_criteria:
       - "SGLang serving DeepSeek V4 Flash on 4× H100 confirmed"
@@ -108,8 +110,10 @@ phase_0:
     blocking_consequence: "Phase 1 job queue + SSE work blocked"
 
   task_0_6:
-    title: "DeepSeek V4 Pro hardware decision (Path A/B/C committed)"
+    title: "DeepSeek V4 Pro hardware decision (Path C V4 Flash LOCKED 2026-05-02)"
     owner: "user (commits) + claude (analysis)"
+    user_action: true   # Plan v13 §G #2 — user-signed canonical reconciliation (2026-05-02) locked Path C; this task ships when user signs hardware_decision.md commit referencing the lock
+    user_action_description: "User signs docs/hardware_decision.md with Path C lock + OVH BHS H200 procurement note (committee in §G #2)"
     estimate_hours: 16
     green_criteria:
       - "docs/hardware_decision.md committed with Path A/B/C selected"
@@ -127,6 +131,8 @@ phase_0:
   task_0_7:
     title: "SGLang vs vLLM bakeoff (one engine frozen)"
     owner: "claude"
+    user_action: true   # Plan v13 §G — depends on Task 0.3 cluster (user $); cannot run until cluster operational
+    user_action_description: "Depends on Task 0.3 dev cluster being live; orchestrator waits until 0.3 APPROVE'd"
     estimate_hours: 12
     green_criteria:
       - "Bakeoff run on dev cluster (Task 0.3) with: identical hardware, identical model (V4 Flash), 5 representative POLARIS prompts × 50 iterations"
@@ -158,6 +164,8 @@ phase_0:
   task_0_9:
     title: "OVH Canada BHS H200 verification (HARD GATE)"
     owner: "user (procurement) + claude (verification)"
+    user_action: true   # Plan v13 §G #2 — user must engage OVH Sales by 2026-05-12; HARD GATE for Phase 4
+    user_action_description: "User engages OVH Sales for 8x H200 BHS Canada quote + signs MSA"
     estimate_hours: 16
     green_criteria:
       - "OVH Canada API confirmation: H200 SKU available in BHS region (or written denial)"
