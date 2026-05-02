@@ -63,10 +63,13 @@ memory/chroma_db/
 
 # --- Claude config (Plan v13 §I selective tracking) ---
 # Use `.claude/*` so unignore rules can selectively re-include children.
+# IMPORTANT: settings.local.json STAYS IGNORED — it contains per-machine
+# permission entries that may include API keys / secrets in Bash command
+# allowlists (per Codex round-1 P0-1 finding 2026-05-02). Shared hook config
+# lives in `.claude/settings.json` (no permissions, no secrets).
 .claude/*
 !.claude/hooks/
 !.claude/hooks/**
-!.claude/settings.local.json
 !.claude/settings.json
 
 # --- Node ---
