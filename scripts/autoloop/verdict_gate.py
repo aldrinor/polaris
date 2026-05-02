@@ -153,6 +153,12 @@ def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
     `bootstrap.smoke` via the snake_case-to-dot rule, but its `task_id` field
     overrides to `bootstrap_smoke`). For numeric phase tasks like `task_0_5`,
     the key-derived `0.5` is correct and no override is needed.
+
+    Substrate-prep traversal: phase tasks may declare `substrate_prep: [{id, changed_files_glob}]`
+    entries that author skeleton/prep substrate ahead of a Phase-N user-action finalization.
+    Each substrate_prep entry has its own task_id (from `id`) and its own changed_files_glob;
+    these are gated independently of the parent task. Without this traversal, substrate_prep
+    edits would fall through the gate as "no task implicated" — defeating verdict enforcement.
     """
     import fnmatch
     implicated = set()
@@ -169,6 +175,20 @@ def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
                     if fnmatch.fnmatch(f, glob):
                         implicated.add(task_id)
                         break
+            substrate_prep = task_val.get("substrate_prep", []) or []
+            if isinstance(substrate_prep, list):
+                for sp in substrate_prep:
+                    if not isinstance(sp, dict):
+                        continue
+                    sp_id = sp.get("task_id") or sp.get("id")
+                    sp_globs = sp.get("changed_files_glob", []) or []
+                    if not sp_id:
+                        continue
+                    for glob in sp_globs:
+                        for f in files:
+                            if fnmatch.fnmatch(f, glob):
+                                implicated.add(sp_id)
+                                break
     return implicated
 
 
@@ -425,14 +445,30 @@ def main() -> int:
     if not implicated:
         # Codex round-1 P0-6 fix: NO PASS-THROUGH on no-task-implicated.
         # Block by default. Allow only if commit message contains explicit
-        # `infrastructure-only:` line (signals user-acknowledged out-of-scope edit
-        # — e.g., dependency bump, runner config). Audit log captures intent.
+        # `infrastructure-only:` line.
+        # Architecture: pre-commit hook can't reliably read commit message;
+        # message-dependent check fires from commit-msg hook (which DOES pass
+        # --commit-message-file). When --commit-message-file is NOT provided
+        # (= we're in pre-commit stage), DEFER message-dependent decision to
+        # commit-msg hook by passing through. Substantive HMAC/schema/canonical
+        # /diff_sha verdict checks still run unconditionally.
+        if not args.commit_message_file:
+            print(
+                "verdict_gate: WARN no task implicated by staged files; "
+                "deferring infrastructure-only check to commit-msg hook.",
+                file=sys.stderr,
+            )
+            _audit_log_event({
+                "ts": timestamp,
+                "type": "deferred_to_commit_msg",
+                "files": files,
+            })
+            return 0
         commit_msg = ""
-        if args.commit_message_file:
-            try:
-                commit_msg = Path(args.commit_message_file).read_text(encoding="utf-8")
-            except Exception:
-                pass
+        try:
+            commit_msg = Path(args.commit_message_file).read_text(encoding="utf-8")
+        except Exception:
+            pass
         if "infrastructure-only:" not in commit_msg:
             print(
                 "verdict_gate: BLOCK no task implicated by staged files. Per Plan v13 §C,\n"
