@@ -104,89 +104,89 @@ PRE_BOOTSTRAP_COMPLETED = {
         "rationale": "Sycophancy module + 12 paired-prompt fixtures + 21 tests; live LLM hookup deferred to cluster.",
     },
     # Phase 2A — Core inspection (cycle-11 lock)
-    "2A.1": {
+    "2a.1": {
         "title": "F4 live audit run UI",
         "evidence": ["web/app/runs/[runId]/page.tsx"],
         "rationale": "SSE subscription + 5 affordances panel (Inspector / Bundle / Cancel / Follow-up / Pin).",
     },
-    "2A.2": {
+    "2a.2": {
         "title": "F5 generalized Inspector view (5-tab)",
         "evidence": ["web/app/inspector/[runId]/page.tsx", "web/screenshots/inspector_clinical_golden.png"],
         "rationale": "5-tab Inspector (Verified / Frames / Contradictions / Pool / Charts) + 2 live screenshots.",
     },
-    "2A.3": {
+    "2a.3": {
         "title": "F7 frame coverage panel",
         "evidence": ["web/app/inspector/[runId]/page.tsx"],
         "rationale": "Frames tab with progress bars; above-the-fold rendering. Crown-jewel C3 satisfied.",
     },
-    "2A.4": {
+    "2a.4": {
         "title": "F8 contradiction navigation",
         "evidence": ["web/app/inspector/[runId]/page.tsx"],
         "rationale": "Contradictions tab + linked badges in Verified Sentences. Crown-jewel C4 satisfied.",
     },
-    "2A.5": {
+    "2a.5": {
         "title": "F9 two-family disagreement",
         "evidence": ["web/app/inspector/[runId]/page.tsx"],
         "rationale": "Top KPI card with PASS/FAIL styling + destructive banner. Crown-jewel C5 satisfied.",
     },
-    "2A.6": {
+    "2a.6": {
         "title": "Templates 4-5 (defense, climate)",
         "evidence": ["config/v6_templates"],
         "rationale": "8 of 8 templates loaded (clinical, trade, housing, defense, climate, ai_sovereignty, canada_us, workforce); 13 tests.",
     },
     # Phase 2B — Visualization + memory + replay (cycle-11 lock)
-    "2B.1": {
+    "2b.1": {
         "title": "F6 live citation overlay (Perplexity-parity)",
         "evidence": ["web/components/ui/evidence-tooltip.tsx"],
         "rationale": "base-ui Tooltip with hover preview; reconciled to 'matches Perplexity hover-preview at parity' 2026-05-02.",
     },
-    "2B.2": {
+    "2b.2": {
         "title": "F10a Vega-Lite renderer",
         "evidence": ["src/polaris_v6/charts/__init__.py", "src/polaris_v6/api/charts.py"],
         "rationale": "spec_builder + from_bundle + FastAPI route + vega-embed v5 frontend + Inspector Charts tab.",
     },
-    "2B.3": {
+    "2b.3": {
         "title": "F10b chart provenance schema",
         "evidence": ["src/polaris_v6/charts/__init__.py"],
         "rationale": "polaris_provenance.evidence_ids extension + onPointClick click-through-to-source.",
     },
-    "2B.4": {
+    "2b.4": {
         "title": "F10c executive-summary infographic",
         "evidence": ["web/app/inspector/[runId]/page.tsx"],
         "rationale": "Executive-summary tab: 4-KPI strip + forest_plot + comparison_table + timeline; click-to-evidence.",
     },
-    "2B.5": {
+    "2b.5": {
         "title": "F13 pin replay + diff",
         "evidence": ["src/polaris_v6/__init__.py"],
         "rationale": "replay/{schema,differ}.py + regression_lab/runner.py + 14 tests.",
     },
-    "2B.6": {
+    "2b.6": {
         "title": "F14 workspace memory",
         "evidence": ["src/polaris_v6/__init__.py"],
         "rationale": "memory/{schema,store}.py + api/memory.py 5 endpoints + 14 tests; Chroma swap deferred to cluster.",
     },
     # Phase 2C — UI polish + integration (cycle-11 lock)
-    "2C.1": {
+    "2c.1": {
         "title": "Cross-feature integration testing (9/9 Playwright e2e)",
         "evidence": ["web/package.json"],
         "rationale": "9/9 Playwright tests passing live against backend + frontend (Inspector / Charts / Dashboard).",
     },
-    "2C.2": {
+    "2c.2": {
         "title": "Visual regression baseline",
         "evidence": ["web/package.json"],
         "rationale": "4 baselines committed under tests/e2e/visual.spec.ts-snapshots/; maxDiffPixelRatio 0.02 + run-id mask.",
     },
-    "2C.3": {
+    "2c.3": {
         "title": "Cross-browser verification (Chromium/Firefox/WebKit)",
         "evidence": ["web/package.json"],
         "rationale": "27/27 tests pass on all 3 engines (38s wall-clock); Vega-Lite SVG works uniformly.",
     },
-    "2C.4": {
+    "2c.4": {
         "title": "Performance optimization",
         "evidence": ["web/package.json", "web/screenshots/research_dashboard.png"],
         "rationale": "6 perf gates on chromium: DOMContentLoaded < 2000ms, tab-switch < 250ms, Charts < 2500ms, FCP < 1500ms.",
     },
-    "2C.5": {
+    "2c.5": {
         "title": "Accessibility audit (WCAG-AA)",
         "evidence": ["web/package.json"],
         "rationale": "6 axe-core tests; surfaced + fixed real WCAG-AA color-contrast violation; all pass on chromium.",
