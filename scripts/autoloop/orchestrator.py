@@ -197,7 +197,7 @@ def _next_actionable(matrix: dict) -> tuple[str | None, dict | None, str | None]
         for task_key, task_val in phase.items():
             if not isinstance(task_val, dict):
                 continue
-            task_id = task_key.removeprefix("task_").replace("_", ".")
+            task_id = task_val.get("task_id") or task_key.removeprefix("task_").replace("_", ".")
             verdict, _ = _verdict_state(task_id)
             if verdict == "APPROVE":
                 continue
@@ -355,58 +355,107 @@ async def _run_agent_session(task_id: str, brief: str, deadline_ts: float) -> di
 
 # ---------- Codex CLI invocation ----------
 
-def _invoke_codex_review(task_id: str, brief_path: Path, iter_n: int) -> dict:
-    """Call `codex exec` for verdict. Returns parsed verdict dict."""
+def _build_review_brief(task_id: str, task_def: dict, diff_sha: str) -> str:
+    """Construct INDEPENDENT review brief for Codex (P1-1 fix).
+
+    NOT the same as the build brief. Build brief instructs Claude what to make.
+    Review brief instructs Codex what to evaluate against.
+    """
+    pin_sha = hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest()
+    green = task_def.get("green_criteria", []) or []
+    artifacts = task_def.get("required_artifacts", []) or []
+    return f"""# POLARIS Review Brief — task {task_id}
+
+You are Codex. Adversarially review the staged commit for task {task_id} per
+.codex/codex_red_team_checklist.md universal U1-U8 + applicable LLM-call/UI/crown-jewel
+checks, severity-stratified per .codex/REVIEW_BRIEF_FORMAT_v2.md.
+
+## Authoritative inputs
+
+- Diff: `git diff --cached` from this orchestrator session, sha256={diff_sha}
+- Manifest: outputs/audits/manifests/{task_id}.json
+- Canonical pin: {pin_sha}
+- Acceptance criteria for {task_id} from docs/task_acceptance_matrix.yaml
+
+## GREEN criteria
+
+{chr(10).join(f"- {g}" for g in green)}
+
+## Required artifacts
+
+{chr(10).join(f"- {a}" for a in artifacts)}
+
+## Output (STRICT — gate enforces)
+
+Emit JSON matching docs/schemas/codex_verdict.schema.json:
+- verdict ∈ {{APPROVE, REQUEST_CHANGES, BLOCKED}}
+- findings[] with severity P0/P1/P2/P3, file, line, category, description
+- task_id="{task_id}", iter=<your iteration>, canonical_pin_sha="{pin_sha}",
+  diff_sha256="{diff_sha}", commit_sha=<commit being-prepared sha or zeros>,
+  codex_session_id=<your session>, model="gpt-5.5", reasoning_effort="xhigh",
+  timestamp=<UTC ISO-8601>
+
+DO NOT output Authorization headers, API keys, OAuth tokens, or PEM blocks.
+Output is server-side scanned for credential exfiltration.
+"""
+
+
+def _invoke_codex_review(
+    task_id: str, build_brief_path: Path, iter_n: int, task_def: dict
+) -> dict:
+    """Call `codex exec` for verdict. P1-1 fix: build independent review brief."""
     out_path = VERDICT_DIR / task_id / f"iter_{iter_n}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "codex", "exec",
-        "--cd", str(POLARIS_ROOT),
-        "--sandbox", "read-only",
-        "--json",
-        "--output-file", str(out_path),
-        f"$(cat {brief_path})",
-    ]
-    # codex exec doesn't actually shell-expand $() — pipe brief via stdin
+    # Compute substrate diff_sha (excludes verdict files for atomic-commit safety)
+    diff_proc = subprocess.run(
+        ["git", "diff", "--cached", "--",
+         ":(exclude)outputs/audits/verdicts/**",
+         ":(exclude)outputs/audits/codex_audit.jsonl",
+         ":(exclude)outputs/audits/manifests/**"],
+        cwd=str(POLARIS_ROOT), capture_output=True, timeout=30,
+    )
+    if diff_proc.returncode != 0:
+        raise HaltCondition(7, f"git diff failed: {diff_proc.stderr.decode('utf-8', errors='replace')}", task_id=task_id)
+    diff_sha = hashlib.sha256(diff_proc.stdout).hexdigest()
+
+    review_brief = _build_review_brief(task_id, task_def, diff_sha)
+
     try:
-        with open(brief_path, "rb") as f:
-            r = subprocess.run(
-                ["codex", "exec", "--cd", str(POLARIS_ROOT), "--sandbox", "read-only",
-                 "--json", "--output-file", str(out_path), "-"],
-                stdin=f, capture_output=True, text=True, timeout=1800,
-                cwd=str(POLARIS_ROOT),
-            )
+        r = subprocess.run(
+            ["codex", "exec", "--cd", str(POLARIS_ROOT), "--sandbox", "read-only",
+             "--json", "--output-file", str(out_path), "-"],
+            input=review_brief.encode("utf-8"),
+            capture_output=True, timeout=1800, cwd=str(POLARIS_ROOT),
+        )
     except Exception as e:
         raise HaltCondition(7, f"codex exec invocation failed: {e}", task_id=task_id)
 
     if r.returncode != 0:
-        raise HaltCondition(
-            7, f"codex exec exit {r.returncode}: {r.stderr[:500]}",
-            task_id=task_id,
-        )
+        raise HaltCondition(7, f"codex exec exit {r.returncode}: {r.stderr.decode('utf-8', errors='replace')[:500]}", task_id=task_id)
 
     if not out_path.exists():
-        raise HaltCondition(
-            7, f"codex exec did not produce verdict file at {out_path}",
-            task_id=task_id,
-        )
+        raise HaltCondition(7, f"codex exec produced no verdict at {out_path}", task_id=task_id)
 
     try:
         verdict = json.loads(out_path.read_text(encoding="utf-8"))
     except Exception as e:
-        raise HaltCondition(
-            7, f"verdict file unparseable: {e}", task_id=task_id,
-        )
+        raise HaltCondition(7, f"verdict unparseable: {e}", task_id=task_id)
 
-    # Add HMAC + canonical_pin_sha (Codex CLI doesn't sign; orchestrator does)
+    # Orchestrator fills required signed fields (Codex CLI emits the review payload;
+    # orchestrator owns identity + signing for the gate).
     verdict.setdefault("schema_version", "1.0.0")
-    verdict.setdefault("task_id", task_id)
-    verdict.setdefault("iter", iter_n)
-    verdict.setdefault("canonical_pin_sha", hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest())
+    verdict["task_id"] = task_id
+    verdict["iter"] = iter_n
+    verdict["canonical_pin_sha"] = hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest()
+    verdict["diff_sha256"] = diff_sha
+    verdict.setdefault("commit_sha", "0" * 40)  # gate ignores this for backfill+normal
+    verdict.setdefault("model", "gpt-5.5")
+    verdict.setdefault("reasoning_effort", "xhigh")
+    verdict.setdefault("findings", [])
     verdict.setdefault("timestamp", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
 
-    # Sign
+    # HMAC sign
     hmac_key = HMAC_KEY_PATH.read_bytes().strip()
     payload = {k: v for k, v in verdict.items() if k != "hmac_sha256"}
     ser = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -414,6 +463,51 @@ def _invoke_codex_review(task_id: str, brief_path: Path, iter_n: int) -> dict:
     out_path.write_text(json.dumps(verdict, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return verdict
+
+
+def _commit_substrate_with_verdict(task_id: str, iter_n: int, verdict_path: Path) -> str:
+    """P1-2 fix: orchestrator stages substrate + verdict atomically + commits.
+
+    Called only after Codex APPROVE. Returns commit SHA.
+    """
+    # Stage all working-tree changes, including the just-written verdict
+    subprocess.run(["git", "add", "-A"], cwd=str(POLARIS_ROOT), check=True, timeout=30)
+
+    pin_short = hashlib.sha256(CANONICAL_PIN.read_bytes()).hexdigest()[:12]
+    msg = (
+        f"task {task_id}: iter {iter_n} APPROVE\n\n"
+        f"task: {task_id}\n"
+        f"verdict: {verdict_path.relative_to(POLARIS_ROOT).as_posix()}\n"
+        f"pin: {pin_short}\n"
+        f"manifest: outputs/audits/manifests/{task_id}.json\n"
+        f"\n"
+        f"Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n"
+    )
+    r = subprocess.run(
+        ["git", "commit", "-m", msg],
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
+        raise HaltCondition(
+            7, f"git commit failed (gate may have blocked): {r.stderr[:500]}",
+            task_id=task_id,
+        )
+    sha_proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+    )
+    return sha_proc.stdout.strip()
+
+
+def _push_to_origin(task_id: str) -> None:
+    """Push current branch to origin. Best-effort; failure halts at next iter."""
+    r = subprocess.run(
+        ["git", "push", "origin", "HEAD"],
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=120,
+    )
+    if r.returncode != 0:
+        # Non-fatal — push can be retried. But log loudly.
+        print(f"WARN push failed for {task_id}: {r.stderr[:300]}", file=sys.stderr)
 
 
 # ---------- Main loop ----------
@@ -426,27 +520,39 @@ async def _run_task(task_id: str, task_def: dict) -> None:
         iter_n += 1
         _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "build"})
 
-        # Step 1: build via fresh SDK session
-        brief = _build_task_brief(task_id, task_def)
-        brief_path = BRIEF_DIR / f"{task_id}_review_brief.md"
-        brief_path.parent.mkdir(parents=True, exist_ok=True)
-        brief_path.write_text(brief, encoding="utf-8")
+        # Step 1: build via fresh SDK session (Claude SDK stages files but the
+        # precommit gate blocks any commit attempt without a verdict; SDK is
+        # instructed in the build brief NOT to commit — orchestrator does that)
+        build_brief = _build_task_brief(task_id, task_def)
+        build_brief_path = BRIEF_DIR / f"{task_id}_build_brief.md"
+        build_brief_path.parent.mkdir(parents=True, exist_ok=True)
+        build_brief_path.write_text(build_brief, encoding="utf-8")
 
-        await _run_agent_session(task_id, brief, deadline)
+        await _run_agent_session(task_id, build_brief, deadline)
 
-        # Step 2: invoke Codex for review
+        # Step 2: invoke Codex for INDEPENDENT review (not the build brief)
         _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "review"})
-        verdict = _invoke_codex_review(task_id, brief_path, iter_n)
+        verdict = _invoke_codex_review(task_id, build_brief_path, iter_n, task_def)
+        verdict_path = VERDICT_DIR / task_id / f"iter_{iter_n}.json"
 
         if verdict.get("verdict") == "APPROVE":
-            _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "approved"})
+            # Step 3: commit substrate + verdict atomically (P1-2 fix)
+            _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "commit"})
+            commit_sha = _commit_substrate_with_verdict(task_id, iter_n, verdict_path)
+            # Step 4: push (P1-7 — best-effort; failure logged not halt)
+            _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "push", "commit": commit_sha})
+            _push_to_origin(task_id)
+            _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "approved", "commit": commit_sha})
             return
 
+        # REQUEST_CHANGES path: surface findings to next SDK session
         if iter_n >= MAX_REQUEST_CHANGES_ITER:
             raise HaltCondition(
                 4, f"3 consecutive REQUEST_CHANGES on {task_id}", task_id=task_id,
                 payload={"latest_verdict": verdict},
             )
+        # Otherwise loop with findings injected into next build brief
+        # (SDK session reads outputs/audits/verdicts/<id>/iter_<n-1>.json itself)
 
 
 async def _main() -> int:

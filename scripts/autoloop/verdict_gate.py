@@ -97,7 +97,14 @@ def _load_matrix() -> dict:
 
 
 def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
-    """Map each changed file to one or more task IDs via changed_files_glob."""
+    """Map each changed file to one or more task IDs via changed_files_glob.
+
+    Resolution: explicit `task_id` field in the task entry takes precedence over
+    key-derived ID (e.g., `task_bootstrap_smoke` would normally become
+    `bootstrap.smoke` via the snake_case-to-dot rule, but its `task_id` field
+    overrides to `bootstrap_smoke`). For numeric phase tasks like `task_0_5`,
+    the key-derived `0.5` is correct and no override is needed.
+    """
     import fnmatch
     implicated = set()
     for phase_key, phase_val in matrix.items():
@@ -106,7 +113,7 @@ def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
         for task_key, task_val in phase_val.items():
             if not isinstance(task_val, dict):
                 continue
-            task_id = task_key.removeprefix("task_").replace("_", ".")
+            task_id = task_val.get("task_id") or task_key.removeprefix("task_").replace("_", ".")
             globs = task_val.get("changed_files_glob", []) or []
             for glob in globs:
                 for f in files:
@@ -117,16 +124,64 @@ def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
 
 
 def _latest_verdict(task_id: str) -> dict | None:
-    verdict_dir = VERDICTS_DIR / task_id
-    if not verdict_dir.is_dir():
-        return None
-    iters = sorted(verdict_dir.glob("iter_*.json"))
-    if not iters:
-        return None
+    """Read the latest iter_*.json verdict for a task.
+
+    P1-3 fix: prefer STAGED content over working-tree. If a verdict file exists
+    on disk but is NOT staged (or is staged with different bytes), the file isn't
+    actually being committed and would not be visible to CI. Require staging.
+
+    Order:
+      1. If a verdict file is in `git diff --cached --name-only`, read its
+         staged blob via `git show :<path>` (= contents that will be committed).
+      2. Else if file is in HEAD, read via `git show HEAD:<path>`.
+      3. Else None.
+    """
+    verdict_glob = f"outputs/audits/verdicts/{task_id}/"
+
+    # 1. Check staged set
     try:
-        return json.loads(iters[-1].read_text(encoding="utf-8"))
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--", verdict_glob],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        staged = sorted(
+            ln for ln in result.stdout.splitlines()
+            if ln.endswith(".json") and "iter_" in ln
+        )
+        if staged:
+            blob = subprocess.run(
+                ["git", "show", f":{staged[-1]}"],
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            )
+            if blob.returncode == 0:
+                try:
+                    return json.loads(blob.stdout)
+                except Exception:
+                    return None
     except Exception:
-        return None
+        pass
+
+    # 2. Fall back to HEAD
+    try:
+        ls = subprocess.run(
+            ["git", "ls-tree", "--name-only", "HEAD", verdict_glob],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        head_files = sorted(
+            ln for ln in ls.stdout.splitlines()
+            if ln.endswith(".json") and "iter_" in ln
+        )
+        if head_files:
+            blob = subprocess.run(
+                ["git", "show", f"HEAD:{head_files[-1]}"],
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            )
+            if blob.returncode == 0:
+                return json.loads(blob.stdout)
+    except Exception:
+        pass
+
+    return None
 
 
 def _validate_schema(verdict: dict) -> tuple[bool, str]:

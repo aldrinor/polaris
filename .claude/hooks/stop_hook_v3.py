@@ -195,7 +195,7 @@ def _parse_matrix_tasks_from_head() -> list[dict]:
         for task_key, task_val in phase_val.items():
             if not isinstance(task_val, dict):
                 continue
-            task_id = task_key.removeprefix("task_").replace("_", ".")
+            task_id = task_val.get("task_id") or task_key.removeprefix("task_").replace("_", ".")
             tasks.append({
                 "task_id": task_id,
                 "user_action": bool(task_val.get("user_action", False)),

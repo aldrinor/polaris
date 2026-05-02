@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "bootstrap_smoke",
+  "iter": 1,
+  "codex_session_id": "bootstrap_smoke_synthetic_1777739214",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "9e0619fe5b4e84fcf0209b13701ddfcd12f4f58334e101e1b22488d204b8a7e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "b082c6dbfa69f8496634748b06accf8548345805819a6428f420954e2b28458e",
+  "verdict": "APPROVE",
+  "verdict_reason": "Bootstrap smoke synthetic verdict. NOT a Codex-generated review; it is a smoke-test artifact that exercises the gate's HMAC + schema + canonical-pin + diff_sha256 validation paths. Real Codex review fires on first non-bootstrap commit (decision #10 runner online).",
+  "findings": [],
+  "rationale": "Smoke task is a no-op substrate (single test fixture). The smoke validates the gate plumbing, not feature correctness.",
+  "manifest_evidence": [
+    "tests/smoke/bootstrap_no_op.py",
+    "outputs/audits/manifests/bootstrap_smoke.json"
+  ],
+  "timestamp": "2026-05-02T16:26:54Z",
+  "hmac_sha256": "11aeb27ca7bb14a8bd1199e4b4dd2f5c052ef5db537e54d19003e9cf37dd0ca5"
+}

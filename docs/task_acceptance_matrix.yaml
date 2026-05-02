@@ -982,6 +982,44 @@ phase_5:
       - ".private/5_4_handover_acknowledgment.pdf"
     blocking_consequence: "MISSION COMPLETE blocker"
 
+# ============================================================
+# BOOTSTRAP SMOKE — Plan v13 §K Step 16 — exercises every local gate seam
+# ============================================================
+# This task is run ONCE at the end of bootstrap to validate the autoloop
+# substrate before live kickoff. Probes a-i fire locally; j-n + p-r need
+# the self-hosted runner (decision #10). Smoke pass = bootstrap_active flag
+# can be deleted; gate becomes strict thereafter.
+# Phase key MUST start with `phase_` so verdict_gate + stop_hook walk it.
+
+phase_bootstrap:
+
+  task_bootstrap_smoke:
+    task_id: "bootstrap_smoke"   # explicit override (key-derived would be 'bootstrap.smoke')
+    title: "Bootstrap smoke — end-to-end gate exercise (Plan v13 §K Step 16)"
+    owner: "claude (orchestrator)"
+    estimate_hours: 1
+    green_criteria:
+      - "Stop hook blocks initial stop attempt (no verdict yet)"
+      - "Manifest lands at outputs/audits/manifests/bootstrap_smoke.json"
+      - "Orchestrator invokes `codex exec`; verdict lands at outputs/audits/verdicts/bootstrap_smoke/iter_1.json"
+      - "Verdict HMAC valid; schema valid; verdict==APPROVE"
+      - "Precommit hook validates and passes"
+      - "Commit lands with `task: bootstrap_smoke` line + verdict + pin + manifest cross-refs"
+      - "Audit log entry with type=gate_passed at outputs/audits/codex_audit.jsonl"
+      - "Stop hook subsequently allows stop (smoke task APPROVE'd)"
+    required_artifacts:
+      - "scripts/autoloop/smoke_bootstrap.py — runs the smoke probes"
+      - "outputs/audits/manifests/bootstrap_smoke.json"
+      - "outputs/audits/verdicts/bootstrap_smoke/iter_1.json"
+    changed_files_glob:
+      - "outputs/audits/manifests/bootstrap_smoke.json"
+      - "scripts/autoloop/smoke_bootstrap.py"
+      - "tests/smoke/bootstrap_no_op.py"
+    blocking_consequence: "Cannot delete state/bootstrap_active; gate stays in exempted mode"
+    notes:
+      - "After this APPROVE'd: delete state/bootstrap_active; gate becomes strict for all subsequent commits."
+      - "Server-side workflow (PR + CI re-validation + self-hosted runner) is exercised separately when first non-BOOTSTRAP commit is pushed (decision #10 + #6)."
+
 # Phases 2-5 similar — detailed acceptance added at start of each phase.
 
 phase_2: { status: "PENDING", expected_tasks: 14, expected_duration_weeks: 5 }

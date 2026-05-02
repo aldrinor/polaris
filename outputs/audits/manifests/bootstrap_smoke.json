@@ -1,0 +1,34 @@
+{
+  "task_id": "bootstrap_smoke",
+  "phase": "bootstrap",
+  "title": "Bootstrap smoke end-to-end gate exercise",
+  "owner": "claude+orchestrator",
+  "started_at": "2026-05-02T16:26:54Z",
+  "completed_at": "2026-05-02T16:26:54Z",
+  "estimate_hours": 1,
+  "actual_hours": 1,
+  "changed_files": [
+    "tests/smoke/bootstrap_no_op.py",
+    "outputs/audits/manifests/bootstrap_smoke.json"
+  ],
+  "test_commands": [
+    "python -m pytest tests/smoke/bootstrap_no_op.py"
+  ],
+  "artifacts": [
+    {
+      "type": "test_fixture",
+      "path": "tests/smoke/bootstrap_no_op.py"
+    }
+  ],
+  "recordings": [],
+  "trace_ids": [],
+  "open_bugs": [],
+  "evidence_links": [
+    {
+      "green_criterion": "Manifest lands at outputs/audits/manifests/bootstrap_smoke.json",
+      "artifact": "outputs/audits/manifests/bootstrap_smoke.json"
+    }
+  ],
+  "codex_findings_addressed": [],
+  "walkthrough_artifact": null
+}
