@@ -87,13 +87,62 @@ def _staged_diff_sha256() -> str:
 
 
 def _load_matrix() -> dict:
+    """Load task_acceptance_matrix.yaml.
+
+    Codex round-2 P0 fix: prefer staged blob over working-tree, with HEAD as fallback.
+    The gate enforces canonical task scope; reading mutable working-tree allows
+    a malicious or accidental edit to remap globs/task-IDs before commit.
+
+    Order:
+      1. If matrix file is in `git diff --cached --name-only`, read its staged blob
+      2. Else read from `git show HEAD:docs/task_acceptance_matrix.yaml`
+      3. Working tree is NEVER trusted as authoritative for the gate.
+    """
     try:
         import yaml
-        return yaml.safe_load(MATRIX_PATH.read_text(encoding="utf-8")) or {}
     except ImportError:
         raise GateError("PyYAML required for matrix parsing; pip install pyyaml")
-    except Exception as e:
-        raise GateError(f"matrix parse failed: {e}")
+
+    matrix_rel = "docs/task_acceptance_matrix.yaml"
+
+    # 1. Staged
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--", matrix_rel],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            blob = subprocess.run(
+                ["git", "show", f":{matrix_rel}"],
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            )
+            if blob.returncode == 0:
+                try:
+                    return yaml.safe_load(blob.stdout) or {}
+                except Exception as e:
+                    raise GateError(f"staged matrix parse failed: {e}")
+    except GateError:
+        raise
+    except Exception:
+        pass
+
+    # 2. HEAD
+    try:
+        blob = subprocess.run(
+            ["git", "show", f"HEAD:{matrix_rel}"],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        if blob.returncode == 0:
+            try:
+                return yaml.safe_load(blob.stdout) or {}
+            except Exception as e:
+                raise GateError(f"HEAD matrix parse failed: {e}")
+    except GateError:
+        raise
+    except Exception:
+        pass
+
+    raise GateError("matrix not in staged set or HEAD; canonical task scope undefined")
 
 
 def _changed_files_to_task_ids(files: list[str], matrix: dict) -> set[str]:
@@ -184,10 +233,36 @@ def _latest_verdict(task_id: str) -> dict | None:
     return None
 
 
+def _load_schema() -> dict:
+    """Load verdict schema from staged-or-HEAD (Codex round-2 P0 fix; same trust model as matrix)."""
+    schema_rel = "docs/schemas/codex_verdict.schema.json"
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--", schema_rel],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            blob = subprocess.run(
+                ["git", "show", f":{schema_rel}"],
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            )
+            if blob.returncode == 0:
+                return json.loads(blob.stdout)
+    except Exception:
+        pass
+    blob = subprocess.run(
+        ["git", "show", f"HEAD:{schema_rel}"],
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+    )
+    if blob.returncode == 0:
+        return json.loads(blob.stdout)
+    raise GateError("schema not in staged set or HEAD")
+
+
 def _validate_schema(verdict: dict) -> tuple[bool, str]:
     try:
         import jsonschema
-        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = _load_schema()
         jsonschema.validate(verdict, schema)
         return True, "schema ok"
     except ImportError:

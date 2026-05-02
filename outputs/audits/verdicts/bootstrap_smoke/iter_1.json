@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "task_id": "bootstrap_smoke",
   "iter": 1,
-  "codex_session_id": "bootstrap_smoke_synthetic_1777740078",
+  "codex_session_id": "bootstrap_smoke_synthetic_1777741105",
   "model": "gpt-5.5",
   "reasoning_effort": "xhigh",
   "canonical_pin_sha": "aa85667e967279b33c1341bd5530df3c9872e1cf5af3a7765b3777619589805e",
@@ -16,6 +16,6 @@
     "tests/smoke/bootstrap_no_op.py",
     "outputs/audits/manifests/bootstrap_smoke.json"
   ],
-  "timestamp": "2026-05-02T16:41:18Z",
-  "hmac_sha256": "e669decacf2fee411fd2e338cc4610f5f978bd76fb2495b6e20e4fc1ff029b86"
+  "timestamp": "2026-05-02T16:58:25Z",
+  "hmac_sha256": "c0829e39afe960e3aaae8fbe21b6cdc4364f291e1df28bf911ea32fd17f2a078"
 }
