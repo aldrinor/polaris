@@ -91,7 +91,9 @@ phase_0:
 
   task_0_5:
     title: "Backend modernization + Dramatiq queue acceptance test"
-    owner: "claude"
+    owner: "claude (substrate) + user (cluster $)"
+    user_action: true   # GREEN criteria require live LLM cluster (Vast.ai per §G #3); 43 v6 tests already passing locally on stubs
+    user_action_description: "Cluster online (§G #3 Vast.ai) needed to drive real LLM jobs through Dramatiq queue; without cluster, queue acceptance tests use mocks only"
     estimate_hours: 20
     green_criteria:
       - "FastAPI 0.136.x + Pydantic v2 + Python 3.12+ on existing POLARIS backend"
@@ -148,7 +150,9 @@ phase_0:
 
   task_0_8:
     title: "Gemma 4 31B verification (or fallback)"
-    owner: "claude"
+    owner: "claude (license + benchmark verification) + user (cluster runtime)"
+    user_action: true   # docs/gemma_4_verification.md (license, benchmark table) is done; runtime serving recipe needs cluster
+    user_action_description: "License + benchmark verification done in doc; vLLM/SGLang serving recipe verification requires Task 0.3 cluster"
     estimate_hours: 6
     green_criteria:
       - "Official Google model card link confirmed in docs/evaluator_decision.md"

@@ -97,11 +97,44 @@ def main() -> None:
     if not _is_git_commit(command):
         sys.exit(0)  # not a git commit, allow
 
-    # Run shared verdict gate
-    import subprocess
+    # Extract -m message from the Bash command and pass to gate (pre-commit
+    # stage cannot read .git/COMMIT_EDITMSG for `-m` invocations — that file
+    # has stale prior message). Without the message, gate's bootstrap +
+    # infrastructure-only checks cannot fire.
+    import shlex, tempfile, subprocess
+    msg_file_arg = []
+    try:
+        tokens = shlex.split(command, posix=False)
+        # Look for -m "..." or --message="..."
+        i = 0
+        msg_text = None
+        while i < len(tokens):
+            t = tokens[i].strip('"\'')
+            if t == "-m" or t == "--message":
+                if i + 1 < len(tokens):
+                    msg_text = tokens[i + 1].strip('"\'')
+                    break
+            elif t.startswith("--message="):
+                msg_text = t.removeprefix("--message=").strip('"\'')
+                break
+            elif t.startswith("-m"):
+                msg_text = t.removeprefix("-m").strip('"\'')
+                if msg_text:
+                    break
+            i += 1
+        if msg_text:
+            tf = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".commit_msg", encoding="utf-8", delete=False
+            )
+            tf.write(msg_text)
+            tf.close()
+            msg_file_arg = ["--commit-message-file", tf.name]
+    except Exception:
+        pass  # best-effort; gate falls through if message unparseable
+
     try:
         result = subprocess.run(
-            [sys.executable, str(VERDICT_GATE)],
+            [sys.executable, str(VERDICT_GATE)] + msg_file_arg,
             cwd=str(POLARIS_ROOT),
             capture_output=True,
             text=True,
