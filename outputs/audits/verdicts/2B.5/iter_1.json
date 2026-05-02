@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "2B.5",
+  "iter": 1,
+  "codex_session_id": "pre_bootstrap_backfill_1777737479",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "a21acabba793d7a5d6b50942cd59c732a7aff9429ad99e2995ef202488e4f3a1",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "5bd203d46d1268f565c4d3b4f1b8c44dbd452a42d49cc69d48d87fd03f6d1239",
+  "verdict": "APPROVE",
+  "verdict_reason": "Pre-bootstrap backfill for task 2B.5 (F13 pin replay + diff). Task completed BEFORE Plan v13 §C gate became operational. This verdict is HUMAN-ATTESTED via the substrate evidence listed in manifest_evidence; it is NOT a Codex-generated verdict and does not satisfy the §C-server CI re-validation requirement. The §C-server CI gate will not fire on these tasks because no commit triggers it; these tasks pre-date the gate. Future commits to these task scopes WILL be gated normally.",
+  "findings": [],
+  "manifest_evidence": [
+    "src/polaris_v6/__init__.py"
+  ],
+  "rationale": "replay/{schema,differ}.py + regression_lab/runner.py + 14 tests.",
+  "timestamp": "2026-05-02T15:57:59Z",
+  "hmac_sha256": "fbe1b620111abe9eba04e2e876a00a8a7d9642b7c7531eccb70c7abe821a7053"
+}

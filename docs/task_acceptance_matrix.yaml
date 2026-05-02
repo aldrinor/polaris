@@ -196,14 +196,791 @@ phase_0:
     dependencies: ["task_0_5"]
 
 # ============================================================
-# PHASE 1 — BPEI spine (3 weeks)
+# PHASE 1 — BPEI spine + Evidence Contract Gate (May 13-31)
 # ============================================================
-# (Detailed acceptance for each task added at start of Phase 1)
+# Filled out 2026-05-02 per Plan v13 §K Step 0b. Tasks 1.1-1.7 substrate already
+# shipped pre-bootstrap (cycle-11 lock); they receive synthetic APPROVE verdicts via
+# scripts/autoloop/backfill_pre_bootstrap_verdicts.py. Task 1.8 walkthrough is
+# user-action with substrate_prep for evaluator briefing pack.
 
 phase_1:
-  status: "PENDING — entries will be filled at end of Phase 0"
-  expected_tasks: 7
-  expected_duration_weeks: 3
+
+  task_1_1:
+    title: "F1 — Scope discovery + template browse panel (substrate)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock substrate)"
+    estimate_hours: 12
+    green_criteria:
+      - "src/polaris_v6/scope/decision.py — scope-discovery decision logic"
+      - "src/polaris_v6/api/scope.py — FastAPI route"
+      - "web/app/dashboard/page.tsx — inline scope panel"
+      - "tests/v6/test_scope_decision.py + frontend e2e — 5+ tests passing"
+      - "LLM-augment swap deferred to cluster (Task 0.3) — substrate complete"
+    required_artifacts:
+      - "src/polaris_v6/scope/decision.py"
+      - "src/polaris_v6/api/scope.py"
+      - "web/app/dashboard/page.tsx"
+      - "tests/v6/test_scope_*.py"
+    changed_files_glob:
+      - "src/polaris_v6/scope/**"
+      - "src/polaris_v6/api/scope.py"
+    blocking_consequence: "Phase 2A inspector cannot link to scope panel"
+
+  task_1_2:
+    title: "F2 — BPEI ambiguity detector (substrate)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock substrate)"
+    estimate_hours: 16
+    green_criteria:
+      - "src/polaris_v6/bpei/ambiguity_detector.py — heuristic + clustering substrate"
+      - "src/polaris_v6/api/ambiguity.py — FastAPI route"
+      - "web/app/dashboard — ambiguity modal wired"
+      - "9+ tests passing (heuristic + integration)"
+      - "HDBSCAN swap deferred to cluster (Task 0.3) — substrate complete"
+    required_artifacts:
+      - "src/polaris_v6/bpei/ambiguity_detector.py"
+      - "src/polaris_v6/api/ambiguity.py"
+      - "tests/v6/test_ambiguity_*.py"
+    changed_files_glob:
+      - "src/polaris_v6/bpei/**"
+      - "src/polaris_v6/api/ambiguity.py"
+    blocking_consequence: "Phase 2A inspector ambiguity surfacing blocked"
+
+  task_1_3:
+    title: "F3a — Evidence pool merger (graph_v4.py:149 fix substrate)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 8
+    green_criteria:
+      - "src/polaris_v6/adapters/evidence_pool_merger.py — merger with sovereignty tag preservation"
+      - "6+ tests passing"
+      - "Production-path graph_v4 wire-in deferred to cluster (LAW VII forbids cross-pipeline import)"
+    required_artifacts:
+      - "src/polaris_v6/adapters/evidence_pool_merger.py"
+    changed_files_glob:
+      - "src/polaris_v6/adapters/evidence_pool_merger.py"
+    blocking_consequence: "F3b upload grounding blocked"
+
+  task_1_4:
+    title: "Evidence Contract Gate (canonical schema + 13 tests GREEN)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "src/polaris_v6/schemas/evidence_contract.py — Pydantic v2 schema"
+      - "tests/v6/fixtures/evidence_contract_v1/ — 6 golden fixtures"
+      - "tests/v6/test_evidence_contract_gate.py — 13 tests passing"
+      - "Crown-jewel C2 (per Codex Red-Team Checklist) satisfied"
+    required_artifacts:
+      - "src/polaris_v6/schemas/evidence_contract.py"
+      - "tests/v6/fixtures/evidence_contract_v1/*.json"
+    changed_files_glob:
+      - "src/polaris_v6/schemas/evidence_contract.py"
+      - "tests/v6/fixtures/evidence_contract_v1/**"
+    blocking_consequence: "Crown-jewel gate cannot fire on Phase 2 tasks"
+
+  task_1_5:
+    title: "F3b — Upload backend substrate"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 10
+    green_criteria:
+      - "src/polaris_v6/api/upload.py — upload endpoint"
+      - "Frontend dropzone wired into createRun document_ids"
+      - "7+ tests passing"
+      - "Sovereignty router (CAN_REAL on-Canada-only) deferred to cluster"
+    required_artifacts:
+      - "src/polaris_v6/api/upload.py"
+    changed_files_glob:
+      - "src/polaris_v6/api/upload.py"
+    blocking_consequence: "F3 grounding flow incomplete"
+
+  task_1_6:
+    title: "F15 — Audit bundle export substrate"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 10
+    green_criteria:
+      - "src/polaris_v6/api/bundle.py — export endpoint"
+      - "4+ backend tests passing"
+      - "Frontend Export-bundle button + downloadBundleAsJson client"
+      - "Verbatim-spans IP review pending counsel (§G #5; halt-and-decide branch)"
+    required_artifacts:
+      - "src/polaris_v6/api/bundle.py"
+    changed_files_glob:
+      - "src/polaris_v6/api/bundle.py"
+    blocking_consequence: "Phase 5 handover bundle blocked at counsel step"
+
+  task_1_7:
+    title: "Sycophancy + refusal CI suite substrate"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 14
+    green_criteria:
+      - "src/polaris_v6/sycophancy/ module"
+      - "12 paired-prompt fixtures committed"
+      - "21+ tests (5 scorer + 16 fixtures)"
+      - "Live LLM hookup deferred to cluster (Task 0.3)"
+    required_artifacts:
+      - "src/polaris_v6/sycophancy/"
+      - "tests/v6/test_sycophancy_*.py"
+    changed_files_glob:
+      - "src/polaris_v6/sycophancy/**"
+    blocking_consequence: "Anti-sycophancy CI gate cannot fire"
+
+  task_1_8:
+    title: "End-of-Phase 1 walkthrough (3 evaluators)"
+    owner: "user (evaluators) + claude (briefing pack)"
+    user_action: true
+    user_action_description: "User schedules + executes walkthrough with 3 named non-developer evaluators per §G #7 (deadline 2026-06-04)"
+    estimate_hours: 6
+    green_criteria:
+      - "Recording: fresh-state browser walkthrough by 3 non-developer evaluators"
+      - "All 22-input adversarial corpus traversed"
+      - "BPEI test passes: evaluator types 'What is BPEI?' → ambiguity modal appears"
+      - "No mid-walkthrough crashes or silent failures"
+    required_artifacts:
+      - ".private/walkthroughs/1_8_recordings_*.mp4 (or attestation per §C-private)"
+      - "outputs/audits/walkthroughs/1.8_findings.md"
+    substrate_prep:
+      - id: "1.8_prep_briefing_pack"
+        title: "Phase 1 evaluator briefing pack (orchestrator can complete)"
+        green_criteria:
+          - "docs/walkthroughs/1.8/briefing.md — 1-page evaluator instructions"
+          - "docs/walkthroughs/1.8/test_inputs.md — 22-input adversarial corpus"
+          - "docs/walkthroughs/1.8/recording_template.md — what to capture"
+        changed_files_glob:
+          - "docs/walkthroughs/1.8/**"
+    blocking_consequence: "Phase 2A cannot start"
+
+# ============================================================
+# PHASE 2A — Core inspection (Jun 1-21)
+# ============================================================
+
+phase_2a:
+
+  task_2a_1:
+    title: "F4 — Live audit run UI"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock)"
+    estimate_hours: 14
+    green_criteria:
+      - "web/app/runs/[runId]/page.tsx — SSE subscription + 5 affordances panel"
+      - "Affordances: Open Inspector / Export bundle / Cancel / Follow-up / Pin"
+    required_artifacts:
+      - "web/app/runs/[runId]/page.tsx"
+    changed_files_glob:
+      - "web/app/runs/**"
+    blocking_consequence: "F5 inspector cannot link from live run"
+
+  task_2a_2:
+    title: "F5 — Generalized Inspector view (5-tab)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock)"
+    estimate_hours: 20
+    green_criteria:
+      - "web/app/inspector/[runId]/page.tsx — 5-tab Inspector"
+      - "Tabs: Verified / Frames / Contradictions / Pool / Charts"
+      - "2+ live screenshots committed (clinical + climate goldens)"
+    required_artifacts:
+      - "web/app/inspector/[runId]/page.tsx"
+      - "web/screenshots/inspector_*.png"
+    changed_files_glob:
+      - "web/app/inspector/**"
+    blocking_consequence: "F7/F8/F9 cannot land"
+
+  task_2a_3:
+    title: "F7 — Frame coverage panel"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock)"
+    estimate_hours: 8
+    green_criteria:
+      - "Inspector 'Frames' tab with progress bars"
+      - "Above-the-fold rendering"
+    required_artifacts:
+      - "web/app/inspector/[runId]/_tabs/frames.tsx"
+    changed_files_glob:
+      - "web/app/inspector/**"
+    blocking_consequence: "Crown-jewel C3 (frame coverage above-fold) cannot satisfy"
+
+  task_2a_4:
+    title: "F8 — Contradiction navigation"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock)"
+    estimate_hours: 10
+    green_criteria:
+      - "Contradictions tab with linked badges in Verified Sentences"
+      - "Click badge → side pane with all sides + tiers + sample sizes"
+    required_artifacts:
+      - "web/app/inspector/[runId]/_tabs/contradictions.tsx"
+    changed_files_glob:
+      - "web/app/inspector/**"
+    blocking_consequence: "Crown-jewel C4 (contradictions navigable) cannot satisfy"
+
+  task_2a_5:
+    title: "F9 — Two-family disagreement signal"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (cycle-11 lock)"
+    estimate_hours: 6
+    green_criteria:
+      - "Inspector top KPI card with PASS/FAIL styling"
+      - "Destructive banner on invariant violation"
+    required_artifacts:
+      - "web/app/inspector/[runId]/_components/two_family_kpi.tsx"
+    changed_files_glob:
+      - "web/app/inspector/**"
+    blocking_consequence: "Crown-jewel C5 (two-family disagreement visible) cannot satisfy"
+
+  task_2a_6:
+    title: "Templates 4-5 (defense, climate)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "config/v6_templates/{defense,climate}.json"
+      - "13+ template tests passing"
+      - "Total 8 templates loaded (clinical, trade, housing, defense, climate, ai_sovereignty, canada_us, workforce)"
+    required_artifacts:
+      - "config/v6_templates/*.json"
+    changed_files_glob:
+      - "config/v6_templates/**"
+    blocking_consequence: "Phase 3 benchmark cannot run"
+
+  task_2a_7:
+    title: "End-of-Phase 2A walkthrough"
+    owner: "user (evaluators) + claude (briefing pack)"
+    user_action: true
+    user_action_description: "Walkthrough by 3 evaluators per §G #7 (deadline 2026-06-22)"
+    estimate_hours: 6
+    green_criteria:
+      - "Recording: fresh-state walkthrough across all 5 Inspector tabs"
+      - "Evaluator confirms click-to-evidence latency <1s on 200-sentence run"
+    required_artifacts:
+      - ".private/walkthroughs/2a_7_recordings_*.mp4"
+      - "outputs/audits/walkthroughs/2A.7_findings.md"
+    substrate_prep:
+      - id: "2a_7_prep_briefing_pack"
+        green_criteria:
+          - "docs/walkthroughs/2A.7/briefing.md"
+          - "docs/walkthroughs/2A.7/test_scenarios.md"
+        changed_files_glob:
+          - "docs/walkthroughs/2A.7/**"
+    blocking_consequence: "Phase 2B cannot start"
+
+# ============================================================
+# PHASE 2B — Visualization + memory + replay (Jun 22 - Jul 12)
+# ============================================================
+
+phase_2b:
+
+  task_2b_1:
+    title: "F6 — Live citation overlay (Perplexity-parity hover-preview)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01 (F-25..F-28 cycle-11 lock)"
+    estimate_hours: 14
+    green_criteria:
+      - "web/components/ui/evidence-tooltip.tsx (base-ui Tooltip)"
+      - "Hover preview with source title + tier + count + quote + click-to-pin"
+      - "Hover-latency <100ms on 50/100/200/500-sentence reports"
+      - "Edge-position handling + mobile tap-to-show fallback"
+    required_artifacts:
+      - "web/components/ui/evidence-tooltip.tsx"
+    changed_files_glob:
+      - "web/components/ui/evidence-tooltip.tsx"
+    blocking_consequence: "F6 match-or-beat (Perplexity parity) unmet"
+
+  task_2b_2:
+    title: "F10a — Vega-Lite renderer"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 16
+    green_criteria:
+      - "src/polaris_v6/charts/{spec_builder,from_bundle}.py"
+      - "src/polaris_v6/api/charts.py FastAPI route"
+      - "web/components/ui/vega-chart.tsx (vega-embed v5)"
+      - "Inspector Charts tab + live screenshot"
+    required_artifacts:
+      - "src/polaris_v6/charts/**"
+      - "web/components/ui/vega-chart.tsx"
+    changed_files_glob:
+      - "src/polaris_v6/charts/**"
+      - "web/components/ui/vega-chart.tsx"
+    blocking_consequence: "F10c executive summary cannot compose"
+
+  task_2b_3:
+    title: "F10b — Chart provenance schema"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 6
+    green_criteria:
+      - "polaris_provenance.evidence_ids extension on every spec"
+      - "VegaChart onPointClick → click-through-to-source"
+    required_artifacts:
+      - "src/polaris_v6/charts/spec_builder.py (with provenance fields)"
+    changed_files_glob:
+      - "src/polaris_v6/charts/**"
+    blocking_consequence: "Charts cannot link back to evidence"
+
+  task_2b_4:
+    title: "F10c — Executive-summary infographic"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "Inspector Executive-summary tab: 4-KPI strip + 3 charts"
+      - "forest_plot + comparison_table + timeline composed"
+      - "Click-to-evidence on every datum"
+    required_artifacts:
+      - "web/app/inspector/[runId]/_tabs/executive_summary.tsx"
+    changed_files_glob:
+      - "web/app/inspector/**"
+    blocking_consequence: "Phase 5 handover deck cannot assemble"
+
+  task_2b_5:
+    title: "F13 — Pin replay + diff"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 14
+    green_criteria:
+      - "src/polaris_v6/replay/{schema,differ}.py"
+      - "src/polaris_v6/regression_lab/runner.py"
+      - "14+ tests passing"
+    required_artifacts:
+      - "src/polaris_v6/replay/**"
+      - "src/polaris_v6/regression_lab/**"
+    changed_files_glob:
+      - "src/polaris_v6/replay/**"
+      - "src/polaris_v6/regression_lab/**"
+    blocking_consequence: "Reproducibility match-or-beat bar unmet"
+
+  task_2b_6:
+    title: "F14 — Workspace memory"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 16
+    green_criteria:
+      - "src/polaris_v6/memory/{schema,store}.py"
+      - "src/polaris_v6/api/memory.py — 5 endpoints"
+      - "14+ tests"
+      - "Chroma swap deferred to cluster"
+    required_artifacts:
+      - "src/polaris_v6/memory/**"
+    changed_files_glob:
+      - "src/polaris_v6/memory/**"
+    blocking_consequence: "Memory match-or-beat bar unmet"
+
+  task_2b_7:
+    title: "End-of-Phase 2B walkthrough"
+    owner: "user (evaluators) + claude (briefing pack)"
+    user_action: true
+    user_action_description: "Walkthrough per §G #7 (deadline 2026-07-13)"
+    estimate_hours: 6
+    green_criteria:
+      - "Recording: visualization + memory + replay surfaces"
+    required_artifacts:
+      - ".private/walkthroughs/2b_7_recordings_*.mp4"
+      - "outputs/audits/walkthroughs/2B.7_findings.md"
+    substrate_prep:
+      - id: "2b_7_prep_briefing_pack"
+        green_criteria:
+          - "docs/walkthroughs/2B.7/briefing.md"
+        changed_files_glob:
+          - "docs/walkthroughs/2B.7/**"
+    blocking_consequence: "Phase 2C cannot start"
+
+# ============================================================
+# PHASE 2C — UI polish + integration (Jul 13-19)
+# ============================================================
+
+phase_2c:
+
+  task_2c_1:
+    title: "Cross-feature integration testing (9/9 Playwright e2e)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "web/tests/e2e/inspector.spec.ts — 9/9 tests passing live"
+      - "Inspector / Charts / Dashboard scope flows covered"
+    required_artifacts:
+      - "web/tests/e2e/inspector.spec.ts"
+    changed_files_glob:
+      - "web/tests/e2e/**"
+    blocking_consequence: "Cycle-N audit lens fails"
+
+  task_2c_2:
+    title: "Visual regression baseline"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 8
+    green_criteria:
+      - "web/tests/e2e/visual.spec.ts (4 baselines)"
+      - "maxDiffPixelRatio 0.02 + run-id mask"
+      - "Baselines committed under tests/e2e/visual.spec.ts-snapshots/"
+    required_artifacts:
+      - "web/tests/e2e/visual.spec.ts"
+      - "web/tests/e2e/visual.spec.ts-snapshots/**"
+    changed_files_glob:
+      - "web/tests/e2e/visual*"
+    blocking_consequence: "Visual regression detection blocked"
+
+  task_2c_3:
+    title: "Cross-browser verification (Chromium/Firefox/WebKit)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 6
+    green_criteria:
+      - "27/27 tests pass on all 3 engines (38s wall-clock)"
+      - "Vega-Lite SVG, scope discovery, all Inspector tabs work uniformly"
+    required_artifacts:
+      - "web/playwright.config.ts (3-engine matrix)"
+    changed_files_glob:
+      - "web/playwright.config.*"
+    blocking_consequence: "Cross-browser parity unverified"
+
+  task_2c_4:
+    title: "Performance optimization (hover-latency <100ms)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 10
+    green_criteria:
+      - "web/tests/e2e/performance.spec.ts — 6 perf gates"
+      - "DOMContentLoaded < 2000ms, tab-switch < 250ms, Charts < 2500ms, FCP < 1500ms"
+      - "6/6 PASS on chromium"
+    required_artifacts:
+      - "web/tests/e2e/performance.spec.ts"
+    changed_files_glob:
+      - "web/tests/e2e/performance*"
+    blocking_consequence: "Perf match-or-beat unmet"
+
+  task_2c_5:
+    title: "Accessibility audit (WCAG-AA)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 8
+    green_criteria:
+      - "web/tests/e2e/accessibility.spec.ts — 6 axe-core tests"
+      - "Surfaced + fixed real WCAG-AA color-contrast violation on scope-rejected card"
+      - "All 6 tests + 9 inspector tests pass on chromium"
+    required_artifacts:
+      - "web/tests/e2e/accessibility.spec.ts"
+    changed_files_glob:
+      - "web/tests/e2e/accessibility*"
+    blocking_consequence: "A11y match-or-beat unmet"
+
+  task_2c_6:
+    title: "End-of-Phase 2C walkthrough on full feature set"
+    owner: "user (evaluators) + claude (briefing pack)"
+    user_action: true
+    user_action_description: "Walkthrough per §G #7 (deadline 2026-07-19)"
+    estimate_hours: 6
+    green_criteria:
+      - "Recording: full-feature walkthrough by non-developer"
+    required_artifacts:
+      - ".private/walkthroughs/2c_6_recordings_*.mp4"
+      - "outputs/audits/walkthroughs/2C.6_findings.md"
+    substrate_prep:
+      - id: "2c_6_prep_briefing_pack"
+        green_criteria:
+          - "docs/walkthroughs/2C.6/briefing.md"
+        changed_files_glob:
+          - "docs/walkthroughs/2C.6/**"
+    blocking_consequence: "Phase 3 cannot start"
+
+# ============================================================
+# PHASE 3 — Follow-up + benchmark (Jul 20 - Aug 9)
+# ============================================================
+
+phase_3:
+
+  task_3_1:
+    title: "F11 — Follow-up agent"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 14
+    green_criteria:
+      - "src/polaris_v6/followup/{schema,agent}.py"
+      - "src/polaris_v6/api/followup.py"
+      - "8 endpoint tests passing (incl. out-of-scope refusal)"
+    required_artifacts:
+      - "src/polaris_v6/followup/**"
+    changed_files_glob:
+      - "src/polaris_v6/followup/**"
+    blocking_consequence: "Conversational follow-up match-or-beat unmet"
+
+  task_3_2:
+    title: "F12 — Side-by-side compare"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "src/polaris_v6/compare/differ.py"
+      - "src/polaris_v6/api/compare.py"
+      - "11 tests (7 lib + 4 API)"
+    required_artifacts:
+      - "src/polaris_v6/compare/**"
+    changed_files_glob:
+      - "src/polaris_v6/compare/**"
+    blocking_consequence: "Compare match-or-beat unmet"
+
+  task_3_3:
+    title: "Templates 6-8 (AI sovereignty, Canada-US, workforce)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 12
+    green_criteria:
+      - "config/v6_templates/{ai_sovereignty,canada_us,workforce}.json"
+      - "Validates against template schema"
+    required_artifacts:
+      - "config/v6_templates/*.json"
+    changed_files_glob:
+      - "config/v6_templates/**"
+    blocking_consequence: "Phase 3.5 benchmark cannot exercise full 8 templates"
+
+  task_3_4:
+    title: "Benchmark suite design schema"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 8
+    green_criteria:
+      - "src/polaris_v6/benchmark/schema.py"
+      - "6 tests passing"
+    required_artifacts:
+      - "src/polaris_v6/benchmark/schema.py"
+    changed_files_glob:
+      - "src/polaris_v6/benchmark/**"
+    blocking_consequence: "Phase 3.5 benchmark cannot run"
+
+  task_3_5:
+    title: "Run benchmark + paid sample evaluator"
+    owner: "user (evaluator $) + claude (orchestration)"
+    user_action: true
+    user_action_description: "Layer-3 evaluator retainer signed per §G #4 by 2026-07-15; cluster operational per §G #2/#3"
+    estimate_hours: 24
+    green_criteria:
+      - "Benchmark run on sovereign cluster (Phase 4 prerequisite)"
+      - "Paid evaluator blind-scores against ChatGPT 5.5 Pro DR + Gemini 3.1 Pro DR"
+      - "Per-dimension delta documented per Plan v13 §F match-or-beat bar"
+    required_artifacts:
+      - ".private/3_5_evaluator_report.pdf (with attestation per §C-private)"
+      - "outputs/audits/benchmark/3.5_results.json"
+    blocking_consequence: "Phase 5 handover bundle missing benchmark"
+
+  task_3_6:
+    title: "Sycophancy stress-test report"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Depends on cluster (§G #3) + 1.7 substrate"
+    estimate_hours: 12
+    green_criteria:
+      - "Run paired-prompt fixtures against live LLM"
+      - "Sycophancy rate < 10% per ELEPHANT methodology baseline"
+    required_artifacts:
+      - "outputs/audits/sycophancy/3.6_report.md"
+    blocking_consequence: "Anti-sycophancy match-or-beat unverified"
+
+  task_3_7:
+    title: "Industry benchmark adapters (BrowseComp + GAIA + DeepResearch Bench)"
+    owner: "claude"
+    status: "COMPLETED 2026-05-01"
+    estimate_hours: 16
+    green_criteria:
+      - "src/polaris_v6/benchmark/industry_adapters.py"
+      - "scripts/v6/run_benchmark.py CLI"
+      - "13 tests passing"
+    required_artifacts:
+      - "src/polaris_v6/benchmark/industry_adapters.py"
+      - "scripts/v6/run_benchmark.py"
+    changed_files_glob:
+      - "src/polaris_v6/benchmark/**"
+      - "scripts/v6/run_benchmark.py"
+    blocking_consequence: "Industry benchmark not runnable"
+
+  task_3_8:
+    title: "Proof package PDF (assembled at Phase 5)"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Assembled at Phase 5; depends on 3.5 benchmark + walkthroughs"
+    estimate_hours: 8
+    green_criteria:
+      - "docs/carney_handover/proof_package.pdf"
+      - "Compiled from benchmark + walkthrough recordings + crown-jewel screenshots"
+    required_artifacts:
+      - "docs/carney_handover/proof_package.pdf"
+    blocking_consequence: "Phase 5 handover blocked"
+
+# ============================================================
+# PHASE 4 — Sovereign Canadian migration (Aug 10-23) — HARD GATED on §G #2 OVH
+# ============================================================
+
+phase_4:
+
+  task_4_1:
+    title: "Provision sovereign Canadian cluster per Phase 0 hardware decision"
+    owner: "user (procurement) + claude (provisioning)"
+    user_action: true
+    user_action_description: "OVH BHS H200 8x reservation must be live (per §G #2 by 2026-05-12; HARD GATE)"
+    estimate_hours: 16
+    green_criteria:
+      - "8x H200 OVH BHS Canada operational"
+      - "Sovereignty verified: data residency = Canada"
+    required_artifacts:
+      - "docs/sovereign_cluster_provisioned.md"
+      - ".private/ovh_handoff_*.pdf"
+    blocking_consequence: "Phase 4 cannot start"
+
+  task_4_2:
+    title: "Migrate vLLM/SGLang serving + DeepSeek V4 weights + Gemma 4 evaluator"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Depends on 4.1 cluster online"
+    estimate_hours: 24
+    green_criteria:
+      - "Phase 0.7 bakeoff winner deployed"
+      - "DeepSeek V4 Flash weights loaded"
+      - "Gemma 4 31B evaluator loaded (different lineage invariant enforced)"
+      - "Two-family check_family_segregation passes"
+    required_artifacts:
+      - "docs/sovereign_serving_runbook.md"
+    blocking_consequence: "Phase 4.4 benchmark cannot rerun"
+
+  task_4_3:
+    title: "Wire auto-scale (warm pool + spin-up via API on queue depth >=3)"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Depends on 4.2"
+    estimate_hours: 12
+    green_criteria:
+      - "Auto-scale tested with synthetic queue load"
+      - "Warm-pool keeps 1 replica hot at all times"
+      - "Spin-up <90s on queue depth 3"
+    required_artifacts:
+      - "scripts/sovereign/autoscale.py"
+      - "tests/sovereign/test_autoscale.py"
+    blocking_consequence: "Production capacity unknown"
+
+  task_4_4:
+    title: "Re-run benchmark on sovereign cluster (no regression)"
+    owner: "claude + evaluator"
+    user_action: true
+    user_action_description: "Depends on 4.2"
+    estimate_hours: 16
+    green_criteria:
+      - "All 8 templates exercised"
+      - "No dimension regression vs Phase 3.5 results"
+    required_artifacts:
+      - "outputs/audits/benchmark/4.4_sovereign_results.json"
+    blocking_consequence: "Phase 5 handover blocked"
+
+  task_4_5:
+    title: "Handover package documentation"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Final assembly at Phase 5; substrate writeable now"
+    estimate_hours: 12
+    green_criteria:
+      - "docs/carney_handover/{one_pager,5min_video_script,runbook}.md complete"
+      - "Includes sovereignty attestation, benchmark results, walkthrough recordings"
+    required_artifacts:
+      - "docs/carney_handover/**"
+    substrate_prep:
+      - id: "4_5_prep_drafts"
+        green_criteria:
+          - "docs/carney_handover/one_pager.md draft"
+          - "docs/carney_handover/5min_video_script.md draft"
+          - "docs/carney_handover/runbook.md draft"
+        changed_files_glob:
+          - "docs/carney_handover/**"
+    blocking_consequence: "Phase 5 handover blocked"
+
+# ============================================================
+# PHASE 4.5 — Buffer (Aug 24-30)
+# ============================================================
+
+phase_4_5:
+
+  task_4_5_1:
+    title: "Address Phase 4 walkthrough findings"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Depends on Phase 4 walkthrough findings landing"
+    estimate_hours: 24
+    green_criteria:
+      - "All P0/P1 findings from Phase 4 walkthrough resolved"
+      - "Re-walkthrough confirms fixes"
+    required_artifacts:
+      - "outputs/audits/walkthroughs/4_findings_resolved.md"
+    blocking_consequence: "Phase 5 quality bar unmet"
+
+# ============================================================
+# PHASE 5 — Carney handover (Aug 31 - Sep 6)
+# ============================================================
+
+phase_5:
+
+  task_5_1:
+    title: "Final user walkthrough with full corpus, recorded"
+    owner: "user (executes) + claude (briefing)"
+    user_action: true
+    user_action_description: "Final walkthrough per §G #7 deadline 2026-09-02; depends on cluster"
+    estimate_hours: 8
+    green_criteria:
+      - "Full-corpus walkthrough recorded by user + 1 evaluator"
+      - "All 8 templates exercised"
+      - "No P0/P1 found"
+    required_artifacts:
+      - ".private/walkthroughs/5_1_final.mp4"
+      - "outputs/audits/walkthroughs/5.1_findings.md"
+    substrate_prep:
+      - id: "5_1_prep_briefing_pack"
+        green_criteria:
+          - "docs/walkthroughs/5.1/briefing.md"
+          - "docs/walkthroughs/5.1/full_corpus_test_inputs.md"
+        changed_files_glob:
+          - "docs/walkthroughs/5.1/**"
+    blocking_consequence: "Carney handover blocked"
+
+  task_5_2:
+    title: "Final Codex sweep all 10 crown jewels"
+    owner: "claude + codex"
+    estimate_hours: 12
+    green_criteria:
+      - "Codex applies full Red-Team Checklist (universal + UI/flow + crown-jewel + LLM-call) to all 10 features"
+      - "All sweeps APPROVE"
+    required_artifacts:
+      - "outputs/audits/verdicts/5.2/iter_*.json"
+      - ".codex/task_briefs/v6_phase_0_1_substrate_round_3_review_brief.md (extended for crown-jewel sweep)"
+    changed_files_glob:
+      - ".codex/task_briefs/**"
+    blocking_consequence: "Carney handover unverified"
+
+  task_5_3:
+    title: "Carney handover package finalized"
+    owner: "claude"
+    user_action: true
+    user_action_description: "Final URL + bundle; depends on 5.1 + 5.2"
+    estimate_hours: 8
+    green_criteria:
+      - "docs/carney_handover/ — one-pager + 5-min video + runbook + proof package"
+      - "Bundle URL accessible to Carney's office"
+      - "All evidence cross-referenced"
+    required_artifacts:
+      - "docs/carney_handover/**"
+    blocking_consequence: "Cannot ship to Carney"
+
+  task_5_4:
+    title: "Schedule + execute handover with Carney's office"
+    owner: "user"
+    user_action: true
+    user_action_description: "Per §G #8 — user provides Carney's office contact + briefing channel; deadline 2026-09-06"
+    estimate_hours: 4
+    green_criteria:
+      - "Handover meeting scheduled and executed"
+      - "Bundle URL delivered to Carney's office"
+      - "Acknowledgment receipt"
+    required_artifacts:
+      - ".private/5_4_handover_acknowledgment.pdf"
+    blocking_consequence: "MISSION COMPLETE blocker"
 
 # Phases 2-5 similar — detailed acceptance added at start of each phase.
 
