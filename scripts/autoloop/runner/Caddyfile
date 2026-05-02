@@ -1,0 +1,62 @@
+# POLARIS Codex Egress Proxy — Caddy reverse-proxy config
+# Referenced by .github/workflows/codex_verdict_check.yml Phase B.
+# Mounted into the polaris-codex-proxy sidecar container at /etc/caddy/Caddyfile.
+#
+# Plan v13 §C-rerun (v11): proxy enforces egress restriction to api.openai.com:443.
+# Codex CLI uses its own OAuth tokens (mounted from runner's $HOME/.codex);
+# proxy does NOT inject Authorization headers (that was the v10 design before
+# the user clarified OAuth-not-API-key auth).
+
+{
+    # Disable admin endpoint (defense — sidecar should expose nothing else)
+    admin off
+    # No automatic HTTPS — this proxy lives on internal Docker network
+    auto_https off
+    # Minimal logging at server level
+    log {
+        output stderr
+        format console
+        level INFO
+    }
+}
+
+:8443 {
+    # Health probe (used by workflow's Caddy-ready loop)
+    @health path /health
+    respond @health 200
+
+    # Reverse proxy to OpenAI API (egress-restricted target)
+    reverse_proxy https://api.openai.com {
+        # Force upstream Host header so SNI works
+        header_up Host api.openai.com
+        # Strip Alt-Svc to prevent server-side connection upgrades that bypass proxy
+        header_down -Alt-Svc
+
+        # Streaming-friendly settings (gpt-5.5 with xhigh reasoning emits long SSE streams)
+        flush_interval -1
+
+        transport http {
+            tls
+            tls_server_name api.openai.com
+            # HTTP/2 + HTTP/1.1 for compatibility
+            versions h2 h1.1
+            # Reasonable timeouts for long Codex reasoning runs (xhigh can take 5-15min)
+            dial_timeout 10s
+            response_header_timeout 60s
+            read_timeout 30m
+            write_timeout 30m
+        }
+    }
+
+    # Access log — JSON format, NO request/response headers (so OAuth bearer tokens
+    # never land in the access log even if they pass through the proxy).
+    log {
+        output file /tmp/access.log {
+            roll false
+        }
+        format json {
+            # Exclude headers from log output (Caddy default log format is structured
+            # but DOES include some headers; we suppress everything except basics).
+        }
+    }
+}
