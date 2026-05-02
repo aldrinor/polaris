@@ -499,15 +499,50 @@ def _commit_substrate_with_verdict(task_id: str, iter_n: int, verdict_path: Path
     return sha_proc.stdout.strip()
 
 
-def _push_to_origin(task_id: str) -> None:
-    """Push current branch to origin. Best-effort; failure halts at next iter."""
+def _push_to_origin(task_id: str, iter_n: int) -> None:
+    """Push to a task-scoped branch and open PR (Codex round-2 P0 fix).
+
+    Per Plan v13 §C-server: orchestrator must NOT push directly to `polaris`.
+    Branch protection on `polaris` requires PR-only via merge queue.
+    Flow:
+      1. Create/update branch `task/<task_id>/iter_<n>` from current HEAD
+      2. Push that branch to origin
+      3. Open PR `task/<task_id>/iter_<n> -> polaris` via `gh pr create`
+      4. CI Phase A/B/C run; merge queue handles the merge
+    """
+    branch = f"task/{task_id}/iter_{iter_n}"
+    # Create branch at HEAD
+    subprocess.run(
+        ["git", "branch", "-f", branch, "HEAD"],
+        cwd=str(POLARIS_ROOT), check=True, timeout=10,
+    )
+    # Push branch
     r = subprocess.run(
-        ["git", "push", "origin", "HEAD"],
+        ["git", "push", "-f", "origin", branch],
         cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=120,
     )
     if r.returncode != 0:
-        # Non-fatal — push can be retried. But log loudly.
-        print(f"WARN push failed for {task_id}: {r.stderr[:300]}", file=sys.stderr)
+        print(f"WARN push of {branch} failed for {task_id}: {r.stderr[:300]}", file=sys.stderr)
+        return
+    # Open PR (best-effort — gh may need auth, may fail)
+    pr_title = f"task {task_id}: iter {iter_n} APPROVE"
+    pr_body = (
+        f"Per Plan v13 autoloop. Task {task_id} iteration {iter_n}.\n\n"
+        f"Codex local verdict: APPROVE (HMAC-signed).\n"
+        f"CI Phase B/C will independently re-validate.\n\n"
+        f"Auto-merge enabled if CI passes.\n"
+    )
+    pr_r = subprocess.run(
+        ["gh", "pr", "create", "--base", "polaris", "--head", branch,
+         "--title", pr_title, "--body", pr_body],
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=30,
+    )
+    if pr_r.returncode != 0:
+        # PR may already exist; try `gh pr edit` to update body, else log
+        if "already exists" in pr_r.stderr or "already exists" in pr_r.stdout:
+            print(f"INFO PR for {branch} already exists; reusing", file=sys.stderr)
+        else:
+            print(f"WARN gh pr create failed for {branch}: {pr_r.stderr[:300]}", file=sys.stderr)
 
 
 # ---------- Main loop ----------
@@ -539,9 +574,11 @@ async def _run_task(task_id: str, task_def: dict) -> None:
             # Step 3: commit substrate + verdict atomically (P1-2 fix)
             _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "commit"})
             commit_sha = _commit_substrate_with_verdict(task_id, iter_n, verdict_path)
-            # Step 4: push (P1-7 — best-effort; failure logged not halt)
+            # Step 4: push to task-scoped branch + open PR (Codex round-2 P0 fix:
+            # orchestrator MUST NOT push directly to polaris; branch protection
+            # forces PR-only flow through CI Phase A/B/C verdict-validate)
             _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "push", "commit": commit_sha})
-            _push_to_origin(task_id)
+            _push_to_origin(task_id, iter_n)
             _heartbeat({"current_task": task_id, "iter": iter_n, "phase": "approved", "commit": commit_sha})
             return
 

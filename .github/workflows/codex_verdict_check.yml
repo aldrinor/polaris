@@ -58,9 +58,16 @@ jobs:
           fi
           echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
 
-          # Compute diff sha256 for downstream verdict cross-check
+          # Compute diff sha256 for downstream verdict cross-check.
+          # Codex round-2 P1 fix: exclude verdict/manifest/audit-log paths so
+          # the CI hash matches the orchestrator's local hash (which excludes
+          # these for atomic substrate+verdict commit).
           mkdir -p /tmp/codex_input
-          git diff origin/polaris... > /tmp/codex_input/diff.patch
+          git diff origin/polaris... -- \
+              ':(exclude)outputs/audits/verdicts/**' \
+              ':(exclude)outputs/audits/codex_audit.jsonl' \
+              ':(exclude)outputs/audits/manifests/**' \
+              > /tmp/codex_input/diff.patch
           DIFF_SHA=$(sha256sum /tmp/codex_input/diff.patch | awk '{print $1}')
           echo "diff_sha256=$DIFF_SHA" >> "$GITHUB_OUTPUT"
 

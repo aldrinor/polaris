@@ -324,10 +324,17 @@ def main() -> int:
         print("verdict_gate: BOOTSTRAP commit exempted (state/bootstrap_active present).", file=sys.stderr)
         return 0
 
-    # Load matrix (if missing → new repo or pre-bootstrap; allow with warning)
+    # Load matrix — Codex round-2 P0 fix: missing matrix → BLOCK (was: allow with warn).
+    # Missing matrix means the canonical task scope is undefined; allowing commits
+    # in that state lets arbitrary changes through with no task implication check.
     if not MATRIX_PATH.exists():
-        print("verdict_gate: WARN matrix missing; commit allowed but autoloop NOT operational.", file=sys.stderr)
-        return 0
+        print("verdict_gate: BLOCK matrix missing at " + str(MATRIX_PATH), file=sys.stderr)
+        print(
+            "Per Plan v13 §A: docs/task_acceptance_matrix.yaml is canonical and pinned. "
+            "Restore from `git show HEAD:docs/task_acceptance_matrix.yaml` before retrying.",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         matrix = _load_matrix()
@@ -428,6 +435,15 @@ def main() -> int:
                 continue
         if verdict.get("verdict") != "APPROVE":
             failed.append(f"{task_id}: verdict is {verdict.get('verdict')!r}, not APPROVE")
+            continue
+        # Codex round-2 P0 fix: verdict.task_id MUST match the implicated task.
+        # Otherwise an APPROVE for task A could be replayed against task B's diff.
+        verdict_task_id = verdict.get("task_id", "")
+        if verdict_task_id != task_id:
+            failed.append(
+                f"{task_id}: verdict.task_id={verdict_task_id!r} does not match implicated task — "
+                f"replay/aliasing detected"
+            )
             continue
 
     if failed:
