@@ -205,6 +205,19 @@ def _parse_matrix_tasks_from_head() -> list[dict]:
     return tasks
 
 
+def _is_task_halted(task_id: str) -> bool:
+    """True if a halt marker exists for this task at outputs/audits/halt_resolutions/.
+    Per Plan v13 §H: halt markers signal "task pending user resolution"; hook
+    treats halted tasks as user-blocked (skip) until the marker is removed.
+    """
+    halt_dir = POLARIS_ROOT / "outputs" / "audits" / "halt_resolutions"
+    if not halt_dir.is_dir():
+        return False
+    # Match either exact name or prefix (orchestrator may add suffixes)
+    safe_id = task_id.replace("/", "_")
+    return any(p.is_file() for p in halt_dir.glob(f"{safe_id}*halt*.md"))
+
+
 def _verdict_state(task_id: str) -> str:
     """Return 'APPROVE', 'REQUEST_CHANGES', 'BLOCKED', or 'NONE' for a task.
 
@@ -251,20 +264,31 @@ def _has_pending_prep(task: dict) -> bool:
 
 
 def _next_actionable_task(tasks: list[dict]) -> tuple[dict | None, str | None]:
-    """Walk tasks in canonical sequence; return (next_task, prep_id_if_any)."""
+    """Walk tasks in canonical sequence; return (next_task, prep_id_if_any).
+
+    Per Plan v13 §H: halted tasks (with halt-marker file present) are treated
+    as user-blocked — the autoloop won't re-attempt them until user removes
+    the halt marker (signalling resolution per the marker's resolution paths).
+    """
     for task in tasks:
+        if _is_task_halted(task["task_id"]):
+            continue  # halted; pending user resolution
         verdict = _verdict_state(task["task_id"])
         if verdict == "APPROVE":
             continue
         if task["user_action"]:
             if _has_pending_prep(task):
-                # find first non-APPROVE prep
+                # find first non-APPROVE, non-halted prep
                 for prep in task["substrate_prep"]:
                     prep_id = prep.get("id") if isinstance(prep, dict) else None
-                    if prep_id and _verdict_state(prep_id) != "APPROVE":
+                    if not prep_id:
+                        continue
+                    if _is_task_halted(prep_id):
+                        continue
+                    if _verdict_state(prep_id) != "APPROVE":
                         return task, prep_id
             continue  # user-blocked, no prep → skip
-        # not user-action, not APPROVE'd → this is the next task
+        # not user-action, not APPROVE'd, not halted → this is the next task
         return task, None
     return None, None
 
