@@ -1,0 +1,237 @@
+name: codex-verdict-check
+
+# Plan v13 §C three-phase gate. Server-side cryptographic re-validation
+# of the local Codex verdict via independently-run Codex on a self-hosted
+# Canadian runner (sovereignty per §C-server P1-15).
+#
+# Phase A (trusted-setup): checkout PR + extract task brief into artifact.
+#   No model keys exposed.
+# Phase B (codex-rerun): in Docker egress jail with Caddy reverse-proxy
+#   sidecar. Real OPENAI_API_KEY lives in proxy container env only;
+#   Codex container has dummy "REDACTED-USE-PROXY" + OPENAI_BASE_URL.
+#   No GitHub creds. Only network egress: api.openai.com:443 via proxy.
+# Phase C (verdict-validate): validator code from trusted main ref
+#   (PR cannot tamper). Only CODEX_HMAC_KEY in env. Validates schema +
+#   HMAC + canonical pin + structural-equivalence per Plan v13 §C
+#   severity-aware rule.
+
+on:
+  pull_request:
+    branches: [polaris]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: codex-verdict-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+
+  trusted-setup:
+    name: Phase A — trusted setup (no model keys)
+    runs-on: [self-hosted, polaris-ca-bhs]
+    timeout-minutes: 5
+    outputs:
+      task_id: ${{ steps.extract.outputs.task_id }}
+      diff_sha256: ${{ steps.extract.outputs.diff_sha256 }}
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Extract task_id from commit message
+        id: extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          MSG=$(git log -1 --format=%B)
+          TASK_ID=$(echo "$MSG" | grep -oP "^task:\s*\K[\w.]+" | head -1 || true)
+          if [[ -z "$TASK_ID" ]]; then
+              echo "::error::Commit message missing required `task: <task_id>` line per Plan v13 §I."
+              exit 1
+          fi
+          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+
+          # Compute diff sha256 for downstream verdict cross-check
+          mkdir -p /tmp/codex_input
+          git diff origin/polaris... > /tmp/codex_input/diff.patch
+          DIFF_SHA=$(sha256sum /tmp/codex_input/diff.patch | awk '{print $1}')
+          echo "diff_sha256=$DIFF_SHA" >> "$GITHUB_OUTPUT"
+
+          # Stage brief file for the codex-rerun job
+          BRIEF_PATH="outputs/audits/briefs/${TASK_ID}_review_brief.md"
+          if [[ ! -f "$BRIEF_PATH" ]]; then
+              echo "::error::Brief missing at $BRIEF_PATH"
+              exit 1
+          fi
+          cp "$BRIEF_PATH" /tmp/codex_input/brief.md
+          cp docs/canonical_pin.txt /tmp/codex_input/canonical_pin.txt
+          # Include the existing committed verdict for downstream comparison
+          mkdir -p /tmp/codex_input/committed_verdict
+          cp -r "outputs/audits/verdicts/${TASK_ID}/" /tmp/codex_input/committed_verdict/
+
+      - name: Upload codex-input artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-input
+          path: /tmp/codex_input/
+          retention-days: 1
+          if-no-files-found: error
+
+  codex-rerun:
+    name: Phase B — Codex re-review (egress jail)
+    runs-on: [self-hosted, polaris-ca-bhs]
+    timeout-minutes: 30
+    needs: trusted-setup
+    environment: codex_runtime
+    steps:
+      - name: Download codex-input
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-input
+          path: /tmp/codex_input
+
+      - name: Create isolated Docker networks + start Caddy proxy sidecar
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Internal-only network — no external connectivity
+          docker network create --internal polaris-internal || true
+          # Egress network — restricted by host firewall
+          docker network create polaris-egress || true
+          # Apply default-deny + allow only api.openai.com:443 on egress network
+          sudo /usr/local/bin/polaris_egress_firewall.sh polaris-egress api.openai.com 443
+
+          # Start Caddy reverse-proxy sidecar
+          docker run -d --name polaris-codex-proxy \
+                     --network polaris-internal \
+                     --user 1000:1000 \
+                     --cap-drop ALL \
+                     --read-only --tmpfs /tmp \
+                     --security-opt no-new-privileges \
+                     --env OPENAI_API_KEY \
+                     --volume /etc/polaris/Caddyfile:/etc/caddy/Caddyfile:ro \
+                     caddy:2-alpine
+
+          # Attach proxy to egress network so it can reach api.openai.com
+          docker network connect polaris-egress polaris-codex-proxy
+
+          # Wait for Caddy ready
+          for i in {1..15}; do
+              if docker exec polaris-codex-proxy wget -q -O - http://localhost:8443/health 2>/dev/null; then
+                  echo "Caddy ready"
+                  exit 0
+              fi
+              sleep 1
+          done
+          echo "::error::Caddy proxy failed to come up"
+          exit 1
+
+      - name: Run Codex in container (no real OpenAI key in container env)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/codex_output
+          docker run --rm \
+                     --network polaris-internal \
+                     --user 1001:1001 \
+                     --cap-drop ALL \
+                     --read-only --tmpfs /tmp \
+                     --security-opt no-new-privileges \
+                     --security-opt apparmor=polaris-codex-runner \
+                     --security-opt seccomp=/etc/polaris/seccomp.json \
+                     --volume /tmp/codex_input:/input:ro \
+                     --volume /tmp/codex_output:/output \
+                     --env "OPENAI_API_KEY=REDACTED-USE-PROXY" \
+                     --env "OPENAI_BASE_URL=http://polaris-codex-proxy:8443/v1" \
+                     --env "TASK_ID=${{ needs.trusted-setup.outputs.task_id }}" \
+                     polaris-codex-runner:pinned-sha \
+                     sh -c "codex exec \
+                                  --cd /input \
+                                  --sandbox read-only \
+                                  --config 'openai_base_url=\"http://polaris-codex-proxy:8443/v1\"' \
+                                  --json --output-file /output/verdict-rerun.json \
+                                  --max-turns 50 \
+                                  \"\$(cat /input/brief.md)\""
+
+      - name: Capture proxy logs and clean up
+        if: always()
+        shell: bash
+        run: |
+          docker logs polaris-codex-proxy > /tmp/codex_output/proxy_caddy.log 2>&1 || true
+          docker stop polaris-codex-proxy 2>/dev/null || true
+          docker rm polaris-codex-proxy 2>/dev/null || true
+          docker network rm polaris-internal 2>/dev/null || true
+          docker network rm polaris-egress 2>/dev/null || true
+
+      - name: Upload codex-output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-output-raw
+          path: /tmp/codex_output/
+          retention-days: 14
+          if-no-files-found: error
+
+  verdict-validate:
+    name: Phase C — verdict validate (trusted ref + HMAC)
+    runs-on: [self-hosted, polaris-ca-bhs]
+    timeout-minutes: 5
+    needs: [trusted-setup, codex-rerun]
+    environment: hmac_validator
+    steps:
+      - name: Checkout validator from trusted main ref
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          path: validator
+          sparse-checkout: |
+            scripts/autoloop/verdict_validator.py
+            scripts/autoloop/scan_for_secrets.py
+            docs/schemas/codex_verdict.schema.json
+            docs/keys/msn_public.gpg
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout PR (read-only paths needed for committed verdict + manifest)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+
+      - name: Download codex-output
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-output-raw
+          path: artifacts
+
+      - name: Scan rerun output for credential exfiltration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validator/scripts/autoloop/scan_for_secrets.py \
+            artifacts/verdict-rerun.json \
+            artifacts/proxy_caddy.log \
+            --strict
+          # Exits 1 on any pattern match.
+
+      - name: Validate verdict (schema + HMAC + canonical-pin + structural-equivalence)
+        env:
+          CODEX_HMAC_KEY: ${{ secrets.CODEX_HMAC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python validator/scripts/autoloop/verdict_validator.py \
+            --task-id "${{ needs.trusted-setup.outputs.task_id }}" \
+            --committed-verdict-dir "pr/outputs/audits/verdicts/${{ needs.trusted-setup.outputs.task_id }}" \
+            --rerun-verdict artifacts/verdict-rerun.json \
+            --schema validator/docs/schemas/codex_verdict.schema.json \
+            --gpg-public-key validator/docs/keys/msn_public.gpg \
+            --canonical-pin pr/docs/canonical_pin.txt \
+            --commit-sha "${{ github.event.pull_request.head.sha }}" \
+            --diff-sha256 "${{ needs.trusted-setup.outputs.diff_sha256 }}"

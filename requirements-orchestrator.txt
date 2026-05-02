@@ -1,0 +1,7 @@
+# POLARIS Autoloop Orchestrator dependencies (Plan v13 §D + §G #12)
+# Pinned at bootstrap; bump only via signed canonical-edit commit.
+
+claude-agent-sdk>=0.1.0,<0.2.0    # Plan v13 §D primary substrate
+pyyaml>=6.0.1,<7                  # task_acceptance_matrix.yaml parsing
+jsonschema>=4.20.0,<5             # verdict schema validation
+python-gnupg>=0.5.2,<0.6          # §C-private GPG attestation verification

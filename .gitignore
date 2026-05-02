@@ -6,6 +6,7 @@
 .env
 .env.*
 !.env.example
+.private/                # Plan v13 §C HMAC key, GPG private keys, signed-PDF artifacts
 
 # --- Python ---
 __pycache__/
@@ -46,6 +47,10 @@ state/
 
 # --- Large trace files ---
 *.jsonl
+# Plan v13 §I exception: track durable audit logs + verdict trails.
+!outputs/audits/*.jsonl
+!outputs/audits/**/*.jsonl
+!outputs/codex_findings/**/*.jsonl
 
 # --- ML models (multi-GB) ---
 models/
@@ -56,8 +61,13 @@ archive/
 # --- ChromaDB vector store ---
 memory/chroma_db/
 
-# --- Claude config ---
-.claude/
+# --- Claude config (Plan v13 §I selective tracking) ---
+# Use `.claude/*` so unignore rules can selectively re-include children.
+.claude/*
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.local.json
+!.claude/settings.json
 
 # --- Node ---
 node_modules/
@@ -113,3 +123,29 @@ outputs/codex_findings/round_*/last_message.txt
 !outputs/audits/
 !outputs/audits/continuous/
 !outputs/audits/continuous/*.md
+
+# --- Plan v13 autoloop substrate (TRACKED) ---
+# Per Plan v13 §I: per-task manifests, verdicts, briefs, attestations are
+# all version-controlled artifacts under outputs/audits/. The .codex/verdicts
+# path was an earlier draft; canonical location is outputs/audits/verdicts/.
+!outputs/audits/manifests/
+!outputs/audits/manifests/**
+!outputs/audits/verdicts/
+!outputs/audits/verdicts/**
+!outputs/audits/briefs/
+!outputs/audits/briefs/**
+!outputs/audits/attestations/
+!outputs/audits/attestations/**
+!outputs/audits/halt_resolutions/
+!outputs/audits/halt_resolutions/**
+
+# --- Schemas (TRACKED) ---
+!docs/schemas/
+!docs/schemas/**
+
+# --- GPG public keys (TRACKED) ---
+!docs/keys/
+!docs/keys/**
+
+# --- Canonical pin (TRACKED) ---
+!docs/canonical_pin.txt

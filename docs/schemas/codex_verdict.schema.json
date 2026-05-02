@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polaris.local/schemas/codex_verdict.schema.json",
+  "title": "POLARIS Codex Verdict v1",
+  "description": "Schema for verdicts emitted by Codex CLI on per-task review per Plan v13 §C. Validated by precommit hook AND server-side GitHub Actions verdict-validate job. Schema-equivalence (not byte-equivalence) is the merge gate.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "iter",
+    "codex_session_id",
+    "model",
+    "reasoning_effort",
+    "canonical_pin_sha",
+    "commit_sha",
+    "diff_sha256",
+    "verdict",
+    "findings",
+    "timestamp",
+    "hmac_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version. Bumps require user-signed canonical edit."
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$",
+      "description": "Task identifier matching docs/task_acceptance_matrix.yaml task key. snake_case + dots for sub-tasks."
+    },
+    "iter": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "Iteration number per Plan v13 §H halt-condition #4 (3 consecutive REQUEST_CHANGES → halt)."
+    },
+    "codex_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Codex CLI session ID from `codex exec` invocation. Resolvable in outputs/audits/codex_audit.jsonl audit log."
+    },
+    "model": {
+      "type": "string",
+      "enum": ["gpt-5.5", "gpt-5.4"],
+      "description": "Codex model. Pinned to gpt-5.5 per ~/.codex/config.toml; gpt-5.4 allowed only as documented downgrade with user-signed exception."
+    },
+    "reasoning_effort": {
+      "type": "string",
+      "enum": ["xhigh", "high", "medium"],
+      "description": "Reasoning effort. xhigh required for production verdicts."
+    },
+    "canonical_pin_sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA256 of docs/canonical_pin.txt at the commit being reviewed. Mismatch with git HEAD = HARD STOP per §A."
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Full git commit SHA being reviewed."
+    },
+    "diff_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA256 of the staged diff being reviewed (from `git diff --cached`)."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVE", "REQUEST_CHANGES", "BLOCKED"],
+      "description": "Codex verdict per Plan v13 §C."
+    },
+    "verdict_reason": {
+      "type": "string",
+      "description": "Free-text rationale for verdict. Required if verdict != APPROVE."
+    },
+    "findings": {
+      "type": "array",
+      "description": "All findings, severity-stratified per .codex/REVIEW_BRIEF_FORMAT_v2.md.",
+      "items": {
+        "type": "object",
+        "required": ["severity", "file", "line", "category", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2", "P3"]
+          },
+          "file": {
+            "type": "string",
+            "description": "Repo-relative POSIX path. e.g. src/polaris_v6/foo.py"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Line number in file at commit_sha. 0 if not line-specific."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "correctness", "security", "performance", "accessibility",
+              "sovereignty", "provenance", "testing", "documentation",
+              "anti_pattern", "scope_drift", "manifest_integrity",
+              "audit_trail", "license", "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Concrete evidence-based description per .codex/codex_red_team_checklist.md anti-pattern rules."
+          },
+          "fix_classification": {
+            "type": "string",
+            "enum": ["root_cause", "guardrail", "band_aid"],
+            "description": "Per Plan v13 §C cross-review tag. band_aid = always RED per AUDIT_CYCLE_PROTOCOL_v2.md."
+          }
+        }
+      }
+    },
+    "checklist_coverage": {
+      "type": "object",
+      "description": "Which Red-Team Checklist items were applied (per task type).",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "N/A"]
+          },
+          "evidence_path": {
+            "type": "string",
+            "description": "Repo-relative path to evidence artifact."
+          }
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of verdict generation."
+    },
+    "hmac_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "HMAC-SHA256 over canonical-form serialization of all preceding fields except hmac_sha256 itself, using key in .private/codex_hmac.key. Validated locally by precommit hook AND server-side by verdict-validate job."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "verdict": { "const": "APPROVE" } }
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "not": {
+              "contains": {
+                "properties": {
+                  "severity": { "enum": ["P0", "P1"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": { "enum": ["REQUEST_CHANGES", "BLOCKED"] }
+        }
+      },
+      "then": {
+        "required": ["verdict_reason"]
+      }
+    }
+  ]
+}
