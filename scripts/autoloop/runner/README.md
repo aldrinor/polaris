@@ -140,7 +140,10 @@ sudo /usr/local/bin/polaris_egress_firewall.sh polaris-egress api.openai.com 443
 
 docker run -d --name polaris-codex-proxy \
     --network polaris-internal --user 1000:1000 \
-    --cap-drop ALL --read-only --tmpfs /tmp \
+    --cap-drop ALL --read-only \
+    --tmpfs /tmp:rw,size=64m \
+    --tmpfs /config:rw,size=16m \
+    --tmpfs /data:rw,size=16m \
     --security-opt no-new-privileges \
     --volume /etc/polaris/Caddyfile:/etc/caddy/Caddyfile:ro \
     caddy:2-alpine
@@ -163,7 +166,7 @@ docker network rm polaris-internal polaris-egress
 After GitHub auth refresh (decision #6) lands:
 
 ```bash
-# Branch protection on polaris (per-PR gate)
+# Branch protection on polaris — per-PR gate (workflow fires on PR -> polaris)
 gh api -X PUT /repos/aldrinor/polaris/branches/polaris/protection \
     -F required_status_checks[strict]=true \
     -F 'required_status_checks[contexts][]=codex-verdict-check / verdict-validate' \
@@ -171,16 +174,20 @@ gh api -X PUT /repos/aldrinor/polaris/branches/polaris/protection \
     -F required_pull_request_reviews=null \
     -F restrictions=null
 
-# Branch protection on main (stricter — for end-of-phase PRs)
+# Branch protection on main — stricter, but DO NOT require codex-verdict-check
+# yet. The workflow fires only on `polaris` PRs (per .github/workflows/
+# codex_verdict_check.yml `on.pull_request.branches: [polaris]`). Requiring
+# this status on `main` would deadlock end-of-phase PRs since the workflow
+# never runs against main. Instead: require linear history + 1 manual approval.
 gh api -X PUT /repos/aldrinor/polaris/branches/main/protection \
-    -F required_status_checks[strict]=true \
-    -F 'required_status_checks[contexts][]=codex-verdict-check / verdict-validate' \
     -F enforce_admins=true \
     -F 'required_pull_request_reviews[required_approving_review_count]=1' \
+    -F required_linear_history=true \
     -F restrictions=null
 
-# GitHub Environment for codex_runtime (if using API-key path; not needed for OAuth)
-# Skip if using OAuth from runner's ~/.codex/auth.json
+# (Codex round-4 P1 fix: removed the codex-verdict-check requirement on main
+# that would have deadlocked. The trust boundary is at polaris — once verdict
+# passes on polaris-targeting PR, polaris→main PR is reviewed manually.)
 ```
 
 ## Step 12 — Smoke an end-to-end PR

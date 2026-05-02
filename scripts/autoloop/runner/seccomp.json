@@ -12,7 +12,7 @@
       "names": [
         "accept", "accept4", "access", "alarm", "arch_prctl",
         "bind", "brk",
-        "capget", "capset", "chdir", "chmod", "chown", "chown32", "clock_getres", "clock_gettime", "clock_nanosleep", "close", "close_range", "connect", "copy_file_range",
+        "capget", "capset", "chdir", "chmod", "chown", "chown32", "clock_getres", "clock_gettime", "clock_nanosleep", "clone", "close", "close_range", "connect", "copy_file_range",
         "dup", "dup2", "dup3",
         "epoll_create", "epoll_create1", "epoll_ctl", "epoll_ctl_old", "epoll_pwait", "epoll_pwait2", "epoll_wait", "epoll_wait_old", "eventfd", "eventfd2", "execve", "exit", "exit_group", "faccessat", "faccessat2", "fadvise64", "fadvise64_64", "fallocate", "fanotify_mark", "fchdir", "fchmod", "fchmodat", "fchown", "fchown32", "fchownat", "fcntl", "fcntl64", "fdatasync", "fgetxattr", "flistxattr", "flock", "fork", "fremovexattr", "fsetxattr", "fstat", "fstat64", "fstatat64", "fstatfs", "fstatfs64", "fsync", "ftruncate", "ftruncate64", "futex", "futimesat",
         "getcpu", "getcwd", "getdents", "getdents64", "getegid", "getegid32", "geteuid", "geteuid32", "getgid", "getgid32", "getgroups", "getgroups32", "getitimer", "getpeername", "getpgid", "getpgrp", "getpid", "getppid", "getpriority", "getrandom", "getresgid", "getresgid32", "getresuid", "getresuid32", "getrlimit", "get_robust_list", "getrusage", "getsid", "getsockname", "getsockopt", "get_thread_area", "gettid", "gettimeofday", "getuid", "getuid32", "getxattr",

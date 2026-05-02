@@ -603,6 +603,49 @@ async def _main() -> int:
     print(f"POLARIS Autoloop Orchestrator — starting at {POLARIS_ROOT}")
     _heartbeat({"phase": "starting"})
 
+    # Codex round-4 P0 fix: reconcile unpushed locally-APPROVE'd commits BEFORE
+    # picking any new task. Otherwise a previous run that committed locally but
+    # failed at push silently leaves an unpushed verdict; on resume,
+    # _next_actionable() sees the verdict as APPROVE'd and advances past the
+    # task, skipping the server-side gate entirely.
+    try:
+        unpushed = subprocess.run(
+            ["git", "log", "origin/polaris..HEAD", "--format=%H %s"],
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        )
+        if unpushed.returncode == 0 and unpushed.stdout.strip():
+            for line in unpushed.stdout.strip().splitlines():
+                # Extract task_id from commit message line "task: <id>"
+                # via subsequent git show
+                sha = line.split()[0]
+                msg = subprocess.run(
+                    ["git", "show", "--no-patch", "--format=%B", sha],
+                    cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+                )
+                task_match = None
+                for ml in msg.stdout.splitlines():
+                    if ml.startswith("task:"):
+                        task_match = ml.split(":", 1)[1].strip()
+                        break
+                if task_match:
+                    # Find iter from commit message; default to 1
+                    iter_match = 1
+                    for ml in msg.stdout.splitlines():
+                        if ml.startswith("verdict:"):
+                            # path like outputs/audits/verdicts/<id>/iter_N.json
+                            import re
+                            m = re.search(r"iter_(\d+)\.json", ml)
+                            if m:
+                                iter_match = int(m.group(1))
+                            break
+                    print(f"reconciling unpushed commit {sha[:12]} for task {task_match} iter {iter_match}", file=sys.stderr)
+                    _heartbeat({"phase": "reconcile_push", "commit": sha, "task": task_match})
+                    _push_to_origin(task_match, iter_match)
+    except HaltCondition:
+        raise  # re-raise so outer except handles it
+    except Exception as e:
+        print(f"WARN reconcile-push pre-check failed (non-fatal, will retry next iter): {e}", file=sys.stderr)
+
     while True:
         try:
             ok, msg = _verify_canonical_pin()
