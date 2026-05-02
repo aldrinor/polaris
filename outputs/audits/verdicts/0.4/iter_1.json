@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "0.4",
+  "iter": 1,
+  "codex_session_id": "pre_bootstrap_backfill_1777736643",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "0ed2f5f7b4a997fe93020b22a13031dd4e2416c31652d15c1c995bfbaec7b290",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "5bd203d46d1268f565c4d3b4f1b8c44dbd452a42d49cc69d48d87fd03f6d1239",
+  "verdict": "APPROVE",
+  "verdict_reason": "Pre-bootstrap backfill for task 0.4 (Frontend scaffold (Next.js 16 + shadcn/ui MIT)). Task completed BEFORE Plan v13 §C gate became operational. This verdict is HUMAN-ATTESTED via the substrate evidence listed in manifest_evidence; it is NOT a Codex-generated verdict and does not satisfy the §C-server CI re-validation requirement. The §C-server CI gate will not fire on these tasks because no commit triggers it; these tasks pre-date the gate. Future commits to these task scopes WILL be gated normally.",
+  "findings": [],
+  "manifest_evidence": [
+    "web/package.json",
+    "web/app/dashboard/page.tsx",
+    "web/app/inspector/[runId]/page.tsx",
+    "web/components/ui/evidence-tooltip.tsx",
+    "web/screenshots/inspector_clinical_golden.png"
+  ],
+  "rationale": "web/ scaffolded with Next.js 16 + React 19 + shadcn/ui MIT + Tailwind v4 + TypeScript 5 + ESLint 9 + Prettier per canonical line 31 (reconciled 2026-05-02). 4/4 CI gates green per cycle-11 lock record. Inspector + Dashboard + 9 e2e + 6 a11y + 4 visual + 6 perf tests all passing. F-25..F-28 substrate landed.",
+  "timestamp": "2026-05-02T15:44:03Z",
+  "hmac_sha256": "10723767bff704fae7ba0b4c6d08dffc7de4c9714cc4f4dce68e65f3fff5af4a"
+}

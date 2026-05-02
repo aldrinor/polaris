@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "0.2",
+  "iter": 1,
+  "codex_session_id": "pre_bootstrap_backfill_1777736643",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "0ed2f5f7b4a997fe93020b22a13031dd4e2416c31652d15c1c995bfbaec7b290",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "5bd203d46d1268f565c4d3b4f1b8c44dbd452a42d49cc69d48d87fd03f6d1239",
+  "verdict": "APPROVE",
+  "verdict_reason": "Pre-bootstrap backfill for task 0.2 (Architecture pattern adoption + license scan). Task completed BEFORE Plan v13 §C gate became operational. This verdict is HUMAN-ATTESTED via the substrate evidence listed in manifest_evidence; it is NOT a Codex-generated verdict and does not satisfy the §C-server CI re-validation requirement. The §C-server CI gate will not fire on these tasks because no commit triggers it; these tasks pre-date the gate. Future commits to these task scopes WILL be gated normally.",
+  "findings": [],
+  "manifest_evidence": [
+    "docs/agent_architecture.md"
+  ],
+  "rationale": "agent_architecture.md committed: locks Local + Global Verifier pattern (no MiroThinker fork). License scan complete (no CC-BY-NC, no GPL). M-INT-3 (Global Numeric Verifier, ~300 LOC) scoped. Task 0.2 GREEN criteria met.",
+  "timestamp": "2026-05-02T15:44:03Z",
+  "hmac_sha256": "3ecdeda302e6b89c161fae0f97d76221a7a00e710ca18abc69c67e71d4a9781d"
+}
