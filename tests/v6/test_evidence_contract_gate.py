@@ -1,6 +1,6 @@
 """Evidence Contract Gate — Phase 1 Task 1.4 GREEN test.
 
-Per docs/carney_delivery_plan_FINAL.md F15, every research run emits an
+Per docs/carney_delivery_plan_v6_2.md F15, every research run emits an
 artifact JSON conforming to EvidenceContract v1.0. The Gate test
 validates that:
 

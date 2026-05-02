@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-01
 **Owning task:** Phase 0 Task 0.8
-**Plan reference:** `docs/carney_delivery_plan_FINAL.md`
+**Plan reference:** `docs/carney_delivery_plan_v6_2.md`
 
 This document verifies Gemma 4 31B Dense as POLARIS's Global Verifier model, fixes the license scan (with material correction vs v6.2 plan), and locks the vLLM serving recipe.
 
@@ -128,7 +128,7 @@ Per `docs/task_acceptance_matrix.yaml` task_0_8:
 
 **Codex review brief:** `.codex/task_0_8_review_brief.md` (next step)
 
-**Plan amendment required:** Update `docs/carney_delivery_plan_FINAL.md` to replace "Apache 2.0" Gemma 4 references with "Apache 2.0 + Gemma Use Policy (LOW severity for our scope)".
+**Plan amendment required:** Update `docs/carney_delivery_plan_v6_2.md` to replace "Apache 2.0" Gemma 4 references with "Apache 2.0 + Gemma Use Policy (LOW severity for our scope)".
 
 ## Sources
 

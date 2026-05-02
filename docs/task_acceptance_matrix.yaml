@@ -1,11 +1,16 @@
-# Task Acceptance Matrix — POLARIS Carney Delivery Plan v5.2
-# Created: 2026-05-01. Owner: Claude (planning) + Codex (review).
+# Task Acceptance Matrix — POLARIS Carney Delivery Plan v6.2
+# Created: 2026-05-01. Reconciled: 2026-05-02 (per Plan v13 §A Step 0a).
+# Owner: Claude (planning) + Codex (review).
 # This file defines GREEN criteria for every task in the build.
 # It is referenced by .codex/codex_red_team_checklist.md item U2.
-# Mid-build modifications require explicit user approval.
+# Mid-build modifications require explicit user approval per Plan v13 §A immutability.
 
 version: "1.0"
-plan_ref: "docs/carney_delivery_plan_v5_1_redline.md"
+plan_ref: "docs/carney_delivery_plan_v6_2.md"
+plan_pin_ref: "docs/canonical_pin.txt"
+# 2026-05-02 reconciliation: bumped from "v5.2" / "v5_1_redline" to v6.2.
+# Phases 1-5 task green-criteria still PENDING fill-out per Plan v13 §K Step 0b
+# (user-signed bootstrap pre-task, scheduled before any autoloop run).
 
 # ============================================================
 # PHASE 0 — Foundation (5-8 business days, May 1-12)
@@ -171,8 +176,8 @@ phase_0:
     estimate_hours: 8
     green_criteria:
       - "FastAPI auto-instrumentation working"
-      - "OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_dev set"
-      - "semconv 1.30.0-dev pinned in pyproject.toml"
+      - "OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental set (per E-2; was gen_ai_dev pre-reconciliation)"
+      - "semconv 1.36.0+ pinned in pyproject.toml (per E-2; was 1.30.0-dev pre-reconciliation)"
       - "docs/observability/genai_semconv_pinned.md describes pinned version + dependent attributes"
       - "Sample LLM call produces a trace with proper gen_ai.* attributes"
     required_artifacts:

@@ -1,7 +1,10 @@
-# POLARIS Carney Delivery Plan v6 — substrate-aware, frontier-comparable
+# POLARIS Carney Delivery Plan v6.2 — substrate-aware, frontier-comparable
 
-**Status:** v6.2 — Codex GREEN; **v6.3 errata applied 2026-05-01** (Phase 0 Tasks 0.8 + 0.10 surfaced two material corrections; see Errata section below).
-**Date:** 2026-05-01.
+**Status:** v6.2 — Codex GREEN. Errata E-1 + E-2 (originally tracked as a v6.3 follow-up) integrated inline below per Plan v13 Bootstrap §A Step 0a (user-signed canonical reconciliation, 2026-05-02).
+**Date:** 2026-05-01 (v6.2 base) + 2026-05-02 (canonical reconciliation commit).
+**Filename:** `docs/carney_delivery_plan_v6_2.md` (renamed from `_FINAL.md` — `_FINAL` suffixes are forbidden per Plan v13 §I file hygiene).
+**Pin authority:** SHA256 of this file is recorded in `docs/canonical_pin.txt`; any subsequent edit requires a new user-signed commit + pin bump per Plan v13 §A.
+**Reconciliation log:** see "v6.2 reconciliation log (2026-05-02)" appendix at end of file for the full diff summary.
 **Supersedes:** all earlier plan versions including FINAL+5.
 
 ## Errata (2026-05-01, applied during Phase 0 execution)
@@ -28,7 +31,7 @@
 Read `docs/substrate_audit_2026-05-01.md` first. Headline: 270 Python files, 47 audit_ir modules, 123 routes, 113 completed milestones. **~80% of frontier-product capabilities are already built; not exposed in modern UI.**
 
 Genuinely-missing builds (not greenfield, but real new work):
-1. Modern Next.js 15 + React 19 + shadcn/ui frontend that surfaces existing endpoints
+1. Modern Next.js 16 + React 19 + shadcn/ui frontend that surfaces existing endpoints (locked at Next.js 16 per Phase 0 Task 0.4 implementation; was 15 in pre-reconciliation draft)
 2. Sovereign vLLM cluster running DeepSeek V4 (replace OpenRouter cognition path)
 3. Ambiguity detector for BPEI-class queries
 4. Anti-sycophancy CI suite (paired-prompt evaluation per ELEPHANT/SycEval methodology)
@@ -156,10 +159,10 @@ Each feature below has: substrate status, what to build, best-practice reference
 - AI agent test: independent agent navigates 10 random sentences → confirms each opens evidence within 1s
 **Match-or-beat bar**: BEATS Perplexity (POLARIS adds tier + multi-span + evaluator-disagreement signal Perplexity doesn't have).
 
-### F6 — Live citation overlay (MVP, not Perplexity-grade)
+### F6 — Live citation overlay (matches Perplexity hover-preview at parity)
 
 **Substrate (HONEST per Codex)**: same as F5 IS NOT enough. Hover-overlay needs **token/span indexing, typed numeric cross-reference, caching, mobile affordances, edge-position behavior** — all new.
-**Scope adjusted**: F6 in Phase 2 is **basic hover-card MVP** (hover sentence → tooltip with source title + tier + click-for-detail), NOT full Perplexity polish. Perplexity-grade typed-number-cross-ref + entity hover lifted to **post-handover v2.5**.
+**Scope (reconciled 2026-05-02)**: F6 lands as **Perplexity-parity hover-preview** in Phase 2B — hover sentence → tooltip with source title + tier + multi-source count + quote preview + click-to-pin. The substrate shipped under F-25..F-28 (cycle-7..11 audit lock) already meets this bar via `web/components/ui/evidence-tooltip.tsx`. Perplexity-grade typed-number-cross-ref + entity hover (an additional capability beyond Perplexity's own) remain a post-handover v2.5 stretch.
 **New build (v6)**: basic hover-card with debounced rendering + edge-aware positioning + mobile tap-to-show fallback.
 **Best practice**: shadcn.io InlineCitation component (`https://www.shadcn.io/ai/inline-citation`); typed number cross-ref (year vs p-value vs sample-size vs percentage handled differently).
 **Tests**:
@@ -414,4 +417,32 @@ POLARIS substrate is ~80% of frontier-product capability already. The build is 1
 
 ---
 
-**Next step**: send v6 to Codex for review.
+## Quality bar (binding) — no SILENT fallback
+
+Per Plan v13 §F (user-signed 2026-05-02): **no silent fallback. No mid-task degradation. Halt-and-decide is the only branch.**
+
+- If a quality bar (any row in the §F locked-decisions table — hardware Path C / Gemma 4 31B evaluator / two-family invariant / strict_verify / 100% acceptance-criteria green / Canadian sovereignty / etc.) cannot be met on a task, the orchestrator emits a halt marker (`state/halt_*.md`) and exits cleanly. **Halt-condition #5 (per Plan v13 §H) fires.** User reviews and either (a) authorizes an explicit switch (which is a user decision, not a degrade), (b) pauses the build until the constraint can be satisfied, or (c) revises canonical via signed reconciliation commit.
+- Documented "fallback paths" (e.g., Dramatiq→Celery, copyrighted-span citation-only, OVH backup procurement in `docs/blockers.md`) are NOT auto-fallbacks. They are **halt-and-decide branches**: the orchestrator halts when the primary path is unreachable; the user explicitly authorizes the alternative; the orchestrator resumes.
+- This eliminates the failure pattern where partial / silent degradation accumulates without surfacing — directly addresses the "phantom completion" + "silent quality erosion" anti-patterns from the v4 → v13 review cycle.
+
+---
+
+## v6.2 reconciliation log (2026-05-02)
+
+This canonical was reconciled per Plan v13 Bootstrap §A Step 0a. User-signed at this commit. The following changes were applied:
+
+1. **Filename**: `docs/carney_delivery_plan_FINAL.md` → `docs/carney_delivery_plan_v6_2.md` via `git mv` (history preserved). `_FINAL` suffix forbidden per Plan v13 §I.
+2. **Header**: Status line reworded — "v6.3 errata applied" framing replaced with "v6.2 with E-1/E-2 integrated inline" (single canonical version going forward).
+3. **Frontend version**: "Next.js 15" → "Next.js 16" at line referencing the modern frontend stack (matches actual implementation in `web/`; was a planning-vs-implementation drift).
+4. **F6 citation overlay**: contradiction resolved — was simultaneously labeled "MVP, not Perplexity-grade" AND "matches Perplexity"; now locked at "matches Perplexity hover-preview at parity" reflecting shipped F-25..F-28 substrate (cycles 7-11 audit lock at `web/components/ui/evidence-tooltip.tsx`).
+5. **Quality bar**: explicit "no SILENT fallback" semantics added (Plan v13 §F) — fallback paths reframed as halt-and-decide branches.
+6. **Hardware Path C lock**: see `docs/blockers.md` §3 reconciliation commit (Path C V4 Flash on 8× H200 OVH BHS Canada is now CONFIRMED, was ACTION-PENDING).
+7. **OpenTelemetry**: see `docs/task_acceptance_matrix.yaml` Phase 0 Task 0.10 reconciliation — `gen_ai_dev` → `gen_ai_latest_experimental`, `1.30.0-dev` → `1.36.0+` (per E-2).
+8. **Acceptance matrix version pointer**: see `docs/task_acceptance_matrix.yaml` reconciliation — `v5.2` / `v5_1_redline` → `v6.2` / `v6_2`.
+9. **CLAUDE.md APD reference**: see `CLAUDE.md` §3 reconciliation — `docs/todo_list.md (The Scope)` → `docs/task_acceptance_matrix.yaml (The Scope)` (todo_list.md slated for deletion in §K Step 14).
+
+**Subsequent commits will hash-pin the canonical via `docs/canonical_pin.txt` (Plan v13 §A Step 0c).** Any future edits require user-signed canonical-edit commits with new hash.
+
+---
+
+**Next step (autoloop)**: per Plan v13 §K Step 0b, fill out `task_acceptance_matrix.yaml` for Phases 1-5 (currently only Phase 0 has detailed criteria); user signs; then bootstrap proceeds to Steps 1-15 (hooks, scripts, workflows) and Step 16 smoke. After smoke passes, user runs `python scripts/autoloop/orchestrator.py` once → autoloop runs to Carney handover.

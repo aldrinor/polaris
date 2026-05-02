@@ -1,6 +1,6 @@
 """POST /upload — F3b drag-drop document upload endpoint.
 
-Per docs/carney_delivery_plan_FINAL.md F3b, the user can upload PDFs /
+Per docs/carney_delivery_plan_v6_2.md F3b, the user can upload PDFs /
 docx / md / txt to seed a research run. Phase 0 ships the contract:
 returns a document_id + parse_status; Phase 1 wires actual parsing +
 chunking + sovereignty router (CAN_REAL data must stay on Canadian

@@ -36,9 +36,10 @@ You must adhere strictly to the Active Project Definition (APD) and ensure its c
 
 **1.1 Active Project Definition (APD) Hierarchy:** The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
 1. Current Session Instructions: Explicit requests and clarifications made during the active session.
-2. `docs/todo_list.md` (The Scope): The prioritized list of current tasks.
-3. Recent `logs/session_log.md` (The History): History of decisions, rationale, and implementations.
-4. `architecture.md` (The Baseline): Formal specification for POLARIS system architecture.
+2. `docs/task_acceptance_matrix.yaml` (The Scope): canonical per-task GREEN criteria. Authoritative for what's "done." (Reconciled 2026-05-02 per Plan v13 §A — replaces deprecated `docs/todo_list.md`, which is slated for deletion in Bootstrap §K Step 14.)
+3. `docs/carney_delivery_plan_v6_2.md` (The Mission): canonical plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume and every task-boundary; SHA mismatch = HARD STOP per Plan v13 §J 7-step protocol.
+4. Recent `logs/session_log.md` (The History): History of decisions, rationale, and implementations.
+5. `architecture.md` (The Baseline): Formal specification for POLARIS system architecture; co-pinned in `canonical_pin.txt`.
 
 **1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
 

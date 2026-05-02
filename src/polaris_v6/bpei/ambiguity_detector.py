@@ -1,6 +1,6 @@
 """HDBSCAN-based ambiguity detector for research questions.
 
-Per docs/carney_delivery_plan_FINAL.md F2 (ambiguity detector backend) and
+Per docs/carney_delivery_plan_v6_2.md F2 (ambiguity detector backend) and
 memory bpei_phantom_completion_lessons.md, the BPEI failure happened
 because the scope gate has no way to detect when a short acronym question
 maps to multiple unrelated source clusters. This module fixes that by:

@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-01
 **Owning task:** Phase 0 Task 0.5
-**Plan reference:** `docs/carney_delivery_plan_FINAL.md`
+**Plan reference:** `docs/carney_delivery_plan_v6_2.md`
 
 This document fixes the backend modernization stack for v6.2 build, sequences the migration off legacy substrate, and defines the Dramatiq queue acceptance test that must GREEN before Phase 1 starts.
 

@@ -6,7 +6,7 @@
 **Live screenshots:** 8 (`web/screenshots/*.png`)
 
 This document maps every substrate shipped against the v6.2 plan
-(`docs/carney_delivery_plan_FINAL.md`). It is the artifact the user
+(`docs/carney_delivery_plan_v6_2.md`). It is the artifact the user
 hands to Codex for round-3 audit, and to Carney's office for handover
 sign-off after Phase 4.
 

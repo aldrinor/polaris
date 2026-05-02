@@ -1,6 +1,6 @@
 """Vega-Lite chart spec generators (Phase 2B Task 2B.2 substrate).
 
-Per docs/carney_delivery_plan_FINAL.md F10a, the v6 plan ships THREE
+Per docs/carney_delivery_plan_v6_2.md F10a, the v6 plan ships THREE
 chart types with provenance-enabled data points:
 
 1. forest_plot — effect-size + CI per source/study (clinical, trade)

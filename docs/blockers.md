@@ -1,8 +1,8 @@
 # POLARIS v6.2 — Blocker Decisions Register
 
-**Last updated:** 2026-05-01
+**Last updated:** 2026-05-02 (canonical reconciliation per Plan v13 §A Step 0a)
 **Owning task:** Phase 0 Task 0.1
-**Plan reference:** `docs/carney_delivery_plan_FINAL.md`
+**Plan reference:** `docs/carney_delivery_plan_v6_2.md` (renamed from `_FINAL.md` 2026-05-02)
 
 This document fixes the 10 blocker decisions surfaced during v6 planning. Each decision is either **CONFIRMED** (user direction is durable, build proceeds) or **ACTION-PENDING** (an external procurement / signature must complete before a downstream task can GREEN).
 
@@ -36,16 +36,19 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 ## 3. Hardware path (build phase + sovereign migration)
 
-**Decision:** ACTION-PENDING (commitment in Task 0.6)
-- **Build phase**: Vast.ai US 4× H100 dev cluster (decided this task; provisioned in Task 0.3)
-- **Sovereign migration**: A/B/C committed in Task 0.6, default **Path C V4 Flash only** (8× H200 OVH Canada BHS)
-  - Path A: 16× H200 FP8 V4 Pro full (capacity for 5+ concurrent sessions)
-  - Path B: 8× H200 reduced V4 Pro (capacity for 2 concurrent sessions)
-  - Path C: 8× H200 V4 Flash only (capacity for 5+ concurrent sessions, slightly lower quality)
+**Decision:** CONFIRMED — **Path C V4 Flash only on 8× H200 OVH Canada BHS** (locked 2026-05-02 per Plan v13 §F user-signed canonical reconciliation)
+- **Build phase**: Vast.ai US 4× H100 dev cluster (provisioned in Task 0.3 — pending user $ decision per Plan v13 §G #3)
+- **Sovereign migration**: **Path C — 8× H200 V4 Flash only** (capacity for 5+ concurrent sessions; capacity > marginal quality for Carney scope)
+  - Paths A and B remain documented below for reference but are NOT the build path.
+  - ~~Path A: 16× H200 FP8 V4 Pro full (capacity for 5+ concurrent sessions)~~ — not selected
+  - ~~Path B: 8× H200 reduced V4 Pro (capacity for 2 concurrent sessions)~~ — not selected (concurrency below requirement)
+  - **Path C: 8× H200 V4 Flash only** — SELECTED. Capacity for 5+ concurrent sessions; quality differential from V4 Pro confirmed acceptable in Phase 0 Task 0.6 bakeoff (or, if bakeoff not yet run, lock holds and bakeoff validates rather than selects).
 
-**Rationale:** Capacity vs cost vs quality trade-off cannot be locked until Task 0.6 (DeepSeek V4 head-to-head between V4 Pro and V4 Flash on 8 templates).
+**Rationale (reconciled):** User-signed lock at Plan v13 §F. Capacity is the dominant constraint for sovereign deployment at Carney scope; V4 Flash quality delta vs V4 Pro is acceptable for the use case. Path C is also the lowest-risk procurement (8× H200 well within OVH BHS quoted availability). If Phase 0.7 bakeoff data later materially contradicts (e.g., V4 Flash quality fails on 2+ template families), the orchestrator halts per Plan v13 §H halt-condition #5; user re-signs canonical to switch to Path A or B (NOT a silent fallback — explicit user re-decision per Plan v13 §F "no silent fallback" semantics).
 
 **Blocking consequence if missed:** Task 0.9 (OVH BHS H200 procurement) cannot start; Phase 4 sovereign migration slips.
+
+**Reconciliation note (2026-05-02):** This decision was previously ACTION-PENDING. Per Plan v13 §F (best-of-best lock, no fallback options), the user has now committed to Path C as the primary path. Phase 0.7 bakeoff (in progress) is a **validation** of the lock, not a selection between paths.
 
 ---
 
@@ -62,17 +65,17 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 ## 5. Source-text license (bundle redistribution)
 
-**Decision:** ACTION-PENDING (Phase 1/2 legal review)
+**Decision:** ACTION-PENDING (Phase 1/2 legal review — Plan v13 §G #5)
 - Audit bundle (F15) embeds source spans from cited documents
 - For PUBLIC government / open-licensed sources: bundle redistribution is permitted
 - For COPYRIGHTED journal / paywalled sources: legal review required before bundle export of full spans
-- Fallback: bundle exports verbatim spans for PUBLIC sources, citations + DOI links only for COPYRIGHTED sources
+- **Halt-and-decide branch (NOT a silent fallback per Plan v13 §F):** if counsel opinion is unavailable by 2026-05-31, the orchestrator halts at the relevant Phase 1 / 2 task per Plan v13 §H halt-condition #5. User explicitly authorizes one of: (a) ship F15 with verbatim spans for PUBLIC sources only + citations + DOI links for COPYRIGHTED (the lower-fidelity branch), (b) delay F15 until counsel opinion lands, or (c) revise canonical via signed reconciliation commit. Whatever the user authorizes is documented in `outputs/audits/halt_resolutions/<task_id>.md` and is not a silent degradation.
 
 **Rationale:** Bundle's value to Carney's office depends on traceability; verbatim spans for paywalled sources may require fair-use opinion or licensing.
 
 **Action-pending sub-item:** Engage Canadian intellectual-property counsel by **2026-05-31** (end of Phase 1) to issue opinion before Phase 1 walkthrough.
 
-**Blocking consequence if missed:** F15 ships with citation-only fallback for COPYRIGHTED sources, with disclosure in handover package.
+**Blocking consequence if missed:** Halt at the F15 task; user resolves per the three branches above. F15 cannot ship with auto-degraded behavior.
 
 ---
 

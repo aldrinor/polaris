@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-01
 **Owning task:** Phase 0 Task 0.2
-**Plan reference:** `docs/carney_delivery_plan_FINAL.md`
+**Plan reference:** `docs/carney_delivery_plan_v6_2.md`
 
 This document fixes the architecture pattern POLARIS will adopt for the agent + verifier loop, performs the license scan that gates whether external code can be reused, and locks the implementation plan that extends existing POLARIS substrate (no fork).
 

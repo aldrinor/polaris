@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-01
 **Owning task:** Phase 0 Task 0.10
-**Plan reference:** `docs/carney_delivery_plan_FINAL.md`
+**Plan reference:** `docs/carney_delivery_plan_v6_2.md`
 
 This document fixes the OpenTelemetry GenAI semantic conventions pin for v6.2, **with a material correction vs the v6.2 plan**.
 
@@ -21,7 +21,7 @@ This document fixes the OpenTelemetry GenAI semantic conventions pin for v6.2, *
 
 **Why the plan was wrong:** `gen_ai_dev` was a draft proposal name; the spec landed on `gen_ai_latest_experimental` after WG review. The 1.30.0 reference predated the GenAI conventions reaching the current 1.36.0 baseline.
 
-**Plan amendment required:** Update `docs/carney_delivery_plan_FINAL.md` env var string + version pin.
+**Plan amendment required:** Update `docs/carney_delivery_plan_v6_2.md` env var string + version pin.
 
 ---
 
@@ -122,7 +122,7 @@ Per `docs/task_acceptance_matrix.yaml` task_0_10:
 - [x] Privacy / log-redact rules cross-checked vs CLAUDE.md security posture
 - [ ] `requirements-v6.txt` adds OTEL pins (Task 0.5 deliverable)
 - [ ] `src/polaris_v6/observability/otel_init.py` written (Task 0.5 deliverable)
-- [ ] Plan amendment to `docs/carney_delivery_plan_FINAL.md` env var + version (immediate next step)
+- [ ] Plan amendment to `docs/carney_delivery_plan_v6_2.md` env var + version (immediate next step)
 
 **Triangle loop next:**
 1. Claude self-audit at `outputs/audits/task_0_10/claude_audit.md`

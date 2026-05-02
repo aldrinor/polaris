@@ -1,6 +1,6 @@
 """Evidence Contract — Phase 1 Task 1.4 canonical JSON schema.
 
-Per docs/carney_delivery_plan_FINAL.md F15 (audit bundle export with
+Per docs/carney_delivery_plan_v6_2.md F15 (audit bundle export with
 embedded source spans), every research run emits a single canonical
 artifact described by this schema. Phase 1 milestone 1.4 (Evidence
 Contract Gate) ships:

@@ -1,6 +1,6 @@
 """SSE /stream endpoint — emits per-event updates for a research run.
 
-Per docs/carney_delivery_plan_FINAL.md F4 (live audit run UI), the
+Per docs/carney_delivery_plan_v6_2.md F4 (live audit run UI), the
 frontend subscribes to /stream/{run_id} and receives Server-Sent Events
 as the run progresses: scope_decision, retrieval_progress, evidence_id,
 verifier_verdict, section_complete, run_complete.
