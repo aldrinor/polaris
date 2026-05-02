@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "1.8_prep_briefing_pack",
+  "iter": 1,
+  "codex_session_id": "manual_codex_review_20260502T175551Z",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "ae901fbf4eebeb2b5d9f00942826f88693b81b6500aa8cbba4aad7156b5719e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "verdict": "REQUEST_CHANGES",
+  "verdict_reason": "P1 briefing-pack issues would cause evaluators to run impossible or mismatched tests: missing app entrypoint, unspecified upload fixtures, F3 upload limits inconsistent with substrate, and F15 ZIP expectations inconsistent with the Phase 1 JSON export substrate.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/briefing.md",
+      "line": 24,
+      "category": "documentation",
+      "description": "The evaluator prerequisites say only that the backend is running locally or on a dev cluster, but the workflow never gives the actual POLARIS URL, route, or auth context to open. A non-developer evaluator cannot start the walkthrough from this pack alone."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 25,
+      "category": "documentation",
+      "description": "The upload block requires a small PDF, a 50MB PDF, an image-only PDF, and a document-specific query, but the pack supplies no fixture paths, sample files, or expected document content. This prevents consistent F3 observation capture across evaluators."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 26,
+      "category": "correctness",
+      "description": "Input #12 expects a 50MB PDF to complete, and briefing.md line 41 says PDFs up to 50MB are accepted, but the Phase 1 upload substrate enforces a 25 MB limit in src/polaris_v6/api/upload.py. This would make the documented test fail even when the implementation matches its accepted substrate."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 35,
+      "category": "correctness",
+      "description": "The F15 flow expects a ZIP that can be unzipped into report.md, evidence/, trace.jsonl, and provenance.json, but task_1_6's accepted substrate is src/polaris_v6/api/bundle.py plus downloadBundleAsJson, returning an EvidenceContract JSON export. The briefing and corpus would mis-grade the shipped Phase 1 export behavior."
+    },
+    {
+      "severity": "P2",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 17,
+      "category": "correctness",
+      "description": "The BPEI example lists Beth Israel Deaconess as a candidate meaning, and recording_template.md line 19 repeats it. Public references identify BPEI as Bascom Palmer Eye Institute, not Beth Israel Deaconess: https://en.wikipedia.org/wiki/Bascom_Palmer_Eye_Institute."
+    },
+    {
+      "severity": "P3",
+      "file": "docs/walkthroughs/1.8/briefing.md",
+      "line": 10,
+      "category": "documentation",
+      "description": "The briefing says evaluators will review 3 features, but the table lists four feature rows: F1, F2, F3a/F3b, and F15. Line 6 also includes F4 in scope even though the pack does not orient the evaluator to a distinct F4 test."
+    }
+  ],
+  "timestamp": "2026-05-02T17:55:51Z",
+  "hmac_sha256": "78660dd43db209e737f7c84f385d2479b03cab1411dc85a97f1dc51386b110da"
+}

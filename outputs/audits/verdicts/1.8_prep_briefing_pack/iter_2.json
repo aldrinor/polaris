@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "1.8_prep_briefing_pack",
+  "iter": 2,
+  "codex_session_id": "manual_codex_review_20260502T180800Z",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "ae901fbf4eebeb2b5d9f00942826f88693b81b6500aa8cbba4aad7156b5719e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "verdict": "REQUEST_CHANGES",
+  "verdict_reason": "P1 factual and prerequisite issues remain: the upload fixtures named by the corpus are absent, the PDF parse/chunk expectations do not match the current upload substrate, and the bundle field expectations do not match the EvidenceContract JSON returned by the Phase 1 bundle endpoint.",
+  "findings": [
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/briefing.md",
+      "line": 25,
+      "category": "documentation",
+      "description": "The briefing lists required fixture PDFs under tests/v6/fixtures/walkthrough/1.8_*.pdf while also saying they are not committed yet. Test-Path confirms the walkthrough fixture directory and the three named PDFs are absent, so evaluators cannot execute the F3 upload block consistently."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 28,
+      "category": "correctness",
+      "description": "Inputs #11 and #12 expect uploaded PDFs to parse and show chunk lists, but src/polaris_v6/api/upload.py only produces chunk_preview for .md/.txt files; PDFs return parse_status queued with no chunks. This would make a correct Phase 1 substrate look broken."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 34,
+      "category": "correctness",
+      "description": "Input #14 says the EvidenceContract tier enum is T1-T7 plus UNKNOWN and user uploads map to T7, but src/polaris_v6/schemas/evidence_contract.py currently defines SourceSpan.source_tier as only T1, T2, or T3. The evaluator is being told to expect an impossible schema value."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 43,
+      "category": "correctness",
+      "description": "Input #16 says EvidenceContract required fields include manifest_version, report_md, evidence[], trace_jsonl, and provenance, but the current schema uses contract_version, evidence_pool, verified_sentences, frame_coverage, contradictions, and related run metadata. The F15 check would mis-grade the actual JSON bundle."
+    },
+    {
+      "severity": "P1",
+      "file": "docs/walkthroughs/1.8/briefing.md",
+      "line": 17,
+      "category": "correctness",
+      "description": "The briefing repeats the same incorrect F15 required fields as the corpus. Since src/polaris_v6/api/bundle.py returns an EvidenceContract response model, the evaluator orientation is factually wrong before they reach the detailed script."
+    },
+    {
+      "severity": "P2",
+      "file": "docs/walkthroughs/1.8/test_inputs.md",
+      "line": 54,
+      "category": "documentation",
+      "description": "Input #20 says run #1 should have at least one flagged contradiction, but the available clinical golden bundle golden_clinical_001 has an empty contradictions array and is an Ozempic query, not the tirzepatide flow from #1. The contradiction check needs a deterministic fixture or run target."
+    }
+  ],
+  "timestamp": "2026-05-02T18:08:00Z",
+  "hmac_sha256": "1fc798c0ae176677a299a94e4b1c1a75cc93cf21b3867cf04fc2bbb957b4022f"
+}
