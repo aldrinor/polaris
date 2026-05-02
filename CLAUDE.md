@@ -113,17 +113,36 @@ Every action must be appended to `logs/session_log.md` using this structure:
 
 This protocol MUST be executed automatically at the start of every session and after any restart or crash.
 
-### 3.1 Startup Protocol (The 10 Steps)
-1. **Read CLAUDE.md:** Read this file completely.
-2. **Synthesize APD (CRITICAL):** Determine the Active Project Definition by reviewing the sources in order (§1.1).
-3. **Verify Environment:** Check that necessary environment variables and configuration files exist. Run `python scripts/preflight.py`.
-4. **Review Bug Log:** Read `logs/bug_log.md` to identify blockers or pending clarifications.
-5. **Review File Directory:** Read `docs/file_directory.md` to understand the current architecture.
-6. **Read Restart Instructions:** Read `state/restart_instructions.md`.
-7. **Check Progress Ledger:** Read `state/progress_ledger.jsonl` and `state/last_pointer.json` for pipeline resume point.
-8. **Execute Recovery:** If restart_instructions.md contains instructions, execute them to restore the exact previous state.
-9. **Determine Next Action:** Identify the next action based on the synthesized APD.
-10. **Log Session Initialization:** Append a SESSION_INIT entry to `logs/session_log.md`.
+### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+
+**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+
+0. **Verify canonical pin (NEW per Plan v13 §J):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit.
+
+1. **Read CLAUDE.md:** This file completely.
+2. **Read full canonical (per Plan v13 §J 7-step protocol):**
+   - `docs/carney_delivery_plan_v6_2.md` (mission)
+   - `architecture.md` (current-state baseline)
+   - `docs/blockers.md` (10 user-side decisions)
+   - `docs/task_acceptance_matrix.yaml` (per-task GREEN criteria — APD Scope source)
+   - `docs/agent_architecture.md`
+   - `docs/substrate_audit_2026-05-01.md`
+   - `.codex/codex_red_team_checklist.md`
+   - `.codex/REVIEW_BRIEF_FORMAT_v2.md`
+   - `.codex/AUDIT_CYCLE_PROTOCOL_v2.md`
+   - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
+3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > task_acceptance_matrix.yaml (Scope) > carney_delivery_plan_v6_2.md (Mission) > session_log.md (History) > architecture.md (Baseline).
+4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+5. **Review Bug Log:** `logs/bug_log.md`.
+6. **Review File Directory:** `docs/file_directory.md`.
+7. **Read Restart Instructions:** `state/restart_instructions.md`.
+8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
+9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
+10. **Execute Recovery:** If restart_instructions has instructions, execute them.
+11. **Determine Next Action:** Per APD + matrix sequence + halt-marker check.
+12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+
+**Intra-task drift defense:** Every 10 tool calls OR 15 min wall-clock within a task, repeat step 0 (canonical-pin re-verify) and re-read the task's row from `task_acceptance_matrix.yaml`. Detects and halts on intra-task drift before substantial work compounds.
 
 ### 3.2 Enforcement
 If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
