@@ -28,7 +28,7 @@
     },
     "task_id": {
       "type": "string",
-      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$",
+      "pattern": "^[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)*$",
       "description": "Task identifier matching docs/task_acceptance_matrix.yaml task key. snake_case + dots for sub-tasks."
     },
     "iter": {
@@ -147,6 +147,15 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
       "description": "HMAC-SHA256 over canonical-form serialization of all preceding fields except hmac_sha256 itself, using key in .private/codex_hmac.key. Validated locally by precommit hook AND server-side by verdict-validate job."
+    },
+    "manifest_evidence": {
+      "type": "array",
+      "description": "Optional: forensic field for pre-bootstrap-backfill verdicts (Plan v13 §K Step 0d). Lists existing artifact paths that constituted the human-attested evidence-of-completion for tasks completed before the §C gate became operational.",
+      "items": { "type": "string" }
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Optional: forensic field for pre-bootstrap-backfill verdicts. Free-text rationale documenting why the task was attested as complete."
     }
   },
   "allOf": [

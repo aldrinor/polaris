@@ -61,6 +61,31 @@ def _staged_files() -> list[str]:
     return [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
 
 
+def _staged_diff_sha256() -> str:
+    """SHA256 of `git diff --cached` output, EXCLUDING verdict files + audit log
+    (which are part of the same commit but are emitted by the gate workflow itself).
+
+    Per Codex round-1 P0-5 fix + P1-2 chicken-and-egg resolution: verdict files at
+    outputs/audits/verdicts/<task>/iter_*.json AND outputs/audits/codex_audit.jsonl
+    are written DURING the gate workflow and committed atomically with substrate.
+    The verdict's `diff_sha256` field covers SUBSTRATE diff only — that's the thing
+    Codex actually reviewed. Excluding verdict files from the hash lets us atomic-
+    commit substrate + verdict without circular-hash issues.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--",
+         ":(exclude)outputs/audits/verdicts/**",
+         ":(exclude)outputs/audits/codex_audit.jsonl",
+         ":(exclude)outputs/audits/manifests/**"],
+        cwd=str(POLARIS_ROOT),
+        capture_output=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        raise GateError(f"git diff failed: {result.stderr.decode('utf-8', errors='replace')}")
+    return hashlib.sha256(result.stdout).hexdigest()
+
+
 def _load_matrix() -> dict:
     try:
         import yaml
@@ -150,16 +175,50 @@ def _validate_canonical_pin(verdict: dict) -> tuple[bool, str]:
 
 
 def _is_bootstrap(commit_msg_path: str | None) -> bool:
+    """Bootstrap exemption per Plan v13 §K — auto-expires after MAX commits.
+
+    Codex round-1 P0-2 partial fix: hard cap on bootstrap commit count. Prevents
+    indefinite exemption-bypass even if bootstrap_active flag persists or is
+    recreated. Full prevention requires GPG-signed flag (decision #13 not yet
+    landed); this is the strongest fix available pre-GPG.
+    """
+    BOOTSTRAP_MAX_COMMITS = 20  # generous; actual count expected ~10-12
+
     if not BOOTSTRAP_FLAG.exists():
         return False
+
+    # Hard count limit
+    count_path = POLARIS_ROOT / "state" / "bootstrap_commit_count"
+    try:
+        count = int(count_path.read_text(encoding="utf-8").strip())
+    except Exception:
+        count = 0
+    if count >= BOOTSTRAP_MAX_COMMITS:
+        # Exemption auto-expired; force-delete flag to make state visible
+        try:
+            BOOTSTRAP_FLAG.unlink()
+        except Exception:
+            pass
+        return False
+
     if not commit_msg_path:
         return False
     try:
         msg = Path(commit_msg_path).read_text(encoding="utf-8")
     except Exception:
         return False
-    first_line = msg.lstrip().splitlines()[0] if msg.strip() else ""
-    return first_line.startswith("BOOTSTRAP")
+    lines = [ln for ln in msg.lstrip().splitlines() if ln.strip()]
+    if not lines or not lines[0].startswith("BOOTSTRAP"):
+        return False
+
+    # Increment count atomically (best-effort; mtime-protect)
+    try:
+        count_path.parent.mkdir(parents=True, exist_ok=True)
+        count_path.write_text(str(count + 1), encoding="utf-8")
+    except Exception:
+        pass
+
+    return True
 
 
 def _audit_log_event(event: dict) -> None:
@@ -227,17 +286,48 @@ def main() -> int:
 
     implicated = _changed_files_to_task_ids(files, matrix)
     if not implicated:
-        # No task implicated by the diff. Could be: docs-only commit, infra commit,
-        # or matrix doesn't yet have changed_files_glob filled out for the task.
-        # Conservative: allow but log loudly. The orchestrator's own task framing
-        # should always set implicated tasks via manifest.
-        print("verdict_gate: WARN no task implicated by staged files; commit allowed.", file=sys.stderr)
+        # Codex round-1 P0-6 fix: NO PASS-THROUGH on no-task-implicated.
+        # Block by default. Allow only if commit message contains explicit
+        # `infrastructure-only:` line (signals user-acknowledged out-of-scope edit
+        # — e.g., dependency bump, runner config). Audit log captures intent.
+        commit_msg = ""
+        if args.commit_message_file:
+            try:
+                commit_msg = Path(args.commit_message_file).read_text(encoding="utf-8")
+            except Exception:
+                pass
+        if "infrastructure-only:" not in commit_msg:
+            print(
+                "verdict_gate: BLOCK no task implicated by staged files. Per Plan v13 §C,\n"
+                "every commit MUST be tied to a task in docs/task_acceptance_matrix.yaml\n"
+                "via changed_files_glob. If this is genuinely infrastructure-only (build\n"
+                "deps, runner config), add `infrastructure-only: <one-line-justification>`\n"
+                "to the commit message.\n"
+                f"Staged files: {files}",
+                file=sys.stderr,
+            )
+            _audit_log_event({
+                "ts": timestamp,
+                "type": "gate_blocked_no_task",
+                "files": files,
+            })
+            return 1
+        # Infrastructure-only path
+        print("verdict_gate: ALLOW (infrastructure-only commit message present)", file=sys.stderr)
         _audit_log_event({
             "ts": timestamp,
-            "type": "no_task_implicated",
+            "type": "infrastructure_only_allow",
             "files": files,
+            "commit_msg_excerpt": commit_msg[:500],
         })
         return 0
+
+    # P0-5 fix: compute staged diff SHA for cross-check against verdict.diff_sha256
+    try:
+        diff_sha = _staged_diff_sha256()
+    except GateError as e:
+        print(f"verdict_gate: BLOCK staged-diff hashing failed: {e}", file=sys.stderr)
+        return 1
 
     # Load HMAC key
     if not HMAC_KEY_PATH.exists():
@@ -268,6 +358,19 @@ def main() -> int:
         if not ok:
             failed.append(f"{task_id}: canonical pin mismatch — {msg}")
             continue
+        # P0-5 fix: verdict.diff_sha256 MUST match staged diff. Pre-bootstrap backfill
+        # verdicts have a sentinel diff_sha256 (sha256 of "pre_bootstrap_backfill") and
+        # are not commit-linked, so we skip this check for pre_bootstrap_backfill session.
+        if verdict.get("codex_session_id", "").startswith("pre_bootstrap_backfill"):
+            pass  # backfill verdicts are honest synthetic; not commit-linked
+        else:
+            verdict_diff_sha = verdict.get("diff_sha256", "")
+            if verdict_diff_sha != diff_sha:
+                failed.append(
+                    f"{task_id}: diff_sha256 mismatch (replay defense) — "
+                    f"verdict={verdict_diff_sha[:12]}, staged={diff_sha[:12]}"
+                )
+                continue
         if verdict.get("verdict") != "APPROVE":
             failed.append(f"{task_id}: verdict is {verdict.get('verdict')!r}, not APPROVE")
             continue

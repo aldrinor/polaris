@@ -206,16 +206,35 @@ def _parse_matrix_tasks_from_head() -> list[dict]:
 
 
 def _verdict_state(task_id: str) -> str:
-    """Return 'APPROVE', 'REQUEST_CHANGES', 'BLOCKED', or 'NONE' for a task."""
-    verdict_dir = POLARIS_ROOT / "outputs" / "audits" / "verdicts" / task_id
-    if not verdict_dir.is_dir():
+    """Return 'APPROVE', 'REQUEST_CHANGES', 'BLOCKED', or 'NONE' for a task.
+
+    Per Codex round-1 P0-4 fix: read verdict files from `git show HEAD:` only.
+    Working-tree verdict files are not authoritative — Claude can edit them
+    locally and bypass the hook. Only committed verdicts count.
+    """
+    # Find latest iter_N.json under the task's verdict dir AT HEAD via git ls-tree
+    try:
+        result = subprocess.run(
+            ["git", "ls-tree", "--name-only", "HEAD",
+             f"outputs/audits/verdicts/{task_id}/"],
+            cwd=str(POLARIS_ROOT),
+            capture_output=True, text=True, timeout=5, encoding="utf-8",
+        )
+        if result.returncode != 0:
+            return "NONE"
+        files = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
+        iters = sorted(f for f in files if f.endswith(".json") and "iter_" in f)
+        if not iters:
+            return "NONE"
+        latest_path = iters[-1]
+    except Exception:
         return "NONE"
-    iters = sorted(verdict_dir.glob("iter_*.json"))
-    if not iters:
+
+    content = _git_show_head(latest_path)
+    if content is None:
         return "NONE"
     try:
-        latest = json.loads(iters[-1].read_text(encoding="utf-8"))
-        return latest.get("verdict", "NONE")
+        return json.loads(content).get("verdict", "NONE")
     except Exception:
         return "NONE"
 

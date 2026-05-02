@@ -33,28 +33,52 @@ def _is_polaris_session() -> bool:
 
 
 def _is_git_commit(command: str) -> bool:
-    """Detect git commit invocations including common variants."""
+    """Detect git commit invocations including common variants.
+
+    Per Codex round-1 P0-3 fix: correctly skip option VALUES that follow flags
+    expecting an argument (e.g., `git -c key=val commit`, `git --git-dir DIR commit`).
+    Without this, `git -c core.hooksPath=/tmp/empty commit` was parsed as non-commit
+    AND simultaneously disabled .git/hooks/pre-commit — full Claude-side bypass.
+    """
     if not command:
         return False
     cmd_lower = command.strip().lower()
-    # Match "git commit", "git -c ... commit", "/usr/bin/git commit", etc.
-    # But NOT "git status" or "git commit-tree" (plumbing)
     parts = cmd_lower.split()
+
+    # Flags that take a value as the NEXT token (must skip both the flag and its value)
+    FLAGS_WITH_SEPARATE_ARG = {
+        "-c", "-c=",  # config override (rare separate form)
+        "--git-dir", "--work-tree", "--namespace", "--super-prefix",
+        "--exec-path", "--config-env",
+        "-c=",  # noop dup
+    }
+
     for i, p in enumerate(parts):
-        if p.endswith("git") or p == "git":
-            # next non-flag token should be "commit"
-            for j in range(i + 1, len(parts)):
-                tok = parts[j]
-                if tok.startswith("-"):
-                    # skip flags like "-c" "key=value"
-                    if tok in ("-c", "--git-dir", "--work-tree"):
-                        # next token is the value, also skip
-                        continue
-                    if "=" in tok:
-                        continue
+        # Locate the git invocation
+        if not (p == "git" or p.endswith("/git") or p.endswith("\\git") or p.endswith(".exe")):
+            continue
+        if p.endswith(".exe") and "git" not in p:
+            continue
+
+        # Now scan tokens after the git binary, skipping flags and their values
+        j = i + 1
+        while j < len(parts):
+            tok = parts[j]
+            if tok.startswith("-"):
+                # Inline form (--key=value or -c=value): skip just this token
+                if "=" in tok:
+                    j += 1
                     continue
-                return tok == "commit"
-            return False
+                # Separate-arg form (-c VALUE): skip this AND the next token
+                if tok in FLAGS_WITH_SEPARATE_ARG:
+                    j += 2
+                    continue
+                # Plain flag (no value): skip just this token
+                j += 1
+                continue
+            # First non-flag token is the subcommand
+            return tok == "commit"
+        return False
     return False
 
 

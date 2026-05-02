@@ -82,29 +82,41 @@ def _no_p0_p1(findings: list[dict]) -> tuple[bool, str]:
 
 
 def _no_severity_upgrade(committed_findings: list[dict], rerun_findings: list[dict]) -> tuple[bool, str]:
-    """For each (file, line) in committed, rerun cannot have HIGHER severity at same location."""
-    committed_by_loc = {}
+    """For each (file, line) PRESENT in committed, rerun cannot have HIGHER severity at same location.
+
+    Per Codex round-1 P1-5 fix: only check locations that exist in committed.
+    New findings at NEW locations are NOT severity upgrades — they're audit-only
+    drift (Plan v13 §C structural-equivalence rule: "P2/P3 count drift → audit only,
+    not merge-blocking"). New P0/P1 findings at new locations are caught separately
+    by `_no_p0_p1` rule.
+    """
+    committed_by_loc: dict[tuple[str, int], int] = {}
     for f in committed_findings:
         key = (f.get("file", ""), f.get("line", 0))
         sev = SEVERITY_RANK.get(f.get("severity", "P3"), 0)
-        committed_by_loc[key] = max(committed_by_loc.get(key, -1), sev)
+        if key in committed_by_loc:
+            committed_by_loc[key] = max(committed_by_loc[key], sev)
+        else:
+            committed_by_loc[key] = sev
 
     upgrades = []
     for f in rerun_findings:
         key = (f.get("file", ""), f.get("line", 0))
+        if key not in committed_by_loc:
+            continue  # new location → not an upgrade (drift; audit-only)
         rerun_sev = SEVERITY_RANK.get(f.get("severity", "P3"), 0)
-        committed_sev = committed_by_loc.get(key, -1)
+        committed_sev = committed_by_loc[key]
         if rerun_sev > committed_sev:
             upgrades.append({
                 "file": key[0],
                 "line": key[1],
-                "committed_severity": [s for s, r in SEVERITY_RANK.items() if r == committed_sev] or ["NONE"],
+                "committed_severity": [s for s, r in SEVERITY_RANK.items() if r == committed_sev][0],
                 "rerun_severity": f.get("severity"),
                 "description": f.get("description", "")[:200],
             })
 
     if upgrades:
-        return False, f"severity upgrade detected at {len(upgrades)} location(s); first: {upgrades[0]}"
+        return False, f"severity upgrade at {len(upgrades)} location(s); first: {upgrades[0]}"
     return True, "no severity upgrades"
 
 
