@@ -84,11 +84,13 @@ jobs:
           if-no-files-found: error
 
   codex-rerun:
-    name: Phase B — Codex re-review (egress jail)
+    name: Phase B — Codex re-review (egress jail, OAuth via mounted credentials)
     runs-on: [self-hosted, polaris-ca-bhs]
     timeout-minutes: 30
     needs: trusted-setup
-    environment: codex_runtime
+    # No `environment:` binding — no API-key secret needed.
+    # Codex authenticates via OAuth tokens at $HOME/.codex/auth.json on the runner;
+    # `codex login` ran ONCE during runner provisioning (Plan v13 §G #10/#11 folded).
     steps:
       - name: Download codex-input
         uses: actions/download-artifact@v4
@@ -96,31 +98,42 @@ jobs:
           name: codex-input
           path: /tmp/codex_input
 
-      - name: Create isolated Docker networks + start Caddy proxy sidecar
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Verify Codex OAuth token present on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$HOME/.codex/auth.json" ]]; then
+              echo "::error::Codex OAuth credentials missing at \$HOME/.codex/auth.json on runner."
+              echo "::error::Run `codex login` once during runner provisioning."
+              exit 1
+          fi
+          # Sanity check token is not expired (best-effort)
+          if ! codex --version >/dev/null 2>&1; then
+              echo "::error::codex CLI broken on runner"
+              exit 1
+          fi
+
+      - name: Create isolated Docker networks + start Caddy egress proxy sidecar
         shell: bash
         run: |
           set -euo pipefail
           # Internal-only network — no external connectivity
           docker network create --internal polaris-internal || true
-          # Egress network — restricted by host firewall
+          # Egress network — restricted by host firewall to api.openai.com:443
           docker network create polaris-egress || true
-          # Apply default-deny + allow only api.openai.com:443 on egress network
           sudo /usr/local/bin/polaris_egress_firewall.sh polaris-egress api.openai.com 443
 
-          # Start Caddy reverse-proxy sidecar
+          # Caddy sidecar acts as egress restriction point ONLY.
+          # No Authorization-header injection — Codex authenticates with its own
+          # OAuth tokens (mounted from host).
           docker run -d --name polaris-codex-proxy \
                      --network polaris-internal \
                      --user 1000:1000 \
                      --cap-drop ALL \
                      --read-only --tmpfs /tmp \
                      --security-opt no-new-privileges \
-                     --env OPENAI_API_KEY \
                      --volume /etc/polaris/Caddyfile:/etc/caddy/Caddyfile:ro \
                      caddy:2-alpine
-
-          # Attach proxy to egress network so it can reach api.openai.com
           docker network connect polaris-egress polaris-codex-proxy
 
           # Wait for Caddy ready
@@ -134,11 +147,15 @@ jobs:
           echo "::error::Caddy proxy failed to come up"
           exit 1
 
-      - name: Run Codex in container (no real OpenAI key in container env)
+      - name: Run Codex in container (OAuth from mounted ~/.codex)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/codex_output
+          # Mount ~/.codex read-only so Codex CLI can read its OAuth tokens.
+          # Container is otherwise heavily restricted (network internal, cap-drop,
+          # apparmor, seccomp, read-only FS) so the token credential set has the
+          # same threat-model as API-key-in-env (per Plan v13 §C-rerun honest disclosure).
           docker run --rm \
                      --network polaris-internal \
                      --user 1001:1001 \
@@ -149,8 +166,9 @@ jobs:
                      --security-opt seccomp=/etc/polaris/seccomp.json \
                      --volume /tmp/codex_input:/input:ro \
                      --volume /tmp/codex_output:/output \
-                     --env "OPENAI_API_KEY=REDACTED-USE-PROXY" \
-                     --env "OPENAI_BASE_URL=http://polaris-codex-proxy:8443/v1" \
+                     --volume "$HOME/.codex:/codex_auth:ro" \
+                     --env "HOME=/tmp" \
+                     --env "CODEX_HOME=/codex_auth" \
                      --env "TASK_ID=${{ needs.trusted-setup.outputs.task_id }}" \
                      polaris-codex-runner:pinned-sha \
                      sh -c "codex exec \

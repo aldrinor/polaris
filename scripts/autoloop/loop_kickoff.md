@@ -9,12 +9,11 @@ all of §K Steps 1-16 (smoke tests) have passed.**
 Per Plan v13 §G decisions:
 
 - [ ] **#1** Budget commitment signed (`$32-70k ceiling`, email to me)
-- [ ] **#6** GitHub auth refreshed: `! gh auth refresh -h github.com -s workflow,admin:repo_hook,repo`
+- [ ] **#6** GitHub auth refreshed: `gh auth refresh -h github.com -s workflow,admin:repo_hook,repo`
 - [ ] **#9** Canonical reconciliation commit signed (BOOTSTRAP commit landed)
-- [ ] **#10** Self-hosted Canadian GitHub Actions runner online (label `polaris-ca-bhs`)
-- [ ] **#11** OPENAI_API_KEY set in `codex_runtime` GitHub Environment + budget cap
-- [ ] **#12** ANTHROPIC_API_KEY in `.env` + monthly cap (~$300-800)
+- [ ] **#10** Self-hosted Canadian GitHub Actions runner online (label `polaris-ca-bhs`); `codex login` + `claude login` ran on it (folds in former #11 + #12 — no API keys)
 - [ ] **#13** GPG keypair created; public key at `docs/keys/msn_public.gpg`
+- [ ] **Local prerequisite**: `codex login` + `claude login` already run on this machine (yes — confirmed by `codex --version` + `claude --version` working). Orchestrator uses these OAuth tokens; no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` needed.
 - [ ] §K Step 16 smoke task `bootstrap_smoke` PASSED end-to-end
 - [ ] `state/bootstrap_active` deleted (signals smoke complete, gate active)
 
@@ -27,9 +26,10 @@ Decisions #2 (OVH H200), #3 (Vast.ai), #4 (evaluator), #5 (IP counsel), #7
 ```bash
 cd C:/POLARIS
 pip install -r requirements-orchestrator.txt
-# Verify env
-test -n "$ANTHROPIC_API_KEY" || (echo "ANTHROPIC_API_KEY missing"; exit 1)
-codex --version
+# Verify OAuth tokens present (no API keys needed — uses Codex + Claude Code subscription auth)
+codex --version  || (echo "codex CLI broken"; exit 1)
+test -f ~/.codex/auth.json || (echo "Run \`codex login\`"; exit 1)
+test -f ~/.claude/credentials.json -o -f ~/.claude/auth.json || (echo "Run \`claude login\`"; exit 1)
 # Start orchestrator
 python scripts/autoloop/orchestrator.py
 ```

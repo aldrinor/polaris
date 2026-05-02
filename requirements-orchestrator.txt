@@ -1,7 +1,11 @@
-# POLARIS Autoloop Orchestrator dependencies (Plan v13 §D + §G #12)
+# POLARIS Autoloop Orchestrator dependencies (Plan v13 §D)
 # Pinned at bootstrap; bump only via signed canonical-edit commit.
+#
+# Authentication: NO API keys required. Both Codex CLI and Claude Agent SDK
+# pick up OAuth tokens from the user's existing `codex login` + `claude login`
+# sessions. SDK uses subscription auth when ANTHROPIC_API_KEY is not set.
 
-claude-agent-sdk>=0.1.0,<0.2.0    # Plan v13 §D primary substrate
+claude-agent-sdk>=0.1.0,<0.2.0    # Plan v13 §D primary substrate (uses Claude Code OAuth)
 pyyaml>=6.0.1,<7                  # task_acceptance_matrix.yaml parsing
 jsonschema>=4.20.0,<5             # verdict schema validation
 python-gnupg>=0.5.2,<0.6          # §C-private GPG attestation verification

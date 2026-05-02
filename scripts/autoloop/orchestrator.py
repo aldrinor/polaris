@@ -21,9 +21,17 @@ Halt conditions per Plan v13 §H:
 
 Each halt → emits state/halt_<timestamp>_<task_id>.md and exits 0.
 
+Authentication:
+  Both Codex CLI and Claude Agent SDK use OAuth tokens from the user's existing
+  logins on this machine — NO API keys required.
+    - `codex exec` reads OAuth from ~/.codex/auth.json (run `codex login` once)
+    - Claude Agent SDK reads OAuth from Claude Code's credential store
+      (~/.claude/credentials.json) when ANTHROPIC_API_KEY is not set
+  If you have a Claude Pro/Max/Team subscription, this just works — the SDK uses
+  your subscription quota, not pay-per-token billing.
+
 Required env:
-  ANTHROPIC_API_KEY — for Claude Agent SDK
-  POLARIS_ROOT      — defaults to C:/POLARIS
+  POLARIS_ROOT — defaults to C:/POLARIS
 """
 
 from __future__ import annotations
