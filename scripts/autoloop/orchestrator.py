@@ -22,13 +22,14 @@ Halt conditions per Plan v13 §H:
 Each halt → emits state/halt_<timestamp>_<task_id>.md and exits 0.
 
 Authentication:
-  Both Codex CLI and Claude Agent SDK use OAuth tokens from the user's existing
-  logins on this machine — NO API keys required.
+  Both Codex CLI and Claude Code CLI use OAuth tokens from the user's existing
+  logins on this machine — NO API keys required, NO Python SDK dependency.
     - `codex exec` reads OAuth from ~/.codex/auth.json (run `codex login` once)
-    - Claude Agent SDK reads OAuth from Claude Code's credential store
-      (~/.claude/credentials.json) when ANTHROPIC_API_KEY is not set
-  If you have a Claude Pro/Max/Team subscription, this just works — the SDK uses
-  your subscription quota, not pay-per-token billing.
+    - `claude -p` reads OAuth from Claude Code's credential store
+      (~/.claude/credentials.json) — same auth as the user's interactive sessions
+  If you have a Claude Pro/Max/Team subscription, this just works — the CLI uses
+  your subscription quota, not pay-per-token billing. The `--max-budget-usd` flag
+  enforces Plan v13 §H halt-condition #3 at the CLI layer.
 
 Required env:
   POLARIS_ROOT — defaults to C:/POLARIS
@@ -42,6 +43,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -279,38 +281,25 @@ listing what's done + what's blocked, then exit. Orchestrator emits halt-conditi
     return brief
 
 
-# ---------- Agent SDK invocation (lazy import to allow standalone tests) ----------
-
-async def _hard_halt_callback(input_data, tool_use_id, context):
-    """PreToolUse hook callback — defense in depth alongside disallowed_tools."""
-    tool_name = input_data.get("tool_name", "")
-    if tool_name in ("AskUserQuestion", "Agent", "Task", "WebFetch", "WebSearch", "ExitPlanMode"):
-        task_id = os.environ.get("POLARIS_TASK_ID", "unknown")
-        halt = HaltCondition(
-            5, f"agent attempted forbidden tool {tool_name}", task_id=task_id,
-            payload={"tool_input": input_data.get("tool_input", {})},
-        )
-        _emit_halt_marker(halt)
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f"Tool {tool_name} forbidden in non-interactive task; "
-                    f"halt marker written for orchestrator pickup."
-                ),
-            }
-        }
-    return None
+# ---------- Claude Code CLI invocation (replaces Claude Agent SDK 2026-05-02) ----------
+# Rationale: the `claude` CLI (v2.1.126+) is already installed and OAuth-authenticated
+# from the user's interactive Claude Code sessions. Using it directly via subprocess
+# eliminates the `claude-agent-sdk` Python dependency (one less halt-condition #7
+# trigger) and ensures the orchestrator uses the same auth + tool-restriction
+# semantics the user already validates interactively. --max-budget-usd enforces
+# Plan v13 §H halt-condition #3 at the CLI layer; --disallowedTools enforces
+# tool-restriction discipline (replacing the SDK PreToolUse hook).
 
 
 async def _run_agent_session(task_id: str, brief: str, deadline_ts: float) -> dict:
-    """Spawn fresh Claude Agent SDK session for the task. Returns result summary."""
-    try:
-        from claude_agent_sdk import query, ClaudeAgentOptions, HookMatcher
-    except ImportError:
+    """Spawn fresh Claude Code CLI session for the task. Returns result summary.
+
+    Uses `claude -p` (non-interactive) with OAuth from user's existing Claude Code
+    login (~/.claude/credentials.json). No Python SDK dependency.
+    """
+    if not shutil.which("claude"):
         raise HaltCondition(
-            7, "claude_agent_sdk not installed; pip install claude-agent-sdk",
+            7, "claude CLI not on PATH; install from https://claude.com/code",
             task_id=task_id,
         )
 
@@ -318,38 +307,76 @@ async def _run_agent_session(task_id: str, brief: str, deadline_ts: float) -> di
     os.environ["POLARIS_TASK_ID"] = task_id
     os.environ["POLARIS_PIN_SHA"] = pin_sha
 
-    options = ClaudeAgentOptions(
-        cwd=str(POLARIS_ROOT),
-        system_prompt=brief,
-        permission_mode="dontAsk",
-        allowed_tools=["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
-        disallowed_tools=[
-            "AskUserQuestion", "Agent", "Task",
-            "WebFetch", "WebSearch", "ExitPlanMode",
-        ],
-        hooks={
-            "PreToolUse": [
-                HookMatcher(
-                    matcher="AskUserQuestion|Agent|Task|WebFetch|WebSearch|ExitPlanMode",
-                    hooks=[_hard_halt_callback],
-                ),
-            ],
-        },
-        setting_sources=["project"],
-        model="claude-opus-4-7",
-        max_turns=200,
-    )
+    timeout_s = max(60, int(deadline_ts - time.time()))
 
-    summary = {"task_id": task_id, "messages": 0, "halt": None}
+    cmd_list = [
+        "claude", "-p",
+        "--allowedTools", "Read Write Edit Bash Grep Glob",
+        "--disallowedTools", "AskUserQuestion Agent Task WebFetch WebSearch ExitPlanMode",
+        "--max-budget-usd", str(PER_TASK_USD_CAP),
+        "--permission-mode", "dontAsk",
+        "--output-format", "json",
+    ]
+    # Windows: shell=True for .cmd shim resolution (same pattern as codex exec).
+    import platform
+    use_shell = platform.system() == "Windows"
+    if use_shell:
+        import shlex
+        cmd_run = " ".join(shlex.quote(c) for c in cmd_list)
+    else:
+        cmd_run = cmd_list
+
+    summary = {"task_id": task_id, "messages": 0, "halt": None, "cost_usd": 0.0}
     try:
-        async for msg in query(prompt=brief, options=options):
-            summary["messages"] += 1
-            if time.time() > deadline_ts:
-                raise HaltCondition(2, "24h wall-clock exceeded", task_id=task_id)
-    except HaltCondition:
-        raise
+        r = subprocess.run(
+            cmd_run,
+            input=brief.encode("utf-8"),
+            capture_output=True, timeout=timeout_s, cwd=str(POLARIS_ROOT),
+            shell=use_shell,
+        )
+    except subprocess.TimeoutExpired:
+        raise HaltCondition(
+            2, f"24h wall-clock exceeded during claude session (timeout={timeout_s}s)",
+            task_id=task_id,
+        )
     except Exception as e:
-        summary["halt"] = str(e)
+        summary["halt"] = f"subprocess invocation failed: {e!r}"
+        return summary
+
+    # Parse JSON result (claude -p --output-format json emits one result object)
+    stdout_text = r.stdout.decode("utf-8", errors="replace")
+    stderr_text = r.stderr.decode("utf-8", errors="replace")
+    try:
+        result = json.loads(stdout_text)
+    except Exception:
+        # Non-JSON output = unexpected failure (CLI crashed, OAuth invalid, etc.)
+        raise HaltCondition(
+            7, f"claude -p produced non-JSON output (returncode={r.returncode}): "
+               f"stdout[:500]={stdout_text[:500]!r}, stderr[:300]={stderr_text[:300]!r}",
+            task_id=task_id,
+        )
+
+    summary["messages"] = result.get("num_turns", 0)
+    summary["cost_usd"] = result.get("total_cost_usd", 0.0)
+
+    # Detect specific halt-condition signatures in CLI errors
+    if result.get("is_error"):
+        errors = result.get("errors") or []
+        err_text = " | ".join(str(e) for e in errors)
+        subtype = result.get("subtype", "")
+        if subtype == "error_max_budget_usd" or "maximum budget" in err_text.lower():
+            raise HaltCondition(
+                3, f"per-task ${PER_TASK_USD_CAP} cap hit at ${summary['cost_usd']:.2f}: {err_text}",
+                task_id=task_id,
+            )
+        if any(k in err_text for k in ("AskUserQuestion", "Agent", "Task", "WebFetch", "WebSearch", "ExitPlanMode")):
+            raise HaltCondition(
+                5, f"agent attempted forbidden tool: {err_text}",
+                task_id=task_id,
+            )
+        # Other CLI-reported error → record but don't halt (let Codex review judge)
+        summary["halt"] = f"claude -p reported is_error=true subtype={subtype} errors={err_text[:300]}"
+
     return summary
 
 
