@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "2b_7_prep_briefing_pack",
+  "iter": 1,
+  "codex_session_id": "manual_codex_review_20260503T000000Z",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "ae901fbf4eebeb2b5d9f00942826f88693b81b6500aa8cbba4aad7156b5719e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "2b48660e3e089e7fd49b96665f7155bdb0b2d1881d3034898f14a471e5decfe2",
+  "verdict": "APPROVE",
+  "verdict_reason": "Iter-2 P1s are closed: briefing.md scopes F10b click-through to evidence-id-keyed datums only, and test_inputs.md Block B now marks frame_coverage-derived frame_id datums as expected Phase-2B-PARTIAL no-ops rather than failures. No new P0/P1 issues found in scoped files.",
+  "findings": [],
+  "timestamp": "2026-05-03T00:00:00Z",
+  "post_halt_resolution": {
+    "resolution_path": 3,
+    "halt_marker_path": "outputs/audits/halt_resolutions/2b_7_prep_briefing_pack_halt.md",
+    "halt_iter": 3,
+    "lowered_bar_summary": "Phase-2B-PARTIAL-honest: F6 and F10 static-fixture surfaces are testable on HEAD; F13 replay and F14 real-corpus memory remain observational-only until Section G #3 cluster work; chart click-to-source is required only for datums whose evidence_id resolves through evidenceById, while frame_coverage-derived frame_id datums are expected no-ops."
+  },
+  "hmac_sha256": "bdcee7f794655f6a3bb5908e44d127a1f4fb6510bfd586763ad9e83c690941d4"
+}
