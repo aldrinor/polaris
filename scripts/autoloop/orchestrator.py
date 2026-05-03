@@ -424,10 +424,24 @@ checks, severity-stratified per .codex/REVIEW_BRIEF_FORMAT_v2.md.
 
 ## Authoritative inputs
 
-- Diff: `git diff --cached` from this orchestrator session, sha256={diff_sha}
-- Manifest: outputs/audits/manifests/{task_id}.json
+- Diff: `git diff --cached` from this orchestrator session
+- Substrate diff sha256={diff_sha} — INTENTIONALLY excludes
+  `outputs/audits/manifests/**`, `outputs/audits/verdicts/**`, and
+  `outputs/audits/codex_audit.jsonl` per gate convention (those paths
+  are gate-managed, not substrate). For prep tasks whose only change
+  IS a manifest, this hash may legitimately be the empty SHA256
+  (e3b0c44...855) while `git diff --cached --numstat` shows real
+  added lines. Verify staged content via `git diff --cached --name-only`
+  rather than via this hash; output the same hash unchanged in your
+  verdict (orchestrator overrides at sign time anyway).
+- Manifest path (per matrix `changed_files_glob`): may be either
+  `outputs/audits/manifests/{task_id}.json` (parent-task convention)
+  OR a glob the matrix points to (e.g. `outputs/audits/manifests/0.5.json`
+  for prep `0_5_stub_substrate` whose parent is `0.5`). Prefer the
+  matrix glob.
 - Canonical pin: {pin_sha}
 - Acceptance criteria for {task_id} from docs/task_acceptance_matrix.yaml
+  (or its substrate_prep entry, when reviewing a prep)
 
 ## GREEN criteria
 
