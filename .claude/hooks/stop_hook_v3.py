@@ -293,6 +293,83 @@ def _next_actionable_task(tasks: list[dict]) -> tuple[dict | None, str | None]:
     return None, None
 
 
+def _emit_block(reason: str) -> None:
+    """Emit a block-decision JSON to stdout per Claude Code Stop hook spec.
+
+    Per https://code.claude.com/docs/en/hooks: use `hookSpecificOutput.additionalContext`
+    so the reason text is wrapped in a system reminder and inserted into Claude's
+    context window. The top-level `reason` field is shown to the human user;
+    Claude itself reads `additionalContext`.
+    """
+    payload = {
+        "decision": "block",
+        "reason": reason,
+        "hookSpecificOutput": {
+            "hookEventName": "Stop",
+            "additionalContext": reason,
+        },
+    }
+    sys.stdout.write(json.dumps(payload))
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+def _audit_classification(tasks: list) -> list:
+    """Sweep every non-APPROVE task for lifecycle classification.
+
+    Each non-APPROVE task MUST be in exactly one of these states:
+      (1) APPROVE'd verdict at outputs/audits/verdicts/<id>/iter_*.json
+      (2) Has at least one substrate_prep entry that is itself non-APPROVE
+          and not halt-resolved (orchestrator-completable scaffold)
+      (3) phase_gate field set + current phase < phase_gate
+      (4) user_action_only dict with rationale + required_external fields
+      (5) halt-resolution marker at outputs/audits/halt_resolutions/<id>_halt.md
+
+    Returns: list of {task_id, missing_classification} for each unclassified task.
+    """
+    unclassified = []
+    for task in tasks:
+        task_id = task.get("task_id")
+        if not task_id:
+            continue
+        # (1) Already APPROVE'd → nothing required
+        if _verdict_state(task_id) == "APPROVE":
+            continue
+        # (5) halt-resolved at task-level → documented terminal state
+        if _is_task_halted(task_id):
+            continue
+        # (3) phase_gated → check it has the field + valid phase ref
+        if task.get("phase_gate"):
+            continue
+        # (4) user_action_only with rationale → documented external-dependency
+        ua_only = task.get("user_action_only")
+        if isinstance(ua_only, dict) and ua_only.get("rationale"):
+            continue
+        # (2) Active substrate_prep → orchestrator-completable scaffold defined
+        preps = task.get("substrate_prep", []) or []
+        has_active_prep = False
+        for prep in preps:
+            if not isinstance(prep, dict):
+                continue
+            pid = prep.get("id")
+            if not pid:
+                continue
+            if _is_task_halted(pid):
+                continue
+            # Either pending (will be picked) OR APPROVE'd (already done) — both count
+            has_active_prep = True
+            break
+        if has_active_prep:
+            continue
+        # Otherwise: UNCLASSIFIED
+        unclassified.append({
+            "task_id": task_id,
+            "title": task.get("title", "")[:80],
+            "user_action_legacy": bool(task.get("user_action")),
+        })
+    return unclassified
+
+
 def main() -> None:
     if not _is_polaris_session():
         sys.exit(0)
@@ -303,68 +380,82 @@ def main() -> None:
     except Exception:
         sys.exit(0)
 
-    # Guard 1: prevent infinite loop with ourselves
-    if payload.get("stop_hook_active"):
-        sys.exit(0)
-
-    # Guard 2: kill switch off → loop disabled
+    # Kill switch off → loop disabled, allow stop
     if not KILL_SWITCH.exists():
-        _write_count(0)
         sys.exit(0)
 
-    # Guard 3: max consecutive blocks safety net
-    count = _read_count()
-    if count >= MAX_CONSECUTIVE_BLOCKS:
-        _write_count(0)
-        sys.exit(0)
+    # NOTE: dropped MAX_CONSECUTIVE_BLOCKS counter (anti-pattern per
+    # https://code.claude.com/docs/en/hooks: "Make your validation script
+    # idempotent (same input → same result)... Check state from files/environment
+    # rather than hook call count"). Validation is now purely state-based.
 
     # Step A: verify canonical pin (HARD STOP if drift)
     pin_ok, pin_msg = _verify_canonical_pin()
     if not pin_ok:
-        _write_count(count + 1)
-        reason = (
+        _emit_block(
             f"POLARIS HARD STOP — canonical pin drift detected: {pin_msg}. "
             f"Per Plan v13 §A: any pinned-file change requires user-signed "
             f"reconciliation commit + new pin. Halt loop, investigate before resume."
         )
-        sys.stdout.write(json.dumps({"decision": "block", "reason": reason}))
-        sys.stdout.flush()
-        sys.exit(0)
 
-    # Step B: parse matrix from HEAD, find next actionable
+    # Step B: parse matrix from HEAD
     tasks = _parse_matrix_tasks_from_head()
     if not tasks:
-        # Matrix unparseable (likely Phase 1-5 not yet filled out per §K Step 0b).
-        # Don't block stop — let user know via heartbeat.
-        _write_count(0)
+        # Matrix unparseable — allow stop (don't block on infrastructure failure)
         sys.exit(0)
 
+    # Step C: classification exhaustion audit.
+    # Every non-APPROVE task MUST be classified. Refuse stop until ALL tasks have
+    # one of: APPROVE'd verdict / active substrate_prep / phase_gate / user_action_only
+    # rationale / halt-resolution marker. If any unclassified, block and tell Claude
+    # exactly what to add.
+    unclassified = _audit_classification(tasks)
+    if unclassified:
+        lines = [
+            "POLARIS classification audit FAIL — cannot stop until every non-APPROVE task is classified.",
+            "",
+            f"{len(unclassified)} unclassified task(s):",
+        ]
+        for item in unclassified[:15]:
+            ua = " (legacy user_action flag, no rationale)" if item["user_action_legacy"] else ""
+            lines.append(f"  - {item['task_id']}: {item['title']}{ua}")
+        if len(unclassified) > 15:
+            lines.append(f"  ... and {len(unclassified) - 15} more")
+        lines += [
+            "",
+            "Each unclassified task MUST be brought into ONE of these states (in matrix or filesystem):",
+            "  (a) substrate_prep entry — orchestrator-completable scaffold (manifest / runbook / outline / harness)",
+            "  (b) phase_gate: phase_<N> — defers task until phase N starts (orchestrator skips silently)",
+            "  (c) user_action_only: { rationale: '...', required_external: '...' } — external-only, documented",
+            "  (d) outputs/audits/halt_resolutions/<task_id>_halt.md — explicit halt with rationale",
+            "",
+            "Add the appropriate classification, update docs/canonical_pin.txt if matrix changed, ",
+            "commit infrastructure-only, then continue. DO NOT stop without classifying.",
+        ]
+        _emit_block("\n".join(lines))
+
+    # Step D: find next actionable
     next_task, prep_id = _next_actionable_task(tasks)
     if next_task is None:
-        # All tasks APPROVE'd, nothing left
-        _write_count(0)
+        # Every task is classified AND nothing actionable remaining → genuinely done
         sys.exit(0)
 
     # Block stop, point at next actionable
-    _write_count(count + 1)
     target = prep_id or next_task["task_id"]
     if prep_id:
         msg = f"prep sub-task {prep_id} (parent {next_task['task_id']} is user-action-blocked)"
     else:
         msg = f"task {next_task['task_id']}"
 
-    reason = (
+    _emit_block(
         f"POLARIS autoloop active — next actionable: {msg}. "
         f"Per Plan v13 §E strict canonical-plan sequence (no jumping). "
         f"Read docs/task_acceptance_matrix.yaml for green-criteria; "
         f"build manifest at outputs/audits/manifests/{target}.json; "
         f"orchestrator will invoke `codex exec` for verdict gate. "
-        f"(Block {count + 1}/{MAX_CONSECUTIVE_BLOCKS}. To stop loop: "
-        f"delete state/autoloop_active.)"
+        f"To stop loop: delete state/autoloop_active OR document a halt-resolution "
+        f"at outputs/audits/halt_resolutions/{target}_halt.md."
     )
-    sys.stdout.write(json.dumps({"decision": "block", "reason": reason}))
-    sys.stdout.flush()
-    sys.exit(0)
 
 
 if __name__ == "__main__":

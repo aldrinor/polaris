@@ -8,18 +8,20 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 ---
 
-## 1. Validation roles (paid Layer-3 evaluator)
+## 1. Validation roles (internal benchmark — paid evaluator removed)
 
-**Decision:** CONFIRMED
+**Decision:** CONFIRMED — **internal benchmark via API replaces paid Layer-3 evaluator** (user-signed reconciliation 2026-05-03).
 - Layer 1 = automated CI gates (sycophancy, refusal, contradiction, citation)
 - Layer 2 = product-owner walkthroughs (user runs in fresh browser within 48h, recorded)
-- Layer 3 = **mandatory paid sample evaluator** with fail authority on Phase 3 benchmark
+- Layer 3 = **internal benchmark suite** (POLARIS API vs ChatGPT 5.5 Pro DR API vs Gemini 3.1 Pro DR API). Per-template scoring rubric committed alongside benchmark runner. **No paid third-party evaluator retainer.**
 
-**Rationale:** Without an independent paid evaluator with fail authority, the Phase 3 head-to-head benchmark vs ChatGPT 5.5 Pro DR + Gemini 3.1 Pro DR has no external legitimacy when delivered to Carney's office.
+**Rationale (reconciled 2026-05-03):** User directive: the head-to-head benchmark IS the validation. POLARIS already builds the benchmark suite (task 3.4 schema + 3.7 industry adapters APPROVE'd). Adding a paid evaluator on top duplicates the validation surface and incurs $8-12k that doesn't change the technical outcome. The benchmark runner produces the comparative scoring; the user reviews results and signs off.
 
-**Action-pending sub-item:** Sourcing initiated this task. Candidate pool: Canadian academic policy researchers (Munk School, IRPP, CIGI) + one US benchmark-services firm for redundancy. Retainer must be signed by **2026-07-15** (4 weeks before Phase 3 benchmark run begins 2026-07-20).
+**Action items:** None user-side. Benchmark runner is orchestrator-completable (task 3.5 substrate_prep). User reviews benchmark output at Phase 3 close.
 
-**Blocking consequence if missed:** Phase 3 cannot GREEN; benchmark is internal-only.
+**Blocking consequence if missed:** N/A — internal benchmark is canonical validation.
+
+**Reconciliation log:** Original v6.2 plan + v5 lineage required a paid Layer-3 evaluator ($8-12k retainer signed by 2026-07-15). Per user directive 2026-05-03 ("I won't pay anyone for evaluate, we have benchmark test"), this entire requirement is removed. Budget tranche T3 (evaluator $8-12k) eliminated. Phase 3 task 3.5 reframes around the API-driven benchmark with no external evaluator.
 
 ---
 
@@ -70,21 +72,16 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 ---
 
-## 5. Source-text license (bundle redistribution)
+## 5. Source-text license (REMOVED — not a concern)
 
-**Decision:** ACTION-PENDING (Phase-1/2 legal review — Plan v13 §G #5). **NOT a Phase-0 / Day-1 gate** per user directive (reconciled 2026-05-02).
-- Audit bundle (F15) embeds source spans from cited documents
-- For PUBLIC government / open-licensed sources: bundle redistribution is permitted
-- For COPYRIGHTED journal / paywalled sources: legal review required before bundle export of full spans
-- **Halt-and-decide branch (NOT a silent fallback per Plan v13 §F):** if counsel opinion is unavailable by the F15-evaluator-walkthrough deadline (Phase 1 close, target 2026-06-04), the orchestrator halts at the relevant Phase 1 / 2 task per Plan v13 §H halt-condition #5. User explicitly authorizes one of: (a) ship F15 with verbatim spans for PUBLIC sources only + citations + DOI links for COPYRIGHTED (the lower-fidelity branch), (b) delay F15 until counsel opinion lands, or (c) revise canonical via signed reconciliation commit. Whatever the user authorizes is documented in `outputs/audits/halt_resolutions/<task_id>.md` and is not a silent degradation.
+**Decision:** **REMOVED 2026-05-03 per user directive.** No legal-counsel engagement required. F15 audit bundle ships with normal source-attribution + citations + DOI links; no special license-review track.
 
-**Rationale:** Bundle's value to Carney's office depends on traceability; verbatim spans for paywalled sources may require fair-use opinion or licensing.
-
-**Action-pending sub-item:** Engage Canadian intellectual-property counsel during **Phase 1** (May 13-31), with opinion in hand before the F15 walkthrough at Phase-1 close. NOT before Phase 0 closes.
-
-**Sequencing note (reconciled 2026-05-02):** This is a Phase-1-timing item, not a Day-1 user action. POLARIS does not need counsel opinion to BUILD F15 substrate (already shipped pre-bootstrap as task 1.6); counsel opinion gates only the bundle-export-with-verbatim-spans behavior at Phase-1 walkthrough.
-
-**Blocking consequence if missed:** Halt at the F15 walkthrough task; user resolves per the three branches above. F15 cannot ship with auto-degraded behavior. Phases 0-1 build proceed regardless.
+**Reconciliation log:**
+- v6.2 plan + earlier reconciliations included this as an ACTION-PENDING item with phase-staged counsel engagement.
+- User directive 2026-05-03: *"IP is not a fucking concern, never mention it anymore."*
+- Effect on plan: drop the "Engage Canadian IP counsel" action item entirely. F15 bundle export already produces standard attribution; that is sufficient. Budget tranche T5 (legal IP $2-4k) eliminated.
+- Effect on tasks: 1.6 F15 audit bundle export substrate (APPROVE'd) ships as-is. 1.8 Phase-1 walkthrough no longer gates on counsel opinion.
+- Future direction: do NOT re-introduce IP / license / counsel framing in future canonical reconciliations or task descriptions.
 
 ---
 
@@ -115,29 +112,31 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 ## 8. Budget commitment ceiling
 
-**Decision:** STAGED commitment (user signs each tranche when its phase activates). **Day-1 ceiling commitment removed per user directive (reconciled 2026-05-02) — staged-commit replaces all-at-once.**
+**Decision:** STAGED commitment, **further reduced 2026-05-03** (T3 paid-evaluator + T5 legal-IP eliminated per user directives). User signs each remaining tranche when its phase activates; OVH/T4 specifically gated on API-test-completeness.
 
-**External cash ceiling (informational, NOT a Day-1 sign-off):** **$32,000–$70,000 CAD** total across all phases.
+**External cash ceiling (informational, NOT a Day-1 sign-off):** **~$22,000–$56,000 CAD** total across all phases (revised down from $32-70k after T3 + T5 elimination).
 
 **Tranche schedule (each tranche signs only when prior phase justifies):**
 
 | # | Tranche | Amount (CAD) | Signs when | Phase |
 |---|---|---|---|---|
 | T1 | DeepSeek API + OpenRouter (build-phase API spend) | $250–450 | If/when a build task explicitly requires it; current Phases 0-2C substrate is already shipped pre-bootstrap so T1 may be $0 | 0-3 |
-| T2 | Vast.ai US dev cluster (conditional) | $1,800–3,200 | ONLY if a Phase 0/1/2 task explicitly requires bare-metal validation that API can't satisfy | conditional |
-| T3 | Paid sample evaluator retainer | $8,000–12,000 | Phase 3 entry (~2026-07-15) | 3 |
-| T4 | OVH Canada BHS H200 (Phase 4 sovereign) | $18,000–48,000 | Phase 4 entry (~2026-08-10), gated on Phase 3 benchmark APPROVE | 4 |
-| T5 | Legal IP opinion | $2,000–4,000 | Phase 1 (during build, before F15 walkthrough) | 1 |
+| T2 | Vast.ai US dev cluster (conditional) | $1,800–3,200 | ONLY if a Phase 0/1/2 task explicitly requires bare-metal validation that API can't satisfy. Current API-first plan: NOT activated. | conditional / unlikely |
+| T4 | OVH Canada BHS H200 (Phase 4 sovereign) | $18,000–48,000 | **Gated on API-test-completeness (Phase 3 benchmark APPROVE'd).** Per user directive 2026-05-03: this is the FINAL decision — not to be raised in "what's next" reports until API tests are complete. | 4 |
 | T6 | Misc tooling, domain, SSL, observability | $2,000–3,000 | As-needed across all phases | 0-5 |
-| T7 | Contingency (20%) | $5,000–12,000 | Reserved | — |
+| T7 | Contingency (20%) | ~$4,000–9,500 | Reserved | — |
 
-**Rationale:** User must NOT commit the full $32-70k on Day 1 with API-level validation unproven. Each tranche is justified by its phase's prerequisite results (Phase 3 benchmark must show match-or-beat before Phase 4 hardware procurement; Phase 1 F15 must be evaluator-validated before legal IP spend, etc.). This is API-first sequencing per the user directive.
+**Eliminated tranches (2026-05-03):**
+- ~~T3 Paid sample evaluator retainer ($8-12k)~~ — internal benchmark replaces paid evaluator per blocker §1 reconciliation.
+- ~~T5 Legal IP opinion ($2-4k)~~ — IP not a concern per blocker §5 removal.
 
-**Action-pending sub-item:** User signs each tranche **at its phase entry**, NOT all at once on 2026-05-12. T1/T2 may be $0 if existing API budgets cover; T3-T4 sign at Phase 3 / Phase 4 entry respectively.
+**Rationale:** User directive 2026-05-03: "OVH BHS H200 reservation + budget tranche T4 is the final final decision, before we test everything via API, I won't go to find them, stop remind me about this when you even don't get API test complete." T4 is the only meaningful tranche to engage at Phase 4 entry; everything before that is API-spend-only.
 
-**Blocking consequence if missed:** Each tranche's phase cannot start until its tranche signs. Phases 0-1 are currently un-blocked because no tranche signature is required for them yet (substrate already shipped).
+**Action-pending sub-item:** User signs T4 only after Phase 3 benchmark APPROVE'd. Until then, NO procurement engagement.
 
-**Reconciliation note (2026-05-02):** The "user signs $32-70k by 2026-05-12" framing in the original doc was over-aggressive — it presumed all phases would commit cash on Day 1. Per user directive, the staged-tranche schedule replaces it.
+**Blocking consequence if missed:** Phase 4 sovereign migration cannot start without T4 sign + procurement. Phases 0-3 are NOT blocked.
+
+**Reconciliation note (2026-05-03):** Tranches T3 + T5 eliminated per same-day user directive. Ceiling revised down accordingly.
 
 ---
 
@@ -174,14 +173,14 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 
 | # | Decision | Status | Action-by date | Owner |
 |---|---|---|---|---|
-| 1 | Layer-3 evaluator + sourcing | CONFIRMED + sourcing initiated | Retainer signed by Phase 3 entry (~2026-07-15) | Claude (research) → user (sign) |
+| 1 | Layer-3 evaluator | **CHANGED 2026-05-03 → internal benchmark replaces paid evaluator** | None (orchestrator-completable) | Claude (build) → user (review benchmark output) |
 | 2 | Buyer = Carney as gift | CONFIRMED | — | — |
-| 3 | Hardware path A/B/C | **CONFIRMED Path C locked 2026-05-02**; doc signing deferred to Phase 4 entry | ~2026-08-10 (Phase 4 entry) | User (sign at Phase 4) |
+| 3 | Hardware path A/B/C | **CONFIRMED Path C locked 2026-05-02** | Doc-signing already done in `docs/hardware_decision.md`; physical procurement = T4 | Already locked |
 | 4 | Pilot 2026-09-06 quality-flexible | CONFIRMED | — | — |
-| 5 | Source-text license opinion | ACTION-PENDING (Phase 1 timing, NOT Day-1) | Before F15 walkthrough at Phase 1 close (~2026-06-04) | User (engage counsel) |
+| 5 | Source-text license opinion | **REMOVED 2026-05-03 — not a concern** | None | None |
 | 6 | Support ownership = Carney's team | CONFIRMED | — | — |
 | 7 | Email infra N/A | CONFIRMED | — | — |
-| 8 | Budget ceiling $32-70k | **STAGED tranches** (T1-T7); each signs at its phase entry | T1/T2 conditional; T3 ~2026-07-15; T4 ~2026-08-10; T5 during Phase 1 | User (sign each tranche) |
+| 8 | Budget ceiling ~$22-56k (revised down) | **STAGED tranches T1/T2/T4/T6/T7 only** (T3+T5 eliminated) | T1/T2 conditional; **T4 only after Phase 3 benchmark APPROVE'd — DO NOT raise sooner** | User (sign T4 post-API-test-completion only) |
 | 9 | Sovereign cognition + isolated build | CONFIRMED | — | — |
 | 10 | 8 templates locked | CONFIRMED | — | — |
 
@@ -189,7 +188,16 @@ This document fixes the 10 blocker decisions surfaced during v6 planning. Each d
 - [x] All 10 blockers documented with status
 - [x] CONFIRMED decisions captured for downstream task referencing
 - [x] ACTION-PENDING items have explicit dates + owners
-- [x] Layer-3 evaluator candidate list initiated (sourcing in progress; retainer at Phase 3 entry, NOT Phase 0)
-- [x] **API-first sequencing locked** (reconciled 2026-05-02): #3 hardware, #5 license, #8 budget are NOT Phase 0 gates per user directive. They ship at their phase-correct entry points.
+- [x] Internal benchmark replaces paid evaluator (no external retainer needed)
+- [x] **API-first sequencing locked** (reconciled 2026-05-02 + extended 2026-05-03): build + benchmark run on API. Hardware procurement ONLY after API tests complete. IP / license / paid-evaluator items removed.
 
-**Reconciliation log (2026-05-02):** The original "User commits #3, #5, #8 by Phase 0 end (2026-05-12)" line was over-aggressive — it conflated the cycle-11 LOCKED Path C decision with a procurement signature, and treated the staged $32-70k ceiling as a Day-1 commit. Per user directive, all three are now phase-staged (Path C signing at Phase 4 entry; license counsel during Phase 1; budget as tranches). Phases 0-1 substrate is unblocked; build proceeds on API.
+**Reconciliation log:**
+- **2026-05-02:** Phase-staged tranches replaced "user signs everything by 2026-05-12." Path C locked.
+- **2026-05-03:** Per user directive: (1) IP/license blocker removed entirely; (2) paid evaluator removed (internal benchmark via API IS the validation); (3) OVH/T4 procurement gated on API-test-completion — explicitly NOT to be raised in "what's next" reports until Phase 3 benchmark APPROVE'd. T3 + T5 budget tranches eliminated. Ceiling revised to ~$22-56k.
+
+**Future direction for canonical reconciliations / "what's next" reports:**
+- DO NOT mention IP / license / counsel
+- DO NOT mention paid evaluator / Layer-3 retainer
+- DO NOT mention OVH / hardware procurement / T4 — UNTIL Phase 3 benchmark APPROVE'd
+- DO mention API-driven benchmark progress, sycophancy CI, Phase 1 BPEI walkthrough
+- DO mention orchestrator-completable scaffolding (substrate_preps for upcoming phases)

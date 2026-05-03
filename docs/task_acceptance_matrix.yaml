@@ -51,10 +51,13 @@ phase_0:
     blocking_consequence: "Phase 1 ambiguity-detector and verifier work cannot start"
 
   task_0_3:
-    title: "Vast.ai US 4× H100 dev cluster operational"
+    title: "Vast.ai US 4× H100 dev cluster operational (CONDITIONAL — likely skipped under API-first)"
     owner: "user (cluster $) + claude (provisioning script)"
-    user_action: true   # Plan v13 §G #3 — needs user $ commitment ($1.8-3.2k); orchestrator skips until verdict lands
-    user_action_description: "User commits $1.8-3.2k to Vast.ai for 7-day burst; runs `vastai create instance --gpu_name 'H100 SXM'`"
+    user_action: true
+    user_action_only:
+      rationale: "Per blockers.md §8 API-first reconciliation 2026-05-03, build + benchmark run on API endpoints (DeepSeek API + OpenRouter). Vast.ai dev cluster is conditional — user opts in only if a Phase 0/1/2 task explicitly demonstrates API-only validation is insufficient. Current plan: NOT activated."
+      required_external: "User $1.8-3.2k commitment to Vast.ai + bare-metal cluster spin-up"
+    user_action_description: "Conditional. Activate only if API-first validation reveals scenario requiring bare-metal H100 testing."
     estimate_hours: 8
     green_criteria:
       - "SGLang serving DeepSeek V4 Flash on 4× H100 confirmed"
@@ -151,8 +154,9 @@ phase_0:
   task_0_7:
     title: "SGLang vs vLLM bakeoff (one engine frozen)"
     owner: "claude"
-    user_action: true   # Plan v13 §G — depends on Task 0.3 cluster (user $); cannot run until cluster operational
-    user_action_description: "Depends on Task 0.3 dev cluster being live; orchestrator waits until 0.3 APPROVE'd"
+    user_action: true
+    phase_gate: phase_4
+    user_action_description: "Bakeoff requires live cluster. Under API-first reconciliation (blockers.md §8), bakeoff defers to Phase 4 sovereign migration where OVH H200 cluster goes live. Engine choice frozen at Phase 4.2 alongside vLLM/SGLang serving migrate."
     estimate_hours: 12
     green_criteria:
       - "Bakeoff run on dev cluster (Task 0.3) with: identical hardware, identical model (V4 Flash), 5 representative POLARIS prompts × 50 iterations"
@@ -193,10 +197,13 @@ phase_0:
     blocking_consequence: "Phase 1 evaluator verification work blocked"
 
   task_0_9:
-    title: "OVH Canada BHS H200 verification (HARD GATE)"
+    title: "OVH Canada BHS H200 procurement (gated on API-test-completion)"
     owner: "user (procurement) + claude (verification)"
-    user_action: true   # Plan v13 §G #2 — user must engage OVH Sales by 2026-05-12; HARD GATE for Phase 4
-    user_action_description: "User engages OVH Sales for 8x H200 BHS Canada quote + signs MSA"
+    user_action: true
+    user_action_only:
+      rationale: "Per user directive 2026-05-03 (blockers.md §8): OVH BHS H200 reservation is the FINAL decision and is NOT to be raised in 'what's next' reports until API testing is complete (Phase 3 benchmark APPROVE'd against ChatGPT/Gemini DR APIs). Activates ONLY post-API-test-completion."
+      required_external: "User engages OVH Sales for 8× H200 BHS Canada quote + signs MSA. Engagement triggered by Phase 3 benchmark APPROVE."
+    user_action_description: "Deferred to post-API-test-completion. NOT a current 'what's next' item."
     estimate_hours: 16
     green_criteria:
       - "OVH Canada API confirmation: H200 SKU available in BHS region (or written denial)"
@@ -784,25 +791,38 @@ phase_3:
     blocking_consequence: "Phase 3.5 benchmark cannot run"
 
   task_3_5:
-    title: "Run benchmark + paid sample evaluator"
-    owner: "user (evaluator $) + claude (orchestration)"
+    title: "Run benchmark — internal API-driven scoring (paid evaluator REMOVED 2026-05-03)"
+    owner: "claude"
     user_action: true
-    user_action_description: "Layer-3 evaluator retainer signed per §G #4 by 2026-07-15; cluster operational per §G #2/#3"
+    phase_gate: phase_3
+    user_action_description: "Per blockers.md §1 reconciliation 2026-05-03, paid Layer-3 evaluator removed. Internal benchmark suite (POLARIS API vs ChatGPT 5.5 Pro DR API vs Gemini 3.1 Pro DR API) IS the validation. User reviews the benchmark output at Phase 3 close (no external retainer needed). Substrate_prep `3_5_prep_api_benchmark_runner` is orchestrator-completable now."
     estimate_hours: 24
     green_criteria:
-      - "Benchmark run on sovereign cluster (Phase 4 prerequisite)"
-      - "Paid evaluator blind-scores against ChatGPT 5.5 Pro DR + Gemini 3.1 Pro DR"
+      - "Benchmark run via API endpoints (POLARIS via OpenRouter / DeepSeek API ; ChatGPT 5.5 Pro DR via OpenAI API ; Gemini 3.1 Pro DR via Google API)"
       - "Per-dimension delta documented per Plan v13 §F match-or-beat bar"
+      - "User reviews + signs off on benchmark output (no external evaluator retainer)"
     required_artifacts:
-      - ".private/3_5_evaluator_report.pdf (with attestation per §C-private)"
       - "outputs/audits/benchmark/3.5_results.json"
+      - "scripts/v6/benchmark/api_benchmark_runner.py"
+    substrate_prep:
+      - id: "3_5_prep_api_benchmark_runner"
+        title: "API-driven benchmark runner scaffold + scoring rubric (user-side review replaces paid evaluator)"
+        green_criteria:
+          - "scripts/v6/benchmark/api_benchmark_runner.py — runner that calls 3 APIs side-by-side per Carney template, captures structured outputs, produces comparative scoring per Plan v13 §F dimensions"
+          - "docs/benchmark/scoring_rubric.md — internal scoring rubric covering match-or-beat dimensions (citation precision, contradiction surfacing, frame coverage, two-family agreement, sycophancy, etc.)"
+          - "outputs/audits/manifests/3_5_prep_api_benchmark_runner.json — Phase-3-PARTIAL-honest manifest documenting: runner scaffold + rubric ready for Phase 3 invocation; live API run deferred to Phase 3 entry"
+        changed_files_glob:
+          - "scripts/v6/benchmark/api_benchmark_runner.py"
+          - "docs/benchmark/scoring_rubric.md"
+          - "outputs/audits/manifests/3_5_prep_api_benchmark_runner.json"
     blocking_consequence: "Phase 5 handover bundle missing benchmark"
 
   task_3_6:
     title: "Sycophancy stress-test report"
     owner: "claude"
     user_action: true
-    user_action_description: "Depends on cluster (§G #3) + 1.7 substrate"
+    phase_gate: phase_3
+    user_action_description: "Live-LLM sycophancy stress run requires Phase 3 timing (POLARIS API + adversarial fixtures). Substrate_prep `3_6_prep_stress_harness` is orchestrator-completable now."
     estimate_hours: 12
     green_criteria:
       - "Run paired-prompt fixtures against live LLM"
@@ -832,7 +852,8 @@ phase_3:
     title: "Proof package PDF (assembled at Phase 5)"
     owner: "claude"
     user_action: true
-    user_action_description: "Assembled at Phase 5; depends on 3.5 benchmark + walkthroughs"
+    phase_gate: phase_5
+    user_action_description: "Final assembly at Phase 5 from prior-phase outputs (3.5 benchmark + walkthrough recordings + crown-jewel screenshots). Substrate_prep `3_8_prep_proof_package_outline` is orchestrator-completable now."
     estimate_hours: 8
     green_criteria:
       - "docs/carney_handover/proof_package.pdf"
@@ -851,7 +872,8 @@ phase_4:
     title: "Provision sovereign Canadian cluster per Phase 0 hardware decision"
     owner: "user (procurement) + claude (provisioning)"
     user_action: true
-    user_action_description: "OVH BHS H200 8x reservation must be live (per §G #2 by 2026-05-12; HARD GATE)"
+    phase_gate: phase_4
+    user_action_description: "Phase 4 entry gates this. OVH BHS reservation engages only after API tests complete per blockers.md §8."
     estimate_hours: 16
     green_criteria:
       - "8x H200 OVH BHS Canada operational"
@@ -865,7 +887,8 @@ phase_4:
     title: "Migrate vLLM/SGLang serving + DeepSeek V4 weights + Gemma 4 evaluator"
     owner: "claude"
     user_action: true
-    user_action_description: "Depends on 4.1 cluster online"
+    phase_gate: phase_4
+    user_action_description: "Phase 4 entry. Depends on 4.1 cluster online."
     estimate_hours: 24
     green_criteria:
       - "Phase 0.7 bakeoff winner deployed"
@@ -880,7 +903,8 @@ phase_4:
     title: "Wire auto-scale (warm pool + spin-up via API on queue depth >=3)"
     owner: "claude"
     user_action: true
-    user_action_description: "Depends on 4.2"
+    phase_gate: phase_4
+    user_action_description: "Phase 4. Depends on 4.2."
     estimate_hours: 12
     green_criteria:
       - "Auto-scale tested with synthetic queue load"
@@ -893,9 +917,10 @@ phase_4:
 
   task_4_4:
     title: "Re-run benchmark on sovereign cluster (no regression)"
-    owner: "claude + evaluator"
+    owner: "claude"
     user_action: true
-    user_action_description: "Depends on 4.2"
+    phase_gate: phase_4
+    user_action_description: "Phase 4. Depends on 4.2 and re-runs the API-driven benchmark from 3.5 against the sovereign cluster (paid evaluator REMOVED 2026-05-03)."
     estimate_hours: 16
     green_criteria:
       - "All 8 templates exercised"
@@ -935,7 +960,8 @@ phase_4_5:
     title: "Address Phase 4 walkthrough findings"
     owner: "claude"
     user_action: true
-    user_action_description: "Depends on Phase 4 walkthrough findings landing"
+    phase_gate: phase_4_5
+    user_action_description: "Phase 4.5 buffer. Depends on Phase 4 walkthrough findings landing."
     estimate_hours: 24
     green_criteria:
       - "All P0/P1 findings from Phase 4 walkthrough resolved"
@@ -990,7 +1016,8 @@ phase_5:
     title: "Carney handover package finalized"
     owner: "claude"
     user_action: true
-    user_action_description: "Final URL + bundle; depends on 5.1 + 5.2"
+    phase_gate: phase_5
+    user_action_description: "Phase 5 final assembly. Depends on 5.1 walkthrough + 5.2 Codex sweep complete."
     estimate_hours: 8
     green_criteria:
       - "docs/carney_handover/ — one-pager + 5-min video + runbook + proof package"
@@ -1004,7 +1031,10 @@ phase_5:
     title: "Schedule + execute handover with Carney's office"
     owner: "user"
     user_action: true
-    user_action_description: "Per §G #8 — user provides Carney's office contact + briefing channel; deadline 2026-09-06"
+    user_action_only:
+      rationale: "Pure user-side action: user contacts Carney's office, schedules briefing, delivers bundle URL, captures acknowledgment receipt. No orchestrator-completable substrate exists for this — it is the final external execution step."
+      required_external: "User makes contact with Carney's office, schedules handover meeting, delivers materials, obtains acknowledgment"
+    user_action_description: "User executes the handover — last step before MISSION COMPLETE."
     estimate_hours: 4
     green_criteria:
       - "Handover meeting scheduled and executed"
