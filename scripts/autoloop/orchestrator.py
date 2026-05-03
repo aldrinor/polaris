@@ -188,6 +188,23 @@ def _verdict_state(task_id: str) -> tuple[str, int]:
         return "NONE", n
 
 
+def _is_halt_resolved(task_or_prep_id: str) -> bool:
+    """Skip tasks/preps that have an active halt-resolution marker.
+
+    Convention: outputs/audits/halt_resolutions/<id>_halt.md exists =
+    user has documented a deferral / structural-block resolution that
+    the orchestrator MUST honor (otherwise we burn quota re-discovering
+    the same blocker every run).
+
+    Resolution paths per Plan v13 §H halt-condition #5 are recorded in
+    the marker file. The picker walks past marked tasks silently.
+    Re-enable: delete the marker file; orchestrator re-surfaces in
+    canonical sequence on the next run.
+    """
+    halt_file = POLARIS_ROOT / "outputs" / "audits" / "halt_resolutions" / f"{task_or_prep_id}_halt.md"
+    return halt_file.is_file()
+
+
 def _next_actionable(matrix: dict) -> tuple[str | None, dict | None, str | None]:
     """Walk plan-canonical sequence; return (task_id, task_dict, prep_id_or_None)."""
     for phase_key in sorted(matrix.keys()):
@@ -203,6 +220,9 @@ def _next_actionable(matrix: dict) -> tuple[str | None, dict | None, str | None]
             verdict, _ = _verdict_state(task_id)
             if verdict == "APPROVE":
                 continue
+            # Skip tasks with active halt-resolution markers (e.g. 5.2 deferred to Phase 5)
+            if _is_halt_resolved(task_id):
+                continue
             if task_val.get("user_action"):
                 # Check substrate_prep
                 preps = task_val.get("substrate_prep", []) or []
@@ -210,8 +230,13 @@ def _next_actionable(matrix: dict) -> tuple[str | None, dict | None, str | None]
                     if not isinstance(prep, dict):
                         continue
                     prep_id = prep.get("id")
-                    if prep_id and _verdict_state(prep_id)[0] != "APPROVE":
-                        return task_id, task_val, prep_id
+                    if not prep_id:
+                        continue
+                    if _verdict_state(prep_id)[0] == "APPROVE":
+                        continue
+                    if _is_halt_resolved(prep_id):
+                        continue
+                    return task_id, task_val, prep_id
                 # User-action with no pending prep → skip
                 continue
             return task_id, task_val, None

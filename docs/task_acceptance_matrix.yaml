@@ -92,8 +92,8 @@ phase_0:
   task_0_5:
     title: "Backend modernization + Dramatiq queue acceptance test"
     owner: "claude (substrate) + user (cluster $)"
-    user_action: true   # GREEN criteria require live LLM cluster (Vast.ai per §G #3); 43 v6 tests already passing locally on stubs
-    user_action_description: "Cluster online (§G #3 Vast.ai) needed to drive real LLM jobs through Dramatiq queue; without cluster, queue acceptance tests use mocks only"
+    user_action: true   # Live cluster GREEN criteria phase-gated to Phase 4 per API-first reconciliation 2026-05-02; stub-substrate completable now
+    user_action_description: "Live LLM cluster validation phase-gated to Phase 4 (per blockers.md §3 API-first sequencing). Phase 0 close uses stub-substrate via 0_5_stub_substrate prep."
     estimate_hours: 20
     green_criteria:
       - "FastAPI 0.136.x + Pydantic v2 + Python 3.12+ on existing POLARIS backend"
@@ -109,13 +109,22 @@ phase_0:
       - "src/queue/dramatiq_workers.py (or celery_workers.py)"
       - "tests/queue/test_acceptance.py"
       - "manifest with test pass output"
+    substrate_prep:
+      - id: "0_5_stub_substrate"
+        title: "Phase-0 close substrate-only manifest (live cluster validation deferred to Phase 4)"
+        green_criteria:
+          - "tests/v6/ contains 30+ test files; pytest collection runs without import errors"
+          - "src/polaris_v6/ has queue + scope + bundle + memory + replay modules per cycle-11 lock"
+          - "outputs/audits/manifests/0.5.json — Phase-0-PARTIAL-honest manifest documenting: stub-substrate passes locally; live LLM cluster validation deferred to Phase 4 entry per blockers.md §3 API-first sequencing; observational-only framing per Plan v13 §F (no SILENT fallback)"
+        changed_files_glob:
+          - "outputs/audits/manifests/0.5.json"
     blocking_consequence: "Phase 1 job queue + SSE work blocked"
 
   task_0_6:
     title: "DeepSeek V4 Pro hardware decision (Path C V4 Flash LOCKED 2026-05-02)"
     owner: "user (commits) + claude (analysis)"
-    user_action: true   # Plan v13 §G #2 — user-signed canonical reconciliation (2026-05-02) locked Path C; this task ships when user signs hardware_decision.md commit referencing the lock
-    user_action_description: "User signs docs/hardware_decision.md with Path C lock + OVH BHS H200 procurement note (committee in §G #2)"
+    user_action: true   # Path C LOCKED in blockers.md §3 (2026-05-02 user-signed reconciliation). Decision-doc-write is orchestrator-completable; physical procurement is Phase 4 entry.
+    user_action_description: "Decision LOCKED via blockers.md §3 reconciliation 2026-05-02. Decision doc writeable now via 0_6_hardware_decision_doc prep. Physical procurement (PDF quote, bakeoff hardware) deferred to Phase 4 entry (~2026-08-10)."
     estimate_hours: 16
     green_criteria:
       - "docs/hardware_decision.md committed with Path A/B/C selected"
@@ -127,6 +136,15 @@ phase_0:
       - "docs/hardware_decision.md"
       - ".private/hardware_quote_*.pdf (if A or B)"
       - "tests/hardware/bakeoff_results.json"
+    substrate_prep:
+      - id: "0_6_hardware_decision_doc"
+        title: "Hardware decision memo (Path C lock per blockers.md §3 user-signed reconciliation)"
+        green_criteria:
+          - "docs/hardware_decision.md committed with: (a) Path C V4 Flash on 8× H200 OVH BHS Canada selected; (b) rationale citing capacity vs marginal-quality tradeoff for Carney scope; (c) capability gap vs V4 Pro acknowledged; (d) reference to blockers.md §3 user-signed canonical reconciliation 2026-05-02; (e) reference to canonical pin SHA"
+          - "Document explicitly notes Path A/B remain documented but NOT selected"
+          - "Document explicitly notes physical procurement (.private/hardware_quote_*.pdf, tests/hardware/bakeoff_results.json) deferred to Phase 4 entry"
+        changed_files_glob:
+          - "docs/hardware_decision.md"
     blocking_consequence: "Phase 4 sovereign hardware procurement cannot start"
     notes: "Default before commit is Path C (Flash-only); Paths A/B require extra justification."
 
@@ -151,18 +169,27 @@ phase_0:
   task_0_8:
     title: "Gemma 4 31B verification (or fallback)"
     owner: "claude (license + benchmark verification) + user (cluster runtime)"
-    user_action: true   # docs/gemma_4_verification.md (license, benchmark table) is done; runtime serving recipe needs cluster
-    user_action_description: "License + benchmark verification done in doc; vLLM/SGLang serving recipe verification requires Task 0.3 cluster"
+    user_action: true   # docs/gemma_4_verification.md (license, benchmark table) is done; runtime serving recipe phase-gated to Phase 4
+    user_action_description: "License + benchmark verification doc shipped at docs/gemma_4_verification.md (140 lines). vLLM/SGLang serving recipe phase-gated to Phase 4 (per blockers.md §3 API-first). Doc-substrate completable now via 0_8_evaluator_doc prep."
     estimate_hours: 6
     green_criteria:
-      - "Official Google model card link confirmed in docs/evaluator_decision.md"
+      - "Official Google model card link confirmed in docs/gemma_4_verification.md"
       - "Apache 2.0 license text on file"
       - "Benchmark table from Google confirming GPQA Diamond / AIME 2026 scores"
       - "vLLM/SGLang serving recipe verified"
       - "If Gemma 4 31B fails verification: Llama 4 Scout (109B MoE) is named fallback with same proof level"
     required_artifacts:
-      - "docs/evaluator_decision.md"
+      - "docs/gemma_4_verification.md"
       - "config: model registration in family_segregation.py"
+    substrate_prep:
+      - id: "0_8_evaluator_doc"
+        title: "Gemma 4 verification doc-substrate (license + benchmarks; runtime serving phase-gated to Phase 4)"
+        green_criteria:
+          - "docs/gemma_4_verification.md present with: (a) official Google model card URL; (b) Apache 2.0 license + Gemma Use Policy noted; (c) benchmark table excerpt (GPQA Diamond / AIME 2026 from Google); (d) Llama 4 Scout 109B named as fallback; (e) explicit note: vLLM/SGLang serving recipe verification deferred to Phase 4 cluster entry per blockers.md §3"
+          - "outputs/audits/manifests/0.8.json — Phase-0-PARTIAL-honest manifest documenting doc-substrate complete + runtime deferred"
+        changed_files_glob:
+          - "docs/gemma_4_verification.md"
+          - "outputs/audits/manifests/0.8.json"
     blocking_consequence: "Phase 1 evaluator verification work blocked"
 
   task_0_9:
