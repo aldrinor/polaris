@@ -368,21 +368,12 @@ def _audit_classification(tasks: list) -> list:
         ua_only = task.get("user_action_only")
         if isinstance(ua_only, dict) and ua_only.get("rationale"):
             continue
-        # (2) Active substrate_prep → orchestrator-completable scaffold defined
+        # (2) substrate_prep present → scaffold scope is documented.
+        # Each prep is in one of {APPROVE / pending / halt-resolved}; any
+        # of those is a documented state, so the task is classified.
+        # Picker independently decides which prep to surface next.
         preps = task.get("substrate_prep", []) or []
-        has_active_prep = False
-        for prep in preps:
-            if not isinstance(prep, dict):
-                continue
-            pid = prep.get("id")
-            if not pid:
-                continue
-            if _is_task_halted(pid):
-                continue
-            # Either pending (will be picked) OR APPROVE'd (already done) — both count
-            has_active_prep = True
-            break
-        if has_active_prep:
+        if any(isinstance(p, dict) and p.get("id") for p in preps):
             continue
         # Otherwise: UNCLASSIFIED
         unclassified.append({
