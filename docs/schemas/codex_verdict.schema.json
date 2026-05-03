@@ -34,8 +34,8 @@
     "iter": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 3,
-      "description": "Iteration number per Plan v13 §H halt-condition #4 (3 consecutive REQUEST_CHANGES → halt)."
+      "maximum": 10,
+      "description": "Iteration number per Plan v13 §H halt-condition #4 (3 consecutive REQUEST_CHANGES → halt). Iters 1-3 are normal-mode iterations; halt-condition #4 fires AT iter 3 if the third verdict is REQUEST_CHANGES. Iters 4+ are reserved for post-halt-resolution work per Plan v13 §H — if iter > 3 then the verdict MUST include a `post_halt_resolution` object documenting which resolution path was chosen."
     },
     "codex_session_id": {
       "type": "string",
@@ -156,6 +156,34 @@
     "rationale": {
       "type": "string",
       "description": "Optional: forensic field for pre-bootstrap-backfill verdicts. Free-text rationale documenting why the task was attested as complete."
+    },
+    "post_halt_resolution": {
+      "type": "object",
+      "description": "Required when iter > 3. Documents which Plan v13 §H halt-resolution path was chosen and where the halt artifact lived.",
+      "required": ["resolution_path", "halt_marker_path", "halt_iter"],
+      "additionalProperties": false,
+      "properties": {
+        "resolution_path": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Which Plan v13 §H resolution path was chosen (1 = defer, 2 = author missing substrate now, 3 = lower acceptance bar with documented gaps)."
+        },
+        "halt_marker_path": {
+          "type": "string",
+          "description": "Repo-relative path to the halt-marker file (under outputs/audits/halt_resolutions/). May be deleted in the same commit that lands the post-halt APPROVE."
+        },
+        "halt_iter": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "The iter number at which halt-condition #4 fired (the third consecutive REQUEST_CHANGES)."
+        },
+        "lowered_bar_summary": {
+          "type": "string",
+          "description": "Free-text summary of how the acceptance bar changed (resolution path 3 only)."
+        }
+      }
     }
   },
   "allOf": [
@@ -185,6 +213,15 @@
       },
       "then": {
         "required": ["verdict_reason"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "iter": { "minimum": 4 } },
+        "required": ["iter"]
+      },
+      "then": {
+        "required": ["post_halt_resolution"]
       }
     }
   ]
