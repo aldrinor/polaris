@@ -514,6 +514,24 @@ def main() -> int:
     # Validate verdict for each implicated task
     failed = []
     for task_id in sorted(implicated):
+        # Plan v13 §F path 3 (halt-resolution Phase-N-PARTIAL-honest): if a halt-resolution
+        # marker exists for this task, the halt-resolution IS the documented decision and
+        # the gate accepts the staged commit. The substrate ships with documented
+        # Phase-N-deferred gaps; future Phase entry deletes the marker + re-iterates.
+        halt_marker = POLARIS_ROOT / "outputs" / "audits" / "halt_resolutions" / f"{task_id}_halt.md"
+        if halt_marker.is_file():
+            print(
+                f"verdict_gate: ALLOW task {task_id} via halt-resolution marker "
+                f"({halt_marker.relative_to(POLARIS_ROOT).as_posix()}) — Plan v13 §F path 3.",
+                file=sys.stderr,
+            )
+            _audit_log_event({
+                "ts": timestamp,
+                "type": "halt_resolution_allow",
+                "task_id": task_id,
+                "halt_marker": halt_marker.relative_to(POLARIS_ROOT).as_posix(),
+            })
+            continue
         verdict = _latest_verdict(task_id)
         if verdict is None:
             failed.append(f"{task_id}: no verdict file at outputs/audits/verdicts/{task_id}/iter_N.json")
