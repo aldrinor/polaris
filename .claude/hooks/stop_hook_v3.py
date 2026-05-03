@@ -341,9 +341,29 @@ def _audit_classification(tasks: list) -> list:
         # (5) halt-resolved at task-level → documented terminal state
         if _is_task_halted(task_id):
             continue
-        # (3) phase_gated → check it has the field + valid phase ref
+        # (3) phase_gated → must ALSO have substrate_prep OR explicit
+        # scaffold_not_possible: <reason>. phase_gate alone is insufficient
+        # because most phase-gated tasks have orchestrator-doable scaffold
+        # (provisioning scripts, runbook outlines, harness fixtures, etc.)
+        # that the future user-action will consume. Pure phase_gate is for
+        # tasks with truly zero scaffold scope (e.g. external procurement).
         if task.get("phase_gate"):
-            continue
+            if task.get("scaffold_not_possible"):
+                continue
+            preps = task.get("substrate_prep", []) or []
+            if any(isinstance(p, dict) and p.get("id") for p in preps):
+                # Has substrate_prep — fall through to (2) check below
+                pass
+            else:
+                # phase_gate without prep AND without scaffold_not_possible
+                # rationale → unclassified-by-incomplete-classification.
+                unclassified.append({
+                    "task_id": task_id,
+                    "title": task.get("title", "")[:80],
+                    "user_action_legacy": bool(task.get("user_action")),
+                    "reason": "phase_gate set but no substrate_prep AND no scaffold_not_possible rationale",
+                })
+                continue
         # (4) user_action_only with rationale → documented external-dependency
         ua_only = task.get("user_action_only")
         if isinstance(ua_only, dict) and ua_only.get("rationale"):

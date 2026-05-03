@@ -55,9 +55,20 @@ phase_0:
     owner: "user (cluster $) + claude (provisioning script)"
     user_action: true
     user_action_only:
-      rationale: "Per blockers.md §8 API-first reconciliation 2026-05-03, build + benchmark run on API endpoints (DeepSeek API + OpenRouter). Vast.ai dev cluster is conditional — user opts in only if a Phase 0/1/2 task explicitly demonstrates API-only validation is insufficient. Current plan: NOT activated."
+      rationale: "Per blockers.md §8 API-first reconciliation 2026-05-03, build + benchmark run on API endpoints. Vast.ai dev cluster is conditional — user opts in only if a Phase 0/1/2 task explicitly demonstrates API-only validation is insufficient. Current plan: NOT activated. Supporting scripts shippable now via substrate_prep so they exist when/if user opts in."
       required_external: "User $1.8-3.2k commitment to Vast.ai + bare-metal cluster spin-up"
-    user_action_description: "Conditional. Activate only if API-first validation reveals scenario requiring bare-metal H100 testing."
+    user_action_description: "Conditional. Substrate_prep `0_3_prep_vastai_provision_script` ships the provisioning + smoke scripts so they're ready if conditional activation triggers."
+    substrate_prep:
+      - id: "0_3_prep_vastai_provision_script"
+        title: "Vast.ai provisioning script + smoke test (live spin-up Phase-Conditional)"
+        green_criteria:
+          - "scripts/dev_cluster_setup.sh — provisioning script for Vast.ai 4× H100 cluster: SGLang serving DeepSeek V4 Flash, OpenAI-compatible endpoint setup, per-second billing verification stubs"
+          - "tests/smoke/dev_cluster_smoke.py — smoke test running existing tirzepatide query against the cluster endpoint (cluster URL parameterised; live execution conditional on user $ commit)"
+          - "outputs/audits/manifests/0_3_prep_vastai_provision_script.json — Phase-0-PARTIAL-honest manifest documenting scripts ready, live execution pending user opt-in"
+        changed_files_glob:
+          - "scripts/dev_cluster_setup.sh"
+          - "tests/smoke/dev_cluster_smoke.py"
+          - "outputs/audits/manifests/0_3_prep_vastai_provision_script.json"
     estimate_hours: 8
     green_criteria:
       - "SGLang serving DeepSeek V4 Flash on 4× H100 confirmed"
@@ -156,7 +167,17 @@ phase_0:
     owner: "claude"
     user_action: true
     phase_gate: phase_4
-    user_action_description: "Bakeoff requires live cluster. Under API-first reconciliation (blockers.md §8), bakeoff defers to Phase 4 sovereign migration where OVH H200 cluster goes live. Engine choice frozen at Phase 4.2 alongside vLLM/SGLang serving migrate."
+    user_action_description: "Bakeoff requires live cluster (Phase 4 entry). Substrate_prep `0_7_prep_bakeoff_runner` is orchestrator-completable now."
+    substrate_prep:
+      - id: "0_7_prep_bakeoff_runner"
+        title: "SGLang vs vLLM bakeoff runner + benchmark prompts (live execution Phase-4-deferred)"
+        green_criteria:
+          - "tests/bakeoff/runner.py — bakeoff harness measuring throughput tok/s, latency P50/P95/P99, prefix-cache hit rate, KV cache pressure, error rate across 5 representative POLARIS prompts × 50 iterations on each engine. Live engine instantiation deferred to Phase 4 (NotImplementedError on connect path)."
+          - "tests/bakeoff/prompts.json — 5 representative POLARIS prompts spanning the 8 templates"
+          - "outputs/audits/manifests/0_7_prep_bakeoff_runner.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "tests/bakeoff/**"
+          - "outputs/audits/manifests/0_7_prep_bakeoff_runner.json"
     estimate_hours: 12
     green_criteria:
       - "Bakeoff run on dev cluster (Task 0.3) with: identical hardware, identical model (V4 Flash), 5 representative POLARIS prompts × 50 iterations"
@@ -201,9 +222,19 @@ phase_0:
     owner: "user (procurement) + claude (verification)"
     user_action: true
     user_action_only:
-      rationale: "Per user directive 2026-05-03 (blockers.md §8): OVH BHS H200 reservation is the FINAL decision and is NOT to be raised in 'what's next' reports until API testing is complete (Phase 3 benchmark APPROVE'd against ChatGPT/Gemini DR APIs). Activates ONLY post-API-test-completion."
-      required_external: "User engages OVH Sales for 8× H200 BHS Canada quote + signs MSA. Engagement triggered by Phase 3 benchmark APPROVE."
-    user_action_description: "Deferred to post-API-test-completion. NOT a current 'what's next' item."
+      rationale: "Per user directive 2026-05-03 (blockers.md §8): OVH BHS H200 reservation is the FINAL decision and is NOT to be raised in 'what's next' reports until API testing complete (Phase 3 benchmark APPROVE'd). Activation post-API-test only. Procurement-engagement specs are still orchestrator-doable scaffold so the spec exists when activation triggers."
+      required_external: "User engages OVH Sales for 8× H200 BHS Canada quote + signs MSA. Engagement triggered ONLY by Phase 3 benchmark APPROVE."
+    user_action_description: "Deferred to post-API-test-completion. Substrate_prep `0_9_prep_ovh_engagement_spec` provides the engagement-spec doc so it's ready when activation triggers."
+    substrate_prep:
+      - id: "0_9_prep_ovh_engagement_spec"
+        title: "OVH BHS H200 procurement engagement spec (Phase-4-trigger doc)"
+        green_criteria:
+          - "docs/sovereign_hardware_decision.md — engagement spec for OVH Sales: required SKU (8× H200 BHS), data residency (Canada), topology (single-tenant), SLA expectations, security posture, MSA pre-conditions, fallback paths 1-5 if H200 unavailable"
+          - "Document is ready to serve as engagement letter when user triggers post-Phase-3 OVH outreach"
+          - "outputs/audits/manifests/0_9_prep_ovh_engagement_spec.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/sovereign_hardware_decision.md"
+          - "outputs/audits/manifests/0_9_prep_ovh_engagement_spec.json"
     estimate_hours: 16
     green_criteria:
       - "OVH Canada API confirmation: H200 SKU available in BHS region (or written denial)"
@@ -822,7 +853,18 @@ phase_3:
     owner: "claude"
     user_action: true
     phase_gate: phase_3
-    user_action_description: "Live-LLM sycophancy stress run requires Phase 3 timing (POLARIS API + adversarial fixtures). Substrate_prep `3_6_prep_stress_harness` is orchestrator-completable now."
+    user_action_description: "Live-LLM sycophancy stress run requires Phase 3 timing. Substrate_prep `3_6_prep_stress_harness` is orchestrator-completable now."
+    substrate_prep:
+      - id: "3_6_prep_stress_harness"
+        title: "Sycophancy stress-test harness scaffold (paired-prompt fixtures + runner; live LLM run Phase-3-deferred)"
+        green_criteria:
+          - "scripts/v6/sycophancy_stress/runner.py — harness that loads paired-prompt fixtures, calls a system-under-test API, scores sycophantic-agreement marker presence per ELEPHANT methodology baseline. Live API call deferred to Phase 3 entry (NotImplementedError on live path)."
+          - "tests/v6/sycophancy_stress/fixtures.json — 20+ paired prompts (neutral / leading / opposite-frame triples) covering all 8 Carney templates"
+          - "outputs/audits/manifests/3_6_prep_stress_harness.json — Phase-3-PARTIAL-honest manifest documenting harness ready for Phase 3 invocation"
+        changed_files_glob:
+          - "scripts/v6/sycophancy_stress/**"
+          - "tests/v6/sycophancy_stress/**"
+          - "outputs/audits/manifests/3_6_prep_stress_harness.json"
     estimate_hours: 12
     green_criteria:
       - "Run paired-prompt fixtures against live LLM"
@@ -853,7 +895,17 @@ phase_3:
     owner: "claude"
     user_action: true
     phase_gate: phase_5
-    user_action_description: "Final assembly at Phase 5 from prior-phase outputs (3.5 benchmark + walkthrough recordings + crown-jewel screenshots). Substrate_prep `3_8_prep_proof_package_outline` is orchestrator-completable now."
+    user_action_description: "Final assembly at Phase 5 from prior-phase outputs. Substrate_prep `3_8_prep_proof_package_outline` is orchestrator-completable now."
+    substrate_prep:
+      - id: "3_8_prep_proof_package_outline"
+        title: "Proof package PDF outline + section template (final assembly Phase 5)"
+        green_criteria:
+          - "docs/carney_handover/proof_package_outline.md — section-by-section outline of proof_package.pdf with placeholders for each Phase 0-4 input (substrate audit summary, Phase 3 benchmark match-or-beat verdict, walkthrough recording attestations, crown-jewel screenshots, sovereignty attestation)"
+          - "Each section names its source artifact path (e.g. outputs/audits/benchmark/3.5_results.json, outputs/audits/walkthroughs/*_findings.md) so Phase 5 assembly is mechanical not authorial"
+          - "outputs/audits/manifests/3_8_prep_proof_package_outline.json — Phase-5-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/carney_handover/proof_package_outline.md"
+          - "outputs/audits/manifests/3_8_prep_proof_package_outline.json"
     estimate_hours: 8
     green_criteria:
       - "docs/carney_handover/proof_package.pdf"
@@ -873,7 +925,18 @@ phase_4:
     owner: "user (procurement) + claude (provisioning)"
     user_action: true
     phase_gate: phase_4
-    user_action_description: "Phase 4 entry gates this. OVH BHS reservation engages only after API tests complete per blockers.md §8."
+    user_action_description: "Phase 4 entry gates this. OVH BHS reservation engages only after API tests complete per blockers.md §8. Substrate_prep `4_1_prep_provision_script` is orchestrator-completable now."
+    substrate_prep:
+      - id: "4_1_prep_provision_script"
+        title: "Sovereign provisioning script + cluster-doc template (live execution Phase-4-deferred)"
+        green_criteria:
+          - "scripts/sovereign/provision.py — provisioning logic for 8× H200 OVH BHS (parses OVH API responses, configures node connectivity, validates data residency = Canada). Live cluster connection deferred to Phase 4 entry (NotImplementedError on connect path)."
+          - "docs/sovereign_cluster_provisioned.md — template document with placeholders for procurement quote ID, MSA reference, node IPs, sovereignty attestation"
+          - "outputs/audits/manifests/4_1_prep_provision_script.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "scripts/sovereign/**"
+          - "docs/sovereign_cluster_provisioned.md"
+          - "outputs/audits/manifests/4_1_prep_provision_script.json"
     estimate_hours: 16
     green_criteria:
       - "8x H200 OVH BHS Canada operational"
@@ -888,7 +951,17 @@ phase_4:
     owner: "claude"
     user_action: true
     phase_gate: phase_4
-    user_action_description: "Phase 4 entry. Depends on 4.1 cluster online."
+    user_action_description: "Phase 4 entry. Depends on 4.1 cluster online. Substrate_prep `4_2_prep_serving_runbook` is orchestrator-completable now."
+    substrate_prep:
+      - id: "4_2_prep_serving_runbook"
+        title: "Sovereign serving runbook (vLLM/SGLang + DeepSeek V4 + Gemma 4 deployment recipe)"
+        green_criteria:
+          - "docs/sovereign_serving_runbook.md — step-by-step deployment recipe: (a) cluster precondition checks; (b) vLLM/SGLang install commands with version pins; (c) DeepSeek V4 Flash weights loading per docs/hardware_decision.md §2.3 + Path C; (d) Gemma 4 31B evaluator loading per docs/gemma_4_verification.md §3.2 NVFP4 recipe; (e) two-family segregation invariant verification; (f) smoke test queries; (g) rollback procedure"
+          - "References hardware_decision.md + gemma_4_verification.md by canonical pin SHA"
+          - "outputs/audits/manifests/4_2_prep_serving_runbook.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/sovereign_serving_runbook.md"
+          - "outputs/audits/manifests/4_2_prep_serving_runbook.json"
     estimate_hours: 24
     green_criteria:
       - "Phase 0.7 bakeoff winner deployed"
@@ -904,7 +977,18 @@ phase_4:
     owner: "claude"
     user_action: true
     phase_gate: phase_4
-    user_action_description: "Phase 4. Depends on 4.2."
+    user_action_description: "Phase 4. Depends on 4.2. Substrate_prep `4_3_prep_autoscale_script` is orchestrator-completable now."
+    substrate_prep:
+      - id: "4_3_prep_autoscale_script"
+        title: "Auto-scale script + tests (live cluster validation Phase-4-deferred)"
+        green_criteria:
+          - "scripts/sovereign/autoscale.py — autoscale logic: warm-pool maintenance (1 replica hot), queue-depth threshold trigger (>=3), spin-up + tear-down API calls (cluster API stubbed for Phase 4 wiring with NotImplementedError)"
+          - "tests/sovereign/test_autoscale.py — unit tests for queue-depth-threshold logic + warm-pool state machine using fakes (no live cluster needed)"
+          - "outputs/audits/manifests/4_3_prep_autoscale_script.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "scripts/sovereign/autoscale.py"
+          - "tests/sovereign/test_autoscale.py"
+          - "outputs/audits/manifests/4_3_prep_autoscale_script.json"
     estimate_hours: 12
     green_criteria:
       - "Auto-scale tested with synthetic queue load"
@@ -920,7 +1004,17 @@ phase_4:
     owner: "claude"
     user_action: true
     phase_gate: phase_4
-    user_action_description: "Phase 4. Depends on 4.2 and re-runs the API-driven benchmark from 3.5 against the sovereign cluster (paid evaluator REMOVED 2026-05-03)."
+    user_action_description: "Phase 4. Depends on 4.2 and re-runs the API-driven benchmark from 3.5 against the sovereign cluster. Substrate_prep `4_4_prep_sovereign_rerun_wrapper` is orchestrator-completable now."
+    substrate_prep:
+      - id: "4_4_prep_sovereign_rerun_wrapper"
+        title: "Sovereign benchmark rerun wrapper (calls 3.5 runner against sovereign endpoint)"
+        green_criteria:
+          - "scripts/v6/sovereign_benchmark_rerun.py — wrapper that invokes scripts/v6/benchmark/api_benchmark_runner.py with sovereign POLARIS endpoint substituted for OpenRouter; emits regression-vs-Phase-3 delta per dimension"
+          - "Compares outputs/audits/benchmark/3.5_results.json (Phase 3 API baseline) vs outputs/audits/benchmark/4.4_sovereign_results.json (Phase 4 sovereign run); fails-loud if any dimension regresses >5%"
+          - "outputs/audits/manifests/4_4_prep_sovereign_rerun_wrapper.json — Phase-4-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "scripts/v6/sovereign_benchmark_rerun.py"
+          - "outputs/audits/manifests/4_4_prep_sovereign_rerun_wrapper.json"
     estimate_hours: 16
     green_criteria:
       - "All 8 templates exercised"
@@ -961,7 +1055,17 @@ phase_4_5:
     owner: "claude"
     user_action: true
     phase_gate: phase_4_5
-    user_action_description: "Phase 4.5 buffer. Depends on Phase 4 walkthrough findings landing."
+    user_action_description: "Phase 4.5 buffer. Depends on Phase 4 walkthrough findings landing. Substrate_prep `4_5_1_prep_resolution_template` is orchestrator-completable now."
+    substrate_prep:
+      - id: "4_5_1_prep_resolution_template"
+        title: "Walkthrough findings resolution template (P0/P1 triage workflow)"
+        green_criteria:
+          - "docs/audit/walkthrough_findings_resolution_template.md — structured template for triaging Phase 4 walkthrough findings: per-finding fields {severity P0/P1/P2/P3, file:line, root_cause vs band_aid, fix_plan, status open/in_progress/resolved, re-walkthrough_required}"
+          - "Includes acceptance gates per finding severity: P0/P1 must be resolved + re-walkthrough confirmed; P2/P3 can ship with documented followup"
+          - "outputs/audits/manifests/4_5_1_prep_resolution_template.json — Phase-4.5-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/audit/walkthrough_findings_resolution_template.md"
+          - "outputs/audits/manifests/4_5_1_prep_resolution_template.json"
     estimate_hours: 24
     green_criteria:
       - "All P0/P1 findings from Phase 4 walkthrough resolved"
@@ -1017,7 +1121,18 @@ phase_5:
     owner: "claude"
     user_action: true
     phase_gate: phase_5
-    user_action_description: "Phase 5 final assembly. Depends on 5.1 walkthrough + 5.2 Codex sweep complete."
+    user_action_description: "Phase 5 final assembly. Depends on 5.1 walkthrough + 5.2 Codex sweep complete. Substrate_prep `5_3_prep_handover_package_index` is orchestrator-completable now."
+    substrate_prep:
+      - id: "5_3_prep_handover_package_index"
+        title: "Carney handover package index + delivery checklist"
+        green_criteria:
+          - "docs/carney_handover/package_index.md — table of contents for the handover bundle: one_pager.md (4_5 prep ✓) + 5min_video_script.md (4_5 prep ✓) + runbook.md (4_5 prep ✓) + bundle_export_sample.json + proof_package_outline.md (3_8 prep) + sovereign_serving_runbook.md (4_2 prep) + benchmark results"
+          - "docs/carney_handover/delivery_checklist.md — pre-handover quality gates: bundle URL accessible, all evidence cross-referenced, 30-day warm-support contact published, GPG-signed attestation present"
+          - "outputs/audits/manifests/5_3_prep_handover_package_index.json — Phase-5-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/carney_handover/package_index.md"
+          - "docs/carney_handover/delivery_checklist.md"
+          - "outputs/audits/manifests/5_3_prep_handover_package_index.json"
     estimate_hours: 8
     green_criteria:
       - "docs/carney_handover/ — one-pager + 5-min video + runbook + proof package"
@@ -1032,9 +1147,22 @@ phase_5:
     owner: "user"
     user_action: true
     user_action_only:
-      rationale: "Pure user-side action: user contacts Carney's office, schedules briefing, delivers bundle URL, captures acknowledgment receipt. No orchestrator-completable substrate exists for this — it is the final external execution step."
+      rationale: "Pure user-side EXECUTION: user contacts Carney's office, schedules briefing, delivers bundle URL, captures acknowledgment receipt. The execution itself cannot be orchestrator-automated — but the supporting documents (meeting agenda, delivery letter template, follow-up email template) are orchestrator-doable scaffold."
       required_external: "User makes contact with Carney's office, schedules handover meeting, delivers materials, obtains acknowledgment"
-    user_action_description: "User executes the handover — last step before MISSION COMPLETE."
+    user_action_description: "User executes the handover — last step before MISSION COMPLETE. Substrate_prep `5_4_prep_handover_meeting_substrate` provides supporting docs."
+    substrate_prep:
+      - id: "5_4_prep_handover_meeting_substrate"
+        title: "Handover meeting agenda + delivery letter + follow-up email templates"
+        green_criteria:
+          - "docs/carney_handover/handover_meeting_agenda.md — 60-min agenda (intro / sovereignty story / live demo / Q&A / next-steps), with named slide refs"
+          - "docs/carney_handover/delivery_letter_template.md — formal delivery letter for Carney's office (bundle URL + sovereignty attestation + 30-day warm-support contact)"
+          - "docs/carney_handover/followup_email_template.md — 7-day follow-up template (acknowledgment receipt request + technical Q point of contact)"
+          - "outputs/audits/manifests/5_4_prep_handover_meeting_substrate.json — Phase-5-PARTIAL-honest manifest"
+        changed_files_glob:
+          - "docs/carney_handover/handover_meeting_agenda.md"
+          - "docs/carney_handover/delivery_letter_template.md"
+          - "docs/carney_handover/followup_email_template.md"
+          - "outputs/audits/manifests/5_4_prep_handover_meeting_substrate.json"
     estimate_hours: 4
     green_criteria:
       - "Handover meeting scheduled and executed"
