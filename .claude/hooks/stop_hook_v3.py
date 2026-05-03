@@ -198,9 +198,12 @@ def _parse_matrix_tasks_from_head() -> list[dict]:
             task_id = task_val.get("task_id") or task_key.removeprefix("task_").replace("_", ".")
             tasks.append({
                 "task_id": task_id,
+                "title": task_val.get("title", ""),
                 "user_action": bool(task_val.get("user_action", False)),
                 "substrate_prep": task_val.get("substrate_prep", []) or [],
                 "blocking_consequence": task_val.get("blocking_consequence", ""),
+                "phase_gate": task_val.get("phase_gate"),
+                "user_action_only": task_val.get("user_action_only"),
             })
     return tasks
 
