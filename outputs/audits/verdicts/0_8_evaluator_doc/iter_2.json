@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "0_8_evaluator_doc",
+  "iter": 2,
+  "codex_session_id": "manual_codex_review_0_8_evaluator_doc_20260503T071906Z",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "5a5afbbaf12c01a4e04d2a710cdbdefebf4faf3ff709c113b3e172149d8878b2",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "e65eb66f54c9486bd1d0addc19762922317bf9651020e0cc84a14f72cb8c5cb3",
+  "verdict": "APPROVE",
+  "findings": [],
+  "checklist_coverage": {
+    "U1": {
+      "status": "PASS",
+      "evidence_path": "outputs/audits/manifests/0.8.json"
+    },
+    "U2": {
+      "status": "PASS",
+      "evidence_path": "outputs/audits/manifests/0.8.json"
+    },
+    "U3": {
+      "status": "PASS",
+      "evidence_path": "docs/gemma_4_verification.md"
+    },
+    "U4": {
+      "status": "PASS",
+      "evidence_path": "docs/gemma_4_verification.md"
+    },
+    "U5": {
+      "status": "PASS",
+      "evidence_path": "outputs/audits/manifests/0.8.json"
+    },
+    "U6": {
+      "status": "N/A"
+    },
+    "U7": {
+      "status": "PASS",
+      "evidence_path": "outputs/audits/manifests/0.8.json"
+    },
+    "U8": {
+      "status": "PASS",
+      "evidence_path": "outputs/audits/manifests/0.8.json"
+    },
+    "F1_F6_UI": {
+      "status": "N/A"
+    },
+    "L1_L4_LLM_CALL": {
+      "status": "N/A"
+    },
+    "C1_C5_CROWN_JEWEL": {
+      "status": "N/A"
+    }
+  },
+  "timestamp": "2026-05-03T07:19:06Z",
+  "hmac_sha256": "c780fed51130b3232c7a2fcdbbdc5cf64f4dbe2807156d2bed17bad34a66daaa"
+}

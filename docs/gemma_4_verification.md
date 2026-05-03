@@ -112,6 +112,46 @@ Expected from public benchmarks on similar 30B-class models:
 
 Phase 0 Task 0.7 (SGLang vs vLLM bakeoff) will measure actual numbers and freeze the engine choice.
 
+### 4.1 Benchmark table excerpt (Google official, instruction-tuned 31B Dense)
+
+Per Google's Gemma 4 model card (https://ai.google.dev/gemma/docs/core/model_card_4) — values quoted directly from the official table for the 31B Dense instruction-tuned variant:
+
+| Benchmark | Gemma 4 31B-it (Google reported) | Source |
+|---|---|---|
+| **GPQA Diamond** (graduate-level reasoning) | **84.3%** | Google model card |
+| **AIME 2026 no tools** (math olympiad) | **89.2%** | Google model card |
+| **MMLU Pro** | **85.2%** | Google model card |
+| **LiveCodeBench v6** | **80.0%** | Google model card |
+| **BigBench Extra Hard** | **74.4%** | Google model card |
+| **Codeforces ELO** | **2150** | Google model card |
+| **Tau2** (avg over 3) | **76.9%** | Google model card |
+| **HLE no tools** | **19.5%** | Google model card |
+| **HLE with search** | **26.5%** | Google model card |
+
+Note: Google labels the AIME benchmark "AIME 2026 no tools" on the card. Whether this is a forward-looking notation or a documentation-date issue is Google's call; values are quoted verbatim. The model card does NOT report a traditional "HumanEval" metric (Google's coding measure for Gemma 4 is LiveCodeBench v6 + Codeforces ELO instead).
+
+These figures are strong for an open-weights 31B model and are more than sufficient for the Global Verifier role per Plan v13 §F architecture: the verifier detects grounding failures, hedging gaps, and family-disagreement. Gemma 4 31B is selected for verifier specifically because it is a *different lineage* from DeepSeek V4 (preserves the two-family segregation invariant) — quality at this level is a bonus, not the selection criterion.
+
+### 4.2 Named fallback: Llama 4 Scout 109B (MoE)
+
+If Gemma 4 31B verification fails (e.g. discovered behavioral pathology, license-policy reinterpretation, or Phase 4 NVFP4 serving issues): **Llama 4 Scout 109B-MoE** is the canonical fallback per `docs/task_acceptance_matrix.yaml task_0_8.green_criteria`.
+
+| Property | Llama 4 Scout 109B | Source |
+|---|---|---|
+| Architecture | 109B parameters Mixture-of-Experts | Meta model card |
+| Active parameters | ~17B (MoE routing) | Meta model card |
+| License | Llama 4 Community License | Meta |
+| Lineage | Meta (distinct from DeepSeek + Google) | preserves two-family invariant |
+| Serving | vLLM + SGLang both support Llama 4 MoE | published recipes |
+
+Triggering the fallback requires user-signed canonical reconciliation per Plan v13 §F (no SILENT fallback). The fallback path is documented here so that, if invoked, the substitute model has been pre-vetted at the same proof-level as Gemma 4 (license, benchmarks, lineage segregation).
+
+### 4.3 vLLM/SGLang serving-recipe verification — Phase-4-deferred (explicit)
+
+**Per `docs/blockers.md §3` API-first sequencing user-signed canonical reconciliation 2026-05-02:** physical bare-metal verification of the vLLM/SGLang serving recipe (§3.1 + §3.2 above) is **deferred to Phase 4 entry (~2026-08-10)** when the OVH BHS H200 cluster goes live. The recipe is documented here for traceability + planning, NOT executed in Phase 0.
+
+Phase 0–3 POLARIS validation runs against API endpoints (OpenRouter/DeepSeek API). The recipe is exercised only when the sovereign cluster is operational. This is **NOT a silent fallback** — it is the canonical API-first sequencing per blockers.md §3.
+
 ---
 
 ## 5. Acceptance criteria for Task 0.8 GREEN
