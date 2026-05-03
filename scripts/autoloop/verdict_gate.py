@@ -52,9 +52,8 @@ def _staged_files() -> list[str]:
         ["git", "diff", "--cached", "--name-only"],
         cwd=str(POLARIS_ROOT),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         timeout=10,
-        encoding="utf-8",
     )
     if result.returncode != 0:
         raise GateError(f"git diff failed: {result.stderr}")
@@ -109,12 +108,12 @@ def _load_matrix() -> dict:
     try:
         result = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--", matrix_rel],
-            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             blob = subprocess.run(
                 ["git", "show", f":{matrix_rel}"],
-                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
             )
             if blob.returncode == 0:
                 try:
@@ -130,7 +129,7 @@ def _load_matrix() -> dict:
     try:
         blob = subprocess.run(
             ["git", "show", f"HEAD:{matrix_rel}"],
-            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
         )
         if blob.returncode == 0:
             try:
@@ -211,7 +210,7 @@ def _latest_verdict(task_id: str) -> dict | None:
     try:
         result = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--", verdict_glob],
-            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
         )
         staged = sorted(
             ln for ln in result.stdout.splitlines()
@@ -220,7 +219,7 @@ def _latest_verdict(task_id: str) -> dict | None:
         if staged:
             blob = subprocess.run(
                 ["git", "show", f":{staged[-1]}"],
-                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
             )
             if blob.returncode == 0:
                 try:
@@ -234,7 +233,7 @@ def _latest_verdict(task_id: str) -> dict | None:
     try:
         ls = subprocess.run(
             ["git", "ls-tree", "--name-only", "HEAD", verdict_glob],
-            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
         )
         head_files = sorted(
             ln for ln in ls.stdout.splitlines()
@@ -243,7 +242,7 @@ def _latest_verdict(task_id: str) -> dict | None:
         if head_files:
             blob = subprocess.run(
                 ["git", "show", f"HEAD:{head_files[-1]}"],
-                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
             )
             if blob.returncode == 0:
                 return json.loads(blob.stdout)
@@ -259,12 +258,12 @@ def _load_schema() -> dict:
     try:
         result = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--", schema_rel],
-            cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+            cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             blob = subprocess.run(
                 ["git", "show", f":{schema_rel}"],
-                cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+                cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
             )
             if blob.returncode == 0:
                 return json.loads(blob.stdout)
@@ -272,7 +271,7 @@ def _load_schema() -> dict:
         pass
     blob = subprocess.run(
         ["git", "show", f"HEAD:{schema_rel}"],
-        cwd=str(POLARIS_ROOT), capture_output=True, text=True, timeout=10,
+        cwd=str(POLARIS_ROOT), capture_output=True, text=True, encoding="utf-8", timeout=10,
     )
     if blob.returncode == 0:
         return json.loads(blob.stdout)
