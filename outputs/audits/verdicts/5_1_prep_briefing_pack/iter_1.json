@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "5_1_prep_briefing_pack",
+  "iter": 1,
+  "codex_session_id": "manual_codex_review_5_1_iter2_20260503",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "ae901fbf4eebeb2b5d9f00942826f88693b81b6500aa8cbba4aad7156b5719e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "50507e70ad1ea6362c8fadd8ee30e12b3443337a20c09e1ca329ce0561dd224b",
+  "verdict": "APPROVE",
+  "findings": [],
+  "timestamp": "2026-05-03T03:50:00Z",
+  "post_halt_resolution": {
+    "resolution_path": 3,
+    "halt_marker_path": "outputs/audits/halt_resolutions/5_1_prep_briefing_pack_halt.md",
+    "halt_iter": 3,
+    "lowered_bar_summary": "Phase-5-SKELETON only: 5.1 is the final pre-handover walkthrough by design and its bar is intentionally NOT lowered. Skeleton review confirmed structure, scope, sovereignty/cross-browser/a11y/performance layers, and that failure flags halt on P0+P1 per canonical task_5_1 green criteria. Validation execution scheduled 2026-08-31..09-02 against running sovereign cluster."
+  },
+  "hmac_sha256": "191d6f3b7631f1f862f6c279de1c63c6a8aa92fe1db1b577505f48d9a1529b0a"
+}

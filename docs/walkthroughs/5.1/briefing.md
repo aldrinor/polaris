@@ -3,6 +3,17 @@
 **Task:** `5.1` · **Substrate-prep:** `5_1_prep_briefing_pack` · **Deadline:** 2026-09-02 (§G #7; pre-Carney handover by 2026-09-06)
 **Scope:** FINAL pre-handover walkthrough — full corpus, sovereign cluster, all 8 templates, all 15 features
 
+> **Phase-5-SKELETON status (post halt-resolution path 3 — 2026-05-02).**
+> Unlike the Phase 1-2C `*_PARTIAL_honest` packs, this pack's bar
+> intentionally is NOT lowered: 5.1 is the FINAL walkthrough by design,
+> and its acceptance criteria require cluster + sovereignty migration
+> complete (Phase 4 finishes 2026-08-23 per §G #7). What is APPROVE'd
+> here is the **briefing skeleton** — its structure, scope assertions,
+> and disclosure framing. Actual evaluator execution against running
+> sovereign infrastructure happens between 2026-08-31 and 2026-09-02.
+> Do NOT lower the Phase-5-END bar; treat the validation steps as
+> "MUST be true at execution time" rather than "MUST be true now."
+
 ## What you'll be evaluating
 
 This is the final gate before Carney delivery. Everything must work end-to-end on the sovereign Canadian infrastructure.
@@ -30,11 +41,16 @@ Recording is **the** handover artifact alongside the proof-package PDF.
 
 ## Failure flags
 
-ANY of the following = halt + escalate to user before handover:
+ANY of the following = halt + escalate to user before handover (canonical
+task_5_1 green criteria — "No P0/P1 found" — applies):
 - ANY P0 finding (broken core feature)
+- ANY P1 finding (phase-rework severity, including any sovereignty,
+  benchmark, or accessibility regression rising to P1)
 - ANY sovereignty violation (CAN_REAL data observed crossing to non-Canadian infra)
 - ANY benchmark regression vs Phase 3.5 results
 - ANY accessibility violation introduced since Phase 2C
+P2/P3 findings may ship with a written followup item per Plan v13 §H, but
+must be enumerated before handover sign-off.
 
 ## After walkthrough completes
 

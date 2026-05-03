@@ -55,16 +55,27 @@
 
 ## Per-session protocol
 
+Browser assignment for full cross-browser coverage of all 3 engines
+(Chromium / Firefox / WebKit — matches briefing layer expectation):
+- Sessions 1-3: Chromium (clinical, trade, housing)
+- Sessions 4-6: Firefox (defense, climate, AI sovereignty)
+- Sessions 7-8: WebKit / Safari (Canada-US, workforce)
+
 For each of the 8 templates:
-1. Open browser fresh (Chromium for sessions 1-4, Firefox for 5-8 — gives cross-browser coverage on golden flow)
-2. Type the golden query
-3. Verify scope detection + (where applicable) ambiguity flow
-4. Run through full Inspector (all 5 tabs)
-5. Verify sovereignty: open browser dev-tools network tab — confirm all LLM calls go to *.ovhcloud.ca-bhs5.* OR equivalent sovereign endpoint
-6. Verify F15 bundle export
-7. Click 3 random citations → side pane within 1s
-8. Hover 5 citations → tooltip <100ms
-9. Save recording per filename pattern
+1. Open browser fresh per assignment above.
+2. Type the golden query.
+3. Verify scope detection + (where applicable) ambiguity flow.
+4. Run through full Inspector (all **6 tabs** per HEAD: Executive
+   summary, Verified sentences, Frame coverage, Contradictions,
+   Evidence pool, Charts).
+5. Verify sovereignty: open browser dev-tools network tab — confirm all
+   LLM calls go to `*.ovhcloud.ca-bhs5.*` OR equivalent sovereign
+   endpoint.
+6. Verify F15 bundle export → single `EvidenceContract v1.0` JSON file
+   (not ZIP).
+7. Click 3 random `[#ev:...]` provenance tokens → side pane within 1s.
+8. Hover 5 provenance tokens → tooltip <100ms.
+9. Save recording per filename pattern.
 
 ## Total time budget
 
