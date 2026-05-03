@@ -25,12 +25,12 @@ NOTES: Candidate "BC environmental act" is interesting — POLARIS surfaced some
 If a step fails:
 
 ```
-INPUT #14: Reference uploaded doc in query
-EXPECTED: Citation [#ev:user_doc_*] click → side pane shows span from my PDF
-OBSERVED: Citation appeared but click did nothing; no side pane opened
-LATENCY: N/A
-SEVERITY: P1 phase-rework — F3b grounding flow broken on user docs
-NOTES: Recorded at 14:32 in video. Console showed `Cannot read property 'span' of undefined`.
+INPUT #1: Drug name (clinical scope) — type 'tirzepatide'
+EXPECTED: Clinical drug audit template suggested within 200ms; click loads scope examples
+OBSERVED: Suggestion appeared at ~3500ms (well over 200ms budget); template loaded but scope examples panel was empty
+LATENCY: ~3.5s (4× over budget)
+SEVERITY: P1 phase-rework — F1 latency budget blown; scope panel empty contradicts dashboard inline-scope substrate
+NOTES: Recorded at 02:14 in video. Network tab showed `/scope/check` round-trip = 800ms; remaining 2.7s was unattributed render delay. Filed under F1, not F3 (Block C uploads were endpoint-contract-only and PASSed per Phase-1-PARTIAL bar).
 ```
 
 ## At end of recording
@@ -38,7 +38,7 @@ NOTES: Recorded at 14:32 in video. Console showed `Cannot read property 'span' o
 Append a 1-paragraph summary:
 
 ```
-OVERALL: <how many of 22 passed cleanly>
+OVERALL: <how many of 17 passed cleanly>
 P0 count: <number>
 P1 count: <number>
 P2 count: <number>

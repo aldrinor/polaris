@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "1.8_prep_briefing_pack",
+  "iter": 4,
+  "codex_session_id": "manual_codex_review_20260503T000000Z",
+  "model": "gpt-5.5",
+  "reasoning_effort": "xhigh",
+  "canonical_pin_sha": "ae901fbf4eebeb2b5d9f00942826f88693b81b6500aa8cbba4aad7156b5719e9",
+  "commit_sha": "0000000000000000000000000000000000000000",
+  "diff_sha256": "c428276f49839957126e32354884468d79bdda408843273cc549e7cff6fa67e5",
+  "verdict": "APPROVE",
+  "findings": [],
+  "timestamp": "2026-05-03T00:00:00Z",
+  "hmac_sha256": "1e185e01fba080848604fe7570317d199953e79139f849dbadeec1debc32576f",
+  "post_halt_resolution": {
+    "resolution_path": 3,
+    "halt_marker_path": "outputs/audits/halt_resolutions/1.8_prep_briefing_pack_halt.md",
+    "halt_iter": 3,
+    "lowered_bar_summary": "Phase-1-PARTIAL-honest: F4 removed (Phase 2A); Block E removed (5 inputs covering Phase 2A-B crown-jewel surface checks routed to 2A.7/2B.7 walkthroughs); Block C downgraded to endpoint-contract-only (HTTP 201 + UploadResponse, no parser/chunks/T7); F15 documented as single EvidenceContract v1.0 JSON (not ZIP) with all 15 required top-level fields enumerated; corpus is now 17 inputs (was 22)."
+  }
+}
