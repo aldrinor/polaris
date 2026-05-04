@@ -9,34 +9,46 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type ResearchTemplate = {
+type DemoSlice = {
   id: string;
+  step: string;
   title: string;
-  domain: string;
+  href: string;
   description: string;
 };
 
-const research_templates: ResearchTemplate[] = [
+const demo_slices: DemoSlice[] = [
   {
-    id: "clinical_drug_audit",
-    title: "Clinical drug audit",
-    domain: "Health Canada / FDA",
+    id: "intake",
+    step: "Step 1",
+    title: "Scope discovery + ambiguity",
+    href: "/intake",
     description:
-      "Audit drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, and EMA.",
+      "Submit a clinical research question. POLARIS detects ambiguity, prompts for PICO clarification, and emits a scope decision.",
   },
   {
-    id: "trade_and_tariff",
-    title: "Trade & tariff",
-    domain: "USMCA / WTO",
+    id: "retrieval",
+    step: "Step 2",
+    title: "Tiered retrieval",
+    href: "/retrieval",
     description:
-      "Compare Canadian tariff schedules, retaliation scenarios, and supply-chain exposure with primary-source customs data.",
+      "Live retrieval against Cochrane / PubMed / regulator domains via Serper + Semantic Scholar, with corpus-adequacy gating.",
   },
   {
-    id: "housing_and_productivity",
-    title: "Housing & productivity",
-    domain: "StatCan / CMHC",
+    id: "generation",
+    step: "Step 3",
+    title: "Generator + strict-verify",
+    href: "/generation",
     description:
-      "Synthesize housing starts, productivity gaps, and structural drivers from StatCan, CMHC, and OECD long-form datasets.",
+      "Multi-section generation with provenance tokens and per-sentence numeric + content-overlap verification.",
+  },
+  {
+    id: "benchmark",
+    step: "Step 4",
+    title: "BEAT-BOTH benchmark",
+    href: "/benchmark",
+    description:
+      "Head-to-head scoreboard vs ChatGPT-DR / Gemini-DR across 7 dimensions: tier mix, numeric grounding, provenance density, refusal correctness, coverage, latency, auditability.",
   },
 ];
 
@@ -76,39 +88,44 @@ export default function HomePage() {
         </section>
 
         <section
-          aria-labelledby="research_templates_heading"
+          aria-labelledby="demo_walkthrough_heading"
           className="flex flex-col gap-5"
+          data-testid="demo-walkthrough"
         >
           <div className="flex items-baseline justify-between">
             <h2
-              id="research_templates_heading"
+              id="demo_walkthrough_heading"
               className="text-foreground text-xl font-semibold tracking-tight"
             >
-              Research templates
+              Tracer demo walkthrough
             </h2>
             <span className="text-muted-foreground text-xs tracking-widest uppercase">
-              Phase 1 placeholders
+              Slices 1 → 5
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {research_templates.map((template) => (
-              <Card key={template.id} className="flex flex-col">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {demo_slices.map((slice) => (
+              <Card
+                key={slice.id}
+                className="flex flex-col"
+                data-testid={`demo-slice-${slice.id}`}
+              >
                 <CardHeader>
                   <CardDescription className="text-xs tracking-widest uppercase">
-                    {template.domain}
+                    {slice.step}
                   </CardDescription>
-                  <CardTitle className="text-lg">{template.title}</CardTitle>
+                  <CardTitle className="text-lg">{slice.title}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col justify-between gap-4">
                   <p className="text-muted-foreground text-sm">
-                    {template.description}
+                    {slice.description}
                   </p>
                   <Button
                     variant="outline"
                     nativeButton={false}
-                    render={<Link href="/dashboard" />}
+                    render={<Link href={slice.href} />}
                   >
-                    Start a research run
+                    Open {slice.title}
                   </Button>
                 </CardContent>
               </Card>
@@ -119,7 +136,7 @@ export default function HomePage() {
 
       <footer className="border-border bg-background border-t">
         <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
-          <span>POLARIS v6.2 — Phase 0 scaffold</span>
+          <span>POLARIS v6.2 — slices 1-5 shipped</span>
           <span>Sovereign Canadian deep research</span>
         </div>
       </footer>
