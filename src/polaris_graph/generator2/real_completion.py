@@ -184,9 +184,20 @@ class RealCompletion:
 def _extract_text(response_json: dict[str, Any]) -> str:
     """Parse OpenRouter chat-completion response to plain text.
 
-    OpenRouter follows the OpenAI chat-completion shape:
-        {"choices": [{"message": {"content": "..."}}], ...}
-    Defensively handles missing keys.
+    Handles both shapes seen in the wild:
+        # Standard string content (most models)
+        {"choices": [{"message": {"content": "Generated text..."}}]}
+
+        # Multipart content (some Anthropic, Google, etc.)
+        {"choices": [{"message": {"content": [
+            {"type": "text", "text": "Generated text..."}
+        ]}}]}
+
+    Falls back to `message.reasoning` when `content` is empty/None and
+    reasoning is populated (some routes return reasoning + empty content
+    when the model hits a refusal-like state but still produced thought).
+    Last-resort: raises RuntimeError so the orchestrator surfaces a
+    structured GenerationError.
     """
     choices = response_json.get("choices") or []
     if not choices:
@@ -195,11 +206,31 @@ def _extract_text(response_json: dict[str, Any]) -> str:
         )
     message = choices[0].get("message") or {}
     content = message.get("content")
-    if not isinstance(content, str):
-        raise RuntimeError(
-            f"OpenRouter response 'message.content' missing or not a string"
-        )
-    return content
+
+    if isinstance(content, str) and content.strip():
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        joined = "\n".join(parts).strip()
+        if joined:
+            return joined
+
+    # Fallback: some routes return reasoning when content is suppressed.
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+
+    raise RuntimeError(
+        "OpenRouter response 'message.content' missing or not a string "
+        f"(got type={type(content).__name__}); reasoning_present="
+        f"{bool(message.get('reasoning'))}"
+    )
 
 
 def build_real_completion() -> RealCompletion:

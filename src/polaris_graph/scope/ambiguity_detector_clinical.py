@@ -161,14 +161,22 @@ def detect_ambiguity(normalized_text: str) -> AmbiguityAxes:
             f"detect_ambiguity expected str, got {type(normalized_text).__name__}"
         )
 
+    # When no ambiguity is detected we fall back to the normalized
+    # question text itself as the single "interpretation" for each axis.
+    # This is honest: slice 001 doesn't ship a real PICO extractor, so
+    # downstream slice 002 retrieval consumes the user's question
+    # verbatim rather than a meaningless placeholder. Golden tests
+    # assert on needs_clarification, not interpretation content, so
+    # this change is backward-compatible with the slice 001 fitness suite.
+    fallback = normalized_text.strip() or normalized_text
     population = _detect_axis(
-        normalized_text, _POPULATION_AMBIGUOUS, "population", "extracted_population"
+        normalized_text, _POPULATION_AMBIGUOUS, "population", fallback
     )
     intervention = _detect_axis(
-        normalized_text, _INTERVENTION_AMBIGUOUS, "intervention", "extracted_intervention"
+        normalized_text, _INTERVENTION_AMBIGUOUS, "intervention", fallback
     )
     outcome = _detect_axis(
-        normalized_text, _OUTCOME_AMBIGUOUS, "outcome", "extracted_outcome"
+        normalized_text, _OUTCOME_AMBIGUOUS, "outcome", fallback
     )
 
     is_ambiguous = (
