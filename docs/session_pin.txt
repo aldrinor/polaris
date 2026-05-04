@@ -1,0 +1,32 @@
+# POLARIS session pin v1
+# Authority: aldrinor only, signed PR
+# Format: each line is `<key>: <git-blob-sha-or-TBD>`
+# Source of truth: aldrinor/polaris-controls HEAD on main
+# Verification at session start (mechanical):
+#   gh api repos/aldrinor/polaris-controls/contents/<path> --jq .sha
+#   compare returned blob SHA to corresponding line below
+#   ANY mismatch -> Claude HALTS, emits halt notice, surfaces to user
+# Verification on every PR (server-side):
+#   Trusted GitHub App (polaris-trusted-verifier) reads this file from PR head,
+#   fetches each pinned file's blob SHA from polaris-controls main HEAD,
+#   posts commit-status success only if all match.
+
+# === STATUS: ACTIVE ===
+# Pinned to aldrinor/polaris-controls main HEAD as of 2026-05-04.
+# These are git blob SHA1 hashes returned by:
+#   gh api repos/aldrinor/polaris-controls/contents/<path> --jq .sha
+# Initial commit: fd86bc6 (unsigned bootstrap; branch protection applied
+# post-push to require signed commits going forward).
+
+charter_blob_sha:    f4935571ed8fff4ba20a945a45ab990206d624f7
+plan_blob_sha:       0dd0dd80eedcb41493f844172bea0767acffbebe
+slice_blob_sha:      f73085a1809bc9e2c9b66bbb38403aa1ef7986ff
+golden_blob_sha:     37e5aef895fecee340ff92ac3fc985d0d1b0d897
+
+# Active slice
+active_slice_id:     slice_001_clinical_scope_discovery
+
+# Plan version
+plan_version:        v1
+charter_version:     v1
+effective_date:      2026-05-04

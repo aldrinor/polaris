@@ -1,0 +1,31 @@
+# POLARIS CODEOWNERS
+# Authority: only @aldrinor can approve PRs touching the paths below.
+# Per polaris-controls/CHARTER.md (admin-only sister repo) and PLAN.md.
+# Branch protection requires code-owner review on `polaris` and `main` branches.
+
+# === Control-plane / security-control paths ===
+# Edits here change the cage itself. Always require user review.
+
+docs/session_pin.txt              @aldrinor
+docs/canonical_pin.txt            @aldrinor
+docs/blockers.md                  @aldrinor
+docs/task_acceptance_matrix.yaml  @aldrinor
+docs/carney_delivery_plan_v6_2.md @aldrinor
+docs/agent_architecture.md        @aldrinor
+
+.github/                          @aldrinor
+.codex/                           @aldrinor
+.claude/                          @aldrinor
+
+scripts/autoloop/                 @aldrinor
+scripts/verify_github_protections.py @aldrinor
+
+CLAUDE.md                         @aldrinor
+architecture.md                   @aldrinor
+
+# === Archive / legacy ===
+# Anything in .legacy/ is read-only post-cutover. Edits require owner review.
+.legacy/                          @aldrinor
+
+# === Tests for the cage itself ===
+tests/autoloop/                   @aldrinor
