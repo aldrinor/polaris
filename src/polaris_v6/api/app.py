@@ -26,6 +26,16 @@ from polaris_v6.api.stream import router as stream_router
 from polaris_v6.api.templates import router as templates_router
 from polaris_v6.api.upload import router as upload_router
 
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
@@ -66,6 +76,26 @@ def create_app() -> FastAPI:
     app.include_router(compare_router)
     app.include_router(memory_router)
     app.include_router(templates_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
     return app
 
 
