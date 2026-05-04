@@ -562,7 +562,7 @@ export type DropReason =
   | "overlap_too_low"
   | "no_provenance_token";
 
-export interface VerifiedSentence {
+export interface ReportVerifiedSentence {
   section_id: string;
   sentence_text: string;
   provenance_tokens: string[];
@@ -573,7 +573,7 @@ export interface VerifiedSentence {
 export interface VerifiedReportSection {
   section_id: string;
   section_title: string;
-  verified_sentences: VerifiedSentence[];
+  verified_sentences: ReportVerifiedSentence[];
   section_verify_pass_rate: number;
   section_status: SectionStatus;
 }
@@ -666,6 +666,6 @@ export function keptSections(
 /** Filter sentences to those that passed strict_verify. */
 export function keptSentences(
   section: VerifiedReportSection,
-): VerifiedSentence[] {
+): ReportVerifiedSentence[] {
   return section.verified_sentences.filter((s) => s.verifier_pass);
 }
