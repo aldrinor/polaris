@@ -43,6 +43,10 @@ from polaris_graph.api.audit_bundle_route import (
     get_sign_fn as slice004_get_sign_fn,
     router as slice004_audit_bundle_router,
 )
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
 
 
 @asynccontextmanager
@@ -133,6 +137,25 @@ def create_app() -> FastAPI:
 
         app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
     app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
 
     return app
 
