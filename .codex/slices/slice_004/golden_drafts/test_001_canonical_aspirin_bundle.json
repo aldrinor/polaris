@@ -1,0 +1,25 @@
+{
+  "test_id": "test_001_canonical_aspirin_bundle",
+  "description": "Canonical aspirin VerifiedReport with real Cochrane source + 1 verified sentence. Bundle should pack manifest + signature + content; SHA256 anchors must match content bytes.",
+  "decision_id": "dec-aspirin-1",
+  "pool_id": "pool-aspirin-1",
+  "scope_class": "clinical_efficacy",
+  "source_full_text": "The randomized trial enrolled 1247 adults with chronic migraines. Aspirin 1000 mg demonstrated significant headache reduction at 52% response rate vs 34% placebo (P<.001). Adverse events were minimal at 8% incidence.",
+  "source_id": "src-cochrane-aspirin",
+  "source_domain": "cochrane.org",
+  "source_tier": "T1",
+  "source_url": "https://www.cochrane.org/CD008041",
+  "source_title": "Aspirin for acute migraine in adults",
+  "verified_sentence_text": "The 2-hour headache response rate was 52% with aspirin versus 34% with placebo (P<.001) [#ev:src-cochrane-aspirin:0-186].",
+  "expected": {
+    "kind": "BundleSuccess",
+    "min_files": 5,
+    "must_contain_paths": [
+      "scope_decision.json",
+      "evidence_pool.json",
+      "verified_report.json",
+      "metadata.json",
+      "sources/src-cochrane-aspirin.txt"
+    ]
+  }
+}
