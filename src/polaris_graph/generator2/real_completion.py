@@ -149,6 +149,15 @@ class RealCompletion:
 
     config: RealCompletionConfig
 
+    @property
+    def model_label(self) -> str:
+        """Returns the actual model id used for completions.
+
+        The generator orchestrator pulls this so VerifiedReport.generator_model
+        reflects the live model rather than the 'stub-generator' default.
+        """
+        return self.config.model
+
     def __call__(
         self,
         prompt: str,

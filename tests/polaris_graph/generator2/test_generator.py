@@ -322,3 +322,120 @@ def test_no_scope_class_falls_back_to_default_efficacy_blueprint():
     # Default = CLINICAL_EFFICACY blueprint
     assert "sec_outcomes" in section_ids
     assert "sec_intervention" in section_ids
+
+
+# ---------------------------------------------------------------------------
+# Parallel section execution
+# ---------------------------------------------------------------------------
+
+def test_sections_generated_in_parallel():
+    """The 4 sections must execute concurrently. Inject a completion_fn
+    that sleeps; verify total wall-clock < 4x serial time."""
+    import threading
+    import time as _time
+
+    text = _good_efficacy_text()
+    SLEEP_S = 0.5
+
+    call_lock = threading.Lock()
+    in_flight = {"current": 0, "max_concurrent": 0}
+
+    def slow_fn(prompt, section_plan, pool):
+        with call_lock:
+            in_flight["current"] += 1
+            in_flight["max_concurrent"] = max(
+                in_flight["max_concurrent"], in_flight["current"]
+            )
+        try:
+            _time.sleep(SLEEP_S)
+            return text
+        finally:
+            with call_lock:
+                in_flight["current"] -= 1
+
+    pool = _adequate_pool()
+    t0 = _time.perf_counter()
+    result = process_generation(
+        pool, completion_fn=slow_fn, scope_class="clinical_efficacy"
+    )
+    elapsed = _time.perf_counter() - t0
+
+    assert isinstance(result, VerifiedReport)
+    # 4 sections × SLEEP_S serial = 2.0s; parallel should be ~SLEEP_S
+    # (one regen per section possible, so 2x sleep budget for safety).
+    assert elapsed < SLEEP_S * 3, (
+        f"parallel execution took {elapsed:.2f}s; "
+        f"expected < {SLEEP_S * 3:.2f}s (serial would be ~{SLEEP_S * 4:.2f}s)"
+    )
+    # At least 2 sections should have been in flight at the same time
+    assert in_flight["max_concurrent"] >= 2, (
+        f"max concurrent calls was {in_flight['max_concurrent']}; "
+        f"expected >= 2 for true parallelism"
+    )
+
+
+def test_section_order_preserved_after_parallel():
+    """Sections must come back in blueprint order regardless of which
+    finishes first."""
+    import time as _time
+
+    text = _good_efficacy_text()
+    # Stagger sleeps so sections finish out of submit order
+    sleep_by_section = {
+        "sec_population": 0.05,
+        "sec_intervention": 0.30,
+        "sec_outcomes": 0.10,
+        "sec_limitations": 0.20,
+    }
+
+    def staggered_fn(prompt, section_plan, pool):
+        _time.sleep(sleep_by_section.get(section_plan.section_id, 0.0))
+        return text
+
+    result = process_generation(
+        _adequate_pool(),
+        completion_fn=staggered_fn,
+        scope_class="clinical_efficacy",
+    )
+    assert isinstance(result, VerifiedReport)
+    section_ids = [s.section_id for s in result.sections]
+    # Blueprint order: Population, Intervention, Outcomes, Limitations
+    assert section_ids == [
+        "sec_population",
+        "sec_intervention",
+        "sec_outcomes",
+        "sec_limitations",
+    ]
+
+
+def test_completion_fn_with_model_label_propagates_to_report():
+    """If the injected completion_fn exposes .model_label, the
+    VerifiedReport should use it instead of 'stub-generator'."""
+    text = _good_efficacy_text()
+
+    class FnWithLabel:
+        model_label = "openrouter/test-model-v9"
+
+        def __call__(self, prompt, section_plan, pool):
+            return text
+
+    result = process_generation(
+        _adequate_pool(),
+        completion_fn=FnWithLabel(),
+        scope_class="clinical_efficacy",
+    )
+    assert isinstance(result, VerifiedReport)
+    assert result.generator_model == "openrouter/test-model-v9"
+
+
+def test_completion_fn_without_label_falls_back_to_arg():
+    """Functions without .model_label use the explicit generator_model arg."""
+    fn = _good_completion([_good_efficacy_text()])
+    result = process_generation(
+        _adequate_pool(),
+        completion_fn=fn,
+        scope_class="clinical_efficacy",
+        generator_model="explicit-arg-model",
+    )
+    assert isinstance(result, VerifiedReport)
+    assert result.generator_model == "explicit-arg-model"

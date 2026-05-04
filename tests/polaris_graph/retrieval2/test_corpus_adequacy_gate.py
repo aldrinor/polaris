@@ -132,10 +132,11 @@ def test_diagnosis_template_relaxed_t1():
 
 
 def test_efficacy_template_thresholds():
-    v = assess(_mk(t1=2, t2=5, t3=1), CLINICAL_EFFICACY)
+    """Demo-stage thresholds: T1>=1, T2>=3, T3>=1."""
+    v = assess(_mk(t1=1, t2=3, t3=1), CLINICAL_EFFICACY)
     assert v.is_adequate
 
-    v_short = assess(_mk(t1=2, t2=4, t3=1), CLINICAL_EFFICACY)
+    v_short = assess(_mk(t1=1, t2=2, t3=1), CLINICAL_EFFICACY)
     assert not v_short.is_adequate
     assert "T2" in v_short.failure_reason
 

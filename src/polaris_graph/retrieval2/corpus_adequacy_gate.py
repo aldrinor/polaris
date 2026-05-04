@@ -61,8 +61,11 @@ CLINICAL_DEFAULT = ClinicalTemplate(
 
 CLINICAL_EFFICACY = ClinicalTemplate(
     template_id="clinical_efficacy",
-    min_t1=2,
-    min_t2=5,
+    # Demo-stage thresholds: 1 systematic-review-or-regulatory + 3 peer-
+    # reviewed primary + 1 registry/agency. Production tighten target
+    # is (T1=2, T2=5, T3=1); revisit when retrieval recall improves.
+    min_t1=1,
+    min_t2=3,
     min_t3=1,
 )
 

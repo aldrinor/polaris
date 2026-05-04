@@ -62,6 +62,10 @@ class GenerationRequest(BaseModel):
     falls back to the clinical_efficacy blueprint. Callers chaining
     intake -> retrieval -> generation should thread the slice 001
     ScopeDecision.scope_class through.
+
+    `verifier_pass_threshold` overrides the default per-section pass-rate
+    threshold (default 0.40). Lower values let weaker sections through
+    (useful for early demos); higher values are stricter.
     """
 
     pool: EvidencePool = Field(
@@ -72,6 +76,15 @@ class GenerationRequest(BaseModel):
         description=(
             "Optional clinical_* scope class to select the section "
             "blueprint. Defaults to clinical_efficacy when omitted."
+        ),
+    )
+    verifier_pass_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Optional override for the per-section strict-verify pass "
+            "rate threshold. None -> use orchestrator default (0.40)."
         ),
     )
 
@@ -111,16 +124,12 @@ def post_generation(
     completion_fn: GeneratorCompletionFn | None = Depends(get_completion_fn),
 ) -> GenerationSuccessResponse | GenerationErrorResponse:
     """Run an EvidencePool through generator + strict-verify."""
-    if completion_fn is None:
-        result = process_generation(
-            req.pool, scope_class=req.scope_class
-        )
-    else:
-        result = process_generation(
-            req.pool,
-            completion_fn=completion_fn,
-            scope_class=req.scope_class,
-        )
+    kwargs: dict[str, Any] = {"scope_class": req.scope_class}
+    if req.verifier_pass_threshold is not None:
+        kwargs["verifier_pass_threshold"] = req.verifier_pass_threshold
+    if completion_fn is not None:
+        kwargs["completion_fn"] = completion_fn
+    result = process_generation(req.pool, **kwargs)
 
     if isinstance(result, GenerationError):
         raise HTTPException(
