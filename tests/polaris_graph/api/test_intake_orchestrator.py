@@ -59,7 +59,8 @@ def test_golden_004_out_of_scope():
     result = process_intake("What are the best Italian restaurants in Toronto?")
     assert isinstance(result, ScopeDecision)
     assert result.status == "out_of_scope"
-    assert result.scope_class == "out_of_scope"
+    # Per architecture proposal: scope_class=None when out_of_scope
+    assert result.scope_class is None
     assert result.ambiguity_axes == []
 
 
