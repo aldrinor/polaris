@@ -1,0 +1,12 @@
+{
+  "test_id": "test_001_efficacy_all_verified",
+  "description": "Adequate efficacy pool; stub generator returns valid sentences with provenance tokens; all 4 sections verify",
+  "pool_full_text": "The randomized trial enrolled 1247 adults with chronic migraines. Aspirin 325mg demonstrated significant headache reduction at 18.5% rate vs control. Adverse events were minimal at 8% incidence in outcomes assessment. Limitations include short follow-up duration.",
+  "scope_class": "clinical_efficacy",
+  "stub_completion_text": "The trial enrolled 1247 adults with chronic migraines and showed aspirin headache reduction at 18.5% rate {{TOKEN}}.",
+  "expected": {
+    "kind": "VerifiedReport",
+    "pipeline_verdict": "success",
+    "min_kept_sections": 1
+  }
+}

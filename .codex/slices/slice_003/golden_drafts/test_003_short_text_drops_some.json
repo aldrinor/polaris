@@ -1,0 +1,12 @@
+{
+  "test_id": "test_003_short_text_drops_some",
+  "description": "Short pool text; sentences with overflow span fail span_out_of_range; some verified",
+  "pool_full_text": "Adults benefited from aspirin therapy in the randomized trial outcomes.",
+  "scope_class": "clinical_efficacy",
+  "stub_completion_text": "Adults benefited from aspirin therapy in the trial outcomes {{TOKEN}}.",
+  "expected": {
+    "kind": "VerifiedReport",
+    "pipeline_verdict": "success",
+    "min_kept_sections": 1
+  }
+}
