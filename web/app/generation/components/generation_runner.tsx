@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  AuditBundleError,
+  downloadAuditBundle,
   GenerationBadRequestError,
   IntakeBadRequestError,
   RetrievalBadRequestError,
@@ -191,7 +193,12 @@ export function GenerationRunner() {
 
       {state.kind === "ok" ? (
         <>
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-end gap-2">
+            <DownloadAuditBundleButton
+              decision={state.decision}
+              pool={state.pool}
+              report={state.report}
+            />
             <button
               type="button"
               onClick={() => setShowDropped(!show_dropped)}
@@ -208,6 +215,75 @@ export function GenerationRunner() {
         </>
       ) : null}
     </div>
+  );
+}
+
+type DownloadState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok" }
+  | { kind: "error"; code: string; message: string };
+
+function DownloadAuditBundleButton({
+  decision,
+  pool,
+  report,
+}: {
+  decision: IntakeScopeDecision;
+  pool: EvidencePool;
+  report: VerifiedReport;
+}) {
+  const [dl_state, setDlState] = useState<DownloadState>({ kind: "idle" });
+
+  async function handle_click() {
+    setDlState({ kind: "loading" });
+    try {
+      const blob = await downloadAuditBundle(decision, pool, report);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit_${report.report_id}.tar.gz`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDlState({ kind: "ok" });
+    } catch (err) {
+      if (err instanceof AuditBundleError) {
+        setDlState({ kind: "error", code: err.code, message: err.message });
+      } else {
+        const msg = err instanceof Error ? err.message : "Unknown error.";
+        setDlState({ kind: "error", code: "unknown", message: msg });
+      }
+    }
+  }
+
+  if (dl_state.kind === "error") {
+    return (
+      <span
+        data-testid="audit-bundle-error"
+        className="text-rose-700 dark:text-rose-300 text-xs"
+        title={dl_state.message}
+      >
+        Bundle failed: {dl_state.code}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handle_click}
+      disabled={dl_state.kind === "loading"}
+      data-testid="download-audit-bundle"
+      className="text-foreground border-border bg-background hover:bg-muted rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+    >
+      {dl_state.kind === "loading"
+        ? "Building bundle…"
+        : dl_state.kind === "ok"
+          ? "✓ Downloaded"
+          : "Download audit bundle"}
+    </button>
   );
 }
 
