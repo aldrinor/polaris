@@ -1,0 +1,18 @@
+{
+  "test_id": "test_002_mixed_dropped_kept_only_kept_snapshotted",
+  "description": "Report has BOTH kept and dropped sentences citing different sources; only kept sentences' sources should appear in the bundle (snapshot_sources skips dropped).",
+  "decision_id": "dec-mixed-1",
+  "pool_id": "pool-mixed-1",
+  "scope_class": "clinical_efficacy",
+  "kept_source_id": "src-keeper",
+  "kept_source_url": "https://www.nejm.org/doi/keeper",
+  "kept_source_full_text": "Adults with hypertension showed reduction with treatment in randomized trial outcomes.",
+  "dropped_source_id": "src-dropped",
+  "dropped_source_url": "https://random-blog.example/dropped",
+  "dropped_source_full_text": "Should not appear in bundle.",
+  "expected": {
+    "kind": "BundleSuccess",
+    "must_contain_path_substring": "sources/src-keeper.txt",
+    "must_NOT_contain_path_substring": "sources/src-dropped.txt"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "test_id": "test_003_abort_verdict_rejected",
+  "description": "VerifiedReport with verdict=abort_no_verified_sections must NOT produce a bundle. build_audit_bundle must raise ValueError.",
+  "decision_id": "dec-abort-1",
+  "pool_id": "pool-abort-1",
+  "verdict": "abort_no_verified_sections",
+  "expected": {
+    "kind": "BundleBuildError",
+    "raises": "ValueError",
+    "message_substring": "successful"
+  }
+}
