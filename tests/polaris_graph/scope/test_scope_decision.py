@@ -156,8 +156,10 @@ def test_scope_decision_in_scope_minimal():
 
 
 def test_scope_decision_out_of_scope_no_class():
-    d = ScopeDecision(status="out_of_scope", scope_class="out_of_scope")
+    """Per architecture proposal: scope_class is None when status=out_of_scope."""
+    d = ScopeDecision(status="out_of_scope", scope_class=None)
     assert d.status == "out_of_scope"
+    assert d.scope_class is None
 
 
 def test_scope_decision_refused_no_class():
@@ -190,7 +192,8 @@ def test_assemble_out_of_scope_path():
     sc = ScopeClass(value="out_of_scope", confidence=1.0, provenance="regex")
     d = assemble_scope_decision(scope_class=sc, ambiguity=None, latency_ms=5)
     assert d.status == "out_of_scope"
-    assert d.scope_class == "out_of_scope"
+    # Per architecture proposal: scope_class=None when out_of_scope (not "out_of_scope")
+    assert d.scope_class is None
     assert d.ambiguity_axes == []
     assert d.provenance["classifier_layer"] == "regex"
 

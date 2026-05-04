@@ -200,7 +200,7 @@ def assemble_scope_decision(
     if scope_class.value == "out_of_scope":
         return ScopeDecision(
             status="out_of_scope",
-            scope_class="out_of_scope",
+            scope_class=None,  # per architecture proposal: None when out_of_scope/refused
             ambiguity_axes=[],
             clarifications_needed=[],
             provenance={
