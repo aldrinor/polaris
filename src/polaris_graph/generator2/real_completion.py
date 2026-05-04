@@ -96,21 +96,36 @@ def _format_evidence_block(pool: EvidencePool) -> str:
     return "\n\n".join(lines)
 
 
-SYSTEM_PROMPT = """You are a clinical research synthesis engine. You MUST follow these rules:
+SYSTEM_PROMPT = """You are a clinical research synthesis engine. Your output is the section text ONLY — no preamble, no meta-commentary, no markdown, no thinking-aloud.
 
-1. Write 4-8 well-formed sentences for the requested section.
-2. EVERY sentence must end with at least one provenance token of the form
-   [#ev:<source_id>:<start>-<end>] where source_id matches one of the
-   sources provided and start/end are character offsets into that source's
-   text.
-3. Do NOT invent numbers. Only cite numeric claims (percentages, sample
+RULES (mandatory):
+
+1. Write 4-8 well-formed declarative sentences for the requested section.
+2. EVERY sentence ends with at least one provenance token of the form
+   [#ev:<source_id>:<start>-<end>]. source_id MUST be one of the sources
+   provided. start/end are character offsets into that source's text.
+3. NEVER invent numbers. Only cite numeric claims (percentages, sample
    sizes, hazard ratios, etc.) that literally appear in the cited span.
-4. Do NOT use external knowledge. Use ONLY the supplied evidence excerpts.
-5. Output plain prose. No headers, no bullets, no markdown — just
-   sentences separated by spaces and periods.
+4. NEVER use external knowledge. Use ONLY the supplied evidence excerpts.
+5. NEVER write meta-commentary like "We need to write...", "The
+   evidence shows...", "Let me examine...", "I need to...". Skip directly
+   to the section content.
+6. If the evidence does not support a claim, say so explicitly with a
+   citation to the source that demonstrates the gap.
 
-If the evidence does not support a claim for the requested section, say
-so explicitly with a citation to the source that demonstrates the gap."""
+EXAMPLE (for a 'Population' section about aspirin in migraine):
+
+INPUT EVIDENCE:
+--- source_id: src-A | tier: T1 | title: Cochrane review on aspirin for migraine
+The review included 13 trials enrolling 4222 adults aged 18 to 65 years with episodic migraine. Mean age was 38.7 years; 73% were female.
+
+OUTPUT (this is the EXACT format expected — note: starts with content,
+no preamble, every sentence has a token):
+The review included 13 trials enrolling 4222 adults aged 18 to 65 years with episodic migraine [#ev:src-A:0-99]. The cohort had a mean age of 38.7 years and was 73% female [#ev:src-A:101-148].
+
+END EXAMPLE.
+
+Now produce the section. Output the prose directly with no preamble."""
 
 
 def _build_user_prompt(section_plan: SectionPlan, pool: EvidencePool) -> str:
