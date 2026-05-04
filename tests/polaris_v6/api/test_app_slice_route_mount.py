@@ -96,3 +96,64 @@ def test_slice_001_and_slice_002_share_same_app():
     retrieval = client.get("/api/retrieval/health")
     assert intake.status_code == 200
     assert retrieval.status_code == 200
+
+
+def test_slice_003_generation_health_mounted():
+    r = _client().get("/api/generation/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_003_generator_strict_verify"
+
+
+def test_slice_003_generation_post_without_completion_fn_fails_loudly():
+    """No completion_fn injected -> sentinel default -> 400 with
+    completion_backend_unavailable. Verifies LAW II fail-loud behavior."""
+    pool_payload = {
+        "pool_id": "p-1",
+        "decision_id": "d-1",
+        "sources": [
+            {
+                "source_id": "src-1",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "x" * 50,
+                "full_text_available": True,
+                "full_text": "x" * 200,
+                "fetched_at_utc": "2026-05-04T12:00:00+00:00",
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": "2026-05-04T12:00:00+00:00",
+        "retrieval_finished_at_utc": "2026-05-04T12:00:01+00:00",
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/generation",
+        json={"pool": pool_payload, "scope_class": "clinical_efficacy"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "completion_backend_unavailable"
+
+
+def test_all_three_slices_share_same_app():
+    """Smoke: intake + retrieval + generation health all reachable
+    from a single create_app() instance."""
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+    ):
+        assert client.get(path).status_code == 200, path
