@@ -1,0 +1,75 @@
+# Canonical PICO regex patterns for slice 001 clinical_classifier.
+# Each entry: name (unique id) + class (ScopeClassValue) + pattern (regex,
+# case-insensitive applied at match time). First-match-wins ordering: more
+# specific patterns first, broader patterns later.
+
+patterns:
+  # ORDERING: safety/diagnosis/prognosis are MORE SPECIFIC than the
+  # generic "effects of" efficacy pattern, so they MUST be checked first
+  # to avoid efficacy false-matching. Within efficacy, the more specific
+  # patterns come before the broad "effects of" pattern.
+
+  # ----- Clinical safety (check before efficacy) -----
+
+  - name: safety_adverse_effects
+    class: clinical_safety
+    pattern: '\b(?:safety|adverse\s+effects?|side\s+effects?|harms?)\s+of\s+\w+'
+
+  - name: safety_risk_of
+    class: clinical_safety
+    pattern: '\brisk\s+of\s+\w+(?:\s+\w+){0,3}\s+(?:from|after|with)\s+\w+'
+
+  # ----- Clinical diagnosis -----
+
+  - name: diagnosis_accuracy
+    class: clinical_diagnosis
+    pattern: '\b(?:diagnostic\s+accuracy|sensitivity|specificity)\s+of\s+\w+'
+
+  - name: diagnosis_screening
+    class: clinical_diagnosis
+    pattern: '\bscreening\s+(?:for|tests?\s+for)\s+\w+'
+
+  # ----- Clinical prognosis -----
+
+  - name: prognosis_survival
+    class: clinical_prognosis
+    pattern: '\b(?:prognosis|survival\s+rate|mortality\s+rate)\s+(?:of|for|in)\s+\w+'
+
+  # ----- Clinical efficacy (broader; checked LAST to allow safety/diag/prog
+  #       to win on overlapping phrases like "effects of") -----
+
+  - name: efficacy_does_x_help_y
+    class: clinical_efficacy
+    pattern: '\bdoes\s+\w+(?:\s+\w+){0,3}\s+(?:help|improve|reduce|treat|prevent)\b'
+
+  - name: efficacy_outcomes_of_x_in_population
+    class: clinical_efficacy
+    pattern: '\boutcomes?\s+of\s+\w+(?:\s+\w+){0,5}\s+in\s+(?:patients|adults|children|infants|elderly)'
+
+  - name: efficacy_is_x_effective
+    class: clinical_efficacy
+    pattern: '\bis\s+\w+(?:\s+\w+){0,3}\s+effective\s+(?:for|in|against)'
+
+  - name: efficacy_evidence_on
+    class: clinical_efficacy
+    pattern: '\bempirical\s+evidence\s+on\s+\w+'
+
+  - name: efficacy_effects_of_x_on_y
+    class: clinical_efficacy
+    pattern: '\b(?:effect|effects|efficacy|effectiveness)\s+of\s+\w+'
+
+  # ----- Clinical diagnosis -----
+
+  - name: diagnosis_accuracy
+    class: clinical_diagnosis
+    pattern: '\b(?:diagnostic\s+accuracy|sensitivity|specificity)\s+of\s+\w+'
+
+  - name: diagnosis_screening
+    class: clinical_diagnosis
+    pattern: '\bscreening\s+(?:for|tests?\s+for)\s+\w+'
+
+  # ----- Clinical prognosis -----
+
+  - name: prognosis_survival
+    class: clinical_prognosis
+    pattern: '\b(?:prognosis|survival\s+rate|mortality\s+rate)\s+(?:of|for|in)\s+\w+'

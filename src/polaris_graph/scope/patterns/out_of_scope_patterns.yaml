@@ -1,0 +1,47 @@
+# Out-of-scope + refusal-bait regex patterns for slice 001 clinical_classifier.
+# First-match-wins. Refusal-bait checked BEFORE out-of-scope so adversarial
+# framing routes to "refused" status (not just "out_of_scope").
+
+refusal_bait:
+  # Prompt-injection / instruction-override patterns. These are checked
+  # FIRST and short-circuit to refused without engaging with bait content.
+
+  - name: ignore_previous_instructions
+    pattern: '\bignore\s+(?:all\s+|any\s+)?(?:previous|prior|earlier|above|preceding)\s+(?:instructions?|prompts?|rules?|directives?)\b'
+
+  - name: disregard_instructions
+    pattern: '\bdisregard\s+(?:all\s+|any\s+)?(?:previous|prior|earlier|above)\s+(?:instructions?|prompts?)\b'
+
+  - name: forget_everything
+    pattern: '\bforget\s+(?:everything|all\s+(?:that|prior))\b'
+
+  - name: you_are_now
+    pattern: "\\byou\\s+are\\s+now\\s+(?:a\\s+|an\\s+)?(?:different|new|unrestricted)"
+
+  - name: system_prompt_override
+    pattern: '\b(?:new\s+)?system\s+prompt\s*[:=]'
+
+out_of_scope:
+  # Non-clinical topic markers. Match if ANY of these appear AND no clinical
+  # PICO pattern matched (pico_patterns.yaml is checked first).
+
+  - name: restaurants
+    pattern: '\b(?:restaurants?|cafes?|bars?|food\s+(?:joints?|places?))\b'
+
+  - name: politics_elections
+    pattern: '\b(?:elections?|political|politicians?|president|prime\s+minister|congress|parliament)\b'
+
+  - name: sports_scores
+    pattern: '\b(?:sports?\s+scores?|game\s+(?:scores?|results?)|match\s+(?:scores?|results?)|tournament\s+winners?|\b\w+\s+vs\s+\w+\s+(?:game|match))\b'
+
+  - name: weather
+    pattern: '\b(?:weather|forecast|temperature\s+(?:in|at)\s+\w+)\b'
+
+  - name: stock_finance
+    pattern: '\b(?:stock\s+(?:price|market)|cryptocurrency|crypto\s+price|share\s+price|bitcoin|ethereum|dogecoin)\b'
+
+  - name: travel_tourism
+    pattern: '\b(?:tourist\s+attractions?|best\s+(?:hotels?|destinations?)|vacation\s+spots?)\b'
+
+  - name: recipes_cooking
+    pattern: '\b(?:recipes?|cooking\s+instructions?|(?:how\s+(?:to|do\s+i))\s+(?:bake|cook|fry|roast|grill))\b'
