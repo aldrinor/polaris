@@ -1,0 +1,20 @@
+# Vast.ai US dev cluster — Phase 0 Task 0.3 substrate config
+#
+# This config is consumed by scripts/provision_vast_dev_cluster.py.
+# It expresses INTENT, not authorization. Provisioning happens only after
+# the user runs --apply with VAST_API_KEY set AND Task 0.6 (hardware
+# Path A/B/C decision) is locked per polaris-controls/PLAN.md.
+#
+# Defaults below are tuned for DeepSeek V4 Pro inference dev work
+# (192-256GB VRAM target). Update once Task 0.6 lands.
+
+gpu_type: "H100"
+region: "US-West"
+min_vram_gb: 80
+max_hourly_usd: 4.50
+image: "vastai/pytorch:2.4-cu124"
+disk_gb: 200
+notes: |
+  Phase 0 Task 0.3 — US dev cluster for DeepSeek V4 Pro pre-OVH bring-up.
+  Tied to Task 0.6 (hardware Path A/B/C decision) and Task 0.7 (SGLang vs
+  vLLM bakeoff). Switch to OVH Canada BHS H200 once Task 0.9 closes.
