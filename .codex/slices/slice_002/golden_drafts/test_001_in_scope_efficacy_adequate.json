@@ -1,0 +1,44 @@
+{
+  "test_id": "test_001_in_scope_efficacy_adequate",
+  "description": "Well-formed in-scope clinical efficacy question; stub fetch returns enough T1/T2/T3 sources; adequacy=True",
+  "decision": {
+    "status": "in_scope",
+    "scope_class": "clinical_efficacy",
+    "ambiguity_axes": [
+      {
+        "axis": "population",
+        "plausible_interpretations": ["adults"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "intervention",
+        "plausible_interpretations": ["aspirin"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "outcome",
+        "plausible_interpretations": ["headache"],
+        "needs_clarification": false
+      }
+    ],
+    "clarifications_needed": [],
+    "provenance": {},
+    "latency_ms": 5
+  },
+  "stub_fetch_results": [
+    {"url": "https://www.cochrane.org/CD000001", "title": "Cochrane review 1", "snippet": "RCT data"},
+    {"url": "https://www.cochrane.org/CD000002", "title": "Cochrane review 2", "snippet": "Meta-analysis"},
+    {"url": "https://www.nejm.org/doi/a1", "title": "NEJM article 1", "snippet": "Trial"},
+    {"url": "https://www.thelancet.com/article/a2", "title": "Lancet article 1", "snippet": "Trial"},
+    {"url": "https://jamanetwork.com/journals/jama/a3", "title": "JAMA article 1", "snippet": "Trial"},
+    {"url": "https://www.bmj.com/content/a4", "title": "BMJ article 1", "snippet": "Trial"},
+    {"url": "https://journals.plos.org/plosmedicine/article?id=a5", "title": "PLOS Medicine 1", "snippet": "Trial"},
+    {"url": "https://clinicaltrials.gov/study/NCT001", "title": "Trial registry 1", "snippet": "Active trial"},
+    {"url": "https://clinicaltrials.gov/study/NCT002", "title": "Trial registry 2", "snippet": "Completed trial"}
+  ],
+  "expected": {
+    "kind": "EvidencePool",
+    "adequacy_is_adequate": true,
+    "min_sources": 8
+  }
+}

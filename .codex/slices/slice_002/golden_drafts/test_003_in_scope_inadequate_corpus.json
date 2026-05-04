@@ -1,0 +1,37 @@
+{
+  "test_id": "test_003_in_scope_inadequate_corpus",
+  "description": "Rare-disease question that returns insufficient sources; pool produced but adequacy=False",
+  "decision": {
+    "status": "in_scope",
+    "scope_class": "clinical_efficacy",
+    "ambiguity_axes": [
+      {
+        "axis": "population",
+        "plausible_interpretations": ["patients with ultra-rare X-syndrome"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "intervention",
+        "plausible_interpretations": ["experimental therapy"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "outcome",
+        "plausible_interpretations": ["progression-free survival"],
+        "needs_clarification": false
+      }
+    ],
+    "clarifications_needed": [],
+    "provenance": {},
+    "latency_ms": 6
+  },
+  "stub_fetch_results": [
+    {"url": "https://www.cochrane.org/CD-rare-1", "title": "Cochrane note", "snippet": "Limited evidence"},
+    {"url": "https://www.nejm.org/doi/case-report", "title": "NEJM case report", "snippet": "Single patient"}
+  ],
+  "expected": {
+    "kind": "EvidencePool",
+    "adequacy_is_adequate": false,
+    "expected_failure_reason_substring": "T2"
+  }
+}

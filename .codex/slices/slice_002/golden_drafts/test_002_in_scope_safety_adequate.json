@@ -1,0 +1,42 @@
+{
+  "test_id": "test_002_in_scope_safety_adequate",
+  "description": "Clinical safety question; clinical_safety template needs T1>=3 (regulatory weight); stub returns 3 T1 + sufficient T2/T3",
+  "decision": {
+    "status": "in_scope",
+    "scope_class": "clinical_safety",
+    "ambiguity_axes": [
+      {
+        "axis": "population",
+        "plausible_interpretations": ["older adults"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "intervention",
+        "plausible_interpretations": ["metformin"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "outcome",
+        "plausible_interpretations": ["adverse events"],
+        "needs_clarification": false
+      }
+    ],
+    "clarifications_needed": [],
+    "provenance": {},
+    "latency_ms": 7
+  },
+  "stub_fetch_results": [
+    {"url": "https://www.cochrane.org/CD100001", "title": "Cochrane safety review", "snippet": "AE rates"},
+    {"url": "https://www.fda.gov/drugs/drug-approvals-and-databases/abc", "title": "FDA label", "snippet": "Boxed warning"},
+    {"url": "https://www.ema.europa.eu/en/medicines/human/EPAR/metformin", "title": "EMA EPAR", "snippet": "Pharmacovigilance"},
+    {"url": "https://www.nejm.org/doi/safety-1", "title": "NEJM safety", "snippet": "Long-term AE"},
+    {"url": "https://www.thelancet.com/article/safety-2", "title": "Lancet safety", "snippet": "Cohort AE"},
+    {"url": "https://jamanetwork.com/journals/jama/safety-3", "title": "JAMA safety", "snippet": "Pharmacovigilance"},
+    {"url": "https://clinicaltrials.gov/study/NCT-safety-1", "title": "Safety trial", "snippet": "Phase IV"}
+  ],
+  "expected": {
+    "kind": "EvidencePool",
+    "adequacy_is_adequate": true,
+    "min_sources": 7
+  }
+}
