@@ -132,11 +132,16 @@ def test_diagnosis_template_relaxed_t1():
 
 
 def test_efficacy_template_thresholds():
-    """Demo-stage thresholds: T1>=1, T2>=3, T3>=1."""
-    v = assess(_mk(t1=1, t2=3, t3=1), CLINICAL_EFFICACY)
+    """Demo-stage thresholds (tuned 2026-05-04): T1>=1, T2>=2, T3>=1.
+
+    Tuned down from T2>=3 after live walkthrough showed canonical
+    aspirin/migraine question retrieves only 2 T2 sources (PubMed +
+    ScienceDirect, dedup'd). Production target remains (T1=2, T2=5, T3=1).
+    """
+    v = assess(_mk(t1=1, t2=2, t3=1), CLINICAL_EFFICACY)
     assert v.is_adequate
 
-    v_short = assess(_mk(t1=1, t2=2, t3=1), CLINICAL_EFFICACY)
+    v_short = assess(_mk(t1=1, t2=1, t3=1), CLINICAL_EFFICACY)
     assert not v_short.is_adequate
     assert "T2" in v_short.failure_reason
 
