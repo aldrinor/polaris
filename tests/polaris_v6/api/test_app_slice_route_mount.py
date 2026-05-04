@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 def _no_real_backend_keys(monkeypatch: pytest.MonkeyPatch):
     """Ensure tests don't accidentally instantiate real backends.
 
-    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY at construction;
-    we monkeypatch both to empty so sentinel defaults stay in place.
+    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY +
+    POLARIS_GPG_KEY_ID at construction; we monkeypatch all three to
+    empty so sentinel defaults stay in place.
     """
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("POLARIS_GPG_KEY_ID", raising=False)
     yield
 
 
@@ -156,5 +158,109 @@ def test_all_three_slices_share_same_app():
         "/api/intake/health",
         "/api/retrieval/health",
         "/api/generation/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_004_audit_bundle_health_mounted():
+    r = _client().get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_004_audit_bundle_export"
+
+
+def test_slice_004_audit_bundle_post_without_gpg_returns_503():
+    """No POLARIS_GPG_KEY_ID -> sentinel sign_fn -> 503 (LAW II fail-loud)."""
+    iso = "2026-05-04T12:00:00+00:00"
+    decision = {
+        "decision_id": "dec-1",
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            }
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 0,
+    }
+    pool = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sources": [
+            {
+                "source_id": "src-A",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "snippet",
+                "full_text_available": True,
+                "full_text": "trial",
+                "fetched_at_utc": iso,
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": iso,
+        "retrieval_finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    report = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sections": [
+            {
+                "section_id": "sec_x",
+                "section_title": "X",
+                "verified_sentences": [
+                    {
+                        "section_id": "sec_x",
+                        "sentence_text": "claim [#ev:src-A:0-3].",
+                        "provenance_tokens": ["[#ev:src-A:0-3]"],
+                        "verifier_pass": True,
+                        "drop_reason": None,
+                    }
+                ],
+                "section_verify_pass_rate": 1.0,
+                "section_status": "verified",
+            }
+        ],
+        "overall_verify_pass_rate": 1.0,
+        "pipeline_verdict": "success",
+        "generator_model": "test/m",
+        "verifier_pass_threshold": 0.4,
+        "started_at_utc": iso,
+        "finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/audit-bundle",
+        json={"decision": decision, "pool": pool, "report": report},
+    )
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "gpg_unavailable"
+
+
+def test_all_four_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
     ):
         assert client.get(path).status_code == 200, path
