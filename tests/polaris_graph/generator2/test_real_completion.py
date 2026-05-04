@@ -138,7 +138,8 @@ def test_system_prompt_specifies_token_format():
 
 
 def test_system_prompt_forbids_inventing_numbers():
-    assert "Do NOT invent numbers" in SYSTEM_PROMPT or "do not invent numbers" in SYSTEM_PROMPT.lower()
+    p = SYSTEM_PROMPT.lower()
+    assert "never invent numbers" in p or "do not invent numbers" in p
 
 
 # ---------- _extract_text ----------

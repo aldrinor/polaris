@@ -123,7 +123,7 @@ review.
    `.codex/slices/slice_003/` (POLARIS-side); polaris-controls/slices
    does not yet contain `slice_002_*.md` or `slice_003_*.md`.
 
-## Two fixes shipped in this PR
+## Two fixes shipped in PR #46
 
 - `src/polaris_graph/scope/ambiguity_detector_clinical.py`: real-text
   fallback for unambiguous questions (no more placeholder PICO axes
@@ -131,3 +131,60 @@ review.
 - `src/polaris_graph/generator2/real_completion.py`: tolerant response
   parser handling multipart content + reasoning fallback
 - 482 backend tests + walkthrough fixtures all pass.
+
+## Walkthrough v2 (this PR) — model + prompt fixes
+
+**Question asked:** *"Why GLM-5.1?"* — honest answer: GLM-5.1 was the
+existing default in `.env` from prior heritage configuration. Per the
+Carney delivery plan v6.2, the canonical generator target is
+**DeepSeek V4 Pro** (with V4 Flash for cheap ops). I switched
+`OPENROUTER_DEFAULT_MODEL` from `z-ai/glm-5.1` to
+`deepseek/deepseek-v4-pro` (1M context, $0.435/M prompt + $0.87/M
+completion).
+
+**Re-run with deepseek-v4-pro:** ~357s, verdict still
+`abort_no_verified_sections`. Same root cause: the model leaked its
+reasoning chain into prose ("We need to write...", "Use only evidence
+provided..."). Reasoning leakage is NOT model-specific — both GLM-5.1
+and DeepSeek-V4-Pro do it when given a complex prompt.
+
+**Real fix: prompt engineering with 1-shot example.** Updated system
+prompt to:
+- Add explicit "OUTPUT ONLY THE SECTION TEXT — no preamble, no
+  meta-commentary, no thinking-aloud"
+- Show 1-shot example with the EXACT desired format
+- Forbid specific meta-phrases ("We need to write", "Let me examine",
+  "I need to")
+
+**Result with deepseek-v4-pro + 1-shot prompt:**
+- HTTP 200, ~521s
+- **pipeline_verdict: SUCCESS** (was abort)
+- **overall pass rate: 75%** (was 0%)
+- **Limitations section: regenerated, 75% pass rate, 3 verified
+  sentences shipped**
+
+Verified clinical content:
+
+> *"One review found only very low quality evidence for acute treatment
+> of episodic tension-type headache [#ev:5984c4fc-...:12-47]."*
+>
+> *"The population in this review was limited to people with 2 to 14
+> tension-type headaches a month [#ev:5984c4fc-...:54-103]."*
+
+Population/Intervention/Outcomes still drop because they need numeric
+extraction from spans (harder for the model). Limitations passes
+because it's narrative synthesis (easier).
+
+**Full chain timing:** intake 5ms + retrieval ~10s + generation ~520s
+= ~9 minutes for 4 LLM calls (one per section, with regeneration on
+failure). Production target: <60s. Path: parallel section generation
++ smaller model for non-numeric sections.
+
+## Final next steps after this PR
+
+1. **Parallelize section generation** (4 LLM calls in parallel = 1/4 latency)
+2. **Tune adequacy thresholds** for early demo (T1=2 → T1=1)
+3. **Tune verifier_pass_threshold** as a body-level override (default 0.40 stays for production)
+4. **Fix generator_model field** in VerifiedReport (currently hard-coded to "stub-generator")
+5. **Mount Next.js dev server** + verify the 3 pages render
+6. **Sign slice 002 + 003 specs** into polaris-controls per cage contract
