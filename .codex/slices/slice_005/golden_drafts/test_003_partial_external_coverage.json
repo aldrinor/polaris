@@ -1,0 +1,35 @@
+{
+  "test_id": "test_003_partial_external_coverage",
+  "description": "Only ChatGPT output supplied; Gemini missing. Scoreboard should still produce per-question rows; gemini scores show as None for affected dimensions; aggregate gemini_mean reflects None.",
+  "config": {
+    "benchmark_id": "test_partial",
+    "questions": [
+      {
+        "question_id": "Q01",
+        "question_text": "Is aspirin effective?",
+        "scope_class": "clinical_efficacy",
+        "expected_pico_axes": ["population", "intervention", "outcome"],
+        "is_refusal_bait": false
+      }
+    ]
+  },
+  "polaris_results": {
+    "Q01": {
+      "succeeded": true,
+      "intake_status": "in_scope",
+      "bundle_available": true,
+      "total_latency_ms": 90000,
+      "has_pool": true,
+      "has_report": true
+    }
+  },
+  "chatgpt_outputs": {
+    "Q01": "Adults receiving aspirin in randomized trials achieved 52% headache reduction https://nejm.org/doi/abc with intervention outcome population studied."
+  },
+  "gemini_outputs": {},
+  "expected": {
+    "kind": "Scoreboard",
+    "chatgpt_has_some_real_scores": true,
+    "gemini_all_external_dims_none_or_zero": true
+  }
+}
