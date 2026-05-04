@@ -35,6 +35,10 @@ from polaris_graph.api.retrieval_route import (
     get_fetch_fn as slice002_get_fetch_fn,
     router as slice002_retrieval_router,
 )
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
 
 
 @asynccontextmanager
@@ -95,6 +99,13 @@ def create_app() -> FastAPI:
 
         app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
     app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # PR 9 leaves completion_fn dependency at sentinel default (returns
+    # 400 completion_backend_unavailable). Slice 003 PR 7 will inject a
+    # real OpenRouter-backed adapter behind the same Protocol when an
+    # OPENROUTER_API_KEY is present in env.
+    app.include_router(slice003_generation_router, prefix="/api")
 
     return app
 
