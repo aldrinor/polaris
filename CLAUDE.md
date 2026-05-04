@@ -348,11 +348,21 @@ always stop"). Promising harder doesn't fix it; structural avoidance does.
 - Per-PR wrap-up summaries.
 
 **STATUS blocks are reserved for:**
-1. The batched run is FULLY COMPLETE (e.g. last PR of slice 002 merged).
+1. The MISSION is fully complete — for POLARIS, that means slice 005
+   (BEAT-BOTH benchmark + demo polish) merged AND the demo run end-to-end
+   produces correct output. Until then, every slice boundary (002→003,
+   003→004, etc.) is an internal transition, NOT an end-of-batch.
 2. A genuine halt condition has fired: asymptoting / scope decision /
    primary-source conflict / cost concern / fetch-backend keys missing /
    user-input genuinely required (not invented blocker per
    `feedback_dont_pause_autoloop` and `feedback_substrate_is_not_product`).
+
+**Slice boundaries are NOT batch boundaries.** When slice N's last PR
+merges, the IMMEDIATE next action is `git checkout -b
+bot/slice-N+1-architecture-proposal` and start drafting. User flagged
+2026-05-04: "Then why you stop here now?" after I declared slice 002
+done. The slice closing is the same kind of internal milestone as a PR
+merge — keep going to slice 003 without asking.
 
 **Self-check:** If you find yourself drafting a STATUS block during a batch
 and the slice isn't done, that's the bug. Delete it; run the next PR's
