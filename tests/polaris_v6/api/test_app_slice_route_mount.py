@@ -17,6 +17,7 @@ def _no_real_backend_keys(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("POLARIS_GPG_KEY_ID", raising=False)
+    monkeypatch.delenv("POLARIS_BENCHMARK_RESULTS_DIR", raising=False)
     yield
 
 
@@ -262,5 +263,33 @@ def test_all_four_slices_share_same_app():
         "/api/retrieval/health",
         "/api/generation/health",
         "/api/audit-bundle/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_005_benchmark_health_mounted():
+    r = _client().get("/api/benchmark/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_005_beat_both_benchmark"
+    # No POLARIS_BENCHMARK_RESULTS_DIR set in test fixture -> empty list
+    assert body["available_benchmarks"] == []
+    assert body["results_root"] is None
+
+
+def test_slice_005_benchmark_scoreboard_503_when_no_results_dir():
+    r = _client().get("/api/benchmark/some_bench/scoreboard")
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "benchmark_results_unavailable"
+
+
+def test_all_five_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
+        "/api/benchmark/health",
     ):
         assert client.get(path).status_code == 200, path
