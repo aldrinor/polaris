@@ -4,11 +4,36 @@ High-integrity research pipeline: turns a plain-language research
 question into a grounded, per-sentence-verified markdown report with
 bibliography, corpus-approval gate, and a separate-family evaluator.
 
-## Current state (2026-04-18)
+## v6.2 mission state (2026-05-04)
 
-POLARIS currently runs **three parallel pipelines**. This is not by
-design — it is the honest state of the repo. See `architecture.md` and
-`docs/live_code_audit.md` for why.
+POLARIS is shipping toward a **Sep 6, 2026 tracer demo for incoming PM
+Carney**, governed by `polaris-controls/PLAN.md` (admin-only, signed).
+The demo target is end-to-end clinical research: scope discovery →
+ambiguity detection → tiered retrieval → generator with strict-verify →
+GPG-signed audit bundle → BEAT-BOTH benchmark vs ChatGPT-DR / Gemini-DR.
+
+| Slice | Deliverable | Substrate |
+|---|---|---|
+| 1 | Scope discovery + ambiguity | `polaris_graph/scope/`, `/api/intake`, `/intake` page |
+| 2 | Tiered retrieval (Serper + S2) | `polaris_graph/retrieval2/`, `/api/retrieval`, `/retrieval` page |
+| 3 | Generator + strict-verify | `polaris_graph/generator2/`, `/api/generation`, `/generation` page |
+| 4 | Audit bundle GPG-signed | `polaris_graph/audit_bundle/`, `/api/audit-bundle`, download in `/generation` |
+| 5 | BEAT-BOTH benchmark + demo polish | `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` |
+
+Operator entry points:
+
+- **Demo runbook:** `docs/demo_runbook.md` (env setup → boot → walkthrough)
+- **Mission status:** `docs/mission_status.md` (single-page state of play)
+- **Pre-demo smoke:** `PYTHONPATH=src python scripts/demo_smoke.py -v`
+- **Seed benchmark UI:** `python scripts/seed_demo_benchmark.py --output outputs/demo_benchmark/clinical_n10_demo`
+- **Home walkthrough:** `http://localhost:3000/` four-step click-through
+
+## Heritage pipelines (pre-v6.2)
+
+POLARIS also hosts three heritage pipelines from prior cycles. These
+are the V30 honest-rebuild engine (305 tests, 159 commits in the 60
+days before the v6.2 cutover) plus the legacy CLI. See
+`architecture.md` and `docs/live_code_audit.md` for the full history.
 
 | Pipeline | Purpose | Entry | Status |
 |---|---|---|---|
