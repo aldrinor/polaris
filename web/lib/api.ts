@@ -544,3 +544,128 @@ export function sortSourcesByTier(
     return a.domain.localeCompare(b.domain);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+}
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: VerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(
+  report: VerifiedReport,
+): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): VerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
