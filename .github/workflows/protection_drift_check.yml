@@ -1,0 +1,165 @@
+name: protection-drift-check
+
+# Daily verification that POLARIS branch protection settings have not drifted
+# from the cage-design baseline established 2026-05-04 per polaris-controls/PLAN.md.
+#
+# What this checks:
+#   - polaris/main branch: required_signatures, enforce_admins, no force-push,
+#     no deletions, conversation resolution required, PR reviews required.
+#   - polaris/polaris branch: same as main.
+#
+# What this does NOT check (yet):
+#   - polaris-controls repo protections (cross-repo verification needs a PAT
+#     stored in POLARIS_CONTROLS_READ_TOKEN secret; see TODO at bottom of file).
+#   - Trusted App configuration (App not yet registered as of 2026-05-04).
+#
+# On drift detected: opens a GitHub Issue in this repo with the diff between
+# expected and actual protection settings. Issue is auto-labeled "drift" and
+# assigned to @aldrinor.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 08:00 UTC daily
+  workflow_dispatch:     # allow manual trigger
+
+permissions:
+  contents: read
+  issues: write
+  administration: read
+
+jobs:
+  drift_check:
+    name: protection-drift-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify polaris branch protection
+        id: polaris
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          REPO="${{ github.repository }}"
+          BRANCH="polaris"
+
+          # Fetch live protection
+          ACTUAL=$(gh api "repos/$REPO/branches/$BRANCH/protection" 2>/dev/null || echo '{}')
+
+          # Expected values (from cage establishment 2026-05-04)
+          declare -A EXPECTED=(
+            [required_signatures.enabled]=true
+            [enforce_admins.enabled]=true
+            [allow_force_pushes.enabled]=false
+            [allow_deletions.enabled]=false
+            [required_conversation_resolution.enabled]=true
+            [required_pull_request_reviews.dismiss_stale_reviews]=true
+            [required_pull_request_reviews.require_last_push_approval]=true
+            [required_pull_request_reviews.required_approving_review_count]=1
+          )
+
+          DRIFT=""
+          for key in "${!EXPECTED[@]}"; do
+            actual=$(echo "$ACTUAL" | jq -r ".$key // \"missing\"")
+            expected="${EXPECTED[$key]}"
+            if [ "$actual" != "$expected" ]; then
+              DRIFT+="$BRANCH/$key: expected=$expected actual=$actual\n"
+            fi
+          done
+
+          if [ -n "$DRIFT" ]; then
+            echo "DRIFT DETECTED:"
+            echo -e "$DRIFT"
+            echo "drift<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "$DRIFT" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "OK: polaris branch protection matches cage baseline."
+          fi
+
+      - name: Verify main branch protection
+        id: main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          REPO="${{ github.repository }}"
+          BRANCH="main"
+
+          ACTUAL=$(gh api "repos/$REPO/branches/$BRANCH/protection" 2>/dev/null || echo '{}')
+
+          declare -A EXPECTED=(
+            [required_signatures.enabled]=true
+            [enforce_admins.enabled]=true
+            [allow_force_pushes.enabled]=false
+            [allow_deletions.enabled]=false
+          )
+
+          DRIFT=""
+          for key in "${!EXPECTED[@]}"; do
+            actual=$(echo "$ACTUAL" | jq -r ".$key // \"missing\"")
+            expected="${EXPECTED[$key]}"
+            if [ "$actual" != "$expected" ]; then
+              DRIFT+="$BRANCH/$key: expected=$expected actual=$actual\n"
+            fi
+          done
+
+          if [ -n "$DRIFT" ]; then
+            echo -e "$DRIFT"
+            echo "drift<<EOF" >> "$GITHUB_OUTPUT"
+            echo -e "$DRIFT" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "OK: main branch protection matches cage baseline."
+          fi
+
+      - name: Open issue on drift
+        if: steps.polaris.outputs.drift != '' || steps.main.outputs.drift != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(cat <<EOF
+          Daily protection drift check has detected divergence from the cage
+          baseline established 2026-05-04 per polaris-controls/PLAN.md
+          (Section 6 — Cage Requirements).
+
+          ## Drift detected on polaris branch
+          \`\`\`
+          ${{ steps.polaris.outputs.drift }}
+          \`\`\`
+
+          ## Drift detected on main branch
+          \`\`\`
+          ${{ steps.main.outputs.drift }}
+          \`\`\`
+
+          ## Resolution
+
+          1. Review the diff above.
+          2. Either: restore the expected setting via gh api (if drift was
+             unintended), OR: update polaris-controls/PLAN.md and the
+             expected-values block in this workflow file (if drift was
+             a deliberate cage adjustment), then signed-commit + PR.
+          3. Close this issue once cage is back in spec.
+
+          If this is the first time you're seeing this issue, the most
+          likely cause is GitHub UI accidentally toggling a setting off.
+          Reverify via: scripts/verify_github_protections.py (when added
+          in a future slice) or manually via the protection API.
+
+          Run logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "drift: protection settings diverged from cage baseline" \
+            --body "$BODY" \
+            --label "drift,security-control,priority-high" \
+            --assignee "aldrinor" || true
+
+# TODO (slice 0+): cross-repo verification of polaris-controls protections.
+# Requires:
+#   1. Generate fine-grained PAT on aldrinor account with polaris-controls:metadata:read
+#   2. Add to POLARIS repo Secrets as POLARIS_CONTROLS_READ_TOKEN
+#   3. Add a job here that uses GH_TOKEN=${{ secrets.POLARIS_CONTROLS_READ_TOKEN }}
+#      and runs the same protection-baseline check against
+#      aldrinor/polaris-controls main branch
+#   4. Verify session_pin.txt SHAs match polaris-controls HEAD blob SHAs
