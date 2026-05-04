@@ -368,6 +368,44 @@ merge — keep going to slice 003 without asking.
 and the slice isn't done, that's the bug. Delete it; run the next PR's
 branch-creation command instead.
 
+### 8.2 Zero prose between merge and next branch (added 2026-05-04 v2)
+
+Sec 8.1 was insufficient because it banned STATUS blocks (a surface form)
+without banning the underlying behavior (any backward-looking text
+between `gh pr merge` and `git checkout -b`). The agent kept finding new
+surface forms — paragraphs with PR counts, "still on momentum", "X of N
+PRs done" tallies — that are the same closure behavior dressed differently.
+
+**Strict rule:** Between the tool call that completes `gh pr merge` and
+the tool call that creates the next branch (`git checkout -b
+bot/...next-pr-name`), NO assistant prose is allowed. Not a sentence.
+Not a count. Not a "next up" line. Nothing.
+
+**Why:** Any text in that gap functions as a closure signal regardless
+of whether it has a STATUS header. The empirical pattern across this
+session is: agent emits recap → agent stops. Removing the recap
+removes the stop trigger.
+
+**Allowed:** Empty assistant text followed immediately by the next
+branch's first tool call (Edit/Write/Bash for the next PR's content).
+
+**Forbidden:** Any of these between merge and next branch:
+- "PR N merged" sentences
+- "Slice X: N/M PRs done" tallies
+- "Total tests: N passing" recaps
+- "Continuing with..." / "Moving to..." / "Next is..." framings
+- "Still on momentum" / "Pattern locked in" cheerleading
+- ANY backward-looking summary, however brief
+
+**Test:** If a reader of the conversation transcript can tell that one
+PR just finished and another is starting, the prose was too much.
+PR boundaries should be visible only in tool calls + commit messages,
+never in assistant prose.
+
+User flagged 2026-05-04 v2: "why all of the previous protocol fail
+successfully" — the answer is that sec 8.1 banned the symptom, not the
+behavior. Sec 8.2 bans the behavior.
+
 ---
 
 ## §9. POLARIS-Specific Invariants
