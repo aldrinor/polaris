@@ -1,0 +1,35 @@
+{
+  "test_id": "test_001_polaris_dominates_when_no_externals",
+  "description": "When no external outputs supplied, POLARIS auto-wins every dimension (since all external scores are None). polaris_wins should equal n_questions × n_dimensions.",
+  "config": {
+    "benchmark_id": "test_no_externals",
+    "questions": [
+      {
+        "question_id": "Q01",
+        "question_text": "Is aspirin effective for headache?",
+        "scope_class": "clinical_efficacy",
+        "expected_pico_axes": ["population", "intervention", "outcome"],
+        "is_refusal_bait": false
+      }
+    ]
+  },
+  "polaris_results": {
+    "Q01": {
+      "succeeded": true,
+      "intake_status": "in_scope",
+      "bundle_available": true,
+      "total_latency_ms": 60000,
+      "has_pool": true,
+      "has_report": true
+    }
+  },
+  "chatgpt_outputs": {},
+  "gemini_outputs": {},
+  "expected": {
+    "kind": "Scoreboard",
+    "polaris_wins_min": 7,
+    "external_wins": 0,
+    "ties": 0,
+    "verify_polaris_auto_one": ["auditability", "refusal_correctness"]
+  }
+}
