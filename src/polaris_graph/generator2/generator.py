@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -210,30 +211,63 @@ def process_generation(
         # ScopeDecision that triggered retrieval.
         blueprint = blueprint_for_scope_class(scope_class)
 
-    sections: list[Section] = []
-    for plan in blueprint.sections:
-        try:
-            section = _generate_and_verify_section(
-                plan, pool, completion_fn, verifier_pass_threshold
-            )
-        except NotImplementedError:
-            return GenerationError(
-                code="completion_backend_unavailable",
-                message=(
-                    "completion_fn is the sentinel default; inject a real "
-                    "fn (PR 7) or test stub"
-                ),
-                pool_id=pool.pool_id,
-                decision_id=pool.decision_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return GenerationError(
-                code="completion_backend_unavailable",
-                message=f"completion_fn raised {type(exc).__name__}: {exc}",
-                pool_id=pool.pool_id,
-                decision_id=pool.decision_id,
-            )
-        sections.append(section)
+    # Derive a real generator_model label when the injected completion_fn
+    # exposes one (e.g. RealCompletion.model_label). Stub functions used
+    # in tests don't have it, so we fall back to the explicit arg.
+    effective_model = generator_model
+    if generator_model == DEFAULT_GENERATOR_MODEL_LABEL:
+        candidate = getattr(completion_fn, "model_label", None)
+        if isinstance(candidate, str) and candidate.strip():
+            effective_model = candidate
+
+    # Generate all sections in parallel. Each section calls the LLM 1-2
+    # times (regen on threshold-fail). With 4 sections, parallel reduces
+    # latency from ~4-8 LLM calls serial to ~1-2 LLM calls wall-clock.
+    sections_by_idx: dict[int, Section] = {}
+    fatal_error: GenerationError | None = None
+
+    with ThreadPoolExecutor(max_workers=len(blueprint.sections)) as pool_exec:
+        future_to_idx = {
+            pool_exec.submit(
+                _generate_and_verify_section,
+                plan,
+                pool,
+                completion_fn,
+                verifier_pass_threshold,
+            ): idx
+            for idx, plan in enumerate(blueprint.sections)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                sections_by_idx[idx] = future.result()
+            except NotImplementedError:
+                fatal_error = GenerationError(
+                    code="completion_backend_unavailable",
+                    message=(
+                        "completion_fn is the sentinel default; inject a real "
+                        "fn (PR 7) or test stub"
+                    ),
+                    pool_id=pool.pool_id,
+                    decision_id=pool.decision_id,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                fatal_error = GenerationError(
+                    code="completion_backend_unavailable",
+                    message=f"completion_fn raised {type(exc).__name__}: {exc}",
+                    pool_id=pool.pool_id,
+                    decision_id=pool.decision_id,
+                )
+                break
+
+    if fatal_error is not None:
+        return fatal_error
+
+    # Preserve blueprint section order
+    sections: list[Section] = [
+        sections_by_idx[i] for i in range(len(blueprint.sections))
+    ]
 
     finished = datetime.now(timezone.utc)
     elapsed_ms = int((time.perf_counter() - t_start) * 1000)
@@ -266,7 +300,7 @@ def process_generation(
         sections=sections,
         overall_verify_pass_rate=overall_rate,
         pipeline_verdict=pipeline_verdict,  # type: ignore[arg-type]
-        generator_model=generator_model,
+        generator_model=effective_model,
         verifier_pass_threshold=verifier_pass_threshold,
         started_at_utc=started,
         finished_at_utc=finished,
