@@ -1,0 +1,93 @@
+name: legacy-protection
+
+# CI gate enforcing the .legacy/ contract per .legacy/README.md:
+#   1. No active production code may import from .legacy/*
+#   2. No PR may modify any existing file under .legacy/
+#   (3. Adding new files to .legacy/ via git mv is allowed)
+#
+# Runs on every PR targeting any branch. Fails the PR (commit-status: failure)
+# on violation, blocking merge per branch protection's required-status-checks.
+
+on:
+  pull_request:
+    branches: ['*']
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  legacy_protection:
+    name: legacy-protection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Compute base..head diff
+        id: diff
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          # Files modified or deleted in .legacy/ (additions are OK)
+          git diff --name-status "$BASE_SHA" "$HEAD_SHA" -- '.legacy/' \
+            | awk '$1 != "A"' > /tmp/legacy_modifications.txt || true
+          # All changed files (for import scanning)
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/all_changed_files.txt || true
+
+      - name: Reject modifications to existing .legacy/ files
+        run: |
+          if [ -s /tmp/legacy_modifications.txt ]; then
+            echo "::error title=Legacy modification detected::Files under .legacy/ are read-only post-add per .legacy/README.md."
+            echo ""
+            echo "Modified or deleted files in .legacy/:"
+            cat /tmp/legacy_modifications.txt
+            echo ""
+            echo "Resolution: revert these changes. .legacy/ is a read-only archive."
+            echo "If you need to update old code, re-write under the active slice."
+            exit 1
+          fi
+          echo "OK: no modifications to existing .legacy/ files."
+
+      - name: Reject new imports from .legacy/
+        run: |
+          # Scan files newly added or modified outside .legacy/ for imports
+          # referencing .legacy/ paths.
+          VIOLATIONS=$(
+            grep -REn --include='*.py' --include='*.ts' --include='*.tsx' \
+                     --include='*.js' --include='*.jsx' \
+                     --exclude-dir='.legacy' \
+                     --exclude-dir='node_modules' \
+                     --exclude-dir='__pycache__' \
+                     --exclude-dir='.git' \
+              -e 'from[[:space:]]+\.?legacy[\.\/]' \
+              -e 'import[[:space:]]+\.?legacy[\.\/]' \
+              -e 'from[[:space:]]+["'"'"'][^"'"'"']*\.legacy[/.]' \
+              -e 'require[[:space:]]*\([[:space:]]*["'"'"'][^"'"'"']*\.legacy[/.]' \
+              . 2>/dev/null || true
+          )
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error title=Import from .legacy/ detected::Active code may not import from .legacy/."
+            echo ""
+            echo "Violating import statements:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "Resolution: re-write the needed functionality under the active slice."
+            echo ".legacy/ is preserved as historical reference, not active code."
+            exit 1
+          fi
+          echo "OK: no imports from .legacy/ in active paths."
+
+      - name: Verify session_pin.txt unchanged unless authorized
+        # docs/session_pin.txt edits require code-owner approval per CODEOWNERS,
+        # which branch protection enforces separately. This step is informational.
+        run: |
+          if git diff --name-only "${{ steps.diff.outputs.base }}" "${{ steps.diff.outputs.head }}" \
+              | grep -q '^docs/session_pin\.txt$'; then
+            echo "::notice::docs/session_pin.txt was edited in this PR. Code-owner approval required."
+          fi
