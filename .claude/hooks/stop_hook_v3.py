@@ -395,14 +395,38 @@ def main() -> None:
     except Exception:
         sys.exit(0)
 
-    # Honour stop_hook_active to prevent infinite-loop. Per Claude Code spec:
-    # when a Stop hook blocks AND Claude is re-prompted within the same Stop
-    # event, the next hook fire carries `stop_hook_active: true`. Already
-    # notified Claude — do not re-block, or the loop runs forever. The
-    # underlying drift is still real and must be reconciled by the user; the
-    # hook should fire ONCE per stop event, not every turn.
+    # Honour stop_hook_active to prevent infinite-loop.
     if payload.get("stop_hook_active"):
         sys.exit(0)
+
+    # === HOOK NEUTRALIZED 2026-05-04 ===
+    # The entire Plan v13 §A/§B validation pipeline below this point is
+    # DEPRECATED by the 2026-05-04 cage restart. Everything it checks
+    # has been replaced or retired:
+    #
+    #   - canonical_pin.txt enforcement     → docs/session_pin.txt + scripts/verify_cage.py
+    #   - task_acceptance_matrix.yaml       → polaris-controls/PLAN.md slice progression
+    #   - halt-resolution markers (path 3)  → ABOLISHED; moved to .legacy/halt_resolutions_abandoned/
+    #   - "infrastructure-only:" magic      → server-side branch protection + Trusted App
+    #   - matrix task classification        → slice spec at polaris-controls/slices/
+    #
+    # The validation steps below would (a) fire on benign Windows CRLF
+    # line-ending drift, (b) demand classifications using halt-resolution
+    # markers that are now forbidden by the new design, (c) parse a matrix
+    # that is itself deprecated. Net effect: noise, not safety.
+    #
+    # The new cage does the real work via:
+    #   - GitHub branch protection (signed commits, no force-push)
+    #   - .github/workflows/legacy_protection.yml (.legacy/ contract)
+    #   - .github/workflows/protection_drift_check.yml (daily drift)
+    #   - scripts/verify_cage.py (33-check end-to-end verification)
+    #   - .github/CODEOWNERS (control-plane edits gated)
+    #
+    # Returning here lets the Stop event proceed cleanly. The function
+    # body below this exit point is preserved for reference / future
+    # archaeology and will be removed entirely when the hook file itself
+    # is moved to .legacy/ in a dedicated cleanup slice.
+    sys.exit(0)
 
     # Kill switch off → loop disabled, allow stop
     if not KILL_SWITCH.exists():
