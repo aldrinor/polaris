@@ -70,12 +70,16 @@ def _check_health(client: TestClient, path: str, expected_slice: str,
 def _check_intake_pipeline(verbose: bool) -> bool:
     """Run a canonical question through process_intake.
 
-    Asserts shape only (ScopeDecision instance, latency under budget).
-    Status / scope_class depend on whether OPENROUTER_API_KEY is loaded —
-    without it, the LLM-fallback branch returns out_of_scope. Smoke is a
-    structural check, not a content check; for content verification run
-    the full demo runbook with keys set.
+    Two modes per LAW II (no silent fallback):
+    - With OPENROUTER_API_KEY in env: ASSERT scope_class == 'clinical_efficacy'.
+      The canonical question MUST classify correctly under real keys; if it
+      doesn't, the demo is broken and we fail loud.
+    - Without keys: assert ScopeDecision shape only (LLM fallback returns
+      'uncertain' which produces out_of_scope status — the documented
+      keyless degradation).
     """
+    import os
+
     try:
         result = process_intake(_CANONICAL_QUESTION)
     except Exception as e:
@@ -87,15 +91,26 @@ def _check_intake_pipeline(verbose: bool) -> bool:
             file=sys.stderr,
         )
         return False
-    if result.latency_ms > 10000:
+    if result.latency_ms > 30000:
         print(
-            f"  FAIL process_intake: latency {result.latency_ms}ms > 10000ms",
+            f"  FAIL process_intake: latency {result.latency_ms}ms > 30000ms",
             file=sys.stderr,
         )
         return False
+    has_key = bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+    if has_key:
+        if result.scope_class != "clinical_efficacy":
+            print(
+                f"  FAIL process_intake: with OPENROUTER_API_KEY set, canonical "
+                f"question expected scope_class='clinical_efficacy', got "
+                f"{result.scope_class!r} (status={result.status})",
+                file=sys.stderr,
+            )
+            return False
     if verbose:
+        mode = "real-key" if has_key else "keyless"
         print(
-            f"  OK   process_intake -> status={result.status} "
+            f"  OK   process_intake [{mode}] -> status={result.status} "
             f"scope_class={result.scope_class} "
             f"latency_ms={result.latency_ms}"
         )

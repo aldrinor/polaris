@@ -212,12 +212,34 @@ class LLMCompletionFn(Protocol):
 
 
 def _default_llm_completion(prompt: str) -> str:
-    """Production LLM call — lazy import + low-temp small model."""
+    """Production LLM call — lazy import + low-temp small model.
+
+    OpenRouterClient.generate is async; this sync helper runs it via
+    asyncio.run. If we are already inside a running event loop (e.g. an
+    async test or async FastAPI handler) we raise RuntimeError so the
+    caller surfaces the misuse instead of silently returning "uncertain"
+    via the outer try/except in llm_fallback_classify (LAW II — no
+    silent fallback).
+    """
+    import asyncio
+
     from polaris_graph.llm.openrouter_client import OpenRouterClient
 
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass  # No running loop — safe to use asyncio.run
+    else:
+        raise RuntimeError(
+            "_default_llm_completion called from an async context; "
+            "callers in async code must invoke OpenRouterClient.generate "
+            "directly with await, not through this sync wrapper."
+        )
+
     client = OpenRouterClient()
-    # Use generate() (reasoning OFF) for clean structured output
-    result = client.generate(prompt=prompt, temperature=0.0, max_tokens=200)
+    result = asyncio.run(
+        client.generate(prompt=prompt, temperature=0.0, max_tokens=200)
+    )
     return result.content if hasattr(result, "content") else str(result)
 
 
