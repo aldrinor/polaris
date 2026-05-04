@@ -7,13 +7,14 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
-def _no_real_serper_key(monkeypatch: pytest.MonkeyPatch):
-    """Ensure tests don't accidentally instantiate the real fetcher.
+def _no_real_backend_keys(monkeypatch: pytest.MonkeyPatch):
+    """Ensure tests don't accidentally instantiate real backends.
 
-    create_app() reads SERPER_API_KEY at import time of build_real_fetcher;
-    we monkeypatch it to empty so the sentinel default stays in place.
+    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY at construction;
+    we monkeypatch both to empty so sentinel defaults stay in place.
     """
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     yield
 
 

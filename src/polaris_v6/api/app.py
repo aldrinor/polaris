@@ -101,10 +101,18 @@ def create_app() -> FastAPI:
     app.include_router(slice002_retrieval_router, prefix="/api")
 
     # Slice 003 — POST /api/generation + GET /api/generation/health.
-    # PR 9 leaves completion_fn dependency at sentinel default (returns
-    # 400 completion_backend_unavailable). Slice 003 PR 7 will inject a
-    # real OpenRouter-backed adapter behind the same Protocol when an
-    # OPENROUTER_API_KEY is present in env.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
     app.include_router(slice003_generation_router, prefix="/api")
 
     return app
