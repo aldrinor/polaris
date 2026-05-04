@@ -1,0 +1,12 @@
+{
+  "test_id": "test_005_inadequate_pool_error",
+  "description": "Pool with adequacy=False; generator must return GenerationError(inadequate_pool) without invoking completion_fn",
+  "pool_inadequate": true,
+  "scope_class": "clinical_efficacy",
+  "stub_completion_text": "should not be called",
+  "expected": {
+    "kind": "GenerationError",
+    "code": "inadequate_pool",
+    "expect_no_completion_calls": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "test_id": "test_002_safety_partial",
+  "description": "Adequate safety pool; stub returns mixed-quality output; some sections verify, some drop",
+  "pool_full_text": "Older adults receiving metformin showed adverse events at 8% rate in pharmacovigilance reports. Risk factors included renal impairment monitoring requirements.",
+  "scope_class": "clinical_safety",
+  "stub_completion_text": "Older adults showed adverse events at 8% rate in pharmacovigilance monitoring {{TOKEN}}.",
+  "expected": {
+    "kind": "VerifiedReport",
+    "pipeline_verdict": "success",
+    "min_kept_sections": 1
+  }
+}

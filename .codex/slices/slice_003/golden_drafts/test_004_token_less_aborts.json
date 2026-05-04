@@ -1,0 +1,12 @@
+{
+  "test_id": "test_004_token_less_aborts",
+  "description": "Stub generator returns sentences with no provenance tokens; every section drops; verdict=abort_no_verified_sections",
+  "pool_full_text": "Adults benefited from aspirin therapy in the randomized trial outcomes.",
+  "scope_class": "clinical_efficacy",
+  "stub_completion_text": "Aspirin works in adults. The trial was good.",
+  "expected": {
+    "kind": "VerifiedReport",
+    "pipeline_verdict": "abort_no_verified_sections",
+    "all_sections_dropped": true
+  }
+}
