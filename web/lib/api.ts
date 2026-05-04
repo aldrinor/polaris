@@ -419,3 +419,128 @@ export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
   const response = await fetch(`${BACKEND_URL}/api/intake/health`);
   return asJsonOrThrow<IntakeHealthResponse>(response);
 }
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code:
+    | "wrong_status"
+    | "wrong_scope_class"
+    | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
