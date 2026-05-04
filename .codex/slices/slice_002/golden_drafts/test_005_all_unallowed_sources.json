@@ -1,0 +1,40 @@
+{
+  "test_id": "test_005_all_unallowed_sources",
+  "description": "All fetch_fn results are denylisted or unclassifiable; pool runs but adequacy=False with zero kept sources",
+  "decision": {
+    "status": "in_scope",
+    "scope_class": "clinical_efficacy",
+    "ambiguity_axes": [
+      {
+        "axis": "population",
+        "plausible_interpretations": ["adults"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "intervention",
+        "plausible_interpretations": ["aspirin"],
+        "needs_clarification": false
+      },
+      {
+        "axis": "outcome",
+        "plausible_interpretations": ["headache"],
+        "needs_clarification": false
+      }
+    ],
+    "clarifications_needed": [],
+    "provenance": {},
+    "latency_ms": 4
+  },
+  "stub_fetch_results": [
+    {"url": "https://en.wikipedia.org/wiki/Aspirin", "title": "Wikipedia article", "snippet": "encyclopedia"},
+    {"url": "https://www.reddit.com/r/Health/post", "title": "Reddit post", "snippet": "discussion"},
+    {"url": "https://medium.com/@author/aspirin-hot-take", "title": "Medium opinion", "snippet": "blog"},
+    {"url": "https://random-blog.example.org/aspirin", "title": "Random blog", "snippet": "blog"}
+  ],
+  "expected": {
+    "kind": "EvidencePool",
+    "adequacy_is_adequate": false,
+    "expected_source_count": 0,
+    "expected_failure_reason_substring": "T1"
+  }
+}

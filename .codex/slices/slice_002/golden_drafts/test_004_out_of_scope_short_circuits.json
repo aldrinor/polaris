@@ -1,0 +1,20 @@
+{
+  "test_id": "test_004_out_of_scope_short_circuits",
+  "description": "Decision with status=out_of_scope; retriever must short-circuit and return RetrievalError before any fetch_fn call",
+  "decision": {
+    "status": "out_of_scope",
+    "scope_class": null,
+    "ambiguity_axes": [],
+    "clarifications_needed": [],
+    "provenance": {},
+    "latency_ms": 3
+  },
+  "stub_fetch_results": [
+    {"url": "https://should-not-be-fetched.example/", "title": "should not appear", "snippet": ""}
+  ],
+  "expected": {
+    "kind": "RetrievalError",
+    "code": "wrong_status",
+    "expect_no_fetch_calls": true
+  }
+}
