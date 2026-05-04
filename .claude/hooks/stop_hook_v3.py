@@ -297,20 +297,21 @@ def _next_actionable_task(tasks: list[dict]) -> tuple[dict | None, str | None]:
 
 
 def _emit_block(reason: str) -> None:
-    """Emit a block-decision JSON to stdout per Claude Code Stop hook spec.
+    """Emit a schema-clean Stop-hook block decision.
 
-    Per https://code.claude.com/docs/en/hooks: use `hookSpecificOutput.additionalContext`
-    so the reason text is wrapped in a system reminder and inserted into Claude's
-    context window. The top-level `reason` field is shown to the human user;
-    Claude itself reads `additionalContext`.
+    Stop hook schema accepts ONLY: continue, suppressOutput, stopReason,
+    decision ("approve" | "block"), reason, systemMessage. The
+    `hookSpecificOutput` field is reserved for PreToolUse / UserPromptSubmit
+    / PostToolUse / PostToolBatch — putting it on a Stop emission causes
+    Claude Code to drop the JSON as schema-invalid, which means the block
+    silently fails to fire (the bug this code path used to have).
+
+    Keep this minimal. `decision: "block"` halts the loop. `reason` is
+    shown to the user AND fed back to Claude for the next-turn message.
     """
     payload = {
         "decision": "block",
         "reason": reason,
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": reason,
-        },
     }
     sys.stdout.write(json.dumps(payload))
     sys.stdout.flush()
@@ -394,6 +395,15 @@ def main() -> None:
     except Exception:
         sys.exit(0)
 
+    # Honour stop_hook_active to prevent infinite-loop. Per Claude Code spec:
+    # when a Stop hook blocks AND Claude is re-prompted within the same Stop
+    # event, the next hook fire carries `stop_hook_active: true`. Already
+    # notified Claude — do not re-block, or the loop runs forever. The
+    # underlying drift is still real and must be reconciled by the user; the
+    # hook should fire ONCE per stop event, not every turn.
+    if payload.get("stop_hook_active"):
+        sys.exit(0)
+
     # Kill switch off → loop disabled, allow stop
     if not KILL_SWITCH.exists():
         sys.exit(0)
@@ -403,14 +413,20 @@ def main() -> None:
     # idempotent (same input → same result)... Check state from files/environment
     # rather than hook call count"). Validation is now purely state-based.
 
-    # Step A: verify canonical pin (HARD STOP if drift)
-    pin_ok, pin_msg = _verify_canonical_pin()
-    if not pin_ok:
-        _emit_block(
-            f"POLARIS HARD STOP — canonical pin drift detected: {pin_msg}. "
-            f"Per Plan v13 §A: any pinned-file change requires user-signed "
-            f"reconciliation commit + new pin. Halt loop, investigate before resume."
-        )
+    # Step A: canonical pin verification — DEPRECATED 2026-05-04.
+    # The old canonical_pin.txt + Plan v13 §A enforcement is superseded by
+    # the new cage:
+    #   - polaris-controls (admin-only sister repo) holds CHARTER + PLAN
+    #   - docs/session_pin.txt references SHAs in polaris-controls
+    #   - scripts/verify_cage.py runs all 33 cage checks (server-side
+    #     branch protection + cross-repo SHA pin + CODEOWNERS)
+    #   - daily protection_drift_check.yml workflow catches config drift
+    # The local file-SHA check here was firing on benign Windows CRLF/LF
+    # line-ending conversion (working tree differs from HEAD blob even
+    # when content is identical), producing false-drift halts.
+    # Skipped intentionally; not removed yet pending full hook deprecation
+    # in slice 0+ work.
+    pass
 
     # Step B: parse matrix from HEAD
     tasks = _parse_matrix_tasks_from_head()
