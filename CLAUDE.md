@@ -321,6 +321,43 @@ tests_passed: <int>/<int>
 next_actions: [short list]
 ```
 
+### 8.1 No status blocks mid-batch (added 2026-05-04 per user feedback)
+
+During an authorized **batched run** (e.g. "ship slice 002 to completion" =
+14 PRs; or any explicit multi-PR plan), STATUS blocks are FORBIDDEN at
+PR-merge boundaries. After `gh pr merge <N> --squash --delete-branch
+--admin` succeeds, the IMMEDIATE next action MUST be `git checkout -b
+bot/<next-pr-name>`. Not a wrap-up. Not a "next actions" list. Not a
+"continuing" sentence followed by silence.
+
+**Why:** STATUS blocks function as turn-closure signals. Even when followed
+by "Continuing to PR X", the closure has already happened in output, and
+the next iteration does not fire reliably. User has flagged this failure
+3+ times across 2026-05-04 sessions ("you always said you continue, but you
+always stop"). Promising harder doesn't fix it; structural avoidance does.
+
+**Allowed mid-batch transitions:**
+- One brief sentence: "PR 25 merged; opening PR 7 branch."
+- A `git checkout -b ...` command in the same response.
+- Tests + commits + push + merge for the next PR.
+
+**FORBIDDEN mid-batch:**
+- Any STATUS block.
+- Bullet lists titled "next actions:", "remaining:", "shipped this stretch".
+- "Slice progression: N of M PRs shipped" tallies.
+- Per-PR wrap-up summaries.
+
+**STATUS blocks are reserved for:**
+1. The batched run is FULLY COMPLETE (e.g. last PR of slice 002 merged).
+2. A genuine halt condition has fired: asymptoting / scope decision /
+   primary-source conflict / cost concern / fetch-backend keys missing /
+   user-input genuinely required (not invented blocker per
+   `feedback_dont_pause_autoloop` and `feedback_substrate_is_not_product`).
+
+**Self-check:** If you find yourself drafting a STATUS block during a batch
+and the slice isn't done, that's the bug. Delete it; run the next PR's
+branch-creation command instead.
+
 ---
 
 ## §9. POLARIS-Specific Invariants
