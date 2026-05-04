@@ -167,11 +167,42 @@ def test_extract_text_missing_content_raises():
         _extract_text({"choices": [{"message": {}}]})
 
 
-def test_extract_text_non_string_content_raises():
+def test_extract_text_multipart_content_extracted():
+    """Multipart [{type: text, text: ...}] shape is supported."""
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Generated prose."},
+                    ]
+                }
+            }
+        ]
+    }
+    assert _extract_text(response) == "Generated prose."
+
+
+def test_extract_text_non_string_content_with_no_text_raises():
     with pytest.raises(RuntimeError, match="content"):
         _extract_text(
-            {"choices": [{"message": {"content": [{"type": "text"}]}}]}
+            {"choices": [{"message": {"content": [{"type": "image"}]}}]}
         )
+
+
+def test_extract_text_falls_back_to_reasoning_when_content_empty():
+    """Some routes return empty content + populated reasoning."""
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning": "The trial showed aspirin reduced events.",
+                }
+            }
+        ]
+    }
+    assert "aspirin" in _extract_text(response)
 
 
 # ---------- RealCompletion call (network mocked) ----------
@@ -266,7 +297,7 @@ def test_real_completion_raises_on_empty_response(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(httpx.Client, "__init__", patched_init)
 
     pool = _pool([_src()])
-    with pytest.raises(RuntimeError, match="empty content"):
+    with pytest.raises(RuntimeError, match="(empty content|content.*missing)"):
         rc(
             prompt="x",
             section_plan=CLINICAL_EFFICACY.sections[0],
