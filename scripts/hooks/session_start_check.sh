@@ -41,12 +41,14 @@ if [[ -f "$PIN_FILE" ]]; then
     PIN_PLAN=$(grep -E '^[a-f0-9]{40}  polaris-controls/PLAN.md$' "$PIN_FILE" | awk '{print $1}' | head -1 || echo "")
 fi
 
-# iter 21 PRB2-P2-003 + iter 4 PRB3-P2-002 fix: multi-path + multi-file
+# PR-B2 relocation 2026-05-05 night per user directive "everything inside
+# polaris folder". Primary: nested under POLARIS repo root. Sibling fallback
+# retained for fresh-clone-elsewhere scenarios where someone unpacks to a
+# layout that hasn't completed PR-B2.
 SISTER_ROOT=""
 for ROOT in \
-    "${REPO_ROOT}/../polaris-controls" \
-    "/c/polaris-controls" \
-    "C:/polaris-controls"; do
+    "${REPO_ROOT}/polaris-controls" \
+    "${REPO_ROOT}/../polaris-controls"; do
     if [[ -d "$ROOT" ]]; then
         SISTER_ROOT="$ROOT"
         break

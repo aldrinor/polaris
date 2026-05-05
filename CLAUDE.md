@@ -608,7 +608,7 @@ currently meet these invariants. It is frozen; see
 
 Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
 
-1. **Read polaris-controls CHARTER.md and PLAN.md** (sister admin-only repo at `C:\polaris-controls\` — sibling, not subdirectory).
+1. **Read polaris-controls CHARTER.md and PLAN.md** (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS so it remains its own git repo with its own signed-commits-required protection — Claude has no signing key for it).
 2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
 3. **Read `state/active_issue.json`** — if shows in_progress issue, resume that issue ONLY (no scope expansion).
 4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. Do NOT pick a task autonomously.

@@ -3,7 +3,7 @@
 ## Boot ritual (mandatory per CLAUDE.md §10)
 
 1. Read `CLAUDE.md` completely (project directives, especially §3.0 + §10).
-2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (sister admin-only repo at `C:\polaris-controls\`).
+2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (admin-only sister repo nested under POLARIS at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05; gitignored from POLARIS).
 3. Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
 4. Read `state/active_issue.json` — if shows in_progress issue, resume ONLY that issue.
 5. If no active issue, list TaskCreate tasks unblocked, present to user, wait for assignment.

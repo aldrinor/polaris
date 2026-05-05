@@ -114,6 +114,14 @@ current_ui*.png
 # --- Nested legacy copies ---
 POLARIS_APEX/
 
+# --- Sister admin-only repo (PR-B2 relocation 2026-05-05) ---
+# polaris-controls is its own git repo (origin: aldrinor/polaris-controls).
+# It lives under POLARIS root per user directive "everything inside polaris
+# folder", but POLARIS does NOT track its files (they belong to the sister
+# repo's own git history). The session-start hooks read CHARTER.md + PLAN.md
+# from this directory via `git hash-object` for SHA pin verification.
+polaris-controls/
+
 # --- Data (benchmarks, documents — reproducible) ---
 data/
 

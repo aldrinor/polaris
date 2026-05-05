@@ -87,9 +87,12 @@ def main() -> int:
     pin_file = repo_root / "state" / "polaris_restart" / "charter_sha_pin.txt"
     pins = _read_pins(pin_file)
 
-    # Sister repo at C:\polaris-controls\ (Windows) or sibling on Unix
+    # polaris-controls location (PR-B2 relocation 2026-05-05 night per user
+    # directive "everything inside polaris folder"). Primary: nested under
+    # POLARIS repo root. Sibling fallback retained for fresh-clone-elsewhere
+    # scenarios where someone unpacks to a layout that hasn't completed PR-B2.
     sister_candidates = [
-        pathlib.Path("C:/polaris-controls"),
+        repo_root / "polaris-controls",
         repo_root.parent / "polaris-controls",
     ]
     sister_root = next((p for p in sister_candidates if p.exists()), sister_candidates[0])

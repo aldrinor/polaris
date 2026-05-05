@@ -11,8 +11,11 @@ focused session).
 
 The golden test files MUST live in `<polaris-controls-checkout>/golden/
 slice_001/test_*.json`. We resolve the path via env var
-POLARIS_CONTROLS_PATH (default: ../polaris-controls relative to POLARIS
-root) so CI and local dev can both find them.
+POLARIS_CONTROLS_PATH (preferred). Default discovery (PR-B2 2026-05-05):
+nested under POLARIS at `<POLARIS>/polaris-controls/` (canonical post-
+relocation), then sibling `<POLARIS>/../polaris-controls/` (pre-PR-B2
+fallback for fresh-clone-elsewhere checkouts), then `~/polaris-controls/`.
+CI and local dev both resolve through this chain.
 """
 
 from __future__ import annotations
@@ -43,14 +46,18 @@ def _find_polaris_controls_dir() -> Path | None:
         if (candidate / "golden" / "slice_001").is_dir():
             return candidate
 
-    # 2. Sibling directory (default for local dev)
+    # 2. Nested under POLARIS root (PR-B2 canonical layout 2026-05-05)
+    nested = _POLARIS_ROOT / "polaris-controls"
+    if (nested / "golden" / "slice_001").is_dir():
+        return nested
+
+    # 3. Sibling directory (pre-PR-B2 layout, retained for fresh-clone fallback)
     sibling = _POLARIS_ROOT.parent / "polaris-controls"
     if (sibling / "golden" / "slice_001").is_dir():
         return sibling
 
-    # 3. Common alternative locations
+    # 4. Common alternative locations
     for guess in [
-        Path("C:/polaris-controls"),
         Path.home() / "polaris-controls",
     ]:
         if (guess / "golden" / "slice_001").is_dir():
@@ -76,8 +83,11 @@ def test_polaris_controls_directory_resolvable():
     pc_dir = _find_polaris_controls_dir()
     if pc_dir is None:
         pytest.skip(
-            "polaris-controls checkout not found. Set POLARIS_CONTROLS_PATH "
-            "env var or clone polaris-controls as sibling of POLARIS."
+            "polaris-controls checkout not found. Either set POLARIS_CONTROLS_PATH "
+            "env var, OR clone polaris-controls as nested under POLARIS at "
+            "<POLARIS>/polaris-controls/ (PR-B2 canonical post-2026-05-05), "
+            "OR clone as sibling at <POLARIS>/../polaris-controls/ (pre-PR-B2 "
+            "fallback)."
         )
     assert (pc_dir / "golden" / "slice_001").is_dir()
 

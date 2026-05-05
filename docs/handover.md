@@ -3,7 +3,7 @@
 **Last updated:** 2026-05-05 night (PR-A APPROVE'd, PR-B in flight)
 **Active plan:** `state/polaris_restart/plan.md` (Codex APPROVE iter 4) + `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4) + `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
 **Mission plan:** `docs/carney_delivery_plan_v6_2.md` (v6.2, Codex GREEN)
-**Charter + Plan:** `C:\polaris-controls\CHARTER.md` AND `C:\polaris-controls\PLAN.md` (admin-only sister repo, both SHA-pinned per `state/polaris_restart/charter_sha_pin.txt`)
+**Charter + Plan:** `C:\POLARIS\polaris-controls\CHARTER.md` AND `C:\POLARIS\polaris-controls\PLAN.md` (admin-only sister repo, both SHA-pinned per `state/polaris_restart/charter_sha_pin.txt`)
 
 ## What POLARIS is
 

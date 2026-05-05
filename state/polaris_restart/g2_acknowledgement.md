@@ -1,6 +1,6 @@
 # G2 Operator Acknowledgement — POLARIS restart 2026-05-05
 
-**Status:** Staging document, drafted by Claude inside `C:\POLARIS\` per user directive 2026-05-05 night ("everything inside polaris folder, you shall be the one to execute"). User will sign the canonical commit on `polaris-controls` per plan §7.G.
+**Status:** Staging document, drafted by Claude inside `C:\POLARIS\` per user directive 2026-05-05 night ("everything inside polaris folder, you shall be the one to execute"). User will sign the canonical commit on `polaris-controls` per plan §7.G. Per PR-B2 relocation 2026-05-05 night, `polaris-controls/` now lives nested under POLARIS at `C:\POLARIS\polaris-controls\` (gitignored from POLARIS so it remains its own git repo).
 
 **Operator:** aldrinor (sotaleung@gmail.com)
 **Authority:** CHARTER §"Plan Edit Path" — hardware-token-signed commit on admin-only `polaris-controls` repo.
@@ -67,11 +67,11 @@ PR-C, PR-D (mechanical gates), PR-E (open all GitHub Issues), PR-F (execute Issu
 
 ## §6 How to apply this acknowledgement
 
-The operator chooses one of the following equivalent landing methods on the admin-only `polaris-controls` repo (any clone or working tree the operator controls; not POLARIS).
+The operator opens PowerShell inside the `polaris-controls/` working tree (post-PR-B2 canonical location: `C:\POLARIS\polaris-controls\`) and chooses one of the equivalent landing methods below. The polaris-controls repo continues to push to its own remote (`https://github.com/aldrinor/polaris-controls.git`) — relocation does not change the remote.
 
 **Method A — commit message body:**
-```
-cd <polaris-controls working tree>
+```powershell
+cd C:\POLARIS\polaris-controls
 git commit --allow-empty -S -m "G2: anchor CHARTER+PLAN SHAs
 
 f4935571ed8fff4ba20a945a45ab990206d624f7  CHARTER.md
@@ -80,15 +80,16 @@ f4935571ed8fff4ba20a945a45ab990206d624f7  CHARTER.md
 Operator-approval of slice 001 goldens per plan §7.G LOCKED G2.
 Ratifies §12 LOCKED decisions A2 / B1 / C2 / ROAD B / ARCHIVE / leapfrog / G2.
 Effective 2026-05-05; reference C:\POLARIS\state\polaris_restart\g2_acknowledgement.md."
+git push origin main
 ```
 
 **Method B — tracked file inside polaris-controls:**
-```
-cp C:\POLARIS\state\polaris_restart\g2_acknowledgement.md <polaris-controls>\g2_acknowledgement_2026_05_05.md
-cd <polaris-controls working tree>
+```powershell
+Copy-Item C:\POLARIS\state\polaris_restart\g2_acknowledgement.md C:\POLARIS\polaris-controls\g2_acknowledgement_2026_05_05.md
+cd C:\POLARIS\polaris-controls
 git add g2_acknowledgement_2026_05_05.md
 git commit -S -m "G2: anchor CHARTER+PLAN SHAs (per g2_acknowledgement_2026_05_05.md)"
-git push origin <branch>
+git push origin main
 ```
 
 Method B is preferred by Codex review record because the file becomes a durable artifact in `polaris-controls` git history.

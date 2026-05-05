@@ -23,7 +23,7 @@ Per plan §8.0a: every move logged in **`state/polaris_restart/cleanup_manifest.
 - `state/*.sqlite` runtime caches: **3.2 GB total**, including 2.2 GB `pg_checkpoints.sqlite` + 584 MB `pg_content_cache.sqlite` (gitignored, runtime data per CLAUDE.md §5)
 - `archive/` directory: **36 GB total**, gitignored, 33 entries (existing audit-trail archive snapshots)
 - Adjective-named tracked files (CLAUDE.md §4.1 violations: `*FINAL*`, `*_v[0-9]*`, `*latest*`, `*_post_*`): **518** (most are `_v2`/`_v3`/`_v4` Codex review briefs and milestone audits — many ARCHIVE candidates)
-- `polaris-controls/` directory in `C:\POLARIS\`: **does NOT exist** (correct — it's a sibling at `C:\polaris-controls\`)
+- `polaris-controls/` directory in `C:\POLARIS\`: **EXISTS as nested admin-only sister repo** at `C:\POLARIS\polaris-controls\` per PR-B2 relocation 2026-05-05 night. Gitignored from POLARIS via `.gitignore` so its files are not tracked by POLARIS git (they belong to its own git history with origin `aldrinor/polaris-controls`). DO NOT TOUCH from PR-C cleanup execution: any classification action attempting to delete, archive, or rename `polaris-controls/<anything>` is a CHARTER §1 violation and fails Codex APPROVE.
 - `state/we_control/`: **does NOT exist** (correct — sister project, no cross-contamination)
 - `state/neuron_session/`: **does NOT exist** (correct — sister Chrome-profile risk does not apply)
 - `.private/`: contains 1 file `codex_hmac.key` (66 bytes, last modified 2026-05-02)
@@ -36,7 +36,7 @@ These are NEVER moved/renamed/deleted by cleanup PR. Any cleanup classification 
 
 | Path | Reason |
 |---|---|
-| `polaris-controls/` (sister dir at `C:\polaris-controls\`) | admin-only separate repo |
+| `polaris-controls/` (nested admin-only sister repo at `C:\POLARIS\polaris-controls\` per PR-B2 2026-05-05; gitignored from POLARIS) | admin-only separate repo with own .git/ + signed-commits-required protection — Claude has no signing key for it |
 | `.git/`, `.gitignore`, `.gitattributes` | git infrastructure |
 | `Dockerfile`, `docker-compose.yml`, `.dockerignore` | runtime; sister's iter-2 P0 caught analogous mass-cleanup risk |
 | `requirements.txt`, `pyproject.toml`, `package.json`, `web/package.json`, `web/package-lock.json` | dependency manifests |
@@ -1440,7 +1440,7 @@ Sister's iter-2 P0 caught "your cleanup would break docker-compose mounts". Equi
 4. Active production paths (`src/polaris_graph/`, `src/polaris_v6/`, `web/app/`) NOT touched.
 5. Active test goldens (`tests/polaris_graph/golden/test_slice_001_goldens.py`) NOT touched.
 6. Runtime sqlites (`state/pg_*.sqlite`) NOT touched.
-7. `polaris-controls/` is sibling, not in repo, NOT touched.
+7. `polaris-controls/` is nested admin-only sister repo at `C:\POLARIS\polaris-controls\` per PR-B2 2026-05-05 (gitignored from POLARIS, has its own .git/), NOT touched.
 8. CI workflows (`.github/workflows/legacy_protection.yml`, `protection_drift_check.yml`, `web_ci.yml`) NOT touched in this audit.
 
 Anti-overkill confirmed: no PNG/HAR mass-archive, no mass-`git rm` outside gitignored tmpdirs.
