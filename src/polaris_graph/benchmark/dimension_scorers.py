@@ -359,8 +359,17 @@ def score_coverage_completeness(
     external_text: str | None,
     question: BenchmarkQuestion,
 ) -> DimensionScore:
-    """% of expected_pico_axes mentioned in output text."""
-    expected = question.expected_pico_axes
+    """% of expected coverage targets mentioned in output text.
+
+    Prefers `expected_pico_keywords` (content substrings like 'aspirin',
+    'migraine') when set; otherwise falls back to `expected_pico_axes`
+    (literal type names). Content keywords measure real semantic
+    coverage; type names mostly measure whether the report includes
+    the literal word 'population' / 'intervention' / 'outcome'.
+    """
+    expected: list[str] = list(
+        question.expected_pico_keywords or question.expected_pico_axes
+    )
     if not expected:
         # No expected axes (e.g. refusal-bait); both vacuously 1.0
         return DimensionScore(
