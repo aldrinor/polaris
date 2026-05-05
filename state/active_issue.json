@@ -1,9 +1,11 @@
 {
   "active_issue_id": null,
   "current_step": null,
-  "in_progress_pr": "PR-B",
-  "in_progress_pr_task_id": "169",
-  "last_updated_utc": "2026-05-05T18:30:00Z",
+  "in_progress_pr": null,
+  "next_pr": "PR-C",
+  "next_pr_task_id": "170",
+  "next_pr_blocked_by": ["USER_ACTION_1_g2_signed_polaris_controls_commit", "USER_ACTION_2_10_0_mechanical_isolation_live"],
+  "last_updated_utc": "2026-05-05T21:00:00Z",
   "session_started_via_ritual": false,
-  "notes": "Pre-Issue phase. PR-A (plan + issue_breakdown + cleanup_audit) APPROVE'd by Codex. PR-B (DNA doc updates) in flight. Active issues open at PR-E (after USER ACTIONS 1+2 + PR-C cleanup execution + PR-D gates installation)."
+  "notes": "Pre-Issue phase. PR-A1 (plan.md) Codex APPROVE iter 4. PR-A2 (issue_breakdown.md) Codex APPROVE iter 4. PR-A3 (cleanup_audit.md) Codex APPROVE iter 21. PR-B (DNA doc updates) Codex APPROVE iter 8 — committed as d3f2ade, pushed to origin/polaris. PR-C cleanup execution blocked on USER ACTIONS 1+2. Active GitHub Issues open at PR-E."
 }
