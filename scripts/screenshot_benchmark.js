@@ -26,9 +26,10 @@ const BASE = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:3737';
   });
 
   // Click the seeded benchmark button (testid pattern: benchmark-link-<id>)
-  const linkBtn = page.getByTestId('benchmark-link-clinical_n10_demo');
+  const benchId = process.env.SCREENSHOT_BENCHMARK_ID || 'clinical_n10_demo';
+  const linkBtn = page.getByTestId(`benchmark-link-${benchId}`);
   if (await linkBtn.isVisible().catch(() => false)) {
-    console.log('2. /benchmark — click clinical_n10_demo');
+    console.log(`2. /benchmark — click ${benchId}`);
     await linkBtn.click();
     await page.getByTestId('benchmark-board').waitFor({
       state: 'visible',
