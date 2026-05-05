@@ -1,0 +1,12 @@
+{
+  "benchmark_id": "clinical_demo_one",
+  "questions": [
+    {
+      "question_id": "Q01",
+      "question_text": "Is high-dose aspirin effective for migraine in adults?",
+      "scope_class": "clinical_efficacy",
+      "expected_pico_axes": ["population", "intervention", "outcome"],
+      "is_refusal_bait": false
+    }
+  ]
+}
