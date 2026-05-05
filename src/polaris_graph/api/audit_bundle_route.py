@@ -144,8 +144,15 @@ def post_audit_bundle(
 
 
 @router.get("/audit-bundle/health")
-def get_audit_bundle_health() -> dict[str, Any]:
-    """Liveness probe + slice 004 backend version info."""
+def get_audit_bundle_health(
+    sign_fn: SignFn | None = Depends(get_sign_fn),
+) -> dict[str, Any]:
+    """Liveness probe + slice 004 backend version info.
+
+    signing_backend reflects ACTUAL state via the Depends-injected sign_fn:
+    - 'sentinel' if no signer is wired (POST will 503 — LAW II fail-loud)
+    - 'gpg' if a real GPGSigner is bound via app.dependency_overrides
+    """
     return {
         "status": "ok",
         "slice": "slice_004_audit_bundle_export",
@@ -157,5 +164,5 @@ def get_audit_bundle_health() -> dict[str, Any]:
             "gpg_sign",
             "pack_tarball",
         ],
-        "signing_backend": "sentinel",  # replaced when GPGSigner is injected
+        "signing_backend": "gpg" if sign_fn is not None else "sentinel",
     }
