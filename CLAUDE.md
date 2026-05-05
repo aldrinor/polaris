@@ -34,12 +34,15 @@ These LAWS supersede all other instructions.
 ### LAW I — Active Definition and Synchronization
 You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
 
-**1.1 Active Project Definition (APD) Hierarchy:** The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
 1. Current Session Instructions: Explicit requests and clarifications made during the active session.
-2. `docs/task_acceptance_matrix.yaml` (The Scope): canonical per-task GREEN criteria. Authoritative for what's "done." (Reconciled 2026-05-02 per Plan v13 §A — replaces deprecated `docs/todo_list.md`, which is slated for deletion in Bootstrap §K Step 14.)
-3. `docs/carney_delivery_plan_v6_2.md` (The Mission): canonical plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume and every task-boundary; SHA mismatch = HARD STOP per Plan v13 §J 7-step protocol.
-4. Recent `logs/session_log.md` (The History): History of decisions, rationale, and implementations.
-5. `architecture.md` (The Baseline): Formal specification for POLARIS system architecture; co-pinned in `canonical_pin.txt`.
+2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+6. Recent `logs/session_log.md` (The History).
+7. `architecture.md` (The Baseline).
+8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
 
 **1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
 
@@ -83,9 +86,14 @@ Phases are standalone CLI scripts. They communicate ONLY through JSON files.
 
 The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
 
-### 2.1 Authoritative Files
-- `logs/session_log.md`: A chronological, append-only audit trail. Critical component of the APD.
-- `docs/task_acceptance_matrix.yaml`: **The Scope.** Per-task GREEN criteria, user_action flags, substrate_prep entries, changed_files_glob. Authoritative for task state per Plan v13 §K Step 14b. (`docs/todo_list.md` is a deprecation stub redirecting here; do not write to it.)
+### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+- `logs/session_log.md`: A chronological, append-only audit trail.
+- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
 - `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
 - `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
 - `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
@@ -111,6 +119,42 @@ Every action must be appended to `logs/session_log.md` using this structure:
 
 ---
 
+## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+
+**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+
+**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+
+**Forbidden patterns:**
+- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+- PR opened without all 5 artifacts above
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- "While we're at it" polish in same PR
+- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+
+**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
+
+**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+- **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+- **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
+- Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
+
+---
+
 ## §3. Mandatory Session Protocol (Startup/Restart)
 
 This protocol MUST be executed automatically at the start of every session and after any restart or crash.
@@ -119,21 +163,24 @@ This protocol MUST be executed automatically at the start of every session and a
 
 **CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
 
-0. **Verify canonical pin (NEW per Plan v13 §J):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit.
+0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
 
 1. **Read CLAUDE.md:** This file completely.
-2. **Read full canonical (per Plan v13 §J 7-step protocol):**
+2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
    - `docs/carney_delivery_plan_v6_2.md` (mission)
    - `architecture.md` (current-state baseline)
    - `docs/blockers.md` (10 user-side decisions)
-   - `docs/task_acceptance_matrix.yaml` (per-task GREEN criteria — APD Scope source)
    - `docs/agent_architecture.md`
    - `docs/substrate_audit_2026-05-01.md`
    - `.codex/codex_red_team_checklist.md`
    - `.codex/REVIEW_BRIEF_FORMAT_v2.md`
    - `.codex/AUDIT_CYCLE_PROTOCOL_v2.md`
    - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
-3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > task_acceptance_matrix.yaml (Scope) > carney_delivery_plan_v6_2.md (Mission) > session_log.md (History) > architecture.md (Baseline).
+   - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
+3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
 4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
 5. **Review Bug Log:** `logs/bug_log.md`.
 6. **Review File Directory:** `docs/file_directory.md`.
@@ -141,10 +188,10 @@ This protocol MUST be executed automatically at the start of every session and a
 8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
 9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
 10. **Execute Recovery:** If restart_instructions has instructions, execute them.
-11. **Determine Next Action:** Per APD + matrix sequence + halt-marker check.
+11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
 12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
 
-**Intra-task drift defense:** Every 10 tool calls OR 15 min wall-clock within a task, repeat step 0 (canonical-pin re-verify) and re-read the task's row from `task_acceptance_matrix.yaml`. Detects and halts on intra-task drift before substantial work compounds.
+**Intra-task drift defense (updated 2026-05-05 per polaris-restart §9.1):** Every 10 tool calls OR 15 min wall-clock within an issue, repeat step 0 (canonical-pin + CHARTER + PLAN SHA re-verify) and re-read `state/active_issue.json` + the active issue's row from `state/polaris_restart/issue_breakdown.md`. Detects and halts on intra-issue drift before substantial work compounds. (Pre-Issue Phase-0-task work may still reference task_acceptance_matrix.yaml; post-PR-E, all work is GitHub Issues.)
 
 ### 3.2 Enforcement
 If any required file is missing, unreadable, or if the APD cannot be synthesized, STOP. Create an entry in `logs/bug_log.md` and alert the user. Do not proceed until resolved.
@@ -321,7 +368,15 @@ tests_passed: <int>/<int>
 next_actions: [short list]
 ```
 
-### 8.1 No status blocks mid-batch (added 2026-05-04 per user feedback)
+### 8.1 No status blocks mid-batch (DEPRECATED 2026-05-05 per polaris-restart §9.1)
+
+**SUPERSEDED by §3.0 issue-driven workflow per plan §7.A LOCKED A2 + §7.B LOCKED B1.** Claude writes briefs + diffs; Codex reviews twice per Issue (brief + diff); GitHub auto-merge fires on Codex APPROVE via CI required check `polaris/codex-required`; user reads `git log` morning as after-the-fact human-at-merge surface. Claude does NOT click merge or run `gh pr merge --admin` (that authority is structurally revoked). The mid-batch closure-prose anti-pattern is structurally prevented: Claude no longer participates in the merge step.
+
+The original 2026-05-04 §8.1 text is preserved below for historical context.
+
+---
+
+~~Original 2026-05-04 §8.1:~~
 
 During an authorized **batched run** (e.g. "ship slice 002 to completion" =
 14 PRs; or any explicit multi-PR plan), STATUS blocks are FORBIDDEN at
@@ -368,7 +423,15 @@ merge — keep going to slice 003 without asking.
 and the slice isn't done, that's the bug. Delete it; run the next PR's
 branch-creation command instead.
 
-### 8.2 Zero prose between merge and next branch (added 2026-05-04 v2)
+### 8.2 Zero prose between merge and next branch + active_issue.json transition gate (DEPRECATED 2026-05-05 + UPDATED per polaris-restart §9.1)
+
+**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+
+**§8.2 SUPERSEDED for the merge-prose rule** by §3.0 issue-driven workflow (Claude no longer merges). Preserved below for historical context.
+
+---
+
+~~Original 2026-05-04 §8.2:~~
 
 Sec 8.1 was insufficient because it banned STATUS blocks (a surface form)
 without banning the underlying behavior (any backward-looking text
@@ -405,6 +468,67 @@ never in assistant prose.
 User flagged 2026-05-04 v2: "why all of the previous protocol fail
 successfully" — the answer is that sec 8.1 banned the symptom, not the
 behavior. Sec 8.2 bans the behavior.
+
+---
+
+## §8.3 Codex review iteration discipline (added 2026-05-05 per user directive)
+
+When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
+
+### 8.3.1 No hard cap on iterations
+
+Iterate until Codex returns `verdict: APPROVE` with `novel_p0: []` AND `continuing_p0: []` AND `p1: []`. Sister project hit 10 iterations on her restart plan; she did not stop. POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit reached iter 6 still REQUEST_CHANGES — that is a signal to keep iterating OR pivot to harness-execution per Codex's own directive, NOT a signal to declare convergence.
+
+### 8.3.2 Trust Codex's verdicts
+
+Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
+
+### 8.3.3 Anti-toothpaste-squeeze: brief MUST request exhaustive findings per iter
+
+Every Codex review brief MUST include:
+
+```
+List ALL findings this iteration. Do NOT hold any back to drip-feed
+across iterations. Same quality bar regardless of iteration count.
+No hard cap on iterations.
+Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. Sister project's plan iter-1 brief contained this verbatim. POLARIS plan iter-1 brief reused it. Every iter brief reuses it.
+
+### 8.3.4 No scope-narrowing for false convergence
+
+When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make iter N+1 look smaller. That is dishonest. The correct path is addressing all findings or escalating "stop paper, build harness" per §8.3.6. Iter 6 of cleanup_audit had more P1 than iter 5 — that was real specificity emerging, not scope creep.
+
+### 8.3.5 Iteration trajectory MUST be logged
+
+Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
+
+### 8.3.6 When Codex says "stop paper, build harness" — that IS a directive
+
+Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+
+### 8.3.7 Codex auth uses ChatGPT subscription, not API
+
+Always invoke as `env -u OPENAI_API_KEY codex exec --skip-git-repo-check - < brief.md > verdict.txt`. The `-u` flag UNSETS the variable, forcing OAuth fallback to `~/.codex/auth.json`. Confirm via `codex login status` returning "Logged in using ChatGPT." Never run `codex exec` without `env -u OPENAI_API_KEY`.
+
+### 8.3.8 When uncertain about brief structure or Codex-as-reviewer best practice
+
+Before iter N+1, search OpenAI engineering blog + GitHub PR-review automation literature for current best practice. Topics: constraining Codex to verdict-only output (saves tokens vs exec exploration), providing reset-target inventory deterministically, structuring rename-completeness gates, binding Codex output to JSON schema for machine-parseable verdicts.
+
+### 8.3.9 Output schema bound (every brief specifies)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Loose verdict prose is rejected — resubmit asking for the schema.
 
 ---
 
@@ -477,6 +601,27 @@ C (frozen legacy) are governed separately — see `architecture.md`.**
 Pipeline C (`src/orchestration/`, `scripts/full_cycle.py`) does not
 currently meet these invariants. It is frozen; see
 `src/orchestration/FROZEN_SINCE_2026-03-16.md`.
+
+---
+
+## §10 Session boot ritual (per polaris-restart Plan §9.1)
+
+Mandatory ritual at session start. Mirrors sister project's CHARTER session-start ritual:
+
+1. **Read polaris-controls CHARTER.md and PLAN.md** (sister admin-only repo at `C:\polaris-controls\` — sibling, not subdirectory).
+2. **Verify SHAs** against `state/polaris_restart/charter_sha_pin.txt`. Mismatch = HARD STOP per §3.1 step 0.
+3. **Read `state/active_issue.json`** — if shows in_progress issue, resume that issue ONLY (no scope expansion).
+4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. Do NOT pick a task autonomously.
+5. **State to user explicitly:**
+   - active issue ID
+   - current step within issue (brief / diff / audit / merge / complete)
+   - next action
+
+Per `feedback_codex_iteration_no_cap_no_toothpaste.md`: when iter count climbs but findings keep producing real bugs, trust Codex over advisor's restructure recommendation. Drift findings drop monotonically; they don't reproduce indefinitely.
+
+Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
+
+Per `failure_28_commits_2026_05_03.md`: I have no admin merge authority. CI gate enforces. Promises do not work; structural removal does.
 
 ---
 

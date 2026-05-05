@@ -43,7 +43,25 @@ outputs/*
 !outputs/audits/
 !outputs/audits/continuous/
 !outputs/audits/continuous/*.md
-state/
+# PR-B (2026-05-05) per plan §9.5 + iter-2 PRB2-P1-003 fix:
+# unignore durable state files needed at session boot.
+# Runtime stamps + sqlite caches stay ignored.
+state/*
+!state/polaris_restart/
+!state/polaris_restart/**
+!state/active_issue.json
+!state/restart_instructions.md
+!state/handover.md
+# Re-ignore session stamps + delete-failure logs (per-day ephemeral, never tracked)
+state/polaris_restart/session_started_*.stamp
+state/polaris_restart/cleanup_delete_failures.txt
+state/polaris_restart/cleanup_manifest_sidecars/*
+# Re-ignore Codex verdict transcripts (per PR-B iter 6 PRB6-P2-002 fix):
+# Verdicts are review-process artifacts kept under .codex/, not part of the
+# durable polaris-restart substrate. Without this re-ignore, a future broad
+# `git add state/polaris_restart` could sweep them in unintentionally.
+state/polaris_restart/codex_verdict_*.txt
+state/polaris_restart/*_verdict_iter_*.txt
 
 # --- Large trace files ---
 *.jsonl

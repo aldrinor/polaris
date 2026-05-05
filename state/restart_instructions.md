@@ -1,70 +1,76 @@
-# Restart Instructions — 2026-05-01 (v6.2 Carney Delivery)
+# Restart Instructions — issue-driven workflow (post 2026-05-05 restart)
+
+## Boot ritual (mandatory per CLAUDE.md §10)
+
+1. Read `CLAUDE.md` completely (project directives, especially §3.0 + §10).
+2. Read `polaris-controls/CHARTER.md` and `PLAN.md` (sister admin-only repo at `C:\polaris-controls\`).
+3. Verify BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP per §3.1 step 0.
+4. Read `state/active_issue.json` — if shows in_progress issue, resume ONLY that issue.
+5. If no active issue, list TaskCreate tasks unblocked, present to user, wait for assignment.
+6. State explicitly to user: active issue ID + current step + next action.
 
 ## Active state
 
-**Canonical plan:** `docs/carney_delivery_plan_FINAL.md` (v6.2, Codex GREEN 2026-05-01)
-**Active phase:** Phase 0 — Foundation (May 1-12)
-**Current task:** Phase 0 Task 0.1
-**Triangle loop protocol:** `memory/autoloop_v2_audit_cross_review.md`
-**Codex Red-Team Checklist:** `.codex/codex_red_team_checklist.md`
+**Restart plan:** `state/polaris_restart/plan.md` (Codex APPROVE iter 4 on 2026-05-05).
+**Issue breakdown:** `state/polaris_restart/issue_breakdown.md` (Codex APPROVE iter 4, 134 issues).
+**Cleanup audit:** `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21, 10-PR sequential schedule).
+**Mission plan:** `docs/carney_delivery_plan_v6_2.md` (v6.2, Codex GREEN).
 
-## Resume sequence
+## Current PR sequence (where we are)
 
-1. Read `CLAUDE.md` completely (project directives)
-2. Read `state/handover.md` (this session's context)
-3. Read `docs/carney_delivery_plan_FINAL.md` (the canonical v6.2 plan)
-4. Read `docs/substrate_audit_2026-05-01.md` (what's already built)
-5. Read `docs/todo_list.md` (current task list)
-6. Read `docs/task_acceptance_matrix.yaml` (Phase 0 GREEN criteria)
-7. Check `logs/session_log.md` for last session's decisions
-8. Find current task ID in todo_list.md (in progress or next pending)
-9. Read its brief at `.codex/task_<id>_review_brief.md` if exists; else write one
-10. Apply triangle loop per `state/handover.md` § "The triangle loop"
+- PR-A1/A2/A3 (plan + issue_breakdown + cleanup_audit): COMPLETE 2026-05-05
+- PR-B (DNA doc updates): in_progress (this session)
+- PR-C (cleanup execution): blocked on USER ACTIONS 1+2
+- PR-D (mechanical gates): blocked on PR-C
+- PR-E (open Issues): blocked on PR-D
+- PR-F (execute Issue #1): blocked on PR-E
 
-## Auto-loop status
+**USER ACTIONS (user-side prerequisites):**
+- USER ACTION 1: G2 signed commit on polaris-controls
+- USER ACTION 2: §10.0 mechanical isolation live before Claude resumes Cleanup-PR-1
 
-User directive 2026-05-01: "make sure Claude and Codex continue working hard until full completion of the entire v6." Auto-loop is LIVE.
+## Workflow rules (binding)
 
-Halt conditions (only):
-- 24h wall-clock per task exceeded
-- $100/task spend cap exceeded
-- Dimension regression detected
-- Same root cause for 2 cycles in a row
-- Cross-review-integrity halt (Codex won't engage with concrete evidence)
-- Same P1 finding twice across cycles
-- Acceptance criterion changed mid-task
+Per CLAUDE.md §3.0 + plan §7.A LOCKED A2 + §7.B LOCKED B1:
 
-If halt triggered: surface to user, wait for direction. Otherwise: continue.
+- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` AND `.codex/<issue_id>/codex_diff.patch` AND `outputs/audits/<issue_id>/claude_audit.md`.
+- **Codex:** reviews. Two APPROVE gates per Issue (brief + diff).
+- **User:** spec owner + after-the-fact merge gate. Reads `git log` in morning (B1 pure auto-merge). Does NOT click merge per-PR. CI required check `polaris/codex-required` enforces.
 
-## Where to find things
+**Per-Issue 5-artifact triple (CI will reject PR without these once PR-D installs the gate; pre-PR-D, Codex review enforces):**
+- `.codex/<issue_id>/brief.md`
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch`
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE)
+- `outputs/audits/<issue_id>/claude_audit.md`
 
-- Plan: `docs/carney_delivery_plan_FINAL.md`
-- Substrate audit: `docs/substrate_audit_2026-05-01.md`
-- Acceptance matrix: `docs/task_acceptance_matrix.yaml`
-- Codex Red-Team Checklist: `.codex/codex_red_team_checklist.md`
-- Codex review briefs (history): `.codex/carney_delivery_plan_v6*.md`
-- Triangle loop runbook: `memory/autoloop_v2_audit_cross_review.md`
-- Session log: `logs/session_log.md`
-- Bug log: `logs/bug_log.md`
-- Memory index: `memory/MEMORY.md` at `C:\Users\msn\.claude\projects\C--POLARIS\memory\`
+**Forbidden:**
+- `gh pr merge --admin` (REVOKED per CHARTER §1)
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- Autonomous task pickup (user assigns via TaskCreate; Claude doesn't pick)
+- "While we're at it" polish in same PR
+- STATUS blocks / recap text between work items
 
-## What just happened (last session)
+## Halt conditions (each emits `state/halt_<utc>_<reason>.md`)
 
-2026-05-01: substrate audit completed → v6.1 plan drafted (substrate-aware) → Codex YELLOW with 8 surgical redlines → all applied → Codex YELLOW on line-214 contradiction → fixed → Codex GREEN. Triangle loop added (v6.2). Plan canonical. Todo and handover updated.
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
 
-**Phase 0 progress (v6.2 execution started, 2026-05-01):**
-- ✅ Task 0.1 — `docs/blockers.md` (10 blockers register: 6 CONFIRMED, 4 ACTION-PENDING with dates+owners)
-- ✅ Task 0.2 — `docs/agent_architecture.md` (Local+Global Verifier; no MiroThinker fork; 9 existing modules mapped)
-- ⏳ Task 0.4 — frontend agent (background ID `aab25b18`) scaffolded `web/`: Next.js 16.2.4 + React 19.2.4 + shadcn 4.6 (MIT) + Tailwind v4 + TypeScript 5 + ESLint 9 + Prettier
-- ⏳ Task 0.5 — `docs/backend_modernization.md` (FastAPI 0.136 + Pydantic v2.11 + Dramatiq 2.1 + 8-scenario acceptance test); code stubs pending
-- ⏳ Task 0.8 — `docs/gemma_4_verification.md` (model card + license scan + vLLM recipe). **Errata E-1**: license is Apache 2.0 + Gemma Use Policy, LOW severity for Carney scope
-- ⏳ Task 0.10 — `docs/opentelemetry_genai.md` (OTEL pin). **Errata E-2**: env var is `gen_ai_latest_experimental` (NOT `gen_ai_dev`); semconv baseline 1.36.0+ (NOT 1.30.0-dev). Plan amended with errata section.
-- ⛔ Tasks 0.3, 0.6, 0.7, 0.9 — pending user $ commitment / downstream dependency
+## Critical memory entries
 
-**Next action on resume:**
-1. Check `git log --oneline -6 polaris` — should show: 6bd1557 → 3b89caf → b5a4e0f → 003ed2d → e3e3714 (v6.2 plan + 4 Phase 0 batches)
-2. Confirm Phase 0 status from todo_list.md: 3 done (0.1, 0.2, 0.4), 3 substrate-shipped (0.5, 0.8, 0.10), 4 user-blocked (0.3, 0.6, 0.7, 0.9)
-3. Check user has signalled on Tasks 0.3 + 0.9 (Vast.ai $1.8-3.2k commit + OVH BHS procurement)
-4. **If user signalled $ OK**: spin Vast.ai cluster (Task 0.3), then `pip install -r requirements-v6.txt` + `pytest tests/v6` to actually run the 14 v6 contract tests, then Task 0.7 SGLang/vLLM bakeoff begins
-5. **If user not signalled**: write Codex review briefs at `.codex/task_0_X_review_brief.md` for the 6 substrate-shipped tasks so triangle-loop Codex pass is ready
-6. **Halt only if** asymptoting (≥6 "deferred to phase 2" framings stacking) — surface to user with concrete options
+- `polaris_restart_2026_05_05.md` — cage tightened, role split, per-Issue triple
+- `forbidden_admin_merge.md` — `gh pr merge --admin` REVOKED
+- `feedback_codex_iteration_no_cap_no_toothpaste.md` — trust Codex through drift; iter-21 cleanup_audit APPROVE proved this
+- `failure_28_commits_2026_05_03.md` — DO NOT REPEAT. The 28-commits failure is what the cage prevents.
+
+## Old auto-loop pattern (REVOKED 2026-05-05)
+
+The previous "triangle loop" + auto-resume + `gh pr merge --admin` pattern is REVOKED. See `state/handover.md` (deprecation pointer) and `failure_28_commits_2026_05_03.md` for why.
+
+If a future session reads this and sees auto-loop framing in `memory/autoloop_v2_audit_cross_review.md` or `memory/autoloop_beat_tier1_mandate.md`, those memories are HISTORICAL. Current binding rule = issue-driven workflow per CLAUDE.md §3.0.

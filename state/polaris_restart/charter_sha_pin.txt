@@ -1,0 +1,11 @@
+# charter_sha_pin.txt — pinned SHAs of polaris-controls files
+# Verified at every session start per CLAUDE.md §3.1 step 0.
+# Mismatch = HARD STOP, emit state/halt_<ts>_charter_pin_drift.md.
+#
+# Format: one line per pinned file, `<git-blob-sha> <path>`
+#
+# Updated by user-signed commit only. Claude cannot modify this file.
+# Generated 2026-05-05; PLAN.md pin added per PR-B iter 4 PRB3-P2-002 fix.
+
+f4935571ed8fff4ba20a945a45ab990206d624f7  polaris-controls/CHARTER.md
+0dd0dd80eedcb41493f844172bea0767acffbebe  polaris-controls/PLAN.md

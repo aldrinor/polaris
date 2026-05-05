@@ -20,8 +20,25 @@ docs/agent_architecture.md        @aldrinor
 scripts/autoloop/                 @aldrinor
 scripts/verify_github_protections.py @aldrinor
 
+# Per polaris-restart Plan §9.6a — session-start hook is structural cage:
+scripts/hooks/                    @aldrinor
+
+# Per polaris-restart Plan §9.5 — restart substrate (charter pin, plan, issues, cleanup):
+state/polaris_restart/            @aldrinor
+state/active_issue.json           @aldrinor
+state/restart_instructions.md     @aldrinor
+state/handover.md                 @aldrinor
+
+# Per polaris-restart Plan §9.4 — handover doc:
+docs/handover.md                  @aldrinor
+
 CLAUDE.md                         @aldrinor
 architecture.md                   @aldrinor
+
+# Per polaris-restart Plan §10.0 — web/ workflow DNA also owner-protected
+# (PR-B iter 8 PRB7-P2-002 fix; web/AGENTS.md carries mandatory workflow DNA):
+web/AGENTS.md                     @aldrinor
+web/CLAUDE.md                     @aldrinor
 
 # === Archive / legacy ===
 # Anything in .legacy/ is read-only post-cutover. Edits require owner review.
