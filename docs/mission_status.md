@@ -76,6 +76,7 @@ agent cannot resolve them without authorization:
 | OVH Canada BHS H200 verification (0.9 — HARD GATE) | invoice + hardware | user |
 | Promote `.codex/slices/slice_00{2,3,4,5}/golden_drafts/*.json` → `polaris-controls/golden/slice_00{2,3,4,5}/` | admin write to controls repo | user |
 | Carney reframe conversation (Sep 6 = tracer demo, not v1.0) | external coordination | user |
+| **Slice 4 GPG signing key** — current `signing_backend: sentinel` (no key configured) | run `python scripts/setup_gpg_for_demo.py`, paste `POLARIS_GPG_KEY_ID=...` into `.env`, restart backend | user |
 
 The agent does NOT block on these for shipping substrate; per
 `feedback_dont_stop_on_picker_empty.md` and
