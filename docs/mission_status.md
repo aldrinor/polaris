@@ -22,8 +22,8 @@ PLAN.md slice 0–5 with target windows:
 | 1 — Scope discovery + ambiguity | May 11-31 | DONE — `polaris_graph/scope/`, `/api/intake`, `/intake` page, 5 user-authored goldens in `polaris-controls/golden/slice_001/` | demoable: type clinical question → ScopeDecision card |
 | 2 — Tiered retrieval | Jun 1-28 | DONE — `polaris_graph/retrieval2/`, `/api/retrieval`, `/retrieval` page, real Serper + Semantic Scholar fetcher | demoable with `SERPER_API_KEY` set |
 | 3 — Generator + strict-verify | Jun 29 - Jul 26 | DONE — `polaris_graph/generator2/`, `/api/generation`, `/generation` page, deepseek-v4-pro adapter with 1-shot anti-leak | demoable with `OPENROUTER_API_KEY` set |
-| 4 — Audit bundle GPG-signed | Jul 27 - Aug 16 | DONE — `polaris_graph/audit_bundle/`, `/api/audit-bundle`, GPG signer with detached ASCII-armored sig, download integrated into `/generation` | demoable with `POLARIS_GPG_KEY_ID` set |
-| 5 — BEAT-BOTH benchmark + demo polish | Aug 17 - Sep 5 | DONE — `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` CLI, home walkthrough nav, `docs/demo_runbook.md`, `scripts/seed_demo_benchmark.py`, `scripts/demo_smoke.py` | demoable with `POLARIS_BENCHMARK_RESULTS_DIR` pointing at seeded artifact |
+| 4 — Audit bundle GPG-signed | Jul 27 - Aug 16 | DONE — `polaris_graph/audit_bundle/`, `/api/audit-bundle`, GPG signer with detached ASCII-armored sig, download integrated into `/generation` | **LIVE-VERIFIED 2026-05-04** — `scripts/verify_audit_bundle_e2e.py` confirms tarball + .asc signature gpg --verify "Good signature" using RSA-4096 |
+| 5 — BEAT-BOTH benchmark + demo polish | Aug 17 - Sep 5 | DONE — `polaris_graph/benchmark/`, `/api/benchmark`, `/benchmark` page, `scripts/run_benchmark.py` CLI, home walkthrough nav, `docs/demo_runbook.md`, `scripts/seed_demo_benchmark.py`, `scripts/demo_smoke.py` | **LIVE-VERIFIED 2026-05-04** — seeded `clinical_n10_demo` artifact loads on /benchmark, scoreboard table renders 7 dimensions × 3 systems |
 | Demo | Sep 6 | n/a | scheduled |
 
 **Calendar reality:** the slice substrate has all been shipped ahead of
@@ -76,7 +76,7 @@ agent cannot resolve them without authorization:
 | OVH Canada BHS H200 verification (0.9 — HARD GATE) | invoice + hardware | user |
 | Promote `.codex/slices/slice_00{2,3,4,5}/golden_drafts/*.json` → `polaris-controls/golden/slice_00{2,3,4,5}/` | admin write to controls repo | user |
 | Carney reframe conversation (Sep 6 = tracer demo, not v1.0) | external coordination | user |
-| **Slice 4 GPG signing key** — current `signing_backend: sentinel` (no key configured) | run `python scripts/setup_gpg_for_demo.py`, paste `POLARIS_GPG_KEY_ID=...` into `.env`, restart backend | user |
+| ~~Slice 4 GPG signing key~~ | RESOLVED 2026-05-04 — operator GPG key generated, audit-bundle e2e signature verified |  |
 
 The agent does NOT block on these for shipping substrate; per
 `feedback_dont_stop_on_picker_empty.md` and
