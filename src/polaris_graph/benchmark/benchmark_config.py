@@ -52,6 +52,16 @@ class BenchmarkQuestion(BaseModel):
             "coverage_completeness scoring."
         ),
     )
+    expected_pico_keywords: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional content keywords (lowercase substrings) checked "
+            "against verified prose for coverage_completeness. When "
+            "present, takes precedence over the literal axis names — "
+            "e.g. ['adults', 'aspirin', 'migraine'] for an aspirin/migraine "
+            "question. Empty list = scorer falls back to expected_pico_axes."
+        ),
+    )
     is_refusal_bait: bool = Field(
         default=False,
         description=(

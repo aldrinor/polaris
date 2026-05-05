@@ -39,6 +39,7 @@ def _q(
     qid: str = "Q1",
     refusal_bait: bool = False,
     pico: list[str] | None = None,
+    keywords: list[str] | None = None,
 ) -> BenchmarkQuestion:
     if pico is None:
         pico = ["population", "intervention", "outcome"]
@@ -48,6 +49,7 @@ def _q(
         scope_class="out_of_scope" if refusal_bait else "clinical_efficacy",
         is_refusal_bait=refusal_bait,
         expected_pico_axes=pico,
+        expected_pico_keywords=keywords or [],
     )
 
 
@@ -393,6 +395,51 @@ def test_coverage_no_expected_axes_vacuously_full():
     )
     assert s.polaris_score == 1.0
     assert s.external_score == 1.0
+
+
+def test_coverage_keywords_take_precedence_over_axes():
+    """When expected_pico_keywords is set, scorer uses content keywords."""
+    text = "Adults with migraine received aspirin and reported relief."
+    report = _report(_section(_kept(text + " [#ev:s:0-3]", ["[#ev:s:0-3]"])))
+    # All 3 keywords appear; axes ('population' etc.) do NOT appear in text
+    s = score_coverage_completeness(
+        report=report,
+        external_text=None,
+        question=_q(
+            pico=["population", "intervention", "outcome"],
+            keywords=["adults", "aspirin", "migraine"],
+        ),
+    )
+    assert s.polaris_score == 1.0
+    # Evidence should reference the matched keywords, not axis names
+    assert "adults" in s.polaris_evidence
+    assert "aspirin" in s.polaris_evidence
+
+
+def test_coverage_falls_back_to_axes_when_keywords_empty():
+    """expected_pico_keywords=[] -> use axes (backward compat)."""
+    text = "Population intervention outcome were the same."
+    report = _report(_section(_kept(text + " [#ev:s:0-3]", ["[#ev:s:0-3]"])))
+    s = score_coverage_completeness(
+        report=report,
+        external_text=None,
+        question=_q(
+            pico=["population", "intervention", "outcome"],
+            keywords=[],  # empty -> fallback
+        ),
+    )
+    assert s.polaris_score == 1.0
+
+
+def test_coverage_keywords_partial_match():
+    text = "Adults received aspirin."  # 'migraine' missing
+    report = _report(_section(_kept(text + " [#ev:s:0-3]", ["[#ev:s:0-3]"])))
+    s = score_coverage_completeness(
+        report=report,
+        external_text=None,
+        question=_q(keywords=["adults", "aspirin", "migraine"]),
+    )
+    assert abs(s.polaris_score - 2 / 3) < 1e-9
 
 
 # ---------- 6. latency ----------

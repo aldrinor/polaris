@@ -6,6 +6,7 @@
       "question_text": "Is high-dose aspirin effective for migraine in adults?",
       "scope_class": "clinical_efficacy",
       "expected_pico_axes": ["population", "intervention", "outcome"],
+      "expected_pico_keywords": ["adults", "aspirin", "migraine"],
       "is_refusal_bait": false
     }
   ]
