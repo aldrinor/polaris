@@ -1,0 +1,276 @@
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { expect, test, type Page } from "@playwright/test";
+
+type Row = { d: string; e: string; v: "PASS" | "FAIL"; obs: string };
+const transcript: Row[] = [];
+const TRANSCRIPT_PATH = path.resolve(
+  __dirname,
+  "../../../outputs/audits/I-f2-008/walkthrough_transcript.md",
+);
+
+const baseDecision = {
+  status: "in_scope",
+  scope_class: "clinical_efficacy",
+  ambiguity_axes: [],
+  clarifications_needed: [],
+  provenance: {},
+  decision_id: "wt",
+  decided_at_utc: new Date().toISOString(),
+  latency_ms: 1,
+};
+
+async function intakeMock(page: Page, dec: object) {
+  await page.route("**/api/intake", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: { ...baseDecision, ...dec },
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function disambigMock(page: Page, n: number, isAmb = true) {
+  await page.route("**/api/disambiguation", async (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: isAmb,
+        num_clusters: n,
+        clusters: Array.from({ length: n }, (_, i) => ({
+          cluster_id: i,
+          label: `label_${i}`,
+          sample_snippets: [`s${i}`],
+        })),
+        server_time_utc: new Date().toISOString(),
+      }),
+    }),
+  );
+}
+
+async function record(d: string, e: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+    transcript.push({ d, e, v: "PASS", obs: "ok" });
+  } catch (err) {
+    transcript.push({
+      d,
+      e,
+      v: "FAIL",
+      obs: err instanceof Error ? err.message.slice(0, 60) : String(err),
+    });
+    throw err;
+  }
+}
+
+test.skip(
+  ({ browserName }) => browserName !== "chromium",
+  "f2 walkthrough is chromium-only",
+);
+
+test("F2 walkthrough — 22 scenarios", async ({ page }) => {
+  const candidates = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ text: `s${i}`, embedding: [i, 0] }));
+  const submit = async (q: string) => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill(q);
+    await page.getByTestId("intake-submit").click();
+  };
+
+  for (const { q, n } of [
+    { q: "BPEI", n: 3 },
+    { q: "MS treatment options", n: 2 },
+    { q: "PR campaign metrics", n: 5 },
+  ]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(n),
+    });
+    await disambigMock(page, n);
+    await record(`amb:${q}`, `${n} cards`, async () => {
+      await submit(q);
+      await expect(
+        page.locator('[data-testid^="disambiguation-cluster-"]'),
+      ).toHaveCount(n);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const q of [
+    "Does tirzepatide reduce A1c in adults with type 2 diabetes?",
+    "What are the safety risks of metformin in older adults?",
+    "Is aspirin effective for headaches in adults?",
+  ]) {
+    await intakeMock(page, { needs_disambiguation: false });
+    let calls = 0;
+    await page.route("**/api/disambiguation", (r) => {
+      calls++;
+      r.abort();
+    });
+    await record(`unamb:${q.slice(0, 24)}`, "no modal", async () => {
+      await submit(q);
+      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+      await page.waitForTimeout(120);
+      await expect(
+        page.locator('[data-slot="disambiguation-modal"]'),
+      ).toBeHidden();
+      expect(calls).toBe(0);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const i of [0, 1, 2]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(2),
+    });
+    await disambigMock(page, 2, false);
+    await record(`guard:${i}`, "modal hidden", async () => {
+      await submit("Does X reduce Y?");
+      await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+      await page.waitForTimeout(120);
+      await expect(
+        page.locator('[data-slot="disambiguation-modal"]'),
+      ).toBeHidden();
+    });
+    await page.unrouteAll();
+  }
+
+  for (const fr of [
+    "Quels sont les effets secondaires de la metformine?",
+    "Est-ce que l'aspirine est efficace pour les maux de tête?",
+    "La thérapie physique aide-t-elle pour les douleurs lombaires?",
+  ]) {
+    let intakeCalls = 0;
+    await page.route("**/api/intake", (r) => {
+      intakeCalls++;
+      r.fulfill({ status: 500, body: "x" });
+    });
+    await record(`fr:${fr.slice(0, 24)}`, "English error", async () => {
+      await submit(fr);
+      await expect(page.getByTestId("intake-error")).toContainText("English");
+      expect(intakeCalls).toBe(0);
+    });
+    await page.unrouteAll();
+  }
+
+  for (const { name, type, banner } of [
+    { name: "test.pdf", type: "application/pdf", banner: true },
+    { name: "test.PDF", type: "", banner: true },
+    { name: "test.txt", type: "text/plain", banner: false },
+  ]) {
+    await record(`pdf:${name}`, banner ? "banner" : "no banner", async () => {
+      await page.goto("/intake");
+      await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
+        "data-ready",
+        "1",
+      );
+      await page.evaluate(
+        ({ name, type }) => {
+          const dt = new DataTransfer();
+          dt.items.add(new File([], name, { type }));
+          window.dispatchEvent(
+            new DragEvent("drop", {
+              dataTransfer: dt,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        },
+        { name, type },
+      );
+      if (banner) {
+        await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
+      } else {
+        await page.waitForTimeout(120);
+        await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
+      }
+    });
+  }
+
+  await record("edge:empty", "3-char gate", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-submit").click();
+    await expect(page.getByTestId("intake-error")).toContainText(
+      "3 characters",
+    );
+  });
+  await record("edge:whitespace", "3-char gate", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill("   ");
+    await page.getByTestId("intake-submit").click();
+    await expect(page.getByTestId("intake-error")).toContainText(
+      "3 characters",
+    );
+  });
+  let intakeCalls2 = 0;
+  await page.route("**/api/intake", (r) => {
+    intakeCalls2++;
+    r.abort();
+  });
+  await record("edge:long", "input capped 2000", async () => {
+    await page.goto("/intake");
+    await page.getByTestId("intake-question-input").fill("a".repeat(2500));
+    expect(
+      (await page.getByTestId("intake-question-input").inputValue()).length,
+    ).toBe(2000);
+    expect(intakeCalls2).toBe(0);
+  });
+  await page.unrouteAll();
+
+  for (const cid of [0, 1, 2]) {
+    await intakeMock(page, {
+      needs_disambiguation: true,
+      candidate_snippets: candidates(3),
+    });
+    await disambigMock(page, 3);
+    await record(`pick:${cid}`, `label_${cid}`, async () => {
+      await submit("BPEI");
+      await expect(
+        page.getByTestId(`disambiguation-cluster-${cid}`),
+      ).toBeVisible();
+      await page.getByTestId(`disambiguation-cluster-${cid}`).click();
+      await expect(page.getByTestId("disambig-picked-label")).toHaveText(
+        `label_${cid}`,
+      );
+    });
+    await page.unrouteAll();
+  }
+
+  await intakeMock(page, {
+    needs_disambiguation: true,
+    candidate_snippets: candidates(3),
+  });
+  await disambigMock(page, 3);
+  await record("cancel", "no write", async () => {
+    await submit("BPEI");
+    await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("disambig-picked-label")).toHaveText("");
+  });
+
+  expect(transcript.length).toBe(22);
+  expect(transcript.every((r) => r.v === "PASS")).toBe(true);
+});
+
+test.afterAll(async ({}, testInfo) => {
+  if (testInfo.project.name !== "chromium") return;
+  const passed = transcript.filter((r) => r.v === "PASS").length;
+  const lines = [
+    "# F2 Walkthrough Transcript (auto-generated)",
+    "",
+    `Run: ${new Date().toISOString()} / ${passed}/${transcript.length} PASS`,
+    "",
+    "| # | Description | Expected | Verdict | Observed |",
+    "|---|---|---|---|---|",
+    ...transcript.map(
+      (r, i) => `| ${i + 1} | ${r.d} | ${r.e} | ${r.v} | ${r.obs} |`,
+    ),
+  ];
+  writeFileSync(TRANSCRIPT_PATH, lines.join("\n") + "\n", "utf8");
+});
