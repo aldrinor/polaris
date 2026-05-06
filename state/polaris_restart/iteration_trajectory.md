@@ -133,3 +133,5 @@ I-f2-008 brief iter1=REQ_CH (2P1) iter2=APPROVE (0P0/0P1/3P2)
 I-f2-008 diff iter1=APPROVE 0/0/3P2 accept_remaining (LOC exemption granted); tokens=141812
 I-bug-079 brief iter1=REQ_CH (2P1) iter2=REQ_CH (1P1 not at HEAD) iter3=APPROVE 0/0/1P2
 I-bug-079 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=70749
+I-f3-001 brief iter1=REQ_CH (2P1 _UPLOAD_TABLE wrong) iter2=REQ_CH (2P1 stale+security) iter3=APPROVE (0P0/0P1/3P2)
+I-f3-001 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=110992

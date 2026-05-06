@@ -33,9 +33,57 @@ import datetime
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+_DOC_ID_RE = re.compile(r"[a-f0-9]{16}")
+
+
+def _load_uploaded_documents(
+    document_ids: list[str], ingester: Any = None, chunk_size: int = 1500,
+) -> list[dict]:
+    """Load chunks for given document_ids from DocumentIngester.
+
+    Per I-f3-001. Validates each doc_id against 16-hex format (matches
+    `hashlib.sha256(file_bytes).hexdigest()[:16]` per document_ingester.py:162)
+    BEFORE filesystem lookup to prevent path traversal. Skips invalid /
+    missing IDs with a logged warning. Raises RuntimeError if every
+    requested ID failed (LAW II — fail loud).
+    """
+    if not document_ids:
+        return []
+    if ingester is None:
+        from src.polaris_graph.document_ingester import DocumentIngester
+        ingester = DocumentIngester()
+    out: list[dict] = []
+    for doc_id in document_ids:
+        if not _DOC_ID_RE.fullmatch(doc_id):
+            logger.warning("[v4 graph] invalid doc_id format: %r", doc_id)
+            continue
+        doc = ingester.get_document(doc_id)
+        if doc is None:
+            logger.warning("[v4 graph] doc_id %s not found", doc_id)
+            continue
+        content = doc.get("content", "")
+        if not content:
+            logger.warning("[v4 graph] doc_id %s has empty content", doc_id)
+            continue
+        meta = doc.get("metadata", {})
+        name = meta.get("original_filename") or meta.get("filename") or doc_id
+        chunks = [content[i : i + chunk_size] for i in range(0, len(content), chunk_size)]
+        for idx, chunk_text in enumerate(chunks):
+            out.append({
+                "document_id": doc_id, "filename": name,
+                "chunk_index": idx, "text": chunk_text,
+            })
+    if not out:
+        raise RuntimeError(
+            f"_load_uploaded_documents: every requested document_id "
+            f"({len(document_ids)} ids) failed to resolve"
+        )
+    return out
 
 
 logger = logging.getLogger(__name__)
@@ -190,6 +238,8 @@ async def build_and_run_v4(
         "question": query,
         "amplified": [],  # pipeline A's retriever amplifies on its own
     }
+    if document_ids:  # truthy: handles None and []
+        q["uploaded_documents"] = _load_uploaded_documents(document_ids)
 
     # Run directory for pipeline-A artifacts.
     out_root = Path(os.getenv(
