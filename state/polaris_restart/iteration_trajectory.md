@@ -119,3 +119,5 @@ Codex iter 6 convergence call said "build harness" via `git ls-tree -r 365f334` 
 
 **Side effect:** discovered need for §8.4 (computer-resource discipline) after the user's machine needed reboot from accumulated codex sub-process RAM. Folded into this same PR (still §8 scope; not a separate Issue).
 I-f2-002 brief iter1=APPROVE; diff iter1=APPROVE 0/0/0; tokens=128931
+I-f2-003 brief iter1=REQ_CH (2P1), iter2=REQ_CH (3P1), iter3=APPROVE (0P0/0P1/2P2)
+I-f2-003 diff iter1=APPROVE 0/0/0; tokens=43345
