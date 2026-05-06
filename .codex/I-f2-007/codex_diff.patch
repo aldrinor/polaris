@@ -1,0 +1,195 @@
+diff --git a/web/app/intake/components/intake_form.tsx b/web/app/intake/components/intake_form.tsx
+index 0682036..cfb7b4c 100644
+--- a/web/app/intake/components/intake_form.tsx
++++ b/web/app/intake/components/intake_form.tsx
+@@ -29,6 +29,16 @@ const SAMPLE_QUESTIONS = [
+   "Is physical therapy effective for chronic back pain in adults?",
+ ];
+ 
++const FRENCH_STOPWORD_RE =
++  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
++const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
++
++function looksNonEnglish(s: string): boolean {
++  if (FRENCH_ACCENTED_RE.test(s)) return true;
++  const matches = s.match(FRENCH_STOPWORD_RE);
++  return (matches?.length ?? 0) >= 3;
++}
++
+ export function IntakeForm() {
+   const [question, setQuestion] = useState("");
+   const [state, setState] = useState<IntakeState>({ kind: "idle" });
+@@ -51,6 +61,13 @@ export function IntakeForm() {
+       });
+       return;
+     }
++    if (looksNonEnglish(trimmed)) {
++      setState({
++        kind: "error",
++        message: "POLARIS currently supports English questions only.",
++      });
++      return;
++    }
+ 
+     setState({ kind: "loading" });
+     try {
+diff --git a/web/app/intake/components/pdf_drop_banner.tsx b/web/app/intake/components/pdf_drop_banner.tsx
+new file mode 100644
+index 0000000..ce192fc
+--- /dev/null
++++ b/web/app/intake/components/pdf_drop_banner.tsx
+@@ -0,0 +1,67 @@
++"use client";
++
++import { useEffect, useState } from "react";
++
++function isPdf(file: File): boolean {
++  return (
++    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
++  );
++}
++
++export function PdfDropBanner() {
++  const [shown, setShown] = useState(false);
++  const [ready, setReady] = useState(false);
++
++  useEffect(() => {
++    const handleDragOver = (e: DragEvent) => e.preventDefault();
++    const handleDrop = (e: DragEvent) => {
++      const files = e.dataTransfer?.files;
++      if (!files || files.length === 0) return;
++      let pdfFound = false;
++      for (let i = 0; i < files.length; i++) {
++        const f = files.item(i);
++        if (f && isPdf(f)) {
++          pdfFound = true;
++          break;
++        }
++      }
++      if (pdfFound) {
++        e.preventDefault();
++        setShown(true);
++      }
++    };
++    window.addEventListener("dragover", handleDragOver);
++    window.addEventListener("drop", handleDrop);
++    setReady(true);
++    return () => {
++      window.removeEventListener("dragover", handleDragOver);
++      window.removeEventListener("drop", handleDrop);
++    };
++  }, []);
++
++  if (!shown)
++    return (
++      <span
++        data-testid="pdf-drop-ready"
++        data-ready={ready ? "1" : "0"}
++        className="sr-only"
++      />
++    );
++
++  return (
++    <div
++      data-testid="pdf-drop-banner"
++      className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200"
++    >
++      <span>PDFs go through the upload flow (coming soon).</span>
++      <button
++        type="button"
++        data-testid="pdf-drop-dismiss"
++        onClick={() => setShown(false)}
++        className="text-xs font-medium underline-offset-2 hover:underline"
++      >
++        Dismiss
++      </button>
++    </div>
++  );
++}
+diff --git a/web/app/intake/page.tsx b/web/app/intake/page.tsx
+index 1c714fb..f475adb 100644
+--- a/web/app/intake/page.tsx
++++ b/web/app/intake/page.tsx
+@@ -3,6 +3,7 @@ import Link from "next/link";
+ import { Button } from "@/components/ui/button";
+ 
+ import { IntakeForm } from "./components/intake_form";
++import { PdfDropBanner } from "./components/pdf_drop_banner";
+ 
+ export const metadata = {
+   title: "Intake — POLARIS Canada",
+@@ -44,12 +45,14 @@ export default function IntakePage() {
+           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+             Type a clinical research question and POLARIS will run it through
+             the BPEI front half: refusal-bait detection, scope classification
+-            (efficacy / safety / diagnosis / prognosis), and PICO axis
+-            ambiguity detection. No retrieval is run yet — this is the gate
+-            that decides if a question is researchable as written.
++            (efficacy / safety / diagnosis / prognosis), and PICO axis ambiguity
++            detection. No retrieval is run yet — this is the gate that decides
++            if a question is researchable as written.
+           </p>
+         </section>
+ 
++        <PdfDropBanner />
++
+         <IntakeForm />
+       </main>
+ 
+diff --git a/web/tests/e2e/intake_edge.spec.ts b/web/tests/e2e/intake_edge.spec.ts
+new file mode 100644
+index 0000000..0240bc4
+--- /dev/null
++++ b/web/tests/e2e/intake_edge.spec.ts
+@@ -0,0 +1,51 @@
++import { expect, test } from "@playwright/test";
++
++test("French question → English-only message; intake API not called", async ({
++  page,
++}) => {
++  let intakeCalls = 0;
++  await page.route("**/api/intake", async (route) => {
++    intakeCalls++;
++    await route.fulfill({ status: 500, body: "should-not-be-called" });
++  });
++
++  await page.goto("/intake");
++  await page
++    .getByTestId("intake-question-input")
++    .fill(
++      "Quels sont les effets secondaires de la metformine chez les adultes?",
++    );
++  await page.getByTestId("intake-submit").click();
++
++  await expect(page.getByTestId("intake-error")).toBeVisible();
++  await expect(page.getByTestId("intake-error")).toContainText(
++    "POLARIS currently supports English",
++  );
++  expect(intakeCalls).toBe(0);
++});
++
++test("PDF drop on /intake → banner appears, then dismisses", async ({
++  page,
++}) => {
++  await page.goto("/intake");
++  await expect(page.getByTestId("pdf-drop-ready")).toHaveAttribute(
++    "data-ready",
++    "1",
++  );
++
++  await page.evaluate(() => {
++    const dt = new DataTransfer();
++    dt.items.add(new File([], "test.pdf", { type: "application/pdf" }));
++    window.dispatchEvent(
++      new DragEvent("drop", {
++        dataTransfer: dt,
++        bubbles: true,
++        cancelable: true,
++      }),
++    );
++  });
++
++  await expect(page.getByTestId("pdf-drop-banner")).toBeVisible();
++  await page.getByTestId("pdf-drop-dismiss").click();
++  await expect(page.getByTestId("pdf-drop-banner")).toBeHidden();
++});

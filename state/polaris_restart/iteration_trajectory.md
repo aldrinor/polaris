@@ -127,3 +127,5 @@ I-f2-005 brief iter1=REQ_CH (1P1) iter2=APPROVE (0P0/0P1/1P2 accept_remaining)
 I-f2-005 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=74054
 I-f2-006 brief iter1=REQ_CH (2P1) iter2=APPROVE (0P0/0P1/2P2 accept_remaining)
 I-f2-006 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=84066
+I-f2-007 brief iter1=REQ_CH (1P1) iter2=APPROVE (0P0/0P1/2P2 accept_remaining)
+I-f2-007 diff iter1=APPROVE 0/0/0 accept_remaining; tokens=34408

@@ -29,6 +29,16 @@ const SAMPLE_QUESTIONS = [
   "Is physical therapy effective for chronic back pain in adults?",
 ];
 
+const FRENCH_STOPWORD_RE =
+  /\b(le|la|les|de|des|du|que|qui|et|est|un|une|sont|pour|avec|sans|dans)\b/gi;
+const FRENCH_ACCENTED_RE = /[éèêëàâäçîïôöùûüÿñ]/i;
+
+function looksNonEnglish(s: string): boolean {
+  if (FRENCH_ACCENTED_RE.test(s)) return true;
+  const matches = s.match(FRENCH_STOPWORD_RE);
+  return (matches?.length ?? 0) >= 3;
+}
+
 export function IntakeForm() {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<IntakeState>({ kind: "idle" });
@@ -48,6 +58,13 @@ export function IntakeForm() {
       setState({
         kind: "error",
         message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+    if (looksNonEnglish(trimmed)) {
+      setState({
+        kind: "error",
+        message: "POLARIS currently supports English questions only.",
       });
       return;
     }

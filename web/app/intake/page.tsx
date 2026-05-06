@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 import { IntakeForm } from "./components/intake_form";
+import { PdfDropBanner } from "./components/pdf_drop_banner";
 
 export const metadata = {
   title: "Intake — POLARIS Canada",
@@ -44,11 +45,13 @@ export default function IntakePage() {
           <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
             Type a clinical research question and POLARIS will run it through
             the BPEI front half: refusal-bait detection, scope classification
-            (efficacy / safety / diagnosis / prognosis), and PICO axis
-            ambiguity detection. No retrieval is run yet — this is the gate
-            that decides if a question is researchable as written.
+            (efficacy / safety / diagnosis / prognosis), and PICO axis ambiguity
+            detection. No retrieval is run yet — this is the gate that decides
+            if a question is researchable as written.
           </p>
         </section>
+
+        <PdfDropBanner />
 
         <IntakeForm />
       </main>
