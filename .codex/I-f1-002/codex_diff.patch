@@ -1,0 +1,282 @@
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+new file mode 100644
+index 0000000..77d4b0c
+--- /dev/null
++++ b/web/app/components/command_palette.tsx
+@@ -0,0 +1,97 @@
++"use client";
++
++import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
++import { useRouter } from "next/navigation";
++import { useState, type RefObject } from "react";
++
++import { cn } from "@/lib/utils";
++
++type Template = {
++  id: string;
++  name: string;
++  summary: string;
++  sample_question: string;
++  out_of_scope: string;
++  active: boolean;
++};
++
++type CommandPaletteProps = {
++  open: boolean;
++  onOpenChange: (next: boolean) => void;
++  templates: Template[];
++  signInLinkRef: RefObject<HTMLAnchorElement | null>;
++};
++
++export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
++  const router = useRouter();
++  const [search, set_search] = useState("");
++  const [active_index, set_active_index] = useState(0);
++
++  const filtered = templates.filter((t) => {
++    if (!search) return true;
++    const q = search.toLowerCase();
++    return t.name.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) || t.sample_question.toLowerCase().includes(q);
++  });
++
++  const clamped = filtered.length === 0 ? 0 : Math.max(0, Math.min(active_index, filtered.length - 1));
++
++  function handle_key(event: React.KeyboardEvent) {
++    if (event.key === "ArrowDown") {
++      event.preventDefault();
++      set_active_index((p) => Math.min(p + 1, filtered.length - 1));
++    } else if (event.key === "ArrowUp") {
++      event.preventDefault();
++      set_active_index((p) => Math.max(p - 1, 0));
++    } else if (event.key === "Enter") {
++      event.preventDefault();
++      const tpl = filtered[clamped];
++      if (tpl?.active) {
++        router.push(`/intake?template=${tpl.id}`);
++        onOpenChange(false);
++      }
++    }
++  }
++
++  return (
++    <DialogPrimitive.Root
++      open={open}
++      onOpenChange={(next) => {
++        onOpenChange(next);
++        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
++      }}
++    >
++      <DialogPrimitive.Portal>
++        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
++        <DialogPrimitive.Popup
++          data-testid="command-palette"
++          onKeyDown={handle_key}
++          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
++        >
++          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
++          <input
++            data-testid="command-palette-input"
++            autoFocus
++            value={search}
++            onChange={(e) => set_search(e.target.value)}
++            placeholder="Search templates..."
++            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
++          />
++          <ul className="max-h-80 overflow-y-auto" role="listbox">
++            {filtered.map((t, i) => (
++              <li
++                key={t.id}
++                data-testid={`palette-item-${t.id}`}
++                data-active={i === clamped ? "true" : undefined}
++                aria-disabled={!t.active || undefined}
++                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
++              >
++                <span className="font-medium">{t.name}</span>
++                {!t.active ? <span className="ml-2 text-xs uppercase">(coming soon)</span> : null}
++              </li>
++            ))}
++          </ul>
++        </DialogPrimitive.Popup>
++      </DialogPrimitive.Portal>
++    </DialogPrimitive.Root>
++  );
++}
+diff --git a/web/app/components/home_keyboard_shell.tsx b/web/app/components/home_keyboard_shell.tsx
+new file mode 100644
+index 0000000..3ad67ba
+--- /dev/null
++++ b/web/app/components/home_keyboard_shell.tsx
+@@ -0,0 +1,54 @@
++"use client";
++
++import Link from "next/link";
++import { useEffect, useRef, useState, type ReactNode } from "react";
++
++import { Button } from "@/components/ui/button";
++
++import { CommandPalette } from "./command_palette";
++
++type Template = {
++  id: string;
++  name: string;
++  summary: string;
++  sample_question: string;
++  out_of_scope: string;
++  active: boolean;
++};
++
++type Props = { templates: Template[]; signInHref: string; children: ReactNode };
++
++export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
++  const [palette_open, set_palette_open] = useState(false);
++  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
++
++  useEffect(() => {
++    function on_keydown(event: KeyboardEvent) {
++      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
++        event.preventDefault();
++        event.stopPropagation();
++        set_palette_open((p) => !p);
++      }
++    }
++    window.addEventListener("keydown", on_keydown);
++    return () => window.removeEventListener("keydown", on_keydown);
++  }, []);
++
++  return (
++    <>
++      <header className="border-border bg-background border-b">
++        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
++          <div className="flex flex-col">
++            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">POLARIS Canada</span>
++            <span className="text-foreground text-base font-semibold">Sovereign Deep Research</span>
++          </div>
++          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
++            Sign in
++          </Button>
++        </div>
++      </header>
++      {children}
++      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
++    </>
++  );
++}
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 07f6bfc..ebf8658 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -1,5 +1,6 @@
+ import Link from "next/link";
+ 
++import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+ import { Button } from "@/components/ui/button";
+ import {
+   Card,
+@@ -105,26 +106,7 @@ const templates: Template[] = [
+ export default function HomePage() {
+   return (
+     <div className="flex min-h-screen flex-col">
+-      <header className="border-border bg-background border-b">
+-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+-          <div className="flex flex-col">
+-            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+-              POLARIS Canada
+-            </span>
+-            <span className="text-foreground text-base font-semibold">
+-              Sovereign Deep Research
+-            </span>
+-          </div>
+-          <Button
+-            variant="default"
+-            nativeButton={false}
+-            render={<Link href="/sign-in" />}
+-          >
+-            Sign in
+-          </Button>
+-        </div>
+-      </header>
+-
++      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+         <section className="flex flex-col gap-3">
+           <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+@@ -232,6 +214,7 @@ export default function HomePage() {
+           <span>Sovereign Canadian deep research</span>
+         </div>
+       </footer>
++      </HomeKeyboardShell>
+     </div>
+   );
+ }
+diff --git a/web/tests/e2e/command_palette.spec.ts b/web/tests/e2e/command_palette.spec.ts
+new file mode 100644
+index 0000000..795f36a
+--- /dev/null
++++ b/web/tests/e2e/command_palette.spec.ts
+@@ -0,0 +1,64 @@
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-f1-002 — Command palette (⌘K) keyboard-only behavior.
++ *
++ * Acceptance per `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5):
++ *  - Ctrl+K opens palette; Enter on active template navigates.
++ *  - Enter on to-build template is no-op (URL unchanged, palette stays open).
++ *  - Esc closes palette + restores focus to header Sign in link.
++ *
++ * Hydration race avoidance: every test waits for the header Sign in link
++ * to be visible before pressing Ctrl+K (proves client shell hydrated).
++ */
++
++test.describe("Command palette — I-f1-002", () => {
++  test("Ctrl+K opens palette; type clinical + Enter navigates", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    await page.keyboard.press("Control+k");
++    const palette = page.getByTestId("command-palette");
++    await expect(palette).toBeVisible();
++
++    await page.getByTestId("command-palette-input").fill("clinical");
++    await page.keyboard.press("Enter");
++    await page.waitForURL("**/intake?template=clinical");
++  });
++
++  test("Enter on disabled template is a no-op (URL unchanged)", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    const before = page.url();
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    // Arrow-down 3 times to first to-build (ai_sovereignty, after 3 active).
++    await page.keyboard.press("ArrowDown");
++    await page.keyboard.press("ArrowDown");
++    await page.keyboard.press("ArrowDown");
++    await page.keyboard.press("Enter");
++
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++    await expect(page).toHaveURL(before);
++  });
++
++  test("Esc closes palette + restores focus to header Sign in link", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    await page.keyboard.press("Escape");
++    await expect(page.getByTestId("command-palette")).toBeHidden();
++    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
++  });
++});
+
+# canonical-diff-sha256: c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e
