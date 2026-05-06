@@ -6,7 +6,7 @@ stable so callers don't change.
 
 Per CLAUDE.md security posture: workspace_id MUST be normalized
 identically on write and read; mismatch is a P0 governance issue
-(per `.codex/REVIEW_BRIEF_FORMAT_v2.md` example).
+(per `.codex/REVIEW_BRIEF_FORMAT.md` example).
 """
 
 from __future__ import annotations

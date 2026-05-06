@@ -47,7 +47,7 @@ def test_workspace_isolation(store):
 def test_workspace_id_normalization():
     """Mismatch between write and read normalization is a P0 governance bug.
 
-    Per .codex/REVIEW_BRIEF_FORMAT_v2.md severity rubric.
+    Per .codex/REVIEW_BRIEF_FORMAT.md severity rubric.
     """
     store = WorkspaceMemoryStore()
     store.remember(

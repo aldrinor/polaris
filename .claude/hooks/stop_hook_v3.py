@@ -51,8 +51,8 @@ CANONICAL_FILES = [
     "docs/agent_architecture.md",
     "docs/substrate_audit_2026-05-01.md",
     ".codex/codex_red_team_checklist.md",
-    ".codex/REVIEW_BRIEF_FORMAT_v2.md",
-    ".codex/AUDIT_CYCLE_PROTOCOL_v2.md",
+    ".codex/REVIEW_BRIEF_FORMAT.md",
+    ".codex/AUDIT_CYCLE_PROTOCOL.md",
     "CLAUDE.md",
 ]
 

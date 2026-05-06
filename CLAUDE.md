@@ -176,8 +176,8 @@ This protocol MUST be executed automatically at the start of every session and a
    - `docs/agent_architecture.md`
    - `docs/substrate_audit_2026-05-01.md`
    - `.codex/codex_red_team_checklist.md`
-   - `.codex/REVIEW_BRIEF_FORMAT_v2.md`
-   - `.codex/AUDIT_CYCLE_PROTOCOL_v2.md`
+   - `.codex/REVIEW_BRIEF_FORMAT.md`
+   - `.codex/AUDIT_CYCLE_PROTOCOL.md`
    - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
    - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
 3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).

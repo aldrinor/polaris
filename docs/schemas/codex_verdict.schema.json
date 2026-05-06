@@ -78,7 +78,7 @@
     },
     "findings": {
       "type": "array",
-      "description": "All findings, severity-stratified per .codex/REVIEW_BRIEF_FORMAT_v2.md.",
+      "description": "All findings, severity-stratified per .codex/REVIEW_BRIEF_FORMAT.md.",
       "items": {
         "type": "object",
         "required": ["severity", "file", "line", "category", "description"],
@@ -114,7 +114,7 @@
           "fix_classification": {
             "type": "string",
             "enum": ["root_cause", "guardrail", "band_aid"],
-            "description": "Per Plan v13 §C cross-review tag. band_aid = always RED per AUDIT_CYCLE_PROTOCOL_v2.md."
+            "description": "Per Plan v13 §C cross-review tag. band_aid = always RED per AUDIT_CYCLE_PROTOCOL.md."
           }
         }
       }

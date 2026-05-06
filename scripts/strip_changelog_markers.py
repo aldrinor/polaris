@@ -1,7 +1,7 @@
 """Strip changelog markers from a diff or source file before sending
 to Codex for review (autoloop V3 — Procedural Independence Protocol).
 
-Per `.codex/REVIEW_BRIEF_FORMAT_v2.md` + sister-project research:
+Per `.codex/REVIEW_BRIEF_FORMAT.md` + sister-project research:
 prior-round changelog markers (`// CORRECTED v2 per Codex round-1`,
 `# Codex round-3 LOW fix`, etc.) anchor the reviewer toward
 "already addressed" framings even when the underlying patch is

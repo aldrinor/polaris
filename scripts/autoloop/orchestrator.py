@@ -68,8 +68,8 @@ CANONICAL_FILES = [
     "docs/agent_architecture.md",
     "docs/substrate_audit_2026-05-01.md",
     ".codex/codex_red_team_checklist.md",
-    ".codex/REVIEW_BRIEF_FORMAT_v2.md",
-    ".codex/AUDIT_CYCLE_PROTOCOL_v2.md",
+    ".codex/REVIEW_BRIEF_FORMAT.md",
+    ".codex/AUDIT_CYCLE_PROTOCOL.md",
     "CLAUDE.md",
 ]
 
@@ -420,7 +420,7 @@ def _build_review_brief(task_id: str, task_def: dict, diff_sha: str) -> str:
 
 You are Codex. Adversarially review the staged commit for task {task_id} per
 .codex/codex_red_team_checklist.md universal U1-U8 + applicable LLM-call/UI/crown-jewel
-checks, severity-stratified per .codex/REVIEW_BRIEF_FORMAT_v2.md.
+checks, severity-stratified per .codex/REVIEW_BRIEF_FORMAT.md.
 
 ## Authoritative inputs
 
