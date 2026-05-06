@@ -1,7 +1,19 @@
 # POLARIS File Directory
 
-**Last Updated**: 2026-04-18 (post-audit cleanup)
-**Status**: 305 tests passing against pipeline A. Repo cleaned: 162 orphans archived, 37 stale docs archived, 56MB of working-tree scratch moved to `archive/2026-04-18-pre-audit-cleanup/`.
+**Last Updated**: 2026-05-05 (post-Cleanup-PR-8; substantive update from 2026-04-18 baseline)
+**Status**: 305 tests passing against pipeline A. Repo cleaned across two cleanup waves:
+- **2026-04-18 wave:** 162 orphans archived, 37 stale docs archived, 56MB of working-tree scratch moved to `archive/2026-04-18-pre-audit-cleanup/`.
+- **2026-05-05 wave (Cleanup-PR-1..PR-8 per `state/polaris_restart/cleanup_audit.md` Codex APPROVE iter 21):**
+  - PR-1: 39 pytest tmpdirs deleted (Apply); 109 ACL-blocked dirs catalogued in `state/polaris_restart/cleanup_delete_failures.txt` for elevated reclaim.
+  - PR-2: 19 top-level Codex verdict briefs (m_int / m_live / m_prod / md9 series) → `archive/2026-05-05/codex_verdict_briefs_*/`.
+  - PR-3a/b/c: 190+44 = 234 review briefs from `.codex/_archive_pre_v6_2/` + top-level superseded briefs → `archive/2026-05-05/codex_archive_pre_v6_2_pr3{a,b,c}/` + `archive/2026-05-05/codex_briefs_pr3c_misc/`.
+  - PR-4: atomic rename `.codex/REVIEW_BRIEF_FORMAT_v2.md` → `REVIEW_BRIEF_FORMAT.md` and `AUDIT_CYCLE_PROTOCOL_v2.md` → `AUDIT_CYCLE_PROTOCOL.md` + 8 active referencing files updated.
+  - PR-5: atomic rename `scripts/pg_preflight_v2.py` → `pg_preflight.py` + 6 active referencing files updated.
+  - PR-6: atomic doc rename `docs/full_online_plan_FINAL.md` → `full_online_plan.md` (6 active refs) + `carney_delivery_plan_FINAL` → `carney_delivery_plan_v6_2` ref-only update (1 file).
+  - PR-7: 11 `state/autoloop_handover_*.md` → `archive/2026-05-05/state_autoloop_handovers/`.
+  - PR-8 (this commit): `docs/file_directory.md` updated to reflect post-cleanup state.
+
+Manifest with merkle hashes + per-file SHAs for every Cleanup-PR-1 deletion at `state/polaris_restart/cleanup_manifest.md` + `cleanup_manifest_sidecars/del_NNN.{per_file,permission_denied}.txt` (296 sidecar files).
 
 **This document describes only ACTIVE code.** For the static
 import-closure analysis that produced this view, see
