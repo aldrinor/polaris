@@ -4,14 +4,9 @@ import { useEffect, useRef } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 
 import { Button } from "@/components/ui/button";
+import type { DisambiguationCluster } from "@/lib/api";
 
 const MAX_SAMPLE_LEN = 80;
-
-export type DisambiguationCluster = {
-  cluster_id: number;
-  label: string;
-  sample_snippets: string[];
-};
 
 export type DisambiguationModalProps = {
   open: boolean;

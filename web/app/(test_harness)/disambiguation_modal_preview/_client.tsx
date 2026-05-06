@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 
-import {
-  DisambiguationModal,
-  type DisambiguationCluster,
-} from "@/app/intake/components/disambiguation_modal";
+import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
+import type { DisambiguationCluster } from "@/lib/api";
 
 const FIXTURE_CLUSTERS: DisambiguationCluster[] =
   "syndrome,institute,chemical,company,course".split(",").map((label, i) => ({

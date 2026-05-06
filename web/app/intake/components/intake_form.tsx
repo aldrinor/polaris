@@ -7,11 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   IntakeBadRequestError,
+  runDisambiguation,
   runIntake,
+  type DisambiguationCluster,
   type IntakeScopeDecision,
 } from "@/lib/api";
 
 import { AmbiguityModal } from "./ambiguity_modal";
+import { DisambiguationModal } from "./disambiguation_modal";
 import { ScopeDecisionView } from "./scope_decision_view";
 
 type IntakeState =
@@ -30,6 +33,13 @@ export function IntakeForm() {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<IntakeState>({ kind: "idle" });
   const [modalOpen, setModalOpen] = useState(false);
+  const [disambigClusters, setDisambigClusters] = useState<
+    DisambiguationCluster[]
+  >([]);
+  const [disambigOpen, setDisambigOpen] = useState(false);
+  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
+    null,
+  );
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -48,6 +58,17 @@ export function IntakeForm() {
       setState({ kind: "ok", decision: result.decision });
       if (result.decision.status === "ambiguous_needs_clarification") {
         setModalOpen(true);
+      }
+      if (
+        result.decision.needs_disambiguation &&
+        result.decision.candidate_snippets &&
+        result.decision.candidate_snippets.length > 0
+      ) {
+        const dis = await runDisambiguation(result.decision.candidate_snippets);
+        if (dis.is_ambiguous && dis.clusters.length > 1) {
+          setDisambigClusters(dis.clusters);
+          setDisambigOpen(true);
+        }
       }
     } catch (err) {
       if (err instanceof IntakeBadRequestError) {
@@ -90,9 +111,9 @@ export function IntakeForm() {
               autoComplete="off"
             />
             <p className="text-muted-foreground text-xs">
-              POLARIS only researches clinical evidence questions
-              (efficacy, safety, diagnosis, prognosis). Other domains will be
-              marked out of scope.
+              POLARIS only researches clinical evidence questions (efficacy,
+              safety, diagnosis, prognosis). Other domains will be marked out of
+              scope.
             </p>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -104,9 +125,7 @@ export function IntakeForm() {
               >
                 {state.kind === "loading" ? "Checking…" : "Check scope"}
               </Button>
-              <span className="text-muted-foreground text-xs">
-                or try:
-              </span>
+              <span className="text-muted-foreground text-xs">or try:</span>
               {SAMPLE_QUESTIONS.map((sample) => (
                 <button
                   key={sample}
@@ -143,6 +162,21 @@ export function IntakeForm() {
         onContinue={() => setModalOpen(false)}
         onCancel={() => setModalOpen(false)}
       />
+
+      <DisambiguationModal
+        open={disambigOpen}
+        clusters={disambigClusters}
+        onSelectCluster={(cid) => {
+          const found = disambigClusters.find((c) => c.cluster_id === cid);
+          setPickedClusterLabel(found?.label ?? null);
+          setDisambigOpen(false);
+        }}
+        onCancel={() => setDisambigOpen(false)}
+      />
+
+      <output data-testid="disambig-picked-label" className="sr-only">
+        {pickedClusterLabel ?? ""}
+      </output>
     </div>
   );
 }
