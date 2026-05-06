@@ -431,7 +431,7 @@ Per Plan v13 §F (user-signed 2026-05-02): **no silent fallback. No mid-task deg
 
 This canonical was reconciled per Plan v13 Bootstrap §A Step 0a. User-signed at this commit. The following changes were applied:
 
-1. **Filename**: `docs/carney_delivery_plan_FINAL.md` → `docs/carney_delivery_plan_v6_2.md` via `git mv` (history preserved). `_FINAL` suffix forbidden per Plan v13 §I.
+1. **Filename**: `docs/carney_delivery_plan_v6_2.md` → `docs/carney_delivery_plan_v6_2.md` via `git mv` (history preserved). `_FINAL` suffix forbidden per Plan v13 §I.
 2. **Header**: Status line reworded — "v6.3 errata applied" framing replaced with "v6.2 with E-1/E-2 integrated inline" (single canonical version going forward).
 3. **Frontend version**: "Next.js 15" → "Next.js 16" at line referencing the modern frontend stack (matches actual implementation in `web/`; was a planning-vs-implementation drift).
 4. **F6 citation overlay**: contradiction resolved — was simultaneously labeled "MVP, not Perplexity-grade" AND "matches Perplexity"; now locked at "matches Perplexity hover-preview at parity" reflecting shipped F-25..F-28 substrate (cycles 7-11 audit lock at `web/components/ui/evidence-tooltip.tsx`).

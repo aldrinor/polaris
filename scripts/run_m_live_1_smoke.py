@@ -1,6 +1,6 @@
 """M-LIVE-1: V19 single-query end-to-end smoke.
 
-Acceptance bar (per docs/full_online_plan_FINAL.md M-LIVE-1):
+Acceptance bar (per docs/full_online_plan.md M-LIVE-1):
   - One real query through the integrated pipeline
   - All Phase E substrates fire (verified by run-log + sinks)
   - Manifest + audit bundle + Inspector views all render

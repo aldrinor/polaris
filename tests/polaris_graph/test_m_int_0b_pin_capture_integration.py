@@ -1,6 +1,6 @@
 """M-INT-0b — Pin capture on every sweep run + --replay-from-pin CLI.
 
-Acceptance bar (per docs/full_online_plan_FINAL.md M-INT-0b):
+Acceptance bar (per docs/full_online_plan.md M-INT-0b):
   1. Substrate IS imported by scripts/run_honest_sweep_r3.py
      (capture_pin, build_replay_plan, apply_replay_plan, etc.)
   2. Substrate IS invoked at run-loop callsite (_capture_run_pin

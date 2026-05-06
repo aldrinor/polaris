@@ -4,7 +4,7 @@ Runs `diff_regression(...)` between a committed baseline and the
 current run, exits with rc=0 (GREEN/YELLOW = merge OK) or rc=1
 (RED = block merge).
 
-Per `docs/full_online_plan_FINAL.md` Phase F M-LIVE-4:
+Per `docs/full_online_plan.md` Phase F M-LIVE-4:
   - 1-day milestone
   - M-D9 phase 1 regression check runs as CI gate on every release
 

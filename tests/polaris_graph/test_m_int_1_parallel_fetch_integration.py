@@ -1,6 +1,6 @@
 """M-INT-1 — Parallel fetch into live_retriever.
 
-Acceptance bar (per docs/full_online_plan_FINAL.md M-INT-1):
+Acceptance bar (per docs/full_online_plan.md M-INT-1):
   1. Substrate IS imported by live_retriever.py (parallel_fetch
      + FetchTask import statements present after invocation block)
   2. Substrate IS invoked at the content-fetch loop callsite

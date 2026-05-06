@@ -1,6 +1,6 @@
 """M-INT-0a — Decision telemetry into production scope-gate.
 
-Acceptance bar (per docs/full_online_plan_FINAL.md M-INT-0a):
+Acceptance bar (per docs/full_online_plan.md M-INT-0a):
   1. Substrate IS imported by inspector_router.py (DecisionRecordStore,
      DecisionKind import statements present)
   2. Substrate IS invoked at the route_query callsite

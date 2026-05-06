@@ -15,7 +15,7 @@ Output:
   - outputs/m_live_2_beat_both/manifest.json (per-dimension
     verdict, raw scores, deltas)
 
-Per `docs/full_online_plan_FINAL.md` M-LIVE-2:
+Per `docs/full_online_plan.md` M-LIVE-2:
   - 3 score_run + 2 diff_dimension_scores calls
   - Codex review: independently re-extracts competitor manifests;
     risk flagged: extraction normalization can invalidate verdict
