@@ -44,6 +44,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# PR-E iter 3 cosmetic fix during apply: Windows console (cp1252) chokes on
+# Unicode chars (e.g. '→' U+2192) appearing in Issue titles. Force stdout to
+# UTF-8 so print() works regardless of console codepage.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ISSUE_BREAKDOWN = REPO_ROOT / "state" / "polaris_restart" / "issue_breakdown.md"
 ISSUE_MAP = REPO_ROOT / "state" / "polaris_restart" / "issue_github_map.json"

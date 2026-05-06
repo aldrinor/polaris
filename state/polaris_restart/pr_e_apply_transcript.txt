@@ -1,0 +1,294 @@
+Parsed 133 Issues from issue_breakdown.md
+Label preflight: 36 missing labels to create: ['feature-anti-sycophancy-ci', 'feature-benchmark-templates', 'feature-buffer', 'feature-crown-jewel-preservation', 'feature-evidence-contract-gate', 'feature-f1', 'feature-f10', 'feature-f11', 'feature-f12', 'feature-f12-benchmark', 'feature-f13', 'feature-f14', 'feature-f15', 'feature-f2', 'feature-f3', 'feature-f4', 'feature-f5', 'feature-f6', 'feature-f7', 'feature-f8', 'feature-f9', 'feature-handover', 'feature-infra', 'feature-phase-2c-polish', 'feature-sovereign-migration', 'phase-0', 'phase-1', 'phase-2a', 'phase-2b', 'phase-2c-polish', 'phase-3', 'phase-4', 'phase-4-5', 'phase-5', 'phase-side-track', 'user-blocked']
+Label preflight: created 36 labels
+CREATE I-phase0-003: Vast.ai US dev cluster operational (Carney Task 0.3)
+  -> #85
+CREATE I-phase0-005: Backend modernization + Dramatiq queue (Carney Task 0.5)
+  -> #86
+CREATE I-phase0-006: DeepSeek V4 hardware Path A/B/C decision (Carney Task 0.6)
+  -> #87
+CREATE I-phase0-007: SGLang vs vLLM bakeoff (Carney Task 0.7)
+  -> #88
+CREATE I-phase0-008: Gemma 4 31B technical verification (Carney Task 0.8 tech portion � RENAMED iter 3)
+  -> #89
+CREATE I-phase0-009: OVH Canada BHS H200 invoice + provisioning (Carney Task 0.9 � HARD GATE)
+  -> #90
+CREATE I-phase0-010: Gemma 4 31B license sign-off (Carney Task 0.8 license portion � RENAMED iter 3 from `008-license`)
+  -> #91
+CREATE I-f1-001: Next.js landing page Card grid
+  -> #92
+CREATE I-f1-002: Command palette + react-hotkeys-hook keyboard nav
+  -> #93
+CREATE I-f1-003: Live template-suggestion as user types
+  -> #94
+Traceback (most recent call last):
+  File "C:\POLARIS\scripts\restart\open_github_issues.py", line 538, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "C:\POLARIS\scripts\restart\open_github_issues.py", line 520, in main
+    print(f"CREATE {issue['id']}: {issue['title_short']}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 51: character maps to <undefined>
+Parsed 133 Issues from issue_breakdown.md
+Label preflight: all 36 required labels already exist
+SKIP I-phase0-003 (already created as #85)
+SKIP I-phase0-005 (already created as #86)
+SKIP I-phase0-006 (already created as #87)
+SKIP I-phase0-007 (already created as #88)
+SKIP I-phase0-008 (already created as #89)
+SKIP I-phase0-009 (already created as #90)
+SKIP I-phase0-010 (already created as #91)
+SKIP I-f1-001 (already created as #92)
+SKIP I-f1-002 (already created as #93)
+SKIP I-f1-003 (already created as #94)
+CREATE I-f1-004: Template adversarial test: "BPEI" → no false-positive
+  -> #95
+CREATE I-f1-005: F1 axe-core WCAG-AA compliance test
+  -> #96
+CREATE I-f1-006: F1 multi-tab safety test (3 tabs, no state pollution)
+  -> #97
+CREATE I-f2-001: Backend: HDBSCAN clustering on top-K retrieval candidates
+  -> #98
+CREATE I-f2-002: Backend: LLM cluster-labeling per primary entity
+  -> #99
+CREATE I-f2-003: Backend: disambiguation API endpoint
+  -> #100
+CREATE I-f2-004: Frontend: disambiguation modal (2/3/5 candidate variants)
+  -> #101
+CREATE I-f2-005: F2 functional test: BPEI end-to-end
+  -> #102
+CREATE I-f2-006: F2 adversarial: tirzepatide → no false disambiguation
+  -> #103
+CREATE I-f2-007: F2 edge: French / PDF drop
+  -> #104
+CREATE I-f2-008: F2 evaluator walkthrough
+  -> #105
+CREATE I-bug-079: async/sync collision in clinical_classifier
+  -> #106
+CREATE I-f3-001: Backend: wire document_ids into graph_v4 evidence pool
+  -> #107
+CREATE I-f3-002: Backend: data classification taxonomy
+  -> #108
+CREATE I-f3-003: Backend: sovereignty router
+  -> #109
+CREATE I-f3-004: Backend: sovereignty CI test
+  -> #110
+CREATE I-f3-005: Frontend: drag-drop upload zone
+  -> #111
+CREATE I-f3-006: Frontend: per-file parse status
+  -> #112
+CREATE I-f3-007: Frontend: doc preview with chunk highlights
+  -> #113
+CREATE I-f3-008: Frontend: "use these docs as evidence" toggle
+  -> #114
+CREATE I-f3-009: F3 adversarial: 8 input types
+  -> #115
+CREATE I-f3-010: F3 sovereignty walkthrough
+  -> #116
+CREATE I-f15-001: Bundle schema
+  -> #117
+CREATE I-f15-002: Embed extracted span text ≤500 chars
+  -> #118
+CREATE I-f15-003: Bundle preview pane in report header
+  -> #119
+CREATE I-f15-004: Standalone-verifiable test
+  -> #120
+CREATE I-f15-005: F15 adversarial: paywalled, 500MB resumable, partial run
+  -> #121
+CREATE I-f15-006: Sovereignty CI: legal-cleared spans only
+  -> #122
+CREATE I-bug-082: audit-bundle health endpoint hardcoded sentinel
+  -> #123
+CREATE I-ecg-001: Contract schema
+  -> #124
+CREATE I-ecg-002: Gate enforcement
+  -> #125
+CREATE I-ecg-003: Contract editor UI
+  -> #126
+CREATE I-ecg-004: Contract version migration test
+  -> #127
+CREATE I-f4-001: SSE EventSource consumer with reconnect/backoff
+  -> #128
+CREATE I-f4-002: Event-type UI affordances
+  -> #129
+CREATE I-f4-003: Multi-tab independent updates
+  -> #130
+CREATE I-f4-004: Adversarial: 80% fetch fail; strict_verify drops all
+  -> #131
+CREATE I-f4-005: F4 200-sentence walkthrough
+  -> #132
+CREATE I-f5-001: Hover-highlight every claim sentence
+  -> #133
+CREATE I-f5-002: Click → Inspector pane (Sheet, 40% width)
+  -> #134
+CREATE I-f5-003: Inspector: source span + URL + tier + retrieval trace
+  -> #135
+CREATE I-f5-004: Inspector: two-family evaluator agreement signal
+  -> #136
+CREATE I-f5-005: Inspector: multi-span support
+  -> #137
+CREATE I-f5-006: Inspector: synthesis-claim badge
+  -> #138
+CREATE I-f5-007: Inspector: retracted-source + stale (>2y) badges
+  -> #139
+CREATE I-f5-008: F5 latency at 50/100/200/500 sentences
+  -> #140
+CREATE I-f5-009: F5 functional: every assertion gated-and-clickable
+  -> #141
+CREATE I-f5-010: F5 adversarial: paywalled span, multi-span claim, T1-vs-T1 conflict
+  -> #142
+CREATE I-f5-011: F5 AI agent test
+  -> #143
+CREATE I-f7-001: Top-of-report panel
+  -> #144
+CREATE I-f7-002: Gap reason taxonomy frozen as enum
+  -> #145
+CREATE I-f7-003: Each gap clickable → unblock action
+  -> #146
+CREATE I-f7-004: F7 adversarial: 0/15, 15/15, 1/15
+  -> #147
+CREATE I-f8-001: Inline `⚠ N sources disagree` badge
+  -> #148
+CREATE I-f8-002: Side pane with all sides
+  -> #149
+CREATE I-f8-003: F8 adversarial: contradicting paragraphs same source
+  -> #150
+CREATE I-f8-004: Non-numeric contradictions
+  -> #151
+CREATE I-f8-005: Guideline-vs-trial conflict
+  -> #152
+CREATE I-f8-006: Jurisdictional disagreement display
+  -> #153
+CREATE I-f9-001: Per-claim badge
+  -> #154
+CREATE I-f9-002: Side pane: generator vs evaluator readings
+  -> #155
+CREATE I-f9-003: F9 edge: no disagreements / all disagreements
+  -> #156
+CREATE I-f6-001: Hover-card with debounced rendering
+  -> #157
+CREATE I-f6-002: Edge-aware positioning
+  -> #158
+CREATE I-f6-003: Mobile tap-to-show fallback
+  -> #159
+CREATE I-f6-004: Multi-source claim cross-ref panel
+  -> #160
+CREATE I-f6-005: F6 perf: 100x hover consistent <100ms
+  -> #161
+CREATE I-f10-001: Vega-Lite renderer (react-vega + Vega-Lite v5)
+  -> #162
+CREATE I-f10-002: Forest plot chart spec
+  -> #163
+CREATE I-f10-003: Comparison table chart spec
+  -> #164
+CREATE I-f10-004: Timeline chart spec
+  -> #165
+CREATE I-f10-005: Chart provenance schema
+  -> #166
+CREATE I-f10-006: Click-through-to-source-data
+  -> #167
+CREATE I-f10-007: Sandboxed Python execution (no-egress, resource-capped)
+  -> #168
+CREATE I-f10-008: F10 walkthrough: tirzepatide vs semaglutide
+  -> #169
+CREATE I-f13-001: Pin replay UI
+  -> #170
+CREATE I-f13-002: Diff visualization
+  -> #171
+CREATE I-f13-003: Regression alerts inline
+  -> #172
+CREATE I-f13-004: F13 adversarial: source retraction during replay
+  -> #173
+CREATE I-f14-001: Migrate workspace_memory to Chroma semantic
+  -> #174
+CREATE I-f14-002: Memory page with explicit controls
+  -> #175
+CREATE I-f14-003: Cross-session surfacing
+  -> #176
+CREATE I-f14-004: Memory-as-corpus for new queries
+  -> #177
+CREATE I-f14-005: Cited recall
+  -> #178
+CREATE I-p2c-001: Cross-feature integration testing
+  -> #179
+CREATE I-p2c-002: Visual regression: 60 baselines (4 viewports × 15 features)
+  -> #180
+CREATE I-p2c-003: Cross-browser: Chromium / Firefox / WebKit
+  -> #181
+CREATE I-p2c-004: Performance: Core Web Vitals green
+  -> #182
+CREATE I-p2c-005: Mobile end-to-end
+  -> #183
+CREATE I-f11-001: Follow-up agent with parent-run-context preservation
+  -> #184
+CREATE I-f11-002: Append-to-existing-report rendering
+  -> #185
+CREATE I-f11-003: Evidence Contract inheritance
+  -> #186
+CREATE I-f11-004: Refusal handling for out-of-scope follow-ups
+  -> #187
+CREATE I-f11-005: F11 multi-turn: 5 sequential follow-ups
+  -> #188
+CREATE I-f12-001: Two-run picker UI
+  -> #189
+CREATE I-f12-002: Split-screen view (ResizablePanels)
+  -> #190
+CREATE I-f12-003: Claim-level diff algorithm
+  -> #191
+CREATE I-f12-004: F12 functional: jurisdictional diff
+  -> #192
+CREATE I-bug-084: coverage scorer keywords
+  -> #193
+CREATE I-bench-001: 50 questions × 4 systems × 6 dimensions
+  -> #194
+CREATE I-bench-002: Paid sample evaluator scoring
+  -> #195
+CREATE I-tpl-006: AI sovereignty template
+  -> #196
+CREATE I-tpl-007: Canada-US template
+  -> #197
+CREATE I-tpl-008: Workforce template
+  -> #198
+CREATE I-sov-001: Replace OpenRouter with sovereign vLLM
+  -> #199
+CREATE I-sov-002: Validate quality unchanged
+  -> #200
+CREATE I-sov-003: Re-run F-INT regression suite on sovereign topology
+  -> #201
+CREATE I-sov-004: Two-family segregation re-verification
+  -> #202
+CREATE I-buf-001: Migration findings + regression fixes
+  -> #203
+CREATE I-hand-001: Final walkthrough + Codex sweep
+  -> #204
+CREATE I-hand-002: Handover package
+  -> #205
+CREATE I-hand-003: Carney office demo
+  -> #206
+CREATE I-cj-001: Two-family evaluator test
+  -> #207
+CREATE I-cj-002: Provenance token test
+  -> #208
+CREATE I-cj-003: Strict-verify test
+  -> #209
+CREATE I-cj-004: Zero-verified abort test
+  -> #210
+CREATE I-cj-005: Corpus approval enforcement test
+  -> #211
+CREATE I-cj-006: Budget cap test
+  -> #212
+CREATE I-cj-007: Delimiter sanitization test
+  -> #213
+CREATE I-anti-001: Paired-prompt corpus
+  -> #214
+CREATE I-anti-002: Stance-delta computation
+  -> #215
+CREATE I-anti-003: CI gate at <5% delta on 20 paired prompts
+  -> #216
+CREATE I-anti-004: Nightly full eval
+  -> #217
+
+Done: created=123, skipped=10, failed=0
