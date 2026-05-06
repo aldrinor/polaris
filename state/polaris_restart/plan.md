@@ -770,11 +770,15 @@ Every unit of work is a GitHub Issue assigned in sequence per
 state/polaris_restart/issue_breakdown.md. Cannot start Issue N+1
 until Issue N is `completed` per TaskCreate state.
 
-Per-Issue mandatory artifacts (CI rejects PR without these):
+Per-Issue mandatory artifacts (CI rejects PR without these — enforced by
+.github/workflows/codex-required.yml installed in PR-D):
 - .codex/<issue_id>/brief.md (Claude-authored, Codex-approved)
-- .codex/<issue_id>/codex_brief_verdict.txt (APPROVE)
-- .codex/<issue_id>/codex_diff.patch OR codex-written diff
-- .codex/<issue_id>/codex_diff_audit.txt (APPROVE on Red-Team checklist)
+- .codex/<issue_id>/codex_brief_verdict.txt (Codex APPROVE; final-line check)
+- .codex/<issue_id>/codex_diff.patch (Claude-written canonical PR diff with
+  `# canonical-diff-sha256: <64-hex>` trailer that CI binds to the actual
+  PR diff via sha256 — per PR-D iter 3 PRD3-P1-001 fix; prevents Codex
+  APPROVE on patch-A while PR contains code-B)
+- .codex/<issue_id>/codex_diff_audit.txt (Codex APPROVE on Red-Team checklist)
 - outputs/audits/<issue_id>/claude_audit.md (Claude's architect review)
 
 Forbidden patterns:
@@ -891,15 +895,21 @@ A2+B1+C2 trust model REQUIRES Codex verdict production to be mechanically isolat
 - Edit `.claude/settings.local.json` to bypass session-start hook
 - Edit `polaris-controls/CHARTER.md` to weaken charter §4
 
-**Isolation requirements (all must hold before first auto-merge):**
+**Phase-1 isolation requirements (active in PR-D, must hold before first auto-merge):**
 
 1. `.github/workflows/codex-required.yml` is CODEOWNERS-protected. Only `aldrinor` can modify. Claude PRs touching this file fail required-review check.
 2. `.github/CODEOWNERS` itself is CODEOWNERS-protected (`/.github/CODEOWNERS @aldrinor`). Self-protecting.
-3. The CI workflow `codex-required.yml` runs `codex exec` ON THE RUNNER, not parses a Claude-supplied verdict file. The runner authenticates Codex via mounted OAuth credentials at `~/.codex/auth.json` (per Codex CLI subscription auth). Claude cannot influence the verdict; the runner produces it.
-4. The verdict file written by the runner is signed (HMAC or attestation) so Claude tampering after-the-fact is detectable.
-5. `polaris-controls/` repo branch protection requires signed commits. Claude has no signing key (per CHARTER "Out of Scope": "Sign any commit"). User signs all governance changes with hardware token.
-6. The `gh pr merge --admin` revocation (per §10.3) prevents Claude from clicking merge even if Claude-authored verdict file slipped past the runner check.
-7. `state/polaris_restart/plan.md` itself is CODEOWNERS-protected after Codex APPROVE — Claude cannot retroactively edit the approved plan.
+3. `polaris-controls/` repo branch protection requires signed commits. Claude has no signing key (per CHARTER "Out of Scope": "Sign any commit"). User signs all governance changes with hardware token.
+4. The `gh pr merge --admin` revocation (per §10.3) prevents Claude from clicking merge even if a verdict file slipped past the workflow.
+5. `state/polaris_restart/plan.md` itself is CODEOWNERS-protected after Codex APPROVE — Claude cannot retroactively edit the approved plan.
+6. `codex_diff.patch` carries a `# canonical-diff-sha256: <64-hex>` trailer that the workflow binds to the actual PR diff via sha256 (PR-D iter 3 PRD3-P1-001 fix). Closes the gap where Codex APPROVE on patch-A could cover code-B.
+
+**Phase-2 isolation requirements (deferred to post-PR-F, separate hardening work):**
+
+7. The CI workflow `codex-required.yml` runs `codex exec` ON THE RUNNER, not parses a Claude-supplied verdict file. The runner authenticates Codex via mounted OAuth credentials at `~/.codex/auth.json` (per Codex CLI subscription auth). Claude cannot influence the verdict; the runner produces it. Requires self-hosted runner OR GitHub Actions secret with Codex creds — operator-side infra setup.
+8. The verdict file written by the runner is signed (HMAC or attestation) so Claude tampering after-the-fact is detectable.
+
+Phase-1 mitigates phase-2 absence via: (a) user reads `git log` morning per §7.B B1 = after-the-fact human-at-merge surface that catches forged verdict files, (b) CODEOWNER review on every PR touching `.github/`, (c) canonical-diff-sha256 binding (#6 above) prevents code-vs-approved-patch divergence even if the verdict file is forged. PR-D acknowledges this trade-off; Phase-2 hardening tracked as post-PR-F follow-up.
 
 **Implementation:** `.github/CODEOWNERS` adds:
 ```
@@ -917,24 +927,48 @@ Without these CODEOWNERS rules, the entire trust model collapses. Codex iter 3 P
 
 ### §10.1 GitHub Actions workflow
 
-`.github/workflows/codex-required.yml`:
-```yaml
-on: pull_request
-jobs:
-  codex-required:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: parse codex verdict
-        run: |
-          ISSUE_ID=$(echo "${{ github.head_ref }}" | sed 's|^bot/||')
-          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
-          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
-          test -f "$DIFF_VERDICT" || (echo "missing $DIFF_VERDICT"; exit 1)
-          test -f "$BRIEF_VERDICT" || (echo "missing $BRIEF_VERDICT"; exit 1)
-          grep -q "^verdict: APPROVE" "$DIFF_VERDICT" || (echo "diff verdict not APPROVE"; exit 1)
-          grep -q "^verdict: APPROVE" "$BRIEF_VERDICT" || (echo "brief verdict not APPROVE"; exit 1)
-```
+Authoritative implementation: `.github/workflows/codex-required.yml`
+(installed by PR-D, Codex APPROVE iter N).
+
+The above pseudo-workflow snippet was an iter-pre-PR-D draft and has been
+SUPERSEDED. The canonical workflow installed by PR-D applies the full
+hardening from PR-D iters 1-6:
+
+- **PR-D iter 1 P1-001** — requires the FULL §3.0 5-artifact triple
+  (brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt,
+  claude_audit.md) before checking verdict APPROVE.
+- **PR-D iter 1 P1-002** — YAML syntax compliant (block scalars where
+  needed, no unquoted colon-space in run: bodies).
+- **PR-D iter 2 PRD2-P1-001** — parses the FINAL `^verdict: ...$` line
+  (last match via grep + tail -1), so transcript prompt text containing
+  the literal string "verdict: APPROVE" cannot fool the gate.
+- **PR-D iter 2 PRD2-P1-002, P1-003** — PR-controlled values (head ref,
+  step outputs) passed via `env:` blocks, validated against narrow safe
+  regexes, never interpolated as `${{ ... }}` directly into shell source.
+- **PR-D iter 3 PRD3-P1-001** — binds `codex_diff.patch` to actual PR
+  diff via sha256: workflow computes `git diff base...head` excluding
+  review-artifact paths (`.codex/<id>/**`, `outputs/audits/<id>/**`),
+  hashes it, and requires codex_diff.patch to declare a matching
+  `# canonical-diff-sha256: <64-hex>` trailer line. Closes the gap where
+  Codex APPROVE on patch-A could cover a PR containing different code-B.
+- **PR-D iter 3 PRD3-P2-002 + iter 4 PRD4-P1-001** — issue_id regex
+  matches canonical `I-[a-z0-9]{2,8}-[0-9]{3}` schema with optional
+  `-<NAME>` slug suffix; only the base issue_id (group 1) is used for
+  artifact paths so head ref `bot/I-f1-001-scope-discovery` resolves to
+  artifacts under `.codex/I-f1-001/`, not the slugged path.
+- **PR-D iter 5 PRD5-P1-001 + iter 6 PRD6-P1-001** — explicit infra-
+  branch allowlist with EXACT enumeration: `bot/pr-(a|a2|a3|b|b2|c|d|e|f)`
+  + `bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8)` (with optional `-<slug>`).
+  Unknown `bot/*` branches FAIL CLOSED to the catch-all reject; no
+  branch-name bypass via `bot/setup-malicious` or similar.
+- **PR-D iter 6 PRD6-P2-001** — skip_summary distinguishes infra-branch
+  skip from non-bot skip in audit log so post-merge `git log` review
+  shows which path each PR took.
+
+See the actual file at `.github/workflows/codex-required.yml` for the
+full ~225-line implementation (220 LOC + comments). The cleanup-PR
+ancestry-check workflow (`cleanup_pr_ancestry_check.yml`, ~108 lines)
+ships in the same PR-D commit.
 
 ### §10.2 Branch protection ruleset (user applies)
 

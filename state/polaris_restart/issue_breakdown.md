@@ -87,10 +87,13 @@ Every Issue uses this body when opened on GitHub:
 <integer; must be ≤200 per CHARTER §3>
 
 ## Per-Issue artifacts required at PR open (CHARTER §7 visibility)
+
+Per CLAUDE.md §3.0 + plan.md §7.A LOCKED A2 + PR-D `codex-required.yml` 5-artifact gate (PR-D iter 3 PRD3-P2-001 fix synchronizes this list with CLAUDE.md/plan.md/codex-required.yml — earlier `decision.md` entry was an iter-pre-PR-D draft superseded by the canonical 5-artifact contract):
+
 - `.codex/<issue_id>/brief.md` (Claude-authored)
 - `.codex/<issue_id>/codex_brief_verdict.txt` (Codex APPROVE)
-- `.codex/<issue_id>/codex_diff_audit.txt` (Codex APPROVE — Red-Team checklist)
-- `.codex/<issue_id>/decision.md` (Claude's decision based on Codex verdict — REQUIRED per CHARTER §7)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; binds to actual PR diff via PR-D `codex-required.yml` content-hash check per PRD3-P1-001 fix)
+- `.codex/<issue_id>/codex_diff_audit.txt` (Codex APPROVE — Red-Team checklist on codex_diff.patch)
 - `outputs/audits/<issue_id>/claude_audit.md` (Claude architect review — `<issue_id>` is literal Issue ID e.g. `I-f1-001`)
 
 ## Blocks
@@ -1345,7 +1348,7 @@ Carney v6.2 §"Phase plan" gives calendar windows for each phase (Phase 1 May 13
 
 CI workflow `polaris/codex-required.yml` rejects PR if any of:
 
-- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff_audit.txt, decision.md}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5)
+- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
 - Codex `codex_brief_verdict.txt` does not contain `verdict: APPROVE`
 - Codex `codex_diff_audit.txt` does not contain `verdict: APPROVE`
 - PR > 200 net additions (per CHARTER §3)

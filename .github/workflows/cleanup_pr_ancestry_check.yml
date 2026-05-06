@@ -1,0 +1,108 @@
+name: cleanup_pr_ancestry_check
+# Per state/polaris_restart/cleanup_audit.md (Codex APPROVE iter 21) lines
+# 952-1006 + iter-18/19/20 fixes CLEAN-DEPS-ANCESTRY-STILL-INCOMPLETE-18
+# and CLEAN-ANCESTRY-SHALLOW-CHECKOUT-19.
+#
+# Verifies Cleanup-PR-N branches merge in linear DAG order:
+# 1 -> 2 -> 3a -> 3b -> 3c -> 4 -> 5 -> 6 -> 7 -> 8.
+#
+# Reads the predecessor PR's merge-commit SHA from
+# state/polaris_restart/cleanup_pr_dependencies.json and uses
+# `git merge-base --is-ancestor` to confirm the predecessor is in the
+# current PR's ancestry.
+#
+# Hardening note (PR-D iter 2 PRD2-P1-003 fix): PR-controlled head ref
+# passed via `env:` and validated against a narrow allowlist regex BEFORE
+# being used in bash. Never interpolated as `${{ ... }}` directly into
+# shell source.
+
+on:
+  pull_request:
+    branches: [polaris]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  verify_predecessor_merged:
+    if: startsWith(github.event.pull_request.head.ref, 'cleanup/pr-')
+    runs-on: ubuntu-latest
+    env:
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # iter 20 CLEAN-ANCESTRY-SHALLOW-CHECKOUT-19 fix: full history
+          # needed for `git merge-base --is-ancestor` to find predecessor
+          # merge SHAs. Default checkout depth is 1.
+          fetch-depth: 0
+
+      - name: extract_pr_id
+        id: pr
+        run: |
+          set -euo pipefail
+          # PR-D iter 2 PRD2-P1-003 fix: read $HEAD_REF from env (not from
+          # `${{ ... }}` interpolated into shell source). Validate against
+          # narrow allowlist of canonical 10-PR ids.
+          # Branch convention: `cleanup/pr-<id>[-<slug>]` where <id> is one
+          # of 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8.
+          # Bash regex with extended quoting; rejects any branch whose id
+          # token is not in the allowlist (e.g. `cleanup/pr-2evil` does
+          # not match because `2evil` is not on the list).
+          if [[ "$HEAD_REF" =~ ^cleanup/pr-(1|2|3a|3b|3c|4|5|6|7|8)(-[A-Za-z0-9_-]+)?$ ]]; then
+            pr_id="${BASH_REMATCH[1]}"
+            printf 'id=%s\n' "$pr_id" >> "$GITHUB_OUTPUT"
+            echo "Validated cleanup-PR head ref: cleanup/pr-$pr_id"
+          else
+            echo "ERROR: head ref '$HEAD_REF' does not match cleanup/pr-<canonical_id>[-<slug>]"
+            echo "       allowed ids: 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8"
+            exit 1
+          fi
+
+      - name: lookup_predecessor
+        id: pred
+        env:
+          PR_ID: ${{ steps.pr.outputs.id }}
+        run: |
+          set -euo pipefail
+          # Linear DAG: 1 -> 2 -> 3a -> 3b -> 3c -> 4 -> 5 -> 6 -> 7 -> 8
+          declare -A PRED=( [2]=1 [3a]=2 [3b]=3a [3c]=3b [4]=3c [5]=4 [6]=5 [7]=6 [8]=7 )
+          # PR_ID came from env (validated upstream); safe to use as map key.
+          pred="${PRED[$PR_ID]:-none}"
+          if [ "$pred" = "none" ]; then
+            echo "PR-1 has no predecessor"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'predecessor=%s\n' "$pred" >> "$GITHUB_OUTPUT"
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify_ancestry
+        if: steps.pred.outputs.skip != 'true'
+        env:
+          PRED_ID: ${{ steps.pred.outputs.predecessor }}
+        run: |
+          set -euo pipefail
+          # PRED_ID came from the canonical allowlist (validated upstream
+          # in lookup_predecessor); safe to interpolate into the jq filter.
+          deps_file="state/polaris_restart/cleanup_pr_dependencies.json"
+          if [ ! -f "$deps_file" ]; then
+            echo "ERROR: $deps_file missing"
+            exit 1
+          fi
+          # PR-D iter 2 PRD2-P2-001 fix: dependency JSON now stores full
+          # 40-char SHAs; this is `git merge-base --is-ancestor` input,
+          # which accepts any unambiguous prefix but full SHA avoids any
+          # future collision risk.
+          pred_sha="$(jq -r --arg id "$PRED_ID" '.["pr"+$id+"_merge_commit_sha"] // empty' "$deps_file")"
+          if [ -z "$pred_sha" ]; then
+            echo "ERROR: predecessor PR-$PRED_ID merge SHA not yet recorded in $deps_file"
+            echo "       Wait for the deps recorder bot-PR to merge before opening this PR"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$pred_sha" HEAD; then
+            echo "ERROR: predecessor PR-$PRED_ID ($pred_sha) is NOT in current PR's ancestry"
+            exit 1
+          fi
+          echo "OK: PR-$PRED_ID ($pred_sha) is in ancestry"

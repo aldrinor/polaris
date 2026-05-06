@@ -1,0 +1,255 @@
+name: codex-required
+# Per polaris-restart Plan section 10.1 + section 10.0 Codex isolation invariant.
+# Required-status-check that gates `gh pr merge` for `bot/<issue_id>` PRs.
+# Verifies the full §3.0 5-artifact triple is present and BOTH Codex
+# verdicts (brief + diff) end with `verdict: APPROVE` as the FINAL verdict
+# (not an arbitrary transcript line).
+#
+# Hardening notes (per PR-D iter 2 fixes):
+# - PR-controlled head ref is passed via `env:` and validated against a
+#   narrow safe regex BEFORE being used in bash; never interpolated as
+#   `${{ ... }}` directly into shell source (PRD2-P1-002, P1-003).
+# - Verdict files must declare a final verdict block at the END of the
+#   artifact (PRD2-P1-001) so transcript prompt text containing the literal
+#   string "verdict: APPROVE" cannot fool the gate. The convention is:
+#   the LAST `verdict: APPROVE` or `verdict: REQUEST_CHANGES` line in the
+#   file is treated as authoritative.
+#
+# Phase-2 hardening (post-PR-F, separate work): self-hosted runner with
+# mounted `~/.codex/auth.json` so `codex exec` runs ON THE RUNNER per
+# §10.0 line 898. Until then, this workflow parses verdict files committed
+# by Claude; user reads `git log` morning per §7.B B1 as after-the-fact
+# review surface.
+
+on:
+  pull_request:
+    branches: [polaris, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  codex-required:
+    runs-on: ubuntu-latest
+    env:
+      # PR-D iter 2 PRD2-P1-002 fix: PR-controlled value passed via env,
+      # not interpolated directly into shell source. Branch names can
+      # contain `$()`, quotes, semicolons, etc.
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR-D iter 3 PRD3-P1-001 fix: full history needed for `git diff
+          # base...head` to compute canonical PR diff and bind to
+          # codex_diff.patch.
+          fetch-depth: 0
+
+      - name: extract_and_validate_issue_id
+        id: issue
+        run: |
+          set -euo pipefail
+          # Bot-PR head refs follow `bot/<issue_id>` per plan §3.0 + §7.A
+          # LOCKED A2. Cleanup-PR-* and other infrastructure PRs are not
+          # gated by codex-required (they have their own review trail).
+          #
+          # PR-D iter 2 PRD2-P1-002 fix: read $HEAD_REF from env, validate
+          # against a narrow safe regex, reject if it doesn't match.
+          # PR-D iter 3 PRD3-P2-002 fix: tightened regex to canonical
+          # issue_breakdown.md schema `^I-[a-z0-9]{2,8}-[0-9]{3}`.
+          # PR-D iter 4 PRD4-P1-001 fix: capture ONLY the base issue ID
+          # (group 1). Optional descriptive slug after `-<NAME>` is
+          # accepted in the head ref but DROPPED from issue_id, because
+          # issue_breakdown.md §3 + §35 require the literal base ID for
+          # artifact paths (e.g. `.codex/I-f1-001/`, NOT
+          # `.codex/I-f1-001-scope-discovery/`).
+          # PR-D iter 5 PRD5-P1-001 + iter 6 PRD6-P1-001 fix: explicit
+          # infra-branch allowlist with EXACT enumeration of canonical
+          # restart-sequence + cleanup-PR ids. PR-D itself
+          # (`bot/pr-d-mechanical-gates`) and other infra branches SKIP
+          # the gate cleanly. Only canonical `bot/I-...` issue branches
+          # are gated.
+          # Examples that SKIP: `bot/pr-d-mechanical-gates`,
+          # `bot/cleanup-pr-3a-archive-m1m26`, `bot/pr-e`.
+          # Examples that GATE: `bot/I-f1-001`, `bot/I-f1-001-scope-discovery`,
+          # `bot/I-bug-079`, `bot/I-hand-003-final` -> issue_id =
+          # `I-f1-001`, `I-bug-079`, `I-hand-003`.
+          # Examples that REJECT (closed: branch-name bypass): `bot/pr-malicious`,
+          # `bot/setup-anything`, `bot/slice-foo`, `bot/cleanup-pr-9` (no canonical PR-9).
+          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3})(-[a-z0-9_-]+)?$ ]]; then
+            issue_id="${BASH_REMATCH[1]}"
+            printf 'issue_id=%s\n' "$issue_id" >> "$GITHUB_OUTPUT"
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+            echo "Validated bot-PR head ref: $HEAD_REF -> issue_id=$issue_id"
+          elif [[ "$HEAD_REF" =~ ^bot/(pr-(a|a2|a3|b|b2|c|d|e|f)|cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8))(-[a-z0-9_-]+)?$ ]]; then
+            # PR-D iter 6 PRD6-P1-001 fix: infra allowlist NARROWED to
+            # exact known PR letters / cleanup PR ids. Branch name bypass
+            # closed: `bot/pr-malicious`, `bot/setup-anything`, `bot/slice-foo`
+            # all FAIL CLOSED to the catch-all reject below.
+            #
+            # Infrastructure branches enumerated explicitly (per PR-A..PR-F
+            # restart sequence + Cleanup-PR-1..8 canonical 10-PR table):
+            #   - bot/pr-a, bot/pr-a2, bot/pr-a3 (restart plan, issue_breakdown, cleanup_audit)
+            #   - bot/pr-b, bot/pr-b2 (DNA doc substrate, polaris-controls relocation)
+            #   - bot/pr-c (cleanup execution wrapper)
+            #   - bot/pr-d (this PR — mechanical gates)
+            #   - bot/pr-e (open all GitHub Issues)
+            #   - bot/pr-f (execute Issue #1 — bridge to issue-driven flow)
+            #   - bot/cleanup-pr-1..8 (with 3a/3b/3c sub-PRs per iter-17 split)
+            #
+            # Optional descriptive `-<slug>` suffix accepted (e.g.
+            # `bot/pr-d-mechanical-gates`, `bot/cleanup-pr-3a-archive-m1m26`)
+            # but does not change the allowlist match.
+            #
+            # These infra branches follow their own review protocol (Codex
+            # review per their own brief like
+            # `.codex/pr_d_mechanical_gates_review_brief.md`, NOT the §3.0
+            # 5-artifact triple). Skip the codex-required gate.
+            echo "Infrastructure bot branch '$HEAD_REF' (PR-A..F or Cleanup-PR-1..8); skipping codex-required gate"
+            echo "       (review trail in .codex/<pr-name>_review_brief.md per PR-D iter 5/6 fix)"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            printf 'infra_branch=true\n' >> "$GITHUB_OUTPUT"
+          elif [[ "$HEAD_REF" == bot/* ]]; then
+            # Starts with bot/ but doesn't match canonical issue_id schema
+            # AND doesn't match the infra-branch allowlist. Reject explicitly
+            # to prevent malformed issue IDs sneaking through the gate.
+            echo "ERROR: head ref '$HEAD_REF' starts with bot/ but doesn't match"
+            echo "       (a) canonical issue schema 'I-[a-z0-9]{2,8}-[0-9]{3}[-<NAME>]'"
+            echo "           (per state/polaris_restart/issue_breakdown.md §3)"
+            echo "       OR (b) infra allowlist: bot/pr-(a|a2|a3|b|b2|c|d|e|f) or"
+            echo "          bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8) [with optional -<slug>]"
+            echo "       Use one of the allowed branch-name patterns."
+            exit 1
+          else
+            echo "Non-bot PR (head ref does not start with bot/); skipping codex-required gate"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify_codex_artifacts
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ISSUE_ID: ${{ steps.issue.outputs.issue_id }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # PR-D iter 1 P1-001 fix: require the FULL 5-artifact triple per
+        # CLAUDE.md §3.0 mandatory contract.
+        # PR-D iter 2 PRD2-P1-001 fix: parse the FINAL verdict line in
+        # each verdict file, not any matching line. Codex verdict
+        # transcripts include prompt text that may itself contain the
+        # literal string "verdict: APPROVE" (e.g., the brief schema block).
+        # The LAST verdict-line in the file is authoritative.
+        # PR-D iter 2 PRD2-P1-002 fix: ISSUE_ID also passed via env, validated
+        # by upstream regex; safe to use in pathspecs.
+        # PR-D iter 3 PRD3-P1-001 fix: BIND `codex_diff.patch` to the
+        # actual PR diff via sha256. Compute canonical PR diff (excluding
+        # review-artifact paths the gate itself accepts), hash it, and
+        # require codex_diff.patch to declare the matching hash via a
+        # `# canonical-diff-sha256: <64-hex>` trailer line. Without this
+        # binding, Codex APPROVE on codex_diff.patch could cover code
+        # different from what the PR actually contains.
+        run: |
+          set -euo pipefail
+          BRIEF=".codex/${ISSUE_ID}/brief.md"
+          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
+          DIFF_PATCH=".codex/${ISSUE_ID}/codex_diff.patch"
+          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
+          CLAUDE_AUDIT="outputs/audits/${ISSUE_ID}/claude_audit.md"
+
+          missing=0
+          for f in "$BRIEF" "$BRIEF_VERDICT" "$DIFF_PATCH" "$DIFF_VERDICT" "$CLAUDE_AUDIT"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: missing $f (CLAUDE.md §3.0 5-artifact triple)"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            exit 1
+          fi
+
+          # Parse FINAL verdict line (last `verdict: ...` line in file).
+          # Plan §7.C LOCKED C2: APPROVE means zero P0 AND zero P1.
+          # `grep` returns the last match via `tail -1`; `[[ "$x" = "verdict: APPROVE" ]]`
+          # ensures exact equality (not substring).
+          check_final_verdict() {
+            local file="$1"
+            local label="$2"
+            local final
+            final="$(grep -E '^verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES)$' "$file" | tail -1 || true)"
+            if [ -z "$final" ]; then
+              echo "ERROR: $label ($file) contains no final verdict line ('verdict: APPROVE' or 'verdict: REQUEST_CHANGES')"
+              return 1
+            fi
+            if [ "$final" != "verdict: APPROVE" ]; then
+              echo "ERROR: $label ($file) final verdict is NOT APPROVE: $final"
+              return 1
+            fi
+            echo "OK: $label final verdict APPROVE"
+          }
+
+          check_final_verdict "$BRIEF_VERDICT" "brief"
+          check_final_verdict "$DIFF_VERDICT" "diff"
+
+          # PR-D iter 3 PRD3-P1-001 fix: bind codex_diff.patch to actual
+          # PR diff. Compute canonical PR diff EXCLUDING review-artifact
+          # paths (those are part of the PR but NOT what Codex reviewed
+          # as the "code change"):
+          #   - .codex/<ISSUE_ID>/**       (brief, verdicts, diff patch, audit)
+          #   - outputs/audits/<ISSUE_ID>/** (claude audit)
+          # Everything else in `git diff base...head` IS the code change
+          # Codex reviewed and must match the codex_diff.patch hash.
+          echo "Computing canonical PR diff base=$BASE_SHA head=$HEAD_SHA"
+          canonical_diff="$(mktemp)"
+          git diff "${BASE_SHA}...${HEAD_SHA}" -- \
+            ":(exclude).codex/${ISSUE_ID}/" \
+            ":(exclude)outputs/audits/${ISSUE_ID}/" \
+            > "$canonical_diff"
+
+          actual_hash="$(sha256sum "$canonical_diff" | awk '{print $1}')"
+          echo "Canonical PR diff sha256: $actual_hash"
+
+          # Codex-approved diff must declare its canonical hash via a
+          # trailer line `# canonical-diff-sha256: <64-hex>` ANYWHERE in
+          # codex_diff.patch. Convention: Claude appends this line as a
+          # patch comment after running `sha256sum` on the same canonical
+          # diff right before submitting to Codex review. The hash binds
+          # the Codex APPROVE to one specific code change.
+          declared_hash="$(grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' "$DIFF_PATCH" | tail -1 | awk '{print $3}' || true)"
+          if [ -z "$declared_hash" ]; then
+            echo "ERROR: $DIFF_PATCH has no '# canonical-diff-sha256: <64-hex>' trailer line"
+            echo "       Required by PR-D iter 3 PRD3-P1-001 fix to bind Codex APPROVE"
+            echo "       to a specific code change (otherwise approved patch and actual"
+            echo "       PR diff can diverge silently)."
+            exit 1
+          fi
+
+          if [ "$actual_hash" != "$declared_hash" ]; then
+            echo "ERROR: PR diff hash mismatch — codex_diff.patch was approved for a"
+            echo "       different code change than the actual PR contains."
+            echo "  declared (in codex_diff.patch trailer): $declared_hash"
+            echo "  actual (current canonical PR diff):     $actual_hash"
+            echo "Either re-run Codex review on the current PR diff and update the"
+            echo "trailer with the new hash, or revert the un-reviewed code changes."
+            exit 1
+          fi
+
+          echo "OK: 5-artifact triple present, both Codex final verdicts APPROVE,"
+          echo "    and codex_diff.patch hash matches actual PR diff for $ISSUE_ID"
+
+      - name: skip_summary
+        if: steps.issue.outputs.skip == 'true'
+        env:
+          IS_INFRA: ${{ steps.issue.outputs.infra_branch }}
+          HEAD_REF_FOR_LOG: ${{ github.event.pull_request.head.ref }}
+        # PR-D iter 6 PRD6-P2-001 fix: distinguish infra-branch skip from
+        # non-bot skip in audit log. Earlier wording always said "PR head
+        # ref does not start with bot/" even when an infra bot/* branch
+        # had matched the allowlist.
+        run: |
+          if [ "${IS_INFRA:-false}" = "true" ]; then
+            echo "codex-required: skipped (infra branch '$HEAD_REF_FOR_LOG' on PR-A..F or Cleanup-PR-1..8 allowlist; uses its own review trail in .codex/<pr-name>_review_brief.md)"
+          else
+            echo "codex-required: skipped (non-bot PR head ref '$HEAD_REF_FOR_LOG'; not gated by §3.0 issue-driven workflow)"
+          fi

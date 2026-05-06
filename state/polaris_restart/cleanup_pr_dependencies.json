@@ -1,1 +1,13 @@
-{}
+{
+  "_comment": "Cleanup-PR ancestry record. Per cleanup_audit.md §5 + PR-D iter 1 P2-002 fix + iter 2 PRD2-P2-001 fix (full 40-char SHAs to avoid abbreviation ambiguity). Populated manually from `git rev-parse` since the dependency-recorder bot-workflow was deferred per PR-D scope decision. Each pr<id>_merge_commit_sha is the direct-commit SHA on polaris (since cleanup PRs were direct-pushed by Claude in one session, not opened as PRs). cleanup_pr_ancestry_check.yml uses these SHAs to verify linear DAG ancestry on any future cleanup-PR reopen.",
+  "pr1_merge_commit_sha": "d87bcb274fdea63e92fe7bca6068cbefc5541a76",
+  "pr2_merge_commit_sha": "84ddbbc4ab94795ae9ce52e1bc672c5c1d9eb2d6",
+  "pr3a_merge_commit_sha": "a37ec57e685165e7818eb4e2a5b539c1a6522fec",
+  "pr3b_merge_commit_sha": "1f0044e09de25b4401def29fcc0b9a8e5eb3ab85",
+  "pr3c_merge_commit_sha": "44e0341b5b790d7b718f6a4c9ce7d97bf3652a20",
+  "pr4_merge_commit_sha": "07cfe704a4f6ecff01cc021775ff2b4cb116df15",
+  "pr5_merge_commit_sha": "b1012ac5901d1e890065fc5c398b35f29582f5ff",
+  "pr6_merge_commit_sha": "23168b4f872fb090cdde9e53d6842186b2ff76e5",
+  "pr7_merge_commit_sha": "6d93950c5a54c16ca6546d4998a2231b604dbefe",
+  "pr8_merge_commit_sha": "d9d40e26fc9ec519c05eba823edbb85e085e54c8"
+}
