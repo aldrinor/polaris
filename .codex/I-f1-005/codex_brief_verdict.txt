@@ -1,0 +1,2581 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019dfe9f-cbba-7f90-b17d-6882e3305c9e
+--------
+user
+# Codex Brief Review — I-f1-005 (ITER 3 of 5)
+
+## Iter-1 + iter-2 fixes
+- **iter-1 P1 palette listbox `aria-required-children`:** add `role="option"` + `aria-selected` to each `<li>`.
+- **iter-2 P1 palette listbox needs accessible name:** add `aria-label="Template results"` to the `<ul role="listbox">`. Closes axe `aria-input-field-name` (wcag2a, serious).
+- **iter-2 P2 brief exclusion contradiction:** removed "Does NOT modify production components" from non-acceptance list.
+- **iter-1 P2 WCAG_TAGS drift:** use the 4-tag set matching landing_template_grid (`wcag2a/wcag2aa/wcag21a/wcag21aa`).
+
+**HARD ITERATION CAP: 5 per document. This is iter 3 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f1-005 — F1 axe-core WCAG-AA compliance test
+**Phase:** 1 / **Feature:** F1
+**LOC budget:** 60 net per `state/polaris_restart/issue_breakdown.md`. **CHARTER §1 hard cap: 200.**
+
+## Mission
+
+Add axe-core WCAG-AA scans for the F1 surfaces NOT yet covered by existing specs:
+- `/` with command palette OPEN (Ctrl+K, palette + backdrop visible — built in I-f1-002).
+- `/intake?template=clinical` (the page F1 cards link to — built in I-f1-001).
+
+Existing coverage:
+- `web/tests/e2e/landing_template_grid.spec.ts` already scans `/` at 1024px (palette CLOSED). Don't duplicate.
+- `web/tests/e2e/accessibility.spec.ts` already scans `/dashboard` + `/inspector/*`. Don't duplicate.
+
+## Substrate (HONEST)
+
+- `@axe-core/playwright` ^4.11.3 already in `web/package.json` (used at landing_template_grid + accessibility specs).
+- The shared helper `expectNoA11yViolations(page)` lives in `accessibility.spec.ts` but is NOT exported. To stay LOC-tight, reuse `AxeBuilder` directly with the same `WCAG_TAGS` array (`wcag2a, wcag2aa, wcag21a, wcag21aa`).
+- I-f1-002 added `<DialogPrimitive.Title className="sr-only">` (screen-reader-only "Search templates" label) so the open-palette dialog has the required title. Should pass axe.
+- `/intake?template=clinical` exists per slice 001; it's the target of F1 active cards. Need to confirm it loads cleanly without backend (no API call required for first render).
+
+## Acceptance criteria (binding)
+
+1. **`web/tests/e2e/f1_a11y.spec.ts`** (NEW) — 2 tests, each at 1024×768 viewport:
+   - **Test 1 — `/` with palette OPEN is WCAG-AA clean:** goto `/`, wait header-sign-in-link visible, press `Control+k`, wait `command-palette` visible, run AxeBuilder scan, assert `results.violations` filtered for impact ∈ {`serious`, `critical`} is empty (issue spec: "zero serious/critical violations").
+   - **Test 2 — `/intake?template=clinical` initial render is WCAG-AA clean:** goto `/intake?template=clinical`, wait `intake-page` testid visible, run AxeBuilder, assert serious/critical empty.
+
+2. **`web/app/components/command_palette.tsx`** (MODIFY): (a) add `role="option"` + `aria-selected={i === clamped}` to each `<li>` (closes axe `aria-required-children`); (b) add `aria-label="Template results"` to the `<ul role="listbox">` (closes axe `aria-input-field-name`). ~4 LOC.
+
+3. **Filter on impact severity (`serious` + `critical` only)** per issue spec; non-critical (e.g. `moderate`, `minor`) violations are NOT blocking. This matches the issue acceptance criterion "zero serious/critical violations" rather than "zero violations of any severity."
+
+## Planned diff shape
+
+```
+web/app/components/command_palette.tsx       MOD +2/-1   (role="option" + aria-selected on <li>)
+web/tests/e2e/f1_a11y.spec.ts                 NEW +50
+```
+
+LOC: +52/-1 = +51 net. Under 60 budget AND under CHARTER §1 200-cap.
+
+## Out of scope (deferred per breakdown)
+
+- Multi-tab safety → I-f1-006
+
+## Non-acceptance / explicit exclusions
+
+(prior "no production code change" exclusion REMOVED iter-2; small a11y fixes to `command_palette.tsx` are in scope per AC #2).
+- Does NOT scan `/dashboard` or `/inspector/*` (existing coverage).
+- Does NOT scan `/` with palette CLOSED (existing landing_template_grid coverage).
+- Does NOT add CI step to run this spec automatically (`web_ci.yml` runs only inspector/accessibility/performance per existing policy; this spec runs locally).
+
+## Risks for Codex Red-Team
+
+1. **Severity filter (`serious` + `critical` only).** Issue spec explicitly says "zero serious/critical violations" — not "zero violations." Filter `results.violations.filter(v => v.impact === "serious" || v.impact === "critical")`. Acceptable per issue acceptance criterion.
+
+2. **Open-palette state requires Ctrl+K press AFTER hydration.** Test waits for `header-sign-in-link` visible before pressing (hydration race avoidance, same pattern as I-f1-002 + I-f1-003). axe runs after `command-palette` testid is visible (proves Dialog mounted in portal).
+
+3. **`/intake?template=clinical` may emit network calls** (intake form may auto-load template metadata). If those calls fail without backend, axe still scans the rendered DOM; `waitUntil: "networkidle"` may stall on retried fetches. Use `waitUntil: "domcontentloaded"` + explicit wait on `intake-page` testid as the hydration signal — proves React rendered. Acceptable trade-off.
+
+4. **Sr-only DialogPrimitive.Title.** I-f1-002 added the screen-reader title. axe `aria-required-children` and `dialog-name` rules check for accessible names; should pass.
+
+5. **Reuse vs export `expectNoA11yViolations`.** Current accessibility.spec.ts has the helper but doesn't export. Importing across test files is awkward. Inlining the AxeBuilder call adds ~6 LOC × 2 tests = 12 LOC vs ~3 LOC × 2 + helper. Stays under budget either way; choose inline for fewer cross-file dependencies.
+
+6. **Backdrop interactivity / z-index a11y.** When palette is open, the backdrop has `bg-black/20` and the popup has `z-50`. axe `tabindex` rule may flag if focus traps are mis-set; @base-ui/dialog handles focus management internally. Should pass.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll validate the brief against the current repo surfaces and existing test patterns, then return only the mandatory YAML schema with any real blockers front-loaded.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "intake-page|template=clinical|testId|data-testid" web/app web/tests -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"command-palette|role=\\\"listbox\\\"|aria-selected|header-sign-in-link|Search templates\" web/app web/tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "AxeBuilder|wcag2a|expectNoA11yViolations|setViewportSize|landing_template_grid|accessibility" web/tests/e2e web/package.json -S' in C:\POLARIS
+ succeeded in 991ms:
+web/app\benchmark\page.tsx:46:        data-testid="benchmark-page"
+web/app\components\home_keyboard_shell.tsx:45:          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+web/app\generation\page.tsx:53:        data-testid="generation-page"
+web/app\intake\page.tsx:37:        data-testid="intake-page"
+web/app\components\command_palette.tsx:99:          data-testid="command-palette"
+web/app\components\command_palette.tsx:105:            data-testid="command-palette-input"
+web/app\components\command_palette.tsx:116:                data-testid={`palette-item-${t.id}`}
+web/app\benchmark\components\benchmark_board.tsx:93:      <Card data-testid="benchmark-loading">
+web/app\benchmark\components\benchmark_board.tsx:102:        data-testid="benchmark-no-results-dir"
+web/app\benchmark\components\benchmark_board.tsx:121:        data-testid="benchmark-empty"
+web/app\benchmark\components\benchmark_board.tsx:141:        data-testid="benchmark-error"
+web/app\benchmark\components\benchmark_board.tsx:153:      <Card data-testid="benchmark-list">
+web/app\benchmark\components\benchmark_board.tsx:163:              data-testid={`benchmark-link-${bench_id}`}
+web/app\benchmark\components\benchmark_board.tsx:176:      <Card data-testid="benchmark-loading-scoreboard">
+web/app\benchmark\components\benchmark_board.tsx:187:    <div data-testid="benchmark-board" className="flex flex-col gap-4">
+web/app\benchmark\components\benchmark_board.tsx:196:          <p className="text-sm" data-testid="benchmark-tally">
+web/app\benchmark\components\benchmark_board.tsx:229:                    data-testid={`agg-row-${dim}`}
+web/app\page.tsx:125:          data-testid="template-grid"
+web/app\page.tsx:148:                data-testid={`template-card-${tpl.id}`}
+web/app\page.tsx:187:                          data-testid={`template-card-${tpl.id}-link`}
+web/tests\e2e\command_palette.spec.ts:28:    await page.waitForURL("**/intake?template=clinical");
+web/tests\e2e\command_palette_suggest.spec.ts:9: *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
+web/tests\e2e\command_palette_suggest.spec.ts:28:    const items = page.locator('[data-testid^="palette-item-"]');
+web/tests\e2e\command_palette_suggest.spec.ts:50:    const items = page.locator('[data-testid^="palette-item-"]');
+web/tests\e2e\command_palette_suggest.spec.ts:54:  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
+web/tests\e2e\command_palette_suggest.spec.ts:61:    const items = page.locator('[data-testid^="palette-item-"]');
+web/tests\e2e\command_palette_suggest.spec.ts:68:    await page.waitForURL("**/intake?template=clinical");
+web/tests\e2e\command_palette_adversarial.spec.ts:59:      const items = page.locator('[data-testid^="palette-item-"]');
+web/tests\e2e\command_palette_adversarial.spec.ts:74:      const items = page.locator('[data-testid^="palette-item-"]');
+web/app\intake\components\scope_decision_view.tsx:32:      data-testid="scope-status-badge"
+web/app\intake\components\scope_decision_view.tsx:48:      data-testid={`axis-row-${axis.axis}`}
+web/app\intake\components\scope_decision_view.tsx:86:    <Card data-testid="scope-decision-view" className="flex flex-col gap-3">
+web/app\intake\components\scope_decision_view.tsx:95:            data-testid="scope-class-value"
+web/app\intake\components\scope_decision_view.tsx:103:            data-testid="scope-latency-value"
+web/app\intake\components\scope_decision_view.tsx:140:                <li key={idx} data-testid="clarification-item">
+web/tests\e2e\demo_walkthrough.spec.ts:12: * template card → /intake?template=clinical, instead of the legacy
+web/tests\e2e\demo_walkthrough.spec.ts:31:    await page.waitForURL("**/intake?template=clinical");
+web/tests\e2e\demo_walkthrough.spec.ts:32:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web/app\retrieval\page.tsx:46:        data-testid="retrieval-page"
+web/app\intake\components\intake_form.tsx:74:            data-testid="intake-form"
+web/app\intake\components\intake_form.tsx:84:              data-testid="intake-question-input"
+web/app\intake\components\intake_form.tsx:103:                data-testid="intake-submit"
+web/app\intake\components\intake_form.tsx:127:          data-testid="intake-error"
+web/app\retrieval\components\corpus_brief.tsx:36:      data-testid={`tier-badge-${tier}`}
+web/app\retrieval\components\corpus_brief.tsx:56:    <Card data-testid="corpus-brief" className="flex flex-col gap-3">
+web/app\retrieval\components\corpus_brief.tsx:60:          data-testid="adequacy-badge"
+web/app\retrieval\components\corpus_brief.tsx:86:            data-testid="adequacy-failure-reason"
+web/app\retrieval\components\corpus_brief.tsx:118:                data-testid="source-item"
+web/app\retrieval\components\retrieval_runner.tsx:116:            data-testid="retrieval-form"
+web/app\retrieval\components\retrieval_runner.tsx:126:              data-testid="retrieval-question-input"
+web/app\retrieval\components\retrieval_runner.tsx:147:              data-testid="retrieval-submit"
+web/app\retrieval\components\retrieval_runner.tsx:165:          data-testid="retrieval-error"
+web/app\retrieval\components\retrieval_runner.tsx:176:          data-testid="scope-unsuitable"
+web/app\retrieval\components\retrieval_runner.tsx:187:          data-testid="retrieval-error"
+web/app\generation\components\verified_report_view.tsx:38:      data-testid="verdict-badge"
+web/app\generation\components\verified_report_view.tsx:64:      data-testid={dropped ? "dropped-sentence" : "kept-sentence"}
+web/app\generation\components\verified_report_view.tsx:101:      data-testid={`section-${section.section_id}`}
+web/app\generation\components\verified_report_view.tsx:152:    <div data-testid="verified-report-view" className="flex flex-col gap-4">
+web/app\generation\components\generation_runner.tsx:130:            data-testid="generation-form"
+web/app\generation\components\generation_runner.tsx:140:              data-testid="generation-question-input"
+web/app\generation\components\generation_runner.tsx:158:              data-testid="generation-submit"
+web/app\generation\components\generation_runner.tsx:171:          data-testid="scope-unsuitable"
+web/app\generation\components\generation_runner.tsx:182:          data-testid="generation-error"
+web/app\generation\components\generation_runner.tsx:205:              data-testid="toggle-dropped"
+web/app\generation\components\generation_runner.tsx:264:        data-testid="audit-bundle-error"
+web/app\generation\components\generation_runner.tsx:278:      data-testid="download-audit-bundle"
+web/tests\e2e\intake.spec.ts:20:    await expect(page.getByTestId("intake-page")).toBeVisible();
+
+2026-05-06T18:49:51.678032Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+rg: regex parse error:
+    (?:command-palette|role=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1003ms:
+rg: regex parse error:
+    (?:command-palette|role=\)
+    ^
+error: unclosed group
+
+ succeeded in 1062ms:
+web/tests/e2e\accessibility.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web/tests/e2e\accessibility.spec.ts:5: * Phase 2C.5 — WCAG 2.2-AA accessibility audit.
+web/tests/e2e\accessibility.spec.ts:9: * violation should fail CI rather than silently regress accessibility.
+web/tests/e2e\accessibility.spec.ts:17:  "wcag2a",
+web/tests/e2e\accessibility.spec.ts:18:  "wcag2aa",
+web/tests/e2e\accessibility.spec.ts:25:async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+web/tests/e2e\accessibility.spec.ts:26:  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+web/tests/e2e\accessibility.spec.ts:46:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:54:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:63:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:74:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:83:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:93:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:126:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:146:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:278:    await expectNoA11yViolations(page);
+web/tests/e2e\accessibility.spec.ts:291:    await expectNoA11yViolations(page);
+web/tests/e2e\landing_template_grid.spec.ts:1:import AxeBuilder from "@axe-core/playwright";
+web/tests/e2e\landing_template_grid.spec.ts:37:      await page.setViewportSize({ width: vp.width, height: vp.height });
+web/tests/e2e\landing_template_grid.spec.ts:52:        path: `web/tests/e2e/screenshots/landing_template_grid_${vp.name}.png`,
+web/tests/e2e\landing_template_grid.spec.ts:79:    await page.setViewportSize({ width: 1024, height: 768 });
+web/tests/e2e\landing_template_grid.spec.ts:81:    const results = await new AxeBuilder({ page })
+web/tests/e2e\landing_template_grid.spec.ts:82:      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+
+codex
+The existing test suite already has the expected unexported axe helper and a separate landing scan using the four WCAG tags. I’m checking the actual component markup and intake route now for any mismatch that would make the proposed spec fail.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\components\\command_palette.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\landing_template_grid.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.*" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\accessibility.spec.ts -TotalCount 80" in C:\POLARIS
+ succeeded in 1133ms:
+"use client";
+
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type RefObject } from "react";
+
+import { cn } from "@/lib/utils";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type CommandPaletteProps = {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  templates: Template[];
+  signInLinkRef: RefObject<HTMLAnchorElement | null>;
+};
+
+const SYNONYMS: Record<string, string> = {
+  tirzepatide: "clinical",
+  ozempic: "clinical",
+  semaglutide: "clinical",
+  mounjaro: "clinical",
+};
+
+function score_template(t: Template, q: string): number {
+  if (!q) return 1; // empty search: equal score so all items render in original order
+  const ql = q.toLowerCase();
+  let s = 0;
+  if (t.id.toLowerCase() === ql) s += 100;
+  if (t.name.toLowerCase() === ql) s += 50;
+  if (t.name.toLowerCase().includes(ql)) s += 30;
+  if (t.summary.toLowerCase().includes(ql)) s += 10;
+  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
+  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
+  if (SYNONYMS[ql] === t.id) s += 60;
+  return s;
+}
+
+export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+  const router = useRouter();
+  const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
+  const [active_index, set_active_index] = useState(0);
+
+  useEffect(() => {
+    // Both debounced_search and active_index update in the timeout
+    // callback — async, not synchronous setState-in-effect. New query
+    // pre-selects the top-scored result.
+    const t = setTimeout(() => {
+      set_debounced_search(search);
+      set_active_index(0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const scored = templates
+    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+    .filter(({ s }) => s > 0)
+    .sort((a, b) => b.s - a.s)
+    .map(({ t }) => t);
+
+  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
+
+  function handle_key(event: React.KeyboardEvent) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      set_active_index((p) => Math.max(p - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const tpl = scored[clamped];
+      if (tpl?.active) {
+        router.push(`/intake?template=${tpl.id}`);
+        onOpenChange(false);
+      }
+    }
+  }
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
+        <DialogPrimitive.Popup
+          data-testid="command-palette"
+          onKeyDown={handle_key}
+          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+        >
+          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
+          <input
+            data-testid="command-palette-input"
+            autoFocus
+            value={search}
+            onChange={(e) => set_search(e.target.value)}
+            placeholder="Search templates..."
+            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          />
+          <ul className="max-h-80 overflow-y-auto" role="listbox">
+            {scored.map((t, i) => (
+              <li
+                key={t.id}
+                data-testid={`palette-item-${t.id}`}
+                data-active={i === clamped ? "true" : undefined}
+                aria-disabled={!t.active || undefined}
+                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
+              >
+                <span className="font-medium">{t.name}</span>
+                {!t.active ? <span className="ml-2 text-xs uppercase">(coming soon)</span> : null}
+              </li>
+            ))}
+          </ul>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 1165ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.5 — WCAG 2.2-AA accessibility audit.
+ *
+ * For each user-facing route we run axe-core with the WCAG 2A + 2AA + 2.1AA
+ * + 2.2AA + best-practice rule sets and assert zero violations. Any new
+ * violation should fail CI rather than silently regress accessibility.
+ *
+ * Failure mode is intentionally LOUD — if axe surfaces a violation we
+ * print the rule id, impact, and the affected node selectors so the fix
+ * is one click away.
+ */
+
+const WCAG_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa",
+  "best-practice",
+];
+
+async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+
+  if (results.violations.length > 0) {
+    const summary = results.violations
+      .map(
+        (v) =>
+          `\n  - [${v.impact}] ${v.id}: ${v.description}\n    nodes: ${v.nodes
+            .map((n) => n.target.join(" ") + (n.failureSummary ? ` — ${n.failureSummary.replace(/\n/g, " ")}` : ""))
+            .join("\n           ")}`,
+      )
+      .join("");
+    throw new Error(
+      `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
+    );
+  }
+}
+
+test.describe("WCAG-AA — research dashboard", () => {
+  test("/dashboard initial render is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  test("/dashboard after scope rejection is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await page.fill("#question", "Should I take ozempic for my diabetes?");
+    await page.getByRole("button", { name: /Check scope/ }).click();
+    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
+  test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await expectNoA11yViolations(page);
+  });
+
+  test("Verified sentences tab is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    await expectNoA11yViolations(page);
+  });
+
+  test("Charts tab is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_climate_005", {
+      waitUntil: "networkidle",
+    });
+
+ succeeded in 1225ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 1291ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-001 — Next.js landing page Card grid (8 templates).
+ *
+ * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
+ * grid: 3 active templates (clinical/housing/climate, linked to /intake)
+ * + 5 to-build templates (aria-disabled, "Coming soon" badge, no link).
+ *
+ * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
+ *  - 8 cards render at 4 viewports (1920/1024/768/375)
+ *  - Active cards link to /intake?template=<id>
+ *  - To-build cards are aria-disabled, no href, keyboard-skipped
+ *  - axe-core WCAG-AA clean at 1024px
+ */
+
+const ACTIVE_IDS = ["clinical", "housing", "climate"] as const;
+const TO_BUILD_IDS = [
+  "ai_sovereignty",
+  "canada_us",
+  "defense",
+  "trade",
+  "workforce",
+] as const;
+
+const VIEWPORTS = [
+  { name: "1920", width: 1920, height: 1080 },
+  { name: "1024", width: 1024, height: 768 },
+  { name: "768", width: 768, height: 1024 },
+  { name: "375", width: 375, height: 667 },
+] as const;
+
+test.describe("Landing template grid — I-f1-001", () => {
+  for (const vp of VIEWPORTS) {
+    test(`renders 8 template cards at ${vp.name}px`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/", { waitUntil: "networkidle" });
+
+      await expect(page.getByTestId("template-grid")).toBeVisible();
+
+      for (const id of ACTIVE_IDS) {
+        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+      }
+      for (const id of TO_BUILD_IDS) {
+        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+      }
+
+      // Visual regression artifact (CI does not enforce diff on Linux per
+      // web_ci.yml policy; this captures the screenshot for local review).
+      await page.screenshot({
+        path: `web/tests/e2e/screenshots/landing_template_grid_${vp.name}.png`,
+        fullPage: true,
+      });
+    });
+  }
+
+  test("active cards link to /intake?template=<id>", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    for (const id of ACTIVE_IDS) {
+      const link = page.getByTestId(`template-card-${id}-link`);
+      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
+    }
+  });
+
+  test("to-build cards are disabled and skip keyboard nav", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    for (const id of TO_BUILD_IDS) {
+      const card = page.getByTestId(`template-card-${id}`);
+      await expect(card).toHaveAttribute("aria-disabled", "true");
+      // No outbound link from disabled cards.
+      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
+    }
+  });
+
+  test("WCAG-AA axe-core clean at 1024px", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/", { waitUntil: "networkidle" });
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+});
+
+ succeeded in 1308ms:
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
+
+import { IntakeForm } from "./components/intake_form";
+
+export const metadata = {
+  title: "Intake — POLARIS Canada",
+  description:
+    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+};
+
+export default function IntakePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada — Slice 001
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Clinical scope discovery
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/" />}
+          >
+            Home
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="intake-page"
+        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+      >
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Clinical scope discovery
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Type a clinical research question and POLARIS will run it through
+            the BPEI front half: refusal-bait detection, scope classification
+            (efficacy / safety / diagnosis / prognosis), and PICO axis
+            ambiguity detection. No retrieval is run yet — this is the gate
+            that decides if a question is researchable as written.
+          </p>
+        </section>
+
+        <IntakeForm />
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Slice 001 (BPEI front half)</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\components\\home_keyboard_shell.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\command_palette.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\command_palette_suggest.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\intake\\components\\intake_form.tsx" in C:\POLARIS
+ succeeded in 1083ms:
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+
+import { CommandPalette } from "./command_palette";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+
+export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+  const [palette_open, set_palette_open] = useState(false);
+  const sign_in_link_ref = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    function on_keydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault();
+        event.stopPropagation();
+        set_palette_open((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", on_keydown);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, []);
+
+  return (
+    <>
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">POLARIS Canada</span>
+            <span className="text-foreground text-base font-semibold">Sovereign Deep Research</span>
+          </div>
+          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+            Sign in
+          </Button>
+        </div>
+      </header>
+      {children}
+      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
+    </>
+  );
+}
+
+ succeeded in 1092ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-002 — Command palette (⌘K) keyboard-only behavior.
+ *
+ * Acceptance per `.codex/I-f1-002/brief.md` (Codex APPROVE iter 5):
+ *  - Ctrl+K opens palette; Enter on active template navigates.
+ *  - Enter on to-build template is no-op (URL unchanged, palette stays open).
+ *  - Esc closes palette + restores focus to header Sign in link.
+ *
+ * Hydration race avoidance: every test waits for the header Sign in link
+ * to be visible before pressing Ctrl+K (proves client shell hydrated).
+ */
+
+test.describe("Command palette — I-f1-002", () => {
+  test("Ctrl+K opens palette; type clinical + Enter navigates", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    const palette = page.getByTestId("command-palette");
+    await expect(palette).toBeVisible();
+
+    await page.getByTestId("command-palette-input").fill("clinical");
+    await page.keyboard.press("Enter");
+    await page.waitForURL("**/intake?template=clinical");
+  });
+
+  test("Enter on disabled template is a no-op (URL unchanged)", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    const before = page.url();
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    // Arrow-down 3 times to first to-build (ai_sovereignty, after 3 active).
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    await expect(page).toHaveURL(before);
+  });
+
+  test("Esc closes palette + restores focus to header Sign in link", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toBeHidden();
+    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+  });
+});
+
+ succeeded in 1124ms:
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-003 — Live template suggestion as user types.
+ *
+ * Validates the debounced + scored search inside the command palette:
+ *  - "tirzepatide" (synonym) → exactly one visible item: clinical.
+ *  - "BPEI" (no match) → empty list (zero false-positives).
+ *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
+ *
+ * Each test waits for header-sign-in-link visible after networkidle to
+ * prove client shell hydration; then opens palette via Ctrl+K.
+ */
+
+const SUGGEST_BUDGET_MS = 250; // 150ms debounce + 100ms render budget
+
+test.describe("Command palette suggest — I-f1-003", () => {
+  test("synonym 'tirzepatide' yields exactly one item: clinical", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    // Empty palette opens with all 8 templates visible (initial state).
+    const items = page.locator('[data-testid^="palette-item-"]');
+    await expect(items).toHaveCount(8);
+
+    await page.getByTestId("command-palette-input").fill("tirzepatide");
+    // Post-debounce post-scoring: synonym map fires and only clinical
+    // survives the filter. Plain substring filter would yield 0 items
+    // (no template name/summary contains "tirzepatide"), so this
+    // assertion proves scoring + synonym map ran.
+    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
+    await expect(page.getByTestId("palette-item-clinical")).toBeVisible();
+  });
+
+  test("'BPEI' yields zero items (no false-positive)", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    await page.getByTestId("command-palette-input").fill("BPEI");
+    // After debounce + render, nothing should match.
+    await page.waitForTimeout(SUGGEST_BUDGET_MS);
+    const items = page.locator('[data-testid^="palette-item-"]');
+    await expect(items).toHaveCount(0);
+  });
+
+  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    const items = page.locator('[data-testid^="palette-item-"]');
+    await expect(items).toHaveCount(8);
+
+    await page.getByTestId("command-palette-input").fill("tirzepatide");
+    // Wait for post-debounce post-scoring state (count=1 → only clinical).
+    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
+    await page.keyboard.press("Enter");
+    await page.waitForURL("**/intake?template=clinical");
+  });
+});
+
+ succeeded in 1138ms:
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runIntake,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+export function IntakeForm() {
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              POLARIS only researches clinical evidence questions
+              (efficacy, safety, diagnosis, prognosis). Other domains will be
+              marked out of scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">
+                or try:
+              </span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <Card
+          data-testid="intake-error"
+          className="border-rose-500/40 bg-rose-500/5"
+        >
+          <CardContent className="text-rose-700 dark:text-rose-300">
+            {state.message}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <ScopeDecisionView decision={state.decision} />
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+codex
+The component currently lacks the proposed listbox option semantics, and the intake page’s first render is client-local until submit, so the route choice itself looks compatible with a DOMContentLoaded wait. I’m doing one more pass for axe-specific failure modes around the open dialog before deciding the verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'placeholder=\"Search templates|command-palette-input|listbox|role=\"option\"|aria-activedescendant' web/app web/tests -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'DialogPrimitive|Dialog\\.Popup|aria-label|sr-only|role=\"dialog\"|aria-labelledby|aria-describedby' web/app web/components -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\package.json" in C:\POLARIS
+ succeeded in 915ms:
+web/app\components\command_palette.tsx:105:            data-testid="command-palette-input"
+web/app\components\command_palette.tsx:109:            placeholder="Search templates..."
+web/app\components\command_palette.tsx:112:          <ul className="max-h-80 overflow-y-auto" role="listbox">
+web/tests\e2e\command_palette.spec.ts:26:    await page.getByTestId("command-palette-input").fill("clinical");
+web/tests\e2e\command_palette_adversarial.spec.ts:60:      await page.getByTestId("command-palette-input").fill(input);
+web/tests\e2e\command_palette_adversarial.spec.ts:75:      await page.getByTestId("command-palette-input").fill(input);
+web/tests\e2e\command_palette_suggest.spec.ts:31:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+web/tests\e2e\command_palette_suggest.spec.ts:47:    await page.getByTestId("command-palette-input").fill("BPEI");
+web/tests\e2e\command_palette_suggest.spec.ts:64:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+
+ succeeded in 960ms:
+web/components\ui\sheet.tsx:74:            <span className="sr-only">Close</span>
+web/app\benchmark\page.tsx:66:          aria-label="What this proves"
+web/app\components\command_palette.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web/app\components\command_palette.tsx:89:    <DialogPrimitive.Root
+web/app\components\command_palette.tsx:96:      <DialogPrimitive.Portal>
+web/app\components\command_palette.tsx:97:        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
+web/app\components\command_palette.tsx:98:        <DialogPrimitive.Popup
+web/app\components\command_palette.tsx:103:          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
+web/app\components\command_palette.tsx:126:        </DialogPrimitive.Popup>
+web/app\components\command_palette.tsx:127:      </DialogPrimitive.Portal>
+web/app\components\command_palette.tsx:128:    </DialogPrimitive.Root>
+web/app\dashboard\page.tsx:222:              aria-label="Research template"
+web/app\page.tsx:123:          aria-labelledby="template_grid_heading"
+web/app\inspector\[runId]\page.tsx:119:          <section role="alert" aria-labelledby="inspector-error-heading">
+web/app\generation\page.tsx:76:          aria-label="What's next"
+web/app\intake\components\ambiguity_modal.tsx:3:import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+web/app\intake\components\ambiguity_modal.tsx:26:    <DialogPrimitive.Root
+web/app\intake\components\ambiguity_modal.tsx:32:      <DialogPrimitive.Portal>
+web/app\intake\components\ambiguity_modal.tsx:33:        <DialogPrimitive.Backdrop
+web/app\intake\components\ambiguity_modal.tsx:40:        <DialogPrimitive.Popup
+web/app\intake\components\ambiguity_modal.tsx:52:            <DialogPrimitive.Title className="text-foreground text-lg font-semibold">
+web/app\intake\components\ambiguity_modal.tsx:54:            </DialogPrimitive.Title>
+web/app\intake\components\ambiguity_modal.tsx:55:            <DialogPrimitive.Description className="text-muted-foreground text-sm">
+web/app\intake\components\ambiguity_modal.tsx:59:            </DialogPrimitive.Description>
+web/app\intake\components\ambiguity_modal.tsx:94:            <DialogPrimitive.Close
+web/app\intake\components\ambiguity_modal.tsx:105:        </DialogPrimitive.Popup>
+web/app\intake\components\ambiguity_modal.tsx:106:      </DialogPrimitive.Portal>
+web/app\intake\components\ambiguity_modal.tsx:107:    </DialogPrimitive.Root>
+web/app\retrieval\page.tsx:65:          aria-label="What's next"
+
+ succeeded in 974ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path web\\node_modules\\@axe-core\\playwright; Test-Path web\\.next; Test-Path web\\node_modules\\axe-core" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'header-sign-in-link|template-grid|HomeKeyboardShell' web\\app\\page.tsx web\\app -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\page.tsx" in C:\POLARIS
+ succeeded in 841ms:
+True
+True
+True
+
+ succeeded in 894ms:
+web\app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web\app\page.tsx:109:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web\app\page.tsx:125:          data-testid="template-grid"
+web\app\page.tsx:217:      </HomeKeyboardShell>
+web\app\components\home_keyboard_shell.tsx:21:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web\app\components\home_keyboard_shell.tsx:45:          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+web\app\page.tsx:3:import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+web\app\page.tsx:109:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web\app\page.tsx:125:          data-testid="template-grid"
+web\app\page.tsx:217:      </HomeKeyboardShell>
+
+ succeeded in 902ms:
+import Link from "next/link";
+
+import { HomeKeyboardShell } from "@/app/components/home_keyboard_shell";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+const templates: Template[] = [
+  {
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
+  },
+  {
+    id: "housing",
+    name: "Housing & productivity",
+    summary:
+      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
+    sample_question:
+      "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
+    out_of_scope: "Should I buy a condo in Toronto?",
+    active: true,
+  },
+  {
+    id: "climate",
+    name: "Climate & critical minerals",
+    summary:
+      "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous consent.",
+    sample_question:
+      "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
+    out_of_scope: "Should I buy a heat pump for my house?",
+    active: true,
+  },
+  {
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "defense",
+    name: "Defense & Arctic",
+    summary:
+      "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
+    sample_question:
+      "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+    out_of_scope: "How do I join the Canadian Armed Forces?",
+    active: false,
+  },
+  {
+    id: "trade",
+    name: "Trade & tariff",
+    summary:
+      "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
+    sample_question:
+      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+    out_of_scope: "Should I move my supply chain to Mexico?",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12">
+        <section className="flex flex-col gap-3">
+          <h1 className="text-foreground text-3xl font-semibold tracking-tight sm:text-4xl">
+            POLARIS Canada — Sovereign Deep Research
+          </h1>
+          <p className="text-muted-foreground max-w-3xl text-base sm:text-lg">
+            Two-family verified evidence pipelines for Government of Canada
+            policy work. Every claim carries a provenance token tied to a
+            primary source.
+          </p>
+        </section>
+
+        <section
+          aria-labelledby="template_grid_heading"
+          className="flex flex-col gap-5"
+          data-testid="template-grid"
+        >
+          <div className="flex items-baseline justify-between">
+            <h2
+              id="template_grid_heading"
+              className="text-foreground text-xl font-semibold tracking-tight"
+            >
+              Research templates
+            </h2>
+            <span className="text-muted-foreground text-xs tracking-widest uppercase">
+              3 active · 5 to-build
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {templates.map((tpl) => (
+              <Card
+                key={tpl.id}
+                aria-disabled={tpl.active ? undefined : true}
+                className={
+                  tpl.active
+                    ? "flex flex-col"
+                    : "bg-muted/40 text-muted-foreground flex flex-col"
+                }
+                data-testid={`template-card-${tpl.id}`}
+              >
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                    {!tpl.active ? (
+                      <span
+                        aria-hidden="true"
+                        className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                      >
+                        Coming soon
+                      </span>
+                    ) : null}
+                  </div>
+                  <CardDescription className="text-sm">
+                    {tpl.summary}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col justify-between gap-4">
+                  <div className="flex flex-col gap-2 text-sm">
+                    <p>
+                      <span className="text-foreground font-medium">
+                        In scope:
+                      </span>{" "}
+                      {tpl.sample_question}
+                    </p>
+                    <p>
+                      <span className="text-foreground font-medium">
+                        Out of scope:
+                      </span>{" "}
+                      {tpl.out_of_scope}
+                    </p>
+                  </div>
+                  {tpl.active ? (
+                    <Button
+                      variant="outline"
+                      nativeButton={false}
+                      render={
+                        <Link
+                          data-testid={`template-card-${tpl.id}-link`}
+                          href={`/intake?template=${tpl.id}`}
+                        />
+                      }
+                    >
+                      Open {tpl.name}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      disabled
+                      tabIndex={-1}
+                      aria-disabled="true"
+                    >
+                      Coming soon
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — slices 1-5 shipped</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+      </HomeKeyboardShell>
+    </div>
+  );
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path web\\tests\\e2e\\f1_a11y.spec.ts" in C:\POLARIS
+ succeeded in 730ms:
+False
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+const { chromium } = require('@playwright/test');
+const AxeBuilder = require('@axe-core/playwright').default;
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  await page.setContent('<"'!doctype html><html><body><input placeholder="Search templates..."><ul role="listbox" aria-label="Template results"><li role="option" aria-selected="true">Clinical</li></ul></body></html>'"');
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
+  console.log(JSON.stringify(results.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.map(n => n.target) })), null, 2));
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });
+'@ | node -" in C:\POLARIS\web
+2026-05-06T18:51:11.110015Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.5 seconds
+Output:
+browserType.launch: spawn EPERM
+Call log:
+[2m  - <launching> C:\Users\msn\AppData\Local\ms-playwright\chromium_headless_shell-1217\chrome-headless-shell-win64\chrome-headless-shell.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --no-sandbox --user-data-dir=C:\Users\msn\AppData\Local\Temp\playwright_chromiumdev_profile-C4awaw --remote-debugging-pipe --no-startup-window[22m
+
+    at [stdin]:4:34
+    at [stdin]:10:3
+    at [stdin]-wrapper:6:24 {
+  name: 'Error'
+}
+
+ exited 1 in 1473ms:
+browserType.launch: spawn EPERM
+Call log:
+[2m  - <launching> C:\Users\msn\AppData\Local\ms-playwright\chromium_headless_shell-1217\chrome-headless-shell-win64\chrome-headless-shell.exe --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --no-sandbox --user-data-dir=C:\Users\msn\AppData\Local\Temp\playwright_chromiumdev_profile-C4awaw --remote-debugging-pipe --no-startup-window[22m
+
+    at [stdin]:4:34
+    at [stdin]:10:3
+    at [stdin]-wrapper:6:24 {
+  name: 'Error'
+}
+
+codex
+The local sandbox blocks launching Playwright’s browser (`spawn EPERM`), so I can’t run an actual axe scan here. I’m relying on the repo’s current markup plus axe rule behavior for the review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'placeholder|label-title-only|label-content-name-mismatch|form-field-multiple-labels|label' web\\node_modules\\axe-core\\axe.js -S" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'aria-required-children|aria-input-field-name|listbox|option' web\\node_modules\\axe-core\\axe.js -S" in C:\POLARIS
+ succeeded in 866ms:
+2230:      module.exports = function(options, source) {
+2231:        var TARGET = options.target;
+2232:        var GLOBAL = options.global;
+2233:        var STATIC = options.stat;
+2234:        var PROTO = options.proto;
+2241:          FORCED = isForced(GLOBAL ? key : TARGET + (STATIC ? '.' : '#') + key, options.forced);
+2245:            if (options.dontCallGetSet) {
+2256:          if (options.bind && USE_NATIVE) {
+2258:          } else if (options.wrap && USE_NATIVE) {
+2265:          if (options.sham || sourceProperty && sourceProperty.sham || targetProperty && targetProperty.sham) {
+2275:            if (options.real && targetPrototype && (FORCED || !targetPrototype[key])) {
+2793:      module.exports = function(target, key, value, options) {
+2794:        if (options && options.enumerable) {
+4246:    var require_normalize_options = __commonJS(function(exports, module) {
+4259:        forEach.call(arguments, function(options) {
+4260:          if (!isValue(options)) {
+4263:          process2(Object(options), result);
+4702:      var normalizeOpts = require_normalize_options();
+4705:        var c4, e, w, options, desc;
+4707:          options = value;
+4711:          options = arguments[2];
+4727:        return !options ? desc : assign(normalizeOpts(options), desc);
+4730:        var c4, e, options, desc;
+4732:          options = set2;
+4737:          options = arguments[3];
+4742:          options = get2;
+4747:          options = set2;
+4763:        return !options ? desc : assign(normalizeOpts(options), desc);
+5391:      module.exports = function(original, length, options) {
+5400:        if (options.normalizer) {
+5401:          normalizer = resolveNormalize(options.normalizer);
+5407:        if (options.resolvers != null) {
+5408:          resolve = resolveResolve(options.resolvers);
+5499:          profileName: options.profileName,
+5624:        var options, length, conf;
+5626:        options = Object(arguments[1]);
+5627:        if (options.async && options.promise) {
+5628:          throw new Error('Options \'async\' and \'promise\' cannot be used together');
+5630:        if (hasOwnProperty.call(fn, '__memoized__') && !options.force) {
+5633:        length = resolveLength(options.length, fn.length, options.async && extensions.async);
+5634:        conf = configure4(fn, length, options);
+5636:          if (options[name]) {
+5637:            extFn(options[name], conf, options);
+6375:      extensions.dispose = function(dispose, conf, options) {
+6378:        if (options.async && extensions.async || options.promise && extensions.promise) {
+6427:      extensions.maxAge = function(maxAge, conf, options) {
+6434:        postfix = options.async && extensions.async || options.promise && extensions.promise ? 'async' : '';
+6468:        if (options.preFetch) {
+6469:          if (options.preFetch === true || isNaN(options.preFetch)) {
+6472:            preFetchAge = max2(min(Number(options.preFetch), 1), 0);
+6487:                  if (options.async) {
+6492:                  if (options.promise) {
+6587:      extensions.max = function(max2, conf, options) {
+6594:        postfix = options.async && extensions.async || options.promise && extensions.promise ? 'async' : '';
+6613:      extensions.refCounter = function(ignore, conf, options) {
+6616:        postfix = options.async && extensions.async || options.promise && extensions.promise ? 'async' : '';
+6659:      var normalizeOpts = require_normalize_options();
+6663:        var options = normalizeOpts(arguments[1]), length;
+6664:        if (!options.normalizer) {
+6665:          length = options.length = resolveLength(options.length, fn.length, options.async);
+6667:            if (options.primitive) {
+6669:                options.normalizer = require_primitive();
+6671:                options.normalizer = require_get_primitive_fixed()(length);
+6674:              options.normalizer = require_get()();
+6676:              options.normalizer = require_get_1()();
+6678:              options.normalizer = require_get_fixed()(length);
+6682:        if (options.async) {
+6685:        if (options.promise) {
+6688:        if (options.dispose) {
+6691:        if (options.maxAge) {
+6694:        if (options.max) {
+6697:        if (options.refCounter) {
+6700:        return plain(fn, options);
+6879:      getCheckOption: function getCheckOption() {
+6880:        return get_check_option_default;
+7374:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+7378:      var currentDomain = options.currentDomain, _options$maxLength = options.maxLength, maxLength = _options$maxLength === void 0 ? 25 : _options$maxLength;
+7840:      var options = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : {};
+7853:        options: options
+7872:      function _ColorSpace(options) {
+7873:        var _options$coords, _ref2, _options$white, _options$formats, _this$formats$functio, _this$formats, _this$formats2;
+7877:        this.id = options.id;
+7878:        this.name = options.name;
+7879:        this.base = options.base ? _ColorSpace2.get(options.base) : null;
+7880:        this.aliases = options.aliases;
+7882:          this.fromBase = options.fromBase;
+7883:          this.toBase = options.toBase;
+7885:        var _coords = (_options$coords = options.coords) !== null && _options$coords !== void 0 ? _options$coords : this.base.coords;
+7887:        var white2 = (_ref2 = (_options$white = options.white) !== null && _options$white !== void 0 ? _options$white : this.base.white) !== null && _ref2 !== void 0 ? _ref2 : 'D65';
+7889:        this.formats = (_options$formats = options.formats) !== null && _options$formats !== void 0 ? _options$formats : {};
+7895:        if (options.cssId && !((_this$formats$functio = this.formats.functions) !== null && _this$formats$functio !== void 0 && _this$formats$functio.color)) {
+7897:            id: options.cssId
+7900:            value: options.cssId
+7905:        this.referred = options.referred;
+8220:      function RGBColorSpace(options) {
+8221:        var _options$referred;
+8224:        if (!options.coords) {
+8225:          options.coords = {
+8240:        if (!options.base) {
+8241:          options.base = XYZ_D65;
+8243:        if (options.toXYZ_M && options.fromXYZ_M) {
+8244:          var _options$toBase, _options$fromBase;
+8245:          (_options$toBase = options.toBase) !== null && _options$toBase !== void 0 ? _options$toBase : options.toBase = function(rgb) {
+8246:            var xyz = multiplyMatrices(options.toXYZ_M, rgb);
+8252:          (_options$fromBase = options.fromBase) !== null && _options$fromBase !== void 0 ? _options$fromBase : options.fromBase = function(xyz) {
+8254:            return multiplyMatrices(options.fromXYZ_M, xyz);
+8257:        (_options$referred = options.referred) !== null && _options$referred !== void 0 ? _options$referred : options.referred = 'display';
+8258:        return _this = _callSuper(this, RGBColorSpace, [ options ]);
+8787:      var _ref11$precision = _ref11.precision, precision = _ref11$precision === void 0 ? defaults.precision : _ref11$precision, _ref11$format = _ref11.format, format = _ref11$format === void 0 ? 'default' : _ref11$format, _ref11$inGamut = _ref11.inGamut, inGamut$1 = _ref11$inGamut === void 0 ? true : _ref11$inGamut, customOptions = _objectWithoutProperties(_ref11, _excluded);
+8801:        customOptions.precision = precision;
+8803:          ret = format.serialize(coords, color.alpha, customOptions);
+9186:      var _ref14$space = _ref14.space, space = _ref14$space === void 0 ? defaults.display_space : _ref14$space, options = _objectWithoutProperties(_ref14, _excluded2);
+9187:      var ret = serialize(color, options);
+9193:        ret = new String(serialize(fallbackColor, options));
+9836:      var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+9840:        options = c22;
+9845:      var _options = options, maxDeltaE = _options.maxDeltaE, deltaEMethod = _options.deltaEMethod, _options$steps = _options.steps, steps2 = _options$steps === void 0 ? 2 : _options$steps, _options$maxSteps = _options.maxSteps, maxSteps = _options$maxSteps === void 0 ? 1e3 : _options$maxSteps, rangeOptions = _objectWithoutProperties(_options, _excluded5);
+9850:        colorRange = range(c12, c22, rangeOptions);
+9905:      var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+9907:        var r = color1, options2 = color2;
+9908:        return range.apply(void 0, _toConsumableArray(r.rangeArgs.colors).concat([ _extends({}, r.rangeArgs.options, options2) ]));
+9910:      var space = options.space, outputSpace = options.outputSpace, progression = options.progression, premultiplied = options.premultiplied;
+9917:        options: options
+9930:        var arc = options.hue = options.hue || 'shorter';
+10325:      if (env.options.method) {
+10326:        env.M = adapt(env.W1, env.W2, env.options.method);
+10331:        env.M = adapt(env.W1, env.W2, env.options.method);
+10744:      var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+10750:        return generateSelector2(elm, options, doc);
+10769:        return generateSelector2(item.elm, options, item.doc);
+10952:    function generateSelector(elm, options, doc) {
+10956:      var _options$toRoot = options.toRoot, toRoot = _options$toRoot === void 0 ? false : _options$toRoot;
+10986:    function getSelector(elm, options) {
+10987:      return _getShadowSelector(generateSelector, elm, options);
+11007:    function _getAncestry(elm, options) {
+11008:      return _getShadowSelector(generateAncestry, elm, options);
+11182:    var CACHE_KEY = 'DqElm.RunOptions';
+11183:    var DqElement = memoize_default(function DqElement2(elm, options, spec) {
+11185:      options !== null && options !== void 0 ? options : options = null;
+11187:      if (!options) {
+11189:        options = (_cache_default$get = cache_default.get(CACHE_KEY)) !== null && _cache_default$get !== void 0 ? _cache_default$get : {};
+11200:      this._includeElementInJson = options.elementRef;
+11201:      if (options.absolutePaths) {
+11202:        this._options = {
+11221:        return this.spec.selector || [ get_selector_default(this.element, this._options) ];
+11247:    DqElement.fromFrame = function fromFrame(node, options, frame) {
+11249:      return new DqElement(frame.element, options, spec);
+11260:    DqElement.setRunOptions = function setRunOptions(_ref28) {
+11268:    function checkHelper(checkResult, options, resolve, reject) {
+11698:    function v1(options, buf, offset) {
+11701:      options = options || {};
+11702:      var clockseq = options.clockseq != null ? options.clockseq : _clockseq;
+11703:      var msecs = options.msecs != null ? options.msecs : new Date().getTime();
+11704:      var nsecs = options.nsecs != null ? options.nsecs : _lastNSecs + 1;
+11706:      if (dt < 0 && options.clockseq == null) {
+11709:      if ((dt < 0 || msecs > _lastMSecs) && options.nsecs == null) {
+11731:      var node = options.node || _nodeId;
+11737:    function v4(options, buf, offset) {
+11739:      if (typeof options == 'string') {
+11740:        buf = options == 'binary' ? new BufferClass(16) : null;
+11741:        options = null;
+11743:      options = options || {};
+11744:      var rnds = options.random || (options.rng || _rng)();
+12048:      var _parameters$options$p, _parameters$options;
+12050:      var pingWaitTime = (_parameters$options$p = (_parameters$options = parameters.options) === null || _parameters$options === void 0 ? void 0 : _parameters$options.pingWaitTime) !== null && _parameters$options$p !== void 0 ? _parameters$options$p : 500;
+12075:      var _parameters$options$f, _parameters$options2;
+12076:      var frameWaitTime = (_parameters$options$f = (_parameters$options2 = parameters.options) === null || _parameters$options2 === void 0 ? void 0 : _parameters$options2.frameWaitTime) !== null && _parameters$options$f !== void 0 ? _parameters$options$f : 6e4;
+12106:      dqElmToSpec: function dqElmToSpec(dqElm, runOptions) {
+12111:        if (runOptions) {
+12112:          dqElm = cloneLimitedDqElement(dqElm, runOptions);
+12150:    function cloneLimitedDqElement(dqElm, runOptions) {
+12152:      var hasAncestry = runOptions.ancestry, hasXpath = runOptions.xpath;
+12153:      var hasSelectors = runOptions.selectors !== false || fromFrame2;
+12154:      dqElm = new dq_element_default(dqElm.element, runOptions, {
+12177:    function pushFrame(resultSet, options, frameSpec) {
+12213:    function mergeResults(frameResults, options) {
+12223:            pushFrame(ruleResult.nodes, options, frameSpec);
+12276:    function _collectResultsFromFrames(parentContent, options, command, parameter, resolve, reject) {
+12277:      options = _extends({}, options, {
+12286:            options: options,
+12304:        resolve(merge_results_default(data, options));
+13538:    var allowedDisabledNodeNames = [ 'button', 'command', 'fieldset', 'keygen', 'optgroup', 'option', 'select', 'textarea', 'input' ];
+14074:        values: [ 'true', 'false', 'menu', 'listbox', 'tree', 'grid', 'dialog' ],
+14411:      listbox: {
+14413:        requiredOwned: [ 'group', 'option' ],
+14514:      option: {
+14516:        requiredContext: [ 'group', 'listbox' ],
+14768:        superclassRole: [ 'listitem', 'option' ],
+15011:            allowedRoles: [ 'button', 'checkbox', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'switch', 'tab', 'treeitem', 'doc-backlink', 'doc-biblioref', 'doc-glossref', 'doc-noteref' ],
+15096:        allowedRoles: [ 'checkbox', 'combobox', 'gridcell', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'separator', 'slider', 'switch', 'tab', 'treeitem' ],
+15287:            allowedRoles: [ 'button', 'checkbox', 'link', 'math', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'meter', 'option', 'progressbar', 'radio', 'scrollbar', 'separator', 'slider', 'switch', 'tab', 'treeitem', 'doc-cover' ]
+15308:            allowedRoles: [ 'checkbox', 'combobox', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'switch', 'tab' ]
+15327:            allowedRoles: [ 'button', 'menuitemcheckbox', 'option', 'switch' ],
+15341:            allowedRoles: [ 'menuitemcheckbox', 'option', 'switch' ],
+15422:        allowedRoles: [ 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'none', 'presentation', 'radio', 'separator', 'tab', 'treeitem', 'doc-biblioentry', 'doc-endnote' ],
+15453:        allowedRoles: [ 'directory', 'group', 'listbox', 'menu', 'menubar', 'none', 'presentation', 'radiogroup', 'tablist', 'toolbar', 'tree' ]
+15495:        allowedRoles: [ 'directory', 'group', 'listbox', 'menu', 'menubar', 'none', 'presentation', 'radiogroup', 'tablist', 'toolbar', 'tree' ]
+15500:      option: {
+15694:        allowedRoles: [ 'directory', 'group', 'listbox', 'menu', 'menubar', 'none', 'presentation', 'radiogroup', 'tablist', 'toolbar', 'tree' ]
+16077:      datalist: 'listbox',
+16159:      option: 'option',
+16167:        return vNode.hasAttr('multiple') || parseInt(vNode.attr('size')) > 1 ? 'listbox' : 'combobox';
+16374:    function getInheritedRole(vNode, explicitRoleOptions) {
+16388:      var parentRole = get_explicit_role_default(vNode.parent, explicitRoleOptions);
+16395:      return getInheritedRole(vNode.parent, explicitRoleOptions);
+16398:      var chromium = _ref57.chromium, explicitRoleOptions = _objectWithoutProperties(_ref57, _excluded1);
+16405:      var presentationalRole = getInheritedRole(vNode, explicitRoleOptions);
+16419:      var noImplicit = _ref58.noImplicit, roleOptions = _objectWithoutProperties(_ref58, _excluded10);
+16424:      var explicitRole2 = get_explicit_role_default(vNode, roleOptions);
+16426:        return noImplicit ? null : resolveImplicitRole(vNode, roleOptions);
+16432:        return noImplicit ? null : resolveImplicitRole(vNode, roleOptions);
+16438:      var noPresentational = _ref59.noPresentational, options = _objectWithoutProperties(_ref59, _excluded11);
+16439:      var role = resolveRole(node, options);
+16560:    function isAriaListbox(node) {
+16562:      return role === 'listbox';
+16564:    var is_aria_listbox_default = isAriaListbox;
+16576:    var controlValueRoles = [ 'textbox', 'progressbar', 'scrollbar', 'slider', 'spinbutton', 'combobox', 'listbox' ];
+16581:      ariaListboxValue: ariaListboxValue,
+16616:      var options = query_selector_all_default(vNode, 'option');
+16617:      var selectedOptions = options.filter(function(option) {
+16618:        return option.props.selected;
+16620:      if (!selectedOptions.length) {
+16621:        selectedOptions.push(options[0]);
+16623:      return selectedOptions.map(function(option) {
+16624:        return visible_virtual_default(option);
+16638:    function ariaListboxValue(node, context) {
+16640:      if (!is_aria_listbox_default(vNode)) {
+16644:        return get_role_default(owned) === 'option' && owned.attr('aria-selected') === 'true';
+16656:      var listbox = get_owned_virtual_default(vNode).filter(function(elm) {
+16657:        return get_role_default(elm) === 'listbox';
+16659:      return listbox ? ariaListboxValue(listbox, context) : '';
+16834:    function hasUnicode(str, options) {
+16835:      var emoji = options.emoji, nonBmp = options.nonBmp, punctuations = options.punctuations;
+17009:    function removeUnicode(str, options) {
+17010:      var emoji = options.emoji, nonBmp = options.nonBmp, punctuations = options.punctuations;
+17490:    function isModalOpen(options) {
+17491:      options = options || {};
+17492:      var modalPercent = options.modalPercent || .75;
+18579:    function processAggregate(results, options) {
+18582:        if (options.resultTypes && !options.resultTypes.includes(key)) {
+18594:                var serialElm = trimElementSpec(subResult.node, options);
+18599:              normalizeRelatedNodes(subResult, options);
+18613:    function normalizeRelatedNodes(node, options) {
+18622:            return trimElementSpec(relatedNode, options);
+18629:      var runOptions = arguments.length > 1 ? arguments[1] : undefined;
+18630:      elmSpec = node_serializer_default.dqElmToSpec(elmSpec, runOptions);
+18638:      if (runOptions.elementRef && !elmSpec.fromFrame) {
+18642:      if (runOptions.selectors !== false || elmSpec.fromFrame) {
+18646:      if (runOptions.ancestry) {
+18650:      if (runOptions.xpath) {
+18707:    function getCheckOption(check, ruleID, options) {
+18708:      var ruleCheckOption = ((options.rules && options.rules[ruleID] || {}).checks || {})[check.id];
+18709:      var checkOption = (options.checks || {})[check.id];
+18711:      var opts = check.options;
+18712:      if (checkOption) {
+18713:        if (checkOption.hasOwnProperty('enabled')) {
+18714:          enabled = checkOption.enabled;
+18716:        if (checkOption.hasOwnProperty('options')) {
+18717:          opts = checkOption.options;
+18720:      if (ruleCheckOption) {
+18721:        if (ruleCheckOption.hasOwnProperty('enabled')) {
+18722:          enabled = ruleCheckOption.enabled;
+18724:        if (ruleCheckOption.hasOwnProperty('options')) {
+18725:          opts = ruleCheckOption.options;
+18730:        options: opts,
+18731:        absolutePaths: options.absolutePaths
+18734:    var get_check_option_default = getCheckOption;
+19015:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+19016:      if (options.iframes === false) {
+19094:      return function(options) {
+19095:        var data = options.data, _options$isCrossOrigi = options.isCrossOrigin, isCrossOrigin = _options$isCrossOrigi === void 0 ? false : _options$isCrossOrigi, shadowId = options.shadowId, root = options.root, priority = options.priority, _options$isLink = options.isLink, isLink = _options$isLink === void 0 ? false : _options$isLink;
+19274:    function parseSameOriginStylesheet(sheet, options, priority, importedUrls) {
+19287:          root: options.rootNode,
+19288:          shadowId: options.shadowId,
+19302:        return parse_crossorigin_stylesheet_default(importUrl, options, newPriority, importedUrls, isCrossOriginRequest);
+19310:      promises.push(Promise.resolve(options.convertDataToStylesheet({
+19316:        root: options.rootNode,
+19317:        shadowId: options.shadowId
+19322:    function parseStylesheet(sheet, options, priority, importedUrls) {
+19326:        return parse_sameorigin_stylesheet_default(sheet, options, priority, importedUrls, isCrossOrigin);
+19328:      return parse_crossorigin_stylesheet_default(sheet.href, options, priority, importedUrls, true);
+19342:    function parseCrossOriginStylesheet(url, options, priority, importedUrls, isCrossOrigin) {
+19358:        var result = options.convertDataToStylesheet({
+19362:          root: options.rootNode,
+19363:          shadowId: options.shadowId
+19365:        return parse_stylesheet_default(result.sheet, options, priority, importedUrls, result.isCrossOrigin);
+19646:        var parseOptions = {
+19655:          return parse_stylesheet_default(sheet, parseOptions, priority, importedUrls);
+19765:    function _preload(options) {
+19770:      if (!_shouldPreload(options)) {
+19774:        var _getPreloadConfig2 = _getPreloadConfig(options), assets = _getPreloadConfig2.assets, timeout = _getPreloadConfig2.timeout;
+19779:          return preloadFunctionsMap[asset](options).then(function(results) {
+19797:    function _shouldPreload(options) {
+19798:      if (!options || options.preload === void 0 || options.preload === null) {
+19801:      if (typeof options.preload === 'boolean') {
+19802:        return options.preload;
+19804:      return isValidPreloadObject(options.preload);
+19806:    function _getPreloadConfig(options) {
+19812:      if (!options.preload) {
+19815:      if (typeof options.preload === 'boolean') {
+19818:      var areRequestedAssetsValid = options.preload.assets.every(function(a2) {
+19824:      config.assets = unique_array_default(options.preload.assets.map(function(a2) {
+19827:      if (options.preload.timeout && typeof options.preload.timeout === 'number' && !isNaN(options.preload.timeout)) {
+19828:        config.timeout = options.preload.timeout;
+19928:    function ruleShouldRun(rule, context, options) {
+19929:      var runOnly = options.runOnly || {};
+19930:      var ruleOptions = (options.rules || {})[rule.id];
+19935:      } else if (ruleOptions && typeof ruleOptions.enabled === 'boolean') {
+19936:        return ruleOptions.enabled;
+20440:    function hiddenContentEvaluate(node, options, virtualNode) {
+21089:        values: [ 'true', 'false', 'menu', 'listbox', 'tree', 'grid', 'dialog' ],
+21345:          all: [ 'listbox', 'tree', 'grid', 'dialog', 'textbox' ]
+22025:      listbox: {
+22031:          all: [ 'option' ]
+22231:      option: {
+22238:        context: [ 'listbox' ],
+22239:        implicit: [ 'option' ],
+22813:      OPTION: function OPTION(_ref94) {
+22815:        var withinOptionList = axe.utils.matchesSelector(node, 'select > option, datalist > option, optgroup > option');
+22816:        return !withinOptionList;
+22831:      widget: [ 'button', 'checkbox', 'dialog', 'gridcell', 'link', 'log', 'marquee', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'progressbar', 'radio', 'scrollbar', 'searchbox', 'slider', 'spinbutton', 'status', 'switch', 'tab', 'tabpanel', 'textbox', 'timer', 'tooltip', 'tree', 'treeitem' ]
+23094:    function scopeValueEvaluate(node, options) {
+23096:      return options.values.indexOf(value) !== -1;
+23100:    function sameCaptionSummaryEvaluate(node, options, virtualNode) {
+23133:    function svgNonEmptyTitleEvaluate(node, options, virtualNode) {
+23184:    function presentationalRoleEvaluate(node, options, virtualNode) {
+23221:    function nonEmptyIfPresentEvaluate(node, options, virtualNode) {
+23240:    function inlineStyleProperty(node, options) {
+23241:      var cssProperty = options.cssProperty, absoluteValues = options.absoluteValues, minValue = options.minValue, maxValue = options.maxValue, _options$normalValue = options.normalValue, normalValue = _options$normalValue === void 0 ? 0 : _options$normalValue, noImportant = options.noImportant, multiLineOnly = options.multiLineOnly;
+23293:    function hasAltEvaluate(node, options, virtualNode) {
+23310:    function avoidInlineSpacingEvaluate(node, options) {
+23311:      var overriddenProperties = options.cssProperties.filter(function(property) {
+23323:    function ariaLabelledbyEvaluate(node, options, virtualNode) {
+23331:    function ariaLabelEvaluate(node, options, virtualNode) {
+23362:    function uniqueFrameTitleEvaluate(node, options, vNode) {
+23388:    function regionEvaluate(node, options, virtualNode) {
+23393:        return getRegionlessNodes(options);
+23397:    function getRegionlessNodes(options) {
+23398:      var regionlessNodes = findRegionlessElms(axe._tree[0], options).map(function(vNode) {
+23408:    function findRegionlessElms(virtualNode, options) {
+23410:      if (get_role_default(virtualNode) === 'button' || isRegion(virtualNode, options) || [ 'iframe', 'frame' ].includes(virtualNode.props.nodeName) || _isSkipLink(virtualNode.actualNode) && get_element_by_reference_default(virtualNode.actualNode, 'href') || !_isVisibleToScreenReaders(node)) {
+23427:          return findRegionlessElms(vNode, options);
+23436:    function isRegion(virtualNode, options) {
+23447:      if (options.regionMatcher && matches_default2(virtualNode, options.regionMatcher)) {
+23532:    function pAsHeadingEvaluate(node, options, virtualNode) {
+23535:      options = options || {};
+23536:      var margins = options.margins || [];
+23546:      var optionsPassLength = options.passLength;
+23547:      var optionsFailLength = options.failLength;
+23550:      if (headingLength > paragraphLength * optionsPassLength) {
+23563:      if (headingLength > paragraphLength * optionsFailLength) {
+23571:    function metaRefreshEvaluate(node, options, virtualNode) {
+23572:      var _ref101 = options || {}, minDelay = _ref101.minDelay, maxDelay = _ref101.maxDelay;
+23582:      if (typeof minDelay === 'number' && redirectDelay <= options.minDelay) {
+23585:      if (typeof maxDelay === 'number' && redirectDelay > options.maxDelay) {
+23590:    function internalLinkPresentEvaluate(node, options, virtualNode) {
+24358:      var options = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : {};
+24361:        return getStrokeColor(nodeStyle, options);
+24482:      isAriaListbox: function isAriaListbox() {
+24483:        return is_aria_listbox_default;
+24522:    function identicalLinksSamePurposeEvaluate(node, options, virtualNode) {
+24724:    function targetSizeEvaluate(node, options, vNode) {
+24725:      var minSize = (options === null || options === void 0 ? void 0 : options.minSize) || 24;
+24884:    function targetOffsetEvaluate(node, options, vNode) {
+24885:      var minOffset = (options === null || options === void 0 ? void 0 : options.minOffset) || 24;
+24959:    function metaViewportScaleEvaluate(node, options, virtualNode) {
+24960:      var _ref123 = options || {}, _ref123$scaleMinimum = _ref123.scaleMinimum, scaleMinimum = _ref123$scaleMinimum === void 0 ? 2 : _ref123$scaleMinimum, _ref123$lowerBound = _ref123.lowerBound, lowerBound = _ref123$lowerBound === void 0 ? false : _ref123$lowerBound;
+25004:    function cssOrientationLockEvaluate(node, options, virtualNode, context) {
+25006:      var _ref125 = options || {}, _ref125$degreeThresho = _ref125.degreeThreshold, degreeThreshold = _ref125$degreeThresho === void 0 ? 0 : _ref125$degreeThresho;
+25173:    function noAutoplayAudioEvaluate(node, options) {
+25182:      var _options$allowedDurat = options.allowedDuration, allowedDuration = _options$allowedDurat === void 0 ? 3 : _options$allowedDurat;
+25230:    function frameTestedEvaluate(node, options) {
+25231:      return options.isViolation ? false : void 0;
+25252:    function captionEvaluate(node, options, virtualNode) {
+25260:    function structuredDlitemsEvaluate(node, options, virtualNode) {
+25281:    function onlyListitemsEvaluate(node, options, virtualNode) {
+25329:    function onlyDlitemsEvaluate(node, options, virtualNode) {
+25362:    function listitemEvaluate(node, options, virtualNode) {
+25381:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+25392:        if (options.divGroups && !nested && isDivGroup(vChild)) {
+25400:        var issue = getInvalidSelector(vChild, nested, options);
+25467:    function xmlLangMismatchEvaluate(node, options, vNode) {
+25473:    function validLangEvaluate(node, options, virtualNode) {
+25475:      options.attributes.forEach(function(langAttr) {
+25481:        var invalidLang = options.value ? !options.value.map(get_base_lang_default).includes(baselangVal) : !valid_langs_default(baselangVal);
+25499:    function hasLangEvaluate(node, options, virtualNode) {
+25501:      if (options.attributes.includes('xml:lang') && options.attributes.includes('lang') && hasValue(virtualNode.attr('xml:lang')) && !hasValue(virtualNode.attr('lang')) && !xhtml) {
+25507:      var hasLang = options.attributes.some(function(name) {
+25519:    function landmarkIsUniqueEvaluate(node, options, virtualNode) {
+25549:    function titleOnlyEvaluate(node, options, virtualNode) {
+25603:    function labelContentNameMismatchEvaluate(node, options, virtualNode) {
+25604:      var _options$occurrenceTh;
+25605:      var pixelThreshold = options === null || options === void 0 ? void 0 : options.pixelThreshold;
+25606:      var occurrenceThreshold = (_options$occurrenceTh = options === null || options === void 0 ? void 0 : options.occurrenceThreshold) !== null && _options$occurrenceTh !== void 0 ? _options$occurrenceTh : options === null || options === void 0 ? void 0 : options.occuranceThreshold;
+25623:    function implicitEvaluate(node, options, virtualNode) {
+25645:    function hiddenExplicitLabelEvaluate(node, options, virtualNode) {
+25667:    function helpSameAsLabelEvaluate(node, options, virtualNode) {
+25685:    function explicitEvaluate(node, options, virtualNode) {
+25720:    function duplicateImgLabelEvaluate(node, options, virtualNode) {
+25724:      var parentVNode = closest_default(virtualNode, options.parentSelector);
+25735:    function altSpaceValueEvaluate(node, options, virtualNode) {
+25741:    function tabindexEvaluate(node, options, virtualNode) {
+25746:    function noFocusableContentEvaluate(node, options, virtualNode) {
+25810:    function frameFocusableContentEvaluate(node, options, virtualNode) {
+25836:    function focusableNotTabbableEvaluate(node, options, virtualNode) {
+25859:    function focusableNoNameEvaluate(node, options, virtualNode) {
+25870:    function focusableModalOpenEvaluate(node, options, virtualNode) {
+25885:    function focusableElementEvaluate(node, options, virtualNode) {
+25906:    function focusableDisabledEvaluate(node, options, virtualNode) {
+25929:    function focusableContentEvaluate(node, options, virtualNode) {
+25940:    function accesskeysEvaluate(node, options, vNode) {
+25968:    function pageNoDuplicateEvaluate(node, options, virtualNode) {
+25969:      if (!options || !options.selector || typeof options.selector !== 'string') {
+25970:        throw new TypeError('page-no-duplicate requires options.selector to be a string');
+25972:      var key = 'page-no-duplicate;' + options.selector;
+25978:      var elms = query_selector_all_filter_default(axe._tree[0], options.selector, function(elm) {
+25981:      if (typeof options.nativeScopeFilter === 'string') {
+25983:          return elm.actualNode.hasAttribute('role') || !find_up_virtual_default(elm, options.nativeScopeFilter);
+25986:      if (typeof options.role === 'string') {
+25988:          return get_role_default(elm) === options.role;
+26005:    function matchesDefinitionEvaluate(_, options, virtualNode) {
+26006:      return matches_default2(virtualNode, options.matcher);
+26009:    function hasTextContentEvaluate(node, options, virtualNode) {
+26016:    function hasDescendant(node, options, virtualNode) {
+26017:      if (!options || !options.selector || typeof options.selector !== 'string') {
+26018:        throw new TypeError('has-descendant requires options.selector to be a string');
+26020:      if (options.passForModal && is_modal_open_default()) {
+26023:      var matchingElms = query_selector_all_filter_default(virtualNode, options.selector, function(vNode) {
+26045:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+26047:      if (!options.attribute || typeof options.attribute !== 'string') {
+26048:        throw new TypeError('attr-non-space-content requires options.attribute to be a string');
+26050:      if (!vNode.hasAttr(options.attribute)) {
+26056:      var attribute = vNode.attr(options.attribute);
+26067:    function autocompleteValidEvaluate(_node, options, virtualNode) {
+26069:      return is_valid_autocomplete_default(autocomplete2, options);
+26072:    function autocompleteAppropriateEvaluate(node, options, virtualNode) {
+26106:      if (_typeof(options) === 'object') {
+26107:        Object.keys(options).forEach(function(key) {
+26111:          allowedTypesMap[key] = allowedTypesMap[key].concat(options[key]);
+26180:    function linkInTextBlockEvaluate(node, options) {
+26181:      var requiredContrastRatio = options.requiredContrastRatio, allowSameColor = options.allowSameColor;
+26246:    function colorContrastEvaluate(node, options, virtualNode) {
+26247:      var ignoreUnicode = options.ignoreUnicode, ignoreLength = options.ignoreLength, ignorePseudo = options.ignorePseudo, boldValue = options.boldValue, boldTextPt = options.boldTextPt, largeTextPt = options.largeTextPt, contrastRatio = options.contrastRatio, shadowOutlineEmMax = options.shadowOutlineEmMax, pseudoSizeThreshold = options.pseudoSizeThreshold;
+26294:      var fgColor = _getForegroundColor(node, false, bgColor, options);
+26397:      var options = {
+26400:      var hasUnicodeChars = has_unicode_default(visibleText, options);
+26401:      var hasNonUnicodeChars = sanitize_default(remove_unicode_default(visibleText, options)) === '';
+26440:    function validScrollableRole(node, options) {
+26445:      return VALID_ROLES_FOR_SCROLLABLE_REGIONS[role] || options.roles.includes(role) || false;
+26447:    function validScrollableSemanticsEvaluate(node, options) {
+26448:      return validScrollableRole(node, options) || validScrollableTagName(node);
+26451:    function unsupportedroleEvaluate(node, options, virtualNode) {
+26463:    function noImplicitExplicitLabelEvaluate(node, options, virtualNode) {
+26488:    function isElementFocusableEvaluate(node, options, virtualNode) {
+26492:    function invalidroleEvaluate(node, options, virtualNode) {
+26506:    function hasWidgetRoleEvaluate(node, options, virtualNode) {
+26515:    function hasGlobalAriaAttributeEvaluate(node, options, virtualNode) {
+26527:    function fallbackroleEvaluate(node, options, virtualNode) {
+26535:    function deprecatedroleEvaluate(node, options, virtualNode) {
+26547:    function brailleRoleDescriptionEquivalentEvaluate(node, options, virtualNode) {
+26568:    function brailleLabelEquivalentEvaluate(node, options, virtualNode) {
+26580:    function ariaValidAttrValueEvaluate(node, options, virtualNode) {
+26581:      options = Array.isArray(options.value) ? options.value : [];
+26621:        if (skipAttrs.includes(attrName) || options.includes(attrName) || !aria.test(attrName)) {
+26659:    function ariaValidAttrEvaluate(node, options, virtualNode) {
+26660:      options = Array.isArray(options.value) ? options.value : [];
+26664:        if (options.indexOf(attr) === -1 && aria.test(attr) && !validate_attr_default(attr)) {
+26675:    function ariaUnsupportedAttrEvaluate(node, options, virtualNode) {
+26695:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+26698:      var supportedRoles = options.supportedRoles || [];
+26756:    function ariaRequiredParentEvaluate(node, options, virtualNode) {
+26757:      var ownGroupRoles = options && Array.isArray(options.ownGroupRoles) ? options.ownGroupRoles : [];
+26775:    function ariaRequiredChildrenEvaluate(node, options, virtualNode) {
+26776:      var reviewEmpty = options && Array.isArray(options.reviewEmpty) ? options.reviewEmpty : [];
+26896:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+26901:      if (Array.isArray(options[role])) {
+26902:        requiredAttrs = unique_array_default(options[role], requiredAttrs);
+26934:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+26936:      var elementsAllowedAriaLabel = (options === null || options === void 0 ? void 0 : options.elementsAllowedAriaLabel) || [];
+26991:    function ariaLevelEvaluate(node, options, virtualNode) {
+27000:    function ariaHiddenBodyEvaluate(node, options, virtualNode) {
+27004:    function ariaErrormessageEvaluate(node, options, virtualNode) {
+27005:      options = Array.isArray(options) ? options : [];
+27050:      if (options.indexOf(errorMessageAttr) === -1 && hasAttr) {
+27086:    function ariaConditionalCheckboxAttr(node, options, virtualNode) {
+27122:    function ariaConditionalAttrEvaluate(node, options, virtualNode) {
+27127:      return conditionalRoleMap[role].call(this, node, options, virtualNode);
+27129:    function ariaBusyEvaluate(node, options, virtualNode) {
+27133:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+27135:      var _options$allowImplici = options.allowImplicit, allowImplicit = _options$allowImplici === void 0 ? true : _options$allowImplici, _options$ignoredTags = options.ignoredTags, ignoredTags = _options$ignoredTags === void 0 ? [] : _options$ignoredTags;
+27153:    function ariaAllowedAttrEvaluate(node, options, virtualNode) {
+27157:      if (Array.isArray(options[role])) {
+27158:        allowed = unique_array_default(options[role].concat(allowed));
+27193:    function ariaAllowedAttrElmEvaluate(node, options, virtualNode) {
+27231:    function abstractroleEvaluate(node, options, virtualNode) {
+27420:        popupRoles: [ 'listbox' ]
+27609:      if (nodeName2 === 'option') {
+27612:      if (nodeName2 === 'select' && !node.options.length) {
+27702:    var removeUnicodeOptions = {
+27709:      if (visibleText === '' || remove_unicode_default(visibleText, removeUnicodeOptions) === '') {
+27833:      'aria-required-children-evaluate': ariaRequiredChildrenEvaluate,
+27834:      'aria-required-children-matches': aria_required_children_matches_default,
+27996:    function normalizeOptions() {
+27997:      var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+27998:      if (Array.isArray(options) || _typeof(options) !== 'object') {
+27999:        options = {
+28000:          value: options
+28003:      return options;
+28012:    Check.prototype.run = function run(node, options, context, resolve, reject) {
+28013:      options = options || {};
+28014:      var enabled = options.hasOwnProperty('enabled') ? options.enabled : this.enabled;
+28015:      var checkOptions = this.getOptions(options.options);
+28018:        var helper = check_helper_default(checkResult, options, resolve, reject);
+28021:          result = this.evaluate.call(helper, node.actualNode, checkOptions, node, context);
+28037:    Check.prototype.runSync = function runSync(node, options, context) {
+28038:      options = options || {};
+28039:      var _options2 = options, _options2$enabled = _options2.enabled, enabled = _options2$enabled === void 0 ? this.enabled : _options2$enabled;
+28043:      var checkOptions = this.getOptions(options.options);
+28045:      var helper = check_helper_default(checkResult, options);
+28051:        result = this.evaluate.call(helper, node.actualNode, checkOptions, node, context);
+28069:      if (spec.hasOwnProperty('options')) {
+28071:          this.options = normalizeOptions(spec.options);
+28073:          this.options = spec.options;
+28082:    Check.prototype.getOptions = function getOptions(options) {
+28084:        return deep_merge_default(this.options, normalizeOptions(options || {}));
+28086:        return options || this.options;
+28124:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+28129:      if (options.performanceTimer) {
+28134:        if (options.performanceTimer) {
+28140:        if (options.performanceTimer) {
+28145:      if (options.performanceTimer) {
+28151:    Rule.prototype.runChecks = function runChecks(type2, node, options, context, resolve, reject) {
+28156:        var option = get_check_option_default(check, self2.id, options);
+28158:          check.run(node, option, context, res, function(error) {
+28178:    Rule.prototype.runChecksSync = function runChecksSync(type2, node, options, context) {
+28183:        var option = get_check_option_default(check, self2.id, options);
+28184:        results.push(check.runSync(node, option, context));
+28196:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+28199:      if (options.performanceTimer) {
+28206:        nodes = this.gatherAndMatchNodes(context, options);
+28211:      if (options.performanceTimer) {
+28219:              _this1.runChecks(type2, node, options, context, res, rej);
+28249:        if (options.performanceTimer) {
+28256:        if (options.performanceTimer) {
+28264:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+28265:      if (options.performanceTimer) {
+28269:      var nodes = this.gatherAndMatchNodes(context, options);
+28270:      if (options.performanceTimer) {
+28276:          results.push(_this10.runChecksSync(type2, node, options, context));
+28298:      if (options.performanceTimer) {
+28338:    Rule.prototype.gatherAndMatchNodes = function gatherAndMatchNodes(context, options) {
+28342:      var nodes = this.gather(context, options);
+28343:      if (options.performanceTimer) {
+28358:      if (options.performanceTimer) {
+28410:    Rule.prototype.after = function after(result, options) {
+28415:        var checkOption = get_check_option_default(check, _this12.id, options);
+28418:          afterResults = check.after(beforeResults, checkOption.options);
+28696:        value: function run(context, options, resolve, reject) {
+28697:          this.normalizeOptions(options);
+28698:          dq_element_default.setRunOptions(options);
+28700:          var allRulesToRun = getRulesToRun(this.rules, context, options);
+28705:            nowRulesQueue.defer(getDefferedRule(rule, context, options));
+28710:              _preload(options).then(function(assets) {
+28739:              var deferredRule = getDefferedRule(rule, context, options);
+28752:        value: function after(results, options) {
+28763:              return rule.after(ruleResult, options);
+28765:              if (options.debug) {
+28780:        key: 'normalizeOptions',
+28781:        value: function normalizeOptions(options) {
+28793:          if ([ 'object', 'string' ].includes(_typeof(options.runOnly))) {
+28794:            if (typeof options.runOnly === 'string') {
+28795:              options.runOnly = [ options.runOnly ];
+28797:            if (Array.isArray(options.runOnly)) {
+28798:              var hasTag = options.runOnly.find(function(value) {
+28801:              var hasRule = options.runOnly.find(function(value) {
+28808:                options.runOnly = {
+28810:                  values: options.runOnly
+28813:                options.runOnly = {
+28815:                  values: options.runOnly
+28819:            var only = options.runOnly;
+28831:                  throw new Error('unknown rule `' + ruleId + '` in options.runOnly');
+28846:          if (_typeof(options.rules) === 'object') {
+28847:            Object.keys(options.rules).forEach(function(ruleId) {
+28849:                throw new Error('unknown rule `' + ruleId + '` in options.rules');
+28853:          return options;
+28978:    function getRulesToRun(rules, context, options) {
+28984:        if (!rule_should_run_default(rule, context, options)) {
+28996:    function getDefferedRule(rule, context, options) {
+28997:      if (options.performanceTimer) {
+29001:        rule.run(context, options, function(ruleResult) {
+29004:          if (options.debug) {
+29076:    function runRules(context, options, resolve, reject) {
+29087:      if (options.performanceTimer) {
+29090:      if (context.frames.length && options.iframes !== false) {
+29092:          _collectResultsFromFrames(context, options, 'rules', null, res, rej);
+29096:        audit.run(context, options, res, rej);
+29100:          if (options.performanceTimer) {
+29109:            if (options.performanceTimer) {
+29112:            results = audit.after(results, options);
+29113:            if (options.performanceTimer) {
+29151:      var options = data && data.options || {};
+29154:        return runRules(context, options, function(results, cleanupFn) {
+29218:      var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+29219:      options.reporter = options.reporter || axe._audit.reporter || 'v1';
+29243:      var rawResults = rule.runSync(context, options);
+29253:        toolOptions: options
+29257:      var _ref148, _options$reporter, _axe$_audit;
+29258:      var _ref147 = _slicedToArray(_ref146, 3), context = _ref147[0], options = _ref147[1], callback = _ref147[2];
+29264:        callback = options;
+29265:        options = context;
+29268:      if (_typeof(options) !== 'object') {
+29272:        callback = options;
+29273:        options = {};
+29278:      options = clone2(options);
+29279:      options.reporter = (_ref148 = (_options$reporter = options.reporter) !== null && _options$reporter !== void 0 ? _options$reporter : (_axe$_audit = axe._audit) === null || _axe$_audit === void 0 ? void 0 : _axe$_audit.reporter) !== null && _ref148 !== void 0 ? _ref148 : 'v1';
+29282:        options: options,
+29292:      var _normalizeRunParams = normalizeRunParams(args), context = _normalizeRunParams.context, options = _normalizeRunParams.options, _normalizeRunParams$c = _normalizeRunParams.callback, callback = _normalizeRunParams$c === void 0 ? noop2 : _normalizeRunParams$c;
+29301:      if (options.performanceTimer) {
+29306:          if (options.performanceTimer) {
+29330:          if (options.performanceTimer) {
+29333:          createReport(rawResults, options, respond, wrappedReject);
+29339:        if (options.performanceTimer) {
+29346:      axe._runRules(context, options, handleRunRules, errorRunRules);
+29370:    function createReport(rawResults, options, respond, reject) {
+29371:      var reporter = getReporter(options.reporter);
+29372:      var results = reporter(rawResults, options, respond, reject);
+29388:      var _normalizeRunParams2 = normalizeRunParams(args), options = _normalizeRunParams2.options, context = _normalizeRunParams2.context;
+29395:      options.elementRef = false;
+29397:        axe._audit.run(contextObj, options, res, rej);
+29422:      var _ref151, _options$reporter2, _axe$_audit2;
+29423:      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+29424:      options = clone2(options);
+29428:      axe._audit.normalizeOptions(options);
+29429:      options.reporter = (_ref151 = (_options$reporter2 = options.reporter) !== null && _options$reporter2 !== void 0 ? _options$reporter2 : (_axe$_audit2 = axe._audit) === null || _axe$_audit2 === void 0 ? void 0 : _axe$_audit2.reporter) !== null && _ref151 !== void 0 ? _ref151 : 'v1';
+29432:      results = axe._audit.after(results, options);
+29437:      }, options));
+29468:    function createReport2(results, options) {
+29470:        var reporter = getReporter(options.reporter);
+29471:        reporter(results, options, resolve, reject);
+29487:    var naReporter = function naReporter(results, options, callback) {
+29489:      if (typeof options === 'function') {
+29490:        callback = options;
+29491:        options = {};
+29493:      var _options3 = options, environmentData = _options3.environmentData, toolOptions = _objectWithoutProperties(_options3, _excluded13);
+29495:        toolOptions: toolOptions
+29496:      }, processAggregate(results, options)));
+29499:    var noPassesReporter = function noPassesReporter(results, options, callback) {
+29500:      if (typeof options === 'function') {
+29501:        callback = options;
+29502:        options = {};
+29504:      var _options4 = options, environmentData = _options4.environmentData, toolOptions = _objectWithoutProperties(_options4, _excluded14);
+29505:      options.resultTypes = [ 'violations' ];
+29506:      var _processAggregate = processAggregate(results, options), violations = _processAggregate.violations;
+29508:        toolOptions: toolOptions,
+29513:    var rawReporter = function rawReporter(results, options, callback) {
+29514:      if (typeof options === 'function') {
+29515:        callback = options;
+29516:        options = {};
+29533:    var rawEnvReporter = function rawEnvReporter(results, options, callback) {
+29534:      if (typeof options === 'function') {
+29535:        callback = options;
+29536:        options = {};
+29538:      var _options5 = options, environmentData = _options5.environmentData, toolOptions = _objectWithoutProperties(_options5, _excluded15);
+29539:      raw_default(results, toolOptions, function(raw) {
+29548:    var v1Reporter = function v1Reporter(results, options, callback) {
+29549:      if (typeof options === 'function') {
+29550:        callback = options;
+29551:        options = {};
+29553:      var _options6 = options, environmentData = _options6.environmentData, toolOptions = _objectWithoutProperties(_options6, _excluded16);
+29554:      var out = processAggregate(results, options);
+29563:        toolOptions: toolOptions
+29567:    var v2Reporter = function v2Reporter(results, options, callback) {
+29568:      if (typeof options === 'function') {
+29569:        callback = options;
+29570:        options = {};
+29572:      var _options7 = options, environmentData = _options7.environmentData, toolOptions = _objectWithoutProperties(_options7, _excluded17);
+29573:      var out = processAggregate(results, options);
+29575:        toolOptions: toolOptions
+29704:        'aria-input-field-name': {
+29724:        'aria-required-children': {
+30199:        'aria-required-children': {
+31197:        options: {
+31202:        options: {
+31215:        options: {
+31231:        options: {
+31256:        options: {
+31269:        options: {
+31294:        options: {
+31322:      id: 'aria-input-field-name',
+31324:      selector: '[role="combobox"], [role="listbox"], [role="searchbox"], [role="slider"], [role="spinbutton"], [role="textbox"]',
+31330:        options: {
+31344:        options: {
+31358:        options: {
+31373:        options: {
+31388:      id: 'aria-required-children',
+31391:      matches: 'aria-required-children-matches',
+31396:        options: {
+31397:          reviewEmpty: [ 'doc-bibliography', 'doc-endnotes', 'grid', 'list', 'listbox', 'menu', 'menubar', 'table', 'tablist', 'tree', 'treegrid', 'rowgroup' ]
+31399:        id: 'aria-required-children'
+31411:        options: {
+31425:        options: {
+31452:      selector: '[role="checkbox"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="radio"], [role="switch"], [role="option"]',
+31458:        options: {
+31472:        options: {
+31486:        options: {
+31499:        options: [],
+31512:        options: [],
+31534:        options: {
+31550:        options: {
+31556:        options: {
+31562:        options: {
+31590:        options: {
+31607:        options: {
+31612:        options: {
+31628:        options: {
+31661:        options: {
+31690:        options: {
+31707:        options: {
+31778:        options: {
+31800:        options: [],
+31803:        options: {
+31834:        options: {
+31861:        options: {
+31894:        options: {
+31909:        options: {
+31945:        options: {
+31959:        options: {
+31973:        options: {
+31978:        options: {
+31993:        options: {
+31998:        options: {
+32012:        options: {
+32037:        options: {
+32042:        options: {
+32089:        options: {
+32103:        options: {
+32117:        options: {
+32129:        options: {
+32155:        options: {
+32170:        options: {
+32185:        options: {
+32219:        options: {
+32235:        options: {
+32251:        options: {
+32268:        options: {
+32294:        options: {
+32310:        options: {
+32323:        options: {
+32349:        options: {
+32374:        options: {
+32389:        options: {
+32401:        options: {
+32426:        options: {
+32457:        options: {
+32472:        options: {
+32512:        options: {
+32517:        options: {
+32561:        options: {
+32585:      options: {
+32591:      options: {
+32602:      options: {
+32617:      options: {
+32624:      id: 'aria-required-children',
+32625:      evaluate: 'aria-required-children-evaluate',
+32626:      options: {
+32627:        reviewEmpty: [ 'doc-bibliography', 'doc-endnotes', 'grid', 'list', 'listbox', 'menu', 'menubar', 'table', 'tablist', 'tree', 'treegrid', 'rowgroup' ]
+32632:      options: {
+32638:      options: {
+32647:      options: []
+32651:      options: []
+32670:      options: []
+32686:      options: {
+32692:      options: {
+32716:      options: {
+32741:      options: {
+32752:      options: {
+32791:      options: {
+32799:      options: {
+32807:      options: {
+32815:      options: {
+32823:      options: {
+32835:      options: {
+32853:      options: {
+32870:      options: {
+32876:      options: {
+32891:      options: {
+32899:      options: {
+32913:      options: {
+32919:      options: {
+32925:      options: {
+32931:      options: {
+32938:      options: {
+32944:      options: {
+32950:      options: {
+32957:      options: {
+32974:      options: {
+32980:      options: {
+32987:      options: {
+32994:      options: {
+33014:      options: {
+33045:      options: {
+33069:      options: {
+33076:      options: {
+33085:      options: {
+33095:      options: {
+33104:      options: {
+33110:      options: {
+33116:      options: {
+33126:      options: {
+33137:      options: {
+33159:      options: {
+
+ succeeded in 936ms:
+626:            }, 'Settle: ' + (promise2._label || ' unknown promise'));
+6957:      isLabelledFramesSelector: function isLabelledFramesSelector() {
+6958:        return _isLabelledFramesSelector;
+6960:      isLabelledShadowDomSelector: function isLabelledShadowDomSelector() {
+6961:        return _isLabelledShadowDomSelector;
+13876:      label: function label() {
+13877:        return label_default;
+13879:      labelText: function labelText() {
+13880:        return label_text_default;
+13882:      labelVirtual: function labelVirtual() {
+13883:        return label_virtual_default2;
+13942:    function arialabelledbyText(element) {
+13948:      if (vNode.props.nodeType !== 1 || context.inLabelledByContext || context.inControlContext || !vNode.attr('aria-labelledby')) {
+13951:      var refs = idrefs_default(vNode, 'aria-labelledby').filter(function(elm) {
+13956:          inLabelledByContext: true,
+13966:    var arialabelledby_text_default = arialabelledbyText;
+13967:    function _arialabelText(element) {
+13972:      return vNode.attr('aria-label') || '';
+13987:      'aria-braillelabel': {
+14092:      'aria-label': {
+14097:      'aria-labelledby': {
+14129:      'aria-placeholder': {
+14240:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14261:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14309:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14332:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14392:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14497:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14507:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14526:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14531:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14606:        allowedAttrs: [ 'aria-activedescendant', 'aria-autocomplete', 'aria-multiline', 'aria-placeholder', 'aria-readonly', 'aria-required' ],
+14653:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14662:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14667:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14682:        prohibitedAttrs: [ 'aria-label', 'aria-labelledby' ]
+14725:        allowedAttrs: [ 'aria-activedescendant', 'aria-autocomplete', 'aria-multiline', 'aria-placeholder', 'aria-readonly', 'aria-required' ],
+15371:            namingMethods: [ 'altText', 'valueText', 'labelText', 'titleText', 'buttonDefaultText' ]
+15401:            namingMethods: [ 'labelText', 'placeholderText' ]
+15413:      label: {
+15416:        chromiumRole: 'Label'
+15593:        namingMethods: [ 'labelText' ]
+15659:        namingMethods: [ 'labelText', 'placeholderText' ]
+16057:      return !!(sanitize_default(arialabelledby_text_default(vNode)) || sanitize_default(_arialabelText(vNode)) || checkTitle && (vNode === null || vNode === void 0 ? void 0 : vNode.props.nodeType) === 1 && sanitize_default(vNode.attr('title')));
+16674:      var _context = context, strict = _context.strict, inControlContext = _context.inControlContext, inLabelledByContext = _context.inLabelledByContext;
+16682:      if (!context.subtreeDescendant && !context.inLabelledByContext && !named_from_contents_default(virtualNode, {
+16688:        var subtreeDescendant = !inControlContext && !inLabelledByContext;
+16715:    function labelText(virtualNode) {
+16718:      if (context.inControlContext || context.inLabelledByContext || alreadyProcessed2(virtualNode, context)) {
+16724:      var labelContext = _extends({
+16727:      var explicitLabels = getExplicitLabels(virtualNode);
+16728:      var implicitLabel = closest_default(virtualNode, 'label');
+16729:      var labels;
+16730:      if (implicitLabel) {
+16731:        labels = [].concat(_toConsumableArray(explicitLabels), [ implicitLabel.actualNode ]);
+16732:        labels.sort(node_sorter_default);
+16734:        labels = explicitLabels;
+16736:      return labels.map(function(label3) {
+16737:        return accessible_text_default(label3, labelContext);
+16742:    function getExplicitLabels(virtualNode) {
+16747:        throw new TypeError('Cannot resolve explicit label reference for non-DOM nodes');
+16750:        elm: 'label',
+16756:    var label_text_default = labelText;
+16778:      labelText: label_text_default,
+16782:      placeholderText: attrText.bind(null, 'placeholder')
+16946:      var computationSteps = [ arialabelledby_text_default, _arialabelText, _nativeTextAlternative, form_control_value_default, subtree_text_default, textNodeValue, title_text_default ];
+16994:      if (virtualNode.props.nodeType === 1 && context.inLabelledByContext && context.includeHidden === void 0) {
+17095:    function labelVirtual(virtualNode) {
+17097:      if (virtualNode.attr('aria-labelledby')) {
+17098:        ref = idrefs_default(virtualNode.actualNode, 'aria-labelledby');
+17107:      candidate = virtualNode.attr('aria-label');
+17116:    var label_virtual_default = labelVirtual;
+17122:    function labelVirtual2(virtualNode) {
+17124:      candidate = label_virtual_default(virtualNode);
+17130:          throw new TypeError('Cannot resolve explicit label reference for non-DOM nodes');
+17134:        ref = doc.querySelector('label[for="' + _id2 + '"]');
+17140:      ref = closest_default(virtualNode, 'label');
+17147:    var label_virtual_default2 = labelVirtual2;
+17148:    function label(node) {
+17150:      return label_virtual_default2(node);
+17152:    var label_default = label;
+17162:      namingMethods: 'labelText'
+17178:      namingMethods: [ 'altText', 'valueText', 'labelText', 'titleText', 'buttonDefaultText' ]
+17197:      namingMethods: 'labelText'
+17328:      return hasChildTextNodes(elm) || is_visual_content_default(elm.actualNode) || !ignoreAria && !!label_virtual_default(elm) || !noRecursion && elm.children.some(function(child) {
+18851:      if (_isLabelledFramesSelector(selector)) {
+18852:        assertLabelledFrameSelector(selector);
+18854:      } else if (_isLabelledShadowDomSelector(selector)) {
+18868:          if (_isLabelledShadowDomSelector(selector)) {
+18869:            assertLabelledShadowDomSelector(selector);
+18884:    function assertLabelledFrameSelector(selector) {
+18891:    function assertLabelledShadowDomSelector(selector) {
+19157:      return typeof contextList === 'string' || contextList instanceof window.Node || _isLabelledFramesSelector(contextList) || _isLabelledShadowDomSelector(contextList) || _isArrayLike(contextList);
+19159:    function _isLabelledFramesSelector(selector) {
+19162:    function _isLabelledShadowDomSelector(selector) {
+20752:      arialabelText: function arialabelText() {
+20753:        return _arialabelText;
+20755:      arialabelledbyText: function arialabelledbyText() {
+20756:        return arialabelledby_text_default;
+20806:      label: function label() {
+20807:        return label_default2;
+20809:      labelVirtual: function labelVirtual() {
+20810:        return label_virtual_default;
+20852:        if (node.nodeName.toUpperCase() === 'LABEL' && node.hasAttribute('for')) {
+21108:      'aria-label': {
+21113:      'aria-labelledby': {
+21152:      'aria-placeholder': {
+21229:    lookupTable.globalAttributes = [ 'aria-atomic', 'aria-busy', 'aria-controls', 'aria-current', 'aria-describedby', 'aria-details', 'aria-disabled', 'aria-dropeffect', 'aria-flowto', 'aria-grabbed', 'aria-haspopup', 'aria-hidden', 'aria-invalid', 'aria-keyshortcuts', 'aria-label', 'aria-labelledby', 'aria-live', 'aria-owns', 'aria-relevant', 'aria-roledescription' ];
+22329:        implicit: [ 'section[aria-label]', 'section[aria-labelledby]', 'section[title]' ],
+22403:          allowed: [ 'aria-activedescendant', 'aria-autocomplete', 'aria-multiline', 'aria-readonly', 'aria-required', 'aria-placeholder', 'aria-errormessage' ]
+22586:          allowed: [ 'aria-activedescendant', 'aria-autocomplete', 'aria-multiline', 'aria-readonly', 'aria-required', 'aria-placeholder', 'aria-errormessage' ]
+22679:      nodeName: [ 'base', 'body', 'caption', 'col', 'colgroup', 'datalist', 'dd', 'details', 'dt', 'head', 'html', 'keygen', 'label', 'legend', 'main', 'map', 'math', 'meta', 'meter', 'noscript', 'optgroup', 'param', 'picture', 'progress', 'script', 'source', 'style', 'template', 'textarea', 'title', 'track' ]
+22882:    function label2(node) {
+22884:      return label_virtual_default(node);
+22886:    var label_default2 = label2;
+22976:        var ariaLabel = cell.getAttribute('aria-labelledby');
+22977:        if (ariaLabel) {
+22978:          reffedHeaders = reffedHeaders.concat(ariaLabel.split(/\s+/));
+23078:        if (has_content_default(cell) && is_data_cell_default(cell) && !label_default2(cell)) {
+23224:      var label3 = virtualNode.attr('value');
+23225:      if (label3) {
+23227:          messageKey: 'has-label'
+23231:        return label3 === null;
+23323:    function ariaLabelledbyEvaluate(node, options, virtualNode) {
+23325:        return !!sanitize_default(arialabelledby_text_default(virtualNode));
+23330:    var aria_labelledby_evaluate_default = ariaLabelledbyEvaluate;
+23331:    function ariaLabelEvaluate(node, options, virtualNode) {
+23332:      return !!sanitize_default(_arialabelText(virtualNode));
+23334:    var aria_label_evaluate_default = ariaLabelEvaluate;
+25550:      var labelText2 = label_virtual_default2(virtualNode);
+25553:      return !labelText2 && !!(title || ariaDescribedBy);
+25556:    function multipleLabelEvaluate(node) {
+25561:      var labels = Array.from(root.querySelectorAll('label[for="'.concat(id, '"]')));
+25562:      if (labels.length) {
+25563:        labels = labels.filter(function(label3) {
+25564:          return !_isHiddenForEveryone(label3);
+25568:        if (parent.nodeName.toUpperCase() === 'LABEL' && labels.indexOf(parent) === -1) {
+25569:          labels.push(parent);
+25573:      this.relatedNodes(labels);
+25574:      if (labels.length > 1) {
+25575:        var ATVisibleLabels = labels.filter(function(label3) {
+25576:          return _isVisibleToScreenReaders(label3);
+25578:        if (ATVisibleLabels.length > 1) {
+25581:        var labelledby = idrefs_default(node, 'aria-labelledby');
+25582:        return !labelledby.includes(ATVisibleLabels[0]) ? void 0 : false;
+25586:    var multiple_label_evaluate_default = multipleLabelEvaluate;
+25603:    function labelContentNameMismatchEvaluate(node, options, virtualNode) {
+25622:    var label_content_name_mismatch_evaluate_default = labelContentNameMismatchEvaluate;
+25625:        var label3 = closest_default(virtualNode, 'label');
+25626:        if (label3) {
+25627:          var implicitLabel = sanitize_default(_accessibleTextVirtual(label3, {
+25631:          if (label3.actualNode) {
+25632:            this.relatedNodes([ label3.actualNode ]);
+25635:            implicitLabel: implicitLabel
+25637:          return !!implicitLabel;
+25645:    function hiddenExplicitLabelEvaluate(node, options, virtualNode) {
+25652:        var label3 = root.querySelector('label[for="'.concat(_id6, '"]'));
+25653:        if (label3 && !_isVisibleToScreenReaders(label3)) {
+25666:    var hidden_explicit_label_evaluate_default = hiddenExplicitLabelEvaluate;
+25667:    function helpSameAsLabelEvaluate(node, options, virtualNode) {
+25668:      var labelText2 = label_virtual_default2(virtualNode);
+25670:      if (!labelText2) {
+25682:      return sanitize_default(check) === sanitize_default(labelText2);
+25684:    var help_same_as_label_evaluate_default = helpSameAsLabelEvaluate;
+25695:      var labels = Array.from(root.querySelectorAll('label[for="'.concat(id, '"]')));
+25696:      this.relatedNodes(labels);
+25697:      if (!labels.length) {
+25701:        return labels.some(function(label3) {
+25702:          if (!_isVisibleOnScreen(label3)) {
+25705:            var explicitLabel = sanitize_default(accessible_text_default(label3, {
+25710:              explicitLabel: explicitLabel
+25712:            return !!explicitLabel;
+25720:    function duplicateImgLabelEvaluate(node, options, virtualNode) {
+25734:    var duplicate_img_label_evaluate_default = duplicateImgLabelEvaluate;
+26463:    function noImplicitExplicitLabelEvaluate(node, options, virtualNode) {
+26468:      var label3;
+26471:        label3 = sanitize_default(label_text_default(virtualNode)).toLowerCase();
+26476:      if (!accText && !label3) {
+26479:      if (!accText && label3) {
+26482:      if (!accText.includes(label3)) {
+26487:    var no_implicit_explicit_label_evaluate_default = noImplicitExplicitLabelEvaluate;
+26568:    function brailleLabelEquivalentEvaluate(node, options, virtualNode) {
+26570:      var brailleLabel = (_virtualNode$attr2 = virtualNode.attr('aria-braillelabel')) !== null && _virtualNode$attr2 !== void 0 ? _virtualNode$attr2 : '';
+26571:      if (!brailleLabel.trim()) {
+26613:        'aria-labelledby': function ariaLabelledby(validValue) {
+26615:            needsReview = 'aria-labelledby="'.concat(virtualNode.attr('aria-labelledby'), '"');
+26936:      var elementsAllowedAriaLabel = (options === null || options === void 0 ? void 0 : options.elementsAllowedAriaLabel) || [];
+26942:      var prohibitedList = listProhibitedAttrs(virtualNode, role, nodeName2, elementsAllowedAriaLabel);
+26968:    function listProhibitedAttrs(vNode, role, nodeName2, elementsAllowedAriaLabel) {
+26973:      if (!!role || elementsAllowedAriaLabel.includes(nodeName2) || getClosestAncestorRoleType(vNode) === 'widget') {
+26976:      return [ 'aria-label', 'aria-labelledby' ];
+27495:    function labelMatches(node, virtualNode) {
+27502:    var label_matches_default = labelMatches;
+27503:    function labelContentNameMismatchMatches(node, virtualNode) {
+27517:      if (!sanitize_default(_arialabelText(virtualNode)) && !sanitize_default(arialabelledby_text_default(node))) {
+27525:    var label_content_name_mismatch_matches_default = labelContentNameMismatchMatches;
+27640:      var nodeParentLabel = find_up_virtual_default(virtualNode, 'label');
+27641:      if (nodeName2 === 'label' || nodeParentLabel) {
+27642:        var labelNode = nodeParentLabel || node;
+27643:        var labelVirtual3 = nodeParentLabel ? get_node_from_tree_default(nodeParentLabel) : virtualNode;
+27644:        if (labelNode.htmlFor) {
+27645:          var doc = get_root_node_default2(labelNode);
+27646:          var explicitControl = doc.getElementById(labelNode.htmlFor);
+27653:        var implicitControl = query_selector_all_default(labelVirtual3, query)[0];
+27658:      var ariaLabelledbyControls = [];
+27663:            return token_list_default(control.getAttribute('aria-labelledby') || '').includes(ancestorNode.props.id);
+27667:          ariaLabelledbyControls.push.apply(ariaLabelledbyControls, _toConsumableArray(virtualControls));
+27671:      if (ariaLabelledbyControls.length > 0 && ariaLabelledbyControls.every(is_disabled_default)) {
+27828:      'aria-label-evaluate': aria_label_evaluate_default,
+27829:      'aria-labelledby-evaluate': aria_labelledby_evaluate_default,
+27846:      'braille-label-equivalent-evaluate': brailleLabelEquivalentEvaluate,
+27864:      'duplicate-img-label-evaluate': duplicate_img_label_evaluate_default,
+27890:      'help-same-as-label-evaluate': help_same_as_label_evaluate_default,
+27892:      'hidden-explicit-label-evaluate': hidden_explicit_label_evaluate_default,
+27909:      'label-content-name-mismatch-evaluate': label_content_name_mismatch_evaluate_default,
+27910:      'label-content-name-mismatch-matches': label_content_name_mismatch_matches_default,
+27911:      'label-matches': label_matches_default,
+27925:      'multiple-label-evaluate': multiple_label_evaluate_default,
+27932:      'no-implicit-explicit-label-evaluate': no_implicit_explicit_label_evaluate_default,
+29677:          description: 'Ensure aria-braillelabel and aria-brailleroledescription have a non-braille equivalent',
+29817:          description: 'Ensure every id attribute value used in ARIA and in labels is unique',
+29818:          help: 'IDs used in ARIA and labels must be unique'
+29836:        'form-field-multiple-labels': {
+29837:          description: 'Ensure form field does not have multiple label elements',
+29838:          help: 'Form field must not have multiple label elements'
+29896:        'label-content-name-mismatch': {
+29897:          description: 'Ensure that elements labelled through their content must have their visible text as part of their accessible name',
+29900:        'label-title-only': {
+29901:          description: 'Ensure that every form element has a visible label and is not solely labeled using hidden labels, or the title or aria-describedby attributes',
+29902:          help: 'Form elements should have a visible label'
+29904:        label: {
+29905:          description: 'Ensure every form element has a label',
+29906:          help: 'Form elements must have labels'
+29942:          help: 'Landmarks should have a unique role or role/label/title (i.e. accessible name) combination'
+30271:        'braille-label-equivalent': {
+30274:            pass: 'aria-braillelabel is used on an element with accessible text',
+30275:            fail: 'aria-braillelabel is used on an element with no accessible text',
+30338:        'no-implicit-explicit-label': {
+30341:            pass: 'There is no mismatch between a <label> and accessible name',
+30342:            incomplete: 'Check that the <label> does not need be part of the ARIA ${data} field\'s name'
+30588:        'duplicate-img-label': {
+30595:        'explicit-label': {
+30598:            pass: 'Element has an explicit <label>',
+30599:            fail: 'Element does not have an explicit <label>',
+30600:            incomplete: 'Unable to determine if form element has an explicit <label>'
+30603:        'help-same-as-label': {
+30606:            pass: 'Help text (title or aria-describedby) does not duplicate label text',
+30607:            fail: 'Help text (title or aria-describedby) text is the same as the label text'
+30610:        'hidden-explicit-label': {
+30613:            pass: 'Form element has a visible explicit <label>',
+30614:            fail: 'Form element has explicit <label> that is hidden',
+30615:            incomplete: 'Unable to determine if form element has explicit <label> that is hidden'
+30618:        'implicit-label': {
+30621:            pass: 'Element has an implicit (wrapped) <label>',
+30622:            fail: 'Element does not have an implicit (wrapped) <label>',
+30623:            incomplete: 'Unable to determine if form element has an implicit (wrapped) <label>'
+30626:        'label-content-name-mismatch': {
+30633:        'multiple-label': {
+30636:            pass: 'Form field does not have multiple label elements',
+30637:            incomplete: 'Multiple label elements is not widely supported in assistive technologies. Ensure the first label contains all necessary information.'
+30643:            pass: 'Form element does not solely use title attribute for its label',
+30644:            fail: 'Only title used to generate label for form element'
+30650:            pass: 'Landmarks must have a unique role or role/label/title (i.e. accessible name) combination',
+30651:            fail: 'The landmark must have a unique aria-label, aria-labelledby, or title to make landmarks distinguishable'
+30887:            pass: 'Document has no elements referenced with ARIA or labels that share the same id attribute',
+30898:        'aria-label': {
+30901:            pass: 'aria-label attribute exists and is not empty',
+30902:            fail: 'aria-label attribute does not exist or is empty'
+30905:        'aria-labelledby': {
+30908:            pass: 'aria-labelledby attribute exists and references elements that are visible to screen readers',
+30909:            fail: 'aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty',
+30910:            incomplete: 'Ensure aria-labelledby references an existing element'
+31009:              'has-label': 'Element has a non-empty value attribute'
+31014:        'non-empty-placeholder': {
+31017:            pass: 'Element has a placeholder attribute',
+31019:              noAttr: 'Element has no placeholder attribute',
+31020:              emptyAttr: 'Element has an empty placeholder attribute'
+31201:      }, 'aria-label', 'aria-labelledby', {
+31242:      selector: '[aria-brailleroledescription], [aria-braillelabel]',
+31244:      all: [ 'braille-roledescription-equivalent', 'braille-label-equivalent' ],
+31255:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+31293:      any: [ 'aria-label', 'aria-labelledby', {
+31329:      any: [ 'aria-label', 'aria-labelledby', {
+31335:      none: [ 'no-implicit-explicit-label' ]
+31343:      any: [ 'aria-label', 'aria-labelledby', {
+31357:      any: [ 'aria-label', 'aria-labelledby', {
+31374:          elementsAllowedAriaLabel: [ 'applet', 'input' ]
+31457:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+31463:      none: [ 'no-implicit-explicit-label' ]
+31471:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+31485:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+31589:      any: [ 'button-has-visible-text', 'aria-label', 'aria-labelledby', {
+31594:      }, 'implicit-label', 'explicit-label', 'presentational-role' ],
+31777:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+31810:      id: 'form-field-multiple-labels',
+31813:      matches: 'label-matches',
+31817:      none: [ 'multiple-label' ]
+31865:      }, 'aria-label', 'aria-labelledby', 'presentational-role' ],
+31944:      any: [ 'has-alt', 'aria-label', 'aria-labelledby', {
+31962:        id: 'duplicate-img-label'
+31977:      }, 'aria-label', 'aria-labelledby', {
+31982:      }, 'implicit-label', 'explicit-label', 'presentational-role' ],
+31997:      }, 'aria-label', 'aria-labelledby', {
+32002:      }, 'implicit-label', 'explicit-label' ],
+32005:      id: 'label-content-name-mismatch',
+32007:      matches: 'label-content-name-mismatch-matches',
+32016:        id: 'label-content-name-mismatch'
+32020:      id: 'label-title-only',
+32023:      matches: 'label-matches',
+32029:      id: 'label',
+32032:      matches: 'label-matches',
+32036:      any: [ 'implicit-label', 'explicit-label', 'aria-label', 'aria-labelledby', {
+32043:          attribute: 'placeholder'
+32045:        id: 'non-empty-placeholder'
+32047:      none: [ 'hidden-explicit-label' ]
+32169:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+32309:      any: [ 'aria-label', 'aria-labelledby', {
+32388:      any: [ 'aria-label', 'aria-labelledby', {
+32425:      any: [ 'implicit-label', 'explicit-label', 'aria-label', 'aria-labelledby', {
+32431:      none: [ 'hidden-explicit-label' ]
+32456:      any: [ 'has-visible-text', 'aria-label', 'aria-labelledby', {
+32471:      any: [ 'svg-non-empty-title', 'aria-label', 'aria-labelledby', {
+32618:        elementsAllowedAriaLabel: [ 'applet', 'input' ]
+32653:      id: 'braille-label-equivalent',
+32654:      evaluate: 'braille-label-equivalent-evaluate'
+32678:      id: 'no-implicit-explicit-label',
+32679:      evaluate: 'no-implicit-explicit-label-evaluate'
+32833:      id: 'duplicate-img-label',
+32834:      evaluate: 'duplicate-img-label-evaluate',
+32839:      id: 'explicit-label',
+32842:      id: 'help-same-as-label',
+32843:      evaluate: 'help-same-as-label-evaluate'
+32845:      id: 'hidden-explicit-label',
+32846:      evaluate: 'hidden-explicit-label-evaluate'
+32848:      id: 'implicit-label',
+32851:      id: 'label-content-name-mismatch',
+32852:      evaluate: 'label-content-name-mismatch-evaluate',
+32858:      id: 'multiple-label',
+32859:      evaluate: 'multiple-label-evaluate'
+33037:      id: 'aria-label',
+33038:      evaluate: 'aria-label-evaluate'
+33040:      id: 'aria-labelledby',
+33041:      evaluate: 'aria-labelledby-evaluate'
+33102:      id: 'non-empty-placeholder',
+33105:        attribute: 'placeholder'
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+63,371
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

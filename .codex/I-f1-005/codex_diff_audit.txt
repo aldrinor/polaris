@@ -1,0 +1,2743 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019dfea3-96af-7790-a92c-fffb8859f3e1
+--------
+user
+# Codex Diff Review Brief — I-f1-005 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE; do not bank.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Context
+
+Second of two Codex review gates. Brief APPROVE'd iter 3.
+
+- **Brief:** `.codex/I-f1-005/brief.md` (Codex APPROVE iter 3)
+- **Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+- **Audit:** `outputs/audits/I-f1-005/claude_audit.md`
+
+## Empirical verification (Claude verified)
+
+- `npx tsc --noEmit -p .` from `web/` → no errors.
+- `npx eslint <my files>` → clean.
+- Playwright not run locally.
+
+## Files (2, +46 net)
+
+```
+web/app/components/command_palette.tsx       MOD +3/-1   (a11y fixes per brief iter-1+iter-2 P1s)
+web/tests/e2e/f1_a11y.spec.ts                 NEW +44     (2 axe scans)
+```
+
+CHARTER §1 200-LOC cap: +46 net. Well under cap.
+
+## Specific risks for Codex Red-Team
+
+1. **Listbox aria-label string `"Template results"`.** Picked for clarity. Verify it's an accessible name axe `aria-input-field-name` will accept.
+2. **`role="option"` + `aria-selected` on each `<li>`.** axe `aria-required-children` requires listbox children with `role=option`. `aria-selected={boolean}` is required on each option per ARIA spec. Verify both attributes set correctly.
+3. **Severity filter (`serious`+`critical`).** Per issue spec; non-critical violations don't fail. Verify the filter functor matches issue acceptance.
+4. **`/intake?template=clinical` `domcontentloaded` + testid wait.** Avoids networkidle stalls on retried backend fetches. axe runs after React hydration confirmed via `intake-page` testid. Verify this pattern doesn't miss render-late content.
+5. **No regression to existing axe specs.** `landing_template_grid.spec.ts` axe at 1024px (palette CLOSED) still passes — the new `aria-label` and `role="option"` are additive; closed-palette doesn't render the Dialog. `accessibility.spec.ts` (dashboard/inspector) untouched.
+6. **`canonical-diff-sha256` correctness.** `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll review the canonical patch against the brief and audit, then check the touched code paths for actual execution or accessibility risks before giving the required YAML verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content outputs/audits/I-f1-005/claude_audit.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-f1-005/brief.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-f1-005/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-FileHash -Algorithm SHA256 .codex/I-f1-005/codex_diff.patch | Format-List' in C:\POLARIS
+ succeeded in 1342ms:
+# Claude architect self-audit — I-f1-005
+
+**Issue:** I-f1-005 — F1 axe-core WCAG-AA compliance test
+**Brief:** `.codex/I-f1-005/brief.md` (Codex APPROVE iter 3)
+**Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+
+## What the diff does
+
+1. **`web/app/components/command_palette.tsx`** (MOD +3/-1): adds `aria-label="Template results"` to `<ul role="listbox">` (closes axe `aria-input-field-name`); adds `role="option"` + `aria-selected={i === clamped}` to each `<li>` (closes axe `aria-required-children`). Both fixes were caught by Codex iter-1 + iter-2 of the brief by inspecting the existing palette markup.
+2. **`web/tests/e2e/f1_a11y.spec.ts`** (NEW +44): two scans at 1024×768:
+   - `/` with palette OPEN (Ctrl+K + `command-palette` testid visible) → axe scan; assert serious+critical violations empty.
+   - `/intake?template=clinical` initial render → axe scan; same assertion.
+   Severity filter (`v.impact === "serious" || "critical"`) per issue acceptance criterion "zero serious/critical violations."
+
+## Empirical verification
+
+- `npx tsc --noEmit -p .` clean.
+- `npx eslint <my files>` clean.
+- Playwright not run locally.
+
+## LOC
+
+```
+web/app/components/command_palette.tsx       MOD +3 / -1
+web/tests/e2e/f1_a11y.spec.ts                 NEW +44
+```
+
+**Total: +47/-1 = +46 net.** Under 60 issue-budget AND CHARTER §1 200-cap.
+
+## Iter trajectory
+
+- iter 1: 1 P1 (palette listbox `<li>` not `role="option"`) + 1 P2 (WCAG_TAGS drift)
+- iter 2: 1 P1 (listbox needs aria-label) + 1 P2 (exclusion contradiction)
+- iter 3: APPROVE (zero P0/P1/P2)
+
+Codex caught two real a11y bugs by reading actual `command_palette.tsx` markup against axe rule definitions. Empirical inspection-driven review.
+
+## Risks acknowledged
+
+- Severity filter only blocks `serious`+`critical`. `moderate`/`minor` violations are non-blocking per issue spec. If future audits demand zero-of-any, tighten the filter in a follow-up.
+- `/intake?template=clinical` uses `domcontentloaded` rather than `networkidle` to avoid stalling on retried fetches when backend is unavailable; `intake-page` testid visible signals React rendered.
+- No CI integration in this Issue; `web_ci.yml` runs only inspector/accessibility/performance per existing policy.
+
+## Output schema for Codex review
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+ succeeded in 1410ms:
+# Codex Brief Review — I-f1-005 (ITER 3 of 5)
+
+## Iter-1 + iter-2 fixes
+- **iter-1 P1 palette listbox `aria-required-children`:** add `role="option"` + `aria-selected` to each `<li>`.
+- **iter-2 P1 palette listbox needs accessible name:** add `aria-label="Template results"` to the `<ul role="listbox">`. Closes axe `aria-input-field-name` (wcag2a, serious).
+- **iter-2 P2 brief exclusion contradiction:** removed "Does NOT modify production components" from non-acceptance list.
+- **iter-1 P2 WCAG_TAGS drift:** use the 4-tag set matching landing_template_grid (`wcag2a/wcag2aa/wcag21a/wcag21aa`).
+
+**HARD ITERATION CAP: 5 per document. This is iter 3 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f1-005 — F1 axe-core WCAG-AA compliance test
+**Phase:** 1 / **Feature:** F1
+**LOC budget:** 60 net per `state/polaris_restart/issue_breakdown.md`. **CHARTER §1 hard cap: 200.**
+
+## Mission
+
+Add axe-core WCAG-AA scans for the F1 surfaces NOT yet covered by existing specs:
+- `/` with command palette OPEN (Ctrl+K, palette + backdrop visible — built in I-f1-002).
+- `/intake?template=clinical` (the page F1 cards link to — built in I-f1-001).
+
+Existing coverage:
+- `web/tests/e2e/landing_template_grid.spec.ts` already scans `/` at 1024px (palette CLOSED). Don't duplicate.
+- `web/tests/e2e/accessibility.spec.ts` already scans `/dashboard` + `/inspector/*`. Don't duplicate.
+
+## Substrate (HONEST)
+
+- `@axe-core/playwright` ^4.11.3 already in `web/package.json` (used at landing_template_grid + accessibility specs).
+- The shared helper `expectNoA11yViolations(page)` lives in `accessibility.spec.ts` but is NOT exported. To stay LOC-tight, reuse `AxeBuilder` directly with the same `WCAG_TAGS` array (`wcag2a, wcag2aa, wcag21a, wcag21aa`).
+- I-f1-002 added `<DialogPrimitive.Title className="sr-only">` (screen-reader-only "Search templates" label) so the open-palette dialog has the required title. Should pass axe.
+- `/intake?template=clinical` exists per slice 001; it's the target of F1 active cards. Need to confirm it loads cleanly without backend (no API call required for first render).
+
+## Acceptance criteria (binding)
+
+1. **`web/tests/e2e/f1_a11y.spec.ts`** (NEW) — 2 tests, each at 1024×768 viewport:
+   - **Test 1 — `/` with palette OPEN is WCAG-AA clean:** goto `/`, wait header-sign-in-link visible, press `Control+k`, wait `command-palette` visible, run AxeBuilder scan, assert `results.violations` filtered for impact ∈ {`serious`, `critical`} is empty (issue spec: "zero serious/critical violations").
+   - **Test 2 — `/intake?template=clinical` initial render is WCAG-AA clean:** goto `/intake?template=clinical`, wait `intake-page` testid visible, run AxeBuilder, assert serious/critical empty.
+
+2. **`web/app/components/command_palette.tsx`** (MODIFY): (a) add `role="option"` + `aria-selected={i === clamped}` to each `<li>` (closes axe `aria-required-children`); (b) add `aria-label="Template results"` to the `<ul role="listbox">` (closes axe `aria-input-field-name`). ~4 LOC.
+
+3. **Filter on impact severity (`serious` + `critical` only)** per issue spec; non-critical (e.g. `moderate`, `minor`) violations are NOT blocking. This matches the issue acceptance criterion "zero serious/critical violations" rather than "zero violations of any severity."
+
+## Planned diff shape
+
+```
+web/app/components/command_palette.tsx       MOD +2/-1   (role="option" + aria-selected on <li>)
+web/tests/e2e/f1_a11y.spec.ts                 NEW +50
+```
+
+LOC: +52/-1 = +51 net. Under 60 budget AND under CHARTER §1 200-cap.
+
+## Out of scope (deferred per breakdown)
+
+- Multi-tab safety → I-f1-006
+
+## Non-acceptance / explicit exclusions
+
+(prior "no production code change" exclusion REMOVED iter-2; small a11y fixes to `command_palette.tsx` are in scope per AC #2).
+- Does NOT scan `/dashboard` or `/inspector/*` (existing coverage).
+- Does NOT scan `/` with palette CLOSED (existing landing_template_grid coverage).
+- Does NOT add CI step to run this spec automatically (`web_ci.yml` runs only inspector/accessibility/performance per existing policy; this spec runs locally).
+
+## Risks for Codex Red-Team
+
+1. **Severity filter (`serious` + `critical` only).** Issue spec explicitly says "zero serious/critical violations" — not "zero violations." Filter `results.violations.filter(v => v.impact === "serious" || v.impact === "critical")`. Acceptable per issue acceptance criterion.
+
+2. **Open-palette state requires Ctrl+K press AFTER hydration.** Test waits for `header-sign-in-link` visible before pressing (hydration race avoidance, same pattern as I-f1-002 + I-f1-003). axe runs after `command-palette` testid is visible (proves Dialog mounted in portal).
+
+3. **`/intake?template=clinical` may emit network calls** (intake form may auto-load template metadata). If those calls fail without backend, axe still scans the rendered DOM; `waitUntil: "networkidle"` may stall on retried fetches. Use `waitUntil: "domcontentloaded"` + explicit wait on `intake-page` testid as the hydration signal — proves React rendered. Acceptable trade-off.
+
+4. **Sr-only DialogPrimitive.Title.** I-f1-002 added the screen-reader title. axe `aria-required-children` and `dialog-name` rules check for accessible names; should pass.
+
+5. **Reuse vs export `expectNoA11yViolations`.** Current accessibility.spec.ts has the helper but doesn't export. Importing across test files is awkward. Inlining the AxeBuilder call adds ~6 LOC × 2 tests = 12 LOC vs ~3 LOC × 2 + helper. Stays under budget either way; choose inline for fewer cross-file dependencies.
+
+6. **Backdrop interactivity / z-index a11y.** When palette is open, the backdrop has `bg-black/20` and the popup has `z-50`. axe `tabindex` rule may flag if focus traps are mis-set; @base-ui/dialog handles focus management internally. Should pass.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+ succeeded in 1485ms:
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+index d79d526..448278e 100644
+--- a/web/app/components/command_palette.tsx
++++ b/web/app/components/command_palette.tsx
+@@ -109,10 +109,12 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+             placeholder="Search templates..."
+             className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+           />
+-          <ul className="max-h-80 overflow-y-auto" role="listbox">
++          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+             {scored.map((t, i) => (
+               <li
+                 key={t.id}
++                role="option"
++                aria-selected={i === clamped}
+                 data-testid={`palette-item-${t.id}`}
+                 data-active={i === clamped ? "true" : undefined}
+                 aria-disabled={!t.active || undefined}
+diff --git a/web/tests/e2e/f1_a11y.spec.ts b/web/tests/e2e/f1_a11y.spec.ts
+new file mode 100644
+index 0000000..7f61f9a
+--- /dev/null
++++ b/web/tests/e2e/f1_a11y.spec.ts
+@@ -0,0 +1,44 @@
++import AxeBuilder from "@axe-core/playwright";
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-f1-005 — F1 axe-core WCAG-AA compliance.
++ *
++ * Acceptance: zero serious/critical violations across F1 surfaces NOT
++ * already covered by landing_template_grid (closed palette) or
++ * accessibility (dashboard / inspector). Specifically:
++ *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
++ *  - `/intake?template=clinical` (target of F1 active cards).
++ */
++
++const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
++
++function critical_or_serious(v: { impact?: string | null }) {
++  return v.impact === "serious" || v.impact === "critical";
++}
++
++test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
++  test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    expect(results.violations.filter(critical_or_serious)).toEqual([]);
++  });
++
++  test("/intake?template=clinical initial render is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/intake?template=clinical", {
++      waitUntil: "domcontentloaded",
++    });
++    await expect(page.getByTestId("intake-page")).toBeVisible();
++
++    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    expect(results.violations.filter(critical_or_serious)).toEqual([]);
++  });
++});
+
+# canonical-diff-sha256: e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a
+
+ succeeded in 1502ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0mABED0112E0D01A80767F90BCD50BD0A9BDF62904FA7972084B4C235B45D8C073
+[32;1mPath      : [0mC:\POLARIS\.codex\I-f1-005\codex_diff.patch
+
+
+codex
+The first pass shows the patch body matches the described two-file change, but the raw file SHA-256 does not match the claimed canonical value. I’m checking whether this repo computes the “canonical diff” hash with a footer-stripping convention before treating that as a finding.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/tests/e2e/f1_a11y.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "canonical-diff-sha256|codex_diff.patch|canonical diff" -n .codex outputs state web -g "*.md" -g "*.ps1" -g "*.sh" -g "*.ts" -g "*.tsx"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/components/command_palette.tsx' in C:\POLARIS
+ succeeded in 922ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-005 — F1 axe-core WCAG-AA compliance.
+ *
+ * Acceptance: zero serious/critical violations across F1 surfaces NOT
+ * already covered by landing_template_grid (closed palette) or
+ * accessibility (dashboard / inspector). Specifically:
+ *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
+ *  - `/intake?template=clinical` (target of F1 active cards).
+ */
+
+const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+function critical_or_serious(v: { impact?: string | null }) {
+  return v.impact === "serious" || v.impact === "critical";
+}
+
+test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
+  test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    expect(results.violations.filter(critical_or_serious)).toEqual([]);
+  });
+
+  test("/intake?template=clinical initial render is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/intake?template=clinical", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("intake-page")).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+    expect(results.violations.filter(critical_or_serious)).toEqual([]);
+  });
+});
+
+2026-05-06T18:54:12.818510Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+state\polaris_restart\plan.md:415:Step 6.  Codex emits diff + .codex/I-X-NNN/codex_diff.patch
+state\polaris_restart\plan.md:421:Step 12. PR opens with .codex/I-X-NNN/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt} + outputs/audits/I-X-NNN/claude_audit.md
+state\polaris_restart\plan.md:777:- .codex/<issue_id>/codex_diff.patch (Claude-written canonical PR diff with
+state\polaris_restart\plan.md:778:  `# canonical-diff-sha256: <64-hex>` trailer that CI binds to the actual
+state\polaris_restart\plan.md:905:6. `codex_diff.patch` carries a `# canonical-diff-sha256: <64-hex>` trailer that the workflow binds to the actual PR diff via sha256 (PR-D iter 3 PRD3-P1-001 fix). Closes the gap where Codex APPROVE on patch-A could cover code-B.
+state\polaris_restart\plan.md:912:Phase-1 mitigates phase-2 absence via: (a) user reads `git log` morning per §7.B B1 = after-the-fact human-at-merge surface that catches forged verdict files, (b) CODEOWNER review on every PR touching `.github/`, (c) canonical-diff-sha256 binding (#6 above) prevents code-vs-approved-patch divergence even if the verdict file is forged. PR-D acknowledges this trade-off; Phase-2 hardening tracked as post-PR-F follow-up.
+state\polaris_restart\plan.md:938:  (brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt,
+state\polaris_restart\plan.md:948:- **PR-D iter 3 PRD3-P1-001** — binds `codex_diff.patch` to actual PR
+state\polaris_restart\plan.md:951:  hashes it, and requires codex_diff.patch to declare a matching
+state\polaris_restart\plan.md:952:  `# canonical-diff-sha256: <64-hex>` trailer line. Closes the gap where
+state\polaris_restart\iteration_trajectory.md:94:**Diff iter 3** (in flight, `codex_diff_audit_iter3.txt`): one-line `requirements.txt` addition `redis>=4.0,<8.0` (matches dramatiq's `[redis]` extras pin). 13/13 tests still PASS in 2.29s. App import verified: `RedisBroker` returned + no ImportError. Brief addresses each P2 with classification (Codex iter-2 accepted P2-I2-001 already; P2-I2-002 already classified out-of-scope; P2-I2-003/4/5 → P3 follow-up). New canonical-diff-sha256: `fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25`. Total +348/-33 = +315 net.
+state\polaris_restart\issue_breakdown.md:95:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; binds to actual PR diff via PR-D `codex-required.yml` content-hash check per PRD3-P1-001 fix)
+state\polaris_restart\issue_breakdown.md:96:- `.codex/<issue_id>/codex_diff_audit.txt` (Codex APPROVE — Red-Team checklist on codex_diff.patch)
+state\polaris_restart\issue_breakdown.md:1351:- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
+state\restart_instructions.md:36:- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` AND `.codex/<issue_id>/codex_diff.patch` AND `outputs/audits/<issue_id>/claude_audit.md`.
+state\restart_instructions.md:43:- `.codex/<issue_id>/codex_diff.patch`
+.codex\I-policy-001\diff_review_brief.md:30:- .codex/I-policy-001/* (review artifacts; excluded from canonical diff)
+.codex\I-policy-001\diff_review_brief.md:31:- outputs/audits/I-policy-001/claude_audit.md (excluded from canonical diff)
+.codex\I-policy-001\diff_review_brief.md:52:5. **`canonical-diff-sha256` trailer correctness.** `b97692b7118c5c66336474e9f269cf90dc217ea16d950e9412fb7605b396e095` produced via `git diff --cached -- ":(exclude).codex/I-policy-001/" ":(exclude)outputs/audits/I-policy-001/"`. CI gate parses `codex_diff.patch` for `^# canonical-diff-sha256: [a-f0-9]{64}$`.
+.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\I-f1-004\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-004/codex_diff.patch` (canonical sha256 `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d`)
+.codex\I-f1-004\diff_review_brief.md:48:8. **`canonical-diff-sha256` trailer correctness.** `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d` produced via `git diff --cached -- :(exclude).codex/I-f1-004/ :(exclude)outputs/audits/I-f1-004/`.
+.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\I-f1-005\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+.codex\I-f1-005\diff_review_brief.md:40:6. **`canonical-diff-sha256` correctness.** `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`.
+.codex\I-f1-003\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-003/codex_diff.patch` (canonical sha256 `8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da` — iter-2 fixes for diff iter-1 P1s)
+.codex\I-f1-003\diff_review_brief.md:50:6. **`canonical-diff-sha256` trailer correctness.** `bf9321ce7b7523893c3747b99619a35e29d3e4b000c1f8d5fe2dec8e95f42648` produced via `git diff --cached -- :(exclude).codex/I-f1-003/ :(exclude)outputs/audits/I-f1-003/`.
+.codex\I-f1-002\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+.codex\I-f1-002\diff_review_brief.md:24:## Files (4 in canonical diff, +198 net)
+.codex\I-f1-002\diff_review_brief.md:53:9. **`canonical-diff-sha256` trailer correctness.** `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e` produced via `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/`.
+.codex\I-f1-001\diff_review_brief.md:24:- `.codex/I-f1-001/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f` trailer
+.codex\I-f1-001\diff_review_brief.md:57:9. **`canonical-diff-sha256` trailer correctness** — `cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f` produced via `git diff --cached -- ":(exclude).codex/I-f1-001/" ":(exclude)outputs/audits/I-f1-001/"`. CI's extraction: `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+outputs\audits\I-phase0-005\claude_audit.md:5:**Diff:** `.codex/I-phase0-005/codex_diff.patch` (canonical sha256 `fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` — iter-3 after Codex iter-2 P1-I2-001 fix)
+outputs\audits\I-f1-005\claude_audit.md:5:**Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+outputs\audits\I-f1-004\claude_audit.md:5:**Diff:** `.codex/I-f1-004/codex_diff.patch` (canonical sha256 `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d`)
+outputs\audits\I-f1-003\claude_audit.md:5:**Diff:** `.codex/I-f1-003/codex_diff.patch` (canonical sha256 `8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da` — iter-2 fixes for diff iter-1 P1s)
+outputs\audits\I-f1-002\claude_audit.md:5:**Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+outputs\audits\I-f1-001\claude_audit.md:5:**Diff:** `.codex/I-f1-001/codex_diff.patch` (canonical sha256 `cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f`)
+.codex\pr_e_open_issues_review_brief.md:153:   - `.codex/<issue_id>/codex_diff.patch` (with canonical-diff-sha256 trailer)
+.codex\pr_d_mechanical_gates_review_brief.md:74:  - **Phase-1 isolation requirements (6 items)** — what's active in PR-D right now: CODEOWNERS protection, branch protection, admin-merge revocation, plan-file lock, canonical-diff-sha256 binding (PR-D iter 3 fix).
+.codex\pr_d_mechanical_gates_review_brief.md:76:  - **Phase-1 mitigates Phase-2 absence** via 3 explicit defenses: user `git log` morning review, CODEOWNER review on `.github/`, canonical-diff-sha256 binding prevents code-vs-approved-patch divergence even if verdict file is forged.
+.codex\pr_d_mechanical_gates_review_brief.md:134:- **PRD4-P2-001 FIXED — issue_breakdown.md §35 halt-condition list synchronized.** Old: `{brief.md, codex_brief_verdict.txt, codex_diff_audit.txt, decision.md}`. New: `{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}`. Note added explaining the iter-pre-PR-D draft `decision.md` was superseded.
+.codex\pr_d_mechanical_gates_review_brief.md:137:  - Lines 773-778 (artifact list): rewrote to drop "OR codex-written diff" disjunction, name codex_diff.patch as the canonical artifact, mention the `# canonical-diff-sha256` trailer convention, and reference the PR-D-installed CI workflow.
+.codex\pr_d_mechanical_gates_review_brief.md:140:- **PRD4-P2-003 ACKNOWLEDGED — Phase-1 residual risk on Codex-approved-hash binding.** Workflow checks `actual_hash == declared_hash`; doesn't independently verify Codex APPROVE'd that exact declared hash. Mitigation today = Codex review reads codex_diff.patch (which contains the trailer) so APPROVE binds to both code AND trailer atomically. Phase-2 hardening (post-PR-F) = Codex emits the hash IT approved in codex_diff_audit.txt and workflow cross-checks. Acknowledged Phase-1 limitation, not blocking. Documented in workflow comment + plan §10.1 forward-pointer text.
+.codex\pr_d_mechanical_gates_review_brief.md:158:3. **PRD4-P2-001 closure:** open `state/polaris_restart/issue_breakdown.md:1351` (post-iter-4 edit). Confirm `decision.md` removed; `codex_diff.patch` present.
+.codex\pr_d_mechanical_gates_review_brief.md:160:4. **PRD4-P2-002 closure:** open `state/polaris_restart/plan.md:773-783` (5-artifact list area). Confirm canonical-diff-sha256 trailer mentioned. Open `state/polaris_restart/plan.md:922-960` (§10.1 area). Confirm pseudo-workflow snippet gone, forward-pointer + 7-bullet hardening summary present.
+.codex\pr_d_mechanical_gates_review_brief.md:182:- **PRD3-P1-001 FIXED — codex_diff.patch bound to actual PR diff via sha256 trailer.** `verify_codex_artifacts` step in `codex-required.yml` now:
+.codex\pr_d_mechanical_gates_review_brief.md:184:  2. SHA-256s the canonical diff.
+.codex\pr_d_mechanical_gates_review_brief.md:185:  3. Greps the codex_diff.patch for trailer line `# canonical-diff-sha256: <64-hex>` and extracts the declared hash.
+.codex\pr_d_mechanical_gates_review_brief.md:188:  - Convention added to brief: Claude commits `# canonical-diff-sha256: <hash>` line in codex_diff.patch BEFORE submitting it to Codex. Codex APPROVE then binds to that specific hash. Any post-APPROVE code change to the PR (additions, fixes, even comment-only) changes the canonical-diff hash and forces a re-review.
+.codex\pr_d_mechanical_gates_review_brief.md:193:  - `.codex/<id>/codex_diff.patch` (with canonical-diff-sha256 trailer per PRD3-P1-001)
+.codex\pr_d_mechanical_gates_review_brief.md:202:.github/workflows/codex-required.yml             (UPDATED — diff-binding via canonical-diff-sha256 + tightened issue_id regex + fetch-depth 0)
+.codex\pr_d_mechanical_gates_review_brief.md:220:3. **PRD3-P2-001 closure:** open `state/polaris_restart/issue_breakdown.md:89-99`. Verify the §3 5-artifact list now matches CLAUDE.md / plan.md exactly (no `decision.md`; instead `codex_diff.patch` with canonical-diff-sha256 trailer note).
+.codex\pr_d_mechanical_gates_review_brief.md:222:4. **Convention dependency on Claude self-discipline:** the canonical-diff-sha256 trailer is Claude-emitted. A malicious Claude could:
+.codex\pr_d_mechanical_gates_review_brief.md:223:   - Compute the trailer hash AFTER submitting to Codex but before the workflow runs (race). Mitigation: Claude commits the trailer FIRST, then `codex exec --skip-git-repo-check` reads the diff (with trailer) and emits APPROVE on it. The codex_diff.patch is committed as one atomic unit to the PR. If Claude updates the patch post-Codex-APPROVE, the verdict file's APPROVE no longer binds to it — but the workflow still passes because verdict file says APPROVE and trailer matches diff. **This is a real residual risk:** Codex must review codex_diff.patch INCLUDING its trailer line, so the APPROVE binds to BOTH the code-change-diff AND the declared sha256. If Claude post-edits the trailer to match a different actual diff, the trailer's value changes → Codex's APPROVE was for a different patch byte-for-byte → Codex's APPROVE no longer applies. Operationally: the workflow only verifies `actual_hash == declared_hash`, not that Codex APPROVE'd the specific declared hash. Phase-2 hardening would have Codex output the hash IT approved (in codex_diff_audit.txt) and the workflow cross-check. Acknowledged Phase-1 limitation; user reads `git log` morning catches forgery.
+.codex\pr_d_mechanical_gates_review_brief.md:309:- **PR-D iter1 P1-001 FIXED — codex-required.yml now enforces FULL §3.0 5-artifact triple.** `verify_codex_artifacts` step (renamed from `verify_codex_verdicts`) now requires ALL 5 mandatory artifacts to exist before checking verdict APPROVE: `.codex/<id>/brief.md`, `.codex/<id>/codex_brief_verdict.txt`, `.codex/<id>/codex_diff.patch`, `.codex/<id>/codex_diff_audit.txt`, `outputs/audits/<id>/claude_audit.md`. A bot PR with only the 2 verdict files now fails the gate with explicit "missing X" error per CLAUDE.md §3.0 contract.
+rg: outputs\codex_pytest_base: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m3v2\pytest-of-msn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\md10: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m9\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-trpp2lhz: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-z3ditaf2: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\run1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-hf82j1ev: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-nkj6x505: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_fullwipe_23n0qna8: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_wl9o43lv: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_router: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_target: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-awr1k0_j: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-g693n1fn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-lcz1hd3_: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-o49ruyzk: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v2_review\basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_temp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp_pass5_20260423_1: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\pytest_tmp\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 1108ms:
+state\polaris_restart\plan.md:415:Step 6.  Codex emits diff + .codex/I-X-NNN/codex_diff.patch
+state\polaris_restart\plan.md:421:Step 12. PR opens with .codex/I-X-NNN/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt} + outputs/audits/I-X-NNN/claude_audit.md
+state\polaris_restart\plan.md:777:- .codex/<issue_id>/codex_diff.patch (Claude-written canonical PR diff with
+state\polaris_restart\plan.md:778:  `# canonical-diff-sha256: <64-hex>` trailer that CI binds to the actual
+state\polaris_restart\plan.md:905:6. `codex_diff.patch` carries a `# canonical-diff-sha256: <64-hex>` trailer that the workflow binds to the actual PR diff via sha256 (PR-D iter 3 PRD3-P1-001 fix). Closes the gap where Codex APPROVE on patch-A could cover code-B.
+state\polaris_restart\plan.md:912:Phase-1 mitigates phase-2 absence via: (a) user reads `git log` morning per §7.B B1 = after-the-fact human-at-merge surface that catches forged verdict files, (b) CODEOWNER review on every PR touching `.github/`, (c) canonical-diff-sha256 binding (#6 above) prevents code-vs-approved-patch divergence even if the verdict file is forged. PR-D acknowledges this trade-off; Phase-2 hardening tracked as post-PR-F follow-up.
+state\polaris_restart\plan.md:938:  (brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt,
+state\polaris_restart\plan.md:948:- **PR-D iter 3 PRD3-P1-001** — binds `codex_diff.patch` to actual PR
+state\polaris_restart\plan.md:951:  hashes it, and requires codex_diff.patch to declare a matching
+state\polaris_restart\plan.md:952:  `# canonical-diff-sha256: <64-hex>` trailer line. Closes the gap where
+state\polaris_restart\iteration_trajectory.md:94:**Diff iter 3** (in flight, `codex_diff_audit_iter3.txt`): one-line `requirements.txt` addition `redis>=4.0,<8.0` (matches dramatiq's `[redis]` extras pin). 13/13 tests still PASS in 2.29s. App import verified: `RedisBroker` returned + no ImportError. Brief addresses each P2 with classification (Codex iter-2 accepted P2-I2-001 already; P2-I2-002 already classified out-of-scope; P2-I2-003/4/5 → P3 follow-up). New canonical-diff-sha256: `fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25`. Total +348/-33 = +315 net.
+state\polaris_restart\issue_breakdown.md:95:- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; binds to actual PR diff via PR-D `codex-required.yml` content-hash check per PRD3-P1-001 fix)
+state\polaris_restart\issue_breakdown.md:96:- `.codex/<issue_id>/codex_diff_audit.txt` (Codex APPROVE — Red-Team checklist on codex_diff.patch)
+state\polaris_restart\issue_breakdown.md:1351:- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
+state\restart_instructions.md:36:- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` AND `.codex/<issue_id>/codex_diff.patch` AND `outputs/audits/<issue_id>/claude_audit.md`.
+state\restart_instructions.md:43:- `.codex/<issue_id>/codex_diff.patch`
+.codex\I-policy-001\diff_review_brief.md:30:- .codex/I-policy-001/* (review artifacts; excluded from canonical diff)
+.codex\I-policy-001\diff_review_brief.md:31:- outputs/audits/I-policy-001/claude_audit.md (excluded from canonical diff)
+.codex\I-policy-001\diff_review_brief.md:52:5. **`canonical-diff-sha256` trailer correctness.** `b97692b7118c5c66336474e9f269cf90dc217ea16d950e9412fb7605b396e095` produced via `git diff --cached -- ":(exclude).codex/I-policy-001/" ":(exclude)outputs/audits/I-policy-001/"`. CI gate parses `codex_diff.patch` for `^# canonical-diff-sha256: [a-f0-9]{64}$`.
+.codex\I-phase0-005\diff_review_brief_iter3.md:81:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` trailer
+.codex\I-phase0-005\diff_review_brief_iter2.md:84:- `.codex/I-phase0-005/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\I-phase0-005\diff_review_brief_iter2.md:106:4. **`canonical-diff-sha256` trailer.** Trailer `a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` produced via `git diff --cached -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"`. Workflow extracts the hash via `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+.codex\I-phase0-005\diff_review_brief.md:13:- `.codex/I-phase0-005/codex_diff.patch` — the canonical PR diff with `# canonical-diff-sha256: a363def93a144c23a72766c5f325a7ff3bc8eb850bb1c9b16b95b26908c94b3c` trailer
+.codex\I-phase0-005\diff_review_brief.md:46:4. **`canonical-diff-sha256` trailer correctness.** Trailer is appended AFTER the patch body. Workflow's `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'` extracts the hash. Verify: open the patch file, locate the trailer at line 477-ish, confirm 64-hex value matches what `git diff base...head -- ":(exclude).codex/I-phase0-005/" ":(exclude)outputs/audits/I-phase0-005/"` would produce on the actual PR.
+.codex\I-f1-004\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-004/codex_diff.patch` (canonical sha256 `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d`)
+.codex\I-f1-004\diff_review_brief.md:48:8. **`canonical-diff-sha256` trailer correctness.** `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d` produced via `git diff --cached -- :(exclude).codex/I-f1-004/ :(exclude)outputs/audits/I-f1-004/`.
+.codex\I-phase0-005\brief.md:122:- `.codex/I-phase0-005/codex_diff.patch` (Claude-written diff with `# canonical-diff-sha256: <64-hex>` trailer)
+.codex\I-f1-005\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+.codex\I-f1-005\diff_review_brief.md:40:6. **`canonical-diff-sha256` correctness.** `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`.
+.codex\I-f1-003\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-003/codex_diff.patch` (canonical sha256 `8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da` — iter-2 fixes for diff iter-1 P1s)
+.codex\I-f1-003\diff_review_brief.md:50:6. **`canonical-diff-sha256` trailer correctness.** `bf9321ce7b7523893c3747b99619a35e29d3e4b000c1f8d5fe2dec8e95f42648` produced via `git diff --cached -- :(exclude).codex/I-f1-003/ :(exclude)outputs/audits/I-f1-003/`.
+.codex\I-f1-002\diff_review_brief.md:15:- **Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+.codex\I-f1-002\diff_review_brief.md:24:## Files (4 in canonical diff, +198 net)
+.codex\I-f1-002\diff_review_brief.md:53:9. **`canonical-diff-sha256` trailer correctness.** `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e` produced via `git diff --cached -- :(exclude).codex/I-f1-002/ :(exclude)outputs/audits/I-f1-002/`.
+.codex\I-f1-001\diff_review_brief.md:24:- `.codex/I-f1-001/codex_diff.patch` — canonical PR diff with `# canonical-diff-sha256: cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f` trailer
+.codex\I-f1-001\diff_review_brief.md:57:9. **`canonical-diff-sha256` trailer correctness** — `cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f` produced via `git diff --cached -- ":(exclude).codex/I-f1-001/" ":(exclude)outputs/audits/I-f1-001/"`. CI's extraction: `grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' | tail -1 | awk '{print $3}'`.
+outputs\audits\I-phase0-005\claude_audit.md:5:**Diff:** `.codex/I-phase0-005/codex_diff.patch` (canonical sha256 `fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25` — iter-3 after Codex iter-2 P1-I2-001 fix)
+outputs\audits\I-f1-005\claude_audit.md:5:**Diff:** `.codex/I-f1-005/codex_diff.patch` (canonical sha256 `e2e629497e74ef0f613a1e3fce140367d5015938fe082d7248d842ada71f6a9a`)
+outputs\audits\I-f1-004\claude_audit.md:5:**Diff:** `.codex/I-f1-004/codex_diff.patch` (canonical sha256 `75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d`)
+outputs\audits\I-f1-003\claude_audit.md:5:**Diff:** `.codex/I-f1-003/codex_diff.patch` (canonical sha256 `8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da` — iter-2 fixes for diff iter-1 P1s)
+outputs\audits\I-f1-002\claude_audit.md:5:**Diff:** `.codex/I-f1-002/codex_diff.patch` (canonical sha256 `c91934f09869cc4b628ab1698f6de234b92da03300f59e5dcb71efb36feedb5e`)
+outputs\audits\I-f1-001\claude_audit.md:5:**Diff:** `.codex/I-f1-001/codex_diff.patch` (canonical sha256 `cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f`)
+.codex\pr_e_open_issues_review_brief.md:153:   - `.codex/<issue_id>/codex_diff.patch` (with canonical-diff-sha256 trailer)
+.codex\pr_d_mechanical_gates_review_brief.md:74:  - **Phase-1 isolation requirements (6 items)** — what's active in PR-D right now: CODEOWNERS protection, branch protection, admin-merge revocation, plan-file lock, canonical-diff-sha256 binding (PR-D iter 3 fix).
+.codex\pr_d_mechanical_gates_review_brief.md:76:  - **Phase-1 mitigates Phase-2 absence** via 3 explicit defenses: user `git log` morning review, CODEOWNER review on `.github/`, canonical-diff-sha256 binding prevents code-vs-approved-patch divergence even if verdict file is forged.
+.codex\pr_d_mechanical_gates_review_brief.md:134:- **PRD4-P2-001 FIXED — issue_breakdown.md §35 halt-condition list synchronized.** Old: `{brief.md, codex_brief_verdict.txt, codex_diff_audit.txt, decision.md}`. New: `{brief.md, codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}`. Note added explaining the iter-pre-PR-D draft `decision.md` was superseded.
+.codex\pr_d_mechanical_gates_review_brief.md:137:  - Lines 773-778 (artifact list): rewrote to drop "OR codex-written diff" disjunction, name codex_diff.patch as the canonical artifact, mention the `# canonical-diff-sha256` trailer convention, and reference the PR-D-installed CI workflow.
+.codex\pr_d_mechanical_gates_review_brief.md:140:- **PRD4-P2-003 ACKNOWLEDGED — Phase-1 residual risk on Codex-approved-hash binding.** Workflow checks `actual_hash == declared_hash`; doesn't independently verify Codex APPROVE'd that exact declared hash. Mitigation today = Codex review reads codex_diff.patch (which contains the trailer) so APPROVE binds to both code AND trailer atomically. Phase-2 hardening (post-PR-F) = Codex emits the hash IT approved in codex_diff_audit.txt and workflow cross-checks. Acknowledged Phase-1 limitation, not blocking. Documented in workflow comment + plan §10.1 forward-pointer text.
+.codex\pr_d_mechanical_gates_review_brief.md:158:3. **PRD4-P2-001 closure:** open `state/polaris_restart/issue_breakdown.md:1351` (post-iter-4 edit). Confirm `decision.md` removed; `codex_diff.patch` present.
+.codex\pr_d_mechanical_gates_review_brief.md:160:4. **PRD4-P2-002 closure:** open `state/polaris_restart/plan.md:773-783` (5-artifact list area). Confirm canonical-diff-sha256 trailer mentioned. Open `state/polaris_restart/plan.md:922-960` (§10.1 area). Confirm pseudo-workflow snippet gone, forward-pointer + 7-bullet hardening summary present.
+.codex\pr_d_mechanical_gates_review_brief.md:182:- **PRD3-P1-001 FIXED — codex_diff.patch bound to actual PR diff via sha256 trailer.** `verify_codex_artifacts` step in `codex-required.yml` now:
+.codex\pr_d_mechanical_gates_review_brief.md:184:  2. SHA-256s the canonical diff.
+.codex\pr_d_mechanical_gates_review_brief.md:185:  3. Greps the codex_diff.patch for trailer line `# canonical-diff-sha256: <64-hex>` and extracts the declared hash.
+.codex\pr_d_mechanical_gates_review_brief.md:188:  - Convention added to brief: Claude commits `# canonical-diff-sha256: <hash>` line in codex_diff.patch BEFORE submitting it to Codex. Codex APPROVE then binds to that specific hash. Any post-APPROVE code change to the PR (additions, fixes, even comment-only) changes the canonical-diff hash and forces a re-review.
+.codex\pr_d_mechanical_gates_review_brief.md:193:  - `.codex/<id>/codex_diff.patch` (with canonical-diff-sha256 trailer per PRD3-P1-001)
+.codex\pr_d_mechanical_gates_review_brief.md:202:.github/workflows/codex-required.yml             (UPDATED — diff-binding via canonical-diff-sha256 + tightened issue_id regex + fetch-depth 0)
+.codex\pr_d_mechanical_gates_review_brief.md:220:3. **PRD3-P2-001 closure:** open `state/polaris_restart/issue_breakdown.md:89-99`. Verify the §3 5-artifact list now matches CLAUDE.md / plan.md exactly (no `decision.md`; instead `codex_diff.patch` with canonical-diff-sha256 trailer note).
+.codex\pr_d_mechanical_gates_review_brief.md:222:4. **Convention dependency on Claude self-discipline:** the canonical-diff-sha256 trailer is Claude-emitted. A malicious Claude could:
+.codex\pr_d_mechanical_gates_review_brief.md:223:   - Compute the trailer hash AFTER submitting to Codex but before the workflow runs (race). Mitigation: Claude commits the trailer FIRST, then `codex exec --skip-git-repo-check` reads the diff (with trailer) and emits APPROVE on it. The codex_diff.patch is committed as one atomic unit to the PR. If Claude updates the patch post-Codex-APPROVE, the verdict file's APPROVE no longer binds to it — but the workflow still passes because verdict file says APPROVE and trailer matches diff. **This is a real residual risk:** Codex must review codex_diff.patch INCLUDING its trailer line, so the APPROVE binds to BOTH the code-change-diff AND the declared sha256. If Claude post-edits the trailer to match a different actual diff, the trailer's value changes → Codex's APPROVE was for a different patch byte-for-byte → Codex's APPROVE no longer applies. Operationally: the workflow only verifies `actual_hash == declared_hash`, not that Codex APPROVE'd the specific declared hash. Phase-2 hardening would have Codex output the hash IT approved (in codex_diff_audit.txt) and the workflow cross-check. Acknowledged Phase-1 limitation; user reads `git log` morning catches forgery.
+.codex\pr_d_mechanical_gates_review_brief.md:309:- **PR-D iter1 P1-001 FIXED — codex-required.yml now enforces FULL §3.0 5-artifact triple.** `verify_codex_artifacts` step (renamed from `verify_codex_verdicts`) now requires ALL 5 mandatory artifacts to exist before checking verdict APPROVE: `.codex/<id>/brief.md`, `.codex/<id>/codex_brief_verdict.txt`, `.codex/<id>/codex_diff.patch`, `.codex/<id>/codex_diff_audit.txt`, `outputs/audits/<id>/claude_audit.md`. A bot PR with only the 2 verdict files now fails the gate with explicit "missing X" error per CLAUDE.md §3.0 contract.
+rg: outputs\codex_pytest_base: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m3v2\pytest-of-msn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\md10: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest_m9\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-trpp2lhz: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-z3ditaf2: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review_loop\run1: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-hf82j1ev: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-nkj6x505: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_fullwipe_23n0qna8: Access is denied. (os error 5)
+rg: outputs\m26_doc_review_wl9o43lv: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_router: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\basetemp_target: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-awr1k0_j: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-g693n1fn: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-lcz1hd3_: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-o49ruyzk: Access is denied. (os error 5)
+rg: outputs\codex_tmp_pytest\m8_v2_review\basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\pytest_temp: Access is denied. (os error 5)
+rg: outputs\pytest_tmp_pass5_20260423_1: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\pytest_tmp\basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ succeeded in 1120ms:
+"use client";
+
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type RefObject } from "react";
+
+import { cn } from "@/lib/utils";
+
+type Template = {
+  id: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
+};
+
+type CommandPaletteProps = {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  templates: Template[];
+  signInLinkRef: RefObject<HTMLAnchorElement | null>;
+};
+
+const SYNONYMS: Record<string, string> = {
+  tirzepatide: "clinical",
+  ozempic: "clinical",
+  semaglutide: "clinical",
+  mounjaro: "clinical",
+};
+
+function score_template(t: Template, q: string): number {
+  if (!q) return 1; // empty search: equal score so all items render in original order
+  const ql = q.toLowerCase();
+  let s = 0;
+  if (t.id.toLowerCase() === ql) s += 100;
+  if (t.name.toLowerCase() === ql) s += 50;
+  if (t.name.toLowerCase().includes(ql)) s += 30;
+  if (t.summary.toLowerCase().includes(ql)) s += 10;
+  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
+  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
+  if (SYNONYMS[ql] === t.id) s += 60;
+  return s;
+}
+
+export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+  const router = useRouter();
+  const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
+  const [active_index, set_active_index] = useState(0);
+
+  useEffect(() => {
+    // Both debounced_search and active_index update in the timeout
+    // callback — async, not synchronous setState-in-effect. New query
+    // pre-selects the top-scored result.
+    const t = setTimeout(() => {
+      set_debounced_search(search);
+      set_active_index(0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const scored = templates
+    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+    .filter(({ s }) => s > 0)
+    .sort((a, b) => b.s - a.s)
+    .map(({ t }) => t);
+
+  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
+
+  function handle_key(event: React.KeyboardEvent) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      set_active_index((p) => Math.max(p - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const tpl = scored[clamped];
+      if (tpl?.active) {
+        router.push(`/intake?template=${tpl.id}`);
+        onOpenChange(false);
+      }
+    }
+  }
+
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) requestAnimationFrame(() => signInLinkRef.current?.focus());
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/20" />
+        <DialogPrimitive.Popup
+          data-testid="command-palette"
+          onKeyDown={handle_key}
+          className="bg-popover text-popover-foreground fixed top-1/4 left-1/2 z-50 flex w-full max-w-xl -translate-x-1/2 flex-col gap-2 rounded-xl border p-4 shadow-lg"
+        >
+          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
+          <input
+            data-testid="command-palette-input"
+            autoFocus
+            value={search}
+            onChange={(e) => set_search(e.target.value)}
+            placeholder="Search templates..."
+            className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          />
+          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+            {scored.map((t, i) => (
+              <li
+                key={t.id}
+                role="option"
+                aria-selected={i === clamped}
+                data-testid={`palette-item-${t.id}`}
+                data-active={i === clamped ? "true" : undefined}
+                aria-disabled={!t.active || undefined}
+                className={cn("rounded-md px-3 py-2 text-sm", i === clamped && "bg-accent", !t.active && "text-muted-foreground")}
+              >
+                <span className="font-medium">{t.name}</span>
+                {!t.active ? <span className="ml-2 text-xs uppercase">(coming soon)</span> : null}
+              </li>
+            ))}
+          </ul>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+ succeeded in 1214ms:
+M  web/app/components/command_palette.tsx
+A  web/tests/e2e/f1_a11y.spec.ts
+?? .claude/hooks/__pycache__/
+?? .codex/I-f1-005/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/I-f1-005/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+?? web/.tmp_screenshots/
+?? web/test-results/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Command sha256sum -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --numstat -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --name-only -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/audits/I-f1-005/"' in C:\POLARIS
+ succeeded in 1287ms:
+3	1	web/app/components/command_palette.tsx
+44	0	web/tests/e2e/f1_a11y.spec.ts
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1358ms:
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+index d79d526..448278e 100644
+--- a/web/app/components/command_palette.tsx
++++ b/web/app/components/command_palette.tsx
+@@ -109,10 +109,12 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+             placeholder="Search templates..."
+             className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+           />
+-          <ul className="max-h-80 overflow-y-auto" role="listbox">
++          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
+             {scored.map((t, i) => (
+               <li
+                 key={t.id}
++                role="option"
++                aria-selected={i === clamped}
+                 data-testid={`palette-item-${t.id}`}
+                 data-active={i === clamped ? "true" : undefined}
+                 aria-disabled={!t.active || undefined}
+diff --git a/web/tests/e2e/f1_a11y.spec.ts b/web/tests/e2e/f1_a11y.spec.ts
+new file mode 100644
+index 0000000..7f61f9a
+--- /dev/null
++++ b/web/tests/e2e/f1_a11y.spec.ts
+@@ -0,0 +1,44 @@
++import AxeBuilder from "@axe-core/playwright";
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-f1-005 — F1 axe-core WCAG-AA compliance.
++ *
++ * Acceptance: zero serious/critical violations across F1 surfaces NOT
++ * already covered by landing_template_grid (closed palette) or
++ * accessibility (dashboard / inspector). Specifically:
++ *  - `/` with the command palette OPEN (Ctrl+K), backdrop + popup visible.
++ *  - `/intake?template=clinical` (target of F1 active cards).
++ */
++
++const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
++
++function critical_or_serious(v: { impact?: string | null }) {
++  return v.impact === "serious" || v.impact === "critical";
++}
++
++test.describe("F1 axe-core WCAG-AA — I-f1-005", () => {
++  test("/ with command palette OPEN is WCAG-AA clean", async ({ page }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    expect(results.violations.filter(critical_or_serious)).toEqual([]);
++  });
++
++  test("/intake?template=clinical initial render is WCAG-AA clean", async ({
++    page,
++  }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/intake?template=clinical", {
++      waitUntil: "domcontentloaded",
++    });
++    await expect(page.getByTestId("intake-page")).toBeVisible();
++
++    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
++    expect(results.violations.filter(critical_or_serious)).toEqual([]);
++  });
++});
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1439ms:
+C:\Program Files\Git\usr\bin\sha256sum.exe
+
+ succeeded in 1431ms:
+web/app/components/command_palette.tsx
+web/tests/e2e/f1_a11y.spec.ts
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/audits/I-f1-005/" | sha256sum' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts | sha256sum' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .github/workflows/codex-required.yml -ErrorAction SilentlyContinue' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --check -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts' in C:\POLARIS
+2026-05-06T18:54:39.090854Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+      0 [main] sha256sum (2316) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --cached -- web/app/components/command_palette.tsx web/tests[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --cached -- web/app/components/command_palette.tsx web/tests …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 1139ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+      0 [main] sha256sum (2316) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --cached -- web/app/components/command_palette.tsx web/tests[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --cached -- web/app/components/command_palette.tsx web/tests …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ succeeded in 1094ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1255ms:
+name: codex-required
+# Per polaris-restart Plan section 10.1 + section 10.0 Codex isolation invariant.
+# Required-status-check that gates `gh pr merge` for `bot/<issue_id>` PRs.
+# Verifies the full §3.0 5-artifact triple is present and BOTH Codex
+# verdicts (brief + diff) end with `verdict: APPROVE` as the FINAL verdict
+# (not an arbitrary transcript line).
+#
+# Hardening notes (per PR-D iter 2 fixes):
+# - PR-controlled head ref is passed via `env:` and validated against a
+#   narrow safe regex BEFORE being used in bash; never interpolated as
+#   `${{ ... }}` directly into shell source (PRD2-P1-002, P1-003).
+# - Verdict files must declare a final verdict block at the END of the
+#   artifact (PRD2-P1-001) so transcript prompt text containing the literal
+#   string "verdict: APPROVE" cannot fool the gate. The convention is:
+#   the LAST `verdict: APPROVE` or `verdict: REQUEST_CHANGES` line in the
+#   file is treated as authoritative.
+#
+# Phase-2 hardening (post-PR-F, separate work): self-hosted runner with
+# mounted `~/.codex/auth.json` so `codex exec` runs ON THE RUNNER per
+# §10.0 line 898. Until then, this workflow parses verdict files committed
+# by Claude; user reads `git log` morning per §7.B B1 as after-the-fact
+# review surface.
+
+on:
+  pull_request:
+    branches: [polaris, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  codex-required:
+    runs-on: ubuntu-latest
+    env:
+      # PR-D iter 2 PRD2-P1-002 fix: PR-controlled value passed via env,
+      # not interpolated directly into shell source. Branch names can
+      # contain `$()`, quotes, semicolons, etc.
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR-D iter 3 PRD3-P1-001 fix: full history needed for `git diff
+          # base...head` to compute canonical PR diff and bind to
+          # codex_diff.patch.
+          fetch-depth: 0
+
+      - name: extract_and_validate_issue_id
+        id: issue
+        run: |
+          set -euo pipefail
+          # Bot-PR head refs follow `bot/<issue_id>` per plan §3.0 + §7.A
+          # LOCKED A2. Cleanup-PR-* and other infrastructure PRs are not
+          # gated by codex-required (they have their own review trail).
+          #
+          # PR-D iter 2 PRD2-P1-002 fix: read $HEAD_REF from env, validate
+          # against a narrow safe regex, reject if it doesn't match.
+          # PR-D iter 3 PRD3-P2-002 fix: tightened regex to canonical
+          # issue_breakdown.md schema `^I-[a-z0-9]{2,8}-[0-9]{3}`.
+          # PR-D iter 4 PRD4-P1-001 fix: capture ONLY the base issue ID
+          # (group 1). Optional descriptive slug after `-<NAME>` is
+          # accepted in the head ref but DROPPED from issue_id, because
+          # issue_breakdown.md §3 + §35 require the literal base ID for
+          # artifact paths (e.g. `.codex/I-f1-001/`, NOT
+          # `.codex/I-f1-001-scope-discovery/`).
+          # PR-D iter 5 PRD5-P1-001 + iter 6 PRD6-P1-001 fix: explicit
+          # infra-branch allowlist with EXACT enumeration of canonical
+          # restart-sequence + cleanup-PR ids. PR-D itself
+          # (`bot/pr-d-mechanical-gates`) and other infra branches SKIP
+          # the gate cleanly. Only canonical `bot/I-...` issue branches
+          # are gated.
+          # Examples that SKIP: `bot/pr-d-mechanical-gates`,
+          # `bot/cleanup-pr-3a-archive-m1m26`, `bot/pr-e`.
+          # Examples that GATE: `bot/I-f1-001`, `bot/I-f1-001-scope-discovery`,
+          # `bot/I-bug-079`, `bot/I-hand-003-final` -> issue_id =
+          # `I-f1-001`, `I-bug-079`, `I-hand-003`.
+          # Examples that REJECT (closed: branch-name bypass): `bot/pr-malicious`,
+          # `bot/setup-anything`, `bot/slice-foo`, `bot/cleanup-pr-9` (no canonical PR-9).
+          if [[ "$HEAD_REF" =~ ^bot/(I-[a-z0-9]{2,8}-[0-9]{3})(-[a-z0-9_-]+)?$ ]]; then
+            issue_id="${BASH_REMATCH[1]}"
+            printf 'issue_id=%s\n' "$issue_id" >> "$GITHUB_OUTPUT"
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+            echo "Validated bot-PR head ref: $HEAD_REF -> issue_id=$issue_id"
+          elif [[ "$HEAD_REF" =~ ^bot/(pr-(a|a2|a3|b|b2|c|d|e|f)|cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8))(-[a-z0-9_-]+)?$ ]]; then
+            # PR-D iter 6 PRD6-P1-001 fix: infra allowlist NARROWED to
+            # exact known PR letters / cleanup PR ids. Branch name bypass
+            # closed: `bot/pr-malicious`, `bot/setup-anything`, `bot/slice-foo`
+            # all FAIL CLOSED to the catch-all reject below.
+            #
+            # Infrastructure branches enumerated explicitly (per PR-A..PR-F
+            # restart sequence + Cleanup-PR-1..8 canonical 10-PR table):
+            #   - bot/pr-a, bot/pr-a2, bot/pr-a3 (restart plan, issue_breakdown, cleanup_audit)
+            #   - bot/pr-b, bot/pr-b2 (DNA doc substrate, polaris-controls relocation)
+            #   - bot/pr-c (cleanup execution wrapper)
+            #   - bot/pr-d (this PR — mechanical gates)
+            #   - bot/pr-e (open all GitHub Issues)
+            #   - bot/pr-f (execute Issue #1 — bridge to issue-driven flow)
+            #   - bot/cleanup-pr-1..8 (with 3a/3b/3c sub-PRs per iter-17 split)
+            #
+            # Optional descriptive `-<slug>` suffix accepted (e.g.
+            # `bot/pr-d-mechanical-gates`, `bot/cleanup-pr-3a-archive-m1m26`)
+            # but does not change the allowlist match.
+            #
+            # These infra branches follow their own review protocol (Codex
+            # review per their own brief like
+            # `.codex/pr_d_mechanical_gates_review_brief.md`, NOT the §3.0
+            # 5-artifact triple). Skip the codex-required gate.
+            echo "Infrastructure bot branch '$HEAD_REF' (PR-A..F or Cleanup-PR-1..8); skipping codex-required gate"
+            echo "       (review trail in .codex/<pr-name>_review_brief.md per PR-D iter 5/6 fix)"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            printf 'infra_branch=true\n' >> "$GITHUB_OUTPUT"
+          elif [[ "$HEAD_REF" == bot/* ]]; then
+            # Starts with bot/ but doesn't match canonical issue_id schema
+            # AND doesn't match the infra-branch allowlist. Reject explicitly
+            # to prevent malformed issue IDs sneaking through the gate.
+            echo "ERROR: head ref '$HEAD_REF' starts with bot/ but doesn't match"
+            echo "       (a) canonical issue schema 'I-[a-z0-9]{2,8}-[0-9]{3}[-<NAME>]'"
+            echo "           (per state/polaris_restart/issue_breakdown.md §3)"
+            echo "       OR (b) infra allowlist: bot/pr-(a|a2|a3|b|b2|c|d|e|f) or"
+            echo "          bot/cleanup-pr-(1|2|3a|3b|3c|4|5|6|7|8) [with optional -<slug>]"
+            echo "       Use one of the allowed branch-name patterns."
+            exit 1
+          else
+            echo "Non-bot PR (head ref does not start with bot/); skipping codex-required gate"
+            printf 'issue_id=\n' >> "$GITHUB_OUTPUT"
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: verify_codex_artifacts
+        if: steps.issue.outputs.skip != 'true'
+        env:
+          ISSUE_ID: ${{ steps.issue.outputs.issue_id }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # PR-D iter 1 P1-001 fix: require the FULL 5-artifact triple per
+        # CLAUDE.md §3.0 mandatory contract.
+        # PR-D iter 2 PRD2-P1-001 fix: parse the FINAL verdict line in
+        # each verdict file, not any matching line. Codex verdict
+        # transcripts include prompt text that may itself contain the
+        # literal string "verdict: APPROVE" (e.g., the brief schema block).
+        # The LAST verdict-line in the file is authoritative.
+        # PR-D iter 2 PRD2-P1-002 fix: ISSUE_ID also passed via env, validated
+        # by upstream regex; safe to use in pathspecs.
+        # PR-D iter 3 PRD3-P1-001 fix: BIND `codex_diff.patch` to the
+        # actual PR diff via sha256. Compute canonical PR diff (excluding
+        # review-artifact paths the gate itself accepts), hash it, and
+        # require codex_diff.patch to declare the matching hash via a
+        # `# canonical-diff-sha256: <64-hex>` trailer line. Without this
+        # binding, Codex APPROVE on codex_diff.patch could cover code
+        # different from what the PR actually contains.
+        run: |
+          set -euo pipefail
+          BRIEF=".codex/${ISSUE_ID}/brief.md"
+          BRIEF_VERDICT=".codex/${ISSUE_ID}/codex_brief_verdict.txt"
+          DIFF_PATCH=".codex/${ISSUE_ID}/codex_diff.patch"
+          DIFF_VERDICT=".codex/${ISSUE_ID}/codex_diff_audit.txt"
+          CLAUDE_AUDIT="outputs/audits/${ISSUE_ID}/claude_audit.md"
+
+          missing=0
+          for f in "$BRIEF" "$BRIEF_VERDICT" "$DIFF_PATCH" "$DIFF_VERDICT" "$CLAUDE_AUDIT"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: missing $f (CLAUDE.md §3.0 5-artifact triple)"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            exit 1
+          fi
+
+          # Parse FINAL verdict line (last `verdict: ...` line in file).
+          # Plan §7.C LOCKED C2: APPROVE means zero P0 AND zero P1.
+          # `grep` returns the last match via `tail -1`; `[[ "$x" = "verdict: APPROVE" ]]`
+          # ensures exact equality (not substring).
+          check_final_verdict() {
+            local file="$1"
+            local label="$2"
+            local final
+            final="$(grep -E '^verdict:[[:space:]]+(APPROVE|REQUEST_CHANGES)$' "$file" | tail -1 || true)"
+            if [ -z "$final" ]; then
+              echo "ERROR: $label ($file) contains no final verdict line ('verdict: APPROVE' or 'verdict: REQUEST_CHANGES')"
+              return 1
+            fi
+            if [ "$final" != "verdict: APPROVE" ]; then
+              echo "ERROR: $label ($file) final verdict is NOT APPROVE: $final"
+              return 1
+            fi
+            echo "OK: $label final verdict APPROVE"
+          }
+
+          check_final_verdict "$BRIEF_VERDICT" "brief"
+          check_final_verdict "$DIFF_VERDICT" "diff"
+
+          # PR-D iter 3 PRD3-P1-001 fix: bind codex_diff.patch to actual
+          # PR diff. Compute canonical PR diff EXCLUDING review-artifact
+          # paths (those are part of the PR but NOT what Codex reviewed
+          # as the "code change"):
+          #   - .codex/<ISSUE_ID>/**       (brief, verdicts, diff patch, audit)
+          #   - outputs/audits/<ISSUE_ID>/** (claude audit)
+          # Everything else in `git diff base...head` IS the code change
+          # Codex reviewed and must match the codex_diff.patch hash.
+          echo "Computing canonical PR diff base=$BASE_SHA head=$HEAD_SHA"
+          canonical_diff="$(mktemp)"
+          git diff "${BASE_SHA}...${HEAD_SHA}" -- \
+            ":(exclude).codex/${ISSUE_ID}/" \
+            ":(exclude)outputs/audits/${ISSUE_ID}/" \
+            > "$canonical_diff"
+
+          actual_hash="$(sha256sum "$canonical_diff" | awk '{print $1}')"
+          echo "Canonical PR diff sha256: $actual_hash"
+
+          # Codex-approved diff must declare its canonical hash via a
+          # trailer line `# canonical-diff-sha256: <64-hex>` ANYWHERE in
+          # codex_diff.patch. Convention: Claude appends this line as a
+          # patch comment after running `sha256sum` on the same canonical
+          # diff right before submitting to Codex review. The hash binds
+          # the Codex APPROVE to one specific code change.
+          declared_hash="$(grep -E '^# canonical-diff-sha256: [a-f0-9]{64}$' "$DIFF_PATCH" | tail -1 | awk '{print $3}' || true)"
+          if [ -z "$declared_hash" ]; then
+            echo "ERROR: $DIFF_PATCH has no '# canonical-diff-sha256: <64-hex>' trailer line"
+            echo "       Required by PR-D iter 3 PRD3-P1-001 fix to bind Codex APPROVE"
+            echo "       to a specific code change (otherwise approved patch and actual"
+            echo "       PR diff can diverge silently)."
+            exit 1
+          fi
+
+          if [ "$actual_hash" != "$declared_hash" ]; then
+            echo "ERROR: PR diff hash mismatch — codex_diff.patch was approved for a"
+            echo "       different code change than the actual PR contains."
+            echo "  declared (in codex_diff.patch trailer): $declared_hash"
+            echo "  actual (current canonical PR diff):     $actual_hash"
+            echo "Either re-run Codex review on the current PR diff and update the"
+            echo "trailer with the new hash, or revert the un-reviewed code changes."
+            exit 1
+          fi
+
+          echo "OK: 5-artifact triple present, both Codex final verdicts APPROVE,"
+          echo "    and codex_diff.patch hash matches actual PR diff for $ISSUE_ID"
+
+      - name: skip_summary
+        if: steps.issue.outputs.skip == 'true'
+        env:
+          IS_INFRA: ${{ steps.issue.outputs.infra_branch }}
+          HEAD_REF_FOR_LOG: ${{ github.event.pull_request.head.ref }}
+        # PR-D iter 6 PRD6-P2-001 fix: distinguish infra-branch skip from
+        # non-bot skip in audit log. Earlier wording always said "PR head
+        # ref does not start with bot/" even when an infra bot/* branch
+        # had matched the allowlist.
+        run: |
+          if [ "${IS_INFRA:-false}" = "true" ]; then
+            echo "codex-required: skipped (infra branch '$HEAD_REF_FOR_LOG' on PR-A..F or Cleanup-PR-1..8 allowlist; uses its own review trail in .codex/<pr-name>_review_brief.md)"
+          else
+            echo "codex-required: skipped (non-bot PR head ref '$HEAD_REF_FOR_LOG'; not gated by §3.0 issue-driven workflow)"
+          fi
+
+2026-05-06T18:54:39.265716Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+      0 [main] sha256sum (23484) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --cached -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --cached -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/ …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+ exited 1 in 1318ms:
+      0 [main] sha256sum (23484) C:\Program Files\Git\usr\bin\sha256sum.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+[31;1mResourceUnavailable: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mgit diff --cached -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mProgram 'git.exe' failed to run: The pipe is being closed.At line:2 char:1[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ git diff --cached -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/ …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1m+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.[0m
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --output=C:/tmp/I-f1-005-canonical.diff -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/audits/I-f1-005/"; Get-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-canonical.diff | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --output=C:/tmp/I-f1-005-files.diff -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts; Get-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-files.diff | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content C:/tmp/I-f1-005-canonical.diff -ErrorAction SilentlyContinue' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Compare-Object -ReferenceObject (Get-Content C:/tmp/I-f1-005-files.diff) -DifferenceObject (Get-Content .codex/I-f1-005/codex_diff.patch)' in C:\POLARIS
+2026-05-06T18:54:52.794648Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+
+ exited 1 in 1017ms:
+2026-05-06T18:54:52.909177Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+fatal: could not open 'C:/tmp/I-f1-005-files.diff' for writing: Permission denied
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … 1y.spec.ts; [36;1mGet-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-files.diff[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-files.diff' because it does not exist.[0m
+
+ exited 1 in 1128ms:
+fatal: could not open 'C:/tmp/I-f1-005-files.diff' for writing: Permission denied
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … 1y.spec.ts; [36;1mGet-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-files.diff[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-files.diff' because it does not exist.[0m
+
+2026-05-06T18:54:53.007141Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.2 seconds
+Output:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ject -ReferenceObject ([36;1mGet-Content C:/tmp/I-f1-005-files.diff[0m) -Diffe …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-files.diff' because it does not exist.[0m
+[31;1mCompare-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ect -ReferenceObject [36;1m(Get-Content C:/tmp/I-f1-005-files.diff)[0m -Differ …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind argument to parameter 'ReferenceObject' because it is null.[0m
+
+ exited 1 in 1195ms:
+[31;1mGet-Content: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ject -ReferenceObject ([36;1mGet-Content C:/tmp/I-f1-005-files.diff[0m) -Diffe …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-files.diff' because it does not exist.[0m
+[31;1mCompare-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … ect -ReferenceObject [36;1m(Get-Content C:/tmp/I-f1-005-files.diff)[0m -Differ …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot bind argument to parameter 'ReferenceObject' because it is null.[0m
+
+2026-05-06T18:54:53.070199Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+fatal: could not open 'C:/tmp/I-f1-005-canonical.diff' for writing: Permission denied
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … I-f1-005/"; [36;1mGet-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-canonical.[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-canonical.diff' because it does not exist.[0m
+
+ exited 1 in 1292ms:
+fatal: could not open 'C:/tmp/I-f1-005-canonical.diff' for writing: Permission denied
+[31;1mGet-FileHash: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m … I-f1-005/"; [36;1mGet-FileHash -Algorithm SHA256 C:/tmp/I-f1-005-canonical.[0m …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mCannot find path 'C:\tmp\I-f1-005-canonical.diff' because it does not exist.[0m
+
+codex
+The workflow confirms the trailer is supposed to equal the hash of `git diff base...head`/`git diff --cached` excluding the issue artifacts, not the patch file’s own bytes. My temp write to `C:\tmp` was denied, so I’m using the workspace temp area to compute that exact hash.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (!(Test-Path .tmp)) { New-Item -ItemType Directory .tmp | Out-Null }; git diff --cached --output=.tmp/I-f1-005-canonical.diff -- ":(exclude).codex/I-f1-005/" ":(exclude)outputs/audits/I-f1-005/"; Get-FileHash -Algorithm SHA256 .tmp/I-f1-005-canonical.diff | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'if (!(Test-Path .tmp)) { New-Item -ItemType Directory .tmp | Out-Null }; git diff --cached --output=.tmp/I-f1-005-files.diff -- web/app/components/command_palette.tsx web/tests/e2e/f1_a11y.spec.ts; Get-FileHash -Algorithm SHA256 .tmp/I-f1-005-files.diff | Format-List' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-f1-003/codex_diff.patch | Select-Object -Last 5' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-f1-004/codex_diff.patch | Select-Object -Last 5' in C:\POLARIS
+ succeeded in 1145ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0mE2E629497E74EF0F613A1E3FCE140367D5015938FE082D7248D842ADA71F6A9A
+[32;1mPath      : [0mC:\POLARIS\.tmp\I-f1-005-files.diff
+
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1195ms:
+
+[32;1mAlgorithm : [0mSHA256
+[32;1mHash      : [0mE2E629497E74EF0F613A1E3FCE140367D5015938FE082D7248D842ADA71F6A9A
+[32;1mPath      : [0mC:\POLARIS\.tmp\I-f1-005-canonical.diff
+
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1184ms:
++    await page.waitForURL("**/intake?template=clinical");
++  });
++});
+
+# canonical-diff-sha256: 8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da
+
+ succeeded in 1188ms:
++    });
++  }
++});
+
+# canonical-diff-sha256: 75f12bb2b2eca1bc76f7184bcb9f797d89e6e37cb304ff2f688fc5c40d92bc3d
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/package.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/playwright.config.ts -ErrorAction SilentlyContinue' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/tests/e2e/landing_template_grid.spec.ts' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/tests/e2e/accessibility.spec.ts' in C:\POLARIS
+ succeeded in 952ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * I-f1-001 — Next.js landing page Card grid (8 templates).
+ *
+ * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
+ * grid: 3 active templates (clinical/housing/climate, linked to /intake)
+ * + 5 to-build templates (aria-disabled, "Coming soon" badge, no link).
+ *
+ * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
+ *  - 8 cards render at 4 viewports (1920/1024/768/375)
+ *  - Active cards link to /intake?template=<id>
+ *  - To-build cards are aria-disabled, no href, keyboard-skipped
+ *  - axe-core WCAG-AA clean at 1024px
+ */
+
+const ACTIVE_IDS = ["clinical", "housing", "climate"] as const;
+const TO_BUILD_IDS = [
+  "ai_sovereignty",
+  "canada_us",
+  "defense",
+  "trade",
+  "workforce",
+] as const;
+
+const VIEWPORTS = [
+  { name: "1920", width: 1920, height: 1080 },
+  { name: "1024", width: 1024, height: 768 },
+  { name: "768", width: 768, height: 1024 },
+  { name: "375", width: 375, height: 667 },
+] as const;
+
+test.describe("Landing template grid — I-f1-001", () => {
+  for (const vp of VIEWPORTS) {
+    test(`renders 8 template cards at ${vp.name}px`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto("/", { waitUntil: "networkidle" });
+
+      await expect(page.getByTestId("template-grid")).toBeVisible();
+
+      for (const id of ACTIVE_IDS) {
+        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+      }
+      for (const id of TO_BUILD_IDS) {
+        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+      }
+
+      // Visual regression artifact (CI does not enforce diff on Linux per
+      // web_ci.yml policy; this captures the screenshot for local review).
+      await page.screenshot({
+        path: `web/tests/e2e/screenshots/landing_template_grid_${vp.name}.png`,
+        fullPage: true,
+      });
+    });
+  }
+
+  test("active cards link to /intake?template=<id>", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    for (const id of ACTIVE_IDS) {
+      const link = page.getByTestId(`template-card-${id}-link`);
+      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
+    }
+  });
+
+  test("to-build cards are disabled and skip keyboard nav", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+    for (const id of TO_BUILD_IDS) {
+      const card = page.getByTestId(`template-card-${id}`);
+      await expect(card).toHaveAttribute("aria-disabled", "true");
+      // No outbound link from disabled cards.
+      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
+    }
+  });
+
+  test("WCAG-AA axe-core clean at 1024px", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/", { waitUntil: "networkidle" });
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+});
+
+ succeeded in 1041ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+ succeeded in 1048ms:
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+/**
+ * Phase 2C.5 — WCAG 2.2-AA accessibility audit.
+ *
+ * For each user-facing route we run axe-core with the WCAG 2A + 2AA + 2.1AA
+ * + 2.2AA + best-practice rule sets and assert zero violations. Any new
+ * violation should fail CI rather than silently regress accessibility.
+ *
+ * Failure mode is intentionally LOUD — if axe surfaces a violation we
+ * print the rule id, impact, and the affected node selectors so the fix
+ * is one click away.
+ */
+
+const WCAG_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa",
+  "best-practice",
+];
+
+async function expectNoA11yViolations(page: import("@playwright/test").Page) {
+  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+
+  if (results.violations.length > 0) {
+    const summary = results.violations
+      .map(
+        (v) =>
+          `\n  - [${v.impact}] ${v.id}: ${v.description}\n    nodes: ${v.nodes
+            .map((n) => n.target.join(" ") + (n.failureSummary ? ` — ${n.failureSummary.replace(/\n/g, " ")}` : ""))
+            .join("\n           ")}`,
+      )
+      .join("");
+    throw new Error(
+      `axe-core found ${results.violations.length} WCAG-AA violation(s):${summary}`,
+    );
+  }
+}
+
+test.describe("WCAG-AA — research dashboard", () => {
+  test("/dashboard initial render is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await expectNoA11yViolations(page);
+  });
+
+  test("/dashboard after scope rejection is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    await page.fill("#question", "Should I take ozempic for my diabetes?");
+    await page.getByRole("button", { name: /Check scope/ }).click();
+    await expect(page.getByText(/Rejected/i)).toBeVisible({ timeout: 8_000 });
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG-AA — Inspector golden_clinical_001", () => {
+  test("Executive summary tab (default) is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await expectNoA11yViolations(page);
+  });
+
+  test("Verified sentences tab is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    await expectNoA11yViolations(page);
+  });
+
+  test("Charts tab is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_climate_005", {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("button", { name: /^Charts/ }).first().click();
+    await page.waitForSelector(".polaris-vega-chart svg", { timeout: 10_000 });
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG-AA — Inspector golden_housing_002 (contradictions)", () => {
+  test("Contradictions tab is WCAG-AA clean", async ({ page }) => {
+    await page.goto("/inspector/golden_housing_002", {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("button", { name: /Contradictions/ }).first().click();
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG-AA — dashboard upload list with files", () => {
+  test("Upload list \"remove\" button is WCAG-AA clean (real upload)", async ({
+    page,
+  }) => {
+    // Closes cycle-3 audit P1.1 — F-7 fixed dashboard/page.tsx:324
+    // (\"remove\" button on upload list) but no test exercised it because
+    // no fixture populated the upload state. This test posts a real file
+    // through the live /api/upload endpoint, then asserts axe-clean once
+    // the upload-list <li> renders with the destructive-class \"remove\"
+    // button.
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: "polaris_a11y_probe.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello-from-a11y-probe"),
+    });
+
+    // Wait for the upload-list item to appear with our filename + the
+    // \"remove\" button. The list rendering depends on POST /api/upload
+    // returning successfully.
+    await expect(
+      page.getByText("polaris_a11y_probe.txt"),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(
+      page.getByRole("button", { name: /^remove$/ }),
+    ).toBeVisible();
+
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG-AA — Inspector verified-sentence with drop_reason", () => {
+  test("Verified sentences tab with a Dropped sentence is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // Exercises the inspector/[runId]/page.tsx:315 surface (the
+    // \"Dropped: <reason>\" annotation) which axe never saw before because
+    // no golden fixture populated drop_reason. Cycle-2 audit P1.1
+    // demonstrated this was a real WCAG-AA color-contrast hazard until F-7.
+    await page.goto("/inspector/golden_with_drop_reason", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    await expect(page.getByText(/Dropped:/i)).toBeVisible({ timeout: 8_000 });
+    await expectNoA11yViolations(page);
+  });
+});
+
+test.describe("WCAG 2.5.8 target-size sweep (F-28 — broader than axe)", () => {
+  // axe's target-size rule has loose overlap-detection; cycle-8 P1.1 and
+  // P1.4 surfaced multiple <button>/<label>/<a role="button"> surfaces
+  // that pass axe but fail strict WCAG 2.2 SC 2.5.8 AA (24x24 minimum).
+  // This sweep walks every clickable element + asserts ≥24x24 directly.
+
+  test("Dashboard — all clickable targets ≥24x24", async ({ page }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      // Exclude <label htmlFor=...> — labels paired with a form control
+      // delegate the hit target to the control itself (WCAG 2.5.8 "inline"
+      // exemption). The "browse files" label has no htmlFor (it wraps the
+      // hidden file input directly) so it remains in scope.
+      const sel =
+        'button, label:not([for]), [role="button"], [role="radio"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return; // hidden / pre-render
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+
+  test("Inspector golden_clinical_001 — all clickable targets ≥24x24", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/golden_clinical_001", {
+      waitUntil: "networkidle",
+    });
+    await page
+      .getByRole("button", { name: /Verified sentences/ })
+      .first()
+      .click();
+    const small = await page.evaluate(() => {
+      const results: Array<{
+        tag: string;
+        text: string;
+        w: number;
+        h: number;
+      }> = [];
+      const sel = 'button, label, [role="button"], a[href]';
+      document.querySelectorAll(sel).forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        if (r.width < 24 || r.height < 24) {
+          results.push({
+            tag: el.tagName,
+            text: (el.textContent || "").trim().slice(0, 60),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+      });
+      return results;
+    });
+    if (small.length > 0) {
+      throw new Error(
+        `WCAG 2.5.8 failures (${small.length} target(s) < 24x24):\n` +
+          small
+            .map((s) => `  - ${s.tag} "${s.text}" → ${s.w}x${s.h}px`)
+            .join("\n"),
+      );
+    }
+  });
+});
+
+test.describe("WCAG 2.1.1 keyboard sweep — template radiogroup operable", () => {
+  // F-26 (cycle-8 P1.2 root_cause) regression gate: dashboard template
+  // selection MUST be reachable via Tab + activatable via Space/Enter.
+  // Survived 7 prior cycles as <Card onClick> with no keyboard handler.
+  test("Dashboard template radiogroup is keyboard-operable", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard", { waitUntil: "networkidle" });
+    // The radiogroup should expose role="radiogroup".
+    const group = page.locator('[role="radiogroup"]');
+    await expect(group).toBeVisible();
+    // Each template option should expose role="radio" with aria-checked.
+    const radios = page.locator('[role="radio"]');
+    expect(await radios.count()).toBeGreaterThanOrEqual(2);
+    // Default selection.
+    const initiallyChecked = await page
+      .locator('[role="radio"][aria-checked="true"]')
+      .count();
+    expect(initiallyChecked).toBe(1);
+    // Tab into the first radio + Space-activate; aria-checked moves.
+    await radios.nth(1).focus();
+    await page.keyboard.press("Space");
+    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+test.describe("WCAG-AA — Inspector error states", () => {
+  test("Inspector destructive error banner (invalid runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    await page.goto("/inspector/does_not_exist_runid_404", {
+      waitUntil: "networkidle",
+    });
+    // Error banner pattern (border-only + text-foreground font-medium) —
+    // verify axe doesn't flag the destructive surface.
+    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
+      timeout: 8_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+
+  test("Run-detail destructive error banner (invalid runId) is WCAG-AA clean", async ({
+    page,
+  }) => {
+    // /runs/[runId] page also uses the destructive error pattern; verify it.
+    await page.goto("/runs/does_not_exist_runid_404", {
+      waitUntil: "networkidle",
+    });
+    await expect(page.getByText(/POLARIS backend returned 404/i)).toBeVisible({
+      timeout: 8_000,
+    });
+    await expectNoA11yViolations(page);
+  });
+});
+
+ succeeded in 1164ms:
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "next": "16.2.4",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shadcn": "^4.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "vega-embed": "^7.1.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+codex
+The canonical diff hash is correct once computed the way the gate does it: `e2e629...a9a` for the staged code diff excluding review artifacts. I’m now checking the intake render and palette behavior around the exact DOM axe will scan.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"CommandPalette|command-palette|header-sign-in-link|Control\\+k|metaKey|ctrlKey\" -n web/app web/tests/e2e" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"data-testid=\\\"intake-page\\\"|template=clinical|intake-page|useEffect|fetch\\(\" -n web/app web/lib web/tests/e2e" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "templates" -n web/app web/lib | Select-Object -First 100' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Recurse web/app -Filter '*intake*' | Select-Object -ExpandProperty FullName" in C:\POLARIS
+ succeeded in 937ms:
+web/app\components\command_palette.tsx:18:type CommandPaletteProps = {
+web/app\components\command_palette.tsx:46:export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+web/app\components\command_palette.tsx:99:          data-testid="command-palette"
+web/app\components\command_palette.tsx:105:            data-testid="command-palette-input"
+web/app\components\home_keyboard_shell.tsx:8:import { CommandPalette } from "./command_palette";
+web/app\components\home_keyboard_shell.tsx:27:      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+web/app\components\home_keyboard_shell.tsx:45:          <Button variant="default" nativeButton={false} render={<Link ref={sign_in_link_ref} data-testid="header-sign-in-link" href={signInHref} />}>
+web/app\components\home_keyboard_shell.tsx:51:      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
+web/tests/e2e\command_palette.spec.ts:20:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:22:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette.spec.ts:23:    const palette = page.getByTestId("command-palette");
+web/tests/e2e\command_palette.spec.ts:26:    await page.getByTestId("command-palette-input").fill("clinical");
+web/tests/e2e\command_palette.spec.ts:35:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:38:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette.spec.ts:39:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:47:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:55:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:57:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette.spec.ts:58:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette.spec.ts:61:    await expect(page.getByTestId("command-palette")).toBeHidden();
+web/tests/e2e\command_palette.spec.ts:62:    await expect(page.getByTestId("header-sign-in-link")).toBeFocused();
+web/tests/e2e\command_palette_adversarial.spec.ts:55:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette_adversarial.spec.ts:56:      await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette_adversarial.spec.ts:57:      await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette_adversarial.spec.ts:60:      await page.getByTestId("command-palette-input").fill(input);
+web/tests/e2e\command_palette_adversarial.spec.ts:70:      await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette_adversarial.spec.ts:71:      await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette_adversarial.spec.ts:72:      await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette_adversarial.spec.ts:75:      await page.getByTestId("command-palette-input").fill(input);
+web/tests/e2e\command_palette_suggest.spec.ts:11: * Each test waits for header-sign-in-link visible after networkidle to
+web/tests/e2e\command_palette_suggest.spec.ts:22:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette_suggest.spec.ts:24:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette_suggest.spec.ts:25:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette_suggest.spec.ts:31:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+web/tests/e2e\command_palette_suggest.spec.ts:42:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette_suggest.spec.ts:44:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette_suggest.spec.ts:45:    await expect(page.getByTestId("command-palette")).toBeVisible();
+web/tests/e2e\command_palette_suggest.spec.ts:47:    await page.getByTestId("command-palette-input").fill("BPEI");
+web/tests/e2e\command_palette_suggest.spec.ts:58:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\command_palette_suggest.spec.ts:60:    await page.keyboard.press("Control+k");
+web/tests/e2e\command_palette_suggest.spec.ts:64:    await page.getByTestId("command-palette-input").fill("tirzepatide");
+web/tests/e2e\f1_a11y.spec.ts:24:    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
+web/tests/e2e\f1_a11y.spec.ts:25:    await page.keyboard.press("Control+k");
+web/tests/e2e\f1_a11y.spec.ts:26:    await expect(page.getByTestId("command-palette")).toBeVisible();
+
+2026-05-06T18:55:46.163258Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.1 seconds
+Output:
+rg: regex parse error:
+    (?:data-testid=\)
+    ^
+error: unclosed group
+
+ exited 1 in 1050ms:
+rg: regex parse error:
+    (?:data-testid=\)
+    ^
+error: unclosed group
+
+ succeeded in 1113ms:
+C:\POLARIS\web\app\intake
+C:\POLARIS\web\app\intake\components\intake_form.tsx
+
+ succeeded in 1197ms:
+web/lib\api.ts:191:  const response = await fetch(`${BACKEND_URL}/templates`);
+web/app\dashboard\page.tsx:29:// Static fallback if /templates is unreachable. Keeps the dashboard usable
+web/app\dashboard\page.tsx:59:function templatesToCards(
+web/app\dashboard\page.tsx:84:  const [templates, setTemplates] = useState(FALLBACK_TEMPLATES);
+web/app\dashboard\page.tsx:91:          setTemplates(templatesToCards(live));
+web/app\dashboard\page.tsx:225:              {templates.map((t) => {
+web/app\dashboard\page.tsx:232:                  // templates, WCAG 2.1.1 Level A failure).
+web/app\page.tsx:22:const templates: Template[] = [
+web/app\page.tsx:109:      <HomeKeyboardShell templates={templates} signInHref="/sign-in">
+web/app\page.tsx:132:              Research templates
+web/app\page.tsx:139:            {templates.map((tpl) => (
+web/app\components\home_keyboard_shell.tsx:19:type Props = { templates: Template[]; signInHref: string; children: ReactNode };
+web/app\components\home_keyboard_shell.tsx:21:export function HomeKeyboardShell({ templates, signInHref, children }: Props) {
+web/app\components\home_keyboard_shell.tsx:51:      <CommandPalette open={palette_open} onOpenChange={set_palette_open} templates={templates} signInLinkRef={sign_in_link_ref} />
+web/app\components\command_palette.tsx:21:  templates: Template[];
+web/app\components\command_palette.tsx:46:export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+web/app\components\command_palette.tsx:63:  const scored = templates
+web/app\components\command_palette.tsx:103:          <DialogPrimitive.Title className="sr-only">Search templates</DialogPrimitive.Title>
+web/app\components\command_palette.tsx:109:            placeholder="Search templates..."
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg 'data-testid=\"intake-page\"|intake-page|fetch\\(|useEffect' -n web/app web/lib web/tests/e2e" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Recurse web/app/intake | Select-Object -ExpandProperty FullName' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/intake/page.tsx -ErrorAction SilentlyContinue' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content web/app/intake/components/intake_form.tsx' in C:\POLARIS
+ succeeded in 1016ms:
+C:\POLARIS\web\app\intake\components
+C:\POLARIS\web\app\intake\page.tsx
+C:\POLARIS\web\app\intake\components\ambiguity_modal.tsx
+C:\POLARIS\web\app\intake\components\intake_form.tsx
+C:\POLARIS\web\app\intake\components\scope_decision_view.tsx
+
+ succeeded in 1093ms:
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
+
+import { IntakeForm } from "./components/intake_form";
+
+export const metadata = {
+  title: "Intake — POLARIS Canada",
+  description:
+    "Submit a clinical research question. POLARIS classifies scope and detects PICO ambiguity before any retrieval is run.",
+};
+
+export default function IntakePage() {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="border-border bg-background border-b">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              POLARIS Canada — Slice 001
+            </span>
+            <span className="text-foreground text-base font-semibold">
+              Clinical scope discovery
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/" />}
+          >
+            Home
+          </Button>
+        </div>
+      </header>
+
+      <main
+        data-testid="intake-page"
+        className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10"
+      >
+        <section className="flex flex-col gap-2">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Clinical scope discovery
+          </h1>
+          <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+            Type a clinical research question and POLARIS will run it through
+            the BPEI front half: refusal-bait detection, scope classification
+            (efficacy / safety / diagnosis / prognosis), and PICO axis
+            ambiguity detection. No retrieval is run yet — this is the gate
+            that decides if a question is researchable as written.
+          </p>
+        </section>
+
+        <IntakeForm />
+      </main>
+
+      <footer className="border-border bg-background border-t">
+        <div className="text-muted-foreground mx-auto flex w-full max-w-4xl items-center justify-between px-6 py-4 text-xs">
+          <span>POLARIS v6.2 — Slice 001 (BPEI front half)</span>
+          <span>Sovereign Canadian deep research</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ succeeded in 1147ms:
+web/lib\api.ts:70:  const response = await fetch(`${BACKEND_URL}/runs`, {
+web/lib\api.ts:79:  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+web/lib\api.ts:107:  const response = await fetch(`${BACKEND_URL}/upload`, {
+web/lib\api.ts:152:  const response = await fetch(`${BACKEND_URL}/ambiguity`, {
+web/lib\api.ts:169:  const response = await fetch(`${BACKEND_URL}/scope/check`, {
+web/lib\api.ts:191:  const response = await fetch(`${BACKEND_URL}/templates`);
+web/lib\api.ts:245:  const response = await fetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+web/lib\api.ts:270:  const response = await fetch(
+web/lib\api.ts:395:  const response = await fetch(`${BACKEND_URL}/api/intake`, {
+web/lib\api.ts:419:  const response = await fetch(`${BACKEND_URL}/api/intake/health`);
+web/lib\api.ts:495:  const response = await fetch(`${BACKEND_URL}/api/retrieval`, {
+web/lib\api.ts:520:  const response = await fetch(`${BACKEND_URL}/api/retrieval/health`);
+web/lib\api.ts:630:  const response = await fetch(`${BACKEND_URL}/api/generation`, {
+web/lib\api.ts:655:  const response = await fetch(`${BACKEND_URL}/api/generation/health`);
+web/lib\api.ts:713:  const response = await fetch(`${BACKEND_URL}/api/audit-bundle`, {
+web/lib\api.ts:737:  const response = await fetch(`${BACKEND_URL}/api/audit-bundle/health`);
+web/lib\api.ts:816:  const response = await fetch(`${BACKEND_URL}/api/benchmark/health`);
+web/lib\api.ts:823:  const response = await fetch(
+web/lib\api.ts:832:  const response = await fetch(
+web/tests/e2e\demo_walkthrough.spec.ts:32:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web/app\dashboard\page.tsx:5:import { useEffect, useState } from "react";
+web/app\dashboard\page.tsx:86:  useEffect(() => {
+web/tests/e2e\f1_a11y.spec.ts:39:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web/app\intake\page.tsx:37:        data-testid="intake-page"
+web/app\components\command_palette.tsx:5:import { useEffect, useState, type RefObject } from "react";
+web/app\components\command_palette.tsx:52:  useEffect(() => {
+web/app\components\home_keyboard_shell.tsx:4:import { useEffect, useRef, useState, type ReactNode } from "react";
+web/app\components\home_keyboard_shell.tsx:25:  useEffect(() => {
+web/app\benchmark\components\benchmark_board.tsx:3:import { useEffect, useState } from "react";
+web/app\benchmark\components\benchmark_board.tsx:48:  useEffect(() => {
+web/tests/e2e\intake.spec.ts:20:    await expect(page.getByTestId("intake-page")).toBeVisible();
+web/app\runs\[runId]\page.tsx:4:import { use, useEffect, useState } from "react";
+web/app\runs\[runId]\page.tsx:33:  useEffect(() => {
+web/app\inspector\[runId]\page.tsx:4:import { use, useEffect, useState } from "react";
+web/app\inspector\[runId]\page.tsx:41:  useEffect(() => {
+web/app\inspector\[runId]\page.tsx:484:  useEffect(() => {
+web/app\inspector\[runId]\page.tsx:622:  useEffect(() => {
+
+ succeeded in 1147ms:
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  IntakeBadRequestError,
+  runIntake,
+  type IntakeScopeDecision,
+} from "@/lib/api";
+
+import { AmbiguityModal } from "./ambiguity_modal";
+import { ScopeDecisionView } from "./scope_decision_view";
+
+type IntakeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ok"; decision: IntakeScopeDecision }
+  | { kind: "error"; message: string };
+
+const SAMPLE_QUESTIONS = [
+  "Does aspirin reduce headaches in adults?",
+  "What are the safety risks of metformin in older adults?",
+  "Is physical therapy effective for chronic back pain in adults?",
+];
+
+export function IntakeForm() {
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<IntakeState>({ kind: "idle" });
+  const [modalOpen, setModalOpen] = useState(false);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = question.trim();
+    if (trimmed.length < 3) {
+      setState({
+        kind: "error",
+        message: "Please enter a question with at least 3 characters.",
+      });
+      return;
+    }
+
+    setState({ kind: "loading" });
+    try {
+      const result = await runIntake(trimmed);
+      setState({ kind: "ok", decision: result.decision });
+      if (result.decision.status === "ambiguous_needs_clarification") {
+        setModalOpen(true);
+      }
+    } catch (err) {
+      if (err instanceof IntakeBadRequestError) {
+        setState({ kind: "error", message: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setState({ kind: "error", message });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">
+            Ask POLARIS a clinical research question
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={submit}
+            className="flex flex-col gap-3"
+            data-testid="intake-form"
+          >
+            <label
+              htmlFor="intake-question"
+              className="text-foreground text-sm font-medium"
+            >
+              Your question
+            </label>
+            <Input
+              id="intake-question"
+              data-testid="intake-question-input"
+              placeholder="e.g. Does aspirin reduce headaches in adults?"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={2000}
+              disabled={state.kind === "loading"}
+              autoComplete="off"
+            />
+            <p className="text-muted-foreground text-xs">
+              POLARIS only researches clinical evidence questions
+              (efficacy, safety, diagnosis, prognosis). Other domains will be
+              marked out of scope.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="submit"
+                variant="default"
+                disabled={state.kind === "loading"}
+                data-testid="intake-submit"
+              >
+                {state.kind === "loading" ? "Checking…" : "Check scope"}
+              </Button>
+              <span className="text-muted-foreground text-xs">
+                or try:
+              </span>
+              {SAMPLE_QUESTIONS.map((sample) => (
+                <button
+                  key={sample}
+                  type="button"
+                  onClick={() => setQuestion(sample)}
+                  className="text-muted-foreground hover:text-foreground border-border rounded-full border px-2 py-1 text-xs transition-colors"
+                >
+                  {sample}
+                </button>
+              ))}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {state.kind === "error" ? (
+        <Card
+          data-testid="intake-error"
+          className="border-rose-500/40 bg-rose-500/5"
+        >
+          <CardContent className="text-rose-700 dark:text-rose-300">
+            {state.message}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {state.kind === "ok" ? (
+        <ScopeDecisionView decision={state.decision} />
+      ) : null}
+
+      <AmbiguityModal
+        open={modalOpen}
+        decision={state.kind === "ok" ? state.decision : null}
+        onContinue={() => setModalOpen(false)}
+        onCancel={() => setModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+codex
+The intake page has no initial client fetch; `intake-page` visibility follows the server-rendered main content plus mounted form, so the `domcontentloaded` pattern is not hiding a later accessibility surface for this specific route. I’m doing one local static verification pass now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx tsc --noEmit -p .' in C:\POLARIS\web
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'npx eslint app/components/command_palette.tsx tests/e2e/f1_a11y.spec.ts' in C:\POLARIS\web
+ succeeded in 4310ms:
+ succeeded in 5626ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Remove-Item -LiteralPath .tmp/I-f1-005-canonical.diff, .tmp/I-f1-005-files.diff -ErrorAction SilentlyContinue' in C:\POLARIS
+ succeeded in 919ms:
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+91,863
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
