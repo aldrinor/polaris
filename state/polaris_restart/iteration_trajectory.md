@@ -135,3 +135,5 @@ I-bug-079 brief iter1=REQ_CH (2P1) iter2=REQ_CH (1P1 not at HEAD) iter3=APPROVE 
 I-bug-079 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=70749
 I-f3-001 brief iter1=REQ_CH (2P1 _UPLOAD_TABLE wrong) iter2=REQ_CH (2P1 stale+security) iter3=APPROVE (0P0/0P1/3P2)
 I-f3-001 diff iter1=APPROVE 0/0/1P2 accept_remaining; tokens=110992
+I-f3-002 brief iter1=REQ_CH (under-block) iter2=REQ_CH (test contradicted) iter3=APPROVE (0/0/2P2)
+I-f3-002 diff iter1=APPROVE 0/0/2P2; tokens=66814
