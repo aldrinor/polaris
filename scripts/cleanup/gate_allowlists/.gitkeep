@@ -1,0 +1,11 @@
+# Per-pattern allowlist files for zero_hit_gate.sh
+# Each pattern that requires post-rename allowlisting gets a file here named
+# <PATTERN_SLUG>.txt where PATTERN_SLUG = pattern with non-[a-zA-Z0-9_] chars
+# replaced by underscore, truncated to 64 chars.
+#
+# Each line in an allowlist file is exactly `<path>:<lineno>:` (trailing colon
+# required to anchor on the line boundary; matches `git grep -n` output format).
+# Lines starting with `#` or empty lines are ignored.
+#
+# Empty directory at PR-1 land time; allowlist entries added at the rename PRs
+# (Cleanup-PR-4 / PR-5 / PR-6) when zero_hit_gate.sh runs in CI.

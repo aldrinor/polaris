@@ -1,0 +1,3 @@
+C:\POLARIS\.codex_tmp_md3_review\basetemp
+C:\POLARIS\.codex_tmp_md3_review\pytest-cache-files-9j2dzpz7
+C:\POLARIS\.codex_tmp_md3_review\pytest-cache-files-nqn88doc

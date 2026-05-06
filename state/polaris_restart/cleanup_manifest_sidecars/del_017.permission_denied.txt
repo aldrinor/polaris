@@ -1,0 +1,3 @@
+C:\POLARIS\.tmp_pytest_m_int_2\basetemp
+C:\POLARIS\.tmp_pytest_m_int_2\pytest-cache-files-ohy5ka6b
+C:\POLARIS\.tmp_pytest_m_int_2\pytest-cache-files-th4c1its

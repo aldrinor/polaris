@@ -1,0 +1,11 @@
+C:\POLARIS\.tmp\mprod1_route_rename_60s__hyo
+C:\POLARIS\.tmp\m_live_4_r2_y5pvii09
+C:\POLARIS\.tmp\pytest
+C:\POLARIS\.tmp\pytest-cache-files-a7xb53r_
+C:\POLARIS\.tmp\pytest-cache-files-asfemdyj
+C:\POLARIS\.tmp\pytest-of-msn
+C:\POLARIS\.tmp\pytest_m_int_0b_v2
+C:\POLARIS\.tmp\pytest_m_int_0b_v2_single
+C:\POLARIS\.tmp\pytest_run
+C:\POLARIS\.tmp\tmpjz6l_afq
+C:\POLARIS\.tmp\tmpsp4xdf87

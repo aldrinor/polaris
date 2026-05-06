@@ -1,0 +1,11 @@
+C:\POLARIS\.codex_tmp\basetemp
+C:\POLARIS\.codex_tmp\dashboard_pins_vwiv5zh_
+C:\POLARIS\.codex_tmp\dashboard_probe_nnhlji68
+C:\POLARIS\.codex_tmp\pytest-cache-files-dic6qlpl
+C:\POLARIS\.codex_tmp\pytest-cache-files-gspffvcb
+C:\POLARIS\.codex_tmp\pytest-cache-files-rw5it5lu
+C:\POLARIS\.codex_tmp\pytest-cache-files-ws141xdj
+C:\POLARIS\.codex_tmp\pytest-of-msn
+C:\POLARIS\.codex_tmp\pytest-temp
+C:\POLARIS\.codex_tmp\tmpa1p3yho_
+C:\POLARIS\.codex_tmp\tmp_0e75uq2

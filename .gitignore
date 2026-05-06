@@ -6,7 +6,11 @@
 .env
 .env.*
 !.env.example
-.private/                # Plan v13 §C HMAC key, GPG private keys, signed-PDF artifacts
+# Plan v13 §C HMAC key, GPG private keys, signed-PDF artifacts.
+# PR-1 dryrun-iter-5 P1-001 fix: comment moved to its own line; trailing
+# comment on the .private/ rule was being treated as part of the pattern,
+# leaving .private/codex_hmac.key NOT ignored (cleanup_audit.md §3.6).
+.private/
 
 # --- Python ---
 __pycache__/
@@ -55,7 +59,15 @@ state/*
 # Re-ignore session stamps + delete-failure logs (per-day ephemeral, never tracked)
 state/polaris_restart/session_started_*.stamp
 state/polaris_restart/cleanup_delete_failures.txt
+# Cleanup-PR-1 manifest sidecars: track .gitkeep + .txt sidecars only
+# (per PR1-DRYRUN iter 2 PR1-DRYRUN-iter2-P1-002 fix; iter 6 P2-001 narrowing).
+# Line 55's broad `!state/polaris_restart/**` un-ignores everything; we
+# narrow here by RE-ignoring all sidecar contents, then UN-ignoring only
+# .gitkeep + *.txt patterns explicitly. Result: non-.txt/non-.gitkeep files
+# in cleanup_manifest_sidecars/ stay ignored (won't be staged accidentally).
 state/polaris_restart/cleanup_manifest_sidecars/*
+!state/polaris_restart/cleanup_manifest_sidecars/.gitkeep
+!state/polaris_restart/cleanup_manifest_sidecars/*.txt
 # Re-ignore Codex verdict transcripts (per PR-B iter 6 PRB6-P2-002 fix):
 # Verdicts are review-process artifacts kept under .codex/, not part of the
 # durable polaris-restart substrate. Without this re-ignore, a future broad

@@ -1,0 +1,4 @@
+C:\POLARIS\.tmp_pytest\basetemp
+C:\POLARIS\.tmp_pytest\pytest-cache-files-9d49poqp
+C:\POLARIS\.tmp_pytest\pytest-cache-files-sc3pv95m
+C:\POLARIS\.tmp_pytest\pytest-of-msn

@@ -1,0 +1,7 @@
+C:\POLARIS\codex_tmp_pytest_m11\basetemp
+C:\POLARIS\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a
+C:\POLARIS\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp
+C:\POLARIS\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki
+C:\POLARIS\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu
+C:\POLARIS\codex_tmp_pytest_m11\run
+C:\POLARIS\codex_tmp_pytest_m11\run2\pytest-of-msn

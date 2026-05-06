@@ -1,0 +1,10 @@
+# Cleanup-PR-1 manifest sidecars
+#
+# Each cleanup-script Apply-mode entry that references a sidecar
+# (per_file_checksums_sidecar_path or permission_denied_sidecar_path)
+# writes the sidecar file here. Sidecar filenames follow the pattern
+# `<entry_id>.per_file.txt` and `<entry_id>.permission_denied.txt`.
+#
+# Sidecars are TRACKED so the audit trail is complete (per PR-1 iter 2
+# Codex review). The .gitkeep file ensures this directory exists in the
+# repo even when no sidecars have been written yet.

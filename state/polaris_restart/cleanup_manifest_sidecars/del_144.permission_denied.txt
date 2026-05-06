@@ -1,0 +1,14 @@
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v2_review\basetemp
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\basetemp_router
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\basetemp_target
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-awr1k0_j
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-g693n1fn
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-lcz1hd3_
+C:\POLARIS\outputs\codex_tmp_pytest\m8_v4_review\pytest-cache-files-o49ruyzk
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review\basetemp
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-hf82j1ev
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review\pytest-cache-files-nkj6x505
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-trpp2lhz
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review_loop\pytest-cache-files-z3ditaf2
+C:\POLARIS\outputs\codex_tmp_pytest\m9_v3_review_loop\run1
+C:\POLARIS\outputs\codex_tmp_pytest\md10
