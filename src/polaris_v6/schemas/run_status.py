@@ -33,3 +33,6 @@ class RunStatusResponse(BaseModel):
     queued_at: str = Field(..., description="ISO8601 UTC.")
     started_at: str | None = None
     finished_at: str | None = None
+    # I-phase0-005 fix: JSON-encoded actor return value when status='completed'.
+    # Optional; default None preserves backward-compat for existing callers.
+    result_json: str | None = None

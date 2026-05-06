@@ -39,24 +39,25 @@ def stub_broker(monkeypatch):
     # Don't close the broker — it's session-shared (see conftest.py).
 
 
-def test_scenario_1_enqueue_and_complete(stub_broker):
+def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
     """Scenario 1: actor returns; status `completed`.
 
-    Acceptance criterion: enqueue_research_run with a deterministic noop
-    payload returns success synchronously when the worker drains the queue.
+    I-phase0-005: strengthened to assert the run row reaches `completed`
+    in the run_store DB after broker drain (was previously `assert True`).
     """
     broker, worker = stub_broker
+    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
+    from polaris_v6.queue import run_store
     from polaris_v6.queue.actors import enqueue_research_run
 
-    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop"})
+    run_store.insert_run("run_001", "clinical", "noop?")
+    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
     broker.join(enqueue_research_run.queue_name, timeout=5000)
     worker.join()
 
-    # The acceptance contract is "queue drained without error" since
-    # StubBroker doesn't expose result-storage by default. Real result
-    # capture is exercised in scenario 2+ once a Results middleware
-    # is wired (deferred to Task 0.3 cluster).
-    assert True
+    record = run_store.get_run("run_001")
+    assert record is not None
+    assert record.status == "completed"
 
 
 @pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")
