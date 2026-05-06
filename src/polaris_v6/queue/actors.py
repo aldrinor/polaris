@@ -22,6 +22,8 @@ from typing import Any
 
 import dramatiq
 
+from polaris_v6.queue import run_store
+
 # Importing this module assumes get_broker() has already been called by
 # the application entrypoint. Tests import broker.get_broker(use_stub=True)
 # before importing this module.
@@ -35,13 +37,24 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
 
     Bridge to existing pipeline-A substrate is wired in adapters/ (TODO
     once requirements-v6.txt installs in dev environment).
+
+    I-phase0-005: when a run row exists in the run_store DB, transitions
+    status queued -> in_progress -> completed and persists result_json.
+    When no row exists (existing test_actors.py path), returns the
+    deterministic noop payload without DB writes — preserves stub-mode
+    semantics documented above.
     """
     # Phase 0 stub: the bridge to scripts/run_honest_sweep_r3.py lives in
     # src/polaris_v6/adapters/retrieval_bridge.py and is implemented in
     # Phase 1 once Vast.ai cluster (Task 0.3) is live and we can run an
     # end-to-end smoke. For Phase 0 acceptance test scenario 1 we exercise
     # the queue mechanics with a deterministic noop payload.
-    return {"run_id": run_id, "status": "completed", "echo": request_payload}
+    result: dict[str, Any] = {"run_id": run_id, "status": "completed", "echo": request_payload}
+
+    if run_store.get_run(run_id) is not None:
+        run_store.mark_in_progress(run_id)
+        run_store.mark_completed(run_id, result)
+    return result
 
 
 @dramatiq.actor(max_retries=0)

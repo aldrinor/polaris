@@ -1,0 +1,490 @@
+diff --git a/requirements.txt b/requirements.txt
+index 047d079..2f43a25 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -141,6 +141,7 @@ slowapi>=0.1.8  # Rate limiting middleware
+ # new test_*_middleware tests use pytest.importorskip against these — without
+ # pinning here CI silently SKIPS them (LAW II / CLAUDE.md §9.4 violation).
+ dramatiq>=2.1.0  # actors, brokers, middleware base class
++redis>=4.0,<8.0  # I-phase0-005 P1-I2-001: dramatiq.get_broker() RabbitMQ->Redis fallback ImportErrors at app boot if absent
+ opentelemetry-api>=1.36.0  # tracer + propagate APIs
+ opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
+ opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
+diff --git a/src/polaris_v6/api/runs.py b/src/polaris_v6/api/runs.py
+index d2365b9..f71d704 100644
+--- a/src/polaris_v6/api/runs.py
++++ b/src/polaris_v6/api/runs.py
+@@ -1,50 +1,48 @@
+ """Runs router — POST /runs, GET /runs/{id}.
+ 
+-Phase 0 stub: enqueue + status flow only. Real run execution wires up in
+-Phase 1 once requirements-v6.txt is installed in the dev cluster (Task
+-0.3) and the pipeline-A bridge in adapters/ is implemented.
++I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
++polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
++Replaces the previous in-memory `_run_table` dict.
+ """
+ 
+ from __future__ import annotations
+ 
++import sqlite3
+ import uuid
+-from datetime import datetime, timezone
+ 
+ from fastapi import APIRouter, HTTPException
+ 
++from polaris_v6.queue import run_store
++from polaris_v6.queue.actors import enqueue_research_run
+ from polaris_v6.schemas.run_request import RunRequest
+ from polaris_v6.schemas.run_status import RunStatusResponse
+ 
+ router = APIRouter(prefix="/runs", tags=["runs"])
+ 
+-_run_table: dict[str, RunStatusResponse] = {}
+-
+-
+-def _now_iso() -> str:
+-    return datetime.now(timezone.utc).isoformat()
+-
+ 
+ @router.post("", response_model=RunStatusResponse, status_code=202)
+ def create_run(payload: RunRequest) -> RunStatusResponse:
+     run_id = uuid.uuid4().hex
+-    record = RunStatusResponse(
+-        run_id=run_id,
+-        status="queued",
+-        template=payload.template,
+-        question=payload.question,
+-        queued_at=_now_iso(),
+-    )
+-    _run_table[run_id] = record
+-    # Phase 0 stub: real enqueue happens in Phase 1 once Dramatiq broker
+-    # is wired in production (acceptance test scenarios 1-8 verified).
+-    # from polaris_v6.queue.actors import enqueue_research_run
+-    # enqueue_research_run.send(run_id, payload.model_dump())
++    try:
++        run_store.insert_run(run_id, payload.template, payload.question)
++    except sqlite3.IntegrityError as exc:
++        # uuid4 collision is theoretically impossible but defensive
++        raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
++    except RuntimeError as exc:
++        # init_db permission-denied or similar
++        raise HTTPException(status_code=503, detail=str(exc)) from exc
++
++    enqueue_research_run.send(run_id, payload.model_dump())
++
++    record = run_store.get_run(run_id)
++    if record is None:  # pragma: no cover — insert just succeeded
++        raise HTTPException(status_code=500, detail="run row vanished after insert")
+     return record
+ 
+ 
+ @router.get("/{run_id}", response_model=RunStatusResponse)
+ def get_run(run_id: str) -> RunStatusResponse:
+-    record = _run_table.get(run_id)
++    record = run_store.get_run(run_id)
+     if record is None:
+         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+     return record
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index a5690ae..9a317da 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -22,6 +22,8 @@ from typing import Any
+ 
+ import dramatiq
+ 
++from polaris_v6.queue import run_store
++
+ # Importing this module assumes get_broker() has already been called by
+ # the application entrypoint. Tests import broker.get_broker(use_stub=True)
+ # before importing this module.
+@@ -35,13 +37,24 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+ 
+     Bridge to existing pipeline-A substrate is wired in adapters/ (TODO
+     once requirements-v6.txt installs in dev environment).
++
++    I-phase0-005: when a run row exists in the run_store DB, transitions
++    status queued -> in_progress -> completed and persists result_json.
++    When no row exists (existing test_actors.py path), returns the
++    deterministic noop payload without DB writes — preserves stub-mode
++    semantics documented above.
+     """
+     # Phase 0 stub: the bridge to scripts/run_honest_sweep_r3.py lives in
+     # src/polaris_v6/adapters/retrieval_bridge.py and is implemented in
+     # Phase 1 once Vast.ai cluster (Task 0.3) is live and we can run an
+     # end-to-end smoke. For Phase 0 acceptance test scenario 1 we exercise
+     # the queue mechanics with a deterministic noop payload.
+-    return {"run_id": run_id, "status": "completed", "echo": request_payload}
++    result: dict[str, Any] = {"run_id": run_id, "status": "completed", "echo": request_payload}
++
++    if run_store.get_run(run_id) is not None:
++        run_store.mark_in_progress(run_id)
++        run_store.mark_completed(run_id, result)
++    return result
+ 
+ 
+ @dramatiq.actor(max_retries=0)
+diff --git a/src/polaris_v6/queue/run_store.py b/src/polaris_v6/queue/run_store.py
+new file mode 100644
+index 0000000..4bb4b32
+--- /dev/null
++++ b/src/polaris_v6/queue/run_store.py
+@@ -0,0 +1,148 @@
++"""SQLite-backed run-status store for POLARIS v6 Dramatiq queue.
++
++Per Issue I-phase0-005 (Codex APPROVE iter 4), this module persists
++research-run lifecycle state to a SQLite file so the Dramatiq actor in
++`actors.py` can transition status `queued -> in_progress -> completed`
++and the FastAPI `/runs` route in `api/runs.py` can read persisted state
++across restarts (replacing the previous in-memory dict).
++
++Default DB path: state/v6_runs.sqlite (gitignored). Override via env
++`POLARIS_V6_RUN_DB`. WAL mode enabled so Dramatiq writers don't block
++FastAPI readers.
++
++Out of scope this Issue (deferred to follow-up I-phase0-005b):
++- mark_failed + error_json
++- idempotency-on-completed short-circuit
++- failure-path tests
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import sqlite3
++from datetime import datetime, timezone
++from typing import Any
++
++from polaris_v6.schemas.run_status import RunStatusResponse
++
++DEFAULT_DB_PATH = "state/v6_runs.sqlite"
++ENV_DB_PATH = "POLARIS_V6_RUN_DB"
++
++
++def _resolve_path(path: str | None) -> str:
++    if path is not None:
++        return path
++    return os.environ.get(ENV_DB_PATH, DEFAULT_DB_PATH)
++
++
++def _now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def _connect(path: str | None = None) -> sqlite3.Connection:
++    resolved = _resolve_path(path)
++    parent = os.path.dirname(resolved)
++    if parent:
++        os.makedirs(parent, exist_ok=True)
++    conn = sqlite3.connect(resolved)
++    conn.row_factory = sqlite3.Row
++    return conn
++
++
++def init_db(path: str | None = None) -> None:
++    """Create the runs table if absent. Idempotent. Enables WAL mode."""
++    conn = _connect(path)
++    try:
++        conn.execute("PRAGMA journal_mode=WAL")
++        conn.execute(
++            """
++            CREATE TABLE IF NOT EXISTS runs (
++                run_id TEXT PRIMARY KEY,
++                template TEXT NOT NULL,
++                question TEXT NOT NULL,
++                status TEXT NOT NULL,
++                queued_at TEXT NOT NULL,
++                started_at TEXT,
++                finished_at TEXT,
++                result_json TEXT,
++                error_json TEXT
++            )
++            """
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def insert_run(run_id: str, template: str, question: str, *, path: str | None = None) -> None:
++    """Insert a new row with status='queued'. Raises sqlite3.IntegrityError on duplicate run_id."""
++    init_db(path)
++    conn = _connect(path)
++    try:
++        conn.execute(
++            "INSERT INTO runs (run_id, template, question, status, queued_at) VALUES (?, ?, ?, 'queued', ?)",
++            (run_id, template, question, _now_iso()),
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def mark_in_progress(run_id: str, *, path: str | None = None) -> None:
++    """Transition queued -> in_progress, set started_at."""
++    conn = _connect(path)
++    try:
++        conn.execute(
++            "UPDATE runs SET status='in_progress', started_at=? WHERE run_id=?",
++            (_now_iso(), run_id),
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def mark_completed(run_id: str, result: dict[str, Any], *, path: str | None = None) -> None:
++    """Transition in_progress -> completed, set finished_at + result_json."""
++    conn = _connect(path)
++    try:
++        conn.execute(
++            "UPDATE runs SET status='completed', finished_at=?, result_json=? WHERE run_id=?",
++            (_now_iso(), json.dumps(result, sort_keys=True), run_id),
++        )
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def get_run(run_id: str, *, path: str | None = None) -> RunStatusResponse | None:
++    """Return the run record or None if missing.
++
++    Defensive against `OperationalError: no such table` so callers in stub
++    mode (e.g. `tests/v6/test_actors.py` direct `.fn()` invocation without
++    init_db) get None back, matching the actor's row-missing-stub-noop
++    contract.
++    """
++    conn = _connect(path)
++    try:
++        try:
++            row = conn.execute(
++                "SELECT run_id, template, question, status, queued_at, started_at, finished_at, result_json FROM runs WHERE run_id=?",
++                (run_id,),
++            ).fetchone()
++        except sqlite3.OperationalError:
++            return None
++    finally:
++        conn.close()
++    if row is None:
++        return None
++    return RunStatusResponse(
++        run_id=row["run_id"],
++        template=row["template"],
++        question=row["question"],
++        status=row["status"],
++        queued_at=row["queued_at"],
++        started_at=row["started_at"],
++        finished_at=row["finished_at"],
++        result_json=row["result_json"],
++    )
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index 827cdf3..4383a09 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -33,3 +33,6 @@ class RunStatusResponse(BaseModel):
+     queued_at: str = Field(..., description="ISO8601 UTC.")
+     started_at: str | None = None
+     finished_at: str | None = None
++    # I-phase0-005 fix: JSON-encoded actor return value when status='completed'.
++    # Optional; default None preserves backward-compat for existing callers.
++    result_json: str | None = None
+diff --git a/tests/v6/acceptance/test_dramatiq_acceptance.py b/tests/v6/acceptance/test_dramatiq_acceptance.py
+index b536244..d423ed7 100644
+--- a/tests/v6/acceptance/test_dramatiq_acceptance.py
++++ b/tests/v6/acceptance/test_dramatiq_acceptance.py
+@@ -39,24 +39,25 @@ def stub_broker(monkeypatch):
+     # Don't close the broker — it's session-shared (see conftest.py).
+ 
+ 
+-def test_scenario_1_enqueue_and_complete(stub_broker):
++def test_scenario_1_enqueue_and_complete(stub_broker, tmp_path, monkeypatch):
+     """Scenario 1: actor returns; status `completed`.
+ 
+-    Acceptance criterion: enqueue_research_run with a deterministic noop
+-    payload returns success synchronously when the worker drains the queue.
++    I-phase0-005: strengthened to assert the run row reaches `completed`
++    in the run_store DB after broker drain (was previously `assert True`).
+     """
+     broker, worker = stub_broker
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(tmp_path / "scenario_1.sqlite"))
++    from polaris_v6.queue import run_store
+     from polaris_v6.queue.actors import enqueue_research_run
+ 
+-    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop"})
++    run_store.insert_run("run_001", "clinical", "noop?")
++    enqueue_research_run.send("run_001", {"template": "clinical", "question": "noop?", "document_ids": []})
+     broker.join(enqueue_research_run.queue_name, timeout=5000)
+     worker.join()
+ 
+-    # The acceptance contract is "queue drained without error" since
+-    # StubBroker doesn't expose result-storage by default. Real result
+-    # capture is exercised in scenario 2+ once a Results middleware
+-    # is wired (deferred to Task 0.3 cluster).
+-    assert True
++    record = run_store.get_run("run_001")
++    assert record is not None
++    assert record.status == "completed"
+ 
+ 
+ @pytest.mark.xfail(reason="Scenario 2 requires real Redis broker + Results middleware (Task 0.3)")
+diff --git a/tests/v6/acceptance/test_runs_db_integration.py b/tests/v6/acceptance/test_runs_db_integration.py
+new file mode 100644
+index 0000000..de60a16
+--- /dev/null
++++ b/tests/v6/acceptance/test_runs_db_integration.py
+@@ -0,0 +1,151 @@
++"""Integration tests for I-phase0-005 — POST /runs -> Dramatiq -> SQLite.
++
++Per Codex APPROVE iter 4 brief, exercises the queue-to-DB loop:
++- Schema applied via init_db.
++- Actor success path persists status + result_json.
++- POST /runs persists row + enqueues actor.
++- GET /runs/{id} reads from store.
++
++Existing scenario 1 (test_dramatiq_acceptance.py) covers the strengthened
++"row reaches completed after broker drain" assertion.
++
++Out of scope this Issue (deferred to follow-up I-phase0-005b):
++- mark_failed + error_json + failure-path test
++- Idempotency-on-completed short-circuit + test
++- Missing-row direct .fn() RuntimeError (inverted by stub-mode contract)
++"""
++
++from __future__ import annotations
++
++import json
++import sqlite3
++
++import pytest
++
++pytest.importorskip("dramatiq")
++pytest.importorskip("fastapi")
++
++
++@pytest.fixture
++def isolated_db(monkeypatch, tmp_path):
++    """Per-test SQLite DB + StubBroker flush before/after.
++
++    Per brief P2-I4-002 closure: imports MUST stay inside test bodies /
++    fixtures so monkeypatch.setenv lands before run_store reads env.
++    """
++    db_path = tmp_path / "runs_integration.sqlite"
++    monkeypatch.setenv("POLARIS_V6_RUN_DB", str(db_path))
++    import dramatiq
++    broker = dramatiq.get_broker()
++    broker.flush_all()
++    yield db_path
++    broker.flush_all()
++
++
++def test_init_db_creates_schema(isolated_db):
++    """Acceptance #1: init_db creates the runs table with 9 named columns."""
++    from polaris_v6.queue import run_store
++
++    run_store.init_db()
++
++    conn = sqlite3.connect(str(isolated_db))
++    try:
++        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
++    finally:
++        conn.close()
++    expected = {
++        "run_id", "template", "question", "status",
++        "queued_at", "started_at", "finished_at",
++        "result_json", "error_json",
++    }
++    assert cols == expected
++
++
++def test_actor_marks_completed_after_pre_insert(isolated_db):
++    """Acceptance #2: pre-inserted row reaches status=completed with result_json after broker drain."""
++    import dramatiq
++    from dramatiq.worker import Worker
++    from polaris_v6.queue import run_store
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    run_store.insert_run("run_002", "clinical", "noop?")
++    payload = {"template": "clinical", "question": "noop?", "document_ids": []}
++    enqueue_research_run.send("run_002", payload)
++
++    broker = dramatiq.get_broker()
++    worker = Worker(broker, worker_timeout=100)
++    worker.start()
++    try:
++        broker.join(enqueue_research_run.queue_name, timeout=5000)
++        worker.join()
++    finally:
++        worker.stop()
++
++    record = run_store.get_run("run_002")
++    assert record is not None
++    assert record.status == "completed"
++    assert record.result_json is not None
++    assert json.loads(record.result_json) == {
++        "run_id": "run_002",
++        "status": "completed",
++        "echo": payload,
++    }
++
++
++def test_post_runs_persists_row(isolated_db):
++    """Acceptance #3: POST /runs returns 202 with status='queued' and persists a row."""
++    from fastapi import FastAPI
++    from fastapi.testclient import TestClient
++    from polaris_v6.api.runs import router
++    from polaris_v6.queue import run_store
++
++    app = FastAPI()
++    app.include_router(router)
++    client = TestClient(app)
++
++    response = client.post("/runs", json={"template": "clinical", "question": "noop?"})
++    assert response.status_code == 202
++    body = response.json()
++    assert body["status"] == "queued"
++    run_id = body["run_id"]
++
++    record = run_store.get_run(run_id)
++    assert record is not None
++    assert record.status == "queued"
++
++
++def test_get_run_after_drain_returns_completed(isolated_db):
++    """Acceptance #4: full POST + drain + GET loop returns status=completed with result_json."""
++    import dramatiq
++    from dramatiq.worker import Worker
++    from fastapi import FastAPI
++    from fastapi.testclient import TestClient
++    from polaris_v6.api.runs import router
++    from polaris_v6.queue.actors import enqueue_research_run
++
++    app = FastAPI()
++    app.include_router(router)
++    client = TestClient(app)
++
++    post_resp = client.post("/runs", json={"template": "clinical", "question": "noop?"})
++    assert post_resp.status_code == 202
++    run_id = post_resp.json()["run_id"]
++
++    broker = dramatiq.get_broker()
++    worker = Worker(broker, worker_timeout=100)
++    worker.start()
++    try:
++        broker.join(enqueue_research_run.queue_name, timeout=5000)
++        worker.join()
++    finally:
++        worker.stop()
++
++    get_resp = client.get(f"/runs/{run_id}")
++    assert get_resp.status_code == 200
++    body = get_resp.json()
++    assert body["status"] == "completed"
++    assert body["result_json"] is not None
++    decoded = json.loads(body["result_json"])
++    assert decoded["run_id"] == run_id
++    assert decoded["status"] == "completed"
++    assert decoded["echo"] == {"template": "clinical", "question": "noop?", "document_ids": []}
+
+# canonical-diff-sha256: fbfa9aa18b02af6a94a55ab75015f2835f2e4a35ee7f138a4ce3096400cb6d25

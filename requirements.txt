@@ -141,6 +141,7 @@ slowapi>=0.1.8  # Rate limiting middleware
 # new test_*_middleware tests use pytest.importorskip against these — without
 # pinning here CI silently SKIPS them (LAW II / CLAUDE.md §9.4 violation).
 dramatiq>=2.1.0  # actors, brokers, middleware base class
+redis>=4.0,<8.0  # I-phase0-005 P1-I2-001: dramatiq.get_broker() RabbitMQ->Redis fallback ImportErrors at app boot if absent
 opentelemetry-api>=1.36.0  # tracer + propagate APIs
 opentelemetry-sdk>=1.36.0  # TracerProvider + BatchSpanProcessor
 opentelemetry-exporter-otlp-proto-grpc>=1.36.0  # OTLP exporter for src/polaris_v6/observability/otel_init.py
