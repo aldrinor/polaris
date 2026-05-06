@@ -121,3 +121,5 @@ Codex iter 6 convergence call said "build harness" via `git ls-tree -r 365f334` 
 I-f2-002 brief iter1=APPROVE; diff iter1=APPROVE 0/0/0; tokens=128931
 I-f2-003 brief iter1=REQ_CH (2P1), iter2=REQ_CH (3P1), iter3=APPROVE (0P0/0P1/2P2)
 I-f2-003 diff iter1=APPROVE 0/0/0; tokens=43345
+I-f2-004 brief iter1=REQ_CH (2P1) iter2=REQ_CH (1P1) iter3=APPROVE (0P0/0P1/3P2 accept_remaining)
+I-f2-004 diff iter1=REQ_CH (1P1 prettier) iter2=APPROVE 0/0/2P2 accept_remaining; tokens=38362
