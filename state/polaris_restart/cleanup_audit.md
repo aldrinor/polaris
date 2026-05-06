@@ -2,7 +2,7 @@
 
 **Authority:** advisory until Codex APPROVE.
 **Source:** `state/polaris_restart/plan.md` §8 (Codex-APPROVE'd at iter 4 on 2026-05-05).
-**Iter:** 21 of N (no hard cap per CLAUDE.md §8.3.1).
+**Iter:** 21 (HISTORICAL — APPROVE'd 2026-05-05, completed under prior "no hard cap" policy that has since been REVOKED 2026-05-06 by 5-iter cap per CLAUDE.md §8.3.1).
 
 This document classifies every file/folder under `C:\POLARIS\` per CLAUDE.md §4.1 + §5 + plan §8. Each row: KEEP / ARCHIVE / DELETE / RENAME with reason. Anti-overkill: confirmed each via grep for references + git log for last-touch age + size check before decision.
 
@@ -1753,7 +1753,7 @@ Specific risks to audit on this iter 9:
 4. The `outputs/honest_sweep_*` "no cleanup PR action" classification — do any of the 19+ doc references need updating to reflect that these dirs are runtime-generated and not part of source-controlled state? E.g., should runbook.md explicitly say "outputs/honest_sweep_*/ is created at runtime by run_honest_sweep_r3.py"? Convention pick.
 5. The reset-removed row rewrites — the §6 INSPECT list still references items that may or may not be at reset target; should §6 also be re-verified against `365f334` and reset-removed items demoted to a "preserved in pre_restart_2026_05_05 tag for forensic recovery; not part of cleanup scope" sub-list?
 6. The gate allowlist `<path>:<lineno>:` convention — bash `grep -qF` matches substrings; `path:line:` could false-match `path:line:5:` if line 5 starts with content matching pattern. Should the match be anchored (`^<path>:<lineno>:` regex with `grep -qE`) instead?
-7. The 9-iter trajectory now stands at: 1 P0 (iter 1 CLEAN-EXEC-1, fixed iter 2), 5 continuing P0 trajectory was always 0 except iter 1, plus per-iter P1/P2 distinct findings ~30+ total, ~25 catastrophic-or-real-failure-class. Fully consistent with feedback_codex_iteration_no_cap_no_toothpaste.md memory entry.
+7. The 9-iter trajectory now stands at: 1 P0 (iter 1 CLEAN-EXEC-1, fixed iter 2), 5 continuing P0 trajectory was always 0 except iter 1, plus per-iter P1/P2 distinct findings ~30+ total, ~25 catastrophic-or-real-failure-class. Historically consistent with `feedback_codex_iteration_no_cap_no_toothpaste.md` (SUPERSEDED 2026-05-06 by `feedback_codex_iteration_5cap_2026_05_06.md` — 5-iter cap now binds per CLAUDE.md §8.3.1).
 
 APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
 
@@ -1930,4 +1930,4 @@ Specific risks to audit:
 
 APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
 
-No exec exploration unless verifying a specific concern. List ALL remaining issues this iteration. No hard cap on iterations.
+No exec exploration unless verifying a specific concern. List ALL remaining issues this iteration. (HISTORICAL iter-2 prompt boilerplate; the "no hard cap" rule was REVOKED 2026-05-06 — current binding policy is the 5-iter cap per CLAUDE.md §8.3.1.)

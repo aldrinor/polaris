@@ -60,7 +60,7 @@ PR-F (execute Issue #1): blocked on PR-E
 
 ## Critical memory entries (read these every session)
 
-- `feedback_codex_iteration_no_cap_no_toothpaste.md` — **CRITICAL.** Trust Codex. No hard cap. Drift findings drop monotonically. iter-21 cleanup_audit.md APPROVE proved this.
+- `feedback_codex_iteration_5cap_2026_05_06.md` — **CRITICAL CURRENT (2026-05-06).** 5-iter hard cap per Codex review per CLAUDE.md §8.3.1. Trust Codex within the cap; force-APPROVE at iter 5 if still REQUEST_CHANGES, capture residuals as follow-up Issues. SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` (2026-05-05; "No hard cap" is REVOKED).
 - `failure_28_commits_2026_05_03.md` — DO NOT REPEAT. I have no admin merge authority. CI gate enforces.
 - `feedback_dont_relax_assertion_to_hide_bug.md` — Fix the bug, never the assertion.
 - `feedback_no_status_blocks_mid_batch.md` — superseded by §3.0 issue-driven workflow but kept as reference for the underlying anti-pattern.
