@@ -20,7 +20,7 @@ const targets = [
   {
     name: "dashboard_empty",
     path: "/",
-    description: "Landing page (empty dashboard with 3 template cards)",
+    description: "Landing page (template grid: 3 active + 5 to-build cards)",
   },
   {
     name: "sign_in",

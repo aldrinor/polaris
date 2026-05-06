@@ -9,46 +9,96 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type DemoSlice = {
+type Template = {
   id: string;
-  step: string;
-  title: string;
-  href: string;
-  description: string;
+  name: string;
+  summary: string;
+  sample_question: string;
+  out_of_scope: string;
+  active: boolean;
 };
 
-const demo_slices: DemoSlice[] = [
+const templates: Template[] = [
   {
-    id: "intake",
-    step: "Step 1",
-    title: "Scope discovery + ambiguity",
-    href: "/intake",
-    description:
-      "Submit a clinical research question. POLARIS detects ambiguity, prompts for PICO clarification, and emits a scope decision.",
+    id: "clinical",
+    name: "Clinical drug audit",
+    summary:
+      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
+    sample_question:
+      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
+    out_of_scope: "Should I take ozempic for my diabetes?",
+    active: true,
   },
   {
-    id: "retrieval",
-    step: "Step 2",
-    title: "Tiered retrieval",
-    href: "/retrieval",
-    description:
-      "Live retrieval against Cochrane / PubMed / regulator domains via Serper + Semantic Scholar, with corpus-adequacy gating.",
+    id: "housing",
+    name: "Housing & productivity",
+    summary:
+      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
+    sample_question:
+      "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
+    out_of_scope: "Should I buy a condo in Toronto?",
+    active: true,
   },
   {
-    id: "generation",
-    step: "Step 3",
-    title: "Generator + strict-verify",
-    href: "/generation",
-    description:
-      "Multi-section generation with provenance tokens and per-sentence numeric + content-overlap verification.",
+    id: "climate",
+    name: "Climate & critical minerals",
+    summary:
+      "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous consent.",
+    sample_question:
+      "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
+    out_of_scope: "Should I buy a heat pump for my house?",
+    active: true,
   },
   {
-    id: "benchmark",
-    step: "Step 4",
-    title: "BEAT-BOTH benchmark",
-    href: "/benchmark",
-    description:
-      "Head-to-head scoreboard vs ChatGPT-DR / Gemini-DR across 7 dimensions: tier mix, numeric grounding, provenance density, refusal correctness, coverage, latency, auditability.",
+    id: "ai_sovereignty",
+    name: "AI sovereignty",
+    summary:
+      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
+    sample_question:
+      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
+    out_of_scope:
+      "Should I take a job at a Canadian AI startup or move to San Francisco?",
+    active: false,
+  },
+  {
+    id: "canada_us",
+    name: "Canada–US relations",
+    summary:
+      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
+    sample_question:
+      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
+    out_of_scope: "Should I move to the US for tax reasons?",
+    active: false,
+  },
+  {
+    id: "defense",
+    name: "Defense & Arctic",
+    summary:
+      "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
+    sample_question:
+      "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
+    out_of_scope: "How do I join the Canadian Armed Forces?",
+    active: false,
+  },
+  {
+    id: "trade",
+    name: "Trade & tariff",
+    summary:
+      "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
+    sample_question:
+      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
+    out_of_scope: "Should I move my supply chain to Mexico?",
+    active: false,
+  },
+  {
+    id: "workforce",
+    name: "Workforce & productivity",
+    summary:
+      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
+    sample_question:
+      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
+    out_of_scope: "How do I apply for permanent residency?",
+    active: false,
   },
 ];
 
@@ -88,45 +138,87 @@ export default function HomePage() {
         </section>
 
         <section
-          aria-labelledby="demo_walkthrough_heading"
+          aria-labelledby="template_grid_heading"
           className="flex flex-col gap-5"
-          data-testid="demo-walkthrough"
+          data-testid="template-grid"
         >
           <div className="flex items-baseline justify-between">
             <h2
-              id="demo_walkthrough_heading"
+              id="template_grid_heading"
               className="text-foreground text-xl font-semibold tracking-tight"
             >
-              Tracer demo walkthrough
+              Research templates
             </h2>
             <span className="text-muted-foreground text-xs tracking-widest uppercase">
-              Slices 1 → 5
+              3 active · 5 to-build
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {demo_slices.map((slice) => (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {templates.map((tpl) => (
               <Card
-                key={slice.id}
-                className="flex flex-col"
-                data-testid={`demo-slice-${slice.id}`}
+                key={tpl.id}
+                aria-disabled={tpl.active ? undefined : true}
+                className={
+                  tpl.active
+                    ? "flex flex-col"
+                    : "bg-muted/40 text-muted-foreground flex flex-col"
+                }
+                data-testid={`template-card-${tpl.id}`}
               >
                 <CardHeader>
-                  <CardDescription className="text-xs tracking-widest uppercase">
-                    {slice.step}
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-lg">{tpl.name}</CardTitle>
+                    {!tpl.active ? (
+                      <span
+                        aria-hidden="true"
+                        className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
+                      >
+                        Coming soon
+                      </span>
+                    ) : null}
+                  </div>
+                  <CardDescription className="text-sm">
+                    {tpl.summary}
                   </CardDescription>
-                  <CardTitle className="text-lg">{slice.title}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col justify-between gap-4">
-                  <p className="text-muted-foreground text-sm">
-                    {slice.description}
-                  </p>
-                  <Button
-                    variant="outline"
-                    nativeButton={false}
-                    render={<Link href={slice.href} />}
-                  >
-                    Open {slice.title}
-                  </Button>
+                  <div className="flex flex-col gap-2 text-sm">
+                    <p>
+                      <span className="text-foreground font-medium">
+                        In scope:
+                      </span>{" "}
+                      {tpl.sample_question}
+                    </p>
+                    <p>
+                      <span className="text-foreground font-medium">
+                        Out of scope:
+                      </span>{" "}
+                      {tpl.out_of_scope}
+                    </p>
+                  </div>
+                  {tpl.active ? (
+                    <Button
+                      variant="outline"
+                      nativeButton={false}
+                      render={
+                        <Link
+                          data-testid={`template-card-${tpl.id}-link`}
+                          href={`/intake?template=${tpl.id}`}
+                        />
+                      }
+                    >
+                      Open {tpl.name}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      disabled
+                      tabIndex={-1}
+                      aria-disabled="true"
+                    >
+                      Coming soon
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ))}
