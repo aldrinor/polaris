@@ -47,6 +47,7 @@ from polaris_graph.api.benchmark_route import (
     get_results_root as slice005_get_results_root,
     router as slice005_benchmark_router,
 )
+from polaris_graph.api.disambiguation_route import router as disambiguation_router
 
 
 @asynccontextmanager
@@ -156,6 +157,8 @@ def create_app() -> FastAPI:
             _inject_benchmark_root
         )
     app.include_router(slice005_benchmark_router, prefix="/api")
+
+    app.include_router(disambiguation_router, prefix="/api")
 
     return app
 

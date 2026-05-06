@@ -1,0 +1,2705 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019dfeea-cd98-7e00-a12d-3122488ad545
+--------
+user
+# Codex Brief Review — I-f2-003 (ITER 2 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 2 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f2-003 — Backend: disambiguation API endpoint
+**Phase:** 1 / **Feature:** F2 (disambiguation modal)
+**LOC budget:** 120 net per breakdown. **CHARTER §1 hard cap: 200.**
+
+## Iter-1 verdict resolution (REQUEST_CHANGES → addressed in this iter 2)
+
+**P1 #1 (router not mounted in app.py):** ADDRESSED. Acceptance §3 now explicitly mounts the new router in `src/polaris_v6/api/app.py` at the same prefix as the existing slice routes (`/api`).
+
+**P1 #2 (production label-client wiring contradictory):** ADDRESSED. The `get_label_client()` dependency now ALWAYS returns a usable client when `OPENROUTER_API_KEY` is set. The implementation uses a thin sync wrapper around the existing async `OpenRouterClient` via `asyncio.run`. When the env var is unset → returns None → route raises 503 (LAW II — fail loudly).
+
+**P2 #1 (Field constraints):** ADDRESSED. `min_cluster_size: int = Field(default=2, ge=1)` and `max_snippets_per_cluster: int = Field(default=3, ge=1)`.
+
+**P2 #2 (health endpoint test missing):** ADDRESSED. Test #7 added.
+
+**P2 #3 (short-circuit on num_clusters==1):** ADDRESSED. Single-cluster (`num_clusters == 1`) AND zero-cluster paths both skip labeling. A single dense cluster is unambiguous → no LLM call needed → response carries `clusters=[]` (the UI doesn't render the modal when not ambiguous).
+
+## Mission
+
+Add `src/polaris_graph/api/disambiguation_route.py` — POST `/api/disambiguation` accepts a list of candidate snippets + their pre-computed embeddings, runs them through `cluster_candidates()` (I-f2-001) → `label_clusters()` (I-f2-002), and returns a structured response the frontend modal (I-f2-004) consumes. Mount in `src/polaris_v6/api/app.py` so the running app exposes the endpoint.
+
+## Substrate (HONEST)
+
+- I-f2-001 + I-f2-002 merged: `cluster_candidates`, `label_clusters`, `ClusterLabelClient` Protocol.
+- `src/polaris_graph/api/retrieval_route.py` is the canonical route pattern (APIRouter, Pydantic, Depends, TestClient).
+- `src/polaris_v6/api/app.py` already imports + mounts each slice's router under `/api` prefix.
+- `src/polaris_graph/llm/openrouter_client.py:750` — class `OpenRouterClient` with `async def generate(...)`. The sync wrapper uses `asyncio.run` per call (acceptable cost for disambiguation: one call per ambiguous query).
+
+## Acceptance criteria (binding)
+
+1. **`src/polaris_graph/api/disambiguation_route.py`** (NEW): `router = APIRouter(tags=["disambiguation"])`.
+   - Pydantic models:
+     ```python
+     class CandidateSnippet(BaseModel):
+         text: str = Field(min_length=1)
+         embedding: list[float] = Field(min_length=1)
+
+     class DisambiguationRequest(BaseModel):
+         candidates: list[CandidateSnippet] = Field(min_length=1)
+         min_cluster_size: int = Field(default=2, ge=1)
+         max_snippets_per_cluster: int = Field(default=3, ge=1)
+
+     class ClusterPayload(BaseModel):
+         cluster_id: int
+         label: str
+         sample_snippets: list[str]
+
+     class DisambiguationResponse(BaseModel):
+         is_ambiguous: bool
+         num_clusters: int
+         clusters: list[ClusterPayload]
+         server_time_utc: str
+     ```
+   - Route behavior (POST /disambiguation):
+     - Empty/short candidates → HTTP 422 by Pydantic (`min_length=1` on the list).
+     - All embeddings same dim, else HTTP 400 `{code:"embedding_dim_mismatch"}`.
+     - Stack to `np.ndarray((K, D))`, call `cluster_candidates(min_cluster_size=req.min_cluster_size)`.
+     - If `num_clusters in (0, 1)`: SKIP labeling, return `is_ambiguous=False`, `clusters=[]`. (Both 0 and 1 are unambiguous; LLM call avoided.)
+     - Else (`num_clusters >= 2`): if `client is None` → HTTP 503 `{code:"label_client_unavailable"}`. Otherwise call `label_clusters(...)` → map to ClusterPayload list.
+   - Health endpoint: `GET /disambiguation/health` returns `{"status":"ok","stages":["cluster_candidates","label_clusters"],"label_client":<"sentinel"|"openrouter">}`.
+   - Production label-client wiring: a module-level helper `_make_openrouter_label_client()` reads `OPENROUTER_API_KEY` env var; if present returns an instance of an inline `OpenRouterLabelAdapter` class implementing `complete(prompt, *, max_tokens=50) -> str` by calling `asyncio.run(OpenRouterClient(...).generate(prompt))`. If env unset → returns None.
+   - `def get_label_client()` dep delegates to `_make_openrouter_label_client()` so tests can override.
+   - LOC: ~110.
+
+2. **`tests/polaris_graph/api/test_disambiguation_route.py`** (NEW): FastAPI TestClient, 7 tests via `app.dependency_overrides[get_label_client]`.
+   - `test_post_returns_clusters`: 6 candidates clustering into 2 groups → `is_ambiguous=true`, `num_clusters=2`, two ClusterPayloads.
+   - `test_single_cluster_unambiguous_skips_labeling`: 4 dense-cluster candidates → `is_ambiguous=false`, `clusters=[]`, FakeClient call count == 0.
+   - `test_no_clusters_skips_labeling`: 1 candidate → `num_clusters=0`, `clusters=[]`, FakeClient call count == 0.
+   - `test_embedding_dim_mismatch_400`: HTTP 400 + `code=embedding_dim_mismatch`.
+   - `test_empty_candidates_422`: HTTP 422 (Pydantic).
+   - `test_no_label_client_503_only_when_ambiguous`: clears override (default None) + posts AMBIGUOUS payload (≥2 clusters) → HTTP 503 + `code=label_client_unavailable`.
+   - `test_health_endpoint`: `GET /api/disambiguation/health` → 200 + `label_client` field.
+   - LOC: ~85.
+
+3. **`src/polaris_v6/api/app.py`** (EDIT): import `disambiguation_router` and `app.include_router(disambiguation_router, prefix="/api")` next to the other slice routes (line ~93 area).
+   - LOC: +3.
+
+## Planned diff shape
+
+```
+src/polaris_graph/api/disambiguation_route.py        NEW +110
+tests/polaris_graph/api/test_disambiguation_route.py NEW +85
+src/polaris_v6/api/app.py                            EDIT +3
+```
+
+LOC: +198 net. Under CHARTER §1 200-cap by 2 lines. If implementation drifts above, brief author commits to docstring trim BEFORE Codex diff review.
+
+## Out of scope (deferred per breakdown)
+
+- Frontend modal → I-f2-004.
+- BPEI 3-cluster real-LLM integration → I-f2-005 evaluator walkthrough.
+- Wiring `/api/disambiguation` into the intake page client → I-f2-004.
+
+## Risks for Codex Red-Team
+
+1. **Both-endpoints-shipped guarantee.** App.py mount happens in this PR, addressing iter-1 P1 #1. The TestClient tests instantiate via `app = FastAPI(); app.include_router(router, prefix="/api")` (mirrors retrieval_route test pattern); the app.py edit is then verified by an additional smoke that imports `from polaris_v6.api.app import create_app` and asserts `/api/disambiguation/health` exists in the OpenAPI schema. (Test #7's `test_health_endpoint` doubles as this smoke.)
+
+2. **Sync wrapper around async OpenRouterClient.** `asyncio.run` creates+tears-down an event loop per call. Acceptable: disambiguation fires once per ambiguous query (i.e. when `num_clusters >= 2`), not on every retrieval. For Carney's seven priorities, ambiguous queries are <5% of intake. Performance margin: acceptable.
+
+3. **Short-circuit on num_clusters in {0, 1}.** Both unambiguous; `clusters=[]` in response. The frontend modal renders only when `is_ambiguous=true`. No silent-fallback risk: response IS the unambiguous signal.
+
+4. **None-client + clusters>=2 → 503.** Critical LAW II compliance: never silently substitute a stub label. Test #6 asserts.
+
+5. **Pydantic Field constraints fire BEFORE business logic.** Empty candidates list, embedding="" → 422 from Pydantic, never reaches business code.
+
+6. **Embedding-dim check.** Single iteration through candidates checking `len(c.embedding) == D` for first-element D. Cheap (≤ K candidates × O(1)). Done before numpy stacking to surface a clean 400 instead of numpy's confusing ValueError.
+
+7. **app.py mount idempotency.** New include_router is additive next to the other slice routes; no existing route's behavior changes. The brief recommends placing the import next to `slice005_benchmark_router` and the include_router next to it for visibility.
+
+8. **No `unittest.mock` in `src/`.** `OpenRouterLabelAdapter` is a regular class. Test fakes use a `FakeClusterLabelClient` regular class. Per CLAUDE.md §9.4.
+
+9. **Determinism in clustering tests.** Uses small fixed-vector embeddings (e.g. `[1.0, 0.0]` vs `[0.0, 1.0]`) — no RNG. HDBSCAN deterministic on these inputs.
+
+10. **No env mutation in tests.** All 7 tests use `app.dependency_overrides[get_label_client]` to inject; tests do NOT touch `os.environ['OPENROUTER_API_KEY']`. The `_make_openrouter_label_client()` helper is exercised only by import-time path; correctness of the env path is verified via type-check + LAW V hygiene grep, not a runtime test (LAW VI — config from env, but tests must be hermetic).
+
+11. **CHARTER §1 LOC cap.** Estimated 198 net. Brief author commits to monitoring during implementation; if drift pushes over 200, docstrings are trimmed BEFORE diff review submission.
+
+12. **OpenAPI validity.** FastAPI auto-generates from Pydantic models; tested via `client.get('/openapi.json')` returning 200 implicitly through `test_health_endpoint`.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+codex
+I’ll validate the brief against the current route/app patterns and the merged clustering/labeling APIs, then return only the requested schema with concrete blockers if any.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files src tests | rg \"(retrieval_route|app\\.py|cluster|label|openrouter_client|CLAUDE\\.md)"'$"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def cluster_candidates|class ClusterLabelClient|def label_clusters|APIRouter|include_router|create_app" src tests -S' in C:\POLARIS
+ succeeded in 926ms:
+src\polaris_v6\api\app.py
+
+ succeeded in 1057ms:
+tests\v6\acceptance\test_runs_db_integration.py:103:    app.include_router(router)
+tests\v6\acceptance\test_runs_db_integration.py:127:    app.include_router(router)
+src\auth\auth_routes.py:6:from fastapi import APIRouter, Depends, HTTPException
+src\auth\auth_routes.py:18:router = APIRouter(prefix="/api/auth", tags=["auth"])
+src\polaris_v6\api\upload.py:20:from fastapi import APIRouter, Form, HTTPException, UploadFile
+src\polaris_v6\api\upload.py:23:router = APIRouter(prefix="/upload", tags=["upload"])
+src\polaris_v6\api\templates.py:9:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\templates.py:17:router = APIRouter(prefix="/templates", tags=["templates"])
+src\polaris_v6\api\stream.py:19:from fastapi import APIRouter
+src\polaris_v6\api\stream.py:22:router = APIRouter(prefix="/stream", tags=["stream"])
+src\polaris_v6\api\scope.py:5:from fastapi import APIRouter
+src\polaris_v6\api\scope.py:11:router = APIRouter(prefix="/scope", tags=["scope"])
+tests\v6\test_scope.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_scope.py:14:    return TestClient(create_app())
+src\polaris_v6\api\runs.py:13:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\runs.py:20:router = APIRouter(prefix="/runs", tags=["runs"])
+src\polaris_v6\api\memory.py:9:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\memory.py:20:router = APIRouter(prefix="/workspaces", tags=["memory"])
+src\polaris_v6\api\health.py:3:from fastapi import APIRouter
+src\polaris_v6\api\health.py:8:router = APIRouter(tags=["health"])
+src\polaris_v6\api\followup.py:7:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\followup.py:15:router = APIRouter(prefix="/runs", tags=["followup"])
+src\polaris_v6\api\compare.py:8:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\compare.py:14:router = APIRouter(prefix="/runs", tags=["compare"])
+src\polaris_v6\api\charts.py:7:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\charts.py:15:router = APIRouter(prefix="/runs", tags=["charts"])
+src\polaris_v6\api\bundle.py:20:from fastapi import APIRouter, HTTPException
+src\polaris_v6\api\bundle.py:24:router = APIRouter(prefix="/runs", tags=["bundle"])
+src\polaris_v6\api\app.py:4:and exposes the ASGI app via `app = create_app()` for uvicorn.
+src\polaris_v6\api\app.py:61:def create_app() -> FastAPI:
+src\polaris_v6\api\app.py:79:    app.include_router(health_router)
+src\polaris_v6\api\app.py:80:    app.include_router(runs_router)
+src\polaris_v6\api\app.py:81:    app.include_router(stream_router)
+src\polaris_v6\api\app.py:82:    app.include_router(ambiguity_router)
+src\polaris_v6\api\app.py:83:    app.include_router(bundle_router)
+src\polaris_v6\api\app.py:84:    app.include_router(scope_router)
+src\polaris_v6\api\app.py:85:    app.include_router(upload_router)
+src\polaris_v6\api\app.py:86:    app.include_router(charts_router)
+src\polaris_v6\api\app.py:87:    app.include_router(followup_router)
+src\polaris_v6\api\app.py:88:    app.include_router(compare_router)
+src\polaris_v6\api\app.py:89:    app.include_router(memory_router)
+src\polaris_v6\api\app.py:90:    app.include_router(templates_router)
+src\polaris_v6\api\app.py:93:    app.include_router(slice001_intake_router, prefix="/api")
+src\polaris_v6\api\app.py:109:    app.include_router(slice002_retrieval_router, prefix="/api")
+src\polaris_v6\api\app.py:124:    app.include_router(slice003_generation_router, prefix="/api")
+src\polaris_v6\api\app.py:139:    app.include_router(slice004_audit_bundle_router, prefix="/api")
+src\polaris_v6\api\app.py:158:    app.include_router(slice005_benchmark_router, prefix="/api")
+src\polaris_v6\api\app.py:163:app = create_app()
+src\polaris_v6\api\ambiguity.py:13:from fastapi import APIRouter
+src\polaris_v6\api\ambiguity.py:21:router = APIRouter(prefix="/ambiguity", tags=["ambiguity"])
+tests\v6\test_api_followup_compare.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_followup_compare.py:14:    return TestClient(create_app())
+tests\v6\test_api_charts.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_charts.py:14:    return TestClient(create_app())
+tests\v6\test_api_bundle.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_bundle.py:14:    return TestClient(create_app())
+tests\v6\test_api_ambiguity.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_ambiguity.py:14:    return TestClient(create_app())
+tests\v6\test_api_templates.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_templates.py:14:    return TestClient(create_app())
+tests\v6\test_api_memory.py:12:    from polaris_v6.api.app import create_app
+tests\v6\test_api_memory.py:14:    return TestClient(create_app())
+tests\v6\test_api_stream.py:21:    from polaris_v6.api.app import create_app
+tests\v6\test_api_stream.py:23:    return TestClient(create_app())
+tests\v6\test_api_health_and_runs.py:15:    from polaris_v6.api.app import create_app
+tests\v6\test_api_health_and_runs.py:17:    return TestClient(create_app())
+tests\v6\test_api_upload.py:14:    from polaris_v6.api.app import create_app
+tests\v6\test_api_upload.py:16:    return TestClient(create_app())
+tests\polaris_v6\api\test_app_slice_route_mount.py:13:    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY +
+tests\polaris_v6\api\test_app_slice_route_mount.py:25:    from polaris_v6.api.app import create_app
+tests\polaris_v6\api\test_app_slice_route_mount.py:27:    return TestClient(create_app())
+tests\polaris_v6\api\test_app_slice_route_mount.py:97:    create_app() side effect that mounts only the most recent slice)."""
+tests\polaris_v6\api\test_app_slice_route_mount.py:156:    from a single create_app() instance."""
+src\polaris_graph\intake\disambiguation_clusterer.py:44:def cluster_candidates(
+src\polaris_graph\intake\cluster_labeler.py:27:class ClusterLabelClient(Protocol):
+src\polaris_graph\intake\cluster_labeler.py:48:def label_clusters(
+src\polaris_graph\api\retrieval_route.py:20:    app.include_router(retrieval_router, prefix="/api")
+src\polaris_graph\api\retrieval_route.py:33:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\retrieval_route.py:43:router = APIRouter(tags=["retrieval"])
+src\polaris_graph\api\intake_route.py:5:    api/intake_route.py → FastAPI APIRouter exposing it as POST /api/intake
+src\polaris_graph\api\intake_route.py:13:    app.include_router(intake_router, prefix="/api")
+src\polaris_graph\api\intake_route.py:27:from fastapi import APIRouter, HTTPException
+src\polaris_graph\api\intake_route.py:33:router = APIRouter(tags=["intake"])
+src\polaris_graph\api\generation_route.py:11:    app.include_router(generation_router, prefix="/api")
+src\polaris_graph\api\generation_route.py:19:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\generation_route.py:32:router = APIRouter(tags=["generation"])
+src\polaris_graph\api\benchmark_route.py:27:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\benchmark_route.py:31:router = APIRouter(tags=["benchmark"])
+src\polaris_graph\api\audit_bundle_route.py:16:from fastapi import APIRouter, Depends, HTTPException
+src\polaris_graph\api\audit_bundle_route.py:28:router = APIRouter(tags=["audit-bundle"])
+tests\polaris_graph\test_demo_smoke.py:33:    """End-to-end: main() should pass against a real create_app()."""
+tests\polaris_graph\test_demo_smoke.py:75:    from polaris_v6.api.app import create_app
+tests\polaris_graph\test_demo_smoke.py:77:    client = TestClient(create_app())
+tests\polaris_graph\test_job_router.py:34:    app.include_router(router)
+tests\polaris_graph\test_job_router.py:100:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:157:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:188:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:222:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:247:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:283:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:336:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:371:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:419:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:463:        app.include_router(router)
+tests\polaris_graph\test_job_router.py:507:        app.include_router(router)
+tests\polaris_graph\test_corpus_brief_api.py:41:    app.include_router(router)
+tests\polaris_graph\test_citation_health.py:554:    app.include_router(router)
+tests\polaris_graph\test_citation_health.py:583:    app.include_router(router)
+tests\polaris_graph\test_inspector_router.py:18:    app.include_router(router)
+tests\polaris_graph\test_authz_endpoints.py:101:    app.include_router(router)
+src\polaris_graph\audit_ir\inspector_router.py:26:from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+src\polaris_graph\audit_ir\inspector_router.py:143:router = APIRouter()
+tests\polaris_graph\api\test_generation_route.py:17:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_intake_route.py:17:    app.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_benchmark_route.py:18:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_retrieval_route.py:24:    a.include_router(router, prefix="/api")
+tests\polaris_graph\api\test_audit_bundle_route.py:22:    a.include_router(router, prefix="/api")
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:57:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:68:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:250:    app.include_router(ir_mod.router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:39:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:282:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:323:    app.include_router(router)
+tests\polaris_graph\test_m_int_10_drive_connector_endpoint.py:335:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:40:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:179:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:214:    app.include_router(router)
+tests\polaris_graph\test_m_int_11_support_ticket_endpoint.py:226:    app.include_router(router)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:32:    app.include_router(router)
+tests\polaris_graph\test_m_int_8_slide_deck_endpoint.py:135:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:34:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:173:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:221:    app.include_router(router)
+tests\polaris_graph\test_m_int_9_contract_draft_endpoint.py:298:    app.include_router(router)
+tests\polaris_graph\test_progress_surfaces_api.py:40:    app.include_router(router)
+tests\polaris_graph\test_regression_alerts.py:482:    app.include_router(router)
+tests\polaris_graph\test_regression_alerts.py:645:    app.include_router(router)
+tests\polaris_graph\test_review_store.py:321:    app.include_router(inspector_router.router)
+tests\polaris_graph\test_run_diff.py:576:    app.include_router(router)
+tests\polaris_graph\test_template_router_api.py:22:    app.include_router(router)
+tests\polaris_graph\test_workspace_memory.py:390:    app.include_router(inspector_router.router)
+tests\polaris_graph\test_workspace_api.py:26:    app.include_router(router)
+
+codex
+I found the expected slice route structure and the merged disambiguation helpers. I’m checking signatures now because endpoint specs often fail on a small contract mismatch between the brief and helper APIs.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\intake\\cluster_labeler.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\api\\app.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\intake\\disambiguation_clusterer.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class OpenRouterClient|async def generate|def generate\" src\\polaris_graph\\llm\\openrouter_client.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\api\\generation_route.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\api\\retrieval_route.py" in C:\POLARIS
+ succeeded in 1353ms:
+"""FastAPI app factory for POLARIS v6.
+
+Composes routers, wires OpenTelemetry instrumentation when configured,
+and exposes the ASGI app via `app = create_app()` for uvicorn.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from polaris_v6 import __version__
+from polaris_v6.api.ambiguity import router as ambiguity_router
+from polaris_v6.api.bundle import router as bundle_router
+from polaris_v6.api.charts import router as charts_router
+from polaris_v6.api.compare import router as compare_router
+from polaris_v6.api.followup import router as followup_router
+from polaris_v6.api.health import router as health_router
+from polaris_v6.api.memory import router as memory_router
+from polaris_v6.api.runs import router as runs_router
+from polaris_v6.api.scope import router as scope_router
+from polaris_v6.api.stream import router as stream_router
+from polaris_v6.api.templates import router as templates_router
+from polaris_v6.api.upload import router as upload_router
+
+# Slice 001 (clinical scope discovery + ambiguity) and slice 002 (clinical
+# retrieval). Each lives in polaris_graph.api per slice spec; we mount them
+# under /api alongside the v6 routers so the frontend at /intake + /retrieval
+# can call them without a separate origin.
+from polaris_graph.api.intake_route import router as slice001_intake_router
+from polaris_graph.api.retrieval_route import (
+    get_fetch_fn as slice002_get_fetch_fn,
+    router as slice002_retrieval_router,
+)
+from polaris_graph.api.generation_route import (
+    get_completion_fn as slice003_get_completion_fn,
+    router as slice003_generation_router,
+)
+from polaris_graph.api.audit_bundle_route import (
+    get_sign_fn as slice004_get_sign_fn,
+    router as slice004_audit_bundle_router,
+)
+from polaris_graph.api.benchmark_route import (
+    get_results_root as slice005_get_results_root,
+    router as slice005_benchmark_router,
+)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    if os.environ.get("OTEL_SEMCONV_STABILITY_OPT_IN"):
+        from polaris_v6.observability.otel_init import init_otel
+
+        init_otel()
+    yield
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="POLARIS",
+        version=__version__,
+        description="Sovereign Canadian deep research AI",
+        lifespan=_lifespan,
+    )
+    cors_origins = os.environ.get(
+        "POLARIS_V6_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3737,http://localhost:3738,http://127.0.0.1:3000,http://127.0.0.1:3737,http://127.0.0.1:3738",
+    ).split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins if o.strip()],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health_router)
+    app.include_router(runs_router)
+    app.include_router(stream_router)
+    app.include_router(ambiguity_router)
+    app.include_router(bundle_router)
+    app.include_router(scope_router)
+    app.include_router(upload_router)
+    app.include_router(charts_router)
+    app.include_router(followup_router)
+    app.include_router(compare_router)
+    app.include_router(memory_router)
+    app.include_router(templates_router)
+
+    # Slice 001 — POST /api/intake + GET /api/intake/health
+    app.include_router(slice001_intake_router, prefix="/api")
+
+    # Slice 002 — POST /api/retrieval + GET /api/retrieval/health.
+    # Inject the real Serper + Semantic-Scholar fetcher when keys are
+    # present; otherwise leave the dependency at the sentinel default
+    # (returns 400 fetch_backend_unavailable, never silently degrades).
+    if os.environ.get("SERPER_API_KEY", "").strip():
+        from polaris_graph.retrieval2.real_fetcher import build_real_fetcher
+
+        # Build once at startup; fetcher reuses httpx connections per call.
+        _real_fetcher = build_real_fetcher()
+
+        def _inject_real_fetcher():
+            return _real_fetcher
+
+        app.dependency_overrides[slice002_get_fetch_fn] = _inject_real_fetcher
+    app.include_router(slice002_retrieval_router, prefix="/api")
+
+    # Slice 003 — POST /api/generation + GET /api/generation/health.
+    # When OPENROUTER_API_KEY is present, inject the real OpenRouter-backed
+    # completion_fn (PR 7); otherwise leave the sentinel default in place
+    # which returns 400 completion_backend_unavailable per LAW II.
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        from polaris_graph.generator2.real_completion import build_real_completion
+
+        _real_completion = build_real_completion()
+
+        def _inject_real_completion():
+            return _real_completion
+
+        app.dependency_overrides[slice003_get_completion_fn] = _inject_real_completion
+    app.include_router(slice003_generation_router, prefix="/api")
+
+    # Slice 004 — POST /api/audit-bundle + GET /api/audit-bundle/health.
+    # When POLARIS_GPG_KEY_ID is set, build the real GPGSigner and inject
+    # it via dep override; otherwise leave sentinel default which yields
+    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+    if os.environ.get("POLARIS_GPG_KEY_ID", "").strip():
+        from polaris_graph.audit_bundle.gpg_signer import build_gpg_signer
+
+        _real_signer = build_gpg_signer()
+
+        def _inject_real_signer():
+            return _real_signer.sign
+
+        app.dependency_overrides[slice004_get_sign_fn] = _inject_real_signer
+    app.include_router(slice004_audit_bundle_router, prefix="/api")
+
+    # Slice 005 — GET /api/benchmark/{id}/{scoreboard,report,summary}.
+    # Reads pre-computed artifacts from POLARIS_BENCHMARK_RESULTS_DIR;
+    # operator runs scripts/run_benchmark.py to produce them.
+    benchmark_results_dir = os.environ.get(
+        "POLARIS_BENCHMARK_RESULTS_DIR", ""
+    ).strip()
+    if benchmark_results_dir:
+        from pathlib import Path as _Path
+
+        _benchmark_root = _Path(benchmark_results_dir)
+
+        def _inject_benchmark_root():
+            return _benchmark_root
+
+        app.dependency_overrides[slice005_get_results_root] = (
+            _inject_benchmark_root
+        )
+    app.include_router(slice005_benchmark_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
+
+ succeeded in 1399ms:
+"""LLM cluster-labeling per primary entity (F2 substrate, I-f2-002).
+
+Given disambiguation clusters from `cluster_candidates` (I-f2-001),
+ask an LLM for a one-line label per cluster naming the primary entity
+(e.g. BPEI → syndrome / institute / chemical). Uses a Protocol so unit
+tests stub without httpx + API key; integration adapter wires the real
+OpenRouter client at I-f2-003.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from polaris_graph.intake.disambiguation_clusterer import ClusterResult
+
+MAX_LABEL_WORDS = 8
+
+
+@dataclass(frozen=True)
+class LabeledCluster:
+    cluster_id: int
+    label: str
+    sample_snippets: list[str]
+
+
+class ClusterLabelClient(Protocol):
+    def complete(self, prompt: str, *, max_tokens: int = 50) -> str: ...
+
+
+def _truncate_label(text: str) -> str:
+    words = text.strip().split()
+    if len(words) > MAX_LABEL_WORDS:
+        words = words[:MAX_LABEL_WORDS]
+    return " ".join(words)
+
+
+def _build_prompt(snippets: list[str]) -> str:
+    snippet_block = "\n".join(f"- {s}" for s in snippets)
+    return (
+        "What entity is described by these snippets? "
+        "Reply with ONE short noun phrase only (≤ 8 words). "
+        "No quotes, no explanation, no trailing punctuation.\n\n"
+        f"{snippet_block}"
+    )
+
+
+def label_clusters(
+    cluster_result: ClusterResult,
+    candidate_snippets: list[str],
+    client: ClusterLabelClient,
+    max_snippets_per_cluster: int = 3,
+) -> list[LabeledCluster]:
+    """Generate a one-line label per non-noise cluster.
+
+    Validation order (per Codex iter-1 brief P2): length-mismatch check
+    fires BEFORE the num_clusters == 0 early return so malformed
+    all-noise inputs do not silently slip through (LAW II).
+    """
+    if len(candidate_snippets) != len(cluster_result.labels):
+        raise ValueError(
+            f"label_clusters: candidate_snippets length ({len(candidate_snippets)}) "
+            f"does not match cluster_result.labels ({len(cluster_result.labels)})"
+        )
+    if cluster_result.num_clusters == 0:
+        return []
+
+    distinct_ids = sorted({lbl for lbl in cluster_result.labels if lbl != -1})
+    out: list[LabeledCluster] = []
+    for cid in distinct_ids:
+        snippets_for_cluster = [
+            candidate_snippets[i]
+            for i, lbl in enumerate(cluster_result.labels)
+            if lbl == cid
+        ][:max_snippets_per_cluster]
+        raw = client.complete(_build_prompt(snippets_for_cluster))
+        label = _truncate_label(raw)
+        if not label:
+            raise ValueError(
+                f"label_clusters: LLM returned empty label for cluster {cid}"
+            )
+        out.append(
+            LabeledCluster(
+                cluster_id=cid,
+                label=label,
+                sample_snippets=snippets_for_cluster,
+            )
+        )
+    return out
+
+ succeeded in 1458ms:
+750:class OpenRouterClient:
+1778:    async def generate(
+1947:    async def generate_structured(
+
+ succeeded in 1544ms:
+"""FastAPI HTTP route for slice 003 generation pipeline.
+
+POST /api/generation — accepts an EvidencePool (typically the slice 002
+response) and returns a VerifiedReport (HTTP 200) or GenerationError
+detail (HTTP 400).
+
+Mirrors slice 001 intake_route.py + slice 002 retrieval_route.py.
+
+Mount:
+    from polaris_graph.api.generation_route import router as generation_router
+    app.include_router(generation_router, prefix="/api")
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from polaris_graph.generator2.generator import (
+    GeneratorCompletionFn,
+    process_generation,
+)
+from polaris_graph.generator2.verified_report import (
+    GenerationError,
+    VerifiedReport,
+)
+from polaris_graph.retrieval2.evidence_pool import EvidencePool
+
+router = APIRouter(tags=["generation"])
+
+
+# ---------------------------------------------------------------------------
+# Dependency: completion_fn injection
+# ---------------------------------------------------------------------------
+
+def get_completion_fn() -> GeneratorCompletionFn | None:
+    """Returns the active completion_fn or None.
+
+    None signals process_generation() to use its default sentinel which
+    triggers GenerationError(completion_backend_unavailable). Tests
+    override this dep; PR 7 will replace the production default with the
+    real OpenRouter-backed adapter.
+    """
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class GenerationRequest(BaseModel):
+    """POST body for /api/generation.
+
+    Accepts an EvidencePool verbatim (as returned by /api/retrieval).
+    Pydantic re-validates the structure on the way in so a malformed
+    pool yields HTTP 422 before the orchestrator runs.
+
+    `scope_class` is OPTIONAL but recommended; without it the generator
+    falls back to the clinical_efficacy blueprint. Callers chaining
+    intake -> retrieval -> generation should thread the slice 001
+    ScopeDecision.scope_class through.
+
+    `verifier_pass_threshold` overrides the default per-section pass-rate
+    threshold (default 0.40). Lower values let weaker sections through
+    (useful for early demos); higher values are stricter.
+    """
+
+    pool: EvidencePool = Field(
+        description="EvidencePool from slice 002 retrieval (adequacy=True)"
+    )
+    scope_class: str | None = Field(
+        default=None,
+        description=(
+            "Optional clinical_* scope class to select the section "
+            "blueprint. Defaults to clinical_efficacy when omitted."
+        ),
+    )
+    verifier_pass_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Optional override for the per-section strict-verify pass "
+            "rate threshold. None -> use orchestrator default (0.40)."
+        ),
+    )
+
+
+class GenerationErrorResponse(BaseModel):
+    """Body returned with HTTP 400 when generation cannot proceed."""
+
+    error: bool = True
+    code: str
+    message: str
+    pool_id: str | None = None
+    decision_id: str | None = None
+
+
+class GenerationSuccessResponse(BaseModel):
+    """Body returned with HTTP 200 wrapping a VerifiedReport.
+
+    Note: a VerifiedReport with verdict='abort_no_verified_sections' is
+    still HTTP 200 (request succeeded; the corpus generated but every
+    section failed strict-verify; UI surfaces the abort verdict).
+    HTTP 400 is reserved for structural failures: inadequate input pool,
+    completion backend down, malformed output.
+    """
+
+    error: bool = False
+    report: dict
+    server_time_utc: str
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@router.post("/generation", response_model=None)
+def post_generation(
+    req: GenerationRequest,
+    completion_fn: GeneratorCompletionFn | None = Depends(get_completion_fn),
+) -> GenerationSuccessResponse | GenerationErrorResponse:
+    """Run an EvidencePool through generator + strict-verify."""
+    kwargs: dict[str, Any] = {"scope_class": req.scope_class}
+    if req.verifier_pass_threshold is not None:
+        kwargs["verifier_pass_threshold"] = req.verifier_pass_threshold
+    if completion_fn is not None:
+        kwargs["completion_fn"] = completion_fn
+    result = process_generation(req.pool, **kwargs)
+
+    if isinstance(result, GenerationError):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": result.code,
+                "message": result.message,
+                "pool_id": result.pool_id,
+                "decision_id": result.decision_id,
+            },
+        )
+
+    assert isinstance(result, VerifiedReport)
+    return GenerationSuccessResponse(
+        report=result.model_dump(mode="json"),
+        server_time_utc=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+
+
+@router.get("/generation/health")
+def get_generation_health() -> dict[str, Any]:
+    """Liveness probe + slice 003 backend version info."""
+    return {
+        "status": "ok",
+        "slice": "slice_003_generator_strict_verify",
+        "pipeline_stages": [
+            "validate_pool",
+            "section_blueprint",
+            "completion_fn",
+            "sentence_split",
+            "strict_verify",
+            "section_pass_rate",
+            "regeneration",
+            "verdict",
+        ],
+        "completion_backend": "sentinel",  # PR 7 -> 'openrouter_deepseek'
+    }
+
+ succeeded in 1615ms:
+"""FastAPI HTTP route for the slice 002 clinical retrieval pipeline.
+
+Per `.codex/slices/slice_002/architecture_proposal.md` §"api/retrieval_route".
+
+Mirrors slice 001's `api/intake_route.py` pattern:
+
+    api/intake_route.py     -> POST /api/intake
+    api/retrieval_route.py  -> POST /api/retrieval (this module)
+
+The route accepts a ScopeDecision (typically passed straight from the
+slice 001 intake response) and returns either an EvidencePool (HTTP 200)
+or a structured RetrievalError body (HTTP 400).
+
+Mount into any FastAPI app:
+
+    from fastapi import FastAPI
+    from polaris_graph.api.retrieval_route import router as retrieval_router
+
+    app = FastAPI()
+    app.include_router(retrieval_router, prefix="/api")
+
+Tests use FastAPI TestClient (no real HTTP server, no real network).
+The fetch_fn is injected via FastAPI's dependency-override mechanism;
+in production it will be the real Serper + Semantic-Scholar fetcher
+shipped in PR 7.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from polaris_graph.retrieval2.clinical_retriever import (
+    FetchHttpFn,
+    process_retrieval,
+)
+from polaris_graph.retrieval2.evidence_pool import EvidencePool, RetrievalError
+from polaris_graph.scope.scope_decision import ScopeDecision
+
+router = APIRouter(tags=["retrieval"])
+
+
+# ---------------------------------------------------------------------------
+# Dependency: fetch_fn injection point
+# ---------------------------------------------------------------------------
+
+def get_fetch_fn() -> FetchHttpFn | None:
+    """Returns the active fetch_fn or None.
+
+    None signals process_retrieval() to use its default sentinel, which
+    raises and is caught by the orchestrator -> RetrievalError(
+    fetch_backend_unavailable). Tests override this dep to inject stubs.
+    PR 7 will replace this default with the real Serper + Semantic-Scholar
+    fetcher.
+    """
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class RetrievalRequest(BaseModel):
+    """POST body for /api/retrieval.
+
+    Accepts a ScopeDecision verbatim (as returned by /api/intake).
+    Pydantic re-validates the structure on the way in so a malformed
+    decision yields HTTP 422 before the orchestrator runs.
+    """
+
+    decision: ScopeDecision = Field(
+        description="ScopeDecision from slice 001 intake (status=in_scope, scope_class=clinical_*)",
+    )
+
+
+class RetrievalErrorResponse(BaseModel):
+    """Body returned with HTTP 400 when retrieval cannot proceed."""
+
+    error: bool = True
+    code: str  # 'wrong_status' | 'wrong_scope_class' | 'fetch_backend_unavailable'
+    message: str
+    decision_id: str | None = None
+
+
+class RetrievalSuccessResponse(BaseModel):
+    """Body returned with HTTP 200 wrapping a successful EvidencePool."""
+
+    error: bool = False
+    pool: dict  # EvidencePool.model_dump(mode="json")
+    server_time_utc: str
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/retrieval",
+    response_model=None,  # union response: success-shape or 400-error
+)
+def post_retrieval(
+    req: RetrievalRequest,
+    fetch_fn: FetchHttpFn | None = Depends(get_fetch_fn),
+) -> RetrievalSuccessResponse | RetrievalErrorResponse:
+    """Run a slice 001 ScopeDecision through clinical retrieval.
+
+    Returns EvidencePool (HTTP 200) on success — note that an EvidencePool
+    with adequacy.is_adequate=False is still HTTP 200 (the request
+    succeeded, the corpus just isn't strong enough for downstream
+    generation; UI surfaces the failure_reason). HTTP 400 is reserved
+    for structural failures: wrong status, wrong scope class, fetch
+    backend down.
+    """
+    if fetch_fn is None:
+        result = process_retrieval(req.decision)
+    else:
+        result = process_retrieval(req.decision, fetch_fn=fetch_fn)
+
+    if isinstance(result, RetrievalError):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": True,
+                "code": result.code,
+                "message": result.message,
+                "decision_id": result.decision_id,
+            },
+        )
+
+    assert isinstance(result, EvidencePool)
+    return RetrievalSuccessResponse(
+        pool=result.model_dump(mode="json"),
+        server_time_utc=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+
+
+@router.get("/retrieval/health")
+def get_retrieval_health() -> dict[str, Any]:
+    """Liveness probe + slice 002 backend version info."""
+    return {
+        "status": "ok",
+        "slice": "slice_002_clinical_retrieval",
+        "pipeline_stages": [
+            "validate_decision",
+            "query_planner",
+            "fetch_backend",
+            "clinical_source_registry",
+            "url_dedup",
+            "corpus_adequacy_gate",
+        ],
+        "fetch_backend": "sentinel",  # replaced by 'serper+semantic_scholar' in PR 7
+    }
+
+ succeeded in 1686ms:
+"""HDBSCAN clustering on top-K retrieval candidate embeddings (F2 substrate).
+
+Per Carney v6.2 §F2 Diversify-then-Verify: cluster the top-K candidate
+embeddings; if HDBSCAN finds more than one dense cluster the user query
+is ambiguous (e.g. "BPEI" → syndrome / institute / chemical clusters),
+and the disambiguation modal should fire. A single dense cluster (or
+one-cluster-allowed result) means the query is unambiguous (e.g.
+"tirzepatide" → all candidates about the drug).
+
+This module is substrate-only:
+- Consumes pre-computed `np.ndarray` of shape (K, D); does NOT call
+  any embedding model at runtime (per CLAUDE.md §8.4 "no heavy ML in
+  autonomous loops"). Wiring into `live_retriever.py` is I-f2-003.
+- Wraps `hdbscan.HDBSCAN` with `allow_single_cluster=True` so a
+  tightly-packed candidate set returns 1 cluster rather than 0.
+
+Pre-condition: `embeddings` should be L2-normalized for euclidean
+metric to be monotonic with cosine distance.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import hdbscan
+import numpy as np
+
+
+@dataclass(frozen=True)
+class ClusterResult:
+    """Result of HDBSCAN clustering on candidate embeddings.
+
+    Attributes:
+        labels: HDBSCAN cluster id per candidate (-1 = noise/outlier).
+        num_clusters: Count of distinct non-noise cluster ids.
+        is_ambiguous: True iff num_clusters > 1.
+    """
+
+    labels: list[int]
+    num_clusters: int
+    is_ambiguous: bool
+
+
+def cluster_candidates(
+    embeddings: np.ndarray,
+    min_cluster_size: int = 2,
+) -> ClusterResult:
+    """Cluster candidate embeddings with HDBSCAN.
+
+    Args:
+        embeddings: Shape (K, D) float array of candidate embeddings.
+        min_cluster_size: HDBSCAN minimum cluster size (default 2 per
+            Carney v6.2 §F2 spec).
+
+    Returns:
+        ClusterResult with labels, num_clusters, is_ambiguous.
+
+    Raises:
+        ValueError: If `embeddings` is empty (LAW II — fail loudly).
+
+    Edge cases:
+        - K < min_cluster_size: HDBSCAN cannot cluster; returns
+          num_clusters=0, is_ambiguous=False, labels all -1.
+    """
+    if embeddings.size == 0:
+        raise ValueError(
+            "cluster_candidates: empty embedding array; cannot cluster"
+        )
+
+    n_candidates = embeddings.shape[0]
+    if n_candidates < min_cluster_size:
+        return ClusterResult(
+            labels=[-1] * n_candidates,
+            num_clusters=0,
+            is_ambiguous=False,
+        )
+
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        metric="euclidean",
+        allow_single_cluster=True,
+    )
+    raw_labels = clusterer.fit_predict(embeddings)
+    labels = [int(label) for label in raw_labels]
+    distinct_clusters = set(labels) - {-1}
+    num_clusters = len(distinct_clusters)
+    return ClusterResult(
+        labels=labels,
+        num_clusters=num_clusters,
+        is_ambiguous=num_clusters > 1,
+    )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py | Select-Object -Skip 730 -First 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\api\\test_retrieval_route.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py | Select-Object -Skip 1760 -First 70" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_v6\\api\\test_app_slice_route_mount.py" in C:\POLARIS
+ succeeded in 1055ms:
+"""Tests for the FastAPI HTTP route exposing process_retrieval.
+
+Uses FastAPI TestClient — no real HTTP server, no real network.
+The fetch_fn is injected via FastAPI's dependency-override mechanism.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from polaris_graph.api.retrieval_route import get_fetch_fn, router
+from polaris_graph.retrieval2.clinical_retriever import FetchResult
+
+
+# ---------------------------------------------------------------------------
+# Test app + fetch_fn override fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def app() -> FastAPI:
+    a = FastAPI()
+    a.include_router(router, prefix="/api")
+    return a
+
+
+def _override_fetch_fn(app: FastAPI, results: list[FetchResult]):
+    """Inject a stub fetcher that returns `results` for every query."""
+
+    def stub() -> object:
+        def fetcher(_query: str) -> list[FetchResult]:
+            return list(results)
+
+        return fetcher
+
+    app.dependency_overrides[get_fetch_fn] = stub
+
+
+@pytest.fixture
+def in_scope_decision_payload() -> dict:
+    """A ScopeDecision JSON payload that satisfies retrieval validation."""
+    return {
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "intervention",
+                "plausible_interpretations": ["aspirin"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "outcome",
+                "plausible_interpretations": ["headache"],
+                "needs_clarification": False,
+            },
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 5,
+    }
+
+
+# ---------- Health ----------
+
+def test_health_endpoint_returns_ok(app: FastAPI):
+    client = TestClient(app)
+    r = client.get("/api/retrieval/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["slice"] == "slice_002_clinical_retrieval"
+    assert "query_planner" in body["pipeline_stages"]
+    assert "corpus_adequacy_gate" in body["pipeline_stages"]
+
+
+# ---------- 400 paths ----------
+
+def test_post_out_of_scope_decision_returns_400(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    payload = dict(in_scope_decision_payload)
+    payload["status"] = "out_of_scope"
+    payload["scope_class"] = None
+    payload["ambiguity_axes"] = []
+
+    client = TestClient(app)
+    r = client.post("/api/retrieval", json={"decision": payload})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "wrong_status"
+
+
+def test_post_non_clinical_scope_class_returns_400(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    payload = dict(in_scope_decision_payload)
+    payload["scope_class"] = "out_of_scope"
+    payload["ambiguity_axes"] = []
+
+    client = TestClient(app)
+    r = client.post("/api/retrieval", json={"decision": payload})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "wrong_scope_class"
+
+
+def test_post_no_fetch_backend_returns_400(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    """Without a fetch_fn override, the sentinel default raises and the
+    orchestrator returns RetrievalError(fetch_backend_unavailable)."""
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval", json={"decision": in_scope_decision_payload}
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "fetch_backend_unavailable"
+
+
+# ---------- 200 success paths ----------
+
+def test_post_with_stub_fetcher_returns_evidence_pool(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    _override_fetch_fn(
+        app,
+        [
+            FetchResult(
+                url="https://www.cochrane.org/CD001",
+                title="Cochrane review",
+                snippet="snippet",
+            ),
+            FetchResult(
+                url="https://www.nejm.org/doi/abc",
+                title="NEJM article",
+                snippet="snippet",
+            ),
+        ],
+    )
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval", json={"decision": in_scope_decision_payload}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["error"] is False
+    assert "pool" in body
+    assert body["pool"]["decision_id"]
+    assert isinstance(body["pool"]["sources"], list)
+    assert len(body["pool"]["sources"]) >= 2
+
+
+def test_post_inadequate_corpus_still_returns_200(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    """Adequacy=False is HTTP 200 — request succeeded, corpus just weak."""
+    _override_fetch_fn(
+        app,
+        [FetchResult(url="https://www.nejm.org/doi/abc", title="t", snippet="s")],
+    )
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval", json={"decision": in_scope_decision_payload}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["error"] is False
+    assert body["pool"]["adequacy"]["is_adequate"] is False
+    assert body["pool"]["adequacy"]["failure_reason"]
+
+
+def test_response_includes_server_timestamp(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    _override_fetch_fn(
+        app,
+        [FetchResult(url="https://www.nejm.org/doi/abc", title="t", snippet="s")],
+    )
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval", json={"decision": in_scope_decision_payload}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "server_time_utc" in body
+    assert body["server_time_utc"].endswith("Z")
+
+
+def test_response_pool_has_required_fields(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    _override_fetch_fn(
+        app,
+        [FetchResult(url="https://www.nejm.org/doi/abc", title="t", snippet="s")],
+    )
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval", json={"decision": in_scope_decision_payload}
+    )
+    assert r.status_code == 200
+    pool = r.json()["pool"]
+    for field in (
+        "pool_id",
+        "decision_id",
+        "sources",
+        "adequacy",
+        "queries_executed",
+        "retrieval_started_at_utc",
+        "retrieval_finished_at_utc",
+        "latency_ms",
+        "cost_usd",
+    ):
+        assert field in pool
+
+
+# ---------- 422 validation ----------
+
+def test_post_missing_decision_field_returns_422(app: FastAPI):
+    client = TestClient(app)
+    r = client.post("/api/retrieval", json={})
+    assert r.status_code == 422
+
+
+def test_post_malformed_decision_returns_422(app: FastAPI):
+    client = TestClient(app)
+    r = client.post(
+        "/api/retrieval",
+        json={"decision": {"status": "in_scope"}},  # missing required fields
+    )
+    # ScopeDecision requires scope_class to be present (even if None);
+    # Pydantic validation rejects malformed payloads.
+    assert r.status_code in (400, 422)
+
+
+# ---------- Adequacy template routing per scope_class ----------
+
+def test_safety_decision_uses_safety_template(
+    app: FastAPI, in_scope_decision_payload: dict
+):
+    """A clinical_safety decision should be assessed against the
+    safety template (T1>=3); 2 T1 sources should not satisfy."""
+    payload = dict(in_scope_decision_payload)
+    payload["scope_class"] = "clinical_safety"
+
+    _override_fetch_fn(
+        app,
+        [
+            FetchResult(url="https://www.cochrane.org/CD001", title="t", snippet="s"),
+            FetchResult(url="https://www.fda.gov/drugs/safety-info", title="t", snippet="s"),
+            FetchResult(url="https://www.nejm.org/doi/a1", title="t", snippet="s"),
+            FetchResult(url="https://www.nejm.org/doi/a2", title="t", snippet="s"),
+            FetchResult(url="https://www.nejm.org/doi/a3", title="t", snippet="s"),
+            FetchResult(url="https://clinicaltrials.gov/study/NCT001", title="t", snippet="s"),
+        ],
+    )
+    client = TestClient(app)
+    r = client.post("/api/retrieval", json={"decision": payload})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["pool"]["adequacy"]["is_adequate"] is False
+    assert "clinical_safety" in body["pool"]["adequacy"]["failure_reason"]
+
+ succeeded in 1103ms:
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string and ord(ch) < 0x20:
+            # Escape the control char
+            if ch == "\n":
+                result.append("\\n")
+            elif ch == "\r":
+                result.append("\\r")
+            elif ch == "\t":
+                result.append("\\t")
+            else:
+                result.append(f"\\u{ord(ch):04x}")
+            continue
+        result.append(ch)
+    return "".join(result)
+
+
+class OpenRouterClient:
+    """
+    Single LLM gateway for polaris graph.
+
+    All calls go through Qwen 3.5 Plus via OpenRouter (configurable via OPENROUTER_DEFAULT_MODEL).
+    Two modes:
+    - reason(): Extended reasoning ON. CoT returned in reasoning field, not content.
+    - generate(): Reasoning OFF. Clean output only. For prose generation.
+    """
+
+    # FIX-2: Class-level circuit breaker — propagates across all client instances.
+    # Once ANY instance gets 402, ALL instances stop calling.
+    _billing_exhausted: bool = False
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        budget_usd: Optional[float] = None,
+        session_id: Optional[str] = None,
+    ):
+        self.api_key = api_key or OPENROUTER_API_KEY
+        self.model = model or OPENROUTER_MODEL
+        self.base_url = (base_url or OPENROUTER_BASE_URL).rstrip("/")
+        # BUG-N-301 fix (deep-dive R11): fall back to the ambient run_id
+        # set by the orchestrator via set_current_run_id(). This threads
+        # session_id into cost ledger entries without requiring every
+        # call site (multi_section_generator, live_deepseek, judge,
+        # external evaluator) to pass it explicitly.
+        effective_session_id = session_id or _CURRENT_RUN_ID_CTX.get() or ""
+        self.usage = UsageTracker(
+            budget_usd=budget_usd or OPENROUTER_BUDGET_USD,
+            session_id=effective_session_id,
+        )
+        if not self.api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY not set. Add it to .env file."
+            )
+
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://polaris-research.ai",
+                "X-Title": "polaris graph",
+            },
+            timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+        )
+
+        logger.info(
+            "OpenRouter client initialized: model=%s, budget=$%.2f",
+            self.model,
+            self.usage.budget_usd,
+        )
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self._client.aclose()
+
+    # ------------------------------------------------------------------
+    # SSE Streaming
+    # ------------------------------------------------------------------
+
+    async def _accumulate_sse(
+        self, response: httpx.Response,
+    ) -> tuple[str, str, dict]:
+        """Accumulate SSE chunks from a streaming response.
+
+        Returns (content, reasoning_content, usage_data).
+
+ succeeded in 1137ms:
+"""Tests that slice 001 + slice 002 routes are mounted in the live app."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _no_real_backend_keys(monkeypatch: pytest.MonkeyPatch):
+    """Ensure tests don't accidentally instantiate real backends.
+
+    create_app() reads SERPER_API_KEY + OPENROUTER_API_KEY +
+    POLARIS_GPG_KEY_ID at construction; we monkeypatch all three to
+    empty so sentinel defaults stay in place.
+    """
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("POLARIS_GPG_KEY_ID", raising=False)
+    monkeypatch.delenv("POLARIS_BENCHMARK_RESULTS_DIR", raising=False)
+    yield
+
+
+def _client() -> TestClient:
+    from polaris_v6.api.app import create_app
+
+    return TestClient(create_app())
+
+
+def test_slice_001_intake_health_mounted():
+    r = _client().get("/api/intake/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_001_clinical_scope_discovery"
+
+
+def test_slice_002_retrieval_health_mounted():
+    r = _client().get("/api/retrieval/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_002_clinical_retrieval"
+
+
+def test_slice_001_intake_post_works():
+    """End-to-end smoke: a real intake call works through the mounted route."""
+    r = _client().post(
+        "/api/intake",
+        json={"question": "Is aspirin effective for headache in adults?"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["error"] is False
+    assert body["decision"]["scope_class"] == "clinical_efficacy"
+
+
+def test_slice_002_retrieval_post_without_serper_key_fails_loudly():
+    """No SERPER_API_KEY -> sentinel default -> 400 fetch_backend_unavailable.
+
+    Verifies LAW II (fail-loud). The route must NOT silently return an
+    empty pool when the backend is unconfigured.
+    """
+    decision_payload = {
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "intervention",
+                "plausible_interpretations": ["aspirin"],
+                "needs_clarification": False,
+            },
+            {
+                "axis": "outcome",
+                "plausible_interpretations": ["headache"],
+                "needs_clarification": False,
+            },
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 5,
+    }
+    r = _client().post(
+        "/api/retrieval",
+        json={"decision": decision_payload},
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "fetch_backend_unavailable"
+
+
+def test_slice_001_and_slice_002_share_same_app():
+    """Both routes must be reachable from a single app instance (no
+    create_app() side effect that mounts only the most recent slice)."""
+    client = _client()
+    intake = client.get("/api/intake/health")
+    retrieval = client.get("/api/retrieval/health")
+    assert intake.status_code == 200
+    assert retrieval.status_code == 200
+
+
+def test_slice_003_generation_health_mounted():
+    r = _client().get("/api/generation/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_003_generator_strict_verify"
+
+
+def test_slice_003_generation_post_without_completion_fn_fails_loudly():
+    """No completion_fn injected -> sentinel default -> 400 with
+    completion_backend_unavailable. Verifies LAW II fail-loud behavior."""
+    pool_payload = {
+        "pool_id": "p-1",
+        "decision_id": "d-1",
+        "sources": [
+            {
+                "source_id": "src-1",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "x" * 50,
+                "full_text_available": True,
+                "full_text": "x" * 200,
+                "fetched_at_utc": "2026-05-04T12:00:00+00:00",
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": "2026-05-04T12:00:00+00:00",
+        "retrieval_finished_at_utc": "2026-05-04T12:00:01+00:00",
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/generation",
+        json={"pool": pool_payload, "scope_class": "clinical_efficacy"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "completion_backend_unavailable"
+
+
+def test_all_three_slices_share_same_app():
+    """Smoke: intake + retrieval + generation health all reachable
+    from a single create_app() instance."""
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_004_audit_bundle_health_mounted():
+    r = _client().get("/api/audit-bundle/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_004_audit_bundle_export"
+
+
+def test_slice_004_audit_bundle_post_without_gpg_returns_503():
+    """No POLARIS_GPG_KEY_ID -> sentinel sign_fn -> 503 (LAW II fail-loud)."""
+    iso = "2026-05-04T12:00:00+00:00"
+    decision = {
+        "decision_id": "dec-1",
+        "status": "in_scope",
+        "scope_class": "clinical_efficacy",
+        "ambiguity_axes": [
+            {
+                "axis": "population",
+                "plausible_interpretations": ["adults"],
+                "needs_clarification": False,
+            }
+        ],
+        "clarifications_needed": [],
+        "provenance": {},
+        "latency_ms": 0,
+    }
+    pool = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sources": [
+            {
+                "source_id": "src-A",
+                "url": "https://www.cochrane.org/CD001",
+                "domain": "cochrane.org",
+                "tier": "T1",
+                "title": "x",
+                "publication_date": None,
+                "authors": [],
+                "snippet": "snippet",
+                "full_text_available": True,
+                "full_text": "trial",
+                "fetched_at_utc": iso,
+                "provenance": {},
+            }
+        ],
+        "adequacy": {
+            "is_adequate": True,
+            "sources_per_tier": {"T1": 1, "T2": 0, "T3": 0},
+            "min_required_per_tier": {"T1": 0, "T2": 0, "T3": 0},
+            "failure_reason": None,
+        },
+        "queries_executed": [],
+        "retrieval_started_at_utc": iso,
+        "retrieval_finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    report = {
+        "pool_id": "pool-1",
+        "decision_id": "dec-1",
+        "sections": [
+            {
+                "section_id": "sec_x",
+                "section_title": "X",
+                "verified_sentences": [
+                    {
+                        "section_id": "sec_x",
+                        "sentence_text": "claim [#ev:src-A:0-3].",
+                        "provenance_tokens": ["[#ev:src-A:0-3]"],
+                        "verifier_pass": True,
+                        "drop_reason": None,
+                    }
+                ],
+                "section_verify_pass_rate": 1.0,
+                "section_status": "verified",
+            }
+        ],
+        "overall_verify_pass_rate": 1.0,
+        "pipeline_verdict": "success",
+        "generator_model": "test/m",
+        "verifier_pass_threshold": 0.4,
+        "started_at_utc": iso,
+        "finished_at_utc": iso,
+        "latency_ms": 0,
+        "cost_usd": 0.0,
+    }
+    r = _client().post(
+        "/api/audit-bundle",
+        json={"decision": decision, "pool": pool, "report": report},
+    )
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "gpg_unavailable"
+
+
+def test_all_four_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+
+def test_slice_005_benchmark_health_mounted():
+    r = _client().get("/api/benchmark/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slice"] == "slice_005_beat_both_benchmark"
+    # No POLARIS_BENCHMARK_RESULTS_DIR set in test fixture -> empty list
+    assert body["available_benchmarks"] == []
+    assert body["results_root"] is None
+
+
+def test_slice_005_benchmark_scoreboard_503_when_no_results_dir():
+    r = _client().get("/api/benchmark/some_bench/scoreboard")
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "benchmark_results_unavailable"
+
+
+def test_all_five_slices_share_same_app():
+    client = _client()
+    for path in (
+        "/api/intake/health",
+        "/api/retrieval/health",
+        "/api/generation/health",
+        "/api/audit-bundle/health",
+        "/api/benchmark/health",
+    ):
+        assert client.get(path).status_code == 200, path
+
+ succeeded in 1260ms:
+                result = await self._call(
+                    messages=messages,
+                    call_type=f"reason_retry:{schema.__name__}",
+                    reasoning_enabled=True,
+                    reasoning_effort=effort,
+                    temperature=0.5,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                    timeout=timeout or LONG_TIMEOUT_SECONDS,
+                )
+                if result.content:
+                    cleaned = _clean_json(result.content)
+                    parsed = schema.model_validate_json(cleaned)
+                    result._parsed = parsed  # type: ignore[attr-defined]
+
+        return result
+
+    async def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        timeout: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        reasoning_exclude: Optional[bool] = None,
+    ) -> LLMResponse:
+        """
+        Prose/output call — reasoning OFF, clean output only.
+
+        Use for: section writing, report prose, summaries.
+
+        No CoT in the output. No reasoning field. Just clean text.
+
+        COT-2: If content is empty but reasoning has substance, try to
+        extract the answer from reasoning (provider misroute). If that
+        fails, retry once (OpenRouter may re-route to a different provider).
+        """
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        result = await self._call(
+            messages=messages,
+            call_type="generate",
+            reasoning_enabled=False,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+            reasoning_max_tokens=reasoning_max_tokens,
+            reasoning_exclude=reasoning_exclude,
+        )
+
+        # TWO-POOL: Content field = output. Reasoning field = logged separately.
+        # For GLM-5, both pools are populated when max_tokens is sufficient.
+        # Log reasoning for monitoring but NEVER merge into content.
+        if result.reasoning and self.model in _ALWAYS_REASON_MODELS:
+            logger.info(
+                "[polaris graph] POOL-1: Reasoning logged (%d chars) for generate()",
+                len(result.reasoning),
+            )
+
+        if result.content and result.content.strip():
+            return result
+
+        # Fallback: content empty (max_tokens too low or provider issue).
+        # Try </think> extraction from reasoning as last resort.
+        if result.reasoning:
+            extracted = _extract_answer_from_reasoning(result.reasoning)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\intake\\test_disambiguation_clusterer.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class LLMResponse|content:\" src\\polaris_graph\\llm\\openrouter_client.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\intake\\test_cluster_labeler.py" in C:\POLARIS
+ succeeded in 1071ms:
+"""Unit tests for I-f2-001 — HDBSCAN clustering substrate.
+
+Synthetic numpy embeddings only (no real embedding model load) per
+CLAUDE.md §8.4: heavy ML is forbidden in autonomous loops.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from polaris_graph.intake.disambiguation_clusterer import (
+    ClusterResult,
+    cluster_candidates,
+)
+
+
+def _gaussian_cloud(rng: np.random.Generator, center: tuple[float, ...], n: int, scale: float = 0.05) -> np.ndarray:
+    """Make `n` points centered at `center` with small Gaussian noise."""
+    centroid = np.array(center, dtype=np.float64)
+    noise = rng.normal(loc=0.0, scale=scale, size=(n, len(center)))
+    return centroid + noise
+
+
+def test_three_clear_clusters_ambiguous() -> None:
+    rng = np.random.default_rng(seed=42)
+    cloud_a = _gaussian_cloud(rng, (0.0, 0.0), 5)
+    cloud_b = _gaussian_cloud(rng, (10.0, 10.0), 5)
+    cloud_c = _gaussian_cloud(rng, (-10.0, -10.0), 5)
+    embeddings = np.vstack([cloud_a, cloud_b, cloud_c])
+
+    result = cluster_candidates(embeddings)
+
+    assert isinstance(result, ClusterResult)
+    assert result.num_clusters == 3
+    assert result.is_ambiguous is True
+
+
+def test_single_dense_cluster_unambiguous() -> None:
+    rng = np.random.default_rng(seed=7)
+    embeddings = _gaussian_cloud(rng, (0.0, 0.0), 10)
+
+    result = cluster_candidates(embeddings)
+
+    assert result.num_clusters == 1
+    assert result.is_ambiguous is False
+
+
+def test_two_clusters_ambiguous() -> None:
+    rng = np.random.default_rng(seed=11)
+    cloud_a = _gaussian_cloud(rng, (0.0, 0.0), 5)
+    cloud_b = _gaussian_cloud(rng, (10.0, 10.0), 5)
+    embeddings = np.vstack([cloud_a, cloud_b])
+
+    result = cluster_candidates(embeddings)
+
+    assert result.num_clusters == 2
+    assert result.is_ambiguous is True
+
+
+def test_below_min_cluster_size_returns_noise() -> None:
+    embeddings = np.array([[0.5, 0.5]], dtype=np.float64)
+
+    result = cluster_candidates(embeddings, min_cluster_size=2)
+
+    assert result.num_clusters == 0
+    assert result.is_ambiguous is False
+    assert result.labels == [-1]
+
+
+def test_empty_input_raises() -> None:
+    embeddings = np.empty((0, 384), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="empty embedding array"):
+        cluster_candidates(embeddings)
+
+ succeeded in 1086ms:
+"""Unit tests for I-f2-002 — cluster_labeler.
+
+Uses a FakeClient stub (regular class, NOT unittest.mock per CLAUDE.md §9.4)
+so tests do not require httpx + API key.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from polaris_graph.intake.cluster_labeler import (
+    LabeledCluster,
+    label_clusters,
+)
+from polaris_graph.intake.disambiguation_clusterer import ClusterResult
+
+
+class FakeClient:
+    """Minimal sync LLM stub returning a fixed string per call.
+
+    `responses` is consumed in order; if exhausted, returns final string.
+    """
+
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[str] = []
+
+    def complete(self, prompt: str, *, max_tokens: int = 50) -> str:
+        self.calls.append(prompt)
+        if self._responses:
+            return self._responses.pop(0)
+        return "fallback"
+
+
+def test_labels_one_per_cluster() -> None:
+    cluster_result = ClusterResult(
+        labels=[0, 0, 0, 1, 1, 1],
+        num_clusters=2,
+        is_ambiguous=True,
+    )
+    snippets = ["a1", "a2", "a3", "b1", "b2", "b3"]
+    client = FakeClient(["syndrome", "institute"])
+
+    out = label_clusters(cluster_result, snippets, client)
+
+    assert len(out) == 2
+    assert out[0] == LabeledCluster(cluster_id=0, label="syndrome", sample_snippets=["a1", "a2", "a3"])
+    assert out[1] == LabeledCluster(cluster_id=1, label="institute", sample_snippets=["b1", "b2", "b3"])
+
+
+def test_no_clusters_returns_empty() -> None:
+    cluster_result = ClusterResult(labels=[-1, -1], num_clusters=0, is_ambiguous=False)
+    client = FakeClient(["unused"])
+
+    out = label_clusters(cluster_result, ["x", "y"], client)
+
+    assert out == []
+    assert client.calls == []
+
+
+def test_mismatched_lengths_raises() -> None:
+    cluster_result = ClusterResult(labels=[0, 0, 1], num_clusters=2, is_ambiguous=True)
+    client = FakeClient(["a", "b"])
+
+    with pytest.raises(ValueError, match="does not match"):
+        label_clusters(cluster_result, ["only_one_snippet"], client)
+
+
+def test_empty_llm_response_raises() -> None:
+    cluster_result = ClusterResult(labels=[0, 0], num_clusters=1, is_ambiguous=False)
+    client = FakeClient(["   "])
+
+    with pytest.raises(ValueError, match="empty label"):
+        label_clusters(cluster_result, ["s1", "s2"], client)
+
+
+def test_long_label_truncated() -> None:
+    cluster_result = ClusterResult(labels=[0, 0], num_clusters=1, is_ambiguous=False)
+    long_response = " ".join(f"word{i}" for i in range(20))
+    client = FakeClient([long_response])
+
+    out = label_clusters(cluster_result, ["s1", "s2"], client)
+
+    assert len(out) == 1
+    assert len(out[0].label.split()) == 8
+    assert out[0].label == " ".join(f"word{i}" for i in range(8))
+
+
+def test_skip_noise_label() -> None:
+    cluster_result = ClusterResult(
+        labels=[-1, 0, 0, -1, 1, 1],
+        num_clusters=2,
+        is_ambiguous=True,
+    )
+    snippets = ["noise1", "a1", "a2", "noise2", "b1", "b2"]
+    client = FakeClient(["cluster_zero", "cluster_one"])
+
+    out = label_clusters(cluster_result, snippets, client)
+
+    assert [lc.cluster_id for lc in out] == [0, 1]
+    assert out[0].sample_snippets == ["a1", "a2"]
+    assert out[1].sample_snippets == ["b1", "b2"]
+    assert len(client.calls) == 2
+
+ succeeded in 1143ms:
+476:class LLMResponse:
+479:    content: str
+1087:        # K2-3: Filter reasoning_content: null from messages to prevent
+1743:        if schema and result.content:
+1771:                if result.content:
+2320:            if has_reasoning_tokens or has_reasoning_content:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py | Select-Object -Skip 460 -First 35" in C:\POLARIS
+ succeeded in 997ms:
+            logger.warning("FIX-O1: Cost ledger write failed: %s", exc)
+
+    def summary(self) -> dict:
+        return {
+            "total_calls": self.total_calls,
+            "total_errors": self.total_errors,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_reasoning_tokens": self.total_reasoning_tokens,
+            "total_cost_usd": round(self.total_cost_usd, 4),
+            "budget_remaining_usd": round(self.budget_remaining_usd, 4),
+        }
+
+
+@dataclass
+class LLMResponse:
+    """Structured response from an LLM call."""
+
+    content: str
+    reasoning: Optional[str] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    model: str = ""
+    duration_ms: float = 0
+    raw_response: Optional[dict] = None
+
+
+class BudgetExhaustedError(Exception):
+    """Raised when the OpenRouter budget is exhausted."""
+
+
+class BillingExhaustedException(Exception):
+    """Raised when OpenRouter returns 402 Payment Required.
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "pydantic|fastapi|hdbscan" pyproject.toml requirements*.txt setup.cfg setup.py tox.ini' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "python - <<'PY'
+import pydantic, fastapi
+print('pydantic', pydantic.__version__)
+print('fastapi', fastapi.__version__)
+PY" in C:\POLARIS
+2026-05-06T20:13:42.971161Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: requirements*.txt: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+rg: tox.ini: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 923ms:
+rg: pyproject.toml: The system cannot find the file specified. (os error 2)
+rg: requirements*.txt: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+rg: setup.cfg: The system cannot find the file specified. (os error 2)
+rg: setup.py: The system cannot find the file specified. (os error 2)
+rg: tox.ini: The system cannot find the file specified. (os error 2)
+
+2026-05-06T20:13:43.073307Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+ParserError: 
+Line |
+   2 |  python - <<'PY'
+     |            ~
+     | Missing file specification after redirection operator.
+
+ exited 1 in 983ms:
+ParserError: 
+Line |
+   2 |  python - <<'PY'
+     |            ~
+     | Missing file specification after redirection operator.
+
+codex
+The helper APIs confirm one important contract: `OpenRouterClient.generate()` returns an `LLMResponse`, while `ClusterLabelClient.complete()` must return a plain string. I’m doing one last pass on test feasibility before assigning severity.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files | rg "(''^|/)(pyproject'"\\.toml|requirements.*\\.txt|setup\\.cfg|setup\\.py|tox\\.ini|poetry\\.lock|uv\\.lock)"'$"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "python -c \"import pydantic, fastapi; print('pydantic', pydantic.__version__); print('fastapi', fastapi.__version__)\"" in C:\POLARIS
+2026-05-06T20:14:01.297327Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+requirements.txt
+requirements-v6.txt
+requirements-orchestrator.txt
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+
+ exited 1 in 1023ms:
+requirements.txt
+requirements-v6.txt
+requirements-orchestrator.txt
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+
+ succeeded in 2285ms:
+pydantic 2.12.5
+fastapi 0.128.0
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -c "import numpy as np; from polaris_graph.intake.disambiguation_clusterer import cluster_candidates; cases=[np.array([[1.,0.],[1.,0.],[1.,0.],[0.,1.],[0.,1.],[0.,1.]]), np.vstack([np.array([[0.,0.],[0.01,0.],[0.,0.01]]), np.array([[10.,10.],[10.01,10.],[10.,10.01]])])];
+for e in cases:
+ r=cluster_candidates(e); print(r)"' in C:\POLARIS
+2026-05-06T20:14:45.276601Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.8 seconds
+Output:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import numpy as np; from polaris_graph.intake.disambiguation_clusterer import cluster_candidates; cases=[np.array([[1.,0.],[1.,0.],[1.,0.],[0.,1.],[0.,1.],[0.,1.]]), np.vstack([np.array([[0.,0.],[0.01,0.],[0.,0.01]]), np.array([[10.,10.],[10.01,10.],[10.,10.01]])])];
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'polaris_graph'
+
+ exited 1 in 1831ms:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import numpy as np; from polaris_graph.intake.disambiguation_clusterer import cluster_candidates; cases=[np.array([[1.,0.],[1.,0.],[1.,0.],[0.,1.],[0.,1.],[0.,1.]]), np.vstack([np.array([[0.,0.],[0.01,0.],[0.,0.01]]), np.array([[10.,10.],[10.01,10.],[10.,10.01]])])];
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'polaris_graph'
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -c \"import numpy as np; from polaris_graph.intake.disambiguation_clusterer import cluster_candidates; cases=[np.array([[1.,0.],[1.,0.],[1.,0.],[0.,1.],[0.,1.],[0.,1.]]), np.vstack([np.array([[0.,0.],[0.01,0.],[0.,0.01]]), np.array([[10.,10.],[10.01,10.],[10.,10.01]])])];
+for e in cases:
+ r=cluster_candidates(e); print(r)\"" in C:\POLARIS
+ succeeded in 3615ms:
+ClusterResult(labels=[0, 0, 0, 1, 1, 1], num_clusters=2, is_ambiguous=True)
+ClusterResult(labels=[0, 0, 0, 1, 1, 1], num_clusters=2, is_ambiguous=True)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\generator2\\real_completion.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"asyncio\\.run\\(.*generate|OpenRouterClient\\(\" src\\polaris_graph src\\polaris_v6 -S" in C:\POLARIS
+ succeeded in 862ms:
+"""Real OpenRouter-backed completion_fn for slice 003 generator.
+
+Per `.codex/slices/slice_003/architecture_proposal.md` PR 7 row.
+
+Implements GeneratorCompletionFn protocol with an OpenRouter chat-completion
+backend. Default model from OPENROUTER_DEFAULT_MODEL env var (e.g.
+'z-ai/glm-5.1'). Prompt template instructs the LLM to:
+
+  - write 4-8 sentences for the requested section
+  - cite EVERY claim with a [#ev:<source_id>:<start>-<end>] token
+  - never invent decimal numbers — only cite numbers that appear in
+    the cited span
+  - use only the supplied evidence; do not invoke external knowledge
+
+Strict-verify (slice 003 PR 4) drops sentences that violate these rules
+post-generation, so the LLM occasionally producing bad output is OK —
+the gate enforces the contract regardless.
+
+Fail-loud per LAW II:
+  - OPENROUTER_API_KEY missing → RuntimeError at construction
+  - OpenRouter returns malformed JSON → propagate exception
+  - HTTP errors → propagate (orchestrator catches, returns
+    GenerationError(completion_backend_unavailable))
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+from polaris_graph.generator2.section_blueprint import SectionPlan
+from polaris_graph.retrieval2.evidence_pool import EvidencePool
+
+_LOG = logging.getLogger(__name__)
+
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_TIMEOUT_S = 60.0
+DEFAULT_TEMPERATURE = 0.2
+DEFAULT_MAX_TOKENS = 800
+
+# Cap evidence excerpts in the prompt to keep total tokens manageable.
+# Each source contributes its first MAX_EVIDENCE_CHARS_PER_SOURCE chars.
+MAX_EVIDENCE_CHARS_PER_SOURCE = 800
+MAX_SOURCES_IN_PROMPT = 8
+
+
+@dataclass
+class RealCompletionConfig:
+    api_key: str
+    model: str
+    timeout_s: float = DEFAULT_TIMEOUT_S
+    temperature: float = DEFAULT_TEMPERATURE
+    max_tokens: int = DEFAULT_MAX_TOKENS
+
+
+def load_config_from_env() -> RealCompletionConfig:
+    """Build a RealCompletionConfig from environment variables.
+
+    Raises RuntimeError if OPENROUTER_API_KEY is unset (fail loud).
+    """
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is required for slice 003 real_completion. "
+            "Set it in .env before mounting the generation route. Per "
+            "CLAUDE.md LAW II, this MUST fail loudly rather than silently "
+            "skipping the generator."
+        )
+    model = os.environ.get("OPENROUTER_DEFAULT_MODEL", "").strip() or "z-ai/glm-5.1"
+    return RealCompletionConfig(api_key=key, model=model)
+
+
+# ---------------------------------------------------------------------------
+# Prompt construction
+# ---------------------------------------------------------------------------
+
+def _format_evidence_block(pool: EvidencePool) -> str:
+    """Build the evidence block of the prompt.
+
+    Lists each source with its source_id, tier, title, and a bounded
+    excerpt of its full_text (or snippet). The LLM uses these to cite.
+    """
+    lines: list[str] = []
+    sources_used = pool.sources[:MAX_SOURCES_IN_PROMPT]
+    for source in sources_used:
+        text = source.full_text if source.full_text is not None else source.snippet
+        excerpt = text[:MAX_EVIDENCE_CHARS_PER_SOURCE]
+        lines.append(
+            f"--- source_id: {source.source_id} | tier: {source.tier.value} | "
+            f"title: {source.title}\n{excerpt}"
+        )
+    return "\n\n".join(lines)
+
+
+SYSTEM_PROMPT = """You are a clinical research synthesis engine. Your output is the section text ONLY — no preamble, no meta-commentary, no markdown, no thinking-aloud.
+
+RULES (mandatory):
+
+1. Write 4-8 well-formed declarative sentences for the requested section.
+2. EVERY sentence ends with at least one provenance token of the form
+   [#ev:<source_id>:<start>-<end>]. source_id MUST be one of the sources
+   provided. start/end are character offsets into that source's text.
+3. NEVER invent numbers. Only cite numeric claims (percentages, sample
+   sizes, hazard ratios, etc.) that literally appear in the cited span.
+4. NEVER use external knowledge. Use ONLY the supplied evidence excerpts.
+5. NEVER write meta-commentary like "We need to write...", "The
+   evidence shows...", "Let me examine...", "I need to...". Skip directly
+   to the section content.
+6. If the evidence does not support a claim, say so explicitly with a
+   citation to the source that demonstrates the gap.
+
+EXAMPLE (for a 'Population' section about aspirin in migraine):
+
+INPUT EVIDENCE:
+--- source_id: src-A | tier: T1 | title: Cochrane review on aspirin for migraine
+The review included 13 trials enrolling 4222 adults aged 18 to 65 years with episodic migraine. Mean age was 38.7 years; 73% were female.
+
+OUTPUT (this is the EXACT format expected — note: starts with content,
+no preamble, every sentence has a token):
+The review included 13 trials enrolling 4222 adults aged 18 to 65 years with episodic migraine [#ev:src-A:0-99]. The cohort had a mean age of 38.7 years and was 73% female [#ev:src-A:101-148].
+
+END EXAMPLE.
+
+Now produce the section. Output the prose directly with no preamble."""
+
+
+def _build_user_prompt(section_plan: SectionPlan, pool: EvidencePool) -> str:
+    evidence_block = _format_evidence_block(pool)
+    return (
+        f"Section to write: {section_plan.section_title}\n\n"
+        f"Section guidance: {section_plan.section_brief}\n\n"
+        f"Available evidence:\n{evidence_block}\n\n"
+        f"Write the section now. Remember: every sentence ends with at "
+        f"least one [#ev:source_id:start-end] token; never invent numbers."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Completion function
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RealCompletion:
+    """Stateful GeneratorCompletionFn impl backed by OpenRouter chat API."""
+
+    config: RealCompletionConfig
+
+    @property
+    def model_label(self) -> str:
+        """Returns the actual model id used for completions.
+
+        The generator orchestrator pulls this so VerifiedReport.generator_model
+        reflects the live model rather than the 'stub-generator' default.
+        """
+        return self.config.model
+
+    def __call__(
+        self,
+        prompt: str,
+        section_plan: SectionPlan,
+        pool: EvidencePool,
+    ) -> str:
+        # `prompt` is the section_brief; we re-build a richer user prompt
+        # with the actual evidence block. Section_plan + pool are the
+        # authoritative inputs.
+        user_prompt = _build_user_prompt(section_plan, pool)
+
+        body = {
+            "model": self.config.model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+            # OpenRouter recommends these for routing analytics:
+            "HTTP-Referer": "https://polaris-canada.local",
+            "X-Title": "POLARIS Slice 003 Generator",
+        }
+
+        with httpx.Client() as client:
+            response = client.post(
+                OPENROUTER_ENDPOINT,
+                json=body,
+                headers=headers,
+                timeout=self.config.timeout_s,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        text = _extract_text(data)
+        if not text.strip():
+            raise RuntimeError(
+                f"OpenRouter returned empty content for section "
+                f"{section_plan.section_id!r}; model={self.config.model!r}"
+            )
+        return text
+
+
+def _extract_text(response_json: dict[str, Any]) -> str:
+    """Parse OpenRouter chat-completion response to plain text.
+
+    Handles both shapes seen in the wild:
+        # Standard string content (most models)
+        {"choices": [{"message": {"content": "Generated text..."}}]}
+
+        # Multipart content (some Anthropic, Google, etc.)
+        {"choices": [{"message": {"content": [
+            {"type": "text", "text": "Generated text..."}
+        ]}}]}
+
+    Falls back to `message.reasoning` when `content` is empty/None and
+    reasoning is populated (some routes return reasoning + empty content
+    when the model hits a refusal-like state but still produced thought).
+    Last-resort: raises RuntimeError so the orchestrator surfaces a
+    structured GenerationError.
+    """
+    choices = response_json.get("choices") or []
+    if not choices:
+        raise RuntimeError(
+            f"OpenRouter response missing 'choices': {response_json}"
+        )
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+
+    if isinstance(content, str) and content.strip():
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        joined = "\n".join(parts).strip()
+        if joined:
+            return joined
+
+    # Fallback: some routes return reasoning when content is suppressed.
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+
+    raise RuntimeError(
+        "OpenRouter response 'message.content' missing or not a string "
+        f"(got type={type(content).__name__}); reasoning_present="
+        f"{bool(message.get('reasoning'))}"
+    )
+
+
+def build_real_completion() -> RealCompletion:
+    """Factory: read env, build a configured RealCompletion.
+
+    Use this as the FastAPI Depends() injection point in production.
+    """
+    return RealCompletion(config=load_config_from_env())
+
+ succeeded in 839ms:
+src\polaris_graph\graph_v2.py:154:    client = OpenRouterClient()
+src\polaris_graph\graph_v2.py:216:    client = OpenRouterClient()
+src\polaris_graph\graph_v2.py:369:    client = OpenRouterClient()
+src\polaris_graph\graph_v2.py:469:    client = OpenRouterClient()
+src\polaris_graph\graph_v2.py:520:    client = OpenRouterClient()
+src\polaris_graph\generator\live_deepseek_generator.py:400:    client = OpenRouterClient(model=generator_model)
+src\polaris_graph\generator\multi_section_generator.py:480:    client = OpenRouterClient(model=model)
+src\polaris_graph\generator\multi_section_generator.py:843:    client = OpenRouterClient(model=model)
+src\polaris_graph\generator\multi_section_generator.py:1758:    client = OpenRouterClient(model=model)
+src\polaris_graph\generator\multi_section_generator.py:1868:    client = OpenRouterClient(model=model)
+src\polaris_graph\generator\multi_section_generator.py:1995:    client = OpenRouterClient(model=model)
+src\polaris_graph\generator\multi_section_generator.py:3355:        client = OpenRouterClient(model=gen_model)
+src\polaris_graph\evaluator\live_qwen_judge.py:137:    client = OpenRouterClient(model=eval_model)
+src\polaris_graph\graph_v3.py:723:    client = OpenRouterClient()
+src\polaris_graph\llm\openrouter_client.py:63:# downstream OpenRouterClient() construction — tagging the first run's
+src\polaris_graph\scope\clinical_classifier.py:239:    client = OpenRouterClient()
+src\polaris_graph\auto_induction\llm_inductor.py:332:        self._client = OpenRouterClient(model=model)
+src\polaris_graph\audit_ir\inspector_router.py:2141:    return OpenRouterBriefClient(OpenRouterClient())
+src\polaris_graph\audit_ir\scope_classifier_llm.py:588:        self._client = OpenRouterClient(model=model)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -c \"import numpy as np; from polaris_graph.intake.disambiguation_clusterer import cluster_candidates; 
+try:
+ print(cluster_candidates(np.array([[0.,0.],[1.,1.]]), min_cluster_size=1))
+except Exception as e:
+ print(type(e).__name__, e)\"" in C:\POLARIS
+ succeeded in 3774ms:
+ValueError Min cluster size must be greater than one
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: `min_cluster_size` is specified as `Field(default=2, ge=1)`, but `hdbscan.HDBSCAN(min_cluster_size=1)` raises `ValueError: Min cluster size must be greater than one`. The API would accept a valid request with `min_cluster_size=1` and then 500. Change the constraint to `ge=2` or explicitly handle `1` before calling `cluster_candidates()`."
+  - "P1: The OpenRouter adapter wording says `complete(...) -> str` is implemented by calling `asyncio.run(OpenRouterClient(...).generate(prompt))`, but `generate()` returns `LLMResponse`, not `str`. A literal implementation will pass fake-client tests but fail production labeling when `label_clusters()` calls `.strip()` on the returned value. Require `asyncio.run(...).content`, with empty-content fail-loud handling."
+  - "P1: `test_no_label_client_503_only_when_ambiguous` is non-hermetic if it clears overrides and relies on default `None`. With `OPENROUTER_API_KEY` present in the environment, the default dependency returns an OpenRouter client and the test can hit real network instead of asserting 503. Override `get_label_client` to `lambda: None` for that test."
+p2:
+  - "The stated `test_health_endpoint` does not prove the router is mounted in `polaris_v6.api.app.create_app()` if it uses a local `FastAPI(); include_router(...)` test app. Add a separate create_app smoke, preferably beside the existing slice mount tests."
+  - "Specify OpenRouter adapter lifecycle details: pass `max_tokens` through to `generate()`, and avoid leaking `httpx.AsyncClient` instances. A sync `httpx.Client` adapter matching `real_completion.py` would be simpler than repeated `asyncio.run` unless the async client is closed correctly."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix `min_cluster_size=1` accepted-then-500 path."
+  - "Fix real OpenRouter adapter return type to plain label text."
+  - "Make the 503 no-client test independent of ambient `OPENROUTER_API_KEY`."
+tokens used
+69,115
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: `min_cluster_size` is specified as `Field(default=2, ge=1)`, but `hdbscan.HDBSCAN(min_cluster_size=1)` raises `ValueError: Min cluster size must be greater than one`. The API would accept a valid request with `min_cluster_size=1` and then 500. Change the constraint to `ge=2` or explicitly handle `1` before calling `cluster_candidates()`."
+  - "P1: The OpenRouter adapter wording says `complete(...) -> str` is implemented by calling `asyncio.run(OpenRouterClient(...).generate(prompt))`, but `generate()` returns `LLMResponse`, not `str`. A literal implementation will pass fake-client tests but fail production labeling when `label_clusters()` calls `.strip()` on the returned value. Require `asyncio.run(...).content`, with empty-content fail-loud handling."
+  - "P1: `test_no_label_client_503_only_when_ambiguous` is non-hermetic if it clears overrides and relies on default `None`. With `OPENROUTER_API_KEY` present in the environment, the default dependency returns an OpenRouter client and the test can hit real network instead of asserting 503. Override `get_label_client` to `lambda: None` for that test."
+p2:
+  - "The stated `test_health_endpoint` does not prove the router is mounted in `polaris_v6.api.app.create_app()` if it uses a local `FastAPI(); include_router(...)` test app. Add a separate create_app smoke, preferably beside the existing slice mount tests."
+  - "Specify OpenRouter adapter lifecycle details: pass `max_tokens` through to `generate()`, and avoid leaking `httpx.AsyncClient` instances. A sync `httpx.Client` adapter matching `real_completion.py` would be simpler than repeated `asyncio.run` unless the async client is closed correctly."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix `min_cluster_size=1` accepted-then-500 path."
+  - "Fix real OpenRouter adapter return type to plain label text."
+  - "Make the 503 no-client test independent of ambient `OPENROUTER_API_KEY`."
