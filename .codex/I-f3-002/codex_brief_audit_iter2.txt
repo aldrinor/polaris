@@ -1,0 +1,562 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019dff8f-fe82-7c03-986b-41bbbcf8767a
+--------
+user
+# Codex Brief Review — I-f3-002 (ITER 2 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 2 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f3-002 — Backend: data classification taxonomy
+**Phase:** 1 / **Feature:** F3 (document upload + grounding)
+**LOC budget:** 100 net per breakdown. **CHARTER §1 hard cap: 200.**
+
+## Iter-1 verdict resolution (REQUEST_CHANGES → addressed in this iter 2)
+
+**P1 (EXTERNAL_LEAK_FORBIDDEN under-blocking):** ADDRESSED. Verified `docs/carney_delivery_plan_v6_2.md:332`: "All non-PUBLIC_SYNTHETIC classifications blocked from external API". Pivoted policy:
+- `EXTERNAL_LEAK_FORBIDDEN: frozenset[DataClassification] = frozenset({CAN_REAL, PRIVATE, CLIENT, UNKNOWN})`.
+- Only PUBLIC_SYNTHETIC is allowed external. Default-deny on UNKNOWN.
+- Cross-references both Carney plan §332 AND `src/polaris_v6/observability/log_redact.py:26` (which has the narrower `REDACT_KINDS = {CAN_REAL, PRIVATE, CLIENT}` for *log redaction* — UNKNOWN not in that set because logs preserve it for audit; external egress is stricter).
+
+**P2 (substrate inventory incomplete):** ADDRESSED. Substrate section now mentions `src/polaris_v6/observability/log_redact.py:18-26` Literal type + REDACT_KINDS, and the canonical sovereignty policy at `docs/carney_delivery_plan_v6_2.md:332`.
+
+## Mission
+
+Add a canonical `DataClassification` enum + serializer at `src/polaris_graph/sovereignty/classification.py`. Five values per Carney v6.2 §F3 + breakdown: `PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN`. The taxonomy is consumed by I-f3-003 sovereignty router (next Issue) to gate CLIENT-tagged docs from external API calls.
+
+## Substrate (HONEST)
+
+- `web/lib/api.ts:83-88` already exports the same 5-value `DataClassification` TypeScript type. Backend Python equivalent does NOT yet exist as a canonical enum — only ad-hoc string usage:
+  - `src/polaris_v6/api/upload.py:36` (`Form("UNKNOWN")`).
+  - `src/polaris_v6/observability/log_redact.py:18-26` defines `DataClassification` as a `Literal[...]` (5 strings) + `REDACT_KINDS: set[...] = {"CAN_REAL", "PRIVATE", "CLIENT"}`.
+- `docs/carney_delivery_plan_v6_2.md:332` is the controlling sovereignty policy: "All non-PUBLIC_SYNTHETIC classifications blocked from external API". This Issue codifies that policy as `EXTERNAL_LEAK_FORBIDDEN`.
+- `src/polaris_graph/sovereignty/` directory does NOT yet exist. This Issue creates it. Subsequent F3-003+ Issues add `router.py`, etc.
+- The enum needs to be JSON-serializable (per breakdown's "Acceptance: serializable to JSON") for use in `EvidenceContract`/manifest payloads.
+
+## Acceptance criteria (binding)
+
+1. **`src/polaris_graph/sovereignty/__init__.py`** (NEW): empty file (package marker). LOC: 0.
+
+2. **`src/polaris_graph/sovereignty/classification.py`** (NEW):
+   - `from enum import Enum` then:
+     ```python
+     class DataClassification(str, Enum):
+         PUBLIC_SYNTHETIC = "PUBLIC_SYNTHETIC"
+         CAN_REAL = "CAN_REAL"
+         PRIVATE = "PRIVATE"
+         CLIENT = "CLIENT"
+         UNKNOWN = "UNKNOWN"
+     ```
+   - Inheriting from `str` (per stdlib pattern) makes `json.dumps(DataClassification.CLIENT)` produce `"CLIENT"` directly without needing a custom serializer.
+   - Module constants: `ALL_CLASSIFICATIONS: tuple[DataClassification, ...] = tuple(DataClassification)`; `EXTERNAL_LEAK_FORBIDDEN: frozenset[DataClassification] = frozenset({DataClassification.CAN_REAL, DataClassification.PRIVATE, DataClassification.CLIENT, DataClassification.UNKNOWN})` — codifies `docs/carney_delivery_plan_v6_2.md:332` "all non-PUBLIC_SYNTHETIC blocked from external API"; consumed by I-f3-003 sovereignty router. Default-deny on UNKNOWN per defensive posture.
+   - Helper `parse_classification(value: str | DataClassification | None) -> DataClassification`: accepts an enum instance, a string match, OR None (returns UNKNOWN). Raises ValueError on unknown string.
+   - Helper `is_external_leak_forbidden(classification: DataClassification) -> bool`: returns `classification in EXTERNAL_LEAK_FORBIDDEN`.
+   - LOC: ~30.
+
+3. **`tests/polaris_graph/sovereignty/__init__.py`** (NEW): empty. LOC: 0.
+
+4. **`tests/polaris_graph/sovereignty/test_classification.py`** (NEW): 7 tests:
+   - `test_all_five_values_present`: asserts the 5 enum members exist with correct string values.
+   - `test_str_inheritance_makes_json_serializable`: `json.dumps({"c": DataClassification.CLIENT})` produces `'{"c": "CLIENT"}'`.
+   - `test_parse_classification_accepts_enum`: passing enum instance returns same.
+   - `test_parse_classification_accepts_string`: `parse_classification("CAN_REAL") == DataClassification.CAN_REAL`.
+   - `test_parse_classification_none_returns_unknown`: None → UNKNOWN.
+   - `test_parse_classification_invalid_raises`: invalid string → ValueError.
+   - `test_is_external_leak_forbidden`: CLIENT → True; all 4 others → False.
+   - LOC: ~50.
+
+## Planned diff shape
+
+```
+src/polaris_graph/sovereignty/__init__.py             NEW +0
+src/polaris_graph/sovereignty/classification.py       NEW +30
+tests/polaris_graph/sovereignty/__init__.py           NEW +0
+tests/polaris_graph/sovereignty/test_classification.py NEW +50
+```
+
+LOC: +80 net pre-Prettier (well under 100 budget AND CHARTER §1 200-cap).
+
+## Out of scope (deferred)
+
+- Sovereignty router (`router.py`) → I-f3-003 next.
+- Sovereignty CI test → I-f3-004.
+- Frontend mirror of the enum → already exists at `web/lib/api.ts:83-88`; no change needed.
+
+## Risks for Codex Red-Team
+
+1. **`str` + `Enum` multiple inheritance.** Python stdlib pattern; `class X(str, Enum)` makes members usable as strings AND as enum. Test 2 asserts JSON serializability via this property.
+
+2. **`EXTERNAL_LEAK_FORBIDDEN` set membership.** Frozen set ensures immutability; only `CLIENT` is forbidden. PRIVATE is allowed external (e.g., user's own data they're querying). PUBLIC_SYNTHETIC and CAN_REAL are explicitly safe. UNKNOWN is allowed but logged for audit (UNKNOWN-handling policy is router's decision, not enum's).
+
+3. **`parse_classification` accepts None.** Returns UNKNOWN as defensive fallback. Caller can check `is None` upstream if they want to reject.
+
+4. **Naming `EXTERNAL_LEAK_FORBIDDEN`.** Explicit + immediately readable. Alternatives like `FORBIDDEN_EXTERNAL` were considered; rejected for being passive-voice ambiguous.
+
+5. **No new package.json / requirements.txt dep.**
+
+6. **CHARTER §1 LOC cap.** 80 net; well under.
+
+7. **`__init__.py` stub files.** Required for Python package import to work cleanly.
+
+8. **Test coverage.** 7 tests cover: all 5 values, JSON-serialization, parse-from-enum/string/None/invalid, leak-forbidden membership.
+
+9. **Frontend mirror at `web/lib/api.ts:83-88` IS the same 5 strings.** Cross-language consistency maintained — both sides use the same string identifiers.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+codex
+I’ll verify the referenced policy and substrate first, then I’ll review the brief for execution-blocking contradictions rather than implementation preferences.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "All non-PUBLIC_SYNTHETIC|PUBLIC_SYNTHETIC|DataClassification|REDACT_KINDS" docs/carney_delivery_plan_v6_2.md src/polaris_v6/observability/log_redact.py web/lib/api.ts src/polaris_v6/api/upload.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force src\\polaris_graph; if (Test-Path src\\polaris_graph\\sovereignty) { Get-ChildItem -Force src\\polaris_graph\\sovereignty }" in C:\POLARIS
+ succeeded in 1118ms:
+src/polaris_v6/api/upload.py:10:(PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+src/polaris_v6/api/upload.py:25:DataClassification = Literal[
+src/polaris_v6/api/upload.py:26:    "PUBLIC_SYNTHETIC",
+src/polaris_v6/api/upload.py:42:    classification: DataClassification
+src/polaris_v6/api/upload.py:53:    classification: DataClassification = Form("UNKNOWN"),
+src/polaris_v6/observability/log_redact.py:18:DataClassification = Literal[
+src/polaris_v6/observability/log_redact.py:19:    "PUBLIC_SYNTHETIC",
+src/polaris_v6/observability/log_redact.py:26:REDACT_KINDS: set[DataClassification] = {"CAN_REAL", "PRIVATE", "CLIENT"}
+src/polaris_v6/observability/log_redact.py:42:    classification: DataClassification = "UNKNOWN",
+src/polaris_v6/observability/log_redact.py:53:    Redacted fields when classification ∈ REDACT_KINDS:
+src/polaris_v6/observability/log_redact.py:58:    if classification not in REDACT_KINDS:
+src/polaris_v6/observability/log_redact.py:80:def redact_for_log(message: str, classification: DataClassification = "UNKNOWN") -> str:
+src/polaris_v6/observability/log_redact.py:82:    if classification not in REDACT_KINDS:
+src/polaris_v6/observability/log_redact.py:91:    classification: DataClassification = "UNKNOWN",
+web/lib/api.ts:83:export type DataClassification =
+web/lib/api.ts:84:  | "PUBLIC_SYNTHETIC"
+web/lib/api.ts:95:  classification: DataClassification;
+web/lib/api.ts:102:  classification: DataClassification = "UNKNOWN",
+docs/carney_delivery_plan_v6_2.md:332:| Sovereignty (data classification routing) | CI test on `sovereign_router.py` | All non-PUBLIC_SYNTHETIC classifications blocked from external API |
+
+ succeeded in 1241ms:
+
+    Directory: C:\POLARIS\src\polaris_graph
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-06  3:59 PM                __pycache__
+d----          2026-04-17 11:50 PM                agents
+d----          2026-05-06  1:37 PM                api
+d----          2026-05-05  4:14 PM                audit_bundle
+d----          2026-04-30  1:21 AM                audit_ir
+d----          2026-04-28 11:48 AM                auto_induction
+d----          2026-05-05  4:14 PM                benchmark
+d----          2026-04-21 12:08 PM                evaluator
+d----          2026-03-14 10:45 PM                export
+d----          2026-04-30  1:26 PM                generator
+d----          2026-05-05  4:14 PM                generator2
+d----          2026-05-06  1:01 PM                intake
+d----          2026-04-18  5:48 PM                llm
+d----          2026-03-12  5:01 PM                memory
+d----          2026-04-23 11:01 PM                nodes
+d----          2026-04-29 12:35 PM                retrieval
+d----          2026-05-05  4:14 PM                retrieval2
+d----          2026-05-05  4:14 PM                scope
+d----          2026-04-16  9:55 PM                synthesis
+d----          2026-04-17 11:54 PM                tools
+d----          2026-04-17 10:46 PM                wiki
+-a---          2026-03-17  4:08 PM           1072 __init__.py
+-a---          2026-03-01 10:54 AM          21477 checkpoint_manager.py
+-a---          2026-04-12 11:47 PM           4318 config_loader.py
+-a---          2026-03-17 11:14 PM          13026 contracts_v3.py
+-a---          2026-02-17 10:17 AM          10488 dashboard.py
+-a---          2026-03-10  4:58 PM          43793 document_ingester.py
+-a---          2026-03-17 12:21 AM          34980 graph_v2.py
+-a---          2026-03-17 11:19 PM          34217 graph_v3.py
+-a---          2026-05-06  4:06 PM          12761 graph_v4.py
+-a---          2026-04-16  9:55 PM          99742 graph.py
+-a---          2026-04-18 12:10 AM          14431 honest_pipeline.py
+-a---          2026-03-01  5:44 PM          13542 pipeline_definition.py
+-a---          2026-03-01  5:48 PM          19365 pipeline_wizard.py
+-a---          2026-04-14  6:51 PM         109190 schemas.py
+-a---          2026-03-17 11:14 PM           3224 state_v3.py
+-a---          2026-04-17 11:50 PM          30203 state.py
+-a---          2026-04-14  6:51 PM           9099 tracing.py
+-a---          2026-04-23  5:08 PM          32136 v30_sweep_integration.py
+
+
+codex
+The repository confirms the controlling doc line and the existing ad-hoc taxonomy. I’ve also found one internal contradiction in the brief that directly affects the next router’s enforcement contract, so I’m checking whether it is isolated or repeated.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\api\\upload.py -TotalCount 90" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_v6\\observability\\log_redact.py -TotalCount 110" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts -TotalCount 115" in C:\POLARIS
+ succeeded in 1315ms:
+"""CAN_REAL data redaction for OTEL spans + structured logs.
+
+Per CLAUDE.md security posture, `CAN_REAL` data MUST NOT cross to non-
+Canadian observability infrastructure. Token counts, latencies, model
+ids are always emittable (no PII); prompt + completion content for
+CAN_REAL data is replaced with sha256 hash + length only.
+
+This module provides the scrubbing primitives. Phase 2A wires them into
+the OTEL span pipeline; Phase 1 ships the substrate + tests.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Any, Literal
+
+DataClassification = Literal[
+    "PUBLIC_SYNTHETIC",
+    "CAN_REAL",
+    "PRIVATE",
+    "CLIENT",
+    "UNKNOWN",
+]
+
+REDACT_KINDS: set[DataClassification] = {"CAN_REAL", "PRIVATE", "CLIENT"}
+
+_SENSITIVE_KEY_RE = re.compile(
+    r"^(gen_ai\.prompt|gen_ai\.completion|polaris\.span_text|polaris\.user_input|polaris\.evidence_text|password|secret|api[_-]?key|token)$",
+    re.IGNORECASE,
+)
+
+
+def _hash_with_length(text: str) -> str:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return f"sha256:{digest}:len={len(text)}"
+
+
+def redact_attributes(
+    attributes: dict[str, Any],
+    *,
+    classification: DataClassification = "UNKNOWN",
+) -> dict[str, Any]:
+    """Return a new dict with sensitive content redacted to hash+length.
+
+    Pass-through fields (always emitted unchanged):
+    - gen_ai.usage.* (token counts)
+    - gen_ai.request.model, gen_ai.response.model
+    - gen_ai.response.finish_reasons
+    - polaris.cost_usd, polaris.run_id, polaris.template
+    - any non-sensitive key
+
+    Redacted fields when classification ∈ REDACT_KINDS:
+    - gen_ai.prompt, gen_ai.completion, polaris.span_text,
+      polaris.user_input, polaris.evidence_text, password, secret,
+      api_key/api-key, token
+    """
+    if classification not in REDACT_KINDS:
+        return dict(attributes)
+
+    out: dict[str, Any] = {}
+    for k, v in attributes.items():
+        if _SENSITIVE_KEY_RE.match(k):
+            if isinstance(v, str):
+                out[k] = _hash_with_length(v)
+            elif isinstance(v, list):
+                out[k] = [
+                    _hash_with_length(item) if isinstance(item, str) else "[redacted]"
+                    for item in v
+                ]
+            else:
+                out[k] = "[redacted]"
+        else:
+            out[k] = v
+    out["polaris.classification"] = classification
+    out["polaris.redaction_applied"] = True
+    return out
+
+
+def redact_for_log(message: str, classification: DataClassification = "UNKNOWN") -> str:
+    """Redact a free-text log message when classification requires it."""
+    if classification not in REDACT_KINDS:
+        return message
+    return _hash_with_length(message)
+
+
+def set_span_attributes_safe(
+    span: Any,
+    attributes: dict[str, Any],
+    *,
+    classification: DataClassification = "UNKNOWN",
+) -> None:
+    """Apply redact_attributes then set on an OTEL span.
+
+    Caller-side helper — the intended replacement for direct
+    `span.set_attribute(k, v)` calls when emitting spans that may carry
+    CAN_REAL / PRIVATE / CLIENT data. The opentelemetry SDK is duck-
+    typed (anything with `.set_attribute(name, value)`).
+
+    A None span is a no-op (safe in environments where OTEL is disabled).
+    A per-attribute exception does not cascade through the span.
+    """
+    if span is None:
+        return
+    redacted = redact_attributes(attributes, classification=classification)
+    set_attribute = getattr(span, "set_attribute", None)
+    if set_attribute is None:
+        return
+    for k, v in redacted.items():
+        try:
+
+ succeeded in 1450ms:
+"""POST /upload — F3b drag-drop document upload endpoint.
+
+Per docs/carney_delivery_plan_v6_2.md F3b, the user can upload PDFs /
+docx / md / txt to seed a research run. Phase 0 ships the contract:
+returns a document_id + parse_status; Phase 1 wires actual parsing +
+chunking + sovereignty router (CAN_REAL data must stay on Canadian
+infra).
+
+Per CLAUDE.md security posture: file content classification
+(PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+the caller; default is UNKNOWN and triggers conservative routing.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import uuid
+from typing import Literal
+
+from fastapi import APIRouter, Form, HTTPException, UploadFile
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/upload", tags=["upload"])
+
+DataClassification = Literal[
+    "PUBLIC_SYNTHETIC",
+    "CAN_REAL",
+    "PRIVATE",
+    "CLIENT",
+    "UNKNOWN",
+]
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+MAX_BYTES = 25 * 1024 * 1024  # 25 MB per upload (Phase 0)
+
+
+class UploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    bytes: int
+    sha256: str
+    classification: DataClassification
+    parse_status: Literal["queued", "completed", "failed"]
+    chunk_preview: list[str]
+
+
+_UPLOAD_TABLE: dict[str, UploadResponse] = {}
+
+
+@router.post("", response_model=UploadResponse, status_code=201)
+async def upload_document(
+    file: UploadFile,
+    classification: DataClassification = Form("UNKNOWN"),
+) -> UploadResponse:
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail="filename required")
+
+    ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported extension {ext!r}. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_BYTES // (1024 * 1024)} MB limit",
+        )
+    if len(content) == 0:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    sha = hashlib.sha256(content).hexdigest()
+    document_id = uuid.uuid4().hex
+
+    if ext in {".md", ".txt"}:
+        try:
+            text = content.decode("utf-8", errors="replace")
+        except Exception:
+            text = ""
+        chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+    else:
+        chunks = []
+
+    response = UploadResponse(
+        document_id=document_id,
+        filename=file.filename,
+        bytes=len(content),
+        sha256=sha,
+
+ succeeded in 1609ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ * NEXT_PUBLIC_BACKEND_URL points to the FastAPI dev server (default
+ * http://127.0.0.1:8000 for local development).
+ */
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000";
+
+export type TemplateId =
+  | "clinical"
+  | "trade"
+  | "housing"
+  | "defense"
+  | "climate"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await fetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await fetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Acceptance test `test_is_external_leak_forbidden` contradicts the controlling policy and the proposed constant. It says CLIENT -> True and all 4 others -> False, but `docs/carney_delivery_plan_v6_2.md:332` requires all non-PUBLIC_SYNTHETIC classifications to be blocked. Expected assertions: PUBLIC_SYNTHETIC -> False; CAN_REAL, PRIVATE, CLIENT, UNKNOWN -> True."
+  - "Risk item 2 repeats the same old policy contradiction: it says only CLIENT is forbidden and PRIVATE/CAN_REAL/UNKNOWN are externally allowed. That conflicts with the iter-2 resolution and would mislead I-f3-003 router implementation."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix the test acceptance text and risk item 2 so they consistently encode default-deny external egress: only PUBLIC_SYNTHETIC is externally allowed."
+```
+tokens used
+11,131
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Acceptance test `test_is_external_leak_forbidden` contradicts the controlling policy and the proposed constant. It says CLIENT -> True and all 4 others -> False, but `docs/carney_delivery_plan_v6_2.md:332` requires all non-PUBLIC_SYNTHETIC classifications to be blocked. Expected assertions: PUBLIC_SYNTHETIC -> False; CAN_REAL, PRIVATE, CLIENT, UNKNOWN -> True."
+  - "Risk item 2 repeats the same old policy contradiction: it says only CLIENT is forbidden and PRIVATE/CAN_REAL/UNKNOWN are externally allowed. That conflicts with the iter-2 resolution and would mislead I-f3-003 router implementation."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix the test acceptance text and risk item 2 so they consistently encode default-deny external egress: only PUBLIC_SYNTHETIC is externally allowed."
+```
