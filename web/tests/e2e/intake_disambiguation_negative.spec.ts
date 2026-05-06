@@ -1,0 +1,104 @@
+import { expect, test } from "@playwright/test";
+
+const TIRZEPATIDE_QUESTION =
+  "Does tirzepatide reduce A1c in adults with type 2 diabetes?";
+
+const baseDecision = {
+  status: "in_scope",
+  scope_class: "clinical_efficacy",
+  ambiguity_axes: [],
+  clarifications_needed: [],
+  provenance: {},
+  decision_id: "test-decision-id",
+  decided_at_utc: new Date().toISOString(),
+  latency_ms: 12,
+};
+
+test("tirzepatide single entity → no disambiguation modal (path #1: backend says no)", async ({
+  page,
+}) => {
+  let intakeCalls = 0;
+  let disambigCalls = 0;
+
+  await page.route("**/api/intake", async (route) => {
+    intakeCalls++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: { ...baseDecision, needs_disambiguation: false },
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.route("**/api/disambiguation", async (route) => {
+    disambigCalls++;
+    await route.abort();
+  });
+
+  await page.goto("/intake");
+  await page.getByTestId("intake-question-input").fill(TIRZEPATIDE_QUESTION);
+  await page.getByTestId("intake-submit").click();
+  await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+  await page.waitForTimeout(200);
+
+  await expect(page.locator('[data-slot="disambiguation-modal"]')).toBeHidden();
+  expect(intakeCalls).toBe(1);
+  expect(disambigCalls).toBe(0);
+});
+
+test("needs_disambiguation=true but is_ambiguous=false → no modal (path #2: is_ambiguous guard)", async ({
+  page,
+}) => {
+  let intakeCalls = 0;
+  let disambigCalls = 0;
+
+  await page.route("**/api/intake", async (route) => {
+    intakeCalls++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: false,
+        decision: {
+          ...baseDecision,
+          needs_disambiguation: true,
+          candidate_snippets: [
+            { text: "snippet a", embedding: [1, 0] },
+            { text: "snippet b", embedding: [0, 1] },
+          ],
+        },
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.route("**/api/disambiguation", async (route) => {
+    disambigCalls++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_ambiguous: false,
+        num_clusters: 2,
+        clusters: [
+          { cluster_id: 0, label: "x", sample_snippets: ["..."] },
+          { cluster_id: 1, label: "y", sample_snippets: ["..."] },
+        ],
+        server_time_utc: new Date().toISOString(),
+      }),
+    });
+  });
+
+  await page.goto("/intake");
+  await page.getByTestId("intake-question-input").fill(TIRZEPATIDE_QUESTION);
+  await page.getByTestId("intake-submit").click();
+  await expect(page.getByTestId("scope-decision-view")).toBeVisible();
+  await page.waitForTimeout(200);
+
+  await expect(page.locator('[data-slot="disambiguation-modal"]')).toBeHidden();
+  expect(intakeCalls).toBe(1);
+  expect(disambigCalls).toBe(1);
+});
