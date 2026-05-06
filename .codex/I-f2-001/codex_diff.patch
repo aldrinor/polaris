@@ -1,0 +1,192 @@
+diff --git a/requirements.txt b/requirements.txt
+index 2f43a25..728bf00 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -83,6 +83,7 @@ sentence-transformers>=2.2.0
+ transformers>=4.30.0
+ torch>=2.0.0
+ semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
++hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
+ 
+ # RAG Verification (Sprint 2)
+ # WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+diff --git a/src/polaris_graph/intake/disambiguation_clusterer.py b/src/polaris_graph/intake/disambiguation_clusterer.py
+new file mode 100644
+index 0000000..33d30ec
+--- /dev/null
++++ b/src/polaris_graph/intake/disambiguation_clusterer.py
+@@ -0,0 +1,91 @@
++"""HDBSCAN clustering on top-K retrieval candidate embeddings (F2 substrate).
++
++Per Carney v6.2 §F2 Diversify-then-Verify: cluster the top-K candidate
++embeddings; if HDBSCAN finds more than one dense cluster the user query
++is ambiguous (e.g. "BPEI" → syndrome / institute / chemical clusters),
++and the disambiguation modal should fire. A single dense cluster (or
++one-cluster-allowed result) means the query is unambiguous (e.g.
++"tirzepatide" → all candidates about the drug).
++
++This module is substrate-only:
++- Consumes pre-computed `np.ndarray` of shape (K, D); does NOT call
++  any embedding model at runtime (per CLAUDE.md §8.4 "no heavy ML in
++  autonomous loops"). Wiring into `live_retriever.py` is I-f2-003.
++- Wraps `hdbscan.HDBSCAN` with `allow_single_cluster=True` so a
++  tightly-packed candidate set returns 1 cluster rather than 0.
++
++Pre-condition: `embeddings` should be L2-normalized for euclidean
++metric to be monotonic with cosine distance.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import hdbscan
++import numpy as np
++
++
++@dataclass(frozen=True)
++class ClusterResult:
++    """Result of HDBSCAN clustering on candidate embeddings.
++
++    Attributes:
++        labels: HDBSCAN cluster id per candidate (-1 = noise/outlier).
++        num_clusters: Count of distinct non-noise cluster ids.
++        is_ambiguous: True iff num_clusters > 1.
++    """
++
++    labels: list[int]
++    num_clusters: int
++    is_ambiguous: bool
++
++
++def cluster_candidates(
++    embeddings: np.ndarray,
++    min_cluster_size: int = 2,
++) -> ClusterResult:
++    """Cluster candidate embeddings with HDBSCAN.
++
++    Args:
++        embeddings: Shape (K, D) float array of candidate embeddings.
++        min_cluster_size: HDBSCAN minimum cluster size (default 2 per
++            Carney v6.2 §F2 spec).
++
++    Returns:
++        ClusterResult with labels, num_clusters, is_ambiguous.
++
++    Raises:
++        ValueError: If `embeddings` is empty (LAW II — fail loudly).
++
++    Edge cases:
++        - K < min_cluster_size: HDBSCAN cannot cluster; returns
++          num_clusters=0, is_ambiguous=False, labels all -1.
++    """
++    if embeddings.size == 0:
++        raise ValueError(
++            "cluster_candidates: empty embedding array; cannot cluster"
++        )
++
++    n_candidates = embeddings.shape[0]
++    if n_candidates < min_cluster_size:
++        return ClusterResult(
++            labels=[-1] * n_candidates,
++            num_clusters=0,
++            is_ambiguous=False,
++        )
++
++    clusterer = hdbscan.HDBSCAN(
++        min_cluster_size=min_cluster_size,
++        metric="euclidean",
++        allow_single_cluster=True,
++    )
++    raw_labels = clusterer.fit_predict(embeddings)
++    labels = [int(label) for label in raw_labels]
++    distinct_clusters = set(labels) - {-1}
++    num_clusters = len(distinct_clusters)
++    return ClusterResult(
++        labels=labels,
++        num_clusters=num_clusters,
++        is_ambiguous=num_clusters > 1,
++    )
+diff --git a/tests/polaris_graph/intake/test_disambiguation_clusterer.py b/tests/polaris_graph/intake/test_disambiguation_clusterer.py
+new file mode 100644
+index 0000000..5d544c6
+--- /dev/null
++++ b/tests/polaris_graph/intake/test_disambiguation_clusterer.py
+@@ -0,0 +1,75 @@
++"""Unit tests for I-f2-001 — HDBSCAN clustering substrate.
++
++Synthetic numpy embeddings only (no real embedding model load) per
++CLAUDE.md §8.4: heavy ML is forbidden in autonomous loops.
++"""
++
++from __future__ import annotations
++
++import numpy as np
++import pytest
++
++from polaris_graph.intake.disambiguation_clusterer import (
++    ClusterResult,
++    cluster_candidates,
++)
++
++
++def _gaussian_cloud(rng: np.random.Generator, center: tuple[float, ...], n: int, scale: float = 0.05) -> np.ndarray:
++    """Make `n` points centered at `center` with small Gaussian noise."""
++    centroid = np.array(center, dtype=np.float64)
++    noise = rng.normal(loc=0.0, scale=scale, size=(n, len(center)))
++    return centroid + noise
++
++
++def test_three_clear_clusters_ambiguous() -> None:
++    rng = np.random.default_rng(seed=42)
++    cloud_a = _gaussian_cloud(rng, (0.0, 0.0), 5)
++    cloud_b = _gaussian_cloud(rng, (10.0, 10.0), 5)
++    cloud_c = _gaussian_cloud(rng, (-10.0, -10.0), 5)
++    embeddings = np.vstack([cloud_a, cloud_b, cloud_c])
++
++    result = cluster_candidates(embeddings)
++
++    assert isinstance(result, ClusterResult)
++    assert result.num_clusters == 3
++    assert result.is_ambiguous is True
++
++
++def test_single_dense_cluster_unambiguous() -> None:
++    rng = np.random.default_rng(seed=7)
++    embeddings = _gaussian_cloud(rng, (0.0, 0.0), 10)
++
++    result = cluster_candidates(embeddings)
++
++    assert result.num_clusters == 1
++    assert result.is_ambiguous is False
++
++
++def test_two_clusters_ambiguous() -> None:
++    rng = np.random.default_rng(seed=11)
++    cloud_a = _gaussian_cloud(rng, (0.0, 0.0), 5)
++    cloud_b = _gaussian_cloud(rng, (10.0, 10.0), 5)
++    embeddings = np.vstack([cloud_a, cloud_b])
++
++    result = cluster_candidates(embeddings)
++
++    assert result.num_clusters == 2
++    assert result.is_ambiguous is True
++
++
++def test_below_min_cluster_size_returns_noise() -> None:
++    embeddings = np.array([[0.5, 0.5]], dtype=np.float64)
++
++    result = cluster_candidates(embeddings, min_cluster_size=2)
++
++    assert result.num_clusters == 0
++    assert result.is_ambiguous is False
++    assert result.labels == [-1]
++
++
++def test_empty_input_raises() -> None:
++    embeddings = np.empty((0, 384), dtype=np.float64)
++
++    with pytest.raises(ValueError, match="empty embedding array"):
++        cluster_candidates(embeddings)
+
+# canonical-diff-sha256: 13cb6dfac9004fdaa3dc337fc2cb39f1687d5d02da0e599638852209755a0fd3

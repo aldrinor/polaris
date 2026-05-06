@@ -83,6 +83,7 @@ sentence-transformers>=2.2.0
 transformers>=4.30.0
 torch>=2.0.0
 semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+hdbscan>=0.8.40,<0.9  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
 
 # RAG Verification (Sprint 2)
 # WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost

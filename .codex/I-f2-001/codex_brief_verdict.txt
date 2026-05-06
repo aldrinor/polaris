@@ -1,0 +1,1705 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019dfec4-5ef6-79a2-aeb2-6afd462d90b2
+--------
+user
+# Codex Brief Review — I-f2-001 (ITER 2 of 5)
+
+## Iter-1 fixes
+- **P1: HDBSCAN default `allow_single_cluster=False`** — single-dense-cluster test would return `num_clusters=0` not `1`. Iter-2 fix: pass `allow_single_cluster=True` to HDBSCAN constructor. Per https://hdbscan.readthedocs.io/en/latest/api.html.
+- **P2: hdbscan latest is 0.8.42 (Mar 2026), not 0.8.40.** Iter-2 fix: pin `hdbscan>=0.8.40,<0.9` (lower-bound 0.8.40 still safe; upper bound prevents accidental 0.9.x breakage). Wording corrected.
+
+**HARD ITERATION CAP: 5 per document. This is iter 2 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f2-001 — Backend: HDBSCAN clustering on top-K retrieval candidates
+**Phase:** 1 / **Feature:** F2 (disambiguation modal)
+**LOC budget:** 180 net per `state/polaris_restart/issue_breakdown.md`. **CHARTER §1 hard cap: 200.**
+
+## Mission
+
+Add `src/polaris_graph/intake/disambiguation_clusterer.py` — a pure-Python module that takes top-K candidate embeddings and returns HDBSCAN cluster labels. >1 cluster = ambiguous query (BPEI = syndrome / institute / chemical → 3 clusters). 1 dense cluster = unambiguous (tirzepatide → all candidates about the drug → 1 cluster).
+
+Per Carney plan §F2: "Diversify-then-Verify pipeline (Agentic Verification, ICLR 2025); HDBSCAN clustering on candidate embeddings."
+
+## Substrate (HONEST)
+
+- `src/polaris_graph/intake/__init__.py` exists with `question_normalizer` (slice 001).
+- `numpy>=1.24` already in `requirements.txt` (line 111). **`hdbscan` is NOT in requirements.txt.** Must add.
+- `pooled_embedder.py` exists at `src/polaris_graph/retrieval/`; this Issue does NOT call it (test-isolated; consumes pre-computed embedding arrays).
+- This Issue is substrate ONLY. Wiring into `live_retriever.py` is I-f2-003 scope.
+- F2 substrate per Carney plan §F2 also flags spaCy NOT installed; this module does NOT need spaCy (operates on numeric embeddings only).
+
+## Acceptance criteria (binding)
+
+1. **`src/polaris_graph/intake/disambiguation_clusterer.py`** (NEW): exports `cluster_candidates(embeddings: np.ndarray, min_cluster_size: int = 2) -> ClusterResult` where:
+   - `embeddings` is shape `(K, D)` array of floats (K candidates, D embedding dim).
+   - Returns `ClusterResult` dataclass with `labels: list[int]` (HDBSCAN cluster id per candidate; -1 = noise/outlier per HDBSCAN convention), `num_clusters: int` (count of distinct non-noise labels), `is_ambiguous: bool` (= num_clusters > 1).
+   - Wraps `hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean", allow_single_cluster=True)` from the `hdbscan` package. `allow_single_cluster=True` is required so a tightly-packed candidate set returns 1 cluster rather than 0 (P1-iter1 fix).
+   - Edge case: K < min_cluster_size → `num_clusters=0`, `is_ambiguous=False`, all labels = -1 (no clustering possible). Document this in the docstring.
+   - Edge case: empty input array → raises `ValueError` (LAW II — fail loudly).
+   - LOC: ~70-90 (module + dataclass + docstring).
+
+2. **`tests/polaris_graph/intake/test_disambiguation_clusterer.py`** (NEW): unit tests using **synthetic numpy arrays** (no real embedding model load — keeps test fast + GPU-free per CLAUDE.md §8.4 "no heavy ML in autonomous loops"):
+   - `test_three_clear_clusters`: 3 well-separated point clouds (e.g. center [0,0], [10,10], [-10,-10] each ×5 with small Gaussian noise) → `num_clusters == 3`, `is_ambiguous == True`.
+   - `test_single_dense_cluster`: 1 tight cloud of 10 points around [0,0] → `num_clusters == 1`, `is_ambiguous == False`.
+   - `test_below_min_cluster_size`: 1 point → `num_clusters == 0`, `is_ambiguous == False`, labels `[-1]`.
+   - `test_empty_input_raises`: `np.empty((0, 384))` → raises ValueError.
+   - `test_two_clusters_ambiguous`: 2 separated point clouds → `num_clusters == 2`, `is_ambiguous == True`.
+   - LOC: ~80.
+
+3. **`requirements.txt`**: add `hdbscan>=0.8.40,<0.9` (stable Python 3.13-compatible range; latest 0.8.42 released Mar 2026 per pypi.org/project/hdbscan; pure-Python + C extension; no GPU dep).
+   - Verify build works on Linux CI (hdbscan has C extensions; pip-install needs gcc — already present in `web_ci.yml` Python step).
+   - LOC: +1.
+
+## Planned diff shape
+
+```
+src/polaris_graph/intake/disambiguation_clusterer.py    NEW +85
+tests/polaris_graph/intake/test_disambiguation_clusterer.py    NEW +80
+requirements.txt                                         MOD +1
+```
+
+LOC: +166 net. Under 180 issue-budget AND CHARTER §1 200-cap.
+
+## Out of scope (deferred per breakdown)
+
+- LLM cluster-labeling (assigning "syndrome" / "institute" / "chemical" labels) → I-f2-002.
+- Disambiguation API endpoint exposing cluster results → I-f2-003.
+- Frontend modal → I-f2-004.
+
+## Non-acceptance / explicit exclusions
+
+- Does NOT call any embedding model at runtime (test-isolated; consumes pre-computed `np.ndarray`).
+- Does NOT add spaCy or any NER tool.
+- Does NOT depend on `pooled_embedder.py` (called by future Issue at integration time).
+- Does NOT modify `live_retriever.py` (that's I-f2-003).
+- Does NOT modify `question_normalizer.py`.
+
+## Risks for Codex Red-Team
+
+1. **`hdbscan` package install failures.** hdbscan 0.8.x ships C extensions (Cython); on Windows requires MSVC build tools, on Linux requires gcc. Both present in standard dev/CI environments. Pinned `>=0.8.40` is the latest stable per pypi.org/project/hdbscan as of 2026-05-06; this version supports Python 3.13. Verify the version constraint doesn't conflict with numpy>=1.24 already in requirements.
+
+2. **`min_cluster_size=2` semantics.** HDBSCAN with `min_cluster_size=2` is unusually aggressive — it'll form clusters around any 2+ close points. The breakdown spec explicitly calls for `min_cluster_size=2` (default). Documented + asserted in tests.
+
+3. **Noise-label convention (-1).** HDBSCAN labels outlier points as -1 (not part of any cluster). `num_clusters` excludes -1 from the count: `len(set(labels) - {-1})`. Edge case: ALL points are noise → `num_clusters == 0`, `is_ambiguous == False`. Acceptable.
+
+4. **`euclidean` metric for normalized embeddings.** Most modern embedding models output L2-normalized vectors. Euclidean distance on normalized vectors is monotonic with cosine distance, so clustering quality is equivalent. Pre-condition documented in module docstring: "embeddings should be L2-normalized for best results."
+
+5. **Synthetic test fixtures use `np.random.default_rng(seed)` for determinism.** Per CLAUDE.md §9.4, `np.random` is forbidden outside tests/fixtures/. Tests file explicitly sets seeded RNG within each test body — deterministic, reproducible, lint-clean for the LAW.
+
+6. **Test must NOT load any real embedding model.** Per CLAUDE.md §8.4: "Heavy ML / vector / CUDA processes are forbidden in autonomous loops." Tests use synthetic numpy arrays only. No `sentence-transformers`, no `pooled_embedder` import.
+
+7. **`tests/polaris_graph/intake/__init__.py`** — does it exist? Check before writing the test file. If not, create an empty `__init__.py` to make pytest discovery work. Adds 1 file but 0 LOC (empty marker).
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll verify the version/API claims against primary sources, then cross-check the repo substrate so the review is grounded in what this workspace actually has.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force src\\polaris_graph\\intake; if (Test-Path tests\\polaris_graph\\intake) { Get-ChildItem -Force tests\\polaris_graph\\intake }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "numpy|hdbscan" requirements.txt; rg --files src/polaris_graph/intake tests/polaris_graph/intake' in C:\POLARIS
+ succeeded in 1016ms:
+111:numpy>=1.24
+tests/polaris_graph/intake\__init__.py
+tests/polaris_graph/intake\test_question_normalizer.py
+src/polaris_graph/intake\__init__.py
+src/polaris_graph/intake\question_normalizer.py
+
+ succeeded in 1065ms:
+
+    Directory: C:\POLARIS\src\polaris_graph\intake
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-04  8:41 AM                [44;1m__pycache__[0m
+-a---          2026-05-04  8:26 AM            612 [32;1m__init__.py[0m
+-a---          2026-05-04  8:26 AM           4711 [32;1mquestion_normalizer.py[0m
+
+    Directory: C:\POLARIS\tests\polaris_graph\intake
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m [32;1;3m        Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+d----          2026-05-04  8:44 AM                [44;1m__pycache__[0m
+-a---          2026-05-04  8:26 AM              0 [32;1m__init__.py[0m
+-a---          2026-05-04  8:26 AM           6745 [32;1mtest_question_normalizer.py[0m
+
+
+web search: 
+web search: hdbscan PyPI 0.8.42 March 2026 Python 3.13
+codex
+The substrate checks line up so far: `numpy>=1.24` is present, `hdbscan` is absent, and `tests/polaris_graph/intake/__init__.py` already exists, so the test marker risk is already resolved. I’m checking the dependency context next for version conflicts or ordering conventions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content requirements.txt | Select-Object -First 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "np.random|random.default_rng|LAW|Heavy ML|CUDA|autonomous" CLAUDE.md tests src 2>$null' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "python_requires|requires-python|python =|python_version|scikit|sklearn|scipy|joblib|cython|numpy" pyproject.toml setup.cfg setup.py tox.ini requirements*.txt .github/workflows 2>$null' in C:\POLARIS
+ succeeded in 886ms:
+# POLARIS Dependencies
+# =====================
+# Last reviewed: 2026-04-18 (Phase E operational reconciliation)
+#
+# HONEST STATUS (2026-04-18):
+#   This file grew organically across the v2/v3/honest-rebuild arcs.
+#   It is NOT a minimal dep set. Static import analysis of the
+#   post-cleanup tree (docs/live_code_audit.md) shows ~100 external
+#   packages imported. Some deps here are for pipeline B (UI) only;
+#   some were used by now-archived code.
+#
+#   Known gaps (packages imported but NOT listed here):
+#     - duckduckgo_search  (retrieval fallback)
+#     - langchain_fireworks (historical generator)
+#     - openpyxl, pptx, pdfminer, pdfplumber, fpdf  (document ingestion)
+#     - sqlite_vec  (vector storage)
+#     - minicheck  (NLI verifier, installed via pip-install-git; see comment)
+#
+#   Known surplus (listed here but not obviously imported by live code):
+#     - neo4j  (knowledge-graph dep; pipeline C / archived)
+#     - google-generativeai  (Gemini; pipeline A uses OpenRouter, not Gemini)
+#     - ragas  (eval framework; scripts/run_ragas_v3.py is missing;
+#               pipeline C broken — see BUG-M-208)
+#
+#   A proper dep audit (pipeline A minimal, pipeline B minimal,
+#   remove archive-only deps, add missing imports) is queued in
+#   docs/todo_list.md. DO NOT remove lines below without a full
+#   regression run — some transitive imports are subtle.
+
+# ===================
+# POLARIS v3 - NEW
+# ===================
+
+# LangChain & LangGraph (Agentic Framework)
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-google-genai>=2.0.0  # Gemini integration
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+
+# Graph Database (Knowledge Graph)
+neo4j>=5.0
+
+# OpenAI (for GPT-4o, GPT-4V)
+openai>=1.0.0
+
+# RAGAS (Evaluation)
+ragas>=0.2.0
+
+# ===================
+# POLARIS v3 - Text Processing
+# ===================
+
+# Sentence segmentation (FIX-047C: 97.92% accuracy, handles U.S./Dr./e.g.)
+pysbd>=0.3.4
+
+# Content extraction (FIX-047H: F1=0.958, best-in-class boilerplate removal)
+trafilatura>=2.0.0
+
+# ===================
+# POLARIS v2 - Core
+# ===================
+
+# Core
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+# slice 004 audit-bundle GPG signing (requires system gpg binary)
+python-gnupg>=0.5.0
+
+# Async & HTTP
+aiohttp>=3.8.0
+httpx>=0.24.0
+tenacity>=8.2.0
+
+# Vector Database
+chromadb>=0.4.0
+
+# Embeddings & NLI
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=2.0.0
+semhash>=0.3.0  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+
+# RAG Verification (Sprint 2)
+# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+# Install separately (not on PyPI):
+#   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
+
+# Search & Content
+crawl4ai>=0.8.0  # Free Playwright-based web crawler (LLM-ready markdown)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+readability-lxml>=0.8.1  # A1.1: Article extraction from raw HTML (readability algorithm)
+PyMuPDF>=1.22.0  # PDF extraction
+
+# LLM
+google-generativeai>=0.3.0  # Gemini
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+playwright>=1.40.0  # Dashboard audit (headless browser)
+
+# Data Analysis & Visualization (GEMINI-ARCH: real Python charts)
+pandas>=2.0
+matplotlib>=3.8
+numpy>=1.24
+scipy>=1.11  # Statistical tests for data analysis (Fix 8)
+
+# Utilities
+tqdm>=4.65.0
+rich>=13.0.0  # Console formatting
+aiosqlite>=0.20.0  # Async SQLite for caches
+
+# LangGraph Checkpointing
+langgraph-checkpoint>=2.1.0,<3.0.0
+langgraph-checkpoint-sqlite>=2.0.0,<3.0.0
+
+# SOTA: OAI-PMH for PMC metadata extraction
+sickle>=0.7.0  # OAI-PMH harvesting
+
+# ===================
+# POLARIS Live Server
+# ===================
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sse-starlette>=1.6.0
+watchfiles>=0.20.0
+python-multipart>=0.0.6  # Required by FastAPI for form parsing
+slowapi>=0.1.8  # Rate limiting middleware
+
+# ===================
+# POLARIS v6 — Dramatiq queue + OpenTelemetry GenAI semconv
+# ===================
+# Tracked deps for v6 backend modernization (Phase 0 Task 0.5 + Task 0.10).
+# Per cycle-3 audit P1.2 (outputs/audits/continuous/bb60495_audit.md): the
+
+2026-05-06T19:30:18.211158Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+
+ exited 1 in 941ms:
+ succeeded in 1001ms:
+CLAUDE.md:16:- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+CLAUDE.md:20:2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+CLAUDE.md:22:4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+CLAUDE.md:23:5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+CLAUDE.md:30:## §1. The LAWS (Non-Negotiable Directives)
+CLAUDE.md:32:These LAWS supersede all other instructions.
+CLAUDE.md:34:### LAW I — Active Definition and Synchronization
+CLAUDE.md:51:### LAW II — No Fake Working (Evidence Required)
+CLAUDE.md:55:  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+CLAUDE.md:61:### LAW III — Proactive Information Seeking
+CLAUDE.md:65:### LAW IV — Persistence of State (Never Forget)
+CLAUDE.md:69:### LAW V — Absolute Code and File Hygiene
+CLAUDE.md:72:### LAW VI — Zero Hard-Coding
+CLAUDE.md:76:### LAW VII — CLI Isolation (POLARIS-Specific)
+CLAUDE.md:90:- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+CLAUDE.md:112:- DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+CLAUDE.md:113:- SYNC: <Description of documentation synchronized due to APD changes (LAW I, §1.2). "N/A" otherwise.>
+CLAUDE.md:115:- EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+CLAUDE.md:191:11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+CLAUDE.md:428:**Updated 2026-05-05:** ALSO ban any `state/active_issue.json` transition (writing a new active_issue_id, advancing current_step) before user assignment. Per CLAUDE.md §3.0 + §10 boot ritual: Claude does NOT pick the next issue autonomously. User assigns via TaskCreate. `state/active_issue.json` is updated by user-assignment, not by Claude advancing through the queue.
+CLAUDE.md:566:4. **Heavy ML / vector / CUDA processes are forbidden in autonomous loops.** sentence-transformers, torch, chromadb, sgLang, vllm — these load models that pin GB-scale RAM. Run only on direct user instruction; release immediately after the task. Use `import gc; gc.collect()` + explicit model handle deletion in Python scripts; kill the Python process if the task is complete.
+CLAUDE.md:570:6. **Pre-task inventory.** At the start of each new Codex iteration or autonomous loop step, run `Get-Process -Name codex,python,node | Format-Table Id, ProcessName, StartTime, CPU` and confirm no leftover processes from prior steps. If found, kill them.
+CLAUDE.md:572:7. **Notify user on resource concern.** If OS-level resource pressure is detected (Task Manager shows >80% RAM or >90% CPU sustained for >2 minutes during an autonomous loop), pause the loop and report to the user before continuing. Do NOT silently continue while the computer is overloaded.
+CLAUDE.md:580:- When the user reports a slow computer: stop autonomous work; do a process inventory; clean up; report.
+CLAUDE.md:582:This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
+CLAUDE.md:665:4. **If no active issue**, list TaskCreate tasks unblocked, present to user, wait for user assignment. Do NOT pick a task autonomously.
+CLAUDE.md:679:THIS IS THE LAW. FOLLOW IT.
+src\auth\auth_manager.py:15:# --- Configuration from environment (LAW VI) ---
+src\audit\automated_deep_audit.py:37:# Constants  (LAW VI -- all thresholds pulled from env or defaults here)
+src\audit\automated_deep_audit.py:41:# LAW II: Never silently assume quality when data is missing.
+src\audit\automated_deep_audit.py:526:            # FIX-255: LOUD WARNING when faithfulness is missing (LAW II)
+src\providers\llm_provider.py:34:# Configuration from environment (LAW VI)
+src\search\query_amplifier.py:13:Per CLAUDE.md LAW VI: Zero hard-coding. Uses DepthConfig for all parameters.
+src\search\query_amplifier.py:127:        """Initialize with DepthConfig (LAW VI)."""
+src\quality\output_quality_gate.py:12:All thresholds are configurable via environment variables (LAW VI).
+src\quality\output_quality_gate.py:24:# Thresholds (configurable via env vars, LAW VI)
+src\config\thresholds.py:6:LAW VI: Zero Hard-Coding - All thresholds come from config/thresholds.yaml
+src\agents\verifier_agent.py:117:        # Load depth configuration (LAW VI: Zero hard-coding)
+src\polaris_v6\observability\otel_init.py:3:Per CLAUDE.md LAW II (No Silent Fallbacks): if OTEL is misconfigured, POLARIS
+src\agents\search_agent.py:1490:    Depth configuration loaded from .env via DepthConfig (LAW VI: Zero hard-coding).
+src\agents\search_agent.py:1494:        # Load depth configuration from .env (LAW VI)
+src\agents\search_agent.py:1784:        Uses DepthConfig for search limits (LAW VI: Zero hard-coding).
+src\agents\search_agent.py:2033:    # Use DepthConfig if not specified (LAW VI: Zero hard-coding)
+src\agents\planner_agent.py:99:    Depth configuration loaded from .env via DepthConfig (LAW VI: Zero hard-coding).
+src\agents\planner_agent.py:103:        # Load depth configuration from .env (LAW VI)
+src\polaris_v6\adapters\__init__.py:3:Per CLAUDE.md LAW VII (CLI Isolation), v6 services do NOT import code
+src\agents\citefirst_synthesizer.py:3778:                # FIX-212 P0: Fallback must NOT fake verification_passed=True (LAW II violation)
+src\agents\analyst_agent.py:13:Depth configuration loaded from .env via DepthConfig (LAW VI: Zero hard-coding).
+src\agents\analyst_agent.py:545:    GPU-accelerated batch processing with configurable depth (LAW VI).
+src\agents\analyst_agent.py:549:        # Load configurations (LAW VI: Zero hard-coding)
+src\agents\analyst_agent.py:799:        # Use LLM-optimized batch size from config (LAW VI)
+src\agents\analyst_agent.py:1684:        # Get configurable content limit (LAW VI)
+src\agents\analyst_agent.py:1770:        # Get configurable limits (LAW VI)
+tests\integration\test_docx_export.py:16:LAW II:  All assertions verify real file artifacts.
+tests\integration\test_docx_export.py:17:LAW VI: No hard-coded paths; ``tmp_path`` and ``POLARIS_OUTPUT_DIR`` used.
+tests\integration\test_concurrency_cap.py:16:LAW II:  All assertions verify real runtime behavior.
+tests\integration\test_concurrency_cap.py:17:LAW VI: Concurrency cap read from env / module attribute, not hard-coded.
+tests\integration\test_sota_compliance.py:253:        This is a static analysis check for LAW VI compliance.
+tests\polaris_graph\test_auth_store.py:121:    """Per LAW II + timing-safety: unknown email returns same error
+tests\polaris_graph\test_auth_store.py:219:    """LAW II: an org without an owner is a permission-graveyard.
+tests\polaris_graph\test_auth_store.py:281:    """An admin can't mint an owner-scoped key. LAW II — fails
+tests\polaris_graph\test_corpus_brief.py:101:# Insufficient-support semantics (per LAW II)
+tests\polaris_graph\test_corpus_brief.py:347:    """LAW II — never silently fall back to empty paragraphs."""
+tests\polaris_graph\test_contract_draft_store.py:187:    # Decision metadata stays NULL on a submitted draft (LAW II).
+tests\polaris_graph\test_contract_draft_store.py:1175:    """LAW II SOC2 invariant: status='approved' with approved_by
+tests\polaris_graph\retrieval2\test_real_fetcher.py:302:    """LAW II fail-loud: empty Serper + empty S2 -> RuntimeError."""
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:44:    """LAW II — never silently fuzzy-match a typo'd jurisdiction
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:129:# Divergence case — the LAW II safeguard
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:171:    """Critical LAW II property: a DIVERGENCE paragraph must NEVER
+tests\polaris_graph\test_cross_jurisdiction_synthesizer.py:339:        # Direct negation — the dominant LAW II failure mode.
+tests\polaris_graph\test_corpus_retriever.py:106:    """Per LAW II — soft-deleted uploads must NOT appear in results."""
+tests\polaris_graph\test_corpus_retriever.py:160:    """Per LAW II: unknown workspace must NOT silently return [].
+src\polaris_graph\tools\react_agent.py:1:"""ReAct analysis agent — autonomous tool selection for evidence analysis.
+src\polaris_graph\tools\react_agent.py:638:    """ReAct loop that autonomously analyzes evidence using registered tools.
+src\polaris_graph\tools\package_installer.py:18:# Approved packages for research analysis (LAW VI: from env with defaults)
+tests\polaris_v6\api\test_app_slice_route_mount.py:59:    Verifies LAW II (fail-loud). The route must NOT silently return an
+tests\polaris_v6\api\test_app_slice_route_mount.py:114:    completion_backend_unavailable. Verifies LAW II fail-loud behavior."""
+tests\polaris_v6\api\test_app_slice_route_mount.py:174:    """No POLARIS_GPG_KEY_ID -> sentinel sign_fn -> 503 (LAW II fail-loud)."""
+src\polaris_graph\tools\data_analyzer.py:26:# LAW VI: Configuration from env
+src\polaris_graph\tools\code_executor.py:30:# LAW VI: All configuration from environment variables
+src\polaris_graph\tools\code_executor.py:41:# GAP-3: Sandbox file I/O directories (LAW VI: from env with defaults)
+src\polaris_graph\tools\analysis_toolkit.py:26:# LAW VI: All thresholds from environment variables with sensible defaults
+src\polaris_v6\api\app.py:114:    # which returns 400 completion_backend_unavailable per LAW II.
+src\polaris_v6\api\app.py:129:    # HTTP 503 (LAW II fail-loud — never ship unsigned bundles).
+tests\unit\test_config_thresholds.py:5:Tests that the 30 hardcoded thresholds now come from config (LAW VI compliance).
+tests\v3\test_synthesize.py:14:# Disable NLI and chart generation in tests (avoid loading CUDA models)
+tests\v6\test_otel_init.py:3:Per CLAUDE.md LAW II + docs/opentelemetry_genai.md Errata E-2:
+tests\polaris_graph\test_md10_phase2_freshness_aggregates.py:396:    narrow OLD window would be silently truncated. Per LAW II
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:5:  - PinTrendVerdict thresholds (env-overridable per LAW VI)
+tests\polaris_graph\test_md11_phase2_v2_pin_trends.py:104:    """Per LAW II — fail loudly. Silent sorting would mask
+tests\unit\test_gemini_fixes.py:6025:        base_emb = np.random.rand(384).astype(np.float32)
+tests\unit\test_gemini_fixes.py:6027:        similar_emb = base_emb + np.random.rand(384).astype(np.float32) * 0.01
+tests\unit\test_gemini_fixes.py:6029:        different_emb = np.random.rand(384).astype(np.float32)
+tests\unit\test_gemini_fixes.py:6671:        """OQG crash must return passed=False, not passed=True (LAW II)."""
+tests\unit\test_gemini_fixes.py:6694:        """_fallback_section_prose must set verification_passed=False (LAW II)."""
+src\polaris_graph\config_loader.py:4:LAW VI: All domain-specific parameters loaded from config files,
+src\polaris_graph\retrieval2\real_fetcher.py:16:Fail-loud per LAW II:
+src\polaris_graph\retrieval2\real_fetcher.py:63:    Raises RuntimeError if SERPER_API_KEY is unset (fail loud per LAW II).
+src\polaris_graph\retrieval2\real_fetcher.py:71:            "Per CLAUDE.md LAW II, this MUST fail loudly rather than "
+src\polaris_graph\retrieval2\real_fetcher.py:224:            # Both backends returned nothing or failed. Per LAW II
+src\polaris_graph\graph_v3.py:467:        """Phase 3.5: ReAct analysis agent with autonomous tool selection.
+src\polaris_graph\export\docx_exporter.py:11:LAW VI: All configurable parameters sourced from environment variables.
+src\polaris_graph\export\docx_exporter.py:12:LAW V:  snake_case throughout, one-responsibility module.
+src\polaris_graph\export\docx_exporter.py:43:# Configuration from environment (LAW VI)
+src\polaris_graph\audit_bundle\gpg_signer.py:10:Fail-loud per LAW II:
+src\polaris_graph\audit_bundle\gpg_signer.py:54:            "keyring. Per CLAUDE.md LAW II, this MUST fail loudly."
+src\polaris_graph\audit_bundle\bundle_builder.py:62:    Forces callers to provide a real signer (or test stub). Per LAW II,
+src\polaris_graph\audit_bundle\bundle_builder.py:120:            "shipping unsigned bundles per CLAUDE.md LAW II"
+src\polaris_graph\api\audit_bundle_route.py:153:    - 'sentinel' if no signer is wired (POST will 503 — LAW II fail-loud)
+src\polaris_graph\synthesis\token_budget.py:26:# Configuration (LAW VI: from env vars)
+src\polaris_graph\document_ingester.py:47:# Configuration (LAW VI: all from env vars)
+src\polaris_graph\agents\analyzer.py:83:# FIX-S2-4: Source-level topic gate threshold (LAW VI: from env var).
+src\polaris_graph\agents\analyzer.py:95:# Previously read inline in analyze_sources() — violates LAW VI (zero hard-coding).
+src\polaris_graph\agents\analyzer.py:107:# LAW VI: Domain-specific lists loaded from config, not hardcoded.
+src\polaris_graph\agents\analyzer.py:225:# LAW VI: All domain tier lists loaded from config/settings/domain_lists.yaml
+src\polaris_graph\agents\analyzer.py:289:    # LAW VI: All domain lists from config (not hardcoded)
+src\polaris_graph\agents\analyzer.py:565:    # Truncate to ~5000 chars to save tokens (LAW VI: cap from constant, not magic number)
+src\polaris_graph\agents\analyzer.py:836:    # Batch size from env (LAW VI). Default 1 = one source per LLM call.
+src\polaris_graph\agents\analyzer.py:1207:    # LAW VI: Clinical keywords from config (not hardcoded)
+src\polaris_graph\agents\analyzer.py:2574:    # Signal weights (LAW VI: from env vars)
+src\polaris_graph\agents\analyzer.py:2581:    # Tier thresholds (LAW VI: from env vars)
+src\polaris_graph\agents\analyzer.py:2658:        # FIX-058D: Configurable via PG_TIER_SIGNAL5_DEFAULT env var (LAW VI). Was 0.5 = inflated.
+src\polaris_graph\synthesis\token_accounting.py:17:# Configuration (LAW VI)
+tests\unit\test_mesh_store.py:76:    rng = np.random.default_rng(seed)
+src\polaris_graph\audit_ir\inspector_router.py:280:    """Contract draft SQLite path. Per LAW VI: env-overridable."""
+src\polaris_graph\audit_ir\inspector_router.py:318:    """Decision-telemetry SQLite path. Per LAW VI: env-overridable."""
+src\polaris_graph\audit_ir\inspector_router.py:508:    Both runs MUST share `slug`. Returns 400 if not (LAW II — diff
+src\polaris_graph\synthesis\smart_art_generator.py:25:# Configuration (LAW VI — zero hard-coding)
+src\polaris_graph\synthesis\section_writer.py:1325:    # FIX-C6: Guard against empty evidence — fail loudly per LAW II
+src\polaris_graph\synthesis\section_writer.py:1336:            f"Cannot write section without evidence (LAW II: no hallucinations)."
+src\polaris_graph\synthesis\section_writer.py:3271:    # LAW VI: Thresholds from environment
+src\polaris_graph\synthesis\section_writer.py:3392:    # LAW VI: Threshold from environment
+src\polaris_graph\audit_ir\freshness_aggregates.py:149:    loud per LAW II rather than silently truncating older rows
+src\polaris_graph\audit_ir\freshness_aggregates.py:164:    `since/until`) can be guaranteed correct. Per LAW II the
+src\polaris_graph\audit_ir\citation_health.py:17:LAW II compliance: a broken reference is a real problem and must
+src\polaris_graph\synthesis\peptide_flow.py:23:# Thresholds (LAW VI)
+src\polaris_graph\generator2\real_completion.py:19:Fail-loud per LAW II:
+src\polaris_graph\generator2\real_completion.py:70:            "CLAUDE.md LAW II, this MUST fail loudly rather than silently "
+src\polaris_graph\agents\synthesizer.py:74:# Map-reduce clustering config (LAW VI)
+src\polaris_graph\agents\synthesizer.py:4477:    # SF-25: Use configurable thresholds from state.py (LAW VI)
+src\polaris_graph\agents\synthesizer.py:4869:            # FIX-RC3a: Use configurable timeout (was hardcoded 180s, LAW VI violation)
+src\polaris_graph\audit_ir\cache_warming.py:77:    Caller-side bug — surface loudly per LAW II."""
+src\polaris_graph\audit_ir\cache_warming.py:220:         progress per LAW II — no rollback that would force
+src\polaris_graph\synthesis\ionic_rebalancer.py:22:# Minimum affinity delta to recommend migration (LAW VI)
+src\orchestration\iteration_manager.py:11:Depth configuration loaded from .env via DepthConfig (LAW VI: Zero hard-coding).
+src\orchestration\iteration_manager.py:56:    SOTA-aligned defaults per DepthConfig (LAW VI: Zero hard-coding).
+src\orchestration\iteration_manager.py:590:    Uses DepthConfig for defaults if not specified (LAW VI: Zero hard-coding).
+src\orchestration\iteration_manager.py:600:    # Get defaults from DepthConfig (LAW VI)
+src\polaris_graph\synthesis\evidence_router.py:27:# Feature flag (LAW VI)
+src\polaris_graph\agents\storm_interviews.py:15:All configuration via env vars per LAW VI.
+src\polaris_graph\agents\storm_interviews.py:34:# Configuration (LAW VI: all from env vars with defaults)
+src\polaris_graph\audit_ir\corpus_retriever.py:153:    API layer can return a clean 404. (Per LAW II — never silently
+src\orchestration\graph.py:2492:        # FIX-212 P0: OQG crash must NOT be masked as passed=True (LAW II violation)
+src\polaris_graph\agents\planner.py:30:# FIX-C9: Configurable fallback query count (LAW VI: no hardcoded counts).
+src\polaris_graph\agents\planner.py:511:    FIX-C9: Capped to PG_AGENTIC_SEED_QUERIES (LAW VI). Generates one per
+src\polaris_graph\agents\planner.py:534:    assumptions (LAW VI compliance).
+src\polaris_graph\audit_ir\corpus_brief.py:16:Why explicit-insufficient: per LAW II ("fail loud, no silent
+src\polaris_graph\audit_ir\corpus_brief.py:30:     cite an unknown chunk_id are dropped (per LAW II — never
+src\polaris_graph\audit_ir\corpus_brief.py:141:      - Raise on any error (no silent fallbacks per LAW II).
+src\polaris_graph\audit_ir\corpus_brief.py:342:    Per LAW II: any LLM error (timeout, malformed JSON, schema
+src\polaris_graph\synthesis\disulfide_bridge.py:23:# Thresholds (LAW VI)
+src\polaris_graph\agents\nli_verifier.py:199:            device_name = "CUDA" if torch.cuda.is_available() else "CPU"
+src\polaris_graph\agents\nli_verifier.py:331:# FIX-048-K1: Cross-source verification config (LAW VI: from env vars)
+src\polaris_graph\agents\nli_verifier.py:341:# selection, 200 stays well inside latency budget (NLI ~20-30ms/pair on CUDA).
+src\polaris_graph\audit_ir\contract_draft_store.py:122:LAW VII compliance: stdlib only. Endpoints wired separately.
+src\polaris_graph\audit_ir\contract_draft_store.py:1074:                "approval rationale must be non-empty (LAW II — "
+src\polaris_graph\audit_ir\contract_draft_store.py:1093:                "rejection rationale must be non-empty (LAW II — "
+src\polaris_graph\audit_ir\contract_draft_store.py:1243:                "approval rationale must be non-empty (LAW II — "
+src\polaris_graph\audit_ir\contract_draft_store.py:1363:                "rejection rationale must be non-empty (LAW II — "
+src\polaris_graph\audit_ir\workspace_store.py:22:  `max_docs` non-deleted uploads. Fails LOUD per LAW II — no
+src\polaris_graph\audit_ir\workspace_store.py:87:    Per LAW II, fails LOUD — never silently truncates."""
+src\polaris_graph\audit_ir\billing_quota_store.py:26:LAW VII compliance: stdlib + the existing audit_ir surface
+src\polaris_graph\audit_ir\regression_alerts.py:14:LAW VI: every threshold is env-overridable. Defaults are
+src\polaris_graph\audit_ir\regression_alerts.py:18:LAW II: alerts surface as ERROR-equivalent severities (CRITICAL,
+src\polaris_graph\audit_ir\regression_alerts.py:128:# Thresholds (LAW VI — env-overridable)
+src\polaris_graph\audit_ir\beat_both_scoring.py:62:    default tolerance + env override (LAW VI); calibration
+src\polaris_graph\audit_ir\beat_both_scoring.py:647:# Per-dimension tolerances (env-overridable, LAW VI)
+src\polaris_graph\audit_ir\beat_both_scoring.py:669:    Priority (LAW VI): env var > built-in default. Out-of-range
+src\polaris_graph\agents\evidence_deepener.py:43:# Configuration (LAW VI: all from env)
+src\polaris_graph\agents\cross_reference.py:20:Configuration (env vars, LAW VI):
+src\polaris_graph\agents\cross_reference.py:36:# Configuration helpers (LAW VI: no hard-coded values)
+src\polaris_graph\audit_ir\auth_middleware.py:25:  - Per LAW II — fails LOUD on every miss (401/403, never silent
+src\polaris_graph\audit_ir\auth_store.py:30:Per LAW II — fails LOUD (raises) on:
+src\polaris_graph\audit_ir\auth_store.py:35:Per LAW VI — env-configurable:
+src\polaris_graph\audit_ir\auth_store.py:69:    """Read PG_BCRYPT_ROUNDS at call time (LAW VI). Garbage values
+src\polaris_graph\audit_ir\parallel_fetch.py:75:    payload tuple. Caller-side bug — surface loudly per LAW II."""
+src\polaris_graph\audit_ir\pin_trends.py:173:# Stability thresholds (env-overridable per LAW VI)
+src\polaris_graph\audit_ir\pin_trends.py:270:    `PG_PIN_TREND_UNSTABLE_THRESHOLD`) per LAW VI, falling
+src\polaris_graph\audit_ir\workspace_memory.py:27:Out of scope for v1 (intentionally — keep the LAW V "one
+src\polaris_graph\audit_ir\workspace_memory.py:41:LAW VII compliance: this module imports only from stdlib. No
+src\polaris_graph\audit_ir\workspace_memory.py:325:        Per LAW II we surface this as deterministic SQL rather
+src\polaris_graph\audit_ir\provenance.py:171:    Per LAW II — fail loud, never silently store malformed data.
+src\polaris_graph\audit_ir\v30_runner.py:154:    surface. Garbage values fall back to default per LAW VI."""
+src\polaris_graph\audit_ir\parser_runner.py:89:# Default chunking parameters. Env-overridable per LAW VI.
+src\polaris_graph\audit_ir\parser_runner.py:99:    `PG_TEXT_CHUNK_CHARS` (per LAW VI).
+src\polaris_graph\audit_ir\private_corpus_sync.py:30:LAW VII compliance: stdlib only. Endpoints wired separately.
+src\polaris_graph\audit_ir\template_classifier.py:58:# Threshold defaults (env-overridable, per LAW VI)
+src\polaris_graph\audit_ir\scope_classifier.py:80:# Threshold defaults (env-overridable, per LAW VI)
+src\polaris_graph\audit_ir\scope_classifier.py:318:        are protocol violations — fail loudly per LAW II.
+src\polaris_graph\audit_ir\run_diff.py:33:Per LAW II:
+src\polaris_graph\audit_ir\run_diff.py:127:# Defaults (LAW VI — env-overridable)
+src\polaris_graph\audit_ir\run_diff.py:137:    (default 10.0). LAW VI."""
+src\polaris_graph\audit_ir\run_diff.py:460:    Per LAW II — fails LOUD on slug mismatch.
+src\polaris_graph\audit_ir\support_ticket_store.py:26:LAW VII compliance: stdlib + audit_ir/loader. The endpoint that
+src\polaris_graph\audit_ir\slide_deck.py:32:LAW II compliance: every slide body line must trace back to a
+src\polaris_graph\audit_ir\slide_deck.py:34:LAW VII compliance: stdlib + audit_ir/loader only.
+src\polaris_graph\audit_ir\slide_deck.py:622:    backlinks (LAW II violation).
+src\polaris_graph\audit_ir\slide_deck.py:630:    LAW II posture: every visible bullet carries data-claim-id
+src\polaris_graph\audit_ir\review_store.py:22:LAW VII compliance: this module imports only from `loader` and
+tests\polaris_graph\test_m_int_3_freshness_integration.py:79:    """Per LAW II — freshness check failure must not gate sweep."""
+src\polaris_graph\retrieval\crag_retriever.py:40:# Configuration (all from .env, LAW VI)
+src\polaris_graph\audit_ir\regression_lab.py:46:Numeric metric tolerances are env-overridable per LAW VI.
+src\polaris_graph\audit_ir\regression_lab.py:193:# Tolerance config (LAW VI — env-overridable)
+src\polaris_graph\audit_ir\security_audit_log.py:24:LAW VII compliance: this module imports only from stdlib and
+src\polaris_graph\audit_ir\security_audit_log.py:229:    LAW II / SOC2 expectation: NO public mutation API beyond
+tests\polaris_graph\test_md9_regression_lab.py:487:# Tolerance overrides (LAW VI)
+tests\polaris_graph\test_m_int_0b_pin_capture_integration.py:151:    """Per LAW II + FINAL_PLAN risk #3: pin capture failure must
+src\polaris_graph\synthesis\covalent_binder.py:22:# Thresholds from config (LAW VI)
+tests\polaris_graph\test_md9_phase2_beat_both.py:9:  - Per-dimension tolerance env overrides (LAW VI)
+tests\polaris_graph\test_m_int_0a_decision_telemetry_integration.py:220:    """Per LAW II + M-D3 phase 1 boundary 1: failure to write
+tests\polaris_graph\test_m_int_7_billing_quota_integration.py:11:  6. Failure does NOT raise (LAW II)
+tests\polaris_graph\test_m_int_7_billing_quota_integration.py:140:    """Per LAW II — billing path failure must not gate sweep."""
+tests\polaris_graph\test_md7_phase2_cache_warming.py:305:    """Per LAW II — idempotent partial progress. Already-fetched
+tests\polaris_graph\test_m_int_4_scope_llm_integration.py:86:    """Per LAW II — best-effort telemetry must not gate the sweep."""
+tests\polaris_graph\test_m_int_6_inductor_integration.py:165:    """Per LAW II — induction failure must not gate sweep."""
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:14:## LAW II safeguard
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:275:# which is the exact LAW II over-claim failure Phase C is trying
+src\polaris_graph\generator\cross_jurisdiction_synthesizer.py:656:    upstream catalog drift loudly (LAW II — never silently
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:123:    """Per LAW II — routing failure must not gate sweep."""
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:245:# abort run_one_query (LAW II — best-effort telemetry).
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:359:    per LAW II."""
+tests\polaris_graph\test_parser_runner.py:139:    """Phase B stub: PDF parsing must FAIL LOUD per LAW II so the
+src\polaris_graph\memory\campaign_store.py:26:# LAW VI -- all paths/thresholds from environment, never hard-coded
+src\polaris_graph\memory\campaign_store.py:147:    Raises on database errors (LAW II -- no silent failures).
+src\polaris_graph\memory\campaign_store.py:307:    Raises ``ValueError`` if the campaign does not exist (LAW II --
+tests\polaris_graph\test_provision_vast_dev_cluster.py:124:    """LAW II: don't silently provision — apply path is gated."""
+src\polaris_graph\memory\content_cache.py:26:# A1.1: Cap raw HTML storage to prevent SQLite bloat (LAW VI).
+src\polaris_graph\memory\cross_vector.py:130:    # LAW VI: env var overrides for LTM promotion thresholds
+src\polaris_graph\llm\openrouter_client.py:354:# Pricing per million tokens (configurable per LAW VI)
+src\polaris_graph\scope\clinical_classifier.py:221:    via the outer try/except in llm_fallback_classify (LAW II — no
+tests\polaris_graph\test_regression_alerts.py:395:    """LAW VI: tightening the threshold via env makes a smaller drop
+src\polaris_graph\memory\local_document_rag.py:34:# Configuration (LAW VI: all from env vars)
+src\polaris_graph\memory\source_content_store.py:29:# Feature flag (LAW VI: from env var)
+tests\polaris_graph\test_setup_gpg_for_demo.py:112:    """LAW II: if the runtime dep is missing, surface it as a warning
+tests\polaris_graph\test_slide_deck.py:196:# LAW II: every body bullet traces back to claim_id
+tests\polaris_graph\test_slide_deck.py:201:    """LAW II: every body bullet must be back-linkable to a
+tests\polaris_graph\test_slide_deck.py:224:    """LAW II: bullet text is the verified sentence verbatim —
+tests\polaris_graph\test_slide_deck.py:463:    """LAW II + UI moat: the rendered HTML must include
+tests\polaris_graph\test_template_classifier.py:157:# Threshold env-overrides (LAW VI)
+tests\polaris_graph\test_template_classifier.py:619:    """LAW VI: tie_margin must be overridable via env var."""
+tests\polaris_graph\test_workspace_store.py:111:    """Codex M-11 mandate: bounded enforcement fails LOUD per LAW II.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Force .github\\workflows 2>"'$null' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "pyproject.toml" -g "setup.cfg" -g "setup.py" -g "tox.ini" -g ".github/workflows/*.yml" -g ".github/workflows/*.yaml"' in C:\POLARIS
+2026-05-06T19:30:23.195468Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.9 seconds
+Output:
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+
+ exited 1 in 855ms:
+rg: ./codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: ./tmp2ef0ie4p: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: ./m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: ./tmpxnalraft: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: ./tmpw2ru3yoj: Access is denied. (os error 5)
+rg: ./m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: ./tmpv1dnokk6: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: ./m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: ./m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: ./m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: ./pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: ./pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: ./pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: ./tmpuyki_w88: Access is denied. (os error 5)
+rg: ./md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: ./md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: ./pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: ./md3_pytest_run2: Access is denied. (os error 5)
+rg: ./tmpu2b082f6: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: ./tmptgnkdlz5: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: ./pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: ./tmpq5bdi1rl: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: ./tmppvxh8fwq: Access is denied. (os error 5)
+rg: ./m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: ./py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: ./POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: ./tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: ./tmp_ae3ucgg: Access is denied. (os error 5)
+rg: ./tmpyl5f0goo: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: ./m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: ./manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: ./m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: ./manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: ./manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: ./codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: ./tmpgb143kt_: Access is denied. (os error 5)
+rg: ./tmp63988s99: Access is denied. (os error 5)
+rg: ./tmp2hhmpr2y: Access is denied. (os error 5)
+rg: ./tmp8u9ua575: Access is denied. (os error 5)
+rg: ./POLARIS.tmppytest: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: ./tmpaufjwjy5: Access is denied. (os error 5)
+rg: ./tmp48c8ko2m: Access is denied. (os error 5)
+rg: ./codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: ./dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: ./dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: ./dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: ./dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: ./dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: ./tmp9h7v7fon: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: ./m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: ./codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: ./codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: ./codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: ./m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: ./codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+
+ succeeded in 895ms:
+
+    Directory: C:\POLARIS\.github\workflows
+
+[32;1mMode   [0m[32;1m              LastWriteTime[0m[32;1m         Length[0m[32;1m Name[0m
+[32;1m----   [0m [32;1m             -------------[0m [32;1m        ------[0m [32;1m----[0m
+-a---          2026-05-05  8:49 PM           4591 cleanup_pr_ancestry_check.yml
+-a---          2026-05-02 10:20 AM          16370 codex_verdict_check.yml
+-a---          2026-05-05 10:05 PM          13801 codex-required.yml
+-a---          2026-05-04  1:15 AM           4092 legacy_protection.yml
+-a---          2026-05-06 10:09 AM           1400 m_live_4_regression_gate.yml.pending_workflow_scope
+-a---          2026-05-04  1:15 AM           6336 protection_drift_check.yml
+-a---          2026-05-01  3:22 PM           6800 web_ci.yml
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path .github\\workflows\\web_ci.yml -Pattern \"python|requirements|pip|gcc|apt|ubuntu|windows|3\\.13|3\\.12\" -Context 2,2" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force -Name pyproject.toml,setup.cfg,setup.py,tox.ini 2>$null' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Select-String -Path requirements.txt -Pattern "scikit|sklearn|scipy|joblib|cython|numpy|hdbscan"' in C:\POLARIS
+ succeeded in 1172ms:
+
+requirements.txt:111:[7mnumpy[0m>=1.24
+requirements.txt:112:[7mscipy[0m>=1.11  # Statistical tests for data analysis (Fix 8)
+
+
+ succeeded in 1276ms:
+
+  .github\workflows\web_ci.yml:7:      - "src/polaris_v6/**"
+  .github\workflows\web_ci.yml:8:      - "tests/v6/**"
+> .github\workflows\web_ci.yml:9:      - "[7mrequirements[0m*.txt"[0m
+[7m[0m  .github\workflows\web_ci.yml:10:      - ".github/workflows/web_ci.yml"[0m
+[7m[0m  .github\workflows\web_ci.yml:11:  pull_request:[0m
+  .github\workflows\web_ci.yml:14:      - "src/polaris_v6/**"
+  .github\workflows\web_ci.yml:15:      - "tests/v6/**"
+> .github\workflows\web_ci.yml:16:      - "[7mrequirements[0m*.txt"[0m
+[7m[0m  .github\workflows\web_ci.yml:17:      - ".github/workflows/web_ci.yml"[0m
+[7m[0m  .github\workflows\web_ci.yml:18:[0m
+  .github\workflows\web_ci.yml:24:  lint_format_typecheck_build:
+  .github\workflows\web_ci.yml:25:    name: lint + format + typecheck + build
+> .github\workflows\web_ci.yml:26:    runs-on: [7mubuntu[0m-latest[0m
+[7m[0m  .github\workflows\web_ci.yml:27:    steps:[0m
+[7m[0m  .github\workflows\web_ci.yml:28:      - name: checkout[0m
+  .github\workflows\web_ci.yml:53:  e2e_playwright:
+  .github\workflows\web_ci.yml:54:    name: e2e + a11y + perf (Playwright on Chromium)
+> .github\workflows\web_ci.yml:55:    runs-on: [7mubuntu[0m-latest[0m
+[7m[0m  .github\workflows\web_ci.yml:56:    needs: lint_format_typecheck_build[0m
+[7m[0m  .github\workflows\web_ci.yml:57:    steps:[0m
+  .github\workflows\web_ci.yml:66:          cache-dependency-path: web/package-lock.json
+  .github\workflows\web_ci.yml:67:
+> .github\workflows\web_ci.yml:68:      - name: setup_[7mpython[0m
+> .github\workflows\web_ci.yml:69:        uses: actions/setup-[7mpython[0m@v5[0m
+[7m[0m  .github\workflows\web_ci.yml:70:        with:[0m
+> .github\workflows\web_ci.yml:71:          [7mpython[0m-version: "3.13"
+> .github\workflows\web_ci.yml:72:          cache: "[7mpip[0m"[0m
+[7m[0m  .github\workflows\web_ci.yml:73:[0m
+> .github\workflows\web_ci.yml:74:      - name: install_[7mpython[0m_dependencies[0m
+[7m[0m  .github\workflows\web_ci.yml:75:        working-directory: ${{ github.workspace }}[0m
+[7m[0m  .github\workflows\web_ci.yml:76:        run: |[0m
+> .github\workflows\web_ci.yml:77:          [7mpython[0m -m pip install --upgrade pip
+> .github\workflows\web_ci.yml:78:          [7mpip[0m install -r requirements.txt[0m
+[7m[0m  .github\workflows\web_ci.yml:79:[0m
+[7m[0m  .github\workflows\web_ci.yml:80:      - name: install_npm_dependencies[0m
+  .github\workflows\web_ci.yml:87:        working-directory: ${{ github.workspace }}
+  .github\workflows\web_ci.yml:88:        run: |
+> .github\workflows\web_ci.yml:89:          [7mPYTHON[0mPATH=src nohup python -m uvicorn polaris_v6.api.app:app \[0m
+[7m[0m  .github\workflows\web_ci.yml:90:            --host 127.0.0.1 --port 8000 \[0m
+[7m[0m  .github\workflows\web_ci.yml:91:            > /tmp/fastapi.log 2>&1 &[0m
+  .github\workflows\web_ci.yml:136:        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+  .github\workflows\web_ci.yml:137:
+> .github\workflows\web_ci.yml:138:      # Visual baselines are *-chromium-win32.png (locally c[7mapt[0mured on Win).[0m
+[7m[0m  .github\workflows\web_ci.yml:139:      # On Linux CI the snapshot file resolves to a different name and will[0m
+[7m[0m  .github\workflows\web_ci.yml:140:      # be missing; skip visual.spec until Linux baselines are added.[0m
+  .github\workflows\web_ci.yml:149:          retention-days: 7
+  .github\workflows\web_ci.yml:150:
+> .github\workflows\web_ci.yml:151:  verify_[7mpip[0m_resolution:[0m
+> .github\workflows\web_ci.yml:152:    # F-22 (cycle-7 P1.1 prevention): catches [7mpip[0m dependency conflicts[0m
+[7m[0m  .github\workflows\web_ci.yml:153:    # before they reach pytest_v6_backend or the production Dockerfile.[0m
+[7m[0m  .github\workflows\web_ci.yml:154:    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against[0m
+  .github\workflows\web_ci.yml:155:    # google-generativeai's transitive protobuf<5.0.0 constraint.
+> .github\workflows\web_ci.yml:156:    name: [7mpip[0m install --dry-run (catch ResolutionImpossible early)[0m
+> .github\workflows\web_ci.yml:157:    runs-on: [7mubuntu[0m-latest[0m
+[7m[0m  .github\workflows\web_ci.yml:158:    needs: lint_format_typecheck_build[0m
+[7m[0m  .github\workflows\web_ci.yml:159:    steps:[0m
+  .github\workflows\web_ci.yml:161:        uses: actions/checkout@v4
+  .github\workflows\web_ci.yml:162:
+> .github\workflows\web_ci.yml:163:      - name: setup_[7mpython[0m
+> .github\workflows\web_ci.yml:164:        uses: actions/setup-[7mpython[0m@v5[0m
+[7m[0m  .github\workflows\web_ci.yml:165:        with:[0m
+> .github\workflows\web_ci.yml:166:          [7mpython[0m-version: "3.13"[0m
+[7m[0m  .github\workflows\web_ci.yml:167:[0m
+> .github\workflows\web_ci.yml:168:      - name: [7mpip[0m_dry_run_legacy_requirements
+> .github\workflows\web_ci.yml:169:        # If this fails, [7mrequirements[0m.txt has a conflict; production[0m
+[7m[0m  .github\workflows\web_ci.yml:170:        # Dockerfile build would fail in the same way.[0m
+> .github\workflows\web_ci.yml:171:        run: [7mpip[0m install --dry-run -r requirements.txt[0m
+[7m[0m  .github\workflows\web_ci.yml:172:[0m
+> .github\workflows\web_ci.yml:173:      - name: [7mpip[0m_dry_run_v6_requirements[0m
+[7m[0m  .github\workflows\web_ci.yml:174:        # Verify the v6 backend's pinned set also resolves cleanly.[0m
+> .github\workflows\web_ci.yml:175:        run: [7mpip[0m install --dry-run -r requirements-v6.txt[0m
+[7m[0m  .github\workflows\web_ci.yml:176:[0m
+[7m[0m  .github\workflows\web_ci.yml:177:  pytest_v6_backend:[0m
+  .github\workflows\web_ci.yml:178:    name: pytest tests/v6/ (Phase 0 backend coverage)
+> .github\workflows\web_ci.yml:179:    runs-on: [7mubuntu[0m-latest[0m
+> .github\workflows\web_ci.yml:180:    needs: [lint_format_typecheck_build, verify_[7mpip[0m_resolution][0m
+[7m[0m  .github\workflows\web_ci.yml:181:    defaults:[0m
+[7m[0m  .github\workflows\web_ci.yml:182:      run:[0m
+  .github\workflows\web_ci.yml:186:        uses: actions/checkout@v4
+  .github\workflows\web_ci.yml:187:
+> .github\workflows\web_ci.yml:188:      - name: setup_[7mpython[0m
+> .github\workflows\web_ci.yml:189:        uses: actions/setup-[7mpython[0m@v5[0m
+[7m[0m  .github\workflows\web_ci.yml:190:        with:[0m
+> .github\workflows\web_ci.yml:191:          [7mpython[0m-version: "3.13"
+> .github\workflows\web_ci.yml:192:          cache: "[7mpip[0m"[0m
+[7m[0m  .github\workflows\web_ci.yml:193:[0m
+[7m[0m  .github\workflows\web_ci.yml:194:      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):[0m
+  .github\workflows\web_ci.yml:196:      # test_otel_init.py use pytest.importorskip against dramatiq +
+  .github\workflows\web_ci.yml:197:      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+> .github\workflows\web_ci.yml:198:      # (LAW II violation). This job uses [7mrequirements[0m-v6.txt as the[0m
+[7m[0m  .github\workflows\web_ci.yml:199:      # canonical pin source for v6 backend code.[0m
+[7m[0m  .github\workflows\web_ci.yml:200:      - name: install_v6_dependencies[0m
+  .github\workflows\web_ci.yml:201:        run: |
+> .github\workflows\web_ci.yml:202:          [7mpython[0m -m pip install --upgrade pip[0m
+> .github\workflows\web_ci.yml:203:          [7mpip[0m install -r requirements-v6.txt[0m
+[7m[0m  .github\workflows\web_ci.yml:204:[0m
+[7m[0m  .github\workflows\web_ci.yml:205:      - name: run_pytest_v6[0m
+  .github\workflows\web_ci.yml:206:        env:
+> .github\workflows\web_ci.yml:207:          [7mPYTHON[0mPATH: src[0m
+[7m[0m  .github\workflows\web_ci.yml:208:        # `-q` keeps output tight; `--strict-markers` fails on undefined[0m
+[7m[0m  .github\workflows\web_ci.yml:209:        # markers; `--no-header` removes pytest banner from CI logs.[0m
+
+
+2026-05-06T19:30:31.768558Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1.3 seconds
+Output:
+
+ exited 1 in 1281ms:
+web search: 
+web search: 
+web search: 
+web search: https://pypi.org/project/hdbscan/
+web search: 
+web search: 'allow_single_cluster' in https://hdbscan.readthedocs.io/en/latest/api.html
+codex
+The version/API claims also check out against PyPI and ReadTheDocs: 0.8.42 is current there, advertises Python 3.13 classifiers and cp313 wheels, and `allow_single_cluster` defaults false in the API. I’m doing one last pass for plan-level execution traps rather than style nits.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path .github\\workflows\\codex-required.yml,.github\\workflows\\codex_verdict_check.yml -Pattern \"pytest|requirements|3\\.13|pip install|tests/polaris_graph\" -Context 2,2" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content src\\polaris_graph\\intake\\__init__.py; Get-Content tests\\polaris_graph\\intake\\test_question_normalizer.py | Select-Object -First 80" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path state\\polaris_restart\\issue_breakdown.md -Pattern \"I-f2-001|F2|disambiguation|180|200\" -Context 3,5" in C:\POLARIS
+ succeeded in 944ms:
+ succeeded in 1057ms:
+"""Intake — user-question entry point for the BPEI spine.
+
+Slice 001 introduces:
+    - question_normalizer: deterministic pre-processing of raw user input
+
+Subsequent slices add scope/, retrieval/ etc. The intake module owns the
+boundary between "raw user typing" and "normalized question that the rest
+of the pipeline can reason about."
+"""
+
+from polaris_graph.intake.question_normalizer import (
+    NormalizedQuestion,
+    QuestionTooLong,
+    QuestionTooShort,
+    normalize,
+)
+
+__all__ = [
+    "NormalizedQuestion",
+    "QuestionTooLong",
+    "QuestionTooShort",
+    "normalize",
+]
+"""Tests for polaris_graph.intake.question_normalizer."""
+
+from __future__ import annotations
+
+import unicodedata
+
+import pytest
+
+from polaris_graph.intake.question_normalizer import (
+    MAX_CHARS,
+    MIN_CHARS,
+    NormalizedQuestion,
+    QuestionTooLong,
+    QuestionTooShort,
+    normalize,
+)
+
+
+# ---------- Happy path ----------
+
+def test_normalize_basic_clinical_question():
+    raw = "Does immunotherapy help stage IV NSCLC patients?"
+    result = normalize(raw)
+    assert isinstance(result, NormalizedQuestion)
+    assert result.raw == raw
+    assert result.normalized == raw  # already clean
+    assert result.lang == "en"
+    assert result.char_count == len(raw)
+
+
+def test_normalize_preserves_raw_input_verbatim():
+    raw = "  multiple   spaces  here  "
+    result = normalize(raw)
+    assert result.raw == raw  # original preserved
+    assert result.normalized == "multiple spaces here"  # cleaned
+
+
+def test_normalize_returns_utc_timestamp():
+    result = normalize("a valid clinical question about therapy")
+    assert result.detected_at_utc is not None
+    assert result.detected_at_utc.tzinfo is not None
+
+
+# ---------- Unicode NFC normalization ----------
+
+def test_normalize_converts_nfd_to_nfc():
+    """café written as e + combining acute (NFD) → é (NFC)."""
+    nfd_form = unicodedata.normalize("NFD", "Does the café diet improve health outcomes?")
+    nfc_form = unicodedata.normalize("NFC", "Does the café diet improve health outcomes?")
+    assert nfd_form != nfc_form  # confirm fixture is actually NFD
+    result = normalize(nfd_form)
+    assert result.normalized == nfc_form
+    # The NFC form should be canonical; verify byte-equality to fresh NFC
+    assert unicodedata.normalize("NFC", result.normalized) == result.normalized
+
+
+def test_normalize_handles_emoji_in_clinical_context():
+    """Emoji should be preserved (they're valid Unicode)."""
+    raw = "Does aspirin help with headaches? 💊"
+    result = normalize(raw)
+    assert "💊" in result.normalized
+
+
+# ---------- Whitespace collapse ----------
+
+def test_normalize_collapses_multiple_spaces():
+    result = normalize("aspirin    helps    pain")
+    assert result.normalized == "aspirin helps pain"
+
+
+def test_normalize_collapses_tabs_to_single_space():
+    result = normalize("aspirin\thelps\tpain")
+    assert result.normalized == "aspirin helps pain"
+
+
+def test_normalize_collapses_newlines():
+    result = normalize("aspirin\n\nhelps\npain")
+    assert result.normalized == "aspirin helps pain"
+
+
+
+ succeeded in 1175ms:
+
+  state\polaris_restart\issue_breakdown.md:6:
+  state\polaris_restart\issue_breakdown.md:7:This document expands plan §4 into the canonical Issue list. Each Issue 
+has `id`, `title`, `scope`, `acceptance_criteria`, `foundation_refs`, `addBlockedBy`, `phase`, `feature`, plus LOC 
+estimate per CHARTER §3. The `addBlockedBy` chain enforces military-order sequential execution.
+  state\polaris_restart\issue_breakdown.md:8:
+> state\polaris_restart\issue_breakdown.md:9:Issues are atomic per CHARTER §3 (≤[7m200 [0m[7m[0mLOC [0m[7m[0mPR [0m[7m[0mcap). [0m[7m[0mMulti-PR [0m[7m[0mfeatures [0m
+[7m[0mdecompose [0m[7m[0mto [0m[7m[0mN [0m[7m[0mIssues, [0m[7m[0meach [0m[7m[0mwith [0m[7m[0mits [0m[7m[0mown [0m[7m[0mbrief→APPROVE→diff→APPROVE→merge [0m[7m[0mcycle.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:10:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:11:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:12:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:13:## §1 Issue ID schema (FIXED iter 3 P1-ID-SCHEMA per Codex iter 2)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:14:[0m
+  state\polaris_restart\issue_breakdown.md:39:
+  state\polaris_restart\issue_breakdown.md:40:**Task 0.8 split** (per Codex iter 1 P1-USER-BLOCKED-CONFLICT) becomes 
+two distinct IDs without suffix:
+  state\polaris_restart\issue_breakdown.md:41:- `I-phase0-008` — Gemma 4 31B technical verification (auto-progressable)
+> state\polaris_restart\issue_breakdown.md:42:- `I-phase0-010` — Gemma 4 31B license sign-off (user-blocked) — uses ID 
+010 because 009 is OVH H[7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:43:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:44:This eliminates the `-tech`/`-license` suffix that violated the schema.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:45:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:46:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:47:[0m
+  state\polaris_restart\issue_breakdown.md:84:<bulleted list>
+  state\polaris_restart\issue_breakdown.md:85:
+  state\polaris_restart\issue_breakdown.md:86:## LOC estimate
+> state\polaris_restart\issue_breakdown.md:87:<integer; must be ≤[7m200[0m per CHARTER §3>[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:88:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:89:## Per-Issue artifacts required at PR open (CHARTER §7 visibility)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:90:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:91:Per [0m[7m[0mCLAUDE.md [0m[7m[0m§3.0 [0m[7m[0m+ [0m[7m[0mplan.md [0m[7m[0m§7.A [0m[7m[0mLOCKED [0m[7m[0mA2 [0m[7m[0m+ [0m[7m[0mPR-D [0m[7m[0m`codex-required.yml` [0m
+[7m[0m5-artifact [0m[7m[0mgate [0m[7m[0m(PR-D [0m[7m[0miter [0m[7m[0m3 [0m[7m[0mPRD3-P2-001 [0m[7m[0mfix [0m[7m[0msynchronizes [0m[7m[0mthis [0m[7m[0mlist [0m[7m[0mwith [0m[7m[0mCLAUDE.md/plan.md/codex-required.yml [0m[7m[0m— [0m
+[7m[0mearlier [0m[7m[0m`decision.md` [0m[7m[0mentry [0m[7m[0mwas [0m[7m[0man [0m[7m[0miter-pre-PR-D [0m[7m[0mdraft [0m[7m[0msuperseded [0m[7m[0mby [0m[7m[0mthe [0m[7m[0mcanonical [0m[7m[0m5-artifact [0m[7m[0mcontract):[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:92:[0m
+  state\polaris_restart\issue_breakdown.md:113:
+  state\polaris_restart\issue_breakdown.md:114:- **Phase:** inherited from containing section header (deterministic):
+  state\polaris_restart\issue_breakdown.md:115:  - PHASE0 → Phase 0
+> state\polaris_restart\issue_breakdown.md:116:  - F1, [7mF2[0m, F3, F15, ECG, BUG-079, BUG-082 → Phase 1[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:117:  - F4, F5, F7, F8, F9 → Phase 2A[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:118: [0m[7m [0m[7m[0m- [0m[7m[0mF6, [0m[7m[0mF10, [0m[7m[0mF13, [0m[7m[0mF14 [0m[7m[0m→ [0m[7m[0mPhase [0m[7m[0m2B [0m[7m[0m(F6 [0m[7m[0mis [0m[7m[0min [0m[7m[0m2B [0m[7m[0mper [0m[7m[0mCarney [0m[7m[0mv6.2 [0m[7m[0m§"Phase [0m
+[7m[0m2B" [0m[7m[0mline; [0m[7m[0miter [0m[7m[0m3 [0m[7m[0mPHASE-METADATA-CONFLICT [0m[7m[0mresolved [0m[7m[0mhere [0m[7m[0m— [0m[7m[0mF6 [0m[7m[0mbelongs [0m[7m[0mONLY [0m[7m[0mto [0m[7m[0mPhase [0m[7m[0m2B, [0m[7m[0mnot [0m[7m[0mPhase [0m[7m[0m2A. [0m[7m[0mIter [0m[7m[0m2 [0m[7m[0m§3a [0m
+[7m[0mincorrectly [0m[7m[0mlisted [0m[7m[0mF6 [0m[7m[0min [0m[7m[0mboth; [0m[7m[0mcorrected.)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:119:  - P2C → Phase 2C polish[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:120:  - F11, F12, BENCH, TPL, BUG-084 → Phase 3[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:121:  - SOV → Phase 4[0m
+  state\polaris_restart\issue_breakdown.md:122:  - BUF → Phase 4.5
+  state\polaris_restart\issue_breakdown.md:123:  - HAND → Phase 5
+  state\polaris_restart\issue_breakdown.md:124:  - CJ, ANTI → parallel side-tracks (no phase number; flagged as 
+"side-track" in body)
+> state\polaris_restart\issue_breakdown.md:125:- **Feature:** inherited from prefix. `f1` Issues have feature F1, `[7mf2[0m` [0m
+[7m[0mhave [0m[7m[0mF2, [0m[7m[0metc. [0m[7m[0m`phase0` [0m[7m[0mIssues [0m[7m[0mhave [0m[7m[0mfeature [0m[7m[0m`infra`. [0m[7m[0m`cj` [0m[7m[0mhave [0m[7m[0mfeature [0m[7m[0m`crown-jewel-preservation`. [0m[7m[0m`anti` [0m[7m[0mhave [0m[7m[0mfeature [0m
+[7m[0m`anti-sycophancy-CI`. [0m[7m[0m`bug` [0m[7m[0mIssues [0m[7m[0mhave [0m[7m[0mfeature [0m[7m[0mcorresponding [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mbug [0m[7m[0mlocation [0m[7m[0m(079=F1 [0m[7m[0mintake, [0m[7m[0m082=F15 [0m
+[7m[0maudit-bundle, [0m[7m[0m084=F12+benchmark [0m[7m[0mscorer).[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:126:- [0m[7m[0m**Foundation [0m[7m[0mrefs:** [0m[7m[0mevery [0m[7m[0mIssue [0m[7m[0mreferences [0m[7m[0m(a) [0m
+[7m[0m`state/polaris_restart/plan.md` [0m[7m[0m§4 [0m[7m[0m(the [0m[7m[0mmaster [0m[7m[0mbreakdown), [0m[7m[0m(b) [0m[7m[0m`polaris-controls/CHARTER.md` [0m[7m[0m§1+§3+§4+§7 [0m[7m[0m(role [0m
+[7m[0massignment [0m[7m[0m+ [0m[7m[0mLOC [0m[7m[0mcap [0m[7m[0m+ [0m[7m[0mimmutable [0m[7m[0mtests [0m[7m[0m+ [0m[7m[0mvisibility), [0m[7m[0m(c) [0m[7m[0m`polaris-controls/PLAN.md` [0m[7m[0m(slice [0m[7m[0mprogression [0m[7m[0mcontext), [0m[7m[0m(d) [0m
+[7m[0m`docs/carney_delivery_plan_v6_2.md` [0m[7m[0m§<feature [0m[7m[0mor [0m[7m[0mphase>. [0m[7m[0mIssue-specific [0m[7m[0mfoundation [0m[7m[0mrefs [0m[7m[0m(e.g., [0m[7m[0mspecific [0m[7m[0msubstrate [0m
+[7m[0mpaths) [0m[7m[0mappear [0m[7m[0mONLY [0m[7m[0mwhen [0m[7m[0mthe [0m[7m[0mIssue [0m[7m[0mdepends [0m[7m[0mon [0m[7m[0ma [0m[7m[0mnon-default [0m[7m[0mreference; [0m[7m[0mthese [0m[7m[0mare [0m[7m[0mlisted [0m[7m[0minline [0m[7m[0min [0m[7m[0mthe [0m[7m[0mIssue.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:127:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:128:When [0m[7m[0man [0m[7m[0mIssue [0m[7m[0mis [0m[7m[0mopened [0m[7m[0mon [0m[7m[0mGitHub [0m[7m[0m(per [0m[7m[0m§3 [0m[7m[0mbody [0m[7m[0mtemplate), [0m[7m[0mthe [0m
+[7m[0mPhase/Feature/Foundation [0m[7m[0mrefs [0m[7m[0mlines [0m[7m[0mare [0m[7m[0mFILLED [0m[7m[0mIN [0m[7m[0mby [0m[7m[0mthe [0m[7m[0mbrief [0m[7m[0mwriter [0m[7m[0musing [0m[7m[0mthese [0m[7m[0mdefaults [0m[7m[0mplus [0m[7m[0many [0m[7m[0minline [0m[7m[0moverrides. [0m
+[7m[0mThe [0m[7m[0mbody [0m[7m[0mtemplate [0m[7m[0m§3 [0m[7m[0mlists [0m[7m[0mthem [0m[7m[0mas [0m[7m[0mrequired [0m[7m[0mfields; [0m[7m[0mmissing [0m[7m[0mthem [0m[7m[0min [0m[7m[0mthe [0m[7m[0mGitHub [0m[7m[0mIssue [0m[7m[0mbody [0m[7m[0mfails [0m[7m[0mCI.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:129:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:130:---[0m
+  state\polaris_restart\issue_breakdown.md:131:
+  state\polaris_restart\issue_breakdown.md:132:## §4 Phase 0 outstanding Issues (7, FIXED iter 3 count + iter 2 schema 
++ user-blocked split)
+  state\polaris_restart\issue_breakdown.md:133:
+> state\polaris_restart\issue_breakdown.md:134:7 Issues: I-phase0-003 (Vast.ai), I-phase0-005 (Dramatiq), I-phase0-006 
+(hardware path decision), I-phase0-007 (SGLang vs vLLM), I-phase0-008 (Gemma tech), I-phase0-009 (OVH H[7m200[0m), [0m
+[7m[0mI-phase0-010 [0m[7m[0m(Gemma [0m[7m[0mlicense [0m[7m[0msign-off).[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:135:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:136:### I-phase0-003 — Vast.ai US dev cluster operational (Carney Task 0.3)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:137:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:138:- **Phase:** 0 / **Feature:** infra[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:139:- [0m[7m[0m**Foundation [0m[7m[0mrefs:** [0m[7m[0mCarney [0m[7m[0mv6.2 [0m[7m[0m§Phase [0m[7m[0m0 [0m[7m[0mTask [0m[7m[0m0.3; [0m[7m[0mexisting [0m
+[7m[0m`scripts/provision_vast_dev_cluster.py` [0m[7m[0msubstrate[0m
+  state\polaris_restart\issue_breakdown.md:150:- **Scope:** install Dramatiq + Redis, write `Job` + `Worker` skeleton, 
+integration test with single job
+  state\polaris_restart\issue_breakdown.md:151:- **Acceptance:** Dramatiq worker consumes job from queue; result 
+materialized in DB; integration test green
+  state\polaris_restart\issue_breakdown.md:152:- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.5
+> state\polaris_restart\issue_breakdown.md:153:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:154:- **User-blocked:** NO[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:155:- **Blocked by:** preconditions §2[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:156:- **Blocks:** I-f1-001, I-cj-001, I-anti-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:157:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:158:### [0m[7m[0mI-phase0-006 [0m[7m[0m— [0m[7m[0mDeepSeek [0m[7m[0mV4 [0m[7m[0mhardware [0m[7m[0mPath [0m[7m[0mA/B/C [0m[7m[0mdecision [0m[7m[0m(Carney [0m
+[7m[0mTask [0m[7m[0m0.6)[0m
+  state\polaris_restart\issue_breakdown.md:172:- **Scope:** `scripts/bakeoff_sglang_vllm.py` runs identical workload 
+through both engines on Vast.ai GPU; latency, throughput, token/$ measured
+  state\polaris_restart\issue_breakdown.md:173:- **Acceptance:** decision document 
+`docs/decisions/0_7_inference_engine.md` with chosen engine + benchmark numbers + Codex APPROVE
+  state\polaris_restart\issue_breakdown.md:174:- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.7
+> state\polaris_restart\issue_breakdown.md:175:- **LOC estimate:** [7m200[0m (script + decision doc)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:176:- **User-blocked:** NO (after I-phase0-003 done)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:177:- **Blocked by:** I-phase0-003, I-phase0-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:178:- **Blocks:** I-sov-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:179:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:180:### [0m[7m[0mI-phase0-008 [0m[7m[0m— [0m[7m[0mGemma [0m[7m[0m4 [0m[7m[0m31B [0m[7m[0mtechnical [0m[7m[0mverification [0m[7m[0m(Carney [0m[7m[0mTask [0m[7m[0m0.8 [0m
+[7m[0mtech [0m[7m[0mportion [0m[7m[0m— [0m[7m[0mRENAMED [0m[7m[0miter [0m[7m[0m3)[0m
+  state\polaris_restart\issue_breakdown.md:188:- **Blocked by:** preconditions §2
+  state\polaris_restart\issue_breakdown.md:189:- **Blocks:** I-phase0-010
+  state\polaris_restart\issue_breakdown.md:190:
+> state\polaris_restart\issue_breakdown.md:191:### I-phase0-009 — OVH Canada BHS H[7m200 [0m[7m[0minvoice [0m[7m[0m+ [0m[7m[0mprovisioning [0m[7m[0m(Carney [0m
+[7m[0mTask [0m[7m[0m0.9 [0m[7m[0m— [0m[7m[0mHARD [0m[7m[0mGATE)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:192:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:193:- **Phase:** 0 / **Feature:** infra[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:194:- **Foundation refs:** Carney v6.2 §Phase 0 Task 0.9[0m
+> state\polaris_restart\issue_breakdown.md:195:- **Scope:** OVH H[7m200 [0m[7m[0minvoice [0m[7m[0mpaid, [0m[7m[0mprovisioning [0m[7m[0mscript [0m[7m[0mready, [0m
+[7m[0msovereign [0m[7m[0mcluster [0m[7m[0mreachable[0m
+> state\polaris_restart\issue_breakdown.md:196:- **Acceptance:** OVH H[7m200 [0m[7m[0mSSH-reachable [0m[7m[0mfrom [0m[7m[0mauthorized [0m[7m[0mIPs; [0m
+[7m[0mnvidia-smi [0m[7m[0mshows [0m[7m[0mH200; [0m[7m[0muser-signed [0m[7m[0mcommit [0m[7m[0mrecording [0m[7m[0minvoice [0m[7m[0mID[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:197:- **LOC estimate:** 60 (provisioning script + verification doc)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:198:- **User-blocked:** YES (procurement + invoice)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:199:- **Blocked by:** I-phase0-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:200:- **Blocks:** I-sov-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:201:[0m
+  state\polaris_restart\issue_breakdown.md:234:
+  state\polaris_restart\issue_breakdown.md:235:### I-f1-003 — Live template-suggestion as user types
+  state\polaris_restart\issue_breakdown.md:236:
+> state\polaris_restart\issue_breakdown.md:237:- **Scope:** input "tirzepatide" → suggest "Clinical drug audit" within 
+[7m200[0mms [0m[7m[0m(debounced)[0m
+> state\polaris_restart\issue_breakdown.md:238:- **Acceptance:** Playwright timing test under [7m200[0mms; [0m[7m[0msuggestion [0m
+[7m[0moverlay [0m[7m[0mpositioned [0m[7m[0mcorrectly; [0m[7m[0mmobile [0m[7m[0mtap-to-show[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:239:- **LOC estimate:** 140[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:240:- **Blocked by:** I-f1-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:241:- **Blocks:** I-f1-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:242:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:243:### I-f1-004 — Template adversarial test: "BPEI" → no false-positive[0m
+  state\polaris_restart\issue_breakdown.md:262:- **Acceptance:** Playwright parallel-context test passes
+  state\polaris_restart\issue_breakdown.md:263:- **LOC estimate:** 80
+  state\polaris_restart\issue_breakdown.md:264:- **Blocked by:** I-f1-005
+> state\polaris_restart\issue_breakdown.md:265:- **Blocks:** [7mI-f2-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:266:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:267:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:268:[0m
+> state\polaris_restart\issue_breakdown.md:269:## §6 [7mF2[0m — Query input with disambiguation modal (8 issues)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:270:[0m
+> state\polaris_restart\issue_breakdown.md:271:### [7mI-f2-001[0m — Backend: HDBSCAN clustering on top-K retrieval candidates[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:272:[0m
+> state\polaris_restart\issue_breakdown.md:273:- **Scope:** `src/polaris_graph/intake/[7mdisambiguation[0m_clusterer.py`; [0m
+[7m[0mcluster [0m[7m[0mtop-K [0m[7m[0m(default [0m[7m[0m30) [0m[7m[0mcandidate [0m[7m[0membeddings; [0m[7m[0mHDBSCAN [0m[7m[0mmin_cluster_size=2[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:274:- [0m[7m[0m**Acceptance:** [0m[7m[0munit [0m[7m[0mtests [0m[7m[0mwith [0m[7m[0msynthetic [0m[7m[0membedding [0m[7m[0msets; [0m[7m[0m>1 [0m[7m[0mcluster [0m
+[7m[0msurfaces [0m[7m[0mambiguity; [0m[7m[0msingle [0m[7m[0mdense [0m[7m[0mcluster [0m[7m[0mdoes [0m[7m[0mnot[0m
+> state\polaris_restart\issue_breakdown.md:275:- **Foundation:** v6.2 §[7mF2[0m Diversify-then-Verify
+> state\polaris_restart\issue_breakdown.md:276:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:277:- **Blocked by:** I-f1-006[0m
+> state\polaris_restart\issue_breakdown.md:278:- **Blocks:** I-[7mf2[0m-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:279:[0m
+> state\polaris_restart\issue_breakdown.md:280:### I-[7mf2[0m-002 — Backend: LLM cluster-labeling per primary entity[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:281:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:282:- **Scope:** `src/polaris_graph/intake/cluster_labeler.py`[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:283:- [0m[7m[0m**Acceptance:** [0m[7m[0m"BPEI" [0m[7m[0mclusters [0m[7m[0m→ [0m[7m[0m3 [0m[7m[0mlabels: [0m[7m[0msyndrome, [0m[7m[0minstitute, [0m
+[7m[0mchemical[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:284:- **LOC estimate:** 130[0m
+> state\polaris_restart\issue_breakdown.md:285:- **Blocked by:** [7mI-f2-001[0m
+> state\polaris_restart\issue_breakdown.md:286:- **Blocks:** I-[7mf2[0m-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:287:[0m
+> state\polaris_restart\issue_breakdown.md:288:### I-[7mf2[0m-003 — Backend: disambiguation API endpoint[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:289:[0m
+> state\polaris_restart\issue_breakdown.md:290:- **Scope:** POST `/api/[7mdisambiguation[0m` returns clusters[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:291:- **Acceptance:** OpenAPI valid; httpx test green[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:292:- **LOC estimate:** 120[0m
+> state\polaris_restart\issue_breakdown.md:293:- **Blocked by:** I-[7mf2[0m-002
+> state\polaris_restart\issue_breakdown.md:294:- **Blocks:** I-[7mf2[0m-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:295:[0m
+> state\polaris_restart\issue_breakdown.md:296:### I-[7mf2[0m-004 — Frontend: disambiguation modal (2/3/5 candidate variants)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:297:[0m
+> state\polaris_restart\issue_breakdown.md:298:- **Scope:** `web/app/intake/components/[7mDisambiguation[0mModal.tsx`[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:299:- **Acceptance:** Playwright visual test all variants clean[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:300:- **LOC estimate:** 160[0m
+> state\polaris_restart\issue_breakdown.md:301:- **Blocked by:** I-[7mf2[0m-003
+> state\polaris_restart\issue_breakdown.md:302:- **Blocks:** I-[7mf2[0m-005[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:303:[0m
+> state\polaris_restart\issue_breakdown.md:304:### I-[7mf2[0m-005 — F2 functional test: BPEI end-to-end[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:305:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:306:- [0m[7m[0m**Scope:** [0m[7m[0mPlaywright: [0m[7m[0mtype [0m[7m[0m→ [0m[7m[0msubmit [0m[7m[0m→ [0m[7m[0mmodal [0m[7m[0m→ [0m[7m[0m3 [0m[7m[0mcandidates [0m[7m[0m→ [0m[7m[0mpick [0m[7m[0m→ [0m
+[7m[0mquery [0m[7m[0mproceeds[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:307:- **Acceptance:** test passes; latency tooltip-to-modal <500ms[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:308:- **LOC estimate:** 100[0m
+> state\polaris_restart\issue_breakdown.md:309:- **Blocked by:** I-[7mf2[0m-004
+> state\polaris_restart\issue_breakdown.md:310:- **Blocks:** I-[7mf2[0m-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:311:[0m
+> state\polaris_restart\issue_breakdown.md:312:### I-[7mf2[0m-006 — F2 adversarial: tirzepatide → no false disambiguation[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:313:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:314:- **Scope:** single primary entity → no modal[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:315:- **Acceptance:** Playwright zero modal renders for unambiguous queries[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:316:- **LOC estimate:** 80[0m
+> state\polaris_restart\issue_breakdown.md:317:- **Blocked by:** I-[7mf2[0m-005
+> state\polaris_restart\issue_breakdown.md:318:- **Blocks:** I-[7mf2[0m-007[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:319:[0m
+> state\polaris_restart\issue_breakdown.md:320:### I-[7mf2[0m-007 — F2 edge: French / PDF drop[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:321:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:322:- [0m[7m[0m**Scope:** [0m[7m[0mnon-English [0m[7m[0m→ [0m[7m[0mEnglish-only [0m[7m[0mmessage; [0m[7m[0mPDF [0m[7m[0mon [0m[7m[0m/intake [0m[7m[0m→ [0m
+[7m[0mroutes [0m[7m[0mto [0m[7m[0m/upload[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:323:- **Acceptance:** edge tests pass[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:324:- **LOC estimate:** 100[0m
+> state\polaris_restart\issue_breakdown.md:325:- **Blocked by:** I-[7mf2[0m-006
+> state\polaris_restart\issue_breakdown.md:326:- **Blocks:** I-[7mf2[0m-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:327:[0m
+> state\polaris_restart\issue_breakdown.md:328:### I-[7mf2[0m-008 — F2 evaluator walkthrough[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:329:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:330:- [0m[7m[0m**Scope:** [0m[7m[0mproduct-owner [0m[7m[0mwalkthrough; [0m[7m[0mrecord-screen [0m[7m[0m3 [0m[7m[0msessions [0m[7m[0m× [0m
+[7m[0m22-input [0m[7m[0mcorpus[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:331:- **Acceptance:** all 22 handled correctly per recording review[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:332:- **LOC estimate:** 0 (walkthrough; no code)[0m
+> state\polaris_restart\issue_breakdown.md:333:- **Blocked by:** I-[7mf2[0m-007[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:334:- **Blocks:** I-bug-079[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:335:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:336:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:337:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:338:## §7 I-bug-079 — async/sync collision in clinical_classifier (reissued)[0m
+  state\polaris_restart\issue_breakdown.md:342:- **Acceptance:** smoke test under real key returns 
+`scope_class=clinical_efficacy`; 5 regression tests
+  state\polaris_restart\issue_breakdown.md:343:- **Foundation refs:** plan §4.9b
+  state\polaris_restart\issue_breakdown.md:344:- **LOC estimate:** 80
+> state\polaris_restart\issue_breakdown.md:345:- **Blocked by:** I-[7mf2[0m-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:346:- **Blocks:** I-f3-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:347:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:348:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:349:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:350:## §8 F3 — Document upload + grounding (10 issues)[0m
+  state\polaris_restart\issue_breakdown.md:354:- **Scope:** `src/polaris_graph/graph_v4.py:149` consume 
+`document_ids`; merge document evidence into pool
+  state\polaris_restart\issue_breakdown.md:355:- **Acceptance:** integration test: upload PDF → query references 
+content → strict_verify cites span
+  state\polaris_restart\issue_breakdown.md:356:- **Foundation:** v6.2 §F3 CRITICAL GAP
+> state\polaris_restart\issue_breakdown.md:357:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:358:- **Blocked by:** I-bug-079[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:359:- **Blocks:** I-f3-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:360:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:361:### I-f3-002 — Backend: data classification taxonomy[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:362:[0m
+  state\polaris_restart\issue_breakdown.md:370:
+  state\polaris_restart\issue_breakdown.md:371:- **Scope:** `src/polaris_graph/sovereignty/router.py`; intercepts 
+CLIENT-tagged docs from external API
+  state\polaris_restart\issue_breakdown.md:372:- **Acceptance:** unit + integration; CLIENT cannot leak
+> state\polaris_restart\issue_breakdown.md:373:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:374:- **Blocked by:** I-f3-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:375:- **Blocks:** I-f3-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:376:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:377:### I-f3-004 — Backend: sovereignty CI test[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:378:[0m
+  state\polaris_restart\issue_breakdown.md:402:
+  state\polaris_restart\issue_breakdown.md:403:- **Scope:** PDF.js preview + click chunk → highlight at coordinates
+  state\polaris_restart\issue_breakdown.md:404:- **Acceptance:** Playwright span/coords accurate
+> state\polaris_restart\issue_breakdown.md:405:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:406:- **Blocked by:** I-f3-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:407:- **Blocks:** I-f3-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:408:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:409:### I-f3-008 — Frontend: "use these docs as evidence" toggle[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:410:[0m
+  state\polaris_restart\issue_breakdown.md:418:
+  state\polaris_restart\issue_breakdown.md:419:- **Scope:** 100MB, 0-byte, malformed, password, image-only, Word, txt, 
+EPUB
+  state\polaris_restart\issue_breakdown.md:420:- **Acceptance:** each handled per spec
+> state\polaris_restart\issue_breakdown.md:421:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:422:- **Blocked by:** I-f3-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:423:- **Blocks:** I-f3-010[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:424:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:425:### I-f3-010 — F3 sovereignty walkthrough[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:426:[0m
+  state\polaris_restart\issue_breakdown.md:439:- **Scope:** `src/polaris_graph/audit_bundle/schema.py`; manifest + 6 
+component files + reviewer README
+  state\polaris_restart\issue_breakdown.md:440:- **Acceptance:** Pydantic models; jsonschema validates
+  state\polaris_restart\issue_breakdown.md:441:- **Foundation:** v6.2 §F15
+> state\polaris_restart\issue_breakdown.md:442:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:443:- **Blocked by:** I-f3-010[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:444:- **Blocks:** I-f15-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:445:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:446:### I-f15-002 — Embed extracted span text ≤500 chars[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:447:[0m
+  state\polaris_restart\issue_breakdown.md:502:- **Scope:** `src/polaris_graph/evidence_contract/schema.py`; entities, 
+claims, jurisdictions, expected sources
+  state\polaris_restart\issue_breakdown.md:503:- **Acceptance:** Pydantic schema; tests
+  state\polaris_restart\issue_breakdown.md:504:- **Foundation:** v6.2 §Phase 1 ECG
+> state\polaris_restart\issue_breakdown.md:505:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:506:- **Blocked by:** I-bug-082[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:507:- **Blocks:** I-ecg-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:508:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:509:### I-ecg-002 — Gate enforcement[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:510:- [0m[7m[0m**Scope:** [0m[7m[0m`src/polaris_graph/evidence_contract/gate.py`; [0m[7m[0mraises [0m[7m[0mif [0m
+[7m[0mgeneration [0m[7m[0mwithout [0m[7m[0mcontract[0m
+  state\polaris_restart\issue_breakdown.md:516:### I-ecg-003 — Contract editor UI
+  state\polaris_restart\issue_breakdown.md:517:- **Scope:** `web/app/contracts/page.tsx`
+  state\polaris_restart\issue_breakdown.md:518:- **Acceptance:** Playwright create/edit/save
+> state\polaris_restart\issue_breakdown.md:519:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:520:- **Blocked by:** I-ecg-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:521:- **Blocks:** I-ecg-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:522:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:523:### I-ecg-004 — Contract version migration test[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:524:- **Scope:** v1 → v2 schema migration; backward-compat[0m
+  state\polaris_restart\issue_breakdown.md:541:### I-f4-002 — Event-type UI affordances
+  state\polaris_restart\issue_breakdown.md:542:- **Scope:** 6 event types render as dedicated UI: query 
+reformulations, retrieval candidates, sources dropped, synthesis decisions, contradiction events, per-sentence verify 
+decisions
+  state\polaris_restart\issue_breakdown.md:543:- **Acceptance:** Playwright full-run recording 5-10min — every event 
+appears within 1s of server emit
+> state\polaris_restart\issue_breakdown.md:544:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:545:- **Blocked by:** I-f4-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:546:- **Blocks:** I-f4-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:547:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:548:### I-f4-003 — Multi-tab independent updates[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:549:- **Scope:** open same run in 2 tabs; cancel in one cancels both[0m
+  state\polaris_restart\issue_breakdown.md:559:- **Blocked by:** I-f4-003
+  state\polaris_restart\issue_breakdown.md:560:- **Blocks:** I-f4-005
+  state\polaris_restart\issue_breakdown.md:561:
+> state\polaris_restart\issue_breakdown.md:562:### I-f4-005 — F4 [7m200[0m-sentence walkthrough[0m
+> state\polaris_restart\issue_breakdown.md:563:- **Scope:** product-owner recording on [7m200[0m-sentence run[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:564:- **Acceptance:** hover/click latency <1s[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:565:- **LOC estimate:** 0 (walkthrough)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:566:- **Blocked by:** I-f4-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:567:- **Blocks:** I-f5-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:568:[0m
+  state\polaris_restart\issue_breakdown.md:587:### I-f5-003 — Inspector: source span + URL + tier + retrieval trace
+  state\polaris_restart\issue_breakdown.md:588:- **Scope:** highlighted span; tier badge with rationale; retrieval 
+steps
+  state\polaris_restart\issue_breakdown.md:589:- **Acceptance:** Playwright Inspector content correct
+> state\polaris_restart\issue_breakdown.md:590:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:591:- **Blocked by:** I-f5-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:592:- **Blocks:** I-f5-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:593:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:594:### I-f5-004 — Inspector: two-family evaluator agreement signal[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:595:- **Scope:** badge showing generator/evaluator agreement[0m
+  state\polaris_restart\issue_breakdown.md:619:- **Blocked by:** I-f5-006
+  state\polaris_restart\issue_breakdown.md:620:- **Blocks:** I-f5-008
+  state\polaris_restart\issue_breakdown.md:621:
+> state\polaris_restart\issue_breakdown.md:622:### I-f5-008 — F5 latency at 50/100/[7m200[0m/500 sentences[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:623:- **Scope:** stress test[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:624:- **Acceptance:** all under 1s[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:625:- **LOC estimate:** 100[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:626:- **Blocked by:** I-f5-007[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:627:- **Blocks:** I-f5-009[0m
+  state\polaris_restart\issue_breakdown.md:693:### I-f8-002 — Side pane with all sides
+  state\polaris_restart\issue_breakdown.md:694:- **Scope:** Sheet + tiers + sample sizes + hedge language + per-flag 
+PT08
+  state\polaris_restart\issue_breakdown.md:695:- **Acceptance:** Playwright pane content correct
+> state\polaris_restart\issue_breakdown.md:696:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:697:- **Blocked by:** I-f8-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:698:- **Blocks:** I-f8-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:699:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:700:### I-f8-003 — F8 adversarial: contradicting paragraphs same source[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:701:- **Scope:** "X is safe" + "X is dangerous" same source → flagged[0m
+  state\polaris_restart\issue_breakdown.md:838:### I-f10-007 — Sandboxed Python execution (no-egress, resource-capped)
+  state\polaris_restart\issue_breakdown.md:839:- **Scope:** existing code_executor.py hardened; egress blocked
+  state\polaris_restart\issue_breakdown.md:840:- **Acceptance:** sovereignty CI test
+> state\polaris_restart\issue_breakdown.md:841:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:842:- **Blocked by:** I-f10-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:843:- **Blocks:** I-f10-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:844:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:845:### I-f10-008 — F10 walkthrough: tirzepatide vs semaglutide[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:846:- **Scope:** product-owner recording[0m
+  state\polaris_restart\issue_breakdown.md:863:### I-f13-002 — Diff visualization
+  state\polaris_restart\issue_breakdown.md:864:- **Scope:** Vega-Lite time-series; diff side-panel
+  state\polaris_restart\issue_breakdown.md:865:- **Acceptance:** Playwright diff
+> state\polaris_restart\issue_breakdown.md:866:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:867:- **Blocked by:** I-f13-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:868:- **Blocks:** I-f13-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:869:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:870:### I-f13-003 — Regression alerts inline[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:871:- **Scope:** alert badges when metric drops >threshold[0m
+  state\polaris_restart\issue_breakdown.md:888:### I-f14-001 — Migrate workspace_memory to Chroma semantic
+  state\polaris_restart\issue_breakdown.md:889:- **Scope:** keyword/Jaccard → ChromaDB embedding-based
+  state\polaris_restart\issue_breakdown.md:890:- **Acceptance:** semantic recall test
+> state\polaris_restart\issue_breakdown.md:891:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:892:- **Blocked by:** I-f13-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:893:- **Blocks:** I-f14-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:894:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:895:### I-f14-002 — Memory page with explicit controls[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:896:- **Scope:** save / pin / forget UI[0m
+  state\polaris_restart\issue_breakdown.md:925:## §21 Phase 2C polish (5 issues)
+  state\polaris_restart\issue_breakdown.md:926:
+  state\polaris_restart\issue_breakdown.md:927:### I-p2c-001 — Cross-feature integration testing
+> state\polaris_restart\issue_breakdown.md:928:- **Scope:** F1→[7mF2[0m→F3→F4→F5 chain[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:929:- **Acceptance:** integration suite green[0m
+> state\polaris_restart\issue_breakdown.md:930:- **LOC estimate:** [7m180[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:931:- **Blocked by:** I-f14-005[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:932:- **Blocks:** I-p2c-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:933:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:934:### [0m[7m[0mI-p2c-002 [0m[7m[0m— [0m[7m[0mVisual [0m[7m[0mregression: [0m[7m[0m60 [0m[7m[0mbaselines [0m[7m[0m(4 [0m[7m[0mviewports [0m[7m[0m× [0m[7m[0m15 [0m
+[7m[0mfeatures)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:935:- **Scope:** Playwright + percy.io baselines[0m
+  state\polaris_restart\issue_breakdown.md:936:- **Acceptance:** zero unintended pixel diffs
+> state\polaris_restart\issue_breakdown.md:937:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:938:- **Blocked by:** I-p2c-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:939:- **Blocks:** I-p2c-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:940:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:941:### I-p2c-003 — Cross-browser: Chromium / Firefox / WebKit[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:942:- **Scope:** Playwright across 3 browsers[0m
+  state\polaris_restart\issue_breakdown.md:947:
+  state\polaris_restart\issue_breakdown.md:948:### I-p2c-004 — Performance: Core Web Vitals green
+  state\polaris_restart\issue_breakdown.md:949:- **Scope:** Lighthouse + perf test
+> state\polaris_restart\issue_breakdown.md:950:- **Acceptance:** LCP <2.5s, INP <[7m200[0mms, hover-latency <100ms[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:951:- **LOC estimate:** 150[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:952:- **Blocked by:** I-p2c-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:953:- **Blocks:** I-p2c-005[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:954:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:955:### I-p2c-005 — Mobile end-to-end[0m
+  state\polaris_restart\issue_breakdown.md:966:### I-f11-001 — Follow-up agent with parent-run-context preservation
+  state\polaris_restart\issue_breakdown.md:967:- **Scope:** `src/polaris_graph/followup/agent.py`
+  state\polaris_restart\issue_breakdown.md:968:- **Acceptance:** parent context preserved test
+> state\polaris_restart\issue_breakdown.md:969:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:970:- **Blocked by:** I-p2c-005[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:971:- **Blocks:** I-f11-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:972:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:973:### I-f11-002 — Append-to-existing-report rendering[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:974:- **Scope:** UI appends below original with separator[0m
+  state\polaris_restart\issue_breakdown.md:1019:### I-f12-003 — Claim-level diff algorithm
+  state\polaris_restart\issue_breakdown.md:1020:- **Scope:** claims agree/disagree/evidence-pool overlap
+  state\polaris_restart\issue_breakdown.md:1021:- **Acceptance:** diff sample fixtures
+> state\polaris_restart\issue_breakdown.md:1022:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1023:- **Blocked by:** I-f12-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1024:- **Blocks:** I-f12-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1025:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1026:### I-f12-004 — F12 functional: jurisdictional diff[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1027:- **Scope:** same query different jurisdictions[0m
+  state\polaris_restart\issue_breakdown.md:1048:### I-bench-001 — 50 questions × 4 systems × 6 dimensions
+  state\polaris_restart\issue_breakdown.md:1049:- **Scope:** benchmark harness `scripts/benchmark_proof_package.py`
+  state\polaris_restart\issue_breakdown.md:1050:- **Acceptance:** harness runs end-to-end
+> state\polaris_restart\issue_breakdown.md:1051:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1052:- **Blocked by:** I-bug-084[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1053:- **Blocks:** I-bench-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1054:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1055:### I-bench-002 — Paid sample evaluator scoring[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1056:- **Scope:** $5-12k procurement; evaluator scores benchmark slice[0m
+  state\polaris_restart\issue_breakdown.md:1088:### I-sov-001 — Replace OpenRouter with sovereign vLLM
+  state\polaris_restart\issue_breakdown.md:1089:- **Scope:** swap LLM client; sovereignty router enforces
+  state\polaris_restart\issue_breakdown.md:1090:- **Acceptance:** integration test on sovereign cluster
+> state\polaris_restart\issue_breakdown.md:1091:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1092:- **Blocked by:** I-tpl-008, I-phase0-007, I-phase0-010, I-phase0-009[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1093:- **Blocks:** I-sov-002[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1094:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1095:### I-sov-002 — Validate quality unchanged[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1096:- **Scope:** paired-prompt eval comparing OpenRouter vs sovereign[0m
+  state\polaris_restart\issue_breakdown.md:1120:### I-buf-001 — Migration findings + regression fixes
+  state\polaris_restart\issue_breakdown.md:1121:- **Scope:** catch-all for issues found in Phase 4
+  state\polaris_restart\issue_breakdown.md:1122:- **Acceptance:** issues triaged + fixed
+> state\polaris_restart\issue_breakdown.md:1123:- **LOC estimate:** [7m200[0m (variable; cap enforces split if needed)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1124:- **Blocked by:** I-sov-004[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1125:- **Blocks:** I-hand-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1126:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1127:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1128:[0m
+  state\polaris_restart\issue_breakdown.md:1138:### I-hand-002 — Handover package
+  state\polaris_restart\issue_breakdown.md:1139:- **Scope:** runbook + demo script + crown-jewel registry + handover.md
+  state\polaris_restart\issue_breakdown.md:1140:- **Acceptance:** package complete
+> state\polaris_restart\issue_breakdown.md:1141:- **LOC estimate:** [7m200[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1142:- **Blocked by:** I-hand-001[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1143:- **Blocks:** I-hand-003[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1144:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1145:### I-hand-003 — Carney office demo[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1146:- **Scope:** Sep 6 demo to Carney office[0m
+  state\polaris_restart\issue_breakdown.md:1246:|---|---|---|
+  state\polaris_restart\issue_breakdown.md:1247:| Phase 0 outstanding | 7 (split 0.8 into tech + license) | §4 |
+  state\polaris_restart\issue_breakdown.md:1248:| F1 | 6 | §5 |
+> state\polaris_restart\issue_breakdown.md:1249:| [7mF2[0m | 8 | §6 |[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1250:| Reissued bug 079 | 1 | §7 |[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1251:| F3 | 10 | §8 |[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1252:| F15 | 6 | §9 |[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1253:| Reissued bug 082 | 1 | §10 |[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1254:| Evidence Contract Gate | 4 | §11 |[0m
+  state\polaris_restart\issue_breakdown.md:1285:preconditions §2
+  state\polaris_restart\issue_breakdown.md:1286:  → I-phase0-005
+  state\polaris_restart\issue_breakdown.md:1287:  → I-f1-001 → I-f1-002 → I-f1-003 → I-f1-004 → I-f1-005 → I-f1-006
+> state\polaris_restart\issue_breakdown.md:1288:  → [7mI-f2-001 [0m[7m[0m→ [0m[7m[0mI-f2-002 [0m[7m[0m→ [0m[7m[0mI-f2-003 [0m[7m[0m→ [0m[7m[0mI-f2-004 [0m[7m[0m→ [0m[7m[0mI-f2-005 [0m[7m[0m→ [0m[7m[0mI-f2-006 [0m[7m[0m→ [0m
+[7m[0mI-f2-007 [0m[7m[0m→ [0m[7m[0mI-f2-008[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1289:  → I-bug-079[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1290: [0m[7m [0m[7m[0m→ [0m[7m[0mI-f3-001 [0m[7m[0m→ [0m[7m[0mI-f3-002 [0m[7m[0m→ [0m[7m[0mI-f3-003 [0m[7m[0m→ [0m[7m[0mI-f3-004 [0m[7m[0m→ [0m[7m[0mI-f3-005 [0m[7m[0m→ [0m[7m[0mI-f3-006 [0m[7m[0m→ [0m
+[7m[0mI-f3-007 [0m[7m[0m→ [0m[7m[0mI-f3-008 [0m[7m[0m→ [0m[7m[0mI-f3-009 [0m[7m[0m→ [0m[7m[0mI-f3-010[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1291: [0m[7m [0m[7m[0m→ [0m[7m[0mI-f15-001 [0m[7m[0m→ [0m[7m[0mI-f15-002 [0m[7m[0m→ [0m[7m[0mI-f15-003 [0m[7m[0m→ [0m[7m[0mI-f15-004 [0m[7m[0m→ [0m[7m[0mI-f15-005 [0m[7m[0m→ [0m
+[7m[0mI-f15-006[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1292:  → I-bug-082[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1293:  → I-ecg-001 → I-ecg-002 → I-ecg-003 → I-ecg-004[0m
+  state\polaris_restart\issue_breakdown.md:1331:- I-phase0-003 (Vast.ai account)
+  state\polaris_restart\issue_breakdown.md:1332:- I-phase0-006 (hardware path A/B/C decision)
+  state\polaris_restart\issue_breakdown.md:1333:- I-phase0-010 (Gemma 4 license sign-off ONLY; tech portion 
+I-phase0-008 is auto-progressable)
+> state\polaris_restart\issue_breakdown.md:1334:- I-phase0-009 (OVH H[7m200[0m invoice)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1335:- I-bench-002 (paid sample evaluator $5-12k procurement)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1336:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1337:These [0m[7m[0mare [0m[7m[0mflagged [0m[7m[0min [0m[7m[0mTaskCreate [0m[7m[0mas [0m[7m[0muser-blocked. [0m[7m[0mSoftware [0m[7m[0mwork [0m
+[7m[0mcontinues [0m[7m[0min [0m[7m[0mmain [0m[7m[0mchain; [0m[7m[0msovereign [0m[7m[0mmigration [0m[7m[0m(Phase [0m[7m[0m4) [0m[7m[0mis [0m[7m[0mgated [0m[7m[0mon [0m[7m[0mI-phase0-007 [0m[7m[0m+ [0m[7m[0mI-phase0-010 [0m[7m[0m+ [0m[7m[0mI-phase0-009 [0m
+[7m[0mcompleting.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1338:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1339:---[0m
+  state\polaris_restart\issue_breakdown.md:1340:
+  state\polaris_restart\issue_breakdown.md:1341:## §34 Calendar context (FIXED iter 2 P2-CALENDAR — historical only, 
+NOT commitment)
+  state\polaris_restart\issue_breakdown.md:1342:
+> state\polaris_restart\issue_breakdown.md:1343:Carney v6.2 §"Phase plan" gives calendar windows for each phase (Phase 
+1 May 13-31, etc.). These are historical context from the v6.2 document, not execution commitments. Per CHARTER §3 
+([7m200[0m-LOC [0m[7m[0mPR [0m[7m[0mcap) [0m[7m[0m+ [0m[7m[0m§5 [0m[7m[0m(reviewer-fatigue [0m[7m[0mhalt [0m[7m[0mat [0m[7m[0m>3 [0m[7m[0mPRs/24h) [0m[7m[0m+ [0m[7m[0mper-Issue [0m[7m[0mCodex [0m[7m[0miteration [0m[7m[0mcycles, [0m[7m[0mreal [0m[7m[0mvelocity [0m[7m[0mwill [0m
+[7m[0mdiverge [0m[7m[0mfrom [0m[7m[0mcalendar. [0m[7m[0mExecution [0m[7m[0mrate [0m[7m[0mis [0m[7m[0mmeasured [0m[7m[0mby [0m[7m[0mIssue [0m[7m[0mthroughput [0m[7m[0mper [0m[7m[0mday [0m[7m[0mpost-execution-start, [0m[7m[0mnot [0m[7m[0mby [0m[7m[0mcalendar [0m
+[7m[0mdates.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1344:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1345:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1346:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1347:## [0m[7m[0m§35 [0m[7m[0mHalt [0m[7m[0mconditions [0m[7m[0m(CHARTER [0m[7m[0m§5 [0m[7m[0m+ [0m[7m[0mplan [0m[7m[0m§10 [0m[7m[0m— [0m[7m[0mFIXED [0m[7m[0miter [0m[7m[0m2 [0m
+[7m[0mP1-VISIBILITY-GAP)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1348:[0m
+  state\polaris_restart\issue_breakdown.md:1351:- Missing any of 5 mandatory artifacts (`.codex/<issue_id>/{brief.md, 
+codex_brief_verdict.txt, codex_diff.patch, codex_diff_audit.txt}` + `outputs/audits/<issue_id>/claude_audit.md`) — 
+explicit list per CHARTER §7 visibility (was 3 in iter 1; corrected to 5; PR-D iter 4 PRD4-P2-001 fix synchronizes 
+with §3 canonical list — `decision.md` was a draft superseded by `codex_diff.patch`)
+  state\polaris_restart\issue_breakdown.md:1352:- Codex `codex_brief_verdict.txt` does not contain `verdict: APPROVE`
+  state\polaris_restart\issue_breakdown.md:1353:- Codex `codex_diff_audit.txt` does not contain `verdict: APPROVE`
+> state\polaris_restart\issue_breakdown.md:1354:- PR > [7m200[0m net additions (per CHARTER §3)[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1355:- [0m[7m[0m`state/active_issue.json` [0m[7m[0mshows [0m[7m[0mdifferent [0m[7m[0mIssue [0m[7m[0min_progress [0m
+[7m[0m(sequence [0m[7m[0mviolation)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1356:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1357:Halt emitted to `state/halt_<utc>_<reason>.md` on:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1358:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1359:- [0m[7m[0mSequence [0m[7m[0mviolation: [0m[7m[0many [0m[7m[0mattempt [0m[7m[0mto [0m[7m[0mstart [0m[7m[0mI-X-NNN+1 [0m[7m[0mwhile [0m[7m[0mI-X-NNN [0m[7m[0mis [0m
+[7m[0mnot [0m[7m[0m`completed`[0m
+  state\polaris_restart\issue_breakdown.md:1361:- Reviewer fatigue: >3 PRs queued for user in 24h → halt; user-side 
+surface
+  state\polaris_restart\issue_breakdown.md:1362:- 2-cycle repeated root cause: same P1 finding twice across cycles → 
+halt; investigate harness
+  state\polaris_restart\issue_breakdown.md:1363:- SHA pin drift: polaris-controls/CHARTER.md SHA changes between 
+sessions → halt session-start hook
+> state\polaris_restart\issue_breakdown.md:1364:- [7m200[0m-LOC overflow: redundant with CI but emit halt for tracking[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1365:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1366:---[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1367:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1368:## §36 Codex review request iter 4 (was iter 3)[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1369:[0m
+  state\polaris_restart\issue_breakdown.md:1372:- **iter3 P1-PHASE-METADATA-CONFLICT** → §3a Phase mapping rewritten 
+as deterministic per-prefix list. F6 explicitly assigned ONLY to Phase 2B (was double-listed in 2A and 2B). Each 
+prefix maps to exactly one phase.
+  state\polaris_restart\issue_breakdown.md:1373:- **iter3 P2-ARTIFACT-PATH-AMBIGUITY** → §3 body template line for 
+`outputs/audits/I-<id>/claude_audit.md` rewritten to `outputs/audits/<issue_id>/claude_audit.md` matching §35/§36.
+  state\polaris_restart\issue_breakdown.md:1374:- **iter3 P2-BLOCKS-RECIPROCITY-CJ** → I-phase0-005 Blocks now lists 
+I-cj-001 and I-anti-001 (and I-f1-001) reciprocally with their Blocked-by entries.
+> state\polaris_restart\issue_breakdown.md:1375:- **iter3 P2-BLOCKS-FIELD-POLLUTION** → I-f1-006 Blocks line cleaned 
+to bare ID list (`[7mI-f2-001[0m`); [0m[7m[0mthe [0m[7m[0mparenthetical [0m[7m[0mclarification [0m[7m[0mremoved [0m[7m[0mso [0m[7m[0mmechanical [0m[7m[0mID [0m[7m[0mextraction [0m[7m[0msees [0m[7m[0monly [0m[7m[0mvalid [0m
+[7m[0mIssue [0m[7m[0mIDs.[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1376:- [0m[7m[0m**iter3 [0m[7m[0mP2-SOVEREIGN-GATE-WORDING** [0m[7m[0m→ [0m[7m[0m§32 [0m[7m[0msovereign [0m[7m[0mgate [0m[7m[0mwording [0m
+[7m[0mcorrected: [0m[7m[0m"These [0m[7m[0mthree [0m[7m[0mexternal [0m[7m[0mprerequisites [0m[7m[0m(...) [0m[7m[0mmerge [0m[7m[0mwith [0m[7m[0mI-tpl-008 [0m[7m[0m(main-chain [0m[7m[0mprerequisite) [0m[7m[0mas [0m[7m[0mthe [0m[7m[0mfour [0m[7m[0mtotal [0m
+[7m[0mprerequisites [0m[7m[0mfor [0m[7m[0mI-sov-001."[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1377:[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1378:Earlier iter 1 + iter 2 findings carried through and remain addressed.[0m
+[7m[0m  state\polaris_restart\issue_breakdown.md:1379:[0m
+[7m [0m[7m [0m[7m[0mstate\polaris_restart\issue_breakdown.md:1380:Codex: [0m[7m[0memit [0m[7m[0mstructured [0m[7m[0mverdict [0m[7m[0msame [0m[7m[0mformat [0m[7m[0mas [0m[7m[0miter [0m[7m[0m3. [0m[7m[0mAPPROVE [0m[7m[0miff [0m[7m[0mzero [0m
+[7m[0mNOVEL [0m[7m[0mP0 [0m[7m[0m+ [0m[7m[0mzero [0m[7m[0mcontinuing [0m[7m[0mP0 [0m[7m[0m+ [0m[7m[0mzero [0m[7m[0mP1.[0m
+
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+
+# Sources checked:
+# - https://pypi.org/project/hdbscan/
+# - https://hdbscan.readthedocs.io/en/latest/api.html
+tokens used
+103,198
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+
+# Sources checked:
+# - https://pypi.org/project/hdbscan/
+# - https://hdbscan.readthedocs.io/en/latest/api.html
