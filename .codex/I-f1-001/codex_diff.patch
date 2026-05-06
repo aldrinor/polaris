@@ -1,0 +1,484 @@
+diff --git a/web/app/page.tsx b/web/app/page.tsx
+index 672c500..07f6bfc 100644
+--- a/web/app/page.tsx
++++ b/web/app/page.tsx
+@@ -9,46 +9,96 @@ import {
+   CardTitle,
+ } from "@/components/ui/card";
+ 
+-type DemoSlice = {
++type Template = {
+   id: string;
+-  step: string;
+-  title: string;
+-  href: string;
+-  description: string;
++  name: string;
++  summary: string;
++  sample_question: string;
++  out_of_scope: string;
++  active: boolean;
+ };
+ 
+-const demo_slices: DemoSlice[] = [
++const templates: Template[] = [
+   {
+-    id: "intake",
+-    step: "Step 1",
+-    title: "Scope discovery + ambiguity",
+-    href: "/intake",
+-    description:
+-      "Submit a clinical research question. POLARIS detects ambiguity, prompts for PICO clarification, and emits a scope decision.",
++    id: "clinical",
++    name: "Clinical drug audit",
++    summary:
++      "Drug safety signals, labelling deltas, and post-market surveillance evidence across Health Canada, FDA, EMA, and clinical trials.",
++    sample_question:
++      "What did the SELECT trial show on cardiovascular outcomes for semaglutide?",
++    out_of_scope: "Should I take ozempic for my diabetes?",
++    active: true,
+   },
+   {
+-    id: "retrieval",
+-    step: "Step 2",
+-    title: "Tiered retrieval",
+-    href: "/retrieval",
+-    description:
+-      "Live retrieval against Cochrane / PubMed / regulator domains via Serper + Semantic Scholar, with corpus-adequacy gating.",
++    id: "housing",
++    name: "Housing & productivity",
++    summary:
++      "Canadian housing supply, affordability, productivity links, Indigenous housing gaps, and federal-provincial housing policy.",
++    sample_question:
++      "What did Q3 2025 CMHC housing-starts data show vs StatCan series 34-10-0143-01?",
++    out_of_scope: "Should I buy a condo in Toronto?",
++    active: true,
+   },
+   {
+-    id: "generation",
+-    step: "Step 3",
+-    title: "Generator + strict-verify",
+-    href: "/generation",
+-    description:
+-      "Multi-section generation with provenance tokens and per-sentence numeric + content-overlap verification.",
++    id: "climate",
++    name: "Climate & critical minerals",
++    summary:
++      "Canadian climate policy, oil-sands transition, critical minerals strategy, carbon pricing, methane regulation, Indigenous consent.",
++    sample_question:
++      "How did oil-sands emissions intensity per barrel change from 2010 to 2023 according to ECCC?",
++    out_of_scope: "Should I buy a heat pump for my house?",
++    active: true,
+   },
+   {
+-    id: "benchmark",
+-    step: "Step 4",
+-    title: "BEAT-BOTH benchmark",
+-    href: "/benchmark",
+-    description:
+-      "Head-to-head scoreboard vs ChatGPT-DR / Gemini-DR across 7 dimensions: tier mix, numeric grounding, provenance density, refusal correctness, coverage, latency, auditability.",
++    id: "ai_sovereignty",
++    name: "AI sovereignty",
++    summary:
++      "Canadian AI policy, sovereign compute, talent retention, IP and data residency, alignment posture, Bill C-27 / AIDA, federal AI strategy.",
++    sample_question:
++      "What sovereign compute capacity does Canada have for training frontier models as of 2025?",
++    out_of_scope:
++      "Should I take a job at a Canadian AI startup or move to San Francisco?",
++    active: false,
++  },
++  {
++    id: "canada_us",
++    name: "Canada–US relations",
++    summary:
++      "Bilateral relationship, CUSMA / USMCA renegotiation, IRA spillover, energy + critical minerals integration, defense interoperability.",
++    sample_question:
++      "What are the 2026 CUSMA review triggers and what does Canada's pre-position look like?",
++    out_of_scope: "Should I move to the US for tax reasons?",
++    active: false,
++  },
++  {
++    id: "defense",
++    name: "Defense & Arctic",
++    summary:
++      "Canadian defense policy, NORAD modernization, Arctic sovereignty, AUKUS-adjacent posture, NATO 2% commitment.",
++    sample_question:
++      "What is Canada's defense spending as a percentage of GDP relative to the NATO 2% target in 2025?",
++    out_of_scope: "How do I join the Canadian Armed Forces?",
++    active: false,
++  },
++  {
++    id: "trade",
++    name: "Trade & tariff",
++    summary:
++      "Canadian trade policy, USMCA/CUSMA disputes, Section 232/301 tariff exposure, supply-chain resilience, and bilateral trade flows.",
++    sample_question:
++      "What is the status of US Section 232 steel tariffs on Canadian exports as of 2025?",
++    out_of_scope: "Should I move my supply chain to Mexico?",
++    active: false,
++  },
++  {
++    id: "workforce",
++    name: "Workforce & productivity",
++    summary:
++      "Canadian labour productivity, immigration + skills mismatch, regional unemployment, federal-provincial training, demographic shifts.",
++    sample_question:
++      "What does StatCan's 2024 productivity series show for Canada vs US over the last decade?",
++    out_of_scope: "How do I apply for permanent residency?",
++    active: false,
+   },
+ ];
+ 
+@@ -88,45 +138,87 @@ export default function HomePage() {
+         </section>
+ 
+         <section
+-          aria-labelledby="demo_walkthrough_heading"
++          aria-labelledby="template_grid_heading"
+           className="flex flex-col gap-5"
+-          data-testid="demo-walkthrough"
++          data-testid="template-grid"
+         >
+           <div className="flex items-baseline justify-between">
+             <h2
+-              id="demo_walkthrough_heading"
++              id="template_grid_heading"
+               className="text-foreground text-xl font-semibold tracking-tight"
+             >
+-              Tracer demo walkthrough
++              Research templates
+             </h2>
+             <span className="text-muted-foreground text-xs tracking-widest uppercase">
+-              Slices 1 → 5
++              3 active · 5 to-build
+             </span>
+           </div>
+-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+-            {demo_slices.map((slice) => (
++          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
++            {templates.map((tpl) => (
+               <Card
+-                key={slice.id}
+-                className="flex flex-col"
+-                data-testid={`demo-slice-${slice.id}`}
++                key={tpl.id}
++                aria-disabled={tpl.active ? undefined : true}
++                className={
++                  tpl.active
++                    ? "flex flex-col"
++                    : "bg-muted/40 text-muted-foreground flex flex-col"
++                }
++                data-testid={`template-card-${tpl.id}`}
+               >
+                 <CardHeader>
+-                  <CardDescription className="text-xs tracking-widest uppercase">
+-                    {slice.step}
++                  <div className="flex items-start justify-between gap-2">
++                    <CardTitle className="text-lg">{tpl.name}</CardTitle>
++                    {!tpl.active ? (
++                      <span
++                        aria-hidden="true"
++                        className="bg-background text-muted-foreground border-border rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-widest uppercase"
++                      >
++                        Coming soon
++                      </span>
++                    ) : null}
++                  </div>
++                  <CardDescription className="text-sm">
++                    {tpl.summary}
+                   </CardDescription>
+-                  <CardTitle className="text-lg">{slice.title}</CardTitle>
+                 </CardHeader>
+                 <CardContent className="flex flex-1 flex-col justify-between gap-4">
+-                  <p className="text-muted-foreground text-sm">
+-                    {slice.description}
+-                  </p>
+-                  <Button
+-                    variant="outline"
+-                    nativeButton={false}
+-                    render={<Link href={slice.href} />}
+-                  >
+-                    Open {slice.title}
+-                  </Button>
++                  <div className="flex flex-col gap-2 text-sm">
++                    <p>
++                      <span className="text-foreground font-medium">
++                        In scope:
++                      </span>{" "}
++                      {tpl.sample_question}
++                    </p>
++                    <p>
++                      <span className="text-foreground font-medium">
++                        Out of scope:
++                      </span>{" "}
++                      {tpl.out_of_scope}
++                    </p>
++                  </div>
++                  {tpl.active ? (
++                    <Button
++                      variant="outline"
++                      nativeButton={false}
++                      render={
++                        <Link
++                          data-testid={`template-card-${tpl.id}-link`}
++                          href={`/intake?template=${tpl.id}`}
++                        />
++                      }
++                    >
++                      Open {tpl.name}
++                    </Button>
++                  ) : (
++                    <Button
++                      variant="outline"
++                      disabled
++                      tabIndex={-1}
++                      aria-disabled="true"
++                    >
++                      Coming soon
++                    </Button>
++                  )}
+                 </CardContent>
+               </Card>
+             ))}
+diff --git a/web/scripts/capture_screenshots.mjs b/web/scripts/capture_screenshots.mjs
+index 692b1a3..5b7c258 100644
+--- a/web/scripts/capture_screenshots.mjs
++++ b/web/scripts/capture_screenshots.mjs
+@@ -20,7 +20,7 @@ const targets = [
+   {
+     name: "dashboard_empty",
+     path: "/",
+-    description: "Landing page (empty dashboard with 3 template cards)",
++    description: "Landing page (template grid: 3 active + 5 to-build cards)",
+   },
+   {
+     name: "sign_in",
+diff --git a/web/tests/e2e/demo_walkthrough.spec.ts b/web/tests/e2e/demo_walkthrough.spec.ts
+index 73b546a..0e028c4 100644
+--- a/web/tests/e2e/demo_walkthrough.spec.ts
++++ b/web/tests/e2e/demo_walkthrough.spec.ts
+@@ -1,35 +1,34 @@
+ import { expect, test } from "@playwright/test";
+ 
+ /**
+- * Slice 005 — full demo walkthrough.
++ * Slice 005 — full demo walkthrough (updated for I-f1-001 template grid).
+  *
+  * Drives the four-step flow in the same order a non-developer follows
+  * during the Sep 6 tracer demo:
+- *   home → intake → retrieval → generation → benchmark
++ *   home (clinical template card) → intake → retrieval → generation → benchmark
++ *
++ * I-f1-001 replaced the demo-slice cards on `/` with the F1 template grid
++ * (3 active + 5 to-build). The home entry-point now clicks the clinical
++ * template card → /intake?template=clinical, instead of the legacy
++ * demo-slice-intake card.
+  *
+  * This is a STRUCTURAL test — it asserts that each page loads and exposes
+  * its core testid hooks. It does NOT validate content (which would require
+  * real OPENROUTER_API_KEY / SERPER_API_KEY at runtime). For content
+  * verification, use the runbook in docs/demo_runbook.md.
+- *
+- * The home page card hrefs are the contract — if the agent breaks the
+- * walkthrough nav, this test catches it.
+  */
+ 
+ test.describe("Slice 005 — full demo walkthrough", () => {
+   test("home → intake → retrieval → generation → benchmark", async ({
+     page,
+   }) => {
+-    // Step 0 — home
++    // Step 0 — home (template grid)
+     await page.goto("/", { waitUntil: "networkidle" });
+-    await expect(page.getByTestId("demo-walkthrough")).toBeVisible();
++    await expect(page.getByTestId("template-grid")).toBeVisible();
+ 
+-    // Step 1 — intake (click the home card)
+-    await page
+-      .getByTestId("demo-slice-intake")
+-      .getByRole("link")
+-      .click();
+-    await page.waitForURL("**/intake");
++    // Step 1 — intake (click the clinical template card)
++    await page.getByTestId("template-card-clinical-link").click();
++    await page.waitForURL("**/intake?template=clinical");
+     await expect(page.getByTestId("intake-page")).toBeVisible();
+     await expect(page.getByTestId("intake-question-input")).toBeVisible();
+ 
+@@ -46,23 +45,23 @@ test.describe("Slice 005 — full demo walkthrough", () => {
+     await expect(page.getByTestId("benchmark-page")).toBeVisible();
+   });
+ 
+-  test("home walkthrough cards expose testids in expected order", async ({
++  test("home template grid surfaces 3 active + 5 to-build cards", async ({
+     page,
+   }) => {
+     await page.goto("/", { waitUntil: "networkidle" });
+-    const ids = ["intake", "retrieval", "generation", "benchmark"];
+-    for (const id of ids) {
+-      await expect(page.getByTestId(`demo-slice-${id}`)).toBeVisible();
++    const active = ["clinical", "housing", "climate"];
++    const to_build = [
++      "ai_sovereignty",
++      "canada_us",
++      "defense",
++      "trade",
++      "workforce",
++    ];
++    for (const id of active) {
++      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+     }
+-  });
+-
+-  test("each home card surfaces a 'Step N' badge", async ({ page }) => {
+-    await page.goto("/", { waitUntil: "networkidle" });
+-    // The CardDescription renders the step label per slice; verify all four
+-    // step labels are present somewhere on the page.
+-    for (const step of [1, 2, 3, 4]) {
+-      const stepText = page.getByText(new RegExp(`Step ${step}`, "i")).first();
+-      await expect(stepText).toBeVisible();
++    for (const id of to_build) {
++      await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
+     }
+   });
+ });
+diff --git a/web/tests/e2e/home_walkthrough.spec.ts b/web/tests/e2e/home_walkthrough.spec.ts
+deleted file mode 100644
+index 705ecfc..0000000
+--- a/web/tests/e2e/home_walkthrough.spec.ts
++++ /dev/null
+@@ -1,40 +0,0 @@
+-import { expect, test } from "@playwright/test";
+-
+-/**
+- * Slice 005 demo polish — home walkthrough.
+- *
+- * The home page must surface the four-step demo flow (intake → retrieval
+- * → generation → benchmark) so a non-developer can click through in order
+- * during the Sep 6 tracer demo.
+- */
+-
+-test.describe("Home — tracer demo walkthrough", () => {
+-  test.beforeEach(async ({ page }) => {
+-    await page.goto("/", { waitUntil: "networkidle" });
+-  });
+-
+-  test("renders walkthrough section with all 4 slice cards", async ({
+-    page,
+-  }) => {
+-    await expect(page.getByTestId("demo-walkthrough")).toBeVisible();
+-    await expect(page.getByTestId("demo-slice-intake")).toBeVisible();
+-    await expect(page.getByTestId("demo-slice-retrieval")).toBeVisible();
+-    await expect(page.getByTestId("demo-slice-generation")).toBeVisible();
+-    await expect(page.getByTestId("demo-slice-benchmark")).toBeVisible();
+-  });
+-
+-  test("each card links to its slice page", async ({ page }) => {
+-    const cards = [
+-      { id: "intake", href: "/intake" },
+-      { id: "retrieval", href: "/retrieval" },
+-      { id: "generation", href: "/generation" },
+-      { id: "benchmark", href: "/benchmark" },
+-    ];
+-    for (const { id, href } of cards) {
+-      const link = page
+-        .getByTestId(`demo-slice-${id}`)
+-        .getByRole("link");
+-      await expect(link).toHaveAttribute("href", href);
+-    }
+-  });
+-});
+diff --git a/web/tests/e2e/landing_template_grid.spec.ts b/web/tests/e2e/landing_template_grid.spec.ts
+new file mode 100644
+index 0000000..c6c35aa
+--- /dev/null
++++ b/web/tests/e2e/landing_template_grid.spec.ts
+@@ -0,0 +1,86 @@
++import AxeBuilder from "@axe-core/playwright";
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-f1-001 — Next.js landing page Card grid (8 templates).
++ *
++ * Replaces the slice-005 demo walkthrough cards with the F1 template-browse
++ * grid: 3 active templates (clinical/housing/climate, linked to /intake)
++ * + 5 to-build templates (aria-disabled, "Coming soon" badge, no link).
++ *
++ * Acceptance per `.codex/I-f1-001/brief.md` (Codex APPROVE iter 2):
++ *  - 8 cards render at 4 viewports (1920/1024/768/375)
++ *  - Active cards link to /intake?template=<id>
++ *  - To-build cards are aria-disabled, no href, keyboard-skipped
++ *  - axe-core WCAG-AA clean at 1024px
++ */
++
++const ACTIVE_IDS = ["clinical", "housing", "climate"] as const;
++const TO_BUILD_IDS = [
++  "ai_sovereignty",
++  "canada_us",
++  "defense",
++  "trade",
++  "workforce",
++] as const;
++
++const VIEWPORTS = [
++  { name: "1920", width: 1920, height: 1080 },
++  { name: "1024", width: 1024, height: 768 },
++  { name: "768", width: 768, height: 1024 },
++  { name: "375", width: 375, height: 667 },
++] as const;
++
++test.describe("Landing template grid — I-f1-001", () => {
++  for (const vp of VIEWPORTS) {
++    test(`renders 8 template cards at ${vp.name}px`, async ({ page }) => {
++      await page.setViewportSize({ width: vp.width, height: vp.height });
++      await page.goto("/", { waitUntil: "networkidle" });
++
++      await expect(page.getByTestId("template-grid")).toBeVisible();
++
++      for (const id of ACTIVE_IDS) {
++        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
++      }
++      for (const id of TO_BUILD_IDS) {
++        await expect(page.getByTestId(`template-card-${id}`)).toBeVisible();
++      }
++
++      // Visual regression artifact (CI does not enforce diff on Linux per
++      // web_ci.yml policy; this captures the screenshot for local review).
++      await page.screenshot({
++        path: `web/tests/e2e/screenshots/landing_template_grid_${vp.name}.png`,
++        fullPage: true,
++      });
++    });
++  }
++
++  test("active cards link to /intake?template=<id>", async ({ page }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    for (const id of ACTIVE_IDS) {
++      const link = page.getByTestId(`template-card-${id}-link`);
++      await expect(link).toHaveAttribute("href", `/intake?template=${id}`);
++    }
++  });
++
++  test("to-build cards are disabled and skip keyboard nav", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    for (const id of TO_BUILD_IDS) {
++      const card = page.getByTestId(`template-card-${id}`);
++      await expect(card).toHaveAttribute("aria-disabled", "true");
++      // No outbound link from disabled cards.
++      await expect(card.getByTestId(`template-card-${id}-link`)).toHaveCount(0);
++    }
++  });
++
++  test("WCAG-AA axe-core clean at 1024px", async ({ page }) => {
++    await page.setViewportSize({ width: 1024, height: 768 });
++    await page.goto("/", { waitUntil: "networkidle" });
++    const results = await new AxeBuilder({ page })
++      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
++      .analyze();
++    expect(results.violations).toEqual([]);
++  });
++});
+
+# canonical-diff-sha256: cd67572919774f79bc3f6f350f5ade164ca5651948b874d2c69e57283573d76f
