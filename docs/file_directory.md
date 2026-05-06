@@ -101,7 +101,7 @@ were restored immediately).
 
 ### Preflight / smoke
 
-- `pg_preflight_v2.py` — environment check (Docker `preflight` subcommand)
+- `pg_preflight.py` — environment check (Docker `preflight` subcommand)
 - `pg_smoke_test.py`, `pg_integration_smoke.py`, `pg_loopback_smoke.py`, `pg_search_full_smoke.py`
 - `pg_session_fix_verify.py`, `pg_subagent_validate.py`
 
@@ -230,7 +230,7 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 - `src/runner.py` — referenced in old README, does not exist.
 - `scripts/preflight.py`, `scripts/flight_test.py`,
   `scripts/postflight_audit.py` — referenced in old README, do not
-  exist. Use `scripts/pg_preflight_v2.py` instead.
+  exist. Use `scripts/pg_preflight.py` instead.
 - `scripts/final_audit.py`, `scripts/run_ragas_v3.py` — referenced
   by `scripts/full_cycle.py` (pipeline C). Do not exist; pipeline C
   is broken until these are either restored or removed.

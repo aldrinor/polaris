@@ -306,7 +306,7 @@ Code patterns that appear in older docs but are deprecated:
   13 P0-P12 phase scripts. The pipeline is NOT phase-per-CLI anymore.
 - **`scripts/preflight.py`**, **`scripts/flight_test.py`**,
   **`scripts/postflight_audit.py`** — do not exist. Use
-  `scripts/pg_preflight_v2.py` for preflight; there is no single-vector
+  `scripts/pg_preflight.py` for preflight; there is no single-vector
   flight test (use `run_honest_sweep_r3.py --only <slug>`).
 - **CASE_1/2/3/4 gating** — old P9 decision matrix, retired with
   `src/phases/`. Pipeline A uses a linear abort-or-continue model

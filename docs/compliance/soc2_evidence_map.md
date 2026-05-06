@@ -23,7 +23,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 
 | Criterion | Requirement | POLARIS Control | Evidence Artifact |
 |-----------|-------------|-----------------|-------------------|
-| CC1.1 | Organization demonstrates commitment to integrity and ethical values | System enforces "No Fake Working" policy (LAW II): no placeholders, no mocked data, no silent downgrades. Preflight static analysis (`scripts/pg_preflight_v2.py`) rejects forbidden patterns | `scripts/pg_preflight_v2.py` output; `ground_rules.md` Section: Reward Hacking Prevention |
+| CC1.1 | Organization demonstrates commitment to integrity and ethical values | System enforces "No Fake Working" policy (LAW II): no placeholders, no mocked data, no silent downgrades. Preflight static analysis (`scripts/pg_preflight.py`) rejects forbidden patterns | `scripts/pg_preflight.py` output; `ground_rules.md` Section: Reward Hacking Prevention |
 | CC1.2 | Board of directors demonstrates independence | N/A — Organizational control (outside POLARIS scope) | Customer responsibility |
 | CC1.3 | Management establishes structures, reporting lines, and authorities | RBAC role definitions: Researcher, Operator, Manager, Auditor, Admin with defined access levels and oversight responsibilities | `docs/todo_list.md` Phase 2B.2 — RBAC specification |
 | CC1.4 | Organization demonstrates commitment to competence | Automated quality gates enforce minimum competence thresholds at every pipeline node; no manual override without explicit audit trail | Quality gate configuration in `src/polaris_graph/state.py`; gate outcomes in JSONL trace |
@@ -43,7 +43,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 |-----------|-------------|-----------------|-------------------|
 | CC3.1 | Entity specifies objectives with sufficient clarity | Research query validated (5-2,000 characters); depth preset (quick/standard/deep) with defined time budgets; vector ID format enforced | `ResearchRequest` Pydantic model in `scripts/live_server.py`; `DEPTH_PRESETS` configuration |
 | CC3.2 | Entity identifies risks to achievement of objectives | Quality gates at every pipeline node with defined thresholds and failure actions; gating cases (CASE_1 through CASE_4) for evidence sufficiency assessment | Quality gate table in `architecture.md` Section 9.2; gating case definitions in Section 9.3 |
-| CC3.3 | Entity considers potential for fraud | Preflight static analysis (`scripts/pg_preflight_v2.py`) detects and rejects: silent exception handling, hard-coded values, placeholder implementations, sleep-based simulation, TODO/FIXME comments | Preflight scan results; forbidden pattern definitions in `ground_rules.md` |
+| CC3.3 | Entity considers potential for fraud | Preflight static analysis (`scripts/pg_preflight.py`) detects and rejects: silent exception handling, hard-coded values, placeholder implementations, sleep-based simulation, TODO/FIXME comments | Preflight scan results; forbidden pattern definitions in `ground_rules.md` |
 | CC3.4 | Entity identifies and assesses changes | Session log (`logs/session_log.md`) provides chronological audit trail of all changes; file directory (`docs/file_directory.md`) maintains hierarchical inventory | `logs/session_log.md`; `docs/file_directory.md` |
 
 ### CC4 — Monitoring Activities
@@ -78,7 +78,7 @@ POLARIS generates 1,302+ structured trace events per research run, maintains com
 |-----------|-------------|-----------------|-------------------|
 | CC7.1 | Entity manages infrastructure changes | Version-controlled codebase; session log tracks all operational changes with timestamps, rationale, and affected files | `logs/session_log.md` — append-only audit trail |
 | CC7.2 | Entity monitors system components | Pipeline tracer with 1,302+ events per run; Rich dashboard for real-time progress; health check endpoint (`GET /health`) | JSONL trace files; `/health` endpoint response |
-| CC7.3 | Entity evaluates changes to system components | Preflight static analysis on every change; quality gates validated on test runs; regression test suite | `scripts/pg_preflight_v2.py`; `tests/` directory |
+| CC7.3 | Entity evaluates changes to system components | Preflight static analysis on every change; quality gates validated on test runs; regression test suite | `scripts/pg_preflight.py`; `tests/` directory |
 | CC7.4 | Entity designs, develops, and implements changes | Mandatory documentation synchronization (LAW I): changes to project scope immediately update todo list, session log, file directory, and restart instructions | `docs/todo_list.md`; `state/restart_instructions.md` |
 
 ### CC8 — Change Management
@@ -149,7 +149,7 @@ For SOC 2 Type II examination, the following evidence should be collected over t
 | Session Logs | Continuous (append-only) | `logs/session_log.md` | Minimum 12 months |
 | Cost Ledger | Per research run | `logs/pg_cost_ledger.jsonl` | Minimum 12 months |
 | Quality Gate Outcomes | Per research run | Embedded in trace files (quality_gate event type) | Minimum 12 months |
-| Preflight Scan Results | Per code change | `scripts/pg_preflight_v2.py` output | Minimum 12 months |
+| Preflight Scan Results | Per code change | `scripts/pg_preflight.py` output | Minimum 12 months |
 | Bug Log | Continuous (active tracking) | `logs/bug_log.md` | Minimum 12 months |
 | Configuration Snapshots | Per deployment | `.env` (redacted), `config/settings/*.yaml` | Minimum 12 months |
 | Access Logs | Continuous | Server access logs | Minimum 12 months |
@@ -166,7 +166,7 @@ For SOC 2 Type II examination, the following evidence should be collected over t
 
 2. **Output JSON** (`outputs/polaris_graph/{vector_id}.json`): Complete research output including report text, evidence database, verification results, bibliography, quality metrics, and cost summary.
 
-3. **Preflight Report** (`scripts/pg_preflight_v2.py` output): Static analysis results showing absence of forbidden patterns (silent exceptions, hard-coded values, placeholders, mock data in production).
+3. **Preflight Report** (`scripts/pg_preflight.py` output): Static analysis results showing absence of forbidden patterns (silent exceptions, hard-coded values, placeholders, mock data in production).
 
 4. **Session Log** (`logs/session_log.md`): Chronological audit trail of all operational decisions, changes, and their rationale.
 

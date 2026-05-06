@@ -558,7 +558,7 @@ Auto-generated from a static AST scan of `src/` + `scripts/` on 2026-04-18. **81
 | `PG_POLISH_MIN_LENGTH_RATIO` | `src/polaris_graph/agents/synthesizer.py:4191` |
 | `PG_POLISH_MIN_SECTION_WORDS` | `src/polaris_graph/agents/synthesizer.py:4122` |
 | `PG_PREFER_MARKDOWN` | `src/polaris_graph/state.py:150` |
-| `PG_PREFLIGHT_LIVE` | `scripts/pg_preflight_v2.py:48` |
+| `PG_PREFLIGHT_LIVE` | `scripts/pg_preflight.py:48` |
 | `PG_PROMPT_FRAGMENT_MAX_CHARS` | `src/polaris_graph/synthesis/section_writer.py:210` |
 | `PG_PROVENANCE_MIN_CONTENT_OVERLAP` | `src/polaris_graph/generator/provenance_generator.py:521` |
 | `PG_QUALITY_GATE_MIN_CITATIONS` | `src/polaris_graph/synthesis/section_writer.py:2249` |

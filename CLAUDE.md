@@ -283,7 +283,7 @@ POLARIS/
 │   ├── full_cycle.py             # Pipeline C (FROZEN, has broken imports)
 │   ├── audit_live_code.py        # Static import-closure analysis
 │   ├── codex_loop_parse.py       # Codex verdict parser
-│   ├── pg_preflight_v2.py        # Environment check (Docker `preflight` subcommand)
+│   ├── pg_preflight.py        # Environment check (Docker `preflight` subcommand)
 │   └── ...                       # 130 total scripts; many are one-off tools
 │
 ├── .codex/                # Codex↔Claude audit loop infrastructure
@@ -300,7 +300,7 @@ current codebase, despite appearing in older documentation):
 - `src/phases/` (the old "P0-P12" 13-phase scripts) — removed 2026-04-17
 - `src/runner.py` — never existed in current tree
 - `scripts/preflight.py`, `scripts/flight_test.py`,
-  `scripts/postflight_audit.py` — replaced by `pg_preflight_v2.py`;
+  `scripts/postflight_audit.py` — replaced by `pg_preflight.py`;
   single-vector testing now happens via `run_honest_sweep_r3.py --only`
 - `outputs/P{0..12}/` — no longer the output layout
 - `state/work_queue.json` with "175 vectors exactly" — deprecated invariant

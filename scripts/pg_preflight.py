@@ -8,7 +8,7 @@ Replaces the old 16-test pg_smoke_test.py with 4 tiers of checks:
   Tier 4 (5):  Quality tests -- would degrade output
 
 Usage:
-    python scripts/pg_preflight_v2.py
+    python scripts/pg_preflight.py
 
 Set PG_PREFLIGHT_LIVE=1 in .env to run live API tests (Tier 3).
 """
@@ -843,7 +843,7 @@ async def test_content_cache_roundtrip() -> TestResult:
             SKIP,
             "Skipped (live test, set PG_PREFLIGHT_LIVE=1)",
         )
-    test_url = "https://preflight-test.invalid/pg_preflight_v2_test"
+    test_url = "https://preflight-test.invalid/pg_preflight_test"
     test_content = "Preflight v2 test content -- safe to delete"
     try:
         from src.polaris_graph.memory.content_cache import (
@@ -913,7 +913,7 @@ async def test_search_cache_roundtrip() -> TestResult:
             SKIP,
             "Skipped (live test, set PG_PREFLIGHT_LIVE=1)",
         )
-    test_query = "pg_preflight_v2_test_query_delete_safe"
+    test_query = "pg_preflight_test_query_delete_safe"
     test_results = [
         {"url": "https://example.com", "title": "Test", "snippet": "Test snippet"}
     ]

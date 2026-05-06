@@ -60,7 +60,7 @@ DEPRECATION
         ;;
     preflight)
         echo "Running preflight checks..."
-        exec python -m scripts.pg_preflight_v2
+        exec python -m scripts.pg_preflight
         ;;
     shell)
         echo "Starting interactive shell..."
