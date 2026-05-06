@@ -109,10 +109,12 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
             placeholder="Search templates..."
             className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
           />
-          <ul className="max-h-80 overflow-y-auto" role="listbox">
+          <ul className="max-h-80 overflow-y-auto" role="listbox" aria-label="Template results">
             {scored.map((t, i) => (
               <li
                 key={t.id}
+                role="option"
+                aria-selected={i === clamped}
                 data-testid={`palette-item-${t.id}`}
                 data-active={i === clamped ? "true" : undefined}
                 aria-disabled={!t.active || undefined}
