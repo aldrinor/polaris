@@ -118,3 +118,4 @@ Codex iter 6 convergence call said "build harness" via `git ls-tree -r 365f334` 
 **Validates the cap directive:** Codex front-loaded findings in iter 1 (all 4 P1s real), iter 2-4 caught second-order leaks each cycle (each new P1 only visible after the prior fix landed), iter 5 caught a typo in the §8.3.1 prose itself. The 5-cap shipped policy in ~half the time iter-21 cleanup_audit took.
 
 **Side effect:** discovered need for §8.4 (computer-resource discipline) after the user's machine needed reboot from accumulated codex sub-process RAM. Folded into this same PR (still §8 scope; not a separate Issue).
+I-f2-002 brief iter1=APPROVE; diff iter1=APPROVE 0/0/0; tokens=128931
