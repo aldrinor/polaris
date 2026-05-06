@@ -363,6 +363,32 @@ export interface IntakeScopeDecision {
   decision_id: string;
   decided_at_utc: string;
   latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
 }
 
 export interface IntakeSuccessResponse {
@@ -470,10 +496,7 @@ export interface RetrievalSuccessResponse {
 
 export interface RetrievalErrorBody {
   error: true;
-  code:
-    | "wrong_status"
-    | "wrong_scope_class"
-    | "fetch_backend_unavailable";
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
   message: string;
   decision_id: string | null;
 }
@@ -657,9 +680,7 @@ export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
 }
 
 /** Filter to non-dropped sections (verified + regenerated). */
-export function keptSections(
-  report: VerifiedReport,
-): VerifiedReportSection[] {
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
   return report.sections.filter((s) => s.section_status !== "dropped");
 }
 

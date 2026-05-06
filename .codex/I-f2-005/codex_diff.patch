@@ -1,0 +1,285 @@
+diff --git a/web/app/(test_harness)/disambiguation_modal_preview/_client.tsx b/web/app/(test_harness)/disambiguation_modal_preview/_client.tsx
+index 28ba523..af42b8d 100644
+--- a/web/app/(test_harness)/disambiguation_modal_preview/_client.tsx
++++ b/web/app/(test_harness)/disambiguation_modal_preview/_client.tsx
+@@ -2,10 +2,8 @@
+ 
+ import { useState } from "react";
+ 
+-import {
+-  DisambiguationModal,
+-  type DisambiguationCluster,
+-} from "@/app/intake/components/disambiguation_modal";
++import { DisambiguationModal } from "@/app/intake/components/disambiguation_modal";
++import type { DisambiguationCluster } from "@/lib/api";
+ 
+ const FIXTURE_CLUSTERS: DisambiguationCluster[] =
+   "syndrome,institute,chemical,company,course".split(",").map((label, i) => ({
+diff --git a/web/app/intake/components/disambiguation_modal.tsx b/web/app/intake/components/disambiguation_modal.tsx
+index d0f0955..c29c5c5 100644
+--- a/web/app/intake/components/disambiguation_modal.tsx
++++ b/web/app/intake/components/disambiguation_modal.tsx
+@@ -4,15 +4,10 @@ import { useEffect, useRef } from "react";
+ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+ 
+ import { Button } from "@/components/ui/button";
++import type { DisambiguationCluster } from "@/lib/api";
+ 
+ const MAX_SAMPLE_LEN = 80;
+ 
+-export type DisambiguationCluster = {
+-  cluster_id: number;
+-  label: string;
+-  sample_snippets: string[];
+-};
+-
+ export type DisambiguationModalProps = {
+   open: boolean;
+   clusters: DisambiguationCluster[];
+diff --git a/web/app/intake/components/intake_form.tsx b/web/app/intake/components/intake_form.tsx
+index 12de2f9..0682036 100644
+--- a/web/app/intake/components/intake_form.tsx
++++ b/web/app/intake/components/intake_form.tsx
+@@ -7,11 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Input } from "@/components/ui/input";
+ import {
+   IntakeBadRequestError,
++  runDisambiguation,
+   runIntake,
++  type DisambiguationCluster,
+   type IntakeScopeDecision,
+ } from "@/lib/api";
+ 
+ import { AmbiguityModal } from "./ambiguity_modal";
++import { DisambiguationModal } from "./disambiguation_modal";
+ import { ScopeDecisionView } from "./scope_decision_view";
+ 
+ type IntakeState =
+@@ -30,6 +33,13 @@ export function IntakeForm() {
+   const [question, setQuestion] = useState("");
+   const [state, setState] = useState<IntakeState>({ kind: "idle" });
+   const [modalOpen, setModalOpen] = useState(false);
++  const [disambigClusters, setDisambigClusters] = useState<
++    DisambiguationCluster[]
++  >([]);
++  const [disambigOpen, setDisambigOpen] = useState(false);
++  const [pickedClusterLabel, setPickedClusterLabel] = useState<string | null>(
++    null,
++  );
+ 
+   async function submit(e: React.FormEvent<HTMLFormElement>) {
+     e.preventDefault();
+@@ -49,6 +59,17 @@ export function IntakeForm() {
+       if (result.decision.status === "ambiguous_needs_clarification") {
+         setModalOpen(true);
+       }
++      if (
++        result.decision.needs_disambiguation &&
++        result.decision.candidate_snippets &&
++        result.decision.candidate_snippets.length > 0
++      ) {
++        const dis = await runDisambiguation(result.decision.candidate_snippets);
++        if (dis.is_ambiguous && dis.clusters.length > 1) {
++          setDisambigClusters(dis.clusters);
++          setDisambigOpen(true);
++        }
++      }
+     } catch (err) {
+       if (err instanceof IntakeBadRequestError) {
+         setState({ kind: "error", message: err.message });
+@@ -90,9 +111,9 @@ export function IntakeForm() {
+               autoComplete="off"
+             />
+             <p className="text-muted-foreground text-xs">
+-              POLARIS only researches clinical evidence questions
+-              (efficacy, safety, diagnosis, prognosis). Other domains will be
+-              marked out of scope.
++              POLARIS only researches clinical evidence questions (efficacy,
++              safety, diagnosis, prognosis). Other domains will be marked out of
++              scope.
+             </p>
+ 
+             <div className="flex flex-wrap items-center gap-2">
+@@ -104,9 +125,7 @@ export function IntakeForm() {
+               >
+                 {state.kind === "loading" ? "Checking…" : "Check scope"}
+               </Button>
+-              <span className="text-muted-foreground text-xs">
+-                or try:
+-              </span>
++              <span className="text-muted-foreground text-xs">or try:</span>
+               {SAMPLE_QUESTIONS.map((sample) => (
+                 <button
+                   key={sample}
+@@ -143,6 +162,21 @@ export function IntakeForm() {
+         onContinue={() => setModalOpen(false)}
+         onCancel={() => setModalOpen(false)}
+       />
++
++      <DisambiguationModal
++        open={disambigOpen}
++        clusters={disambigClusters}
++        onSelectCluster={(cid) => {
++          const found = disambigClusters.find((c) => c.cluster_id === cid);
++          setPickedClusterLabel(found?.label ?? null);
++          setDisambigOpen(false);
++        }}
++        onCancel={() => setDisambigOpen(false)}
++      />
++
++      <output data-testid="disambig-picked-label" className="sr-only">
++        {pickedClusterLabel ?? ""}
++      </output>
+     </div>
+   );
+ }
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index 3da5771..9de7a7a 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -363,6 +363,32 @@ export interface IntakeScopeDecision {
+   decision_id: string;
+   decided_at_utc: string;
+   latency_ms: number;
++  needs_disambiguation?: boolean;
++  candidate_snippets?: { text: string; embedding: number[] }[];
++}
++
++export type DisambiguationCluster = {
++  cluster_id: number;
++  label: string;
++  sample_snippets: string[];
++};
++
++export interface DisambiguationResponse {
++  is_ambiguous: boolean;
++  num_clusters: number;
++  clusters: DisambiguationCluster[];
++  server_time_utc: string;
++}
++
++export async function runDisambiguation(
++  candidates: { text: string; embedding: number[] }[],
++): Promise<DisambiguationResponse> {
++  const response = await fetch(`${BACKEND_URL}/api/disambiguation`, {
++    method: "POST",
++    headers: { "content-type": "application/json" },
++    body: JSON.stringify({ candidates }),
++  });
++  return asJsonOrThrow<DisambiguationResponse>(response);
+ }
+ 
+ export interface IntakeSuccessResponse {
+@@ -470,10 +496,7 @@ export interface RetrievalSuccessResponse {
+ 
+ export interface RetrievalErrorBody {
+   error: true;
+-  code:
+-    | "wrong_status"
+-    | "wrong_scope_class"
+-    | "fetch_backend_unavailable";
++  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+   message: string;
+   decision_id: string | null;
+ }
+@@ -657,9 +680,7 @@ export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+ }
+ 
+ /** Filter to non-dropped sections (verified + regenerated). */
+-export function keptSections(
+-  report: VerifiedReport,
+-): VerifiedReportSection[] {
++export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+   return report.sections.filter((s) => s.section_status !== "dropped");
+ }
+ 
+diff --git a/web/tests/e2e/intake_disambiguation.spec.ts b/web/tests/e2e/intake_disambiguation.spec.ts
+new file mode 100644
+index 0000000..e00cf43
+--- /dev/null
++++ b/web/tests/e2e/intake_disambiguation.spec.ts
+@@ -0,0 +1,84 @@
++import { expect, test } from "@playwright/test";
++
++test("BPEI: type → submit → modal → 3 candidates → pick → label flows to parent", async ({
++  page,
++}) => {
++  await page.route("**/api/intake", async (route) => {
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        error: false,
++        decision: {
++          status: "in_scope",
++          scope_class: "clinical_efficacy",
++          ambiguity_axes: [],
++          clarifications_needed: [],
++          provenance: {},
++          decision_id: "test-decision-id",
++          decided_at_utc: new Date().toISOString(),
++          latency_ms: 12,
++          needs_disambiguation: true,
++          candidate_snippets: [
++            { text: "BPEI syndrome notes", embedding: [1, 0] },
++            { text: "BPEI institute notes", embedding: [0, 1] },
++            { text: "BPEI chemical notes", embedding: [-1, 0] },
++          ],
++        },
++        server_time_utc: new Date().toISOString(),
++      }),
++    });
++  });
++
++  await page.route("**/api/disambiguation", async (route) => {
++    const body = JSON.parse(route.request().postData() ?? "{}");
++    expect(Array.isArray(body.candidates)).toBe(true);
++    expect(body.candidates).toHaveLength(3);
++    await new Promise((resolve) => setTimeout(resolve, 100));
++    await route.fulfill({
++      status: 200,
++      contentType: "application/json",
++      body: JSON.stringify({
++        is_ambiguous: true,
++        num_clusters: 3,
++        clusters: [
++          {
++            cluster_id: 0,
++            label: "syndrome",
++            sample_snippets: ["BPEI syndrome..."],
++          },
++          {
++            cluster_id: 1,
++            label: "institute",
++            sample_snippets: ["BPEI institute..."],
++          },
++          {
++            cluster_id: 2,
++            label: "chemical",
++            sample_snippets: ["BPEI chemical..."],
++          },
++        ],
++        server_time_utc: new Date().toISOString(),
++      }),
++    });
++  });
++
++  await page.goto("/intake");
++  await page.getByTestId("intake-question-input").fill("BPEI");
++
++  const t_submit = Date.now();
++  await page.getByTestId("intake-submit").click();
++  await expect(page.getByTestId("disambiguation-cluster-0")).toBeVisible();
++  const t_modal = Date.now();
++
++  expect(t_modal - t_submit).toBeLessThan(500);
++
++  const cards = page.locator('[data-testid^="disambiguation-cluster-"]');
++  await expect(cards).toHaveCount(3);
++
++  await page.getByTestId("disambiguation-cluster-1").click();
++  await expect(page.getByTestId("disambig-picked-label")).toHaveText(
++    "institute",
++  );
++  await expect(page.getByTestId("disambiguation-cluster-0")).toBeHidden();
++});
