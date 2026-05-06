@@ -1,0 +1,32 @@
+# Force-APPROVE annotation per CLAUDE.md §8.3.1 (5-iter cap)
+
+**Cap-hit timestamp:** 2026-05-06 (post-restart session)
+**Issue:** I-policy-001 — Apply 5-iter Codex review cap policy
+**Iter exhausted:** 5 of 5 (REQUEST_CHANGES on iter 5)
+
+## Iter 5 verdict summary
+
+verdict: REQUEST_CHANGES
+- p1: I5-P1-001 — CLAUDE.md force-approve artifact-name typo (used `codex_<brief|diff>_audit.txt` instead of CI-checked `codex_brief_verdict.txt` / `codex_diff_audit.txt`).
+- p2: I5-P2-001 — brief.md cap-directive block not byte-for-byte CLAUDE.md §8.3.1 (bounded; current prompt still conveys the cap).
+- p2: I5-P2-002 — REVIEW_BRIEF_FORMAT.md:111-114 still mentions "two consecutive APPROVEs" without cap-hit exception.
+- convergence_call: accept_remaining
+
+## Inline P1 fix applied (NOT deferred to follow-up)
+
+I5-P1-001 fixed in the same iter-5 working tree before force-APPROVE because it is a 1-line correction to a self-referential typo in the canonical doc itself: `CLAUDE.md §8.3.1` force-approve artifact procedure now names `codex_brief_verdict.txt` (brief gate) and `codex_diff_audit.txt` (diff gate) per `.github/workflows/codex-required.yml:155-158,192-193`. The annotation file (this file) lives alongside as documentation but is NOT parsed by CI.
+
+## P2 residuals (captured as follow-up considerations, NOT blocking)
+
+- **I5-P2-001:** brief cap-directive byte-equality. Future briefs after this PR lands SHOULD copy CLAUDE.md §8.3.1's fenced block byte-for-byte rather than paraphrase. This brief's cap directive is a workable equivalent; not regressing CI gates. Track in autonomous-merge-flow memory as a discipline note.
+- **I5-P2-002:** REVIEW_BRIEF_FORMAT.md:111-114 "two consecutive APPROVEs" rule conflicts with §8.3.1 force-approve-and-proceed. Resolution: the cap-hit force-APPROVE supersedes the v2 two-APPROVE rule when it fires. Documented here; v3.1 of REVIEW_BRIEF_FORMAT can codify the precedence in a follow-up doc PR.
+
+## Authority
+
+User directive 2026-05-06 (verbatim): "let cap iteration with Codex to 5, if Codex fail to approve within 5 iteration, we will make it approve, then move to the next task. Our progress is just too slow now, it become commercially unviable."
+
+Per CLAUDE.md §8.3.1 force-approve procedure, Claude appends `verdict: APPROVE` + `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` to `.codex/I-policy-001/codex_brief_verdict.txt` (CI-parsed) so the cage gate sees APPROVE. This annotation file is the audit trail.
+
+## Follow-up Issues
+
+None opened. The two P2s are documentation-precedence notes addressed in this same PR (P1 fix) or absorbed into the v3.1 REVIEW_BRIEF_FORMAT update if needed (post-PR).

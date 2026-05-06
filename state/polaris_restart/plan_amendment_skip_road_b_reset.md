@@ -99,4 +99,4 @@ remaining_blockers_for_execution: [...]
 
 APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
 
-List ALL findings this iteration. Do NOT hold any back to drip-feed across iterations. Same quality bar regardless of iteration count. No hard cap on iterations. Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+List ALL findings this iteration. Do NOT hold any back to drip-feed across iterations. Same quality bar regardless of iteration count. (HISTORICAL boilerplate; the "no hard cap" rule was REVOKED 2026-05-06 — if this advisory doc is reused, replace this line with the canonical CLAUDE.md §8.3.1 cap directive.) Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.

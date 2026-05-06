@@ -1,17 +1,20 @@
-# Codex review brief format v2 — applied 2026-04-29
+# Codex review brief format v3 — applied 2026-05-06
 
-Replaces the prior 4-7-point acceptance bar format with patterns
-from the 2025-2026 SOTA literature on AI-pair-programming review
-loops (ARIS, adversarial-review, Anthropic Building Effective
-Agents, OpenAI Codex prompting guide).
+v3 changelog (2026-05-06): added §0 mandatory iteration-cap directive per CLAUDE.md §8.3.1 user directive (commercial viability override). All v2 sections (§1-§8 below) remain in force unchanged.
 
-Diagnosis of the prior format (from sister-project research):
-the "toothpaste squeeze" pattern (Codex surfaces issues round-by-
-round instead of dumping everything in R1) was anchoring-bias on a
-holistic rubric. Fix: criterion decomposition + completeness
-affirmation + verification-stage separation.
+v2 (2026-04-29) origin: replaces the prior 4-7-point acceptance bar format with patterns from the 2025-2026 SOTA literature on AI-pair-programming review loops (ARIS, adversarial-review, Anthropic Building Effective Agents, OpenAI Codex prompting guide).
+
+Diagnosis of the prior format (from sister-project research): the "toothpaste squeeze" pattern (Codex surfaces issues round-by-round instead of dumping everything in R1) was anchoring-bias on a holistic rubric. Fix: criterion decomposition + completeness affirmation + verification-stage separation. Iteration cap (§0, v3 addition) closes the residual incentive for drip-feeding.
 
 ## Sections every brief must contain
+
+### 0. Iteration cap directive (NEW v3, 2026-05-06) — MANDATORY FIRST CONTENT BLOCK
+
+Paste the verbatim canonical block from CLAUDE.md §8.3.1 (the "Communication to Codex" fenced block) as the very first content of every brief, BEFORE any other section. Do NOT paraphrase, abbreviate, or restate — copy the §8.3.1 block byte-for-byte. Single source of truth: if §8.3.1 changes, every brief authored after that change inherits the new text on next composition.
+
+For reference at time of v3 authoring (2026-05-06), the §8.3.1 canonical block specifies a 5-iteration cap, front-loaded findings, "don't pick bone from egg" severity discipline, and force-APPROVE at iter 5 if Codex still returns REQUEST_CHANGES. Re-read CLAUDE.md §8.3.1 at brief authoring time — DO NOT trust this snapshot.
+
+This directive sits at the top of every brief because Codex's anchoring-bias drives the toothpaste-squeeze pattern; the cap eliminates the drip-feed incentive while the directive front-loads quality bar.
 
 ### 1. Pre-flight (top of brief)
 - **Context:** what's being reviewed (commit SHA, diff scope)

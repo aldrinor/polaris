@@ -66,7 +66,7 @@ Per CLAUDE.md §3.0 + plan §7.A LOCKED A2 + §7.B LOCKED B1:
 
 - `polaris_restart_2026_05_05.md` — cage tightened, role split, per-Issue triple
 - `forbidden_admin_merge.md` — `gh pr merge --admin` REVOKED
-- `feedback_codex_iteration_no_cap_no_toothpaste.md` — trust Codex through drift; iter-21 cleanup_audit APPROVE proved this
+- `feedback_codex_iteration_5cap_2026_05_06.md` — **CRITICAL CURRENT (2026-05-06).** 5-iter hard cap per Codex review per CLAUDE.md §8.3.1; force-APPROVE at iter 5 if still REQUEST_CHANGES. SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` (2026-05-05; the no-cap rule is REVOKED).
 - `failure_28_commits_2026_05_03.md` — DO NOT REPEAT. The 28-commits failure is what the cage prevents.
 
 ## Old auto-loop pattern (REVOKED 2026-05-05)

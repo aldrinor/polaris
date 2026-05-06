@@ -475,26 +475,43 @@ behavior. Sec 8.2 bans the behavior.
 
 When Codex reviews a plan, brief, audit, or diff, the iteration cycle is BINDING:
 
-### 8.3.1 No hard cap on iterations
+### 8.3.1 Hard cap of 5 iterations (UPDATED 2026-05-06 per user directive)
 
-Iterate until Codex returns `verdict: APPROVE` with `novel_p0: []` AND `continuing_p0: []` AND `p1: []`. Sister project hit 10 iterations on her restart plan; she did not stop. POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit reached iter 6 still REQUEST_CHANGES — that is a signal to keep iterating OR pivot to harness-execution per Codex's own directive, NOT a signal to declare convergence.
+**Cap: 5 iterations per Codex review (brief or diff).** If Codex has not returned `verdict: APPROVE` after iter 5, the document is force-APPROVE'd and Claude proceeds to the next step. Rationale (user directive 2026-05-06): unbounded Codex iteration was making delivery commercially unviable; the 5-cap forces convergence and matches the cycle-time budget needed to ship Carney by Sep 6.
+
+This SUPERSEDES the prior "no hard cap" rule. The principle "trust Codex's findings" remains — but trust is bounded at 5 iterations.
+
+**Communication to Codex — THE canonical cap directive (one source of truth, used verbatim in every brief; §8.3.3 + `.codex/REVIEW_BRIEF_FORMAT.md` §0 reference THIS block, not duplicate it):**
+
+```
+HARD ITERATION CAP: 5 per document. This is iter N of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**Force-APPROVE artifact procedure** (when iter 5 returns REQUEST_CHANGES):
+1. Author `.codex/<issue_id>/<gate>_iter5_force_approve.txt` (where `<gate>` = `codex_brief_verdict` for brief reviews or `codex_diff_audit` for diff reviews — these are the CI-checked filenames per `.github/workflows/codex-required.yml:155-158,192-193`) recording: cap-hit timestamp, residual P0/P1 from iter-5 verdict, follow-up Issue IDs created in `state/polaris_restart/issue_breakdown.md`, link to user directive 2026-05-06.
+2. Append a force-approval entry to `state/polaris_restart/iteration_trajectory.md` (per §8.3.5).
+3. The CI gate parses `codex_brief_verdict.txt` (brief gate) or `codex_diff_audit.txt` (diff gate) for the LAST `verdict:` line. Claude appends `verdict: APPROVE` as the final line of the iter-5 file along with a `# force-approved at iter 5 cap per CLAUDE.md §8.3.1` marker. The corresponding `_iter5_force_approve.txt` annotation file lives alongside as documentation but is not parsed by CI.
+4. Proceed to next step (commit, push, PR, merge).
+
+History (2026-05-05): POLARIS plan APPROVE'd at iter 4; issue breakdown at iter 4; cleanup audit at iter 21 (the latter was the trigger for this cap). 21-iter cleanup_audit produced ~30 real bugs, but the cycle time was prohibitive. New rule: cap convergence at iter 5; if real bugs persist at iter 5, ship anyway and capture residual concerns as follow-up Issues.
 
 ### 8.3.2 Trust Codex's verdicts
 
 Codex iter 1 of cleanup_audit caught `git clean -fdX` would nuke `.env` + 2.2GB `pg_checkpoints.sqlite`. Iter 2 caught `.gitignore:9` inline-comment-as-pattern bug. Iter 3 caught Bash-only script breaks on Windows. Iter 4 caught `state/polaris_restart/` doesn't exist at reset target. ~30 findings across 6 iters, ~25 would have caused real execution failures, 3 catastrophic. Empirical: Codex findings are real. Do not dismiss as noise.
 
-### 8.3.3 Anti-toothpaste-squeeze: brief MUST request exhaustive findings per iter
+### 8.3.3 Anti-toothpaste-squeeze: brief MUST include the §8.3.1 canonical cap directive
 
-Every Codex review brief MUST include:
+Every Codex review brief MUST start with the **verbatim §8.3.1 canonical cap directive** as its first content section (before any other prose). Single source of truth — DO NOT paraphrase or restate; copy §8.3.1's fenced block byte-for-byte.
 
-```
-List ALL findings this iteration. Do NOT hold any back to drip-feed
-across iterations. Same quality bar regardless of iteration count.
-No hard cap on iterations.
-Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
-```
+`.codex/REVIEW_BRIEF_FORMAT.md` §0 also references this same block. If §8.3.1 is updated, §0 and every subsequent brief automatically inherit the new wording at next authoring.
 
-Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. Sister project's plan iter-1 brief contained this verbatim. POLARIS plan iter-1 brief reused it. Every iter brief reuses it.
+Without this directive Codex may drip-feed findings, inflating iter count and obscuring convergence math. The 5-cap is the binding stop; the front-load demand is how we make 5 sufficient.
 
 ### 8.3.4 No scope-narrowing for false convergence
 
@@ -504,9 +521,11 @@ When iter N+1 produces MORE findings than iter N, do NOT restrict scope to make 
 
 Every Codex submission writes/appends to `state/polaris_restart/iteration_trajectory.md` recording iter N, doc, finding counts, tokens, key findings. User reads this between iterations to surface convergence math.
 
-### 8.3.6 When Codex says "stop paper, build harness" — that IS a directive
+### 8.3.6 When Codex says "stop paper, build harness" OR cap is hit — accept and ship
 
 Sister iter 6: "stop paper-iterating and build a tiny harness." POLARIS cleanup iter 6: reset-target inventory needs ground-truth via `git ls-tree -r 365f334`, not paper enumeration. When Codex's `convergence_call` shifts from `continue` to `accept_remaining` OR Codex says "build harness," respect it. Do not override with "let me iterate one more round."
+
+**ALSO** (added 2026-05-06): if iter 5 returns `verdict: REQUEST_CHANGES` per §8.3.1 cap, Claude force-APPROVE's the document, captures residual concerns from the iter-5 verdict as follow-up Issues in `state/polaris_restart/issue_breakdown.md`, logs the force-approval in `state/polaris_restart/iteration_trajectory.md`, and proceeds to the next step. The 5-cap IS a directive. Do not iterate to 6.
 
 ### 8.3.7 Codex auth uses ChatGPT subscription, not API
 
@@ -529,6 +548,38 @@ remaining_blockers_for_execution: [...]
 ```
 
 Loose verdict prose is rejected — resubmit asking for the schema.
+
+---
+
+## §8.4 Computer-resource discipline (CPU / GPU / RAM management) — added 2026-05-06
+
+User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill them when the task completes.**
+
+**Background-process discipline:**
+
+1. **One Codex `exec` at a time.** NEVER run two `codex exec` invocations in parallel. Each Codex call spawns sub-processes (~3 alive concurrently) that linger after exit; multiple in flight = OS-level resource exhaustion. Run codex in foreground with a 9-min timeout, OR if backgrounded, await completion before queuing the next.
+
+2. **Background tool-call audit before exit.** Before yielding back to the user OR scheduling a wakeup, check `Get-Process -Name codex,python,node` and kill orphaned processes from the just-completed task. Use `Stop-Process -Id <pid>` (or `taskkill /PID <pid> /F` if Stop-Process fails). NEVER leave a hung codex process across a turn boundary unless it is genuinely still doing work.
+
+3. **No parallel pytest / npm / playwright runs.** Single test run at a time per workspace. If a previous run is still active (`Get-Process -Name python,node`), wait for it OR kill it before starting a new one.
+
+4. **Heavy ML / vector / CUDA processes are forbidden in autonomous loops.** sentence-transformers, torch, chromadb, sgLang, vllm — these load models that pin GB-scale RAM. Run only on direct user instruction; release immediately after the task. Use `import gc; gc.collect()` + explicit model handle deletion in Python scripts; kill the Python process if the task is complete.
+
+5. **Long-running watch / dev servers must be tracked.** If you start `npm run dev`, `uvicorn`, `playwright test --watch`, or any persistent server, write the PID to `state/active_processes.json` (one-line append) and kill it before the next Issue starts unless it is genuinely still needed.
+
+6. **Pre-task inventory.** At the start of each new Codex iteration or autonomous loop step, run `Get-Process -Name codex,python,node | Format-Table Id, ProcessName, StartTime, CPU` and confirm no leftover processes from prior steps. If found, kill them.
+
+7. **Notify user on resource concern.** If OS-level resource pressure is detected (Task Manager shows >80% RAM or >90% CPU sustained for >2 minutes during an autonomous loop), pause the loop and report to the user before continuing. Do NOT silently continue while the computer is overloaded.
+
+8. **Codex sub-process lingering is real.** Empirically (2026-05-06 incident): `codex exec` spawns 2-3 child processes that may persist with low-CPU but accumulated RAM after the main process exits. Always check + kill child processes between iters.
+
+**Apply this in every command:**
+- Before running a heavy Bash command: list processes; kill stragglers.
+- After a heavy Bash command: list processes again; kill what shouldn't be alive.
+- When yielding to the user: orphans cleaned.
+- When the user reports a slow computer: stop autonomous work; do a process inventory; clean up; report.
+
+This discipline applies to ALL future autonomous Issue work. The 5-iter Codex cap (§8.3.1) caps iteration count; this §8.4 caps OS-level resource footprint per iter.
 
 ---
 
@@ -617,7 +668,7 @@ Mandatory ritual at session start. Mirrors sister project's CHARTER session-star
    - current step within issue (brief / diff / audit / merge / complete)
    - next action
 
-Per `feedback_codex_iteration_no_cap_no_toothpaste.md`: when iter count climbs but findings keep producing real bugs, trust Codex over advisor's restructure recommendation. Drift findings drop monotonically; they don't reproduce indefinitely.
+Per `feedback_codex_iteration_5cap_2026_05_06.md` (SUPERSEDES `feedback_codex_iteration_no_cap_no_toothpaste.md` 2026-05-05): the iteration cap is 5 per document; trust Codex's findings within the cap, force-APPROVE at iter 5 if still REQUEST_CHANGES per §8.3.1. The "trust Codex over advisor on iterate-vs-restructure" principle remains, bounded at 5 iterations.
 
 Per CHARTER §1: Claude does NOT have admin-merge authority. The structural-removal pattern (CI gate enforces, not soft discipline) prevents the failure mode of Claude promising "I won't merge" then merging anyway.
 
