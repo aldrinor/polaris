@@ -2,7 +2,7 @@
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useRouter } from "next/navigation";
-import { useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -22,29 +22,62 @@ type CommandPaletteProps = {
   signInLinkRef: RefObject<HTMLAnchorElement | null>;
 };
 
+const SYNONYMS: Record<string, string> = {
+  tirzepatide: "clinical",
+  ozempic: "clinical",
+  semaglutide: "clinical",
+  mounjaro: "clinical",
+};
+
+function score_template(t: Template, q: string): number {
+  if (!q) return 1; // empty search: equal score so all items render in original order
+  const ql = q.toLowerCase();
+  let s = 0;
+  if (t.id.toLowerCase() === ql) s += 100;
+  if (t.name.toLowerCase() === ql) s += 50;
+  if (t.name.toLowerCase().includes(ql)) s += 30;
+  if (t.summary.toLowerCase().includes(ql)) s += 10;
+  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
+  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
+  if (SYNONYMS[ql] === t.id) s += 60;
+  return s;
+}
+
 export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
   const router = useRouter();
   const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
   const [active_index, set_active_index] = useState(0);
 
-  const filtered = templates.filter((t) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return t.name.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) || t.sample_question.toLowerCase().includes(q);
-  });
+  useEffect(() => {
+    // Both debounced_search and active_index update in the timeout
+    // callback — async, not synchronous setState-in-effect. New query
+    // pre-selects the top-scored result.
+    const t = setTimeout(() => {
+      set_debounced_search(search);
+      set_active_index(0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const clamped = filtered.length === 0 ? 0 : Math.max(0, Math.min(active_index, filtered.length - 1));
+  const scored = templates
+    .map((t) => ({ t, s: score_template(t, debounced_search) }))
+    .filter(({ s }) => s > 0)
+    .sort((a, b) => b.s - a.s)
+    .map(({ t }) => t);
+
+  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
 
   function handle_key(event: React.KeyboardEvent) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      set_active_index((p) => Math.min(p + 1, filtered.length - 1));
+      set_active_index((p) => Math.min(p + 1, scored.length - 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       set_active_index((p) => Math.max(p - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      const tpl = filtered[clamped];
+      const tpl = scored[clamped];
       if (tpl?.active) {
         router.push(`/intake?template=${tpl.id}`);
         onOpenChange(false);
@@ -77,7 +110,7 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
             className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
           />
           <ul className="max-h-80 overflow-y-auto" role="listbox">
-            {filtered.map((t, i) => (
+            {scored.map((t, i) => (
               <li
                 key={t.id}
                 data-testid={`palette-item-${t.id}`}

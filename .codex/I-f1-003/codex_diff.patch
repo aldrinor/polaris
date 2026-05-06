@@ -1,0 +1,171 @@
+diff --git a/web/app/components/command_palette.tsx b/web/app/components/command_palette.tsx
+index 77d4b0c..d79d526 100644
+--- a/web/app/components/command_palette.tsx
++++ b/web/app/components/command_palette.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+ import { useRouter } from "next/navigation";
+-import { useState, type RefObject } from "react";
++import { useEffect, useState, type RefObject } from "react";
+ 
+ import { cn } from "@/lib/utils";
+ 
+@@ -22,29 +22,62 @@ type CommandPaletteProps = {
+   signInLinkRef: RefObject<HTMLAnchorElement | null>;
+ };
+ 
++const SYNONYMS: Record<string, string> = {
++  tirzepatide: "clinical",
++  ozempic: "clinical",
++  semaglutide: "clinical",
++  mounjaro: "clinical",
++};
++
++function score_template(t: Template, q: string): number {
++  if (!q) return 1; // empty search: equal score so all items render in original order
++  const ql = q.toLowerCase();
++  let s = 0;
++  if (t.id.toLowerCase() === ql) s += 100;
++  if (t.name.toLowerCase() === ql) s += 50;
++  if (t.name.toLowerCase().includes(ql)) s += 30;
++  if (t.summary.toLowerCase().includes(ql)) s += 10;
++  if (t.sample_question.toLowerCase().includes(ql)) s += 5;
++  if (t.out_of_scope.toLowerCase().includes(ql)) s += 2;
++  if (SYNONYMS[ql] === t.id) s += 60;
++  return s;
++}
++
+ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }: CommandPaletteProps) {
+   const router = useRouter();
+   const [search, set_search] = useState("");
++  const [debounced_search, set_debounced_search] = useState("");
+   const [active_index, set_active_index] = useState(0);
+ 
+-  const filtered = templates.filter((t) => {
+-    if (!search) return true;
+-    const q = search.toLowerCase();
+-    return t.name.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) || t.sample_question.toLowerCase().includes(q);
+-  });
++  useEffect(() => {
++    // Both debounced_search and active_index update in the timeout
++    // callback — async, not synchronous setState-in-effect. New query
++    // pre-selects the top-scored result.
++    const t = setTimeout(() => {
++      set_debounced_search(search);
++      set_active_index(0);
++    }, 150);
++    return () => clearTimeout(t);
++  }, [search]);
++
++  const scored = templates
++    .map((t) => ({ t, s: score_template(t, debounced_search) }))
++    .filter(({ s }) => s > 0)
++    .sort((a, b) => b.s - a.s)
++    .map(({ t }) => t);
+ 
+-  const clamped = filtered.length === 0 ? 0 : Math.max(0, Math.min(active_index, filtered.length - 1));
++  const clamped = scored.length === 0 ? 0 : Math.max(0, Math.min(active_index, scored.length - 1));
+ 
+   function handle_key(event: React.KeyboardEvent) {
+     if (event.key === "ArrowDown") {
+       event.preventDefault();
+-      set_active_index((p) => Math.min(p + 1, filtered.length - 1));
++      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+     } else if (event.key === "ArrowUp") {
+       event.preventDefault();
+       set_active_index((p) => Math.max(p - 1, 0));
+     } else if (event.key === "Enter") {
+       event.preventDefault();
+-      const tpl = filtered[clamped];
++      const tpl = scored[clamped];
+       if (tpl?.active) {
+         router.push(`/intake?template=${tpl.id}`);
+         onOpenChange(false);
+@@ -77,7 +110,7 @@ export function CommandPalette({ open, onOpenChange, templates, signInLinkRef }:
+             className="border-border focus:ring-ring rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+           />
+           <ul className="max-h-80 overflow-y-auto" role="listbox">
+-            {filtered.map((t, i) => (
++            {scored.map((t, i) => (
+               <li
+                 key={t.id}
+                 data-testid={`palette-item-${t.id}`}
+diff --git a/web/tests/e2e/command_palette_suggest.spec.ts b/web/tests/e2e/command_palette_suggest.spec.ts
+new file mode 100644
+index 0000000..b07bee2
+--- /dev/null
++++ b/web/tests/e2e/command_palette_suggest.spec.ts
+@@ -0,0 +1,70 @@
++import { expect, test } from "@playwright/test";
++
++/**
++ * I-f1-003 — Live template suggestion as user types.
++ *
++ * Validates the debounced + scored search inside the command palette:
++ *  - "tirzepatide" (synonym) → exactly one visible item: clinical.
++ *  - "BPEI" (no match) → empty list (zero false-positives).
++ *  - "tirzepatide" + Enter → /intake?template=clinical via scoring path.
++ *
++ * Each test waits for header-sign-in-link visible after networkidle to
++ * prove client shell hydration; then opens palette via Ctrl+K.
++ */
++
++const SUGGEST_BUDGET_MS = 250; // 150ms debounce + 100ms render budget
++
++test.describe("Command palette suggest — I-f1-003", () => {
++  test("synonym 'tirzepatide' yields exactly one item: clinical", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    // Empty palette opens with all 8 templates visible (initial state).
++    const items = page.locator('[data-testid^="palette-item-"]');
++    await expect(items).toHaveCount(8);
++
++    await page.getByTestId("command-palette-input").fill("tirzepatide");
++    // Post-debounce post-scoring: synonym map fires and only clinical
++    // survives the filter. Plain substring filter would yield 0 items
++    // (no template name/summary contains "tirzepatide"), so this
++    // assertion proves scoring + synonym map ran.
++    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
++    await expect(page.getByTestId("palette-item-clinical")).toBeVisible();
++  });
++
++  test("'BPEI' yields zero items (no false-positive)", async ({ page }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    await page.keyboard.press("Control+k");
++    await expect(page.getByTestId("command-palette")).toBeVisible();
++
++    await page.getByTestId("command-palette-input").fill("BPEI");
++    // After debounce + render, nothing should match.
++    await page.waitForTimeout(SUGGEST_BUDGET_MS);
++    const items = page.locator('[data-testid^="palette-item-"]');
++    await expect(items).toHaveCount(0);
++  });
++
++  test("'tirzepatide' + Enter navigates to /intake?template=clinical", async ({
++    page,
++  }) => {
++    await page.goto("/", { waitUntil: "networkidle" });
++    await expect(page.getByTestId("header-sign-in-link")).toBeVisible();
++
++    await page.keyboard.press("Control+k");
++    const items = page.locator('[data-testid^="palette-item-"]');
++    await expect(items).toHaveCount(8);
++
++    await page.getByTestId("command-palette-input").fill("tirzepatide");
++    // Wait for post-debounce post-scoring state (count=1 → only clinical).
++    await expect(items).toHaveCount(1, { timeout: SUGGEST_BUDGET_MS + 100 });
++    await page.keyboard.press("Enter");
++    await page.waitForURL("**/intake?template=clinical");
++  });
++});
+
+# canonical-diff-sha256: 8fcab86beac7dc48acb3f85fd85197f457e2804af8498755bf8038da79f174da
