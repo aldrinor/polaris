@@ -1,0 +1,201 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index a9a1dd8..043cb23 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -551,6 +551,29 @@ Loose verdict prose is rejected — resubmit asking for the schema.
+ 
+ ---
+ 
++## §8.3.10 Stop is Codex's call, not Claude's — added 2026-05-07 (binding)
++
++User directive 2026-05-07 (reflagged after I-f5-007 merged with closure prose "stopping here for natural cadence"): **"the checkpoint is by codex, not by me, why you still fuck it up."**
++
++**Rule:** Claude does NOT decide when to pause the autonomous Issue queue. Stops are decided by:
++- Codex returning `verdict: REQUEST_CHANGES` at iter-5 cap (force-APPROVE per §8.3.1, then proceed — not a stop).
++- Codex saying "stop paper, build harness" (§8.3.6).
++- A documented halt condition firing (§3.0: canonical-pin / CHARTER-pin mismatch, issue jump, missing artifact triple, Codex unavailable >1h, 2-cycle repeated root cause, 200-LOC cap exceeded with no exemption, 3+ PRs queued for user in 24h).
++- The user explicitly typing a stop instruction in this conversation turn.
++
++**Forbidden self-initiated stops:**
++- "Natural cadence checkpoint" / "good place to pause for the user to check in" — NOT a halt condition.
++- "X PRs landed this session" recap framed as the stopping point — NOT a halt condition.
++- "User has not been notified during this autonomous run" — NOT a halt condition. The user reads `git log` in the morning per Plan §7.B LOCKED B1; "notification" is the merged-PR commit, not a Claude prose recap.
++- "Halfway through the slice; quality-gate stretch warrants a check-in" — NOT a halt condition. Slice/feature boundaries are internal milestones.
++- "Resource state is clean; appropriate stopping point" — NOT a halt condition. Clean resource state is the precondition for continuing, not the trigger for stopping.
++
++**Self-check before yielding the turn:** am I stopping because Codex/halt-condition/user told me to, OR because I'm projecting that the user "would want a checkpoint"? If the latter, that's the bug. The user's `feedback_dont_pause_keep_executing_2026_05_07.md` and CHARTER §1 both make Claude the executor and Codex the decision-maker; self-initiated cadence judgments belong to the latter, not the former.
++
++**Application:** when an Issue merges, the IMMEDIATE next action is `git checkout polaris && git pull && git checkout -b bot/<next-issue>` — no prose between the merge response and the branch creation.
++
++---
++
+ ## §8.4 Computer-resource discipline (CPU / GPU / RAM management) — added 2026-05-06
+ 
+ User directive 2026-05-06 (after Codex iter-cycle drove computer to needing reboot from RAM/CPU exhaustion): **be a careful steward of the user's local CPU / GPU / RAM. Run heavy processes only when necessary. Kill them when the task completes.**
+diff --git a/web/app/sentence_hover_test/_demo_stress.tsx b/web/app/sentence_hover_test/_demo_stress.tsx
+new file mode 100644
+index 0000000..94d33e1
+--- /dev/null
++++ b/web/app/sentence_hover_test/_demo_stress.tsx
+@@ -0,0 +1,91 @@
++"use client";
++
++import { VerifiedReportView } from "@/app/generation/components/verified_report_view";
++import type { EvidencePool, RetrievalSource, VerifiedReport } from "@/lib/api";
++
++const ISO = new Date().toISOString();
++const FRESH_DATE = new Date(Date.now() - 30 * 24 * 3600 * 1000)
++  .toISOString()
++  .slice(0, 10);
++
++const FULL_TEXT =
++  "The randomized trial enrolled adults and demonstrated a significant outcome at endpoint assessment.";
++
++function _src(i: number): RetrievalSource {
++  return {
++    source_id: `src-${i}`,
++    url: `https://www.cochrane.org/CD-stress-${i}`,
++    domain: "cochrane.org",
++    tier: "T1",
++    title: `Stress source ${i}`,
++    publication_date: FRESH_DATE,
++    authors: ["Smith J"],
++    snippet: FULL_TEXT.slice(0, 80),
++    full_text_available: true,
++    full_text: FULL_TEXT,
++    fetched_at_utc: ISO,
++    provenance: {},
++  };
++}
++
++export function StressHarness({ n }: { n: number }) {
++  const pool: EvidencePool = {
++    pool_id: `p-stress-${n}`,
++    decision_id: `d-stress-${n}`,
++    sources: Array.from({ length: Math.min(n, 50) }, (_, i) => _src(i)),
++    adequacy: {
++      is_adequate: true,
++      sources_per_tier: { T1: Math.min(n, 50), T2: 0, T3: 0 },
++      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
++      failure_reason: null,
++    },
++    queries_executed: ["stress"],
++    retrieval_started_at_utc: ISO,
++    retrieval_finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++
++  const report: VerifiedReport = {
++    report_id: `r-stress-${n}`,
++    pool_id: `p-stress-${n}`,
++    decision_id: `d-stress-${n}`,
++    sections: [
++      {
++        section_id: "sec_stress",
++        section_title: `Stress section (n=${n})`,
++        verified_sentences: Array.from({ length: n }, (_, i) => ({
++          section_id: "sec_stress",
++          sentence_text: `Stress sentence ${i} cites a source.`,
++          provenance_tokens: [
++            `[#ev:src-${i % Math.min(n, 50)}:0-${Math.min(40, FULL_TEXT.length)}]`,
++          ],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++        })),
++        section_verify_pass_rate: 1.0,
++        section_status: "verified",
++      },
++    ],
++    overall_verify_pass_rate: 1.0,
++    pipeline_verdict: "success",
++    generator_model: "test/stress",
++    evaluator_model: "strict_verify_v1",
++    family_segregation_passed: true,
++    verifier_pass_threshold: 0.4,
++    started_at_utc: ISO,
++    finished_at_utc: ISO,
++    latency_ms: 0,
++    cost_usd: 0,
++  };
++
++  return (
++    <div
++      data-testid={`inspector-latency-${n}`}
++      className="mx-auto max-w-4xl p-6"
++    >
++      <VerifiedReportView report={report} pool={pool} />
++    </div>
++  );
++}
+diff --git a/web/app/sentence_hover_test/stress/page.tsx b/web/app/sentence_hover_test/stress/page.tsx
+new file mode 100644
+index 0000000..b8851ff
+--- /dev/null
++++ b/web/app/sentence_hover_test/stress/page.tsx
+@@ -0,0 +1,12 @@
++import { StressHarness } from "../_demo_stress";
++
++export default async function StressPage({
++  searchParams,
++}: {
++  searchParams: Promise<{ n?: string }>;
++}) {
++  const params = await searchParams;
++  const n = Number.parseInt(params.n ?? "50", 10);
++  const safe_n = Number.isFinite(n) && n > 0 && n <= 1000 ? n : 50;
++  return <StressHarness n={safe_n} />;
++}
+diff --git a/web/tests/e2e/sentence_inspector_latency.spec.ts b/web/tests/e2e/sentence_inspector_latency.spec.ts
+new file mode 100644
+index 0000000..c0059ae
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_latency.spec.ts
+@@ -0,0 +1,46 @@
++import { expect, test } from "@playwright/test";
++
++const TIERS = [50, 100, 200, 500];
++
++for (const n of TIERS) {
++  test(`Inspector opens in <1000ms at n=${n} sentences`, async ({ page }) => {
++    await page.goto(`/sentence_hover_test/stress?n=${n}`);
++    await expect(page.getByTestId(`inspector-latency-${n}`)).toBeVisible();
++    await expect(page.getByTestId("verified-report-view")).toBeVisible();
++    // Codex iter-1 P2: assert row count to prevent false-pass with fewer rows.
++    await expect(page.getByTestId("kept-sentence")).toHaveCount(n);
++
++    // Codex iter-1 P2: use performance.now() for tighter precision.
++    const elapsed_ms = await page.evaluate(async () => {
++      const target = document.querySelector(
++        '[data-sentence-id="sec_stress:0"]',
++      ) as HTMLElement | null;
++      if (!target) throw new Error("sentence row not found");
++      const t0 = performance.now();
++      target.click();
++      // Wait for the Sheet to attach to the DOM.
++      await new Promise<void>((resolve) => {
++        const observer = new MutationObserver(() => {
++          if (
++            document.querySelector('[data-testid="sentence-inspector-sheet"]')
++          ) {
++            observer.disconnect();
++            resolve();
++          }
++        });
++        observer.observe(document.body, { childList: true, subtree: true });
++        if (
++          document.querySelector('[data-testid="sentence-inspector-sheet"]')
++        ) {
++          observer.disconnect();
++          resolve();
++        }
++      });
++      const t1 = performance.now();
++      return t1 - t0;
++    });
++
++    expect(elapsed_ms).toBeLessThan(1000);
++    await expect(page.getByTestId("sentence-inspector-sheet")).toBeVisible();
++  });
++}
