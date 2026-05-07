@@ -604,6 +604,12 @@ export interface ReportVerifiedSentence {
   evaluator_agrees: boolean | null;
   is_synthesis_claim?: boolean;
   assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+}
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
 }
 
 export type AssertionSurface =

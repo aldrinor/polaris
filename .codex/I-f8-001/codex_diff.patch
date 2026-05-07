@@ -1,0 +1,179 @@
+diff --git a/src/polaris_graph/generator2/verified_report.py b/src/polaris_graph/generator2/verified_report.py
+index a7a1524..cfd0152 100644
+--- a/src/polaris_graph/generator2/verified_report.py
++++ b/src/polaris_graph/generator2/verified_report.py
+@@ -103,6 +103,15 @@ class VerifiedSentence(BaseModel):
+             "all six surfaces equally."
+         ),
+     )
++    contradiction: "ContradictionSignal | None" = Field(
++        default=None,
++        description=(
++            "Optional contradiction signal (I-f8-001). When present, "
++            "≥2 sources cited for this sentence disagree on the claim. "
++            "Default None preserves back-compat. Future Issue (F8-002+) "
++            "wires real detection into the generator."
++        ),
++    )
+     is_synthesis_claim: bool = Field(
+         default=False,
+         description=(
+@@ -168,6 +177,17 @@ class VerifiedSentence(BaseModel):
+ # FrameCoverage (I-f7-001)
+ # ---------------------------------------------------------------------------
+ 
++class ContradictionSignal(BaseModel):
++    """Inline contradiction annotation per sentence (I-f8-001).
++
++    Indicates ≥2 cited sources disagree on the claim in the sentence.
++    Future Issue (F8-002+) populates this from real conflict detection;
++    today the field is the surface, not the producer."""
++
++    disagreeing_source_count: int = Field(ge=2, le=20)
++    summary: str = Field(min_length=1, max_length=500)
++
++
+ GapReason = Literal[
+     "paywalled",
+     "no_oa",
+diff --git a/tests/polaris_graph/generator2/test_verified_report.py b/tests/polaris_graph/generator2/test_verified_report.py
+index 5bb0b51..e74a89d 100644
+--- a/tests/polaris_graph/generator2/test_verified_report.py
++++ b/tests/polaris_graph/generator2/test_verified_report.py
+@@ -8,6 +8,7 @@ import pytest
+ from pydantic import ValidationError
+ 
+ from polaris_graph.generator2.verified_report import (
++    ContradictionSignal,
+     FrameCoverage,
+     FrameGap,
+     GenerationError,
+@@ -107,6 +108,36 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+         )
+ 
+ 
++def test_verified_sentence_contradiction_default_none():
++    s = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="x.",
++        provenance_tokens=["[#ev:e:0-1]"],
++        verifier_pass=True,
++    )
++    assert s.contradiction is None
++
++
++def test_verified_sentence_with_contradiction_signal():
++    s = VerifiedSentence(
++        section_id="sec_x",
++        sentence_text="x.",
++        provenance_tokens=["[#ev:e:0-1]"],
++        verifier_pass=True,
++        contradiction=ContradictionSignal(
++            disagreeing_source_count=3,
++            summary="three sources disagree on dose",
++        ),
++    )
++    assert s.contradiction is not None
++    assert s.contradiction.disagreeing_source_count == 3
++
++
++def test_contradiction_signal_count_must_be_at_least_two():
++    with pytest.raises(ValidationError):
++        ContradictionSignal(disagreeing_source_count=1, summary="x")
++
++
+ def test_frame_coverage_minimal_no_gaps():
+     fc = FrameCoverage(covered_entity_count=15, total_entity_count=15)
+     assert fc.gaps == []
+diff --git a/web/app/generation/components/verified_report_view.tsx b/web/app/generation/components/verified_report_view.tsx
+index 12892b4..29cafcc 100644
+--- a/web/app/generation/components/verified_report_view.tsx
++++ b/web/app/generation/components/verified_report_view.tsx
+@@ -157,6 +157,15 @@ function SentenceRow({
+           dropped — {DROP_REASON_LABEL[sentence.drop_reason as DropReason]}
+         </span>
+       ) : null}
++      {!dropped && sentence.contradiction ? (
++        <span
++          data-testid={`inspector-contradiction-${sentence_id}`}
++          title={sentence.contradiction.summary}
++          className="inline-flex items-center gap-1 text-[10px] font-medium tracking-widest text-amber-700 uppercase dark:text-amber-300"
++        >
++          ⚠ {sentence.contradiction.disagreeing_source_count} sources disagree
++        </span>
++      ) : null}
+       {t1_conflict ? (
+         <span
+           data-testid="inspector-t1-conflict"
+diff --git a/web/app/sentence_hover_test/_demo.tsx b/web/app/sentence_hover_test/_demo.tsx
+index db09f2e..95e462b 100644
+--- a/web/app/sentence_hover_test/_demo.tsx
++++ b/web/app/sentence_hover_test/_demo.tsx
+@@ -248,6 +248,19 @@ const REPORT: VerifiedReport = {
+           drop_reason: null,
+           evaluator_agrees: true,
+         },
++        // sec_x:26 — contradiction signal (I-f8-001).
++        {
++          section_id: "sec_x",
++          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
++          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
++          verifier_pass: true,
++          drop_reason: null,
++          evaluator_agrees: true,
++          contradiction: {
++            disagreeing_source_count: 3,
++            summary: "Three Cochrane reviews disagree on dose-response curve",
++          },
++        },
+       ],
+       section_verify_pass_rate: 1.0,
+       section_status: "verified",
+diff --git a/web/lib/api.ts b/web/lib/api.ts
+index b2713f6..00d810f 100644
+--- a/web/lib/api.ts
++++ b/web/lib/api.ts
+@@ -604,6 +604,12 @@ export interface ReportVerifiedSentence {
+   evaluator_agrees: boolean | null;
+   is_synthesis_claim?: boolean;
+   assertion_surface?: AssertionSurface;
++  contradiction?: ContradictionSignal | null;
++}
++
++export interface ContradictionSignal {
++  disagreeing_source_count: number;
++  summary: string;
+ }
+ 
+ export type AssertionSurface =
+diff --git a/web/tests/e2e/sentence_inspector_contradiction.spec.ts b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+new file mode 100644
+index 0000000..a3c4da2
+--- /dev/null
++++ b/web/tests/e2e/sentence_inspector_contradiction.spec.ts
+@@ -0,0 +1,25 @@
++import { expect, test } from "@playwright/test";
++
++test("Sentence row with contradiction signal shows ⚠ badge", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  const row = page.locator('[data-sentence-id="sec_x:26"]');
++  const badge = row.getByTestId("inspector-contradiction-sec_x:26");
++  await expect(badge).toBeVisible();
++  await expect(badge).toContainText("3 sources disagree");
++  await expect(badge).toHaveAttribute(
++    "title",
++    /Three Cochrane reviews disagree on dose-response curve/,
++  );
++});
++
++test("Sentence row without contradiction shows NO contradiction badge", async ({
++  page,
++}) => {
++  await page.goto("/sentence_hover_test");
++  const row = page.locator('[data-sentence-id="sec_x:5"]');
++  await expect(row.getByTestId("inspector-contradiction-sec_x:5")).toHaveCount(
++    0,
++  );
++});

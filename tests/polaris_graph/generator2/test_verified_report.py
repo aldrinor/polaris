@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from polaris_graph.generator2.verified_report import (
+    ContradictionSignal,
     FrameCoverage,
     FrameGap,
     GenerationError,
@@ -105,6 +106,36 @@ def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
             drop_reason="numeric_mismatch",
             evaluator_agrees=True,
         )
+
+
+def test_verified_sentence_contradiction_default_none():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+    )
+    assert s.contradiction is None
+
+
+def test_verified_sentence_with_contradiction_signal():
+    s = VerifiedSentence(
+        section_id="sec_x",
+        sentence_text="x.",
+        provenance_tokens=["[#ev:e:0-1]"],
+        verifier_pass=True,
+        contradiction=ContradictionSignal(
+            disagreeing_source_count=3,
+            summary="three sources disagree on dose",
+        ),
+    )
+    assert s.contradiction is not None
+    assert s.contradiction.disagreeing_source_count == 3
+
+
+def test_contradiction_signal_count_must_be_at_least_two():
+    with pytest.raises(ValidationError):
+        ContradictionSignal(disagreeing_source_count=1, summary="x")
 
 
 def test_frame_coverage_minimal_no_gaps():

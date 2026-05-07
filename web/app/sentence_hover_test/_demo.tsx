@@ -248,6 +248,19 @@ const REPORT: VerifiedReport = {
           drop_reason: null,
           evaluator_agrees: true,
         },
+        // sec_x:26 — contradiction signal (I-f8-001).
+        {
+          section_id: "sec_x",
+          sentence_text: "Contradiction demo: ≥2 sources disagree on dose.",
+          provenance_tokens: [`[#ev:src-0:0-20]`, `[#ev:src-1:0-20]`],
+          verifier_pass: true,
+          drop_reason: null,
+          evaluator_agrees: true,
+          contradiction: {
+            disagreeing_source_count: 3,
+            summary: "Three Cochrane reviews disagree on dose-response curve",
+          },
+        },
       ],
       section_verify_pass_rate: 1.0,
       section_status: "verified",
