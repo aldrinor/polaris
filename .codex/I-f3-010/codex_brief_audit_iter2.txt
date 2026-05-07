@@ -1,0 +1,1935 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0081-ff83-72c1-bd52-3e8af871a1dd
+--------
+user
+# Codex Brief Review — I-f3-010 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-f3-010 — F3 sovereignty walkthrough
+**Phase:** 1 / **Feature:** F3
+**LOC budget:** 0 per breakdown ("walkthrough; no code"). **CHARTER §1 hard cap: 200.**
+
+## Reframe (per user directive 2026-05-06: "Codex signs, not user")
+
+Same pattern as I-f2-008. Original: "product-owner upload-and-fact-check walkthrough; recording: CLIENT classification visible, no external API call." Reframed: Codex-reviewed walkthrough doc cross-referencing the sovereignty enforcement substrate that already exists.
+
+## Mission
+
+Author `outputs/audits/I-f3-010/sovereignty_walkthrough.md` documenting:
+1. The 4-scenario walkthrough corpus (CLIENT-classified upload behavior).
+2. Cross-references to the substrate that enforces "no external API call":
+   - `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (codifies Carney v6.2 §332).
+   - `src/polaris_graph/sovereignty/router.py:assert_safe_for_external` strict-default gate.
+   - `tests/polaris_graph/sovereignty/test_red_team.py` 3 red-team tests (CLIENT, CAN_REAL, UNKNOWN).
+   - `.github/workflows/sovereignty.yml.pending_workflow_scope` CI gate (pending user-rename per OAuth scope limitation).
+3. The "CLIENT classification visible" acceptance: web/app/upload UI now displays `classification` field on UploadResponse (from I-f3-005); user-uploaded docs default to UNKNOWN per upload.py:53; UI shows the classification on each completed file row (TODO: surface that explicitly in I-f3-008b follow-up since current UI shows doc_id but not classification).
+
+## Acceptance criteria (binding)
+
+1. **`outputs/audits/I-f3-010/sovereignty_walkthrough.md`** (NEW): hand-filled walkthrough doc covering:
+   - Reframe rationale (Codex signs).
+   - 4-scenario table (CLIENT upload, CAN_REAL upload, UNKNOWN upload, PUBLIC_SYNTHETIC upload).
+   - Each row: input file + classification + expected outcome (UI behavior + sovereignty router behavior + CI assertion that proves no leak).
+   - Cross-references to existing substrate by file:line.
+   - Honest note: "CLIENT classification visible" requires a follow-up I-f3-008b to surface the classification badge in UI (currently doc_id is rendered, classification is in UploadResponse but not displayed).
+   - Codex acceptance criteria: "all 4 scenarios cross-reference substrate that exists at HEAD; no external API call provably blocked by EXTERNAL_LEAK_FORBIDDEN."
+
+## Planned diff shape
+
+```
+outputs/audits/I-f3-010/sovereignty_walkthrough.md   NEW +50
+```
+
+LOC: +50 net. Under CHARTER §1 200-cap by 150. Per breakdown's 0-LOC budget — exemption analogous to I-f2-008 (binding walkthrough deliverable).
+
+## Out of scope
+
+- Real human screen recording → user-driven if desired; not gating Codex sign-off.
+- Frontend classification badge → I-f3-008b follow-up (named in walkthrough doc).
+- Backend sovereignty router invocation at every external-egress site → I-f3-008c follow-up (CI gate currently runs unit tests; integration assertion that production code calls assert_safe_for_external requires a separate Issue).
+
+## Risks for Codex Red-Team
+
+1. **"CLIENT classification visible" is partially deferred.** The classification field exists in UploadResponse (from I-f3-005); rendering a visible classification badge is an I-f3-008b follow-up. Codex iter-1 may flag this as a P0 — argue HONESTLY that the walkthrough deliverable IS the documentation of current state + named follow-ups, not the badge itself.
+
+2. **Codex review approach.** Codex reads the walkthrough doc + verifies cited file:line refs exist at HEAD. Pass = all refs valid + scenarios match the documented enforcement.
+
+3. **Sovereignty workflow `.pending_workflow_scope` extension.** Documented as user-side activation (rename to `.yml`) — not Claude's responsibility post-OAuth-scope-limitation.
+
+4. **No new package dep.**
+
+5. **CHARTER §1 LOC cap.** 50 net. Per I-f2-008 exemption pattern.
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+codex
+I’ll review this as a sign-off gate: verify the new walkthrough exists, validate its cited HEAD references, and check whether the documented scenarios match the actual sovereignty substrate.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path outputs/audits/I-f3-010/sovereignty_walkthrough.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files outputs/audits/I-f3-010' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "EXTERNAL_LEAK_FORBIDDEN|def assert_safe_for_external|UploadResponse|classification|UNKNOWN|CLIENT|CAN_REAL|PUBLIC_SYNTHETIC|pending_workflow_scope" src tests .github outputs/audits/I-f3-010' in C:\POLARIS
+ succeeded in 1879ms:
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:3:**Reframe:** per user directive 2026-05-06 ("Codex signs, not user"), the original "product-owner upload-and-fact-check walkthrough; recording" is replaced by an audit trail of the sovereignty enforcement substrate that already exists. This document IS the durable deliverable Codex reviews for the "CLIENT classification visible, no external API call" verdict.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:9:| 1 | CLIENT-tagged .md upload | `CLIENT` | 201 with `parse_status="completed"`, `chunk_preview=[...]`, `classification="CLIENT"` | `assert_safe_for_external([item with CLIENT])` → `SovereigntyViolationError` | `src/polaris_graph/sovereignty/router.py:filter_for_external_egress` (strict default); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_client_doc_blocked` |
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:10:| 2 | CAN_REAL-tagged .pdf upload | `CAN_REAL` | 201 with `parse_status="queued"` (PDFs queue without sync parse); `classification="CAN_REAL"` | Sovereignty router blocks egress | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (frozenset includes CAN_REAL); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_can_real_blocked` |
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:11:| 3 | UNKNOWN-tagged upload (default when no classification specified) | `UNKNOWN` (default) | 201; `classification="UNKNOWN"` | Default-deny — UNKNOWN is in `EXTERNAL_LEAK_FORBIDDEN` per Carney v6.2 §332 | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN`; `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_unknown_default_deny_blocked` |
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:12:| 4 | PUBLIC_SYNTHETIC-tagged upload | `PUBLIC_SYNTHETIC` | 201; `classification="PUBLIC_SYNTHETIC"` | Sovereignty router PERMITS egress (only allowed classification per Carney v6.2 §332) | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (PUBLIC_SYNTHETIC NOT in set); `tests/polaris_graph/sovereignty/test_router.py:test_strict_allows_only_public_synthetic` |
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:16:- **`src/polaris_graph/sovereignty/classification.py`**: `DataClassification` enum (5 values) + `EXTERNAL_LEAK_FORBIDDEN = frozenset({CAN_REAL, PRIVATE, CLIENT, UNKNOWN})` codifies Carney v6.2 §332 "All non-PUBLIC_SYNTHETIC classifications blocked from external API."
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:18:- **`tests/polaris_graph/sovereignty/test_router.py`**: 9 unit tests including the 4-classification matrix + dict + dataclass item access.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:19:- **`tests/polaris_graph/sovereignty/test_red_team.py`**: 3 red-team tests proving the gate fires for CLIENT, CAN_REAL, and UNKNOWN-default-deny.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:20:- **`.github/workflows/sovereignty.yml.pending_workflow_scope`** (USER ACTION REQUIRED — rename to `.yml` to activate; bot account lacks `workflow` OAuth scope per project pattern). Workflow runs the full `tests/polaris_graph/sovereignty/` suite on every PR + push to `polaris`/`main`.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:22:## "CLIENT classification visible" — current state + follow-up
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:25:- Backend `UploadResponse.classification` field (`src/polaris_v6/api/upload.py:42`) is populated from the user's `Form("UNKNOWN")` default OR explicit form field.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:26:- Frontend `UploadResponse` type (`web/lib/api.ts:90-99`) includes the classification field.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:27:- Frontend UI (UploadDropZone, DocumentPreview, etc.) does NOT currently render a CLIENT-specific badge — the classification value is on the response object but not visually surfaced.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:30:- **I-f3-008b — Frontend: classification badge per uploaded file.** Render `<span data-testid="classification-badge-{id}">{classification}</span>` next to filename. Tests: 4 classifications render with distinct visual treatment; CLIENT renders prominently (red border).
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:36:The sovereignty CI gate (`.github/workflows/sovereignty.yml.pending_workflow_scope`) runs:
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:37:- `tests/polaris_graph/sovereignty/test_classification.py` (7 tests) — proves the policy set is correct.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:38:- `tests/polaris_graph/sovereignty/test_router.py` (9 tests) — proves the router blocks all non-PUBLIC_SYNTHETIC.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:39:- `tests/polaris_graph/sovereignty/test_red_team.py` (3 tests) — proves the gate fires for the 3 catastrophic classifications (CLIENT, CAN_REAL, UNKNOWN).
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:41:If anyone weakens `EXTERNAL_LEAK_FORBIDDEN` to allow CLIENT/CAN_REAL/UNKNOWN through, the red-team tests fail in CI and the PR cannot merge.
+outputs/audits/I-f3-010\sovereignty_walkthrough.md:55:- Frontend classification badge → I-f3-008b.
+src\auth\auth_manager.py:20:AUTH_SSO_CLIENT_ID = os.getenv("POLARIS_SSO_CLIENT_ID", "")
+src\auth\auth_manager.py:21:AUTH_SSO_CLIENT_SECRET = os.getenv("POLARIS_SSO_CLIENT_SECRET", "")
+src\quality\bias_detector.py:7:- Source bias classification (political, corporate, academic)
+src\quality\bias_detector.py:47:    UNKNOWN = "unknown"
+src\quality\bias_detector.py:72:# Known source bias classifications (expandable)
+src\quality\bias_detector.py:198:    confidence: float = 0.8  # Confidence in classification
+src\quality\bias_detector.py:455:        return BiasCategory.UNKNOWN
+src\quality\bias_detector.py:705:        unknown = report.category_counts.get(BiasCategory.UNKNOWN, 0)
+src\quality\bias_detector.py:780:        BiasCategory classification
+tests\polaris_v6\api\test_upload_adversarial.py:27:        data={"classification": "UNKNOWN"},
+src\utils\language_handler.py:55:    UNKNOWN = "unknown"
+src\utils\language_handler.py:75:    Language.UNKNOWN: "Unknown",
+src\utils\language_handler.py:322:                source_language=Language.UNKNOWN,
+src\utils\language_handler.py:417:            if lang != Language.UNKNOWN
+src\utils\language_handler.py:561:    return [lang.value for lang in Language if lang != Language.UNKNOWN]
+src\utils\cot_post_filter.py:5:CoT per run) with a cheap LLM classification pass.
+src\utils\cot_post_filter.py:11:4. Batch classification: ~30 lines per LLM call, structured JSON output
+src\utils\cot_post_filter.py:34:# Suspicious line patterns (cheap pre-check before LLM classification)
+src\utils\cot_post_filter.py:50:    Only these lines get sent to the LLM for classification.
+src\utils\cot_post_filter.py:104:    # Build classification prompt
+src\utils\cot_post_filter.py:178:        logger.warning(f"[FIX-211] Failed to parse LLM classification response: {e}")
+src\utils\cot_post_filter.py:181:        logger.error(f"[FIX-211] LLM classification failed: {e}")
+src\utils\cot_post_filter.py:285:        # Use a cheap, fast model for classification (not the expensive thinking model)
+src\agents\verifier_agent.py:90:        description="NLI classification"
+src\agents\verifier_agent.py:566:                    "text-classification",
+src\agents\triage_agent.py:9:Uses a lightweight model (GPT-4o-mini) for fast classification.
+src\agents\triage_agent.py:52:        description="Brief explanation of classification reasoning"
+src\agents\triage_agent.py:71:    Uses GPT-4o-mini for fast, cost-effective classification.
+src\agents\triage_agent.py:78:            task_tier="simple",  # Fast classification task
+src\agents\triage_agent.py:107:Analyze the query carefully and provide your classification."""
+src\agents\triage_agent.py:127:        # Build context for classification
+src\agents\triage_agent.py:145:        # Update state with classification
+src\agents\triage_agent.py:173:        TriageOutput with classification
+src\agents\synthesizer_agent.py:1159:                if getattr(ev, 'quality_tier', 'UNKNOWN') in allowed_tiers
+src\agents\synthesizer_agent.py:1182:Quality: {getattr(ev, 'quality_tier', 'UNKNOWN')}
+src\agents\synthesizer_agent.py:1284:Quality: {getattr(ev, 'quality_tier', 'UNKNOWN')}
+src\agents\search_agent.py:427:# SERPER CLIENT INTEGRATION
+src\agents\search_agent.py:438:    SERPER_CLIENT_AVAILABLE = True
+src\agents\search_agent.py:440:    SERPER_CLIENT_AVAILABLE = False
+src\polaris_v6\observability\log_redact.py:1:"""CAN_REAL data redaction for OTEL spans + structured logs.
+src\polaris_v6\observability\log_redact.py:3:Per CLAUDE.md security posture, `CAN_REAL` data MUST NOT cross to non-
+src\polaris_v6\observability\log_redact.py:6:CAN_REAL data is replaced with sha256 hash + length only.
+src\polaris_v6\observability\log_redact.py:19:    "PUBLIC_SYNTHETIC",
+src\polaris_v6\observability\log_redact.py:20:    "CAN_REAL",
+src\polaris_v6\observability\log_redact.py:22:    "CLIENT",
+src\polaris_v6\observability\log_redact.py:23:    "UNKNOWN",
+src\polaris_v6\observability\log_redact.py:26:REDACT_KINDS: set[DataClassification] = {"CAN_REAL", "PRIVATE", "CLIENT"}
+src\polaris_v6\observability\log_redact.py:42:    classification: DataClassification = "UNKNOWN",
+src\polaris_v6\observability\log_redact.py:53:    Redacted fields when classification ∈ REDACT_KINDS:
+src\polaris_v6\observability\log_redact.py:58:    if classification not in REDACT_KINDS:
+src\polaris_v6\observability\log_redact.py:75:    out["polaris.classification"] = classification
+src\polaris_v6\observability\log_redact.py:80:def redact_for_log(message: str, classification: DataClassification = "UNKNOWN") -> str:
+src\polaris_v6\observability\log_redact.py:81:    """Redact a free-text log message when classification requires it."""
+src\polaris_v6\observability\log_redact.py:82:    if classification not in REDACT_KINDS:
+src\polaris_v6\observability\log_redact.py:91:    classification: DataClassification = "UNKNOWN",
+src\polaris_v6\observability\log_redact.py:97:    CAN_REAL / PRIVATE / CLIENT data. The opentelemetry SDK is duck-
+src\polaris_v6\observability\log_redact.py:105:    redacted = redact_attributes(attributes, classification=classification)
+tests\integration\test_ltm_priors_injection.py:30:_MODULE_CHROMA_CLIENT = chromadb.EphemeralClient()
+tests\integration\test_ltm_priors_injection.py:44:    client = _MODULE_CHROMA_CLIENT
+src\search\serper_client.py:176:# SERPER CLIENT
+src\agents\base_agent.py:40:    KIMI_CLIENT_AVAILABLE = True
+src\agents\base_agent.py:42:    KIMI_CLIENT_AVAILABLE = False
+src\agents\base_agent.py:196:            if KIMI_CLIENT_AVAILABLE:
+src\agents\auditor_agent.py:392:                tier = getattr(ev, 'quality_tier', 'UNKNOWN')
+src\agents\auditor_agent.py:1746:        analytical claim classification.
+tests\polaris_graph\test_citation_health.py:205:    """Tier values must be one of T1..T7 or UNKNOWN. Anything else
+tests\polaris_graph\test_citation_health.py:218:    """T5/T6/T7 + UNKNOWN are valid V30 tiers and must NOT trigger
+tests\polaris_graph\test_citation_health.py:225:        _bib(4, "ev_d", tier="UNKNOWN"),
+tests\polaris_graph\test_audit_ir_loader.py:151:    assert first.tier in {"T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"}
+src\agents\analyst_agent.py:868:            # Convert to Evidence objects with quality tier classification
+tests\polaris_graph\sovereignty\test_router.py:9:from polaris_graph.sovereignty.classification import DataClassification
+tests\polaris_graph\sovereignty\test_router.py:21:    classification: str
+tests\polaris_graph\sovereignty\test_router.py:25:    items = [Item("ok", "PUBLIC_SYNTHETIC"), Item("leak", "CLIENT")]
+tests\polaris_graph\sovereignty\test_router.py:26:    with pytest.raises(SovereigntyViolationError, match="CLIENT"):
+tests\polaris_graph\sovereignty\test_router.py:31:    with pytest.raises(SovereigntyViolationError, match="CAN_REAL"):
+tests\polaris_graph\sovereignty\test_router.py:32:        filter_for_external_egress([Item("x", "CAN_REAL")], strict=True)
+tests\polaris_graph\sovereignty\test_router.py:41:    # UNKNOWN-classified item:
+tests\polaris_graph\sovereignty\test_router.py:42:    with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+tests\polaris_graph\sovereignty\test_router.py:43:        filter_for_external_egress([Item("x", "UNKNOWN")], strict=True)
+tests\polaris_graph\sovereignty\test_router.py:44:    # missing classification entirely:
+tests\polaris_graph\sovereignty\test_router.py:45:    with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+tests\polaris_graph\sovereignty\test_router.py:50:    items = [Item(f"ps{i}", "PUBLIC_SYNTHETIC") for i in range(3)]
+tests\polaris_graph\sovereignty\test_router.py:58:    items = [Item("ok", "PUBLIC_SYNTHETIC"), Item("leak", "CLIENT"), Item("ok2", "PUBLIC_SYNTHETIC")]
+tests\polaris_graph\sovereignty\test_router.py:66:def test_dict_items_classification_field():
+tests\polaris_graph\sovereignty\test_router.py:67:    items = [{"text": "ok", "classification": "PUBLIC_SYNTHETIC"}]
+tests\polaris_graph\sovereignty\test_router.py:73:    assert_safe_for_external([Item("ok", "PUBLIC_SYNTHETIC")])  # no raise
+tests\polaris_graph\sovereignty\test_router.py:75:        assert_safe_for_external([Item("leak", "CLIENT")])
+tests\polaris_graph\sovereignty\test_router.py:78:def test_enum_classification_value_works():
+tests\polaris_graph\sovereignty\test_router.py:80:    items = [Item("ok", DataClassification.PUBLIC_SYNTHETIC)]
+tests\polaris_graph\test_m18_dr_audit_fixes.py:3:Fixes two specific misclassifications flagged by Codex DR output audit:
+tests\polaris_graph\test_m18_dr_audit_fixes.py:142:    """Ensure M-18b hasn't changed classification for non-social,
+tests\polaris_graph\sovereignty\test_red_team.py:3:If anyone weakens EXTERNAL_LEAK_FORBIDDEN or removes the assert_safe_for_external
+tests\polaris_graph\sovereignty\test_red_team.py:22:    classification: str | None
+tests\polaris_graph\sovereignty\test_red_team.py:26:    payload = [_Item("public sample", "PUBLIC_SYNTHETIC"), _Item("client trade secret", "CLIENT")]
+tests\polaris_graph\sovereignty\test_red_team.py:27:    with pytest.raises(SovereigntyViolationError, match="CLIENT"):
+tests\polaris_graph\sovereignty\test_red_team.py:32:    payload = [_Item("Canadian PII", "CAN_REAL")]
+tests\polaris_graph\sovereignty\test_red_team.py:33:    with pytest.raises(SovereigntyViolationError, match="CAN_REAL"):
+tests\polaris_graph\sovereignty\test_red_team.py:38:    payload = [_Item("missing classification", None)]
+tests\polaris_graph\sovereignty\test_red_team.py:39:    with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+tests\polaris_graph\sovereignty\test_classification.py:9:from polaris_graph.sovereignty.classification import (
+tests\polaris_graph\sovereignty\test_classification.py:11:    EXTERNAL_LEAK_FORBIDDEN,
+tests\polaris_graph\sovereignty\test_classification.py:14:    parse_classification,
+tests\polaris_graph\sovereignty\test_classification.py:19:    expected = {"PUBLIC_SYNTHETIC", "CAN_REAL", "PRIVATE", "CLIENT", "UNKNOWN"}
+tests\polaris_graph\sovereignty\test_classification.py:25:    payload = {"c": DataClassification.CLIENT}
+tests\polaris_graph\sovereignty\test_classification.py:26:    assert json.dumps(payload) == '{"c": "CLIENT"}'
+tests\polaris_graph\sovereignty\test_classification.py:29:def test_parse_classification_accepts_enum():
+tests\polaris_graph\sovereignty\test_classification.py:30:    assert parse_classification(DataClassification.CAN_REAL) is DataClassification.CAN_REAL
+tests\polaris_graph\sovereignty\test_classification.py:33:def test_parse_classification_accepts_string():
+tests\polaris_graph\sovereignty\test_classification.py:34:    assert parse_classification("CAN_REAL") is DataClassification.CAN_REAL
+tests\polaris_graph\sovereignty\test_classification.py:37:def test_parse_classification_none_returns_unknown():
+tests\polaris_graph\sovereignty\test_classification.py:38:    assert parse_classification(None) is DataClassification.UNKNOWN
+tests\polaris_graph\sovereignty\test_classification.py:41:def test_parse_classification_invalid_raises():
+tests\polaris_graph\sovereignty\test_classification.py:43:        parse_classification("NOT_A_REAL_CLASSIFICATION")
+tests\polaris_graph\sovereignty\test_classification.py:47:    """Per Carney v6.2 §332: only PUBLIC_SYNTHETIC is allowed external."""
+tests\polaris_graph\sovereignty\test_classification.py:48:    assert is_external_leak_forbidden(DataClassification.PUBLIC_SYNTHETIC) is False
+tests\polaris_graph\sovereignty\test_classification.py:50:        DataClassification.CAN_REAL,
+tests\polaris_graph\sovereignty\test_classification.py:52:        DataClassification.CLIENT,
+tests\polaris_graph\sovereignty\test_classification.py:53:        DataClassification.UNKNOWN,
+tests\polaris_graph\sovereignty\test_classification.py:56:    assert EXTERNAL_LEAK_FORBIDDEN == frozenset(
+tests\polaris_graph\sovereignty\test_classification.py:58:            DataClassification.CAN_REAL,
+tests\polaris_graph\sovereignty\test_classification.py:60:            DataClassification.CLIENT,
+tests\polaris_graph\sovereignty\test_classification.py:61:            DataClassification.UNKNOWN,
+tests\polaris_graph\test_m37_health_canada.py:12:1. **Tier misclassification**: `pdf.hres.ca` was not on the
+tests\polaris_graph\test_m17_body_article_type.py:817:    → advisory path → R9/R10 classification."""
+tests\polaris_graph\scope\test_default_llm_completion_async_fix.py:7:RuntimeWarning. Net effect: every LLM-fallback classification silently
+tests\polaris_graph\test_m10_pass10_broader_tier_overrides.py:2:misclassification. Pass-9 fix (M-7) covered social platforms,
+tests\v6\test_api_upload.py:27:        data={"classification": "PUBLIC_SYNTHETIC"},
+tests\v6\test_api_upload.py:32:    assert body["classification"] == "PUBLIC_SYNTHETIC"
+tests\v6\test_api_upload.py:37:def test_upload_default_classification_is_unknown(client):
+tests\v6\test_api_upload.py:40:    assert response.json()["classification"] == "UNKNOWN"
+tests\v6\test_api_upload.py:75:        data={"classification": "CAN_REAL"},
+tests\v6\test_api_upload.py:81:    assert fetch.json()["classification"] == "CAN_REAL"
+tests\polaris_graph\test_inspector_markdown.py:343:        const VALID_TIERS = new Set(['T1','T2','T3','T4','T5','T6','T7','UNKNOWN']);
+tests\polaris_graph\test_inspector_browser.py:447:    """Codex M-7 review: UNKNOWN tier (2.3% in run-14) must appear as a
+tests\polaris_graph\test_inspector_browser.py:455:    # At least one residual row must be the UNKNOWN tier
+tests\polaris_graph\test_inspector_browser.py:457:    assert "UNKNOWN" in text or "unexpected" in text.lower()
+tests\polaris_graph\retrieval2\test_clinical_source_registry.py:178:    """Hostname casing should not affect classification."""
+tests\polaris_graph\test_md5_scope_classifier.py:256:    broken = _BrokenClassifier(payload="not a classification")
+tests\polaris_graph\test_md5_scope_classifier.py:263:def test_classifier_returns_wrong_classification_type_raises() -> None:
+tests\polaris_graph\test_md5_scope_classifier.py:287:def test_classifier_returns_classification_with_non_enum_verdict_raises() -> None:
+tests\polaris_graph\test_md6_phase1_domain_router.py:39:def _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:156:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:171:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:185:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:200:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:205:    assert result.outcome == RoutingOutcome.UNKNOWN_DOMAIN
+tests\polaris_graph\test_md6_phase1_domain_router.py:213:    """Defensive: an IN_SCOPE classification with domain=None
+tests\polaris_graph\test_md6_phase1_domain_router.py:214:    (non-LLM classifier) is treated as UNKNOWN_DOMAIN, not
+tests\polaris_graph\test_md6_phase1_domain_router.py:216:    cls = _classification(verdict=ScopeVerdict.IN_SCOPE, domain=None)
+tests\polaris_graph\test_md6_phase1_domain_router.py:218:    assert result.outcome == RoutingOutcome.UNKNOWN_DOMAIN
+tests\polaris_graph\test_md6_phase1_domain_router.py:225:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:242:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:269:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:285:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:297:def test_route_classification_must_be_scopeclassification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:301:    with pytest.raises(DomainRouterError, match="classification"):
+tests\polaris_graph\test_md6_phase1_domain_router.py:302:        route_to_domain("not a classification", registry, adapters)  # type: ignore[arg-type]
+tests\polaris_graph\test_md6_phase1_domain_router.py:308:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:318:    cls = _classification(
+tests\polaris_graph\test_md6_phase1_domain_router.py:364:    with pytest.raises(DomainRouterError, match="classification must be"):
+tests\polaris_graph\test_md6_phase1_domain_router.py:419:    """Codex round-2 MEDIUM fix (v3): IN_SCOPE classification
+tests\polaris_graph\test_md6_phase1_domain_router.py:421:    UNKNOWN_DOMAIN, masking schema drift as a routing miss."""
+tests\polaris_graph\test_md6_phase1_domain_router.py:443:    cls = _classification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:48:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:54:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:71:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:77:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:93:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:99:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:112:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:116:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:135:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:139:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:148:    route as UNKNOWN_DOMAIN, not raise."""
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:154:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:160:    summary = sweep._route_query_to_domain(classification)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:183:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:190:        classification, requested_domain="aerospace",
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:208:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:215:        classification, requested_domain="clinical",
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:221:def test_route_default_requested_domain_from_classification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:225:    helper should default to classification.domain. This keeps
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:226:    the simple call shape `_route_query_to_domain(classification)`
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:233:    classification = ScopeClassification(
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:239:    summary = sweep._route_query_to_domain(classification)  # no kwarg
+src\polaris_graph\tools\react_agent.py:1078:        classification = (
+src\polaris_graph\tools\react_agent.py:1088:            f", archetype={classification['archetype']}"
+src\polaris_graph\tools\react_agent.py:1089:            if classification else "",
+src\polaris_graph\tools\react_agent.py:1107:                briefing, classification,
+src\polaris_graph\tools\react_agent.py:1144:            if _ADAPTIVE_SCAFFOLD and classification:
+src\polaris_graph\tools\react_agent.py:1145:                # Attach gap_queries to classification for feedback use
+src\polaris_graph\tools\react_agent.py:1146:                classification["_gap_queries"] = gap_queries
+src\polaris_graph\tools\react_agent.py:1148:                    scaffold, briefing, classification, gap_evidence,
+src\polaris_graph\tools\react_agent.py:1182:            and not (_ADAPTIVE_SCAFFOLD and classification)
+src\polaris_graph\tools\react_agent.py:1193:            and not (_ADAPTIVE_SCAFFOLD and classification)
+src\polaris_graph\tools\react_agent.py:1261:                classification, briefing,
+src\polaris_graph\tools\react_agent.py:2146:        self, briefing: dict, classification: dict | None,
+src\polaris_graph\tools\react_agent.py:2163:        archetype = (classification or {}).get("archetype", "general")
+src\polaris_graph\tools\react_agent.py:2164:        artifacts = (classification or {}).get("artifacts", [])
+src\polaris_graph\tools\react_agent.py:2288:        self, briefing: dict, classification: dict | None = None,
+src\polaris_graph\tools\react_agent.py:2292:        When _ADAPTIVE_SCAFFOLD is enabled and classification is provided,
+src\polaris_graph\tools\react_agent.py:2300:        # Use adaptive 5-lens prompt when classification available
+src\polaris_graph\tools\react_agent.py:2301:        if _ADAPTIVE_SCAFFOLD and classification:
+src\polaris_graph\tools\react_agent.py:2302:            prompt = self._build_scaffold_prompt(briefing, classification)
+src\polaris_graph\tools\react_agent.py:2398:                if _ADAPTIVE_SCAFFOLD and classification:
+src\polaris_graph\tools\react_agent.py:2407:            if _ADAPTIVE_SCAFFOLD and classification:
+src\polaris_graph\tools\react_agent.py:2457:        if _ADAPTIVE_SCAFFOLD and classification:
+src\polaris_graph\tools\react_agent.py:3635:        classification: dict | None,
+src\polaris_graph\tools\react_agent.py:3638:        """Determine required boolean flags based on classification.
+src\polaris_graph\tools\react_agent.py:3642:        artifacts = (classification or {}).get("artifacts", [])
+src\polaris_graph\tools\react_agent.py:3664:        cost_learnings = (classification or {}).get(
+src\polaris_graph\tools\react_agent.py:3792:        self, draft: str, classification: dict | None,
+src\polaris_graph\tools\react_agent.py:3801:            classification, gap_queries,
+src\polaris_graph\tools\react_agent.py:4196:        classification: dict | None,
+src\polaris_graph\tools\react_agent.py:4479:        if isinstance(classification, dict):
+src\polaris_graph\tools\react_agent.py:4480:            gap_queries = classification.get("_gap_queries", [])
+src\polaris_graph\tools\react_agent.py:4489:                current, classification, gap_queries,
+src\polaris_graph\tools\react_agent.py:4494:                classification, gap_queries,
+src\polaris_graph\tools\react_agent.py:4586:            current, scaffold, briefing, classification,
+src\polaris_graph\tools\react_agent.py:4621:        classification: dict | None,
+src\polaris_graph\tools\react_agent.py:4638:        if isinstance(classification, dict):
+src\polaris_graph\tools\react_agent.py:4639:            gap_queries = classification.get("_gap_queries", [])
+src\polaris_graph\tools\react_agent.py:4641:            draft, classification, gap_queries,
+src\polaris_graph\tools\react_agent.py:4644:            classification, gap_queries,
+src\polaris_graph\tools\react_agent.py:6254:        classification: dict | None,
+src\polaris_graph\tools\react_agent.py:6266:        archetype = (classification or {}).get("archetype", "general")
+tests\v6\test_log_redact.py:1:"""Tests for OTEL CAN_REAL log-redact module."""
+tests\v6\test_log_redact.py:19:    out = redact_attributes(attrs, classification="PUBLIC_SYNTHETIC")
+tests\v6\test_log_redact.py:27:        "gen_ai.completion": "Completion text containing CAN_REAL content.",
+tests\v6\test_log_redact.py:32:    out = redact_attributes(attrs, classification="CAN_REAL")
+tests\v6\test_log_redact.py:41:    assert out["polaris.classification"] == "CAN_REAL"
+tests\v6\test_log_redact.py:47:    for kind in ("PRIVATE", "CLIENT"):
+tests\v6\test_log_redact.py:48:        out = redact_attributes(attrs, classification=kind)
+tests\v6\test_log_redact.py:52:def test_unknown_classification_does_not_redact():
+tests\v6\test_log_redact.py:54:    out = redact_attributes(attrs, classification="UNKNOWN")
+tests\v6\test_log_redact.py:60:    out = redact_attributes(attrs, classification="CAN_REAL")
+tests\v6\test_log_redact.py:67:    out = redact_attributes(attrs, classification="CAN_REAL")
+tests\v6\test_log_redact.py:72:    assert redact_for_log("public synthetic message", "PUBLIC_SYNTHETIC") == (
+tests\v6\test_log_redact.py:78:    out = redact_for_log("CAN_REAL content message", "CAN_REAL")
+tests\v6\test_log_redact.py:84:    assert REDACT_KINDS == {"CAN_REAL", "PRIVATE", "CLIENT"}
+tests\v6\test_log_redact.py:103:        classification="CAN_REAL",
+tests\v6\test_log_redact.py:107:    assert span.attributes["polaris.classification"] == "CAN_REAL"
+tests\v6\test_log_redact.py:115:        classification="PUBLIC_SYNTHETIC",
+tests\v6\test_log_redact.py:121:    set_span_attributes_safe(None, {"x": 1}, classification="CAN_REAL")
+tests\v6\test_log_redact.py:135:        classification="PUBLIC_SYNTHETIC",
+src\polaris_v6\api\upload.py:6:chunking + sovereignty router (CAN_REAL data must stay on Canadian
+src\polaris_v6\api\upload.py:9:Per CLAUDE.md security posture: file content classification
+src\polaris_v6\api\upload.py:10:(PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+src\polaris_v6\api\upload.py:11:the caller; default is UNKNOWN and triggers conservative routing.
+src\polaris_v6\api\upload.py:27:    "PUBLIC_SYNTHETIC",
+src\polaris_v6\api\upload.py:28:    "CAN_REAL",
+src\polaris_v6\api\upload.py:30:    "CLIENT",
+src\polaris_v6\api\upload.py:31:    "UNKNOWN",
+src\polaris_v6\api\upload.py:38:class UploadResponse(BaseModel):
+src\polaris_v6\api\upload.py:43:    classification: DataClassification
+src\polaris_v6\api\upload.py:50:_UPLOAD_TABLE: dict[str, UploadResponse] = {}
+src\polaris_v6\api\upload.py:53:@router.post("", response_model=UploadResponse, status_code=201)
+src\polaris_v6\api\upload.py:56:    classification: DataClassification = Form("UNKNOWN"),
+src\polaris_v6\api\upload.py:57:) -> UploadResponse:
+src\polaris_v6\api\upload.py:93:    response = UploadResponse(
+src\polaris_v6\api\upload.py:98:        classification=classification,
+src\polaris_v6\api\upload.py:108:@router.get("/{document_id}", response_model=UploadResponse)
+src\polaris_v6\api\upload.py:109:def get_upload(document_id: str) -> UploadResponse:
+src\polaris_graph\tools\openalex_client.py:87:        "UNKNOWN". Callers should prefer this over .authority_tier()
+src\polaris_graph\tools\openalex_client.py:93:        "UNKNOWN" to signal they should be excluded from the corpus
+src\polaris_graph\tools\openalex_client.py:97:            return "UNKNOWN"
+src\polaris_graph\tools\evidence_extractor.py:36:    # Must come BEFORE force/material to prevent "ppt" → "Pa" misclassification
+src\polaris_graph\tools\evidence_extractor.py:50:    # to avoid "days" → "Da" (Dalton) misclassification
+src\polaris_graph\tools\evidence_extractor.py:58:    # Removed bare [Ll] to prevent "4 ng/L" → "4 L" misclassification
+src\polaris_graph\tools\analysis_toolkit.py:38:# Impact ranking: z-score threshold for "high impact" classification
+src\polaris_graph\generator2\provenance.py:102:    UNKNOWN_SOURCE_ID = "invalid_token"
+src\polaris_graph\generator2\provenance.py:124:        TokenValidationError.UNKNOWN_SOURCE_ID — source_id not in pool
+src\polaris_graph\generator2\provenance.py:129:        return TokenValidationError.UNKNOWN_SOURCE_ID
+tests\polaris_graph\test_v30_runner.py:44:# Phase classification — pure, no subprocess
+tests\v3\test_scope.py:158:    """Factual questions should get 'simple' classification and low depth."""
+tests\v3\test_react_agent.py:1682:        classification = {
+tests\v3\test_react_agent.py:1687:        prompt = agent._build_scaffold_prompt(briefing, classification)
+tests\v3\test_react_agent.py:1695:        classification = {
+tests\v3\test_react_agent.py:1700:        prompt = agent._build_scaffold_prompt(briefing, classification)
+tests\v3\test_react_agent.py:1707:        classification = {"archetype": "general", "artifacts": []}
+tests\v3\test_react_agent.py:1709:        prompt = agent._build_scaffold_prompt(briefing, classification)
+tests\v3\test_react_agent.py:1728:        classification = {"archetype": "general", "artifacts": []}
+tests\v3\test_react_agent.py:1730:        prompt = agent._build_scaffold_prompt(briefing, classification)
+tests\v3\test_react_agent.py:1748:        classification = {
+tests\v3\test_react_agent.py:1752:        flags = agent._get_required_flags(classification)
+tests\v3\test_react_agent.py:1820:    """PG_ADAPTIVE_SCAFFOLD=0 → old behavior, no classification."""
+tests\v3\test_react_agent.py:1962:    classification = {
+tests\v3\test_react_agent.py:1967:        "Short draft without any tables.", classification, [],
+tests\unit\test_mesh_lethal_retrieve.py:2:Unit tests for wiki mesh lethal retrieval + gap classification (Unit 5).
+tests\unit\test_mesh_lethal_retrieve.py:11:  - Gap classification: IN_SCOPE / NEARBY / ADJACENT / ORTHOGONAL
+tests\polaris_graph\test_tier_classifier_denylist_expansion.py:106:    """Don't break pubmed.ncbi.nlm.nih.gov T1 classification."""
+tests\polaris_graph\test_tier_classifier_denylist_expansion.py:129:    """Don't break the FDA regulatory classification."""
+tests\polaris_graph\test_template_router_api.py:5:  POST /api/inspector/templates/route    — advisory query classification
+tests\unit\test_mesh_entity.py:323:        assert _find_by_alias(store, workspace_id, "UNKNOWN") is None
+tests\unit\test_mesh_compose.py:409:        text = "[UNKNOWN:spec]{claim_ids=clm_a}"
+tests\unit\test_mesh_compose.py:410:        # UNKNOWN doesn't match the regex pattern (only TABLE|CHART|FLOW|DECK|FLASHCARDS)
+src\polaris_graph\generator\provenance_generator.py:866:        "unknown",  # UNKNOWN tier
+src\polaris_graph\generator\live_deepseek_generator.py:125:        for tier in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"):
+tests\polaris_graph\test_run_diff.py:461:    UNKNOWN, not tier1..tier4. v1 hardcoded the wrong keys and
+tests\polaris_graph\test_run_diff.py:503:    """V30 sometimes emits T5/T6/T7 + UNKNOWN. Diff must support
+tests\polaris_graph\test_run_diff.py:506:        "T1": 0.30, "T5": 0.30, "T7": 0.30, "UNKNOWN": 0.10,
+tests\polaris_graph\test_run_diff.py:509:        "T1": 0.30, "T5": 0.10, "T7": 0.50, "UNKNOWN": 0.10,
+tests\unit\test_bias_detector.py:260:            bias_category=BiasCategory.UNKNOWN,
+tests\unit\test_bias_detector.py:370:    """Tests for bias classification."""
+tests\unit\test_bias_detector.py:373:        """Test classification of known left sources."""
+tests\unit\test_bias_detector.py:380:        """Test classification of known center sources."""
+tests\unit\test_bias_detector.py:387:        """Test classification of known right sources."""
+tests\unit\test_bias_detector.py:394:        """Test classification of academic sources."""
+tests\unit\test_bias_detector.py:401:        """Test classification of .gov domains."""
+tests\unit\test_bias_detector.py:406:        """Test classification of unknown source."""
+tests\unit\test_bias_detector.py:408:        assert category == BiasCategory.UNKNOWN
+tests\polaris_graph\test_patch_d_openalex.py:140:    # Motley Rice not in OpenAlex → UNKNOWN
+tests\polaris_graph\test_patch_d_openalex.py:141:    assert motley["authority_tier"] == "UNKNOWN"
+tests\polaris_graph\test_patch_d_openalex.py:148:    """PG_OPENALEX_ENABLED=0 → no HTTP calls, authority_tier defaults UNKNOWN."""
+tests\polaris_graph\test_patch_d_openalex.py:171:    # Still one entry, tier UNKNOWN
+tests\polaris_graph\test_patch_d_openalex.py:173:    assert bib[0]["authority_tier"] == "UNKNOWN"
+tests\polaris_graph\test_openalex_authority_tier_t7.py:25:    assert w.authority_tier_t7() == "UNKNOWN"
+tests\polaris_graph\test_openalex_authority_tier_t7.py:30:    assert w.authority_tier_t7() == "UNKNOWN"
+src\polaris_graph\generator\contradiction_hedging.py:60:# Section relevance classification
+src\polaris_graph\sovereignty\router.py:1:"""Sovereignty router: enforces EXTERNAL_LEAK_FORBIDDEN policy at call sites (I-f3-003).
+src\polaris_graph\sovereignty\router.py:13:from polaris_graph.sovereignty.classification import (
+src\polaris_graph\sovereignty\router.py:15:    parse_classification,
+src\polaris_graph\sovereignty\router.py:36:def _classification_of(item: Any) -> str | None:
+src\polaris_graph\sovereignty\router.py:37:    raw = getattr(item, "classification", None)
+src\polaris_graph\sovereignty\router.py:39:        raw = item.get("classification")
+src\polaris_graph\sovereignty\router.py:46:    """Filter items against EXTERNAL_LEAK_FORBIDDEN per Carney v6.2 §332.
+src\polaris_graph\sovereignty\router.py:51:    Items lacking `classification` default to UNKNOWN (forbidden).
+src\polaris_graph\sovereignty\router.py:57:        cls = parse_classification(_classification_of(item))
+src\polaris_graph\sovereignty\router.py:59:            reason = f"classification={cls.value} forbidden external-egress"
+src\polaris_graph\sovereignty\router.py:71:def assert_safe_for_external(items: Iterable) -> None:
+src\polaris_graph\sovereignty\classification.py:1:"""Canonical data classification taxonomy + sovereignty policy (I-f3-002).
+src\polaris_graph\sovereignty\classification.py:3:Codifies `docs/carney_delivery_plan_v6_2.md:332` "All non-PUBLIC_SYNTHETIC
+src\polaris_graph\sovereignty\classification.py:4:classifications blocked from external API". The `EXTERNAL_LEAK_FORBIDDEN`
+src\polaris_graph\sovereignty\classification.py:16:    PUBLIC_SYNTHETIC = "PUBLIC_SYNTHETIC"
+src\polaris_graph\sovereignty\classification.py:17:    CAN_REAL = "CAN_REAL"
+src\polaris_graph\sovereignty\classification.py:19:    CLIENT = "CLIENT"
+src\polaris_graph\sovereignty\classification.py:20:    UNKNOWN = "UNKNOWN"
+src\polaris_graph\sovereignty\classification.py:25:EXTERNAL_LEAK_FORBIDDEN: frozenset[DataClassification] = frozenset(
+src\polaris_graph\sovereignty\classification.py:27:        DataClassification.CAN_REAL,
+src\polaris_graph\sovereignty\classification.py:29:        DataClassification.CLIENT,
+src\polaris_graph\sovereignty\classification.py:30:        DataClassification.UNKNOWN,
+src\polaris_graph\sovereignty\classification.py:35:def parse_classification(
+src\polaris_graph\sovereignty\classification.py:38:    """Normalize input to DataClassification. None → UNKNOWN. Invalid → ValueError."""
+src\polaris_graph\sovereignty\classification.py:40:        return DataClassification.UNKNOWN
+src\polaris_graph\sovereignty\classification.py:46:def is_external_leak_forbidden(classification: DataClassification) -> bool:
+src\polaris_graph\sovereignty\classification.py:47:    """True iff the given classification is forbidden from external-API egress."""
+src\polaris_graph\sovereignty\classification.py:48:    return classification in EXTERNAL_LEAK_FORBIDDEN
+src\polaris_graph\scope\scope_decision.py:42:"""Coarse-grained classification of a question's scope. Slice 001 emits
+src\llm\kimi_client.py:58:# KIMI CLIENT
+src\llm\kimi_client.py:710:        print("KIMI K2.5 CLIENT SELF-TEST")
+src\llm\gemini_client.py:48:# GEMINI CLIENT
+src\llm\gemini_client.py:291:        print("GEMINI CLIENT SELF-TEST")
+src\memory\chroma_client.py:996:    print("CHROMA CLIENT SELF-TEST")
+tests\polaris_graph\generator2\test_provenance.py:195:        == TokenValidationError.UNKNOWN_SOURCE_ID
+src\orchestration\state.py:80:    SOTA FIX: Added quality_tier for GOLD/SILVER/BRONZE classification.
+src\orchestration\state.py:94:    # SOTA FIX: Quality tier classification
+src\orchestration\state.py:129:            Quality tier classification
+src\polaris_graph\audit_ir\citation_health.py:119:# Real V30 tier keys (matches run_diff convention). UNKNOWN is the
+src\polaris_graph\audit_ir\citation_health.py:122:    "T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN",
+src\orchestration\graph.py:2626:                tier = ev_dict.get("quality_tier", "UNKNOWN")
+src\polaris_graph\scope\clinical_classifier.py:48:    """Result of regex-layer classification.
+src\polaris_graph\scope\clinical_classifier.py:300:    """Second-layer LLM classification for questions where regex returned uncertain.
+src\orchestration\dynamic_replanner.py:539:            tier = getattr(e, "quality_tier", "UNKNOWN")
+src\polaris_graph\schemas.py:1063:            "general discussion", "industry classification", "product information",
+src\polaris_graph\agents\storm_interviews.py:692:            f"UNKNOWN or CONTESTED, not what has already been well-answered."
+src\polaris_graph\agents\verifier.py:1573:    Model: 184M params, 90.04% MNLI, three-way classification.
+src\polaris_graph\honest_pipeline.py:6:  T+1: (mock) retrieval + Phase 2a tier classification of sources
+src\polaris_graph\honest_pipeline.py:163:    # ── Phase 2a: tier classification of retrieved sources ─────────────
+src\polaris_graph\agents\synthesizer.py:1606:    issues with CRITICAL/ADVISORY classification.
+src\polaris_graph\agents\synthesizer.py:1694:                            issue_type = parts[1] if len(parts) > 1 else "UNKNOWN"
+src\polaris_graph\agents\synthesizer.py:1710:                    _detected_type = "UNKNOWN"
+src\polaris_graph\agents\synthesizer.py:1716:                    if _detected_type != "UNKNOWN":
+src\polaris_graph\audit_ir\inspector_router.py:1591:    classification result is also recorded via
+src\polaris_graph\audit_ir\inspector_router.py:2210:    source_tier: str = Field(..., description="V30 tier (T1..T7 or UNKNOWN)")
+src\polaris_graph\memory\cross_vector.py:334:                tier = meta.get("quality_tier", "UNKNOWN")
+src\polaris_graph\audit_ir\domain_router.py:14:  - `route_to_domain(classification, registry, adapters)` —
+src\polaris_graph\audit_ir\domain_router.py:218:    UNKNOWN_DOMAIN: classifier returned IN_SCOPE but the
+src\polaris_graph\audit_ir\domain_router.py:227:    UNKNOWN_DOMAIN = "unknown_domain"
+src\polaris_graph\audit_ir\domain_router.py:251:    classification: ScopeClassification,
+src\polaris_graph\audit_ir\domain_router.py:259:      1. classification.verdict == OUT_OF_SCOPE →
+src\polaris_graph\audit_ir\domain_router.py:261:      2. classification.verdict == UNCERTAIN →
+src\polaris_graph\audit_ir\domain_router.py:263:      3. classification.verdict == IN_SCOPE:
+src\polaris_graph\audit_ir\domain_router.py:264:         a. domain not in registry → UNKNOWN_DOMAIN
+src\polaris_graph\audit_ir\domain_router.py:273:    if not isinstance(classification, ScopeClassification):
+src\polaris_graph\audit_ir\domain_router.py:275:            f"classification must be ScopeClassification, got "
+src\polaris_graph\audit_ir\domain_router.py:276:            f"{type(classification).__name__}"
+src\polaris_graph\audit_ir\domain_router.py:283:    if not isinstance(classification.verdict, ScopeVerdict):
+src\polaris_graph\audit_ir\domain_router.py:285:            f"classification.verdict must be ScopeVerdict enum, got "
+src\polaris_graph\audit_ir\domain_router.py:286:            f"{type(classification.verdict).__name__} "
+src\polaris_graph\audit_ir\domain_router.py:287:            f"({classification.verdict!r})"
+src\polaris_graph\audit_ir\domain_router.py:300:    if classification.verdict == ScopeVerdict.OUT_OF_SCOPE:
+src\polaris_graph\audit_ir\domain_router.py:307:                f"{classification.rationale}"
+src\polaris_graph\audit_ir\domain_router.py:311:    if classification.verdict == ScopeVerdict.UNCERTAIN:
+src\polaris_graph\audit_ir\domain_router.py:318:                f"{classification.rationale}"
+src\polaris_graph\audit_ir\domain_router.py:323:    domain_id = classification.domain
+src\polaris_graph\audit_ir\domain_router.py:328:            outcome=RoutingOutcome.UNKNOWN_DOMAIN,
+src\polaris_graph\audit_ir\domain_router.py:331:            rationale="IN_SCOPE classification missing domain tag",
+src\polaris_graph\audit_ir\domain_router.py:334:    # the IN_SCOPE path. v2 returned UNKNOWN_DOMAIN for
+src\polaris_graph\audit_ir\domain_router.py:340:            f"classification.domain must be str (or None), got "
+src\polaris_graph\audit_ir\domain_router.py:345:            outcome=RoutingOutcome.UNKNOWN_DOMAIN,
+src\polaris_graph\retrieval2\evidence_pool.py:38:    """Three-tier source classification per architecture proposal.
+src\polaris_graph\retrieval2\evidence_pool.py:60:    + tier classification can run without a second HTTP round-trip.
+src\polaris_graph\audit_ir\loader.py:523:                tier=str(entry.get("tier", "UNKNOWN")),
+src\polaris_graph\audit_ir\loader.py:542:        source_tier=str(raw.get("source_tier", "UNKNOWN")),
+src\polaris_graph\audit_ir\parallel_fetch.py:97:    correlation. Common usage: tier classification, domain
+src\polaris_graph\nodes\corpus_adequacy_gate.py:140:        tier_counts: dict mapping "T1"/"T2"/.../"T7"/"UNKNOWN" -> count.
+src\polaris_graph\nodes\corpus_approval_gate.py:4:After retrieval and tier classification, the pipeline stops and shows
+src\polaris_graph\nodes\corpus_approval_gate.py:48:    """A single retrieved source after tier classification."""
+src\polaris_graph\nodes\corpus_approval_gate.py:51:    tier: str          # "T1".."T7" or "UNKNOWN"
+src\polaris_graph\audit_ir\scope_classifier.py:163:# Verdict + classification dataclasses
+src\polaris_graph\audit_ir\scope_classifier.py:271:    `classification`: full classifier output preserved for the same
+src\polaris_graph\audit_ir\scope_classifier.py:282:    classification: ScopeClassification
+src\polaris_graph\audit_ir\scope_classifier.py:354:            classification=sentinel,
+src\polaris_graph\audit_ir\scope_classifier.py:362:    classification = classifier.classify(question)
+src\polaris_graph\audit_ir\scope_classifier.py:364:    if not isinstance(classification, ScopeClassification):
+src\polaris_graph\audit_ir\scope_classifier.py:366:            f"classifier returned {type(classification).__name__}; "
+src\polaris_graph\audit_ir\scope_classifier.py:369:    if not isinstance(classification.verdict, ScopeVerdict):
+src\polaris_graph\audit_ir\scope_classifier.py:371:            f"classifier verdict {classification.verdict!r} not in "
+src\polaris_graph\audit_ir\scope_classifier.py:374:    if not 0.0 <= classification.confidence <= 1.0:
+src\polaris_graph\audit_ir\scope_classifier.py:376:            f"classifier confidence {classification.confidence} "
+src\polaris_graph\audit_ir\scope_classifier.py:380:    if classification.confidence < applied_threshold:
+src\polaris_graph\audit_ir\scope_classifier.py:383:            f"Classifier confidence {classification.confidence:.2f} "
+src\polaris_graph\audit_ir\scope_classifier.py:386:            f"{classification.rationale}"
+src\polaris_graph\audit_ir\scope_classifier.py:392:            classification=classification,
+src\polaris_graph\audit_ir\scope_classifier.py:397:    if classification.verdict == ScopeVerdict.OUT_OF_SCOPE:
+src\polaris_graph\audit_ir\scope_classifier.py:400:            f"{classification.confidence:.2f}: "
+src\polaris_graph\audit_ir\scope_classifier.py:401:            f"{classification.rationale}. "
+src\polaris_graph\audit_ir\scope_classifier.py:409:            classification=classification,
+src\polaris_graph\audit_ir\scope_classifier.py:414:    if classification.verdict == ScopeVerdict.UNCERTAIN:
+src\polaris_graph\audit_ir\scope_classifier.py:417:            f"{classification.confidence:.2f}: "
+src\polaris_graph\audit_ir\scope_classifier.py:418:            f"{classification.rationale}. "
+src\polaris_graph\audit_ir\scope_classifier.py:425:            classification=classification,
+src\polaris_graph\audit_ir\scope_classifier.py:433:            f"{classification.confidence:.2f}) and router routed "
+src\polaris_graph\audit_ir\scope_classifier.py:441:            classification=classification,
+src\polaris_graph\audit_ir\scope_classifier.py:449:            f"{classification.confidence:.2f}) but router uncertain: "
+src\polaris_graph\audit_ir\scope_classifier.py:456:            classification=classification,
+src\polaris_graph\audit_ir\scope_classifier.py:463:        f"{classification.confidence:.2f}) but router did not match "
+src\polaris_graph\audit_ir\scope_classifier.py:471:        classification=classification,
+src\polaris_graph\retrieval\contradiction_detector.py:523:        # arm classification: if the value sits in a placebo context
+src\polaris_graph\audit_ir\scope_classifier_llm.py:94:    """Pluggable LLM seam for scope eligibility classification.
+src\polaris_graph\audit_ir\run_diff.py:418:    the real V30 manifest uses `T1..T7` + `UNKNOWN`. v1 returned
+src\polaris_graph\audit_ir\regression_alerts.py:12:discovery and adds severity classification on top.
+src\polaris_graph\audit_ir\regression_alerts.py:364:    Real V30 manifests use T1..T7 + UNKNOWN (real keys). Older
+src\polaris_graph\retrieval\evidence_selector.py:26:    "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
+src\polaris_graph\retrieval\evidence_selector.py:69:    Falls back to row's own `tier` field, then UNKNOWN."""
+src\polaris_graph\retrieval\evidence_selector.py:73:    tier = row.get("tier") or "UNKNOWN"
+src\polaris_graph\nodes\scope_gate.py:91:    tier: str          # "T1" .. "T7" or "UNKNOWN"
+src\polaris_graph\nodes\scope.py:12:- F1.4: Factual question → simple classification, low depth
+src\polaris_graph\nodes\scope.py:59:- A complexity classification: 'simple' (factual/narrow), 'moderate' (multi-faceted), 'complex' (broad/deep)
+src\polaris_graph\retrieval\live_retriever.py:781:        # M-45 pass-2: preserve timeout classification from telemetry
+src\polaris_graph\retrieval\live_retriever.py:1319:            # Fetch content (for tier classification + evidence)
+src\polaris_graph\audit_ir\v30_runner.py:102:    ("corpus",             55.0,  "Corpus tier classification"),
+src\polaris_graph\audit_ir\workspace_memory.py:67:    (T1..T7, UNKNOWN). `source_url` is the canonical source URL the
+src\polaris_graph\retrieval\tier_classifier.py:2:Tier classifier for retrieved sources — T1 through T7 + UNKNOWN.
+src\polaris_graph\retrieval\tier_classifier.py:14:    - Regulatory documents (CDA-AMC) tagged UNKNOWN when they should be GOLD
+src\polaris_graph\retrieval\tier_classifier.py:18:    1. UNKNOWN on no-match (NOT silent BRONZE) — surfaces misconfiguration
+src\polaris_graph\retrieval\tier_classifier.py:19:       rather than hiding it. The plan A-F04 "UNKNOWN ambiguity" gets
+src\polaris_graph\retrieval\tier_classifier.py:20:       resolved by BRONZE vs UNKNOWN being meaningfully different:
+src\polaris_graph\retrieval\tier_classifier.py:21:       UNKNOWN = "rules could not decide; requires user review";
+src\polaris_graph\retrieval\tier_classifier.py:48:    UNKNOWN — rules could not decide; user review required
+src\polaris_graph\retrieval\tier_classifier.py:71:    """Seven tiers plus UNKNOWN for surfacing classifier misconfiguration."""
+src\polaris_graph\retrieval\tier_classifier.py:80:    UNKNOWN = "UNKNOWN"  # Rules could not decide — user review needed
+src\polaris_graph\retrieval\tier_classifier.py:123:        return self.tier != TierLevel.UNKNOWN
+src\polaris_graph\retrieval\tier_classifier.py:847:    override the title-based classification. When the title is
+src\polaris_graph\retrieval\tier_classifier.py:924:    """Classify a source into T1-T7 (or UNKNOWN) using rules.
+src\polaris_graph\retrieval\tier_classifier.py:931:    Returns TierLevel.UNKNOWN rather than silent BRONZE when no rule
+src\polaris_graph\retrieval\tier_classifier.py:935:        tier=TierLevel.UNKNOWN,
+src\polaris_graph\retrieval\tier_classifier.py:948:        result.tier = TierLevel.UNKNOWN  # caller should exclude; not T1-T7
+src\polaris_graph\retrieval\tier_classifier.py:1087:    # OpenAlex metadata misclassification.
+src\polaris_graph\retrieval\tier_classifier.py:1125:    # classification because the CONTENT is a regulatory-approved label
+src\polaris_graph\retrieval\tier_classifier.py:1616:    # ── No rule matched: honest UNKNOWN
+src\polaris_graph\retrieval\tier_classifier.py:1617:    result.tier = TierLevel.UNKNOWN
+src\polaris_graph\retrieval\tier_classifier.py:1621:        "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so "
+
+ succeeded in 2017ms:
+outputs/audits/I-f3-010\sovereignty_walkthrough.md
+
+ succeeded in 2679ms:
+?? .claude/hooks/__pycache__/
+?? .codex/I-f3-010/
+?? .codex/cleanup_pr_1_dryrun_review_brief.md
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_1.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_2.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_3.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_4.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_5.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_6.txt
+?? .codex/cleanup_pr_1_dryrun_review_verdict_iter_7.txt
+?? .codex/g2_acknowledgement_review_brief.md
+?? .codex/g2_acknowledgement_review_verdict_iter_1.txt
+?? .codex/m26_threat_model_doc_round2_brief.md
+?? .codex/m26_threat_model_round3_brief.md
+?? .codex/m26_threat_model_round4_brief.md
+?? .codex/m26_threat_model_round5_brief.md
+?? .codex/m26_v16_round3_brief.md
+?? .codex/m26_v17_round4_brief.md
+?? .codex/m_int_10_v1_review_output.md
+?? .codex/m_int_10_v2_review_output.md
+?? .codex/m_int_10_v3_review_output.md
+?? .codex/m_int_11_v1_review_output.md
+?? .codex/m_int_11_v2_review_output.md
+?? .codex/m_int_3_v2_review_output.md
+?? .codex/m_int_4_v1_review_output.md
+?? .codex/m_int_4_v2_review_output.md
+?? .codex/m_int_4_v3_review_output.md
+?? .codex/m_int_4_v4_review_output.md
+?? .codex/m_int_5_v1_review_output.md
+?? .codex/m_int_5_v2_review_output.md
+?? .codex/m_int_5_v3_review_output.md
+?? .codex/m_int_5_v4_review_output.md
+?? .codex/m_int_6_v1_review_output.md
+?? .codex/m_int_7_v1_review_output.md
+?? .codex/m_int_7_v2_review_output.md
+?? .codex/m_int_7_v3_review_output.md
+?? .codex/m_int_8_v1_review_output.md
+?? .codex/m_int_8_v2_review_output.md
+?? .codex/m_int_9_v1_review_output.md
+?? .codex/m_int_9_v2_review_output.md
+?? .codex/md1_harness_round2_brief.md
+?? .codex/md2_llm_round2_brief.md
+?? .codex/md2_llm_round3_brief.md
+?? .codex/md2_llm_round4_brief.md
+?? .codex/md2_llm_round5_brief.md
+?? .codex/md2_stub_round2_brief.md
+?? .codex/md2_stub_round3_brief.md
+?? .codex/md2_stub_round4_brief.md
+?? .codex/md3_verdict_brief.md
+?? .codex/md5_v3_verdict_brief.md
+?? .codex/md5_verdict_brief.md
+?? .codex/phase_c_plan.md
+?? .codex/phase_d_milestones_review_brief.md
+?? .codex/phase_d_milestones_round2_brief.md
+?? .codex/phase_d_milestones_round3_brief.md
+?? .codex/plan_amendment_skip_road_b_reset_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_brief.md
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_1.txt
+?? .codex/pr_b2_relocate_polaris_controls_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_brief.md
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_1.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_2.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_3.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_4.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_5.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_6.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_7_partial.txt
+?? .codex/pr_b_dna_doc_updates_review_verdict_iter_8.txt
+?? .codex/pr_d_mechanical_gates_review_brief.md
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_1.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_2.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_3.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_4.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_5.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_6.txt
+?? .codex/pr_d_mechanical_gates_review_verdict_iter_7.txt
+?? .codex/task_briefs/
+?? .codex/test_failure_triage_review_brief.md
+?? .codex/test_failure_triage_round2_brief.md
+?? .codex/test_failure_triage_round3_brief.md
+?? .codex/triage_executed_fixes_review_brief.md
+?? .codex/triage_executed_round2_brief.md
+?? .codex/walkthrough_screenshots_latest/
+?? .github/workflows/m_live_4_regression_gate.yml.pending_workflow_scope
+?? .tmp/
+?? outputs/audits/briefs/
+?? outputs/audits/codex_approved_design_2026-05-03_FINAL.md
+?? outputs/audits/codex_consultation_2026-05-03_round2.md
+?? outputs/audits/codex_consultation_2026-05-03_round3.md
+?? outputs/audits/codex_consultation_2026-05-03_round4.md
+?? outputs/audits/codex_consultation_2026-05-03_round5.md
+?? outputs/audits/codex_consultation_2026-05-03_round6.md
+?? outputs/audits/codex_consultation_2026-05-03_round7.md
+?? outputs/audits/codex_consultation_2026-05-03_round8.md
+?? outputs/audits/codex_consultation_2026-05-03_round9.md
+?? outputs/audits/codex_consultation_2026-05-03_structural_fixes.md
+?? outputs/audits/codex_response_round1.txt
+?? outputs/audits/codex_response_round2.txt
+?? outputs/audits/codex_response_round3.txt
+?? outputs/audits/codex_response_round4.txt
+?? outputs/audits/codex_response_round5.txt
+?? outputs/audits/codex_response_round6.txt
+?? outputs/audits/codex_response_round7.txt
+?? outputs/audits/codex_response_round8.txt
+?? outputs/audits/codex_response_round9.txt
+?? outputs/audits/handover_bundles/
+?? outputs/audits/manifests/5.2.json
+?? outputs/audits/pipeline_full_demo/
+?? outputs/audits/pipeline_smoke/
+?? outputs/audits/v25/
+?? outputs/audits/v26/
+?? outputs/audits/v27/claude_audit.md
+?? outputs/audits/v27/cross_review.md
+?? outputs/audits/v27/fix_plan.md
+?? outputs/audits/v27/gate_verdict.md
+?? outputs/audits/v6_2_phase_2_speculative_review_brief.md
+?? outputs/audits/verdicts/0_3_prep_vastai_provision_script/
+?? outputs/audits/verdicts/0_7_prep_bakeoff_runner/
+?? outputs/audits/verdicts/3_5_prep_api_benchmark_runner/
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_1.json
+?? outputs/audits/verdicts/4_5_prep_drafts/iter_2.json
+?? outputs/audits/verdicts/5.2/
+?? outputs/codex_findings/autoloop_v2_protocol_review/
+?? outputs/codex_findings/deep_dive_round_1/last_message.txt
+?? outputs/codex_findings/deep_dive_round_1/stderr.log
+?? outputs/codex_findings/deep_dive_round_1/stdout.log
+?? outputs/codex_findings/deep_dive_round_2/last_message.txt
+?? outputs/codex_findings/deep_dive_round_2/stderr.log
+?? outputs/codex_findings/deep_dive_round_2/stdout.log
+?? outputs/codex_findings/deep_dive_round_3/last_message.txt
+?? outputs/codex_findings/deep_dive_round_3/stderr.log
+?? outputs/codex_findings/deep_dive_round_3/stdout.log
+?? outputs/codex_findings/deep_dive_round_4/last_message.txt
+?? outputs/codex_findings/deep_dive_round_4/stderr.log
+?? outputs/codex_findings/deep_dive_round_4/stdout.log
+?? outputs/codex_findings/deep_dive_round_5/last_message.txt
+?? outputs/codex_findings/deep_dive_round_5/stderr.log
+?? outputs/codex_findings/deep_dive_round_5/stdout.log
+?? outputs/codex_findings/deep_dive_round_6/last_message.txt
+?? outputs/codex_findings/deep_dive_round_6/stderr.log
+?? outputs/codex_findings/deep_dive_round_6/stdout.log
+?? outputs/codex_findings/deep_dive_round_7/last_message.txt
+?? outputs/codex_findings/deep_dive_round_7/stderr.log
+?? outputs/codex_findings/deep_dive_round_7/stdout.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_1/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_11/
+?? outputs/codex_findings/dr_output_pass_12/
+?? outputs/codex_findings/dr_output_pass_14_v27/
+?? outputs/codex_findings/dr_output_pass_2/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_2/codex_stdout.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stderr.log
+?? outputs/codex_findings/dr_output_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_1/last_message.txt
+?? outputs/codex_findings/full_audit_pass_1/stderr.log
+?? outputs/codex_findings/full_audit_pass_1/stdout.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_11/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_12/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_12/sweep_index.md
+?? outputs/codex_findings/full_audit_pass_13/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_13/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_14/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_15/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_16/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_2/last_message.txt
+?? outputs/codex_findings/full_audit_pass_2/stderr.log
+?? outputs/codex_findings/full_audit_pass_2/stdout.log
+?? outputs/codex_findings/full_audit_pass_3/last_message.txt
+?? outputs/codex_findings/full_audit_pass_3/stderr.log
+?? outputs/codex_findings/full_audit_pass_3/stdout.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_5/
+?? outputs/codex_findings/full_audit_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_audit_pass_9/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_1/
+?? outputs/codex_findings/full_scale_pass_10/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_10/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_2/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_3/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_4/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_5/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_6/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_7/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_8/codex_stdout.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stderr.log
+?? outputs/codex_findings/full_scale_pass_9/codex_stdout.log
+?? outputs/codex_findings/m10_review/
+?? outputs/codex_findings/m10_v2_review/
+?? outputs/codex_findings/m10_v3_review/
+?? outputs/codex_findings/m10_v4_review/
+?? outputs/codex_findings/m10_v5_review/
+?? outputs/codex_findings/m10_v6_review/
+?? outputs/codex_findings/m10_v7_review/
+?? outputs/codex_findings/m10_v8_review/
+?? outputs/codex_findings/m11_review/
+?? outputs/codex_findings/m11_v2_review/
+?? outputs/codex_findings/m11_v3_review/
+?? outputs/codex_findings/m12_review/
+?? outputs/codex_findings/m12_v2_review/
+?? outputs/codex_findings/m12_v3_review/
+?? outputs/codex_findings/m13_review/
+?? outputs/codex_findings/m13_v2_review/
+?? outputs/codex_findings/m13_v3_review/
+?? outputs/codex_findings/m14_review/
+?? outputs/codex_findings/m14_v2_review/
+?? outputs/codex_findings/m14_v3_review/
+?? outputs/codex_findings/m14_v4_review/
+?? outputs/codex_findings/m15a_review/
+?? outputs/codex_findings/m15a_v2_review/
+?? outputs/codex_findings/m15b_review/
+?? outputs/codex_findings/m16_review/
+?? outputs/codex_findings/m16_v2_review/
+?? outputs/codex_findings/m16_v3_review/
+?? outputs/codex_findings/m17_review/
+?? outputs/codex_findings/m17_v2_review/
+?? outputs/codex_findings/m18_review/
+?? outputs/codex_findings/m18_v2_review/
+?? outputs/codex_findings/m19_review/
+?? outputs/codex_findings/m19_v2_review/
+?? outputs/codex_findings/m1_audit_ir_review/codex_stdout.log
+?? outputs/codex_findings/m1_v2_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/codex_stdout.log
+?? outputs/codex_findings/m1_v3_review/manual_checks/
+?? outputs/codex_findings/m1_v3_review/scratch/
+?? outputs/codex_findings/m20_review/
+?? outputs/codex_findings/m20_v2_review/
+?? outputs/codex_findings/m20_v3_review/
+?? outputs/codex_findings/m21_review/
+?? outputs/codex_findings/m21_v2_review/
+?? outputs/codex_findings/m21_v3_review/
+?? outputs/codex_findings/m22_review/
+?? outputs/codex_findings/m22_v2_review/
+?? outputs/codex_findings/m23_review/
+?? outputs/codex_findings/m23_v2_review/
+?? outputs/codex_findings/m24_review/
+?? outputs/codex_findings/m24_v2_review/
+?? outputs/codex_findings/m24_v3_review/
+?? outputs/codex_findings/m25_review/
+?? outputs/codex_findings/m25_v2_review/
+?? outputs/codex_findings/m26_review/
+?? outputs/codex_findings/m26_threat_model_doc_review/
+?? outputs/codex_findings/m26_threat_model_doc_round2/
+?? outputs/codex_findings/m26_threat_model_doc_round3/
+?? outputs/codex_findings/m26_threat_model_doc_round4/
+?? outputs/codex_findings/m26_threat_model_doc_round5/
+?? outputs/codex_findings/m26_v10_review/
+?? outputs/codex_findings/m26_v11_review/
+?? outputs/codex_findings/m26_v12_review/
+?? outputs/codex_findings/m26_v13_review/
+?? outputs/codex_findings/m26_v15_review/
+?? outputs/codex_findings/m26_v16_round3/
+?? outputs/codex_findings/m26_v16_round3_probe/
+?? outputs/codex_findings/m26_v16_round3_probe_v16/
+?? outputs/codex_findings/m26_v17_round4/
+?? outputs/codex_findings/m26_v2_review/
+?? outputs/codex_findings/m26_v3_review/
+?? outputs/codex_findings/m26_v4_review/
+?? outputs/codex_findings/m26_v5_review/
+?? outputs/codex_findings/m26_v5_review_repro.sqlite3
+?? outputs/codex_findings/m26_v6_review/
+?? outputs/codex_findings/m26_v7_review/
+?? outputs/codex_findings/m26_v8_review/
+?? outputs/codex_findings/m26_v9_review/
+?? outputs/codex_findings/m2_review/codex_stdout.log
+?? outputs/codex_findings/m2_v2_review/codex_stdout.log
+?? outputs/codex_findings/m30_code_audit/
+?? outputs/codex_findings/m30_code_audit_pass2/
+?? outputs/codex_findings/m30_code_audit_pass3/
+?? outputs/codex_findings/m30_code_audit_pass4/
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stderr.log
+?? outputs/codex_findings/m30_code_audit_pass5/codex_stdout.log
+?? outputs/codex_findings/m33_code_audit/
+?? outputs/codex_findings/m34_code_audit/
+?? outputs/codex_findings/m35_code_audit/
+?? outputs/codex_findings/m35_code_audit_pass2/
+?? outputs/codex_findings/m36_code_audit/
+?? outputs/codex_findings/m37_code_audit/
+?? outputs/codex_findings/m38_code_audit/
+?? outputs/codex_findings/m3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v2_review/codex_stdout.log
+?? outputs/codex_findings/m3_v3_review/codex_stdout.log
+?? outputs/codex_findings/m3_v4_review/codex_stdout.log
+?? outputs/codex_findings/m40_code_audit/
+?? outputs/codex_findings/m40_code_audit_pass2/
+?? outputs/codex_findings/m41_code_audit/
+?? outputs/codex_findings/m41_code_audit_pass2/
+?? outputs/codex_findings/m42ab_code_audit/
+?? outputs/codex_findings/m42ab_code_audit_pass2/
+?? outputs/codex_findings/m42c_code_audit/
+?? outputs/codex_findings/m42d_code_audit/
+?? outputs/codex_findings/m42d_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit/
+?? outputs/codex_findings/m42e_code_audit_pass2/
+?? outputs/codex_findings/m42e_code_audit_pass3/
+?? outputs/codex_findings/m43_code_audit/
+?? outputs/codex_findings/m43_code_audit_pass2/
+?? outputs/codex_findings/m44_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m44_code_audit_pass3/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m45_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m46_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m47_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m48_code_audit_pass2/_codex_stdout.txt
+?? outputs/codex_findings/m4_review/codex_stdout.log
+?? outputs/codex_findings/m4_v2_review/codex_stdout.log
+?? outputs/codex_findings/m4_v3_review/codex_stdout.log
+?? outputs/codex_findings/m50_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m50_code_audit_pass2/
+?? outputs/codex_findings/m51_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m52_m53_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m54_code_audit/_codex_stdout.txt
+?? outputs/codex_findings/m5_review/codex_stdout.log
+?? outputs/codex_findings/m5_v2_review/codex_stdout.log
+?? outputs/codex_findings/m63_code_audit/pass2_stdout.log
+?? outputs/codex_findings/m63_code_audit/stdout.log
+?? outputs/codex_findings/m6_review/codex_stdout.log
+?? outputs/codex_findings/m6_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_review/codex_stdout.log
+?? outputs/codex_findings/m7_v2_review/codex_stdout.log
+?? outputs/codex_findings/m7_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/codex_stdout.log
+?? outputs/codex_findings/m8_review/manual_jobs.sqlite
+?? outputs/codex_findings/m8_v2_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/codex_stdout.log
+?? outputs/codex_findings/m8_v3_review/manual/
+?? outputs/codex_findings/m8_v3_review/manual_loops/
+?? outputs/codex_findings/m8_v4_review/codex_stdout.log
+?? outputs/codex_findings/m9_review/codex_stdout.log
+?? outputs/codex_findings/m9_v2_review/codex_stdout.log
+?? outputs/codex_findings/m9_v3_review/
+?? outputs/codex_findings/m9_v4_review/
+?? outputs/codex_findings/m_int_3_v1_review/
+?? outputs/codex_findings/m_live_1_v1_review/
+?? outputs/codex_findings/m_live_1_v2_review/
+?? outputs/codex_findings/m_live_1_v3_review/
+?? outputs/codex_findings/m_live_2_v1_review/
+?? outputs/codex_findings/m_live_2_v2_review/
+?? outputs/codex_findings/m_live_2_v3_review/
+?? outputs/codex_findings/m_live_2_v4_review/
+?? outputs/codex_findings/m_live_3_v1_review/
+?? outputs/codex_findings/m_live_3_v2_review/
+?? outputs/codex_findings/m_live_4_v1_review/
+?? outputs/codex_findings/m_live_4_v2_review/
+?? outputs/codex_findings/m_new_review/
+?? outputs/codex_findings/m_new_v2_review/
+?? outputs/codex_findings/m_prod_1_v1_review/
+?? outputs/codex_findings/m_prod_1_v2_review/
+?? outputs/codex_findings/m_prod_1_v3_review/
+?? outputs/codex_findings/m_prod_3_v1_review/
+?? outputs/codex_findings/m_prod_3_v2_review/
+?? outputs/codex_findings/m_prod_4_v1_review/
+?? outputs/codex_findings/m_prod_4_v2_review/
+?? outputs/codex_findings/m_prod_4_v3_review/
+?? outputs/codex_findings/md10_phase1_review/
+?? outputs/codex_findings/md10_phase1_v2_review/
+?? outputs/codex_findings/md10_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_review/
+?? outputs/codex_findings/md11_phase1_v2_review/
+?? outputs/codex_findings/md11_phase1_v3_review/
+?? outputs/codex_findings/md11_phase1_v4_review/
+?? outputs/codex_findings/md11_phase1_v5_review/
+?? outputs/codex_findings/md11_phase2_review/
+?? outputs/codex_findings/md11_phase2_v2_review/
+?? outputs/codex_findings/md1_harness_review/
+?? outputs/codex_findings/md1_harness_round2/
+?? outputs/codex_findings/md2_llm_review/
+?? outputs/codex_findings/md2_llm_round2/
+?? outputs/codex_findings/md2_llm_round3/
+?? outputs/codex_findings/md2_llm_round4/
+?? outputs/codex_findings/md2_llm_round5/
+?? outputs/codex_findings/md2_stub_review/
+?? outputs/codex_findings/md2_stub_round2/
+?? outputs/codex_findings/md2_stub_round3/
+?? outputs/codex_findings/md2_stub_round4/
+?? outputs/codex_findings/md3_review/
+?? outputs/codex_findings/md3_v2_review/
+?? outputs/codex_findings/md5_review/
+?? outputs/codex_findings/md5_v2_review/
+?? outputs/codex_findings/md5_v3_review/
+?? outputs/codex_findings/md7_phase1_review/
+?? outputs/codex_findings/md7_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_review/
+?? outputs/codex_findings/md9_phase1_v2_review/
+?? outputs/codex_findings/md9_phase1_v3_review/
+?? outputs/codex_findings/md9_phase2_review/
+?? outputs/codex_findings/md9_phase2_v2_review/
+?? outputs/codex_findings/md9_phase2_v3_review/
+?? outputs/codex_findings/phase_c_plan_review/
+?? outputs/codex_findings/phase_c_plan_v2_review/
+?? outputs/codex_findings/phase_d_milestones_review/
+?? outputs/codex_findings/phase_d_milestones_round2/
+?? outputs/codex_findings/phase_d_milestones_round3/
+?? outputs/codex_findings/test_failure_triage_review/
+?? outputs/codex_findings/test_failure_triage_round2/
+?? outputs/codex_findings/test_failure_triage_round3/
+?? outputs/codex_findings/triage_executed_fixes_review/
+?? outputs/codex_findings/triage_executed_round2/
+?? outputs/codex_findings/v17_vs_tier1_deep_comparison/
+?? outputs/codex_findings/v23_evidence_bottleneck/
+?? outputs/codex_findings/v23_regression_diagnosis/
+?? outputs/codex_findings/v27_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v28_fix_plan_review_pass2/
+?? outputs/codex_findings/v28_strategic_path/_codex_stdout.txt
+?? outputs/codex_findings/v29_deep_content_audit/_codex_stdout.txt
+?? outputs/codex_findings/v29_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v29_true_root_cause/_codex_stdout.txt
+?? outputs/codex_findings/v30_final_plan_pass3/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_pass4/codex_stdout.log
+?? outputs/codex_findings/v30_final_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_fix_plan_review_pass1/_codex_stdout.txt
+?? outputs/codex_findings/v30_joint_analysis_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass2_codex_stdout.log
+?? outputs/codex_findings/v30_m66_plan_review/pass3_codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run10_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run11_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run12_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run14_substance_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run2_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run7_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_run9_audit/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_strategic_review/codex_stdout.log
+?? outputs/codex_findings/v30_phase2_to_production_plan/codex_stdout.log
+?? outputs/codex_findings/v30_real_user_wishlist/codex_stdout.log
+?? outputs/codex_findings/v30_user_wishlist_plan/codex_stdout.log
+?? src/state/
+?? state/polaris_restart/codex_iter_3_focused_brief.md
+?? state/polaris_restart/codex_iter_4_brief.md
+?? state/polaris_restart/next_session_plan.md
+?? web/.tmp_screenshots/
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex_pytest_tmp/m_int_0a/': Permission denied
+warning: could not open directory '.codex_tmp/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_pins_vwiv5zh_/': Permission denied
+warning: could not open directory '.codex_tmp/dashboard_probe_nnhlji68/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-dic6qlpl/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-gspffvcb/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-rw5it5lu/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-cache-files-ws141xdj/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_tmp/pytest-temp/': Permission denied
+warning: could not open directory '.codex_tmp/tmpa1p3yho_/': Permission denied
+warning: could not open directory '.codex_tmp/tmp_0e75uq2/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/basetemp/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-9j2dzpz7/': Permission denied
+warning: could not open directory '.codex_tmp_md3_review/pytest-cache-files-nqn88doc/': Permission denied
+warning: could not open directory '.codex_tmp_m_int_6_v1_review_fresh/': Permission denied
+warning: could not open directory '.pytest_tmp/': Permission denied
+warning: could not open directory '.tmp-pytest/': Permission denied
+warning: could not open directory '.tmp_pytest/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-9d49poqp/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-cache-files-sc3pv95m/': Permission denied
+warning: could not open directory '.tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory '.tmp_pytest_base/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review/': Permission denied
+warning: could not open directory '.tmp_pytest_md3_review2/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-ohy5ka6b/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_2/pytest-cache-files-th4c1its/': Permission denied
+warning: could not open directory '.tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory '.tmp_pytest_m_live_1_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_billing_quota_store_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-5p4pe18f/': Permission denied
+warning: could not open directory 'codex_tmp_md3_pytest/pytest-cache-files-g5_66my5/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_review_rerun/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v1_single2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_10_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v1_review_fresh_20260429/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_11_v2_review_fresh_subset/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v3_review_probe/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_5_v4_review_fresh2/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_6_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v1_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_review_alt/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v2_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_7_v3_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v1_review_single/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_m_int_9_v2_review_fresh/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m1_v3_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m6_v2_review/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-emy3jzim/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/pytest-cache-files-ifrpgfwe/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_repeat/run1/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-gdsntehr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m8_v3_review/pytest-cache-files-w2ydeerr/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v2_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_direct/pause_test_k7931r_x/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/m9_v4_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-hpfzlu65/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-cache-files-nhxwstx3/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmp3mznye_6/': Permission denied
+warning: could not open directory 'codex_tmp_pytest/tmphqr_2pxb/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-3r1xbz5a/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-j3bgq3dp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-uhc9n9ki/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/pytest-cache-files-z05ztwqu/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m11/run2/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-3igrvw1b/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_m15a_v2/pytest-cache-files-6xqnwb4w/': Permission denied
+warning: could not open directory 'codex_tmp_pytest_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/basetemp/': Permission denied
+warning: could not open directory 'codex_tmp_review/pytest/': Permission denied
+warning: could not open directory 'codex_tmp_review/tmporwu3ryq/': Permission denied
+warning: could not open directory 'dashboard_probe_f2ltuo3t/': Permission denied
+warning: could not open directory 'dashboard_probe_hhthuj3n/': Permission denied
+warning: could not open directory 'dashboard_probe_xdvktanm/': Permission denied
+warning: could not open directory 'dashboard_probe_znaia9ry/': Permission denied
+warning: could not open directory 'dashboard_probe_zw62d2fs/': Permission denied
+warning: could not open directory 'm10v2_manual_yz_33hqh/': Permission denied
+warning: could not open directory 'm10v3_one_wlcrnh2f/': Permission denied
+warning: could not open directory 'm8_tmp_check/basetemp/': Permission denied
+warning: could not open directory 'm8_v4_pytest/basetemp_target_1/': Permission denied
+warning: could not open directory 'm9v2_pytest_run1/basetemp/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/debug_67nfxsqx/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk/': Permission denied
+warning: could not open directory 'm9_v2_manual_verify/test_runner_completes_and_returns_artifact_dir_98bbq1o9/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7/': Permission denied
+warning: could not open directory 'manual_pytest_base_m_int_7_ok/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/case_0fi46bg0/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/multi_6s8_s1qq/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_bjq0be8a/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/norm_rg5jsj56/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/probe_5m0km2ig/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_base_single/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_10_v3/pytest_cbed7372a7bb40aea2391561685324a6/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_base/': Permission denied
+warning: could not open directory 'manual_review_scratch_m_int_9_v2/pytest_temp2/pytest-of-msn/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/m_int_3_vuogvrw1/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmp0mgvzuit/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpaxxfmfxi/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmpil0qrijb/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmplt41kesg/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3/tmppwq_ebab/': Permission denied
+warning: could not open directory 'manual_tmp_m_int_3_v3/': Permission denied
+warning: could not open directory 'md3_pytest_run2/': Permission denied
+warning: could not open directory 'md3_round3_manual_tmp/tmpow6efjpr/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base1/': Permission denied
+warning: could not open directory 'md3_round3_pytest_tmp/base2/': Permission denied
+warning: could not open directory 'm_int_10_manual_57asn199/': Permission denied
+warning: could not open directory 'm_int_7_v2_manual_5fgxbzoc/': Permission denied
+warning: could not open directory 'm_int_7_v3_manual_dhypw5bz/': Permission denied
+warning: could not open directory 'm_live_4_r2_3qyr9r66/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'POLARIS.tmppytest/': Permission denied
+warning: could not open directory 'POLARIStmp_pytest_m_int_3_reviewbasetemp/': Permission denied
+warning: could not open directory 'pytest-cache-files-o969a6s7/': Permission denied
+warning: could not open directory 'pytest-cache-files-tw8jzxb3/': Permission denied
+warning: could not open directory 'pytest_run_3842f3b95af34ad8b6f93080344d5110/': Permission denied
+warning: could not open directory 'pytest_run_554e954860ba4943a4f9f6097fe8541f/': Permission denied
+warning: could not open directory 'pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba/': Permission denied
+warning: could not open directory 'py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9/': Permission denied
+warning: could not open directory 'tmp2ef0ie4p/': Permission denied
+warning: could not open directory 'tmp2hhmpr2y/': Permission denied
+warning: could not open directory 'tmp48c8ko2m/': Permission denied
+warning: could not open directory 'tmp63988s99/': Permission denied
+warning: could not open directory 'tmp8u9ua575/': Permission denied
+warning: could not open directory 'tmp9h7v7fon/': Permission denied
+warning: could not open directory 'tmpaufjwjy5/': Permission denied
+warning: could not open directory 'tmpgb143kt_/': Permission denied
+warning: could not open directory 'tmppvxh8fwq/': Permission denied
+warning: could not open directory 'tmpq5bdi1rl/': Permission denied
+warning: could not open directory 'tmptgnkdlz5/': Permission denied
+warning: could not open directory 'tmpu2b082f6/': Permission denied
+warning: could not open directory 'tmpuyki_w88/': Permission denied
+warning: could not open directory 'tmpv1dnokk6/': Permission denied
+warning: could not open directory 'tmpw2ru3yoj/': Permission denied
+warning: could not open directory 'tmpxnalraft/': Permission denied
+warning: could not open directory 'tmpyl5f0goo/': Permission denied
+warning: could not open directory 'tmp_ae3ucgg/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_0b/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-6aj13ym2/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_2/pytest-cache-files-yfgponc6/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/basetemp/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-8vum0pcs/': Permission denied
+warning: could not open directory 'tmp_pytest_m_int_3_review/pytest-cache-files-tygwhrz0/': Permission denied
+
+ succeeded in 2693ms:
+# I-f3-010 — F3 Sovereignty Walkthrough
+
+**Reframe:** per user directive 2026-05-06 ("Codex signs, not user"), the original "product-owner upload-and-fact-check walkthrough; recording" is replaced by an audit trail of the sovereignty enforcement substrate that already exists. This document IS the durable deliverable Codex reviews for the "CLIENT classification visible, no external API call" verdict.
+
+## 4-scenario corpus
+
+| # | Input | Classification (form field) | Expected backend behavior | Sovereignty router behavior | Substrate ref |
+|---|---|---|---|---|---|
+| 1 | CLIENT-tagged .md upload | `CLIENT` | 201 with `parse_status="completed"`, `chunk_preview=[...]`, `classification="CLIENT"` | `assert_safe_for_external([item with CLIENT])` → `SovereigntyViolationError` | `src/polaris_graph/sovereignty/router.py:filter_for_external_egress` (strict default); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_client_doc_blocked` |
+| 2 | CAN_REAL-tagged .pdf upload | `CAN_REAL` | 201 with `parse_status="queued"` (PDFs queue without sync parse); `classification="CAN_REAL"` | Sovereignty router blocks egress | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (frozenset includes CAN_REAL); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_can_real_blocked` |
+| 3 | UNKNOWN-tagged upload (default when no classification specified) | `UNKNOWN` (default) | 201; `classification="UNKNOWN"` | Default-deny — UNKNOWN is in `EXTERNAL_LEAK_FORBIDDEN` per Carney v6.2 §332 | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN`; `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_unknown_default_deny_blocked` |
+| 4 | PUBLIC_SYNTHETIC-tagged upload | `PUBLIC_SYNTHETIC` | 201; `classification="PUBLIC_SYNTHETIC"` | Sovereignty router PERMITS egress (only allowed classification per Carney v6.2 §332) | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (PUBLIC_SYNTHETIC NOT in set); `tests/polaris_graph/sovereignty/test_router.py:test_strict_allows_only_public_synthetic` |
+
+## Sovereignty enforcement substrate (cross-referenced)
+
+- **`src/polaris_graph/sovereignty/classification.py`**: `DataClassification` enum (5 values) + `EXTERNAL_LEAK_FORBIDDEN = frozenset({CAN_REAL, PRIVATE, CLIENT, UNKNOWN})` codifies Carney v6.2 §332 "All non-PUBLIC_SYNTHETIC classifications blocked from external API."
+- **`src/polaris_graph/sovereignty/router.py`**: `filter_for_external_egress(items, *, strict=True)` raises `SovereigntyViolationError` on any forbidden item. `assert_safe_for_external` is the strict-default convenience gate.
+- **`tests/polaris_graph/sovereignty/test_router.py`**: 9 unit tests including the 4-classification matrix + dict + dataclass item access.
+- **`tests/polaris_graph/sovereignty/test_red_team.py`**: 3 red-team tests proving the gate fires for CLIENT, CAN_REAL, and UNKNOWN-default-deny.
+- **`.github/workflows/sovereignty.yml.pending_workflow_scope`** (USER ACTION REQUIRED — rename to `.yml` to activate; bot account lacks `workflow` OAuth scope per project pattern). Workflow runs the full `tests/polaris_graph/sovereignty/` suite on every PR + push to `polaris`/`main`.
+
+## "CLIENT classification visible" — current state + follow-up
+
+**Current (HEAD):**
+- Backend `UploadResponse.classification` field (`src/polaris_v6/api/upload.py:42`) is populated from the user's `Form("UNKNOWN")` default OR explicit form field.
+- Frontend `UploadResponse` type (`web/lib/api.ts:90-99`) includes the classification field.
+- Frontend UI (UploadDropZone, DocumentPreview, etc.) does NOT currently render a CLIENT-specific badge — the classification value is on the response object but not visually surfaced.
+
+**Follow-up (named):**
+- **I-f3-008b — Frontend: classification badge per uploaded file.** Render `<span data-testid="classification-badge-{id}">{classification}</span>` next to filename. Tests: 4 classifications render with distinct visual treatment; CLIENT renders prominently (red border).
+
+This Issue's walkthrough deliverable is the audit trail proving the BACKEND/POLICY layer enforces the no-external-leak guarantee via tested substrate. UI badge surfacing is the named follow-up.
+
+## "No external API call" — provability
+
+The sovereignty CI gate (`.github/workflows/sovereignty.yml.pending_workflow_scope`) runs:
+- `tests/polaris_graph/sovereignty/test_classification.py` (7 tests) — proves the policy set is correct.
+- `tests/polaris_graph/sovereignty/test_router.py` (9 tests) — proves the router blocks all non-PUBLIC_SYNTHETIC.
+- `tests/polaris_graph/sovereignty/test_red_team.py` (3 tests) — proves the gate fires for the 3 catastrophic classifications (CLIENT, CAN_REAL, UNKNOWN).
+
+If anyone weakens `EXTERNAL_LEAK_FORBIDDEN` to allow CLIENT/CAN_REAL/UNKNOWN through, the red-team tests fail in CI and the PR cannot merge.
+
+The remaining gap (named follow-up I-f3-008c): integration test that asserts production code at every external-egress site invokes `assert_safe_for_external()` before the network call. Currently the policy library is correct; the integration assertion that callers USE it is a separate substrate Issue.
+
+## Codex acceptance criteria
+
+APPROVE iff:
+1. All 4 scenarios in the table above cross-reference real substrate (file paths exist at HEAD; line numbers point to relevant code).
+2. The "no external API call" provability section's tests all PASS via `PYTHONPATH=src python -m pytest tests/polaris_graph/sovereignty/`.
+3. The follow-up Issues (I-f3-008b, I-f3-008c) are named explicitly so no acceptance is silently deferred.
+
+## Out of scope
+
+- Real human screen recording (user-driven if desired).
+- Frontend classification badge → I-f3-008b.
+- Integration test for caller-side `assert_safe_for_external` invocation → I-f3-008c.
+
+codex
+The walkthrough file is present. I’m checking the specific assertions now because the review hinges on whether the doc’s scenario claims are tied to exact code/test lines and whether the sovereignty suite actually passes.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/sovereignty/classification.py | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/sovereignty/router.py | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/sovereignty/test_router.py | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/sovereignty/test_red_team.py | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_v6/api/upload.py | ForEach-Object { $i++; if ($i -le 130) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content web/lib/api.ts | ForEach-Object { $i++; if ($i -ge 80 -and $i -le 110) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 1935ms:
+   1: """Canonical data classification taxonomy + sovereignty policy (I-f3-002).
+   2: 
+   3: Codifies `docs/carney_delivery_plan_v6_2.md:332` "All non-PUBLIC_SYNTHETIC
+   4: classifications blocked from external API". The `EXTERNAL_LEAK_FORBIDDEN`
+   5: set is the authoritative external-egress policy consumed by the
+   6: sovereignty router (I-f3-003).
+   7: """
+   8: 
+   9: from __future__ import annotations
+  10: 
+  11: from enum import Enum
+  12: from typing import Union
+  13: 
+  14: 
+  15: class DataClassification(str, Enum):
+  16:     PUBLIC_SYNTHETIC = "PUBLIC_SYNTHETIC"
+  17:     CAN_REAL = "CAN_REAL"
+  18:     PRIVATE = "PRIVATE"
+  19:     CLIENT = "CLIENT"
+  20:     UNKNOWN = "UNKNOWN"
+  21: 
+  22: 
+  23: ALL_CLASSIFICATIONS: tuple[DataClassification, ...] = tuple(DataClassification)
+  24: 
+  25: EXTERNAL_LEAK_FORBIDDEN: frozenset[DataClassification] = frozenset(
+  26:     {
+  27:         DataClassification.CAN_REAL,
+  28:         DataClassification.PRIVATE,
+  29:         DataClassification.CLIENT,
+  30:         DataClassification.UNKNOWN,
+  31:     }
+  32: )
+  33: 
+  34: 
+  35: def parse_classification(
+  36:     value: Union[str, DataClassification, None],
+  37: ) -> DataClassification:
+  38:     """Normalize input to DataClassification. None → UNKNOWN. Invalid → ValueError."""
+  39:     if value is None:
+  40:         return DataClassification.UNKNOWN
+  41:     if isinstance(value, DataClassification):
+  42:         return value
+  43:     return DataClassification(value)
+  44: 
+  45: 
+  46: def is_external_leak_forbidden(classification: DataClassification) -> bool:
+  47:     """True iff the given classification is forbidden from external-API egress."""
+  48:     return classification in EXTERNAL_LEAK_FORBIDDEN
+
+ succeeded in 2125ms:
+   1: """Sovereignty router: enforces EXTERNAL_LEAK_FORBIDDEN policy at call sites (I-f3-003).
+   2: 
+   3: Per Carney v6.2 §332. The router is a policy library — callers invoke
+   4: `assert_safe_for_external` (strict gate) or `filter_for_external_egress`
+   5: (split mode) before any outbound payload leaves Canadian-sovereign infra.
+   6: """
+   7: 
+   8: from __future__ import annotations
+   9: 
+  10: from dataclasses import dataclass
+  11: from typing import Any, Iterable
+  12: 
+  13: from polaris_graph.sovereignty.classification import (
+  14:     is_external_leak_forbidden,
+  15:     parse_classification,
+  16: )
+  17: 
+  18: 
+  19: @dataclass(frozen=True)
+  20: class SovereigntyDecision:
+  21:     """Result of `filter_for_external_egress(strict=False)`.
+  22: 
+  23:     Note: while the dataclass is frozen, the contained `tuple` fields
+  24:     are themselves immutable.
+  25:     """
+  26: 
+  27:     allowed: tuple
+  28:     blocked: tuple
+  29:     reasons: tuple[str, ...]
+  30: 
+  31: 
+  32: class SovereigntyViolationError(RuntimeError):
+  33:     """Raised in strict mode when any item is forbidden external-egress."""
+  34: 
+  35: 
+  36: def _classification_of(item: Any) -> str | None:
+  37:     raw = getattr(item, "classification", None)
+  38:     if raw is None and isinstance(item, dict):
+  39:         raw = item.get("classification")
+  40:     return raw
+  41: 
+  42: 
+  43: def filter_for_external_egress(
+  44:     items: Iterable, *, strict: bool = True,
+  45: ) -> SovereigntyDecision:
+  46:     """Filter items against EXTERNAL_LEAK_FORBIDDEN per Carney v6.2 §332.
+  47: 
+  48:     strict=True (default): raises SovereigntyViolationError on first forbidden item.
+  49:     strict=False: returns SovereigntyDecision split.
+  50: 
+  51:     Items lacking `classification` default to UNKNOWN (forbidden).
+  52:     """
+  53:     allowed: list = []
+  54:     blocked: list = []
+  55:     reasons: list[str] = []
+  56:     for item in items:
+  57:         cls = parse_classification(_classification_of(item))
+  58:         if is_external_leak_forbidden(cls):
+  59:             reason = f"classification={cls.value} forbidden external-egress"
+  60:             if strict:
+  61:                 raise SovereigntyViolationError(reason)
+  62:             blocked.append(item)
+  63:             reasons.append(reason)
+  64:         else:
+  65:             allowed.append(item)
+  66:     return SovereigntyDecision(
+  67:         allowed=tuple(allowed), blocked=tuple(blocked), reasons=tuple(reasons),
+  68:     )
+  69: 
+  70: 
+  71: def assert_safe_for_external(items: Iterable) -> None:
+  72:     """Strict gate; raises SovereigntyViolationError on any forbidden item."""
+  73:     filter_for_external_egress(items, strict=True)
+
+ succeeded in 2480ms:
+   1: """Unit tests for I-f3-003 — sovereignty router."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: from dataclasses import dataclass
+   6: 
+   7: import pytest
+   8: 
+   9: from polaris_graph.sovereignty.classification import DataClassification
+  10: from polaris_graph.sovereignty.router import (
+  11:     SovereigntyDecision,
+  12:     SovereigntyViolationError,
+  13:     assert_safe_for_external,
+  14:     filter_for_external_egress,
+  15: )
+  16: 
+  17: 
+  18: @dataclass
+  19: class Item:
+  20:     text: str
+  21:     classification: str
+  22: 
+  23: 
+  24: def test_strict_blocks_client_doc():
+  25:     items = [Item("ok", "PUBLIC_SYNTHETIC"), Item("leak", "CLIENT")]
+  26:     with pytest.raises(SovereigntyViolationError, match="CLIENT"):
+  27:         filter_for_external_egress(items, strict=True)
+  28: 
+  29: 
+  30: def test_strict_blocks_can_real():
+  31:     with pytest.raises(SovereigntyViolationError, match="CAN_REAL"):
+  32:         filter_for_external_egress([Item("x", "CAN_REAL")], strict=True)
+  33: 
+  34: 
+  35: def test_strict_blocks_private():
+  36:     with pytest.raises(SovereigntyViolationError, match="PRIVATE"):
+  37:         filter_for_external_egress([Item("x", "PRIVATE")], strict=True)
+  38: 
+  39: 
+  40: def test_strict_blocks_unknown_default_deny():
+  41:     # UNKNOWN-classified item:
+  42:     with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+  43:         filter_for_external_egress([Item("x", "UNKNOWN")], strict=True)
+  44:     # missing classification entirely:
+  45:     with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+  46:         filter_for_external_egress([{"text": "no_class"}], strict=True)
+  47: 
+  48: 
+  49: def test_strict_allows_only_public_synthetic():
+  50:     items = [Item(f"ps{i}", "PUBLIC_SYNTHETIC") for i in range(3)]
+  51:     decision = filter_for_external_egress(items, strict=True)
+  52:     assert isinstance(decision, SovereigntyDecision)
+  53:     assert len(decision.allowed) == 3
+  54:     assert decision.blocked == ()
+  55: 
+  56: 
+  57: def test_lax_returns_split():
+  58:     items = [Item("ok", "PUBLIC_SYNTHETIC"), Item("leak", "CLIENT"), Item("ok2", "PUBLIC_SYNTHETIC")]
+  59:     decision = filter_for_external_egress(items, strict=False)
+  60:     assert len(decision.allowed) == 2
+  61:     assert len(decision.blocked) == 1
+  62:     assert decision.blocked[0].text == "leak"
+  63:     assert decision.reasons[0].endswith("forbidden external-egress")
+  64: 
+  65: 
+  66: def test_dict_items_classification_field():
+  67:     items = [{"text": "ok", "classification": "PUBLIC_SYNTHETIC"}]
+  68:     decision = filter_for_external_egress(items, strict=True)
+  69:     assert len(decision.allowed) == 1
+  70: 
+  71: 
+  72: def test_assert_safe_for_external_passthrough():
+  73:     assert_safe_for_external([Item("ok", "PUBLIC_SYNTHETIC")])  # no raise
+  74:     with pytest.raises(SovereigntyViolationError):
+  75:         assert_safe_for_external([Item("leak", "CLIENT")])
+  76: 
+  77: 
+  78: def test_enum_classification_value_works():
+  79:     """Items can carry DataClassification enum directly, not just strings."""
+  80:     items = [Item("ok", DataClassification.PUBLIC_SYNTHETIC)]
+  81:     decision = filter_for_external_egress(items, strict=True)
+  82:     assert len(decision.allowed) == 1
+
+ succeeded in 2547ms:
+   1: """POST /upload — F3b drag-drop document upload endpoint.
+   2: 
+   3: Per docs/carney_delivery_plan_v6_2.md F3b, the user can upload PDFs /
+   4: docx / md / txt to seed a research run. Phase 0 ships the contract:
+   5: returns a document_id + parse_status; Phase 1 wires actual parsing +
+   6: chunking + sovereignty router (CAN_REAL data must stay on Canadian
+   7: infra).
+   8: 
+   9: Per CLAUDE.md security posture: file content classification
+  10: (PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+  11: the caller; default is UNKNOWN and triggers conservative routing.
+  12: """
+  13: 
+  14: from __future__ import annotations
+  15: 
+  16: import hashlib
+  17: import html as _html
+  18: import uuid
+  19: from typing import Literal
+  20: 
+  21: from fastapi import APIRouter, Form, HTTPException, UploadFile
+  22: from pydantic import BaseModel
+  23: 
+  24: router = APIRouter(prefix="/upload", tags=["upload"])
+  25: 
+  26: DataClassification = Literal[
+  27:     "PUBLIC_SYNTHETIC",
+  28:     "CAN_REAL",
+  29:     "PRIVATE",
+  30:     "CLIENT",
+  31:     "UNKNOWN",
+  32: ]
+  33: 
+  34: ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+  35: MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
+  36: 
+  37: 
+  38: class UploadResponse(BaseModel):
+  39:     document_id: str
+  40:     filename: str
+  41:     bytes: int
+  42:     sha256: str
+  43:     classification: DataClassification
+  44:     parse_status: Literal["queued", "completed", "failed"]
+  45:     chunk_preview: list[str]
+  46:     content: str = ""
+  47:     html: str = ""
+  48: 
+  49: 
+  50: _UPLOAD_TABLE: dict[str, UploadResponse] = {}
+  51: 
+  52: 
+  53: @router.post("", response_model=UploadResponse, status_code=201)
+  54: async def upload_document(
+  55:     file: UploadFile,
+  56:     classification: DataClassification = Form("UNKNOWN"),
+  57: ) -> UploadResponse:
+  58:     if file.filename is None:
+  59:         raise HTTPException(status_code=400, detail="filename required")
+  60: 
+  61:     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+  62:     if ext not in ALLOWED_EXTENSIONS:
+  63:         raise HTTPException(
+  64:             status_code=415,
+  65:             detail=f"Unsupported extension {ext!r}. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
+  66:         )
+  67: 
+  68:     content = await file.read()
+  69:     if len(content) > MAX_BYTES:
+  70:         raise HTTPException(
+  71:             status_code=413,
+  72:             detail=f"File exceeds {MAX_BYTES // (1024 * 1024)} MB limit",
+  73:         )
+  74:     if len(content) == 0:
+  75:         raise HTTPException(status_code=422, detail="empty file")
+  76: 
+  77:     sha = hashlib.sha256(content).hexdigest()
+  78:     document_id = uuid.uuid4().hex
+  79: 
+  80:     if ext in {".md", ".txt"}:
+  81:         try:
+  82:             text = content.decode("utf-8", errors="replace")
+  83:         except Exception:
+  84:             text = ""
+  85:         chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+  86:         preview_text = text
+  87:         preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
+  88:     else:
+  89:         chunks = []
+  90:         preview_text = ""
+  91:         preview_html = ""
+  92: 
+  93:     response = UploadResponse(
+  94:         document_id=document_id,
+  95:         filename=file.filename,
+  96:         bytes=len(content),
+  97:         sha256=sha,
+  98:         classification=classification,
+  99:         parse_status="completed" if chunks else "queued",
+ 100:         chunk_preview=chunks[:3],
+ 101:         content=preview_text,
+ 102:         html=preview_html,
+ 103:     )
+ 104:     _UPLOAD_TABLE[document_id] = response
+ 105:     return response
+ 106: 
+ 107: 
+ 108: @router.get("/{document_id}", response_model=UploadResponse)
+ 109: def get_upload(document_id: str) -> UploadResponse:
+ 110:     record = _UPLOAD_TABLE.get(document_id)
+ 111:     if record is None:
+ 112:         raise HTTPException(status_code=404, detail=f"document {document_id!r} not found")
+ 113:     return record
+
+ succeeded in 2741ms:
+  80:   return asJsonOrThrow<RunStatusResponse>(response);
+  81: }
+  82: 
+  83: export type DataClassification =
+  84:   | "PUBLIC_SYNTHETIC"
+  85:   | "CAN_REAL"
+  86:   | "PRIVATE"
+  87:   | "CLIENT"
+  88:   | "UNKNOWN";
+  89: 
+  90: export interface UploadResponse {
+  91:   document_id: string;
+  92:   filename: string;
+  93:   bytes: number;
+  94:   sha256: string;
+  95:   classification: DataClassification;
+  96:   parse_status: "queued" | "completed" | "failed";
+  97:   chunk_preview: string[];
+  98:   content?: string;
+  99:   html?: string;
+ 100: }
+ 101: 
+ 102: export async function getUpload(document_id: string): Promise<UploadResponse> {
+ 103:   const response = await fetch(
+ 104:     `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+ 105:   );
+ 106:   return asJsonOrThrow<UploadResponse>(response);
+ 107: }
+ 108: 
+ 109: export async function uploadDocument(
+ 110:   file: File,
+
+ succeeded in 2973ms:
+   1: """Red-team tests proving the sovereignty gate fires on violation (I-f3-004).
+   2: 
+   3: If anyone weakens EXTERNAL_LEAK_FORBIDDEN or removes the assert_safe_for_external
+   4: gate, these tests fail in CI per .github/workflows/sovereignty.yml.
+   5: """
+   6: 
+   7: from __future__ import annotations
+   8: 
+   9: from dataclasses import dataclass
+  10: 
+  11: import pytest
+  12: 
+  13: from polaris_graph.sovereignty.router import (
+  14:     SovereigntyViolationError,
+  15:     assert_safe_for_external,
+  16: )
+  17: 
+  18: 
+  19: @dataclass
+  20: class _Item:
+  21:     text: str
+  22:     classification: str | None
+  23: 
+  24: 
+  25: def test_red_team_client_doc_blocked():
+  26:     payload = [_Item("public sample", "PUBLIC_SYNTHETIC"), _Item("client trade secret", "CLIENT")]
+  27:     with pytest.raises(SovereigntyViolationError, match="CLIENT"):
+  28:         assert_safe_for_external(payload)
+  29: 
+  30: 
+  31: def test_red_team_can_real_blocked():
+  32:     payload = [_Item("Canadian PII", "CAN_REAL")]
+  33:     with pytest.raises(SovereigntyViolationError, match="CAN_REAL"):
+  34:         assert_safe_for_external(payload)
+  35: 
+  36: 
+  37: def test_red_team_unknown_default_deny_blocked():
+  38:     payload = [_Item("missing classification", None)]
+  39:     with pytest.raises(SovereigntyViolationError, match="UNKNOWN"):
+  40:         assert_safe_for_external(payload)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content .github/workflows/sovereignty.yml.pending_workflow_scope | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/sovereignty/test_classification.py | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -m pytest tests/polaris_graph/sovereignty/" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '(Get-Content outputs/audits/I-f3-010/sovereignty_walkthrough.md).Count' in C:\POLARIS
+ succeeded in 1994ms:
+   1: name: sovereignty
+   2: 
+   3: on:
+   4:   pull_request:
+   5:   push:
+   6:     branches: [polaris, main]
+   7: 
+   8: jobs:
+   9:   sovereignty-tests:
+  10:     runs-on: ubuntu-latest
+  11:     steps:
+  12:       - uses: actions/checkout@v4
+  13: 
+  14:       - uses: actions/setup-python@v5
+  15:         with:
+  16:           python-version: "3.11"
+  17: 
+  18:       - name: Install pytest
+  19:         run: pip install pytest
+  20: 
+  21:       - name: Run sovereignty test suite (Carney v6.2 §332 default-deny)
+  22:         env:
+  23:           PYTHONPATH: src
+  24:         run: python -m pytest tests/polaris_graph/sovereignty/ -v
+
+ succeeded in 2143ms:
+56
+
+ succeeded in 2435ms:
+   1: """Unit tests for I-f3-002 — DataClassification + sovereignty policy."""
+   2: 
+   3: from __future__ import annotations
+   4: 
+   5: import json
+   6: 
+   7: import pytest
+   8: 
+   9: from polaris_graph.sovereignty.classification import (
+  10:     ALL_CLASSIFICATIONS,
+  11:     EXTERNAL_LEAK_FORBIDDEN,
+  12:     DataClassification,
+  13:     is_external_leak_forbidden,
+  14:     parse_classification,
+  15: )
+  16: 
+  17: 
+  18: def test_all_five_values_present():
+  19:     expected = {"PUBLIC_SYNTHETIC", "CAN_REAL", "PRIVATE", "CLIENT", "UNKNOWN"}
+  20:     assert {c.value for c in ALL_CLASSIFICATIONS} == expected
+  21:     assert len(ALL_CLASSIFICATIONS) == 5
+  22: 
+  23: 
+  24: def test_str_inheritance_makes_json_serializable():
+  25:     payload = {"c": DataClassification.CLIENT}
+  26:     assert json.dumps(payload) == '{"c": "CLIENT"}'
+  27: 
+  28: 
+  29: def test_parse_classification_accepts_enum():
+  30:     assert parse_classification(DataClassification.CAN_REAL) is DataClassification.CAN_REAL
+  31: 
+  32: 
+  33: def test_parse_classification_accepts_string():
+  34:     assert parse_classification("CAN_REAL") is DataClassification.CAN_REAL
+  35: 
+  36: 
+  37: def test_parse_classification_none_returns_unknown():
+  38:     assert parse_classification(None) is DataClassification.UNKNOWN
+  39: 
+  40: 
+  41: def test_parse_classification_invalid_raises():
+  42:     with pytest.raises(ValueError):
+  43:         parse_classification("NOT_A_REAL_CLASSIFICATION")
+  44: 
+  45: 
+  46: def test_is_external_leak_forbidden():
+  47:     """Per Carney v6.2 §332: only PUBLIC_SYNTHETIC is allowed external."""
+  48:     assert is_external_leak_forbidden(DataClassification.PUBLIC_SYNTHETIC) is False
+  49:     for c in (
+  50:         DataClassification.CAN_REAL,
+  51:         DataClassification.PRIVATE,
+  52:         DataClassification.CLIENT,
+  53:         DataClassification.UNKNOWN,
+  54:     ):
+  55:         assert is_external_leak_forbidden(c) is True
+  56:     assert EXTERNAL_LEAK_FORBIDDEN == frozenset(
+  57:         {
+  58:             DataClassification.CAN_REAL,
+  59:             DataClassification.PRIVATE,
+  60:             DataClassification.CLIENT,
+  61:             DataClassification.UNKNOWN,
+  62:         }
+  63:     )
+
+ succeeded in 10766ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 19 items
+
+tests/polaris_graph/sovereignty/test_classification.py::test_all_five_values_present PASSED [  5%]
+tests/polaris_graph/sovereignty/test_classification.py::test_str_inheritance_makes_json_serializable PASSED [ 10%]
+tests/polaris_graph/sovereignty/test_classification.py::test_parse_classification_accepts_enum PASSED [ 15%]
+tests/polaris_graph/sovereignty/test_classification.py::test_parse_classification_accepts_string PASSED [ 21%]
+tests/polaris_graph/sovereignty/test_classification.py::test_parse_classification_none_returns_unknown PASSED [ 26%]
+tests/polaris_graph/sovereignty/test_classification.py::test_parse_classification_invalid_raises PASSED [ 31%]
+tests/polaris_graph/sovereignty/test_classification.py::test_is_external_leak_forbidden PASSED [ 36%]
+tests/polaris_graph/sovereignty/test_red_team.py::test_red_team_client_doc_blocked PASSED [ 42%]
+tests/polaris_graph/sovereignty/test_red_team.py::test_red_team_can_real_blocked PASSED [ 47%]
+tests/polaris_graph/sovereignty/test_red_team.py::test_red_team_unknown_default_deny_blocked PASSED [ 52%]
+tests/polaris_graph/sovereignty/test_router.py::test_strict_blocks_client_doc PASSED [ 57%]
+tests/polaris_graph/sovereignty/test_router.py::test_strict_blocks_can_real PASSED [ 63%]
+tests/polaris_graph/sovereignty/test_router.py::test_strict_blocks_private PASSED [ 68%]
+tests/polaris_graph/sovereignty/test_router.py::test_strict_blocks_unknown_default_deny PASSED [ 73%]
+tests/polaris_graph/sovereignty/test_router.py::test_strict_allows_only_public_synthetic PASSED [ 78%]
+tests/polaris_graph/sovereignty/test_router.py::test_lax_returns_split PASSED [ 84%]
+tests/polaris_graph/sovereignty/test_router.py::test_dict_items_classification_field PASSED [ 89%]
+tests/polaris_graph/sovereignty/test_router.py::test_assert_safe_for_external_passthrough PASSED [ 94%]
+tests/polaris_graph/sovereignty/test_router.py::test_enum_classification_value_works PASSED [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 19 passed, 1 warning in 4.07s ========================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content outputs/audits/I-f3-010/sovereignty_walkthrough.md | ForEach-Object { $i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 1642ms:
+   1: # I-f3-010 — F3 Sovereignty Walkthrough
+   2: 
+   3: **Reframe:** per user directive 2026-05-06 ("Codex signs, not user"), the original "product-owner upload-and-fact-check walkthrough; recording" is replaced by an audit trail of the sovereignty enforcement substrate that already exists. This document IS the durable deliverable Codex reviews for the "CLIENT classification visible, no external API call" verdict.
+   4: 
+   5: ## 4-scenario corpus
+   6: 
+   7: | # | Input | Classification (form field) | Expected backend behavior | Sovereignty router behavior | Substrate ref |
+   8: |---|---|---|---|---|---|
+   9: | 1 | CLIENT-tagged .md upload | `CLIENT` | 201 with `parse_status="completed"`, `chunk_preview=[...]`, `classification="CLIENT"` | `assert_safe_for_external([item with CLIENT])` → `SovereigntyViolationError` | `src/polaris_graph/sovereignty/router.py:filter_for_external_egress` (strict default); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_client_doc_blocked` |
+  10: | 2 | CAN_REAL-tagged .pdf upload | `CAN_REAL` | 201 with `parse_status="queued"` (PDFs queue without sync parse); `classification="CAN_REAL"` | Sovereignty router blocks egress | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (frozenset includes CAN_REAL); `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_can_real_blocked` |
+  11: | 3 | UNKNOWN-tagged upload (default when no classification specified) | `UNKNOWN` (default) | 201; `classification="UNKNOWN"` | Default-deny — UNKNOWN is in `EXTERNAL_LEAK_FORBIDDEN` per Carney v6.2 §332 | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN`; `tests/polaris_graph/sovereignty/test_red_team.py:test_red_team_unknown_default_deny_blocked` |
+  12: | 4 | PUBLIC_SYNTHETIC-tagged upload | `PUBLIC_SYNTHETIC` | 201; `classification="PUBLIC_SYNTHETIC"` | Sovereignty router PERMITS egress (only allowed classification per Carney v6.2 §332) | `src/polaris_graph/sovereignty/classification.py:EXTERNAL_LEAK_FORBIDDEN` (PUBLIC_SYNTHETIC NOT in set); `tests/polaris_graph/sovereignty/test_router.py:test_strict_allows_only_public_synthetic` |
+  13: 
+  14: ## Sovereignty enforcement substrate (cross-referenced)
+  15: 
+  16: - **`src/polaris_graph/sovereignty/classification.py`**: `DataClassification` enum (5 values) + `EXTERNAL_LEAK_FORBIDDEN = frozenset({CAN_REAL, PRIVATE, CLIENT, UNKNOWN})` codifies Carney v6.2 §332 "All non-PUBLIC_SYNTHETIC classifications blocked from external API."
+  17: - **`src/polaris_graph/sovereignty/router.py`**: `filter_for_external_egress(items, *, strict=True)` raises `SovereigntyViolationError` on any forbidden item. `assert_safe_for_external` is the strict-default convenience gate.
+  18: - **`tests/polaris_graph/sovereignty/test_router.py`**: 9 unit tests including the 4-classification matrix + dict + dataclass item access.
+  19: - **`tests/polaris_graph/sovereignty/test_red_team.py`**: 3 red-team tests proving the gate fires for CLIENT, CAN_REAL, and UNKNOWN-default-deny.
+  20: - **`.github/workflows/sovereignty.yml.pending_workflow_scope`** (USER ACTION REQUIRED — rename to `.yml` to activate; bot account lacks `workflow` OAuth scope per project pattern). Workflow runs the full `tests/polaris_graph/sovereignty/` suite on every PR + push to `polaris`/`main`.
+  21: 
+  22: ## "CLIENT classification visible" — current state + follow-up
+  23: 
+  24: **Current (HEAD):**
+  25: - Backend `UploadResponse.classification` field (`src/polaris_v6/api/upload.py:42`) is populated from the user's `Form("UNKNOWN")` default OR explicit form field.
+  26: - Frontend `UploadResponse` type (`web/lib/api.ts:90-99`) includes the classification field.
+  27: - Frontend UI (UploadDropZone, DocumentPreview, etc.) does NOT currently render a CLIENT-specific badge — the classification value is on the response object but not visually surfaced.
+  28: 
+  29: **Follow-up (named):**
+  30: - **I-f3-008b — Frontend: classification badge per uploaded file.** Render `<span data-testid="classification-badge-{id}">{classification}</span>` next to filename. Tests: 4 classifications render with distinct visual treatment; CLIENT renders prominently (red border).
+  31: 
+  32: This Issue's walkthrough deliverable is the audit trail proving the BACKEND/POLICY layer enforces the no-external-leak guarantee via tested substrate. UI badge surfacing is the named follow-up.
+  33: 
+  34: ## "No external API call" — provability
+  35: 
+  36: The sovereignty CI gate (`.github/workflows/sovereignty.yml.pending_workflow_scope`) runs:
+  37: - `tests/polaris_graph/sovereignty/test_classification.py` (7 tests) — proves the policy set is correct.
+  38: - `tests/polaris_graph/sovereignty/test_router.py` (9 tests) — proves the router blocks all non-PUBLIC_SYNTHETIC.
+  39: - `tests/polaris_graph/sovereignty/test_red_team.py` (3 tests) — proves the gate fires for the 3 catastrophic classifications (CLIENT, CAN_REAL, UNKNOWN).
+  40: 
+  41: If anyone weakens `EXTERNAL_LEAK_FORBIDDEN` to allow CLIENT/CAN_REAL/UNKNOWN through, the red-team tests fail in CI and the PR cannot merge.
+  42: 
+  43: The remaining gap (named follow-up I-f3-008c): integration test that asserts production code at every external-egress site invokes `assert_safe_for_external()` before the network call. Currently the policy library is correct; the integration assertion that callers USE it is a separate substrate Issue.
+  44: 
+  45: ## Codex acceptance criteria
+  46: 
+  47: APPROVE iff:
+  48: 1. All 4 scenarios in the table above cross-reference real substrate (file paths exist at HEAD; line numbers point to relevant code).
+  49: 2. The "no external API call" provability section's tests all PASS via `PYTHONPATH=src python -m pytest tests/polaris_graph/sovereignty/`.
+  50: 3. The follow-up Issues (I-f3-008b, I-f3-008c) are named explicitly so no acceptance is silently deferred.
+  51: 
+  52: ## Out of scope
+  53: 
+  54: - Real human screen recording (user-driven if desired).
+  55: - Frontend classification badge → I-f3-008b.
+  56: - Integration test for caller-side `assert_safe_for_external` invocation → I-f3-008c.
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:9: The 4-scenario table does not meet the binding file:line cross-reference requirement. Rows cite symbols/test names like `router.py:filter_for_external_egress` and `test_red_team.py:test_red_team_client_doc_blocked`, while the doc’s own approval criterion requires line-addressable HEAD refs. Add exact refs, e.g. `classification.py:25`, `router.py:43`, `router.py:71`, `test_red_team.py:25/31/37`, `test_router.py:49`, and workflow lines."
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:25: `src/polaris_v6/api/upload.py:42` is not `UploadResponse.classification`; it is `sha256`. The classification field is currently line 43 and the `Form(\"UNKNOWN\")` default is line 56, so the cited evidence fails HEAD validation."
+p2:
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:41: The 'tests fail in CI and PR cannot merge' statement overstates current HEAD because the workflow is still `.yml.pending_workflow_scope`; qualify it as active only after user rename."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace missing/stale substrate references with exact file:line citations. Sovereignty suite itself passed: 19 passed."
+tokens used
+verdict: REQUEST_CHANGES
+42,427
+novel_p0: []
+continuing_p0: []
+p1:
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:9: The 4-scenario table does not meet the binding file:line cross-reference requirement. Rows cite symbols/test names like `router.py:filter_for_external_egress` and `test_red_team.py:test_red_team_client_doc_blocked`, while the doc’s own approval criterion requires line-addressable HEAD refs. Add exact refs, e.g. `classification.py:25`, `router.py:43`, `router.py:71`, `test_red_team.py:25/31/37`, `test_router.py:49`, and workflow lines."
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:25: `src/polaris_v6/api/upload.py:42` is not `UploadResponse.classification`; it is `sha256`. The classification field is currently line 43 and the `Form(\"UNKNOWN\")` default is line 56, so the cited evidence fails HEAD validation."
+p2:
+  - "outputs/audits/I-f3-010/sovereignty_walkthrough.md:41: The 'tests fail in CI and PR cannot merge' statement overstates current HEAD because the workflow is still `.yml.pending_workflow_scope`; qualify it as active only after user rename."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Replace missing/stale substrate references with exact file:line citations. Sovereignty suite itself passed: 19 passed."
