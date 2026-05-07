@@ -603,7 +603,16 @@ export interface ReportVerifiedSentence {
   drop_reason: DropReason | null;
   evaluator_agrees: boolean | null;
   is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
 }
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
 
 export interface VerifiedReportSection {
   section_id: string;
