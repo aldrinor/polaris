@@ -12,6 +12,11 @@ from polaris_graph.evidence_contract.gate import (
     assert_generation_has_contract,
     evaluate_contract,
 )
+from polaris_graph.evidence_contract.migration import (
+    MIGRATIONS,
+    ContractMigrationError,
+    migrate_contract,
+)
 from polaris_graph.evidence_contract.schema import (
     EvidenceContract,
     EvidenceContractError,
@@ -22,6 +27,7 @@ from polaris_graph.evidence_contract.schema import (
 )
 
 __all__ = [
+    "ContractMigrationError",
     "ContractRequiredError",
     "EvidenceContract",
     "EvidenceContractError",
@@ -31,6 +37,8 @@ __all__ = [
     "GateVerdict",
     "JURISDICTION_DOMAINS",
     "Jurisdiction",
+    "MIGRATIONS",
     "assert_generation_has_contract",
     "evaluate_contract",
+    "migrate_contract",
 ]

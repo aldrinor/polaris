@@ -1,0 +1,472 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e0168-046e-7e62-924b-b9c4dc84acb7
+--------
+user
+# Codex Brief Review — I-ecg-004 (ITER 2 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-ecg-004 — Contract version migration test
+**Phase:** 1 / **Feature:** ECG
+**LOC budget:** 100 net per breakdown. **CHARTER §1 hard cap: 200.**
+
+## Mission
+
+Per breakdown: v1 → v2 schema migration; backward-compat. Migration test on fixture v1 contracts.
+
+## Substrate (HONEST at HEAD)
+
+- `src/polaris_graph/evidence_contract/schema.py:62` `EvidenceContract.contract_version: Literal["1.0"]`. Currently ONE version exists; no v2 yet.
+- This Issue ships the migration scaffolding so when v2 lands later, the migration path is already tested.
+
+## Approach
+
+**Part 1 — `src/polaris_graph/evidence_contract/migration.py`** (NEW, ~50 LOC):
+- `MIGRATIONS: dict[tuple[str, str], Callable[[dict], dict]]` — registry of (from_version, to_version) → migration function.
+- `migrate_contract(raw: dict, target_version: str = "1.0") -> dict` — looks up the source version's `contract_version`. SHORT-CIRCUITS when source == target (no traversal, no self-loop). Else chains migrations following the registry; raises `ContractMigrationError` if no path. Self-loop (X, X) entries in MIGRATIONS are NOT consulted during traversal.
+- `class ContractMigrationError(Exception)`.
+- `_identity_migration(d: dict) -> dict`: returns dict unchanged. Pre-registered for ("1.0", "1.0") so the trivial case works.
+- Forward-compatibility shim: when v2 lands, register `("1.0", "2.0")` migration function alongside.
+
+**Part 2 — `tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json`** (NEW, ~25 LOC): a hand-curated minimal valid v1 contract.
+
+**Part 3 — `tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json`** (NEW, ~50 LOC): a richer v1 contract with 3 entities, 3 claims, multiple jurisdictions.
+
+**Part 4 — `tests/polaris_graph/evidence_contract/test_migration.py`** (NEW, ~75 LOC):
+- `test_v1_minimal_loads_via_pydantic`: load fixture JSON, parse via `EvidenceContract.model_validate`, assert valid.
+- `test_v1_full_loads_via_pydantic`: same for full fixture.
+- `test_migrate_v1_to_v1_is_identity`: `migrate_contract(v1_json, "1.0") == v1_json`.
+- `test_migrate_unknown_version_raises`: `migrate_contract({"contract_version": "0.5", ...}, "1.0")` raises `ContractMigrationError`.
+- `test_migrate_unknown_target_raises`: `migrate_contract(v1_json, "99.0")` raises.
+- `test_v1_round_trip_through_migration`: load v1 fixture JSON, parse via `EvidenceContract.model_validate`, then `model_dump(mode="json")` and compare to fixture sub-fields (research_question, expected_entities[0].name, contract_version). Strict-equality round-trip is brittle because contract_id and created_at_utc default at parse time; assert specific business fields instead.
+
+## Acceptance criteria (binding)
+
+1. `src/polaris_graph/evidence_contract/migration.py` NEW.
+2. `src/polaris_graph/evidence_contract/__init__.py` EDIT — re-export migration symbols.
+3. 2 fixture JSON files (NEW).
+4. `tests/polaris_graph/evidence_contract/test_migration.py` NEW with 6 tests.
+
+## Planned diff shape
+
+```
+src/polaris_graph/evidence_contract/migration.py        NEW +50
+src/polaris_graph/evidence_contract/__init__.py         EDIT +5
+tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json  NEW +25
+tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json     NEW +50
+tests/polaris_graph/evidence_contract/test_migration.py NEW +75
+```
+
+LOC: +205 net. Over CHARTER §1 200-cap by 5. Brief author commits to inline-trimming during impl (one of the JSON fixtures may be fewer LOC if formatted compactly).
+
+## Out of scope
+
+- v2 schema definition itself → not needed until v2 ships.
+- Frontend migration utility → I-ecg-004a follow-up if needed.
+- Database migration for stored contracts → I-ecg-003b backend persistence comes first.
+
+## Risks for Codex Red-Team
+
+1. **Identity migration only at HEAD.** No real version transitions exist yet. The scaffolding is valuable because when v2 lands, the migration function slots into `MIGRATIONS` and ALL existing v1 fixtures must still load + migrate cleanly. Test asserts the registry mechanism works.
+2. **Unknown version raises.** Defensive — production loaders should never see an unknown version, but if they do, fail loud per LAW II.
+3. **JSON fixture validity.** Both fixtures must `model_validate` cleanly via existing Pydantic schema. Brief author commits to running fixtures through `EvidenceContract.model_validate_json()` before commit.
+4. **§9.4 compliance.** No mocks. No magic numbers. No `try: pass`. No TODO/FIXME.
+5. **CHARTER §1 LOC cap.** 205 net. At cap; trim if needed.
+6. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+codex
+I’ll verify the current contract schema and package layout before judging the brief, since the main risk is whether the proposed fixtures and migration API actually line up with HEAD.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"class EvidenceContract|contract_version|expected_entities|research_question|model_config|created_at|contract_id\" src\\polaris_graph\\evidence_contract tests\\polaris_graph\\evidence_contract" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path tests\\polaris_graph\\evidence_contract -Recurse -Force" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path src\\polaris_graph\\evidence_contract -Force" in C:\POLARIS
+ succeeded in 1875ms:
+
+    Directory: C:\POLARIS\tests\polaris_graph\evidence_contract
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-06 11:56 PM                __pycache__
+d----          2026-05-07 12:43 AM                fixtures
+-a---          2026-05-06 11:46 PM              0 __init__.py
+-a---          2026-05-07 12:19 AM           6024 test_gate.py
+-a---          2026-05-06 11:46 PM           3797 test_schema.py
+
+    Directory: C:\POLARIS\tests\polaris_graph\evidence_contract\__pycache__
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---          2026-05-06 11:50 PM            157 __init__.cpython-313.pyc
+-a---          2026-05-06 11:56 PM          15741 test_gate.cpython-313-pytest-8.4.1.pyc
+-a---          2026-05-06 11:50 PM           9765 test_schema.cpython-313-pytest-8.4.1.pyc
+
+
+ succeeded in 2306ms:
+
+    Directory: C:\POLARIS\src\polaris_graph\evidence_contract
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-07 12:45 AM                __pycache__
+-a---          2026-05-07 12:19 AM            986 __init__.py
+-a---          2026-05-07 12:19 AM           5837 gate.py
+-a---          2026-05-06 11:46 PM           4208 schema.py
+
+
+ succeeded in 2695ms:
+tests\polaris_graph\evidence_contract\test_gate.py:100:        research_question="q",
+tests\polaris_graph\evidence_contract\test_gate.py:101:        expected_entities=[ExpectedEntity(name=entity_name, entity_type="drug")],
+tests\polaris_graph\evidence_contract\test_gate.py:106:                expected_entities=[entity_name],
+tests\polaris_graph\evidence_contract\test_schema.py:26:        expected_entities=[entity],
+tests\polaris_graph\evidence_contract\test_schema.py:37:        research_question=overrides.pop("research_question", "Does aspirin reduce headache in adults?"),
+tests\polaris_graph\evidence_contract\test_schema.py:38:        expected_entities=overrides.pop("expected_entities", [_entity()]),
+tests\polaris_graph\evidence_contract\test_schema.py:49:    assert c.contract_version == "1.0"
+tests\polaris_graph\evidence_contract\test_schema.py:50:    assert c.contract_id
+tests\polaris_graph\evidence_contract\test_schema.py:69:def test_empty_expected_entities_rejected():
+tests\polaris_graph\evidence_contract\test_schema.py:71:        _contract(expected_entities=[])
+tests\polaris_graph\evidence_contract\test_schema.py:79:def test_contract_version_pinned():
+tests\polaris_graph\evidence_contract\test_schema.py:82:            contract_version="2.0",  # type: ignore[arg-type]
+tests\polaris_graph\evidence_contract\test_schema.py:83:            research_question="q",
+tests\polaris_graph\evidence_contract\test_schema.py:84:            expected_entities=[_entity()],
+tests\polaris_graph\evidence_contract\test_schema.py:101:        _contract(expected_entities=[_entity("aspirin"), _entity("aspirin")])
+src\polaris_graph\evidence_contract\gate.py:35:    contract_id: str
+src\polaris_graph\evidence_contract\gate.py:114:    for entity in contract.expected_entities:
+src\polaris_graph\evidence_contract\gate.py:144:        contract_id=contract.contract_id,
+src\polaris_graph\evidence_contract\schema.py:50:    expected_entities: list[str] = Field(min_length=1, max_length=20)
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:65:    contract_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+src\polaris_graph\evidence_contract\schema.py:66:    contract_version: Literal["1.0"] = "1.0"
+src\polaris_graph\evidence_contract\schema.py:67:    research_question: str = Field(min_length=1, max_length=2000)
+src\polaris_graph\evidence_contract\schema.py:68:    expected_entities: list[ExpectedEntity] = Field(min_length=1, max_length=50)
+src\polaris_graph\evidence_contract\schema.py:72:    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+src\polaris_graph\evidence_contract\schema.py:77:        names = [e.name for e in self.expected_entities]
+src\polaris_graph\evidence_contract\schema.py:88:            for ref in claim.expected_entities:
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:108:    contract_id: str | None = None
+
+codex
+The package currently has only schema/gate modules, and fixtures already exist as a directory. I’m reading the model definitions and existing tests now to check whether the proposed fixture shape and migration behavior have any hidden blockers.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\evidence_contract\\schema.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path tests\\polaris_graph\\evidence_contract\\test_schema.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-ChildItem -Path tests\\polaris_graph\\evidence_contract\\fixtures -Force" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\evidence_contract\\__init__.py" in C:\POLARIS
+ succeeded in 2176ms:
+"""Evidence Contract Gate (ECG) — pre-generation expectation contract.
+
+This module defines what an operator expects a research run to address
+BEFORE generation runs. Distinct from `polaris_v6.schemas.evidence_contract`
+which describes the post-run artifact (run output).
+"""
+
+from polaris_graph.evidence_contract.gate import (
+    ContractRequiredError,
+    GateVerdict,
+    JURISDICTION_DOMAINS,
+    assert_generation_has_contract,
+    evaluate_contract,
+)
+from polaris_graph.evidence_contract.schema import (
+    EvidenceContract,
+    EvidenceContractError,
+    ExpectedClaim,
+    ExpectedEntity,
+    ExpectedSourceCoverage,
+    Jurisdiction,
+)
+
+__all__ = [
+    "ContractRequiredError",
+    "EvidenceContract",
+    "EvidenceContractError",
+    "ExpectedClaim",
+    "ExpectedEntity",
+    "ExpectedSourceCoverage",
+    "GateVerdict",
+    "JURISDICTION_DOMAINS",
+    "Jurisdiction",
+    "assert_generation_has_contract",
+    "evaluate_contract",
+]
+
+ succeeded in 2517ms:
+"""Pre-generation evidence-expectation contract (I-ecg-001).
+
+Operator declares, BEFORE a research run starts, what entities + claims
++ jurisdictions + source-coverage the eventual report MUST address.
+I-ecg-002 enforces (gates generation against this contract).
+
+DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+which is the post-run artifact (run output). Different concepts; same
+class name acceptable since import paths disambiguate.
+
+Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+from regulatory-agency codes (FDA / EMA / NICE / HC / MHRA / TGA) to
+these jurisdictions is owned by I-ecg-002 (gate enforcement layer).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class Jurisdiction(str, Enum):
+    CA = "CA"
+    US = "US"
+    EU = "EU"
+    UK = "UK"
+    GLOBAL = "GLOBAL"
+
+
+EntityType = Literal["drug", "condition", "intervention", "population", "outcome"]
+
+
+class ExpectedEntity(BaseModel):
+    """A named entity (drug, condition, intervention, etc.) the report MUST address."""
+
+    name: str = Field(min_length=1, max_length=200)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    entity_type: EntityType
+
+
+class ExpectedClaim(BaseModel):
+    """A claim the report MUST make a verdict on."""
+
+    claim_id: str = Field(min_length=1, max_length=100)
+    statement: str = Field(min_length=1, max_length=1000)
+    expected_entities: list[str] = Field(min_length=1, max_length=20)
+    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+
+
+class ExpectedSourceCoverage(BaseModel):
+    """Minimum source counts per evidence-tier the report MUST cite."""
+
+    tier_t1_min: int = Field(ge=0, le=100)
+    tier_t2_min: int = Field(ge=0, le=100)
+    tier_t3_min: int = Field(ge=0, le=100)
+
+
+class EvidenceContract(BaseModel):
+    """Top-level expectation contract bound to one research question."""
+
+    contract_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    contract_version: Literal["1.0"] = "1.0"
+    research_question: str = Field(min_length=1, max_length=2000)
+    expected_entities: list[ExpectedEntity] = Field(min_length=1, max_length=50)
+    expected_claims: list[ExpectedClaim] = Field(min_length=1, max_length=50)
+    expected_source_coverage: ExpectedSourceCoverage
+    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _internal_consistency(self) -> "EvidenceContract":
+        names = [e.name for e in self.expected_entities]
+        if len(set(names)) != len(names):
+            dups = sorted({n for n in names if names.count(n) > 1})
+            raise ValueError(f"duplicate entity name(s): {dups}")
+        ids = [c.claim_id for c in self.expected_claims]
+        if len(set(ids)) != len(ids):
+            dups = sorted({i for i in ids if ids.count(i) > 1})
+            raise ValueError(f"duplicate claim_id(s): {dups}")
+        declared = set(names)
+        contract_jurs = set(self.jurisdictions)
+        for claim in self.expected_claims:
+            for ref in claim.expected_entities:
+                if ref not in declared:
+                    raise ValueError(
+                        f"claim {claim.claim_id!r} references undeclared entity {ref!r}"
+                    )
+            extra = set(claim.required_jurisdictions) - contract_jurs
+            if extra:
+                raise ValueError(
+                    f"claim {claim.claim_id!r} required_jurisdictions {sorted(j.value for j in extra)} "
+                    f"not in contract jurisdictions"
+                )
+        return self
+
+
+class EvidenceContractError(BaseModel):
+    """Returned when a contract fails validation (parallel to other slice errors)."""
+
+    error: bool = True
+    code: str
+    message: str
+    contract_id: str | None = None
+
+ succeeded in 2865ms:
+"""Tests for the EvidenceContract pre-generation schema (I-ecg-001)."""
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from polaris_graph.evidence_contract import (
+    EvidenceContract,
+    ExpectedClaim,
+    ExpectedEntity,
+    ExpectedSourceCoverage,
+    Jurisdiction,
+)
+
+
+def _entity(name: str = "aspirin") -> ExpectedEntity:
+    return ExpectedEntity(name=name, entity_type="drug")
+
+
+def _claim(claim_id: str = "c1", entity: str = "aspirin",
+           jurs: list[Jurisdiction] | None = None) -> ExpectedClaim:
+    return ExpectedClaim(
+        claim_id=claim_id,
+        statement="aspirin reduces headache pain in adults",
+        expected_entities=[entity],
+        required_jurisdictions=jurs or [Jurisdiction.CA],
+    )
+
+
+def _coverage() -> ExpectedSourceCoverage:
+    return ExpectedSourceCoverage(tier_t1_min=1, tier_t2_min=2, tier_t3_min=0)
+
+
+def _contract(**overrides) -> EvidenceContract:
+    return EvidenceContract(
+        research_question=overrides.pop("research_question", "Does aspirin reduce headache in adults?"),
+        expected_entities=overrides.pop("expected_entities", [_entity()]),
+        expected_claims=overrides.pop("expected_claims", [_claim()]),
+        expected_source_coverage=overrides.pop("expected_source_coverage", _coverage()),
+        jurisdictions=overrides.pop("jurisdictions", [Jurisdiction.CA]),
+        created_by=overrides.pop("created_by", "operator-1"),
+        **overrides,
+    )
+
+
+def test_minimal_valid_contract():
+    c = _contract()
+    assert c.contract_version == "1.0"
+    assert c.contract_id
+
+
+def test_jurisdiction_enum_values():
+    for j in [Jurisdiction.CA, Jurisdiction.US, Jurisdiction.EU, Jurisdiction.UK, Jurisdiction.GLOBAL]:
+        c = _contract(jurisdictions=[j], expected_claims=[_claim(jurs=[j])])
+        assert j in c.jurisdictions
+
+
+def test_expected_source_coverage_zero_min_allowed():
+    cov = ExpectedSourceCoverage(tier_t1_min=0, tier_t2_min=0, tier_t3_min=0)
+    assert cov.tier_t1_min == 0
+
+
+def test_undeclared_entity_in_claim_rejected():
+    with pytest.raises(ValidationError, match="undeclared entity"):
+        _contract(expected_claims=[_claim(entity="ghost")])
+
+
+def test_empty_expected_entities_rejected():
+    with pytest.raises(ValidationError):
+        _contract(expected_entities=[])
+
+
+def test_empty_expected_claims_rejected():
+    with pytest.raises(ValidationError):
+        _contract(expected_claims=[])
+
+
+def test_contract_version_pinned():
+    with pytest.raises(ValidationError):
+        EvidenceContract(
+            contract_version="2.0",  # type: ignore[arg-type]
+            research_question="q",
+            expected_entities=[_entity()],
+            expected_claims=[_claim()],
+            expected_source_coverage=_coverage(),
+            jurisdictions=[Jurisdiction.CA],
+            created_by="op",
+        )
+
+
+def test_contract_round_trip_json():
+    c1 = _contract()
+    raw = c1.model_dump_json()
+    c2 = EvidenceContract.model_validate_json(raw)
+    assert c1 == c2
+
+
+def test_duplicate_entity_name_rejected():
+    with pytest.raises(ValidationError, match="duplicate entity name"):
+        _contract(expected_entities=[_entity("aspirin"), _entity("aspirin")])
+
+
+def test_duplicate_claim_id_rejected():
+    with pytest.raises(ValidationError, match="duplicate claim_id"):
+        _contract(expected_claims=[_claim("c1"), _claim("c1")])
+
+
+def test_claim_jurisdiction_must_be_in_contract_jurisdictions():
+    with pytest.raises(ValidationError, match="not in contract jurisdictions"):
+        _contract(
+            jurisdictions=[Jurisdiction.CA],
+            expected_claims=[_claim(jurs=[Jurisdiction.US])],
+        )
+
+ succeeded in 3095ms:
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Planned diff is +205 net LOC against the CHARTER §1 200 hard cap. This must be trimmed during implementation, but it is not a blocker because fixture/test formatting can absorb the 5-line excess."
+  - "Header says ITER 2 of 5 while body says iter 1 of 5. Metadata mismatch only; no execution impact."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+10,807
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Planned diff is +205 net LOC against the CHARTER §1 200 hard cap. This must be trimmed during implementation, but it is not a blocker because fixture/test formatting can absorb the 5-line excess."
+  - "Header says ITER 2 of 5 while body says iter 1 of 5. Metadata mismatch only; no execution impact."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

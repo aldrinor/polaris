@@ -1,0 +1,20 @@
+{
+  "contract_id": "test-min-1",
+  "contract_version": "1.0",
+  "research_question": "Does aspirin reduce headache in adults?",
+  "expected_entities": [
+    {"name": "aspirin", "aliases": [], "entity_type": "drug"}
+  ],
+  "expected_claims": [
+    {
+      "claim_id": "c1",
+      "statement": "aspirin reduces headache",
+      "expected_entities": ["aspirin"],
+      "required_jurisdictions": ["CA"]
+    }
+  ],
+  "expected_source_coverage": {"tier_t1_min": 0, "tier_t2_min": 0, "tier_t3_min": 0},
+  "jurisdictions": ["CA"],
+  "created_at_utc": "2026-05-07T00:00:00+00:00",
+  "created_by": "operator-1"
+}

@@ -1,0 +1,34 @@
+{
+  "contract_id": "test-full-1",
+  "contract_version": "1.0",
+  "research_question": "Compare efficacy of aspirin, ibuprofen, and acetaminophen for adult migraine prophylaxis across CA, US, EU clinical guidance.",
+  "expected_entities": [
+    {"name": "aspirin", "aliases": ["acetylsalicylic acid", "ASA"], "entity_type": "drug"},
+    {"name": "ibuprofen", "aliases": ["Advil"], "entity_type": "drug"},
+    {"name": "migraine", "aliases": ["migraine headache"], "entity_type": "condition"}
+  ],
+  "expected_claims": [
+    {
+      "claim_id": "c-aspirin-efficacy",
+      "statement": "aspirin reduces migraine frequency",
+      "expected_entities": ["aspirin", "migraine"],
+      "required_jurisdictions": ["CA", "US"]
+    },
+    {
+      "claim_id": "c-ibuprofen-efficacy",
+      "statement": "ibuprofen reduces migraine pain",
+      "expected_entities": ["ibuprofen", "migraine"],
+      "required_jurisdictions": ["CA", "EU"]
+    },
+    {
+      "claim_id": "c-comparison",
+      "statement": "aspirin and ibuprofen comparable for migraine prophylaxis",
+      "expected_entities": ["aspirin", "ibuprofen", "migraine"],
+      "required_jurisdictions": ["CA"]
+    }
+  ],
+  "expected_source_coverage": {"tier_t1_min": 2, "tier_t2_min": 5, "tier_t3_min": 1},
+  "jurisdictions": ["CA", "US", "EU"],
+  "created_at_utc": "2026-05-07T00:00:00+00:00",
+  "created_by": "operator-1"
+}

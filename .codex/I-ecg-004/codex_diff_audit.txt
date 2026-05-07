@@ -1,0 +1,1497 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e016b-4b9c-7fd1-af99-7004fd4e21c8
+--------
+user
+# Codex Diff Review — I-ecg-004 (ITER 1 of 5)
+
+**HARD ITERATION CAP: 5 per document. This is iter 1 of 5.**
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+**Issue:** I-ecg-004 — Contract version migration test
+**Brief:** APPROVED iter 2
+**Canonical-diff-sha256:** `e3bba70a437b3d58ab17034b1be270a638f978dcc9902780cf35815bf898b339`
+**LOC:** 195 net (5 under CHARTER §1 200-cap)
+**Tests:** 8/8 PASS
+
+## Files
+
+```
+src/polaris_graph/evidence_contract/migration.py        NEW +48
+src/polaris_graph/evidence_contract/__init__.py         EDIT +8
+tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json  NEW +20
+tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json     NEW +34
+tests/polaris_graph/evidence_contract/test_migration.py NEW +85
+```
+
+## What changed
+
+**`migration.py`:** `MIGRATIONS: dict[tuple[str, str], Callable]` registry + `migrate_contract(raw, target_version)` walker + `ContractMigrationError`. Short-circuits source==target before traversal (prevents self-loop infinite loops); skips self-loop entries during traversal; tracks visited versions in `seen` set.
+
+**`__init__.py`:** Re-exports migration symbols.
+
+**Two v1 fixture JSON files:** minimal (1 entity, 1 claim, CA only) + full (3 entities, 3 claims, CA/US/EU multi-jurisdiction).
+
+**`test_migration.py`:** 8 tests:
+1. `test_v1_minimal_loads_via_pydantic`
+2. `test_v1_full_loads_via_pydantic`
+3. `test_migrate_v1_to_v1_is_identity`
+4. `test_migrate_unknown_source_version_raises`
+5. `test_migrate_missing_version_raises`
+6. `test_migrate_unknown_target_version_raises`
+7. `test_v1_round_trip_through_migration` — JSON-mode dump comparison (per Codex iter-1 P1)
+8. `test_migrations_registry_supports_future_v2` — smoke registers a fake v2 migration, asserts walker chains correctly, then unregisters in finally block.
+
+## Risks for Codex Red-Team
+
+1. **Identity short-circuit + self-loop skip.** Per Codex iter-1 P2: source==target returns immediately; traversal `frm != to` filter ensures self-loops in MIGRATIONS aren't consulted.
+2. **Round-trip via `model_dump_json` + `json.loads`.** Avoids enum/datetime native types; compares JSON-normalized output to fixture sub-fields (per Codex iter-1 P1 fix).
+3. **`MIGRATIONS[("1.0", "2.0")]` smoke test** mutates module state then restores in `finally`; safe if test runner respects test isolation.
+4. **§9.4 compliance.** No mocks. No magic numbers. No `try: pass`. No TODO/FIXME.
+5. **CHARTER §1 LOC cap.** 195 net. Under 200.
+6. **No new package dep.**
+
+## Output schema (mandatory)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+APPROVE iff zero NOVEL P0 + zero continuing P0 + zero P1.
+
+
+# CANONICAL DIFF
+
+`diff
+diff --git a/src/polaris_graph/evidence_contract/__init__.py b/src/polaris_graph/evidence_contract/__init__.py
+index 5da427c..23af30d 100644
+--- a/src/polaris_graph/evidence_contract/__init__.py
++++ b/src/polaris_graph/evidence_contract/__init__.py
+@@ -12,6 +12,11 @@ from polaris_graph.evidence_contract.gate import (
+     assert_generation_has_contract,
+     evaluate_contract,
+ )
++from polaris_graph.evidence_contract.migration import (
++    MIGRATIONS,
++    ContractMigrationError,
++    migrate_contract,
++)
+ from polaris_graph.evidence_contract.schema import (
+     EvidenceContract,
+     EvidenceContractError,
+@@ -22,6 +27,7 @@ from polaris_graph.evidence_contract.schema import (
+ )
+ 
+ __all__ = [
++    "ContractMigrationError",
+     "ContractRequiredError",
+     "EvidenceContract",
+     "EvidenceContractError",
+@@ -31,6 +37,8 @@ __all__ = [
+     "GateVerdict",
+     "JURISDICTION_DOMAINS",
+     "Jurisdiction",
++    "MIGRATIONS",
+     "assert_generation_has_contract",
+     "evaluate_contract",
++    "migrate_contract",
+ ]
+diff --git a/src/polaris_graph/evidence_contract/migration.py b/src/polaris_graph/evidence_contract/migration.py
+new file mode 100644
+index 0000000..b9670c6
+--- /dev/null
++++ b/src/polaris_graph/evidence_contract/migration.py
+@@ -0,0 +1,48 @@
++"""Evidence Contract version migration registry (I-ecg-004).
++
++When v2 lands, register `("1.0", "2.0"): _v1_to_v2` here. The migration
++path walker chains entries; identity is short-circuited.
++"""
++
++from __future__ import annotations
++
++from typing import Callable
++
++
++class ContractMigrationError(Exception):
++    """Raised when no migration path exists between two contract versions."""
++
++
++MIGRATIONS: dict[tuple[str, str], Callable[[dict], dict]] = {}
++
++
++def migrate_contract(raw: dict, target_version: str = "1.0") -> dict:
++    """Migrate a contract dict from its declared version to target_version."""
++    source = raw.get("contract_version")
++    if not isinstance(source, str):
++        raise ContractMigrationError(
++            f"contract_version missing or non-string: {source!r}"
++        )
++    if source == target_version:
++        return dict(raw)
++    seen = {source}
++    current = dict(raw)
++    while current.get("contract_version") != target_version:
++        cur_version = current.get("contract_version")
++        next_step = next(
++            (
++                (frm, to, fn)
++                for (frm, to), fn in MIGRATIONS.items()
++                if frm == cur_version and frm != to and to not in seen
++            ),
++            None,
++        )
++        if next_step is None:
++            raise ContractMigrationError(
++                f"no migration path from {cur_version!r} to {target_version!r}"
++            )
++        _, to, fn = next_step
++        current = fn(current)
++        current["contract_version"] = to
++        seen.add(to)
++    return current
+diff --git a/tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json b/tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json
+new file mode 100644
+index 0000000..3a62592
+--- /dev/null
++++ b/tests/polaris_graph/evidence_contract/fixtures/v1_contract_full.json
+@@ -0,0 +1,34 @@
++{
++  "contract_id": "test-full-1",
++  "contract_version": "1.0",
++  "research_question": "Compare efficacy of aspirin, ibuprofen, and acetaminophen for adult migraine prophylaxis across CA, US, EU clinical guidance.",
++  "expected_entities": [
++    {"name": "aspirin", "aliases": ["acetylsalicylic acid", "ASA"], "entity_type": "drug"},
++    {"name": "ibuprofen", "aliases": ["Advil"], "entity_type": "drug"},
++    {"name": "migraine", "aliases": ["migraine headache"], "entity_type": "condition"}
++  ],
++  "expected_claims": [
++    {
++      "claim_id": "c-aspirin-efficacy",
++      "statement": "aspirin reduces migraine frequency",
++      "expected_entities": ["aspirin", "migraine"],
++      "required_jurisdictions": ["CA", "US"]
++    },
++    {
++      "claim_id": "c-ibuprofen-efficacy",
++      "statement": "ibuprofen reduces migraine pain",
++      "expected_entities": ["ibuprofen", "migraine"],
++      "required_jurisdictions": ["CA", "EU"]
++    },
++    {
++      "claim_id": "c-comparison",
++      "statement": "aspirin and ibuprofen comparable for migraine prophylaxis",
++      "expected_entities": ["aspirin", "ibuprofen", "migraine"],
++      "required_jurisdictions": ["CA"]
++    }
++  ],
++  "expected_source_coverage": {"tier_t1_min": 2, "tier_t2_min": 5, "tier_t3_min": 1},
++  "jurisdictions": ["CA", "US", "EU"],
++  "created_at_utc": "2026-05-07T00:00:00+00:00",
++  "created_by": "operator-1"
++}
+diff --git a/tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json b/tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json
+new file mode 100644
+index 0000000..c1af6dd
+--- /dev/null
++++ b/tests/polaris_graph/evidence_contract/fixtures/v1_contract_minimal.json
+@@ -0,0 +1,20 @@
++{
++  "contract_id": "test-min-1",
++  "contract_version": "1.0",
++  "research_question": "Does aspirin reduce headache in adults?",
++  "expected_entities": [
++    {"name": "aspirin", "aliases": [], "entity_type": "drug"}
++  ],
++  "expected_claims": [
++    {
++      "claim_id": "c1",
++      "statement": "aspirin reduces headache",
++      "expected_entities": ["aspirin"],
++      "required_jurisdictions": ["CA"]
++    }
++  ],
++  "expected_source_coverage": {"tier_t1_min": 0, "tier_t2_min": 0, "tier_t3_min": 0},
++  "jurisdictions": ["CA"],
++  "created_at_utc": "2026-05-07T00:00:00+00:00",
++  "created_by": "operator-1"
++}
+diff --git a/tests/polaris_graph/evidence_contract/test_migration.py b/tests/polaris_graph/evidence_contract/test_migration.py
+new file mode 100644
+index 0000000..1216bfa
+--- /dev/null
++++ b/tests/polaris_graph/evidence_contract/test_migration.py
+@@ -0,0 +1,85 @@
++"""Tests for the contract version migration registry (I-ecg-004)."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from polaris_graph.evidence_contract import (
++    ContractMigrationError,
++    EvidenceContract,
++    MIGRATIONS,
++    migrate_contract,
++)
++
++FIXTURES = Path(__file__).parent / "fixtures"
++
++
++def _load(name: str) -> dict:
++    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
++
++
++def test_v1_minimal_loads_via_pydantic():
++    raw = _load("v1_contract_minimal.json")
++    c = EvidenceContract.model_validate(raw)
++    assert c.contract_version == "1.0"
++    assert c.expected_entities[0].name == "aspirin"
++
++
++def test_v1_full_loads_via_pydantic():
++    raw = _load("v1_contract_full.json")
++    c = EvidenceContract.model_validate(raw)
++    assert len(c.expected_entities) == 3
++    assert len(c.expected_claims) == 3
++    assert {j.value for j in c.jurisdictions} == {"CA", "US", "EU"}
++
++
++def test_migrate_v1_to_v1_is_identity():
++    raw = _load("v1_contract_minimal.json")
++    out = migrate_contract(raw, target_version="1.0")
++    assert out == raw
++
++
++def test_migrate_unknown_source_version_raises():
++    with pytest.raises(ContractMigrationError, match="no migration path"):
++        migrate_contract({"contract_version": "0.5"}, target_version="1.0")
++
++
++def test_migrate_missing_version_raises():
++    with pytest.raises(ContractMigrationError, match="contract_version missing"):
++        migrate_contract({"foo": "bar"}, target_version="1.0")
++
++
++def test_migrate_unknown_target_version_raises():
++    raw = _load("v1_contract_minimal.json")
++    with pytest.raises(ContractMigrationError, match="no migration path"):
++        migrate_contract(raw, target_version="99.0")
++
++
++def test_v1_round_trip_through_migration():
++    raw = _load("v1_contract_minimal.json")
++    migrated = migrate_contract(raw, target_version="1.0")
++    parsed = EvidenceContract.model_validate(migrated)
++    dumped = json.loads(parsed.model_dump_json())
++    assert dumped["research_question"] == raw["research_question"]
++    assert dumped["expected_entities"][0]["name"] == "aspirin"
++    assert dumped["contract_version"] == "1.0"
++
++
++def test_migrations_registry_supports_future_v2():
++    """Smoke test: when v2 lands, registering ('1.0', '2.0'): fn enables migration."""
++    def _v1_to_v2(d: dict) -> dict:
++        out = dict(d)
++        out["new_v2_field"] = "added"
++        return out
++
++    MIGRATIONS[("1.0", "2.0")] = _v1_to_v2
++    try:
++        raw = _load("v1_contract_minimal.json")
++        migrated = migrate_contract(raw, target_version="2.0")
++        assert migrated["contract_version"] == "2.0"
++        assert migrated["new_v2_field"] == "added"
++    finally:
++        del MIGRATIONS[("1.0", "2.0")]
+
+``n
+
+codex
+I’ll verify the diff against the surrounding contract schema and test layout so the review is grounded in current behavior, not just the patch text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path tests/polaris_graph/evidence_contract -Recurse -Force' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/evidence_contract/__init__.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path src/polaris_graph/evidence_contract -Force' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/evidence_contract/schema.py' in C:\POLARIS
+ succeeded in 4123ms:
+"""Evidence Contract Gate (ECG) — pre-generation expectation contract.
+
+This module defines what an operator expects a research run to address
+BEFORE generation runs. Distinct from `polaris_v6.schemas.evidence_contract`
+which describes the post-run artifact (run output).
+"""
+
+from polaris_graph.evidence_contract.gate import (
+    ContractRequiredError,
+    GateVerdict,
+    JURISDICTION_DOMAINS,
+    assert_generation_has_contract,
+    evaluate_contract,
+)
+from polaris_graph.evidence_contract.migration import (
+    MIGRATIONS,
+    ContractMigrationError,
+    migrate_contract,
+)
+from polaris_graph.evidence_contract.schema import (
+    EvidenceContract,
+    EvidenceContractError,
+    ExpectedClaim,
+    ExpectedEntity,
+    ExpectedSourceCoverage,
+    Jurisdiction,
+)
+
+__all__ = [
+    "ContractMigrationError",
+    "ContractRequiredError",
+    "EvidenceContract",
+    "EvidenceContractError",
+    "ExpectedClaim",
+    "ExpectedEntity",
+    "ExpectedSourceCoverage",
+    "GateVerdict",
+    "JURISDICTION_DOMAINS",
+    "Jurisdiction",
+    "MIGRATIONS",
+    "assert_generation_has_contract",
+    "evaluate_contract",
+    "migrate_contract",
+]
+
+ succeeded in 4657ms:
+
+    Directory: C:\POLARIS\src\polaris_graph\evidence_contract
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-07 12:50 AM                __pycache__
+-a---          2026-05-07 12:49 AM           1190 __init__.py
+-a---          2026-05-07 12:19 AM           5837 gate.py
+-a---          2026-05-07 12:49 AM           1552 migration.py
+-a---          2026-05-06 11:46 PM           4208 schema.py
+
+
+ succeeded in 4810ms:
+
+    Directory: C:\POLARIS\tests\polaris_graph\evidence_contract
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d----          2026-05-07 12:50 AM                __pycache__
+d----          2026-05-07 12:49 AM                fixtures
+-a---          2026-05-06 11:46 PM              0 __init__.py
+-a---          2026-05-07 12:19 AM           6024 test_gate.py
+-a---          2026-05-07 12:49 AM           2728 test_migration.py
+-a---          2026-05-06 11:46 PM           3797 test_schema.py
+
+    Directory: C:\POLARIS\tests\polaris_graph\evidence_contract\fixtures
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---          2026-05-07 12:49 AM           1374 v1_contract_full.json
+-a---          2026-05-07 12:49 AM            603 v1_contract_minimal.json
+
+    Directory: C:\POLARIS\tests\polaris_graph\evidence_contract\__pycache__
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a---          2026-05-06 11:50 PM            157 __init__.cpython-313.pyc
+-a---          2026-05-06 11:56 PM          15741 test_gate.cpython-313-pytest-8.4.1.pyc
+-a---          2026-05-07 12:50 AM          10903 test_migration.cpython-313-pytest-8.4.1.pyc
+-a---          2026-05-06 11:50 PM           9765 test_schema.cpython-313-pytest-8.4.1.pyc
+
+
+ succeeded in 5324ms:
+"""Pre-generation evidence-expectation contract (I-ecg-001).
+
+Operator declares, BEFORE a research run starts, what entities + claims
++ jurisdictions + source-coverage the eventual report MUST address.
+I-ecg-002 enforces (gates generation against this contract).
+
+DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+which is the post-run artifact (run output). Different concepts; same
+class name acceptable since import paths disambiguate.
+
+Jurisdiction is geographic (CA / US / EU / UK / GLOBAL). The mapping
+from regulatory-agency codes (FDA / EMA / NICE / HC / MHRA / TGA) to
+these jurisdictions is owned by I-ecg-002 (gate enforcement layer).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class Jurisdiction(str, Enum):
+    CA = "CA"
+    US = "US"
+    EU = "EU"
+    UK = "UK"
+    GLOBAL = "GLOBAL"
+
+
+EntityType = Literal["drug", "condition", "intervention", "population", "outcome"]
+
+
+class ExpectedEntity(BaseModel):
+    """A named entity (drug, condition, intervention, etc.) the report MUST address."""
+
+    name: str = Field(min_length=1, max_length=200)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    entity_type: EntityType
+
+
+class ExpectedClaim(BaseModel):
+    """A claim the report MUST make a verdict on."""
+
+    claim_id: str = Field(min_length=1, max_length=100)
+    statement: str = Field(min_length=1, max_length=1000)
+    expected_entities: list[str] = Field(min_length=1, max_length=20)
+    required_jurisdictions: list[Jurisdiction] = Field(min_length=1)
+
+
+class ExpectedSourceCoverage(BaseModel):
+    """Minimum source counts per evidence-tier the report MUST cite."""
+
+    tier_t1_min: int = Field(ge=0, le=100)
+    tier_t2_min: int = Field(ge=0, le=100)
+    tier_t3_min: int = Field(ge=0, le=100)
+
+
+class EvidenceContract(BaseModel):
+    """Top-level expectation contract bound to one research question."""
+
+    contract_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    contract_version: Literal["1.0"] = "1.0"
+    research_question: str = Field(min_length=1, max_length=2000)
+    expected_entities: list[ExpectedEntity] = Field(min_length=1, max_length=50)
+    expected_claims: list[ExpectedClaim] = Field(min_length=1, max_length=50)
+    expected_source_coverage: ExpectedSourceCoverage
+    jurisdictions: list[Jurisdiction] = Field(min_length=1, max_length=10)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _internal_consistency(self) -> "EvidenceContract":
+        names = [e.name for e in self.expected_entities]
+        if len(set(names)) != len(names):
+            dups = sorted({n for n in names if names.count(n) > 1})
+            raise ValueError(f"duplicate entity name(s): {dups}")
+        ids = [c.claim_id for c in self.expected_claims]
+        if len(set(ids)) != len(ids):
+            dups = sorted({i for i in ids if ids.count(i) > 1})
+            raise ValueError(f"duplicate claim_id(s): {dups}")
+        declared = set(names)
+        contract_jurs = set(self.jurisdictions)
+        for claim in self.expected_claims:
+            for ref in claim.expected_entities:
+                if ref not in declared:
+                    raise ValueError(
+                        f"claim {claim.claim_id!r} references undeclared entity {ref!r}"
+                    )
+            extra = set(claim.required_jurisdictions) - contract_jurs
+            if extra:
+                raise ValueError(
+                    f"claim {claim.claim_id!r} required_jurisdictions {sorted(j.value for j in extra)} "
+                    f"not in contract jurisdictions"
+                )
+        return self
+
+
+class EvidenceContractError(BaseModel):
+    """Returned when a contract fails validation (parallel to other slice errors)."""
+
+    error: bool = True
+    code: str
+    message: str
+    contract_id: str | None = None
+
+codex
+The schema currently only accepts `contract_version == "1.0"`, so this patch is just a registry/walker plus v1 fixtures; I’m checking whether the walker creates any real execution risk when v2 migrations are added.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/evidence_contract/test_migration.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path . -Filter pyproject.toml -Recurse -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object { $_.FullName }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "contract_version|migrate_contract|EvidenceContract" -n src tests | Select-Object -First 200' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/evidence_contract/migration.py' in C:\POLARIS
+ succeeded in 1534ms:
+"""Evidence Contract version migration registry (I-ecg-004).
+
+When v2 lands, register `("1.0", "2.0"): _v1_to_v2` here. The migration
+path walker chains entries; identity is short-circuited.
+"""
+
+from __future__ import annotations
+
+from typing import Callable
+
+
+class ContractMigrationError(Exception):
+    """Raised when no migration path exists between two contract versions."""
+
+
+MIGRATIONS: dict[tuple[str, str], Callable[[dict], dict]] = {}
+
+
+def migrate_contract(raw: dict, target_version: str = "1.0") -> dict:
+    """Migrate a contract dict from its declared version to target_version."""
+    source = raw.get("contract_version")
+    if not isinstance(source, str):
+        raise ContractMigrationError(
+            f"contract_version missing or non-string: {source!r}"
+        )
+    if source == target_version:
+        return dict(raw)
+    seen = {source}
+    current = dict(raw)
+    while current.get("contract_version") != target_version:
+        cur_version = current.get("contract_version")
+        next_step = next(
+            (
+                (frm, to, fn)
+                for (frm, to), fn in MIGRATIONS.items()
+                if frm == cur_version and frm != to and to not in seen
+            ),
+            None,
+        )
+        if next_step is None:
+            raise ContractMigrationError(
+                f"no migration path from {cur_version!r} to {target_version!r}"
+            )
+        _, to, fn = next_step
+        current = fn(current)
+        current["contract_version"] = to
+        seen.add(to)
+    return current
+
+ succeeded in 1933ms:
+"""Tests for the contract version migration registry (I-ecg-004)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from polaris_graph.evidence_contract import (
+    ContractMigrationError,
+    EvidenceContract,
+    MIGRATIONS,
+    migrate_contract,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _load(name: str) -> dict:
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def test_v1_minimal_loads_via_pydantic():
+    raw = _load("v1_contract_minimal.json")
+    c = EvidenceContract.model_validate(raw)
+    assert c.contract_version == "1.0"
+    assert c.expected_entities[0].name == "aspirin"
+
+
+def test_v1_full_loads_via_pydantic():
+    raw = _load("v1_contract_full.json")
+    c = EvidenceContract.model_validate(raw)
+    assert len(c.expected_entities) == 3
+    assert len(c.expected_claims) == 3
+    assert {j.value for j in c.jurisdictions} == {"CA", "US", "EU"}
+
+
+def test_migrate_v1_to_v1_is_identity():
+    raw = _load("v1_contract_minimal.json")
+    out = migrate_contract(raw, target_version="1.0")
+    assert out == raw
+
+
+def test_migrate_unknown_source_version_raises():
+    with pytest.raises(ContractMigrationError, match="no migration path"):
+        migrate_contract({"contract_version": "0.5"}, target_version="1.0")
+
+
+def test_migrate_missing_version_raises():
+    with pytest.raises(ContractMigrationError, match="contract_version missing"):
+        migrate_contract({"foo": "bar"}, target_version="1.0")
+
+
+def test_migrate_unknown_target_version_raises():
+    raw = _load("v1_contract_minimal.json")
+    with pytest.raises(ContractMigrationError, match="no migration path"):
+        migrate_contract(raw, target_version="99.0")
+
+
+def test_v1_round_trip_through_migration():
+    raw = _load("v1_contract_minimal.json")
+    migrated = migrate_contract(raw, target_version="1.0")
+    parsed = EvidenceContract.model_validate(migrated)
+    dumped = json.loads(parsed.model_dump_json())
+    assert dumped["research_question"] == raw["research_question"]
+    assert dumped["expected_entities"][0]["name"] == "aspirin"
+    assert dumped["contract_version"] == "1.0"
+
+
+def test_migrations_registry_supports_future_v2():
+    """Smoke test: when v2 lands, registering ('1.0', '2.0'): fn enables migration."""
+    def _v1_to_v2(d: dict) -> dict:
+        out = dict(d)
+        out["new_v2_field"] = "added"
+        return out
+
+    MIGRATIONS[("1.0", "2.0")] = _v1_to_v2
+    try:
+        raw = _load("v1_contract_minimal.json")
+        migrated = migrate_contract(raw, target_version="2.0")
+        assert migrated["contract_version"] == "2.0"
+        assert migrated["new_v2_field"] == "added"
+    finally:
+        del MIGRATIONS[("1.0", "2.0")]
+
+ succeeded in 2306ms:
+tests\v6\test_scripts_v6_handover.py:3:  - scripts/v6/cost_summary.py — aggregates EvidenceContract cost_usd
+src\polaris_v6\followup\__init__.py:3:Once a research run produces an EvidenceContract, the user can ask
+src\polaris_v6\followup\agent.py:5:ships this stub to lock the contract: takes a parent EvidenceContract
+src\polaris_v6\followup\agent.py:15:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\followup\agent.py:26:    parent: EvidenceContract,
+tests\v6\test_schemas.py:39:        EvidenceContract,
+tests\v6\test_schemas.py:45:    contract = EvidenceContract(
+tests\v6\test_schemas.py:96:    assert "contract_version" in serialized
+tests\v6\test_schemas.py:97:    assert contract.contract_version == "1.0"
+tests\v6\test_followup_agent.py:7:    EvidenceContract,
+tests\v6\test_followup_agent.py:12:def _parent_with_pool(spans: list[SourceSpan]) -> EvidenceContract:
+tests\v6\test_followup_agent.py:13:    return EvidenceContract(
+tests\v6\test_followup_agent.py:14:        contract_version="1.0",
+tests\v6\test_evidence_contract_gate.py:4:artifact JSON conforming to EvidenceContract v1.0. The Gate test
+tests\v6\test_evidence_contract_gate.py:14:3. The schema rejects malformed artifacts (wrong contract_version,
+tests\v6\test_evidence_contract_gate.py:38:    from polaris_v6.schemas.evidence_contract import EvidenceContract
+tests\v6\test_evidence_contract_gate.py:40:    return EvidenceContract
+tests\v6\test_evidence_contract_gate.py:57:    assert contract.contract_version == "1.0"
+tests\v6\test_evidence_contract_gate.py:126:def test_wrong_contract_version_rejected(evidence_contract_cls):
+tests\v6\test_evidence_contract_gate.py:128:    raw["contract_version"] = "0.9"
+tests\v6\test_compare.py:9:    EvidenceContract,
+tests\v6\test_compare.py:25:) -> EvidenceContract:
+tests\v6\test_compare.py:26:    return EvidenceContract(
+tests\v6\test_compare.py:27:        contract_version="1.0",
+tests\v6\test_charts.py:112:    """Build a minimal valid EvidenceContract for from_bundle tests."""
+tests\v6\test_charts.py:114:        EvidenceContract,
+tests\v6\test_charts.py:120:        contract_version="1.0",
+tests\v6\test_charts.py:155:    return EvidenceContract.model_validate(base)
+src\polaris_v6\compare\differ.py:1:"""Compare two EvidenceContract bundles side-by-side."""
+src\polaris_v6\compare\differ.py:7:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\compare\differ.py:29:def compare_reports(left: EvidenceContract, right: EvidenceContract) -> ReportComparison:
+tests\v6\test_api_bundle.py:26:    assert body["contract_version"] == "1.0"
+src\polaris_v6\charts\from_bundle.py:1:"""Build chart specs from an EvidenceContract bundle.
+src\polaris_v6\charts\from_bundle.py:24:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\charts\from_bundle.py:29:def chart_from_bundle(*, bundle: EvidenceContract, chart_type: ChartType) -> dict:
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_drop_reason.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_with_contradiction.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_defense.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_clinical.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_climate.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_ai_sovereignty.json:2:  "contract_version": "1.0",
+tests\v6\fixtures\evidence_contract_v1\golden_run_abort_no_verified.json:2:  "contract_version": "1.0",
+src\polaris_v6\api\bundle.py:8:Phase 0 ships the endpoint contract that returns an EvidenceContract
+src\polaris_v6\api\bundle.py:22:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\bundle.py:39:@router.get("/{run_id}/bundle", response_model=EvidenceContract)
+src\polaris_v6\api\bundle.py:40:def get_bundle(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\bundle.py:48:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\adapters\evidence_pool_merger.py:11:EvidenceContract output) can reference.
+src\polaris_v6\api\compare.py:12:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\compare.py:17:def _load(run_id: str) -> EvidenceContract:
+src\polaris_v6\api\compare.py:24:    return EvidenceContract.model_validate(raw)
+src\polaris_v6\api\charts.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\charts.py:29:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\api\followup.py:13:from polaris_v6.schemas.evidence_contract import EvidenceContract
+src\polaris_v6\api\followup.py:31:    bundle = EvidenceContract.model_validate(raw)
+src\polaris_v6\schemas\evidence_contract.py:13:versions track via the `contract_version` field.
+src\polaris_v6\schemas\evidence_contract.py:83:class EvidenceContract(BaseModel):
+src\polaris_v6\schemas\evidence_contract.py:86:    contract_version: Literal["1.0"] = "1.0"
+src\polaris_graph\evidence_contract\__init__.py:18:    migrate_contract,
+src\polaris_graph\evidence_contract\__init__.py:21:    EvidenceContract,
+src\polaris_graph\evidence_contract\__init__.py:22:    EvidenceContractError,
+src\polaris_graph\evidence_contract\__init__.py:32:    "EvidenceContract",
+src\polaris_graph\evidence_contract\__init__.py:33:    "EvidenceContractError",
+src\polaris_graph\evidence_contract\__init__.py:43:    "migrate_contract",
+src\polaris_graph\evidence_contract\schema.py:7:DO NOT confuse with `polaris_v6.schemas.evidence_contract.EvidenceContract`
+src\polaris_graph\evidence_contract\schema.py:62:class EvidenceContract(BaseModel):
+src\polaris_graph\evidence_contract\schema.py:66:    contract_version: Literal["1.0"] = "1.0"
+src\polaris_graph\evidence_contract\schema.py:76:    def _internal_consistency(self) -> "EvidenceContract":
+src\polaris_graph\evidence_contract\schema.py:102:class EvidenceContractError(BaseModel):
+src\polaris_graph\evidence_contract\migration.py:19:def migrate_contract(raw: dict, target_version: str = "1.0") -> dict:
+src\polaris_graph\evidence_contract\migration.py:21:    source = raw.get("contract_version")
+src\polaris_graph\evidence_contract\migration.py:24:            f"contract_version missing or non-string: {source!r}"
+src\polaris_graph\evidence_contract\migration.py:30:    while current.get("contract_version") != target_version:
+src\polaris_graph\evidence_contract\migration.py:31:        cur_version = current.get("contract_version")
+src\polaris_graph\evidence_contract\migration.py:46:        current["contract_version"] = to
+tests\polaris_graph\evidence_contract\test_schema.py:1:"""Tests for the EvidenceContract pre-generation schema (I-ecg-001)."""
+tests\polaris_graph\evidence_contract\test_schema.py:9:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_schema.py:35:def _contract(**overrides) -> EvidenceContract:
+tests\polaris_graph\evidence_contract\test_schema.py:36:    return EvidenceContract(
+tests\polaris_graph\evidence_contract\test_schema.py:49:    assert c.contract_version == "1.0"
+tests\polaris_graph\evidence_contract\test_schema.py:79:def test_contract_version_pinned():
+tests\polaris_graph\evidence_contract\test_schema.py:81:        EvidenceContract(
+tests\polaris_graph\evidence_contract\test_schema.py:82:            contract_version="2.0",  # type: ignore[arg-type]
+tests\polaris_graph\evidence_contract\test_schema.py:95:    c2 = EvidenceContract.model_validate_json(raw)
+tests\polaris_graph\evidence_contract\test_migration.py:12:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_migration.py:14:    migrate_contract,
+tests\polaris_graph\evidence_contract\test_migration.py:26:    c = EvidenceContract.model_validate(raw)
+tests\polaris_graph\evidence_contract\test_migration.py:27:    assert c.contract_version == "1.0"
+tests\polaris_graph\evidence_contract\test_migration.py:33:    c = EvidenceContract.model_validate(raw)
+tests\polaris_graph\evidence_contract\test_migration.py:41:    out = migrate_contract(raw, target_version="1.0")
+tests\polaris_graph\evidence_contract\test_migration.py:47:        migrate_contract({"contract_version": "0.5"}, target_version="1.0")
+tests\polaris_graph\evidence_contract\test_migration.py:51:    with pytest.raises(ContractMigrationError, match="contract_version missing"):
+tests\polaris_graph\evidence_contract\test_migration.py:52:        migrate_contract({"foo": "bar"}, target_version="1.0")
+tests\polaris_graph\evidence_contract\test_migration.py:58:        migrate_contract(raw, target_version="99.0")
+tests\polaris_graph\evidence_contract\test_migration.py:63:    migrated = migrate_contract(raw, target_version="1.0")
+tests\polaris_graph\evidence_contract\test_migration.py:64:    parsed = EvidenceContract.model_validate(migrated)
+tests\polaris_graph\evidence_contract\test_migration.py:68:    assert dumped["contract_version"] == "1.0"
+tests\polaris_graph\evidence_contract\test_migration.py:81:        migrated = migrate_contract(raw, target_version="2.0")
+tests\polaris_graph\evidence_contract\test_migration.py:82:        assert migrated["contract_version"] == "2.0"
+src\polaris_graph\evidence_contract\gate.py:14:from polaris_graph.evidence_contract.schema import EvidenceContract, Jurisdiction
+src\polaris_graph\evidence_contract\gate.py:29:    """Raised when generation is invoked without an EvidenceContract."""
+src\polaris_graph\evidence_contract\gate.py:40:    contract: EvidenceContract | None, *, report_id: str | None = None
+src\polaris_graph\evidence_contract\gate.py:107:    contract: EvidenceContract, pool: EvidencePool, report: VerifiedReport
+tests\polaris_graph\evidence_contract\test_gate.py:11:    EvidenceContract,
+tests\polaris_graph\evidence_contract\test_gate.py:97:) -> EvidenceContract:
+tests\polaris_graph\evidence_contract\test_gate.py:99:    return EvidenceContract(
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_minimal.json:3:  "contract_version": "1.0",
+tests\polaris_graph\evidence_contract\fixtures\v1_contract_full.json:3:  "contract_version": "1.0",
+src\polaris_graph\api\generation_route.py:24:    EvidenceContract,
+src\polaris_graph\api\generation_route.py:96:    contract: EvidenceContract | None = Field(
+
+2026-05-07T07:51:40.272403Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.1 seconds
+Output:
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\pyproject.toml
+
+ exited 1 in 3074ms:
+C:\POLARIS\archive\POLARIS_APEX\POLARIS\pyproject.toml
+
+codex
+So far I don’t see an integration path that consumes `migrate_contract` yet; the meaningful review surface is whether the new public helper behaves predictably once real migration edges exist. I’m going to run the focused test file once and then finalize the review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "python_requires|requires-python|target-version|tool.pytest|pytest" -n . --glob "pyproject.toml" --glob "setup.cfg" --glob "tox.ini" --glob "pytest.ini" --glob "setup.py" --glob "requirements*.txt"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Path . -Force | Select-Object Name,Mode,Length' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/evidence_contract/test_migration.py -q' in C:\POLARIS
+ succeeded in 1875ms:
+
+Name                                        Mode  Length
+----                                        ----  ------
+__pycache__                                 d---- 
+.claude                                     d---- 
+.codex                                      d---- 
+.codex_pytest_tmp                           d---- 
+.codex_tmp                                  d---- 
+.codex_tmp_m_int_6_v1_review_fresh          d---- 
+.codex_tmp_md3_review                       d---- 
+.codex-tmp                                  d---- 
+.git                                        d--h- 
+.github                                     d---- 
+.legacy                                     d---- 
+.private                                    d---- 
+.pytest_cache                               d---- 
+.pytest_cache_local                         d---- 
+.pytest_tmp                                 d---- 
+.pytest-cache                               d---- 
+.pytest-cache-local                         d---- 
+.ruff_cache                                 d---- 
+.tmp                                        d---- 
+.tmp_pytest                                 d---- 
+.tmp_pytest_base                            d---- 
+.tmp_pytest_m_int_2                         d---- 
+.tmp_pytest_m_int_3                         d---- 
+.tmp_pytest_m_live_1_review                 d---- 
+.tmp_pytest_md3_review                      d---- 
+.tmp_pytest_md3_review2                     d---- 
+.tmp-pytest                                 d---- 
+archive                                     d---- 
+codex_tmp_billing_quota_store_review_alt    d---- 
+codex_tmp_m_int_10_v1_review                d---- 
+codex_tmp_m_int_10_v1_review_rerun          d---- 
+codex_tmp_m_int_10_v1_single                d---- 
+codex_tmp_m_int_10_v1_single2               d---- 
+codex_tmp_m_int_10_v2_review                d---- 
+codex_tmp_m_int_10_v2_review_fresh          d---- 
+codex_tmp_m_int_10_v3_review                d---- 
+codex_tmp_m_int_10_v3_review_probe          d---- 
+codex_tmp_m_int_11_v1_review                d---- 
+codex_tmp_m_int_11_v1_review_fresh_20260429 d---- 
+codex_tmp_m_int_11_v2_review                d---- 
+codex_tmp_m_int_11_v2_review_fresh          d---- 
+codex_tmp_m_int_11_v2_review_fresh_subset   d---- 
+codex_tmp_m_int_5_v2_review                 d---- 
+codex_tmp_m_int_5_v3_review                 d---- 
+codex_tmp_m_int_5_v3_review_probe           d---- 
+codex_tmp_m_int_5_v4_review                 d---- 
+codex_tmp_m_int_5_v4_review_fresh           d---- 
+codex_tmp_m_int_5_v4_review_fresh2          d---- 
+codex_tmp_m_int_6_v1_review                 d---- 
+codex_tmp_m_int_7_v1_review                 d---- 
+codex_tmp_m_int_7_v1_review_fresh           d---- 
+codex_tmp_m_int_7_v2_review                 d---- 
+codex_tmp_m_int_7_v2_review_alt             d---- 
+codex_tmp_m_int_7_v2_single                 d---- 
+codex_tmp_m_int_7_v3_review                 d---- 
+codex_tmp_m_int_7_v3_review_fresh           d---- 
+codex_tmp_m_int_9_v1_review                 d---- 
+codex_tmp_m_int_9_v1_review_single          d---- 
+codex_tmp_m_int_9_v2_review                 d---- 
+codex_tmp_m_int_9_v2_review_fresh           d---- 
+codex_tmp_md3_pytest                        d---- 
+codex_tmp_pytest                            d---- 
+codex_tmp_pytest_m11                        d---- 
+codex_tmp_pytest_m15a_v2                    d---- 
+codex_tmp_pytest_review                     d---- 
+codex_tmp_review                            d---- 
+config                                      d---- 
+dashboard_probe_f2ltuo3t                    d---- 
+dashboard_probe_hhthuj3n                    d---- 
+dashboard_probe_xdvktanm                    d---- 
+dashboard_probe_znaia9ry                    d---- 
+dashboard_probe_zw62d2fs                    d---- 
+data                                        d---- 
+docs                                        d---- 
+helm                                        d---- 
+logs                                        d---- 
+m_int_10_manual_57asn199                    d---- 
+m_int_7_v2_manual_5fgxbzoc                  d---- 
+m_int_7_v3_manual_dhypw5bz                  d---- 
+m_live_4_r2_3qyr9r66                        d---- 
+m10v2_manual_yz_33hqh                       d---- 
+m10v3_one_wlcrnh2f                          d---- 
+m8_tmp_check                                d---- 
+m8_v4_pytest                                d---- 
+m9_v2_manual_verify                         d---- 
+m9v2_pytest_run1                            d---- 
+manual_pytest_base_m_int_7                  d---- 
+manual_pytest_base_m_int_7_ok               d---- 
+manual_review_scratch_m_int_10_v3           d---- 
+manual_review_scratch_m_int_9_v2            d---- 
+manual_tmp_m_int_3                          d---- 
+manual_tmp_m_int_3_v3                       d---- 
+md3_pytest_run2                             d---- 
+md3_round3_manual_tmp                       d---- 
+md3_round3_pytest_tmp                       d---- 
+memory                                      d---- 
+models                                      d---- 
+outputs                                     d---- 
+polaris-controls                            d---- 
+POLARIS.tmppytest                           d---- 
+POLARIStmp_pytest_m_int_3_reviewbasetemp    d---- 
+py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9  d---- 
+pytest_run_3842f3b95af34ad8b6f93080344d5110 d---- 
+pytest_run_554e954860ba4943a4f9f6097fe8541f d---- 
+pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba d---- 
+pytest-cache-files-o969a6s7                 d---- 
+pytest-cache-files-tw8jzxb3                 d---- 
+scripts                                     d---- 
+src                                         d---- 
+state                                       d---- 
+tests                                       d---- 
+tmp_ae3ucgg                                 d---- 
+tmp_pytest_m_int_0b                         d---- 
+tmp_pytest_m_int_2                          d---- 
+tmp_pytest_m_int_3                          d---- 
+tmp_pytest_m_int_3_review                   d---- 
+tmp2ef0ie4p                                 d---- 
+tmp2hhmpr2y                                 d---- 
+tmp48c8ko2m                                 d---- 
+tmp63988s99                                 d---- 
+tmp8u9ua575                                 d---- 
+tmp9h7v7fon                                 d---- 
+tmpaufjwjy5                                 d---- 
+tmpgb143kt_                                 d---- 
+tmppvxh8fwq                                 d---- 
+tmpq5bdi1rl                                 d---- 
+tmptgnkdlz5                                 d---- 
+tmpu2b082f6                                 d---- 
+tmpuyki_w88                                 d---- 
+tmpv1dnokk6                                 d---- 
+tmpw2ru3yoj                                 d---- 
+tmpxnalraft                                 d---- 
+tmpyl5f0goo                                 d---- 
+web                                         d---- 
+.coverage                                   -a--- 53248
+.dockerignore                               -a--- 599
+.env                                        -a--- 88725
+.env.example                                -a--- 7508
+.gitignore                                  -a--- 6078
+architecture.md                             -a--- 15085
+CLAUDE.md                                   -a--- 45500
+docker-compose.yml                          -a--- 1774
+Dockerfile                                  -a--- 1197
+ground_rules.md                             -a--- 11552
+pytest.ini                                  -a--- 654
+README.md                                   -a--- 11317
+requirements-orchestrator.txt               -a--- 662
+requirements-v6.txt                         -a--- 1355
+requirements.txt                            -a--- 6532
+
+
+2026-05-07T07:51:51.570085Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+.\pytest.ini:1:[pytest]
+.\pytest.ini:17:    ignore::pytest.PytestReturnNotNoneWarning
+.\pytest.ini:18:    ignore::pytest.PytestCollectionWarning
+.\requirements-v6.txt:35:pytest==8.4.1
+.\requirements-v6.txt:36:pytest-asyncio==1.3.0
+.\requirements.txt:105:pytest>=7.0.0
+.\requirements.txt:106:pytest-asyncio>=0.21.0
+.\requirements.txt:142:# new test_*_middleware tests use pytest.importorskip against these — without
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+ exited 1 in 2474ms:
+.\pytest.ini:1:[pytest]
+.\pytest.ini:17:    ignore::pytest.PytestReturnNotNoneWarning
+.\pytest.ini:18:    ignore::pytest.PytestCollectionWarning
+.\requirements-v6.txt:35:pytest==8.4.1
+.\requirements-v6.txt:36:pytest-asyncio==1.3.0
+.\requirements.txt:105:pytest>=7.0.0
+.\requirements.txt:106:pytest-asyncio>=0.21.0
+.\requirements.txt:142:# new test_*_middleware tests use pytest.importorskip against these — without
+rg: .\codex_tmp_billing_quota_store_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_review_rerun: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v1_single2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-5p4pe18f: Access is denied. (os error 5)
+rg: .\codex_tmp_md3_pytest\pytest-cache-files-g5_66my5: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_10_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v1_review_fresh_20260429: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_11_v2_review_fresh_subset: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v3_review_probe: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_5_v4_review_fresh2: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_6_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v1_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_review_alt: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v2_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_7_v3_review_fresh: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v1_review_single: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_m_int_9_v2_review_fresh: Access is denied. (os error 5)
+rg: .\dashboard_probe_f2ltuo3t: Access is denied. (os error 5)
+rg: .\dashboard_probe_hhthuj3n: Access is denied. (os error 5)
+rg: .\dashboard_probe_xdvktanm: Access is denied. (os error 5)
+rg: .\dashboard_probe_znaia9ry: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-3igrvw1b: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m15a_v2\pytest-cache-files-6xqnwb4w: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_review\basetemp: Access is denied. (os error 5)
+rg: .\dashboard_probe_zw62d2fs: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m1_v3_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-3r1xbz5a: Access is denied. (os error 5)
+rg: .\codex_tmp_review\pytest: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-j3bgq3dp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_review: Access is denied. (os error 5)
+rg: .\codex_tmp_review\tmporwu3ryq: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m6_v2_review: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-uhc9n9ki: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\pytest-cache-files-z05ztwqu: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run: Access is denied. (os error 5)
+rg: .\m10v2_manual_yz_33hqh: Access is denied. (os error 5)
+rg: .\m10v3_one_wlcrnh2f: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest_m11\run2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7: Access is denied. (os error 5)
+rg: .\manual_pytest_base_m_int_7_ok: Access is denied. (os error 5)
+rg: .\m8_tmp_check\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3_v3: Access is denied. (os error 5)
+rg: .\md3_pytest_run2: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-hpfzlu65: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\case_0fi46bg0: Access is denied. (os error 5)
+rg: .\m8_v4_pytest\basetemp_target_1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-cache-files-nhxwstx3: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\multi_6s8_s1qq: Access is denied. (os error 5)
+rg: .\m9v2_pytest_run1\basetemp: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_bjq0be8a: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmp3mznye_6: Access is denied. (os error 5)
+rg: .\md3_round3_manual_tmp\tmpow6efjpr: Access is denied. (os error 5)
+rg: .\m_int_10_manual_57asn199: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\norm_rg5jsj56: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-gdsntehr: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\probe_5m0km2ig: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_base_single: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-emy3jzim: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\m_int_3_vuogvrw1: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\tmphqr_2pxb: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_review\pytest-cache-files-w2ydeerr: Access is denied. (os error 5)
+rg: .\m_int_7_v2_manual_5fgxbzoc: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_10_v3\pytest_cbed7372a7bb40aea2391561685324a6: Access is denied. (os error 5)
+rg: .\m_int_7_v3_manual_dhypw5bz: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\pytest-cache-files-ifrpgfwe: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v2_review\basetemp: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmp0mgvzuit: Access is denied. (os error 5)
+rg: .\m_live_4_r2_3qyr9r66: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_review\basetemp: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m9_v4_direct\pause_test_k7931r_x: Access is denied. (os error 5)
+rg: .\codex_tmp_pytest\m8_v3_repeat\run1: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\debug_67nfxsqx: Access is denied. (os error 5)
+rg: .\md3_round3_pytest_tmp\base2: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_base: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpaxxfmfxi: Access is denied. (os error 5)
+rg: .\POLARIS.tmppytest: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_concurrent_same_slug_jobs_get_isolated_artifact_dirs_ucrg74d6: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmpil0qrijb: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_pause_request_fails_loudly_for_v30_clinical_u0fuejnk: Access is denied. (os error 5)
+rg: .\POLARIStmp_pytest_m_int_3_reviewbasetemp: Access is denied. (os error 5)
+rg: .\manual_review_scratch_m_int_9_v2\pytest_temp2\pytest-of-msn: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmplt41kesg: Access is denied. (os error 5)
+rg: .\m9_v2_manual_verify\test_runner_completes_and_returns_artifact_dir_98bbq1o9: Access is denied. (os error 5)
+rg: .\manual_tmp_m_int_3\tmppwq_ebab: Access is denied. (os error 5)
+rg: .\pytest-cache-files-o969a6s7: Access is denied. (os error 5)
+rg: .\pytest-cache-files-tw8jzxb3: Access is denied. (os error 5)
+rg: .\pytest_run_3842f3b95af34ad8b6f93080344d5110: Access is denied. (os error 5)
+rg: .\pytest_run_554e954860ba4943a4f9f6097fe8541f: Access is denied. (os error 5)
+rg: .\pytest_run_ae0dcde87f184046b2b4b8ec9cc6f7ba: Access is denied. (os error 5)
+rg: .\py_pytest_b6ae8d9d497443b4b0306f18bf9b8ee9: Access is denied. (os error 5)
+rg: .\tmp2ef0ie4p: Access is denied. (os error 5)
+rg: .\tmp2hhmpr2y: Access is denied. (os error 5)
+rg: .\tmp48c8ko2m: Access is denied. (os error 5)
+rg: .\tmp63988s99: Access is denied. (os error 5)
+rg: .\tmp8u9ua575: Access is denied. (os error 5)
+rg: .\tmp9h7v7fon: Access is denied. (os error 5)
+rg: .\tmpaufjwjy5: Access is denied. (os error 5)
+rg: .\tmpgb143kt_: Access is denied. (os error 5)
+rg: .\tmppvxh8fwq: Access is denied. (os error 5)
+rg: .\tmpq5bdi1rl: Access is denied. (os error 5)
+rg: .\tmptgnkdlz5: Access is denied. (os error 5)
+rg: .\tmpu2b082f6: Access is denied. (os error 5)
+rg: .\tmpuyki_w88: Access is denied. (os error 5)
+rg: .\tmpv1dnokk6: Access is denied. (os error 5)
+rg: .\tmpw2ru3yoj: Access is denied. (os error 5)
+rg: .\tmpxnalraft: Access is denied. (os error 5)
+rg: .\tmpyl5f0goo: Access is denied. (os error 5)
+rg: .\tmp_ae3ucgg: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-8vum0pcs: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_3_review\pytest-cache-files-tygwhrz0: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-6aj13ym2: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_2\pytest-cache-files-yfgponc6: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\tmp_pytest_m_int_0b\basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+
+2026-05-07T07:51:53.321966Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.2 seconds
+Output:
+pytest: 
+Line |
+   2 |  pytest tests/polaris_graph/evidence_contract/test_migration.py -q
+     |  ~~~~~~
+     | The term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+
+ exited 1 in 4223ms:
+pytest: 
+Line |
+   2 |  pytest tests/polaris_graph/evidence_contract/test_migration.py -q
+     |  ~~~~~~
+     | The term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path pytest.ini' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/evidence_contract/test_migration.py -q' in C:\POLARIS
+ succeeded in 1701ms:
+[pytest]
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    api: marks tests as requiring API access (deselect with '-m "not api"')
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --tb=short
+filterwarnings =
+    default
+    ignore::pydantic.warnings.PydanticDeprecatedSince20
+    ignore::FutureWarning:transformers
+    ignore::DeprecationWarning:google
+    ignore::DeprecationWarning:importlib
+    ignore::FutureWarning:huggingface_hub
+    ignore::pytest.PytestReturnNotNoneWarning
+    ignore::pytest.PytestCollectionWarning
+    ignore::ResourceWarning
+
+2026-05-07T07:52:05.283937Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.5 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__ ERROR collecting tests/polaris_graph/evidence_contract/test_migration.py ___
+ImportError while importing test module 'C:\POLARIS\tests\polaris_graph\evidence_contract\test_migration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\polaris_graph\evidence_contract\test_migration.py:10: in <module>
+    from polaris_graph.evidence_contract import (
+E   ModuleNotFoundError: No module named 'polaris_graph'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/evidence_contract/test_migration.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 1 error in 0.93s =========================
+
+ exited 1 in 5488ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__ ERROR collecting tests/polaris_graph/evidence_contract/test_migration.py ___
+ImportError while importing test module 'C:\POLARIS\tests\polaris_graph\evidence_contract\test_migration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python313\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\polaris_graph\evidence_contract\test_migration.py:10: in <module>
+    from polaris_graph.evidence_contract import (
+E   ModuleNotFoundError: No module named 'polaris_graph'
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:429: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/polaris_graph/evidence_contract/test_migration.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 1 error in 0.93s =========================
+
+codex
+The local plain pytest invocation needs `src` on `PYTHONPATH`; that matches this repo’s layout, so I’m rerunning the focused file with that path set before finalizing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "PYTHONPATH|pip install -e|pytest" -n README.md CLAUDE.md .github scripts --glob "*.md" --glob "*.yml" --glob "*.yaml" --glob "*.ps1" --glob "*.sh"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$env:PYTHONPATH='"'src'; python -m pytest tests/polaris_graph/evidence_contract/test_migration.py -q" in C:\POLARIS
+ succeeded in 1550ms:
+CLAUDE.md:564:3. **No parallel pytest / npm / playwright runs.** Single test run at a time per workspace. If a previous run is still active (`Get-Process -Name python,node`), wait for it OR kill it before starting a new one.
+README.md:27:- **Pre-demo smoke:** `PYTHONPATH=src python scripts/demo_smoke.py -v`
+README.md:219:python -m pytest tests/polaris_graph/ -v
+scripts\cleanup\delete_pytest_tmpdirs.sh:2:# scripts/cleanup/delete_pytest_tmpdirs.sh — Linux/CI fallback (DRY-RUN ONLY).
+scripts\cleanup\delete_pytest_tmpdirs.sh:14:    echo "ERROR: bash variant is DRY-RUN ONLY. Use scripts/cleanup/delete_pytest_tmpdirs.ps1 -Mode Apply for real deletes (emits required manifest entries per §4)." >&2
+scripts\cleanup\delete_pytest_tmpdirs.sh:25:  ".codex_tmp" ".codex_tmp_*" ".codex_pytest_tmp"
+scripts\cleanup\delete_pytest_tmpdirs.sh:26:  ".tmp" ".tmp-pytest" ".tmp_pytest" ".tmp_pytest_base"
+scripts\cleanup\delete_pytest_tmpdirs.sh:27:  ".tmp_pytest_*" ".tmp_walkthrough" ".tmp_md3_review"
+scripts\cleanup\delete_pytest_tmpdirs.sh:28:  ".tmp_m_prod_1_r2_*" ".pytest_tmp" ".tmp_*"
+scripts\cleanup\delete_pytest_tmpdirs.sh:29:  "POLARIS.tmppytest" "POLARIStmp_pytest_m_int_3_reviewbasetemp"
+scripts\cleanup\delete_pytest_tmpdirs.sh:30:  "pytest_run_*" "py_pytest_*" "pytest-cache-files-*"
+scripts\cleanup\delete_pytest_tmpdirs.sh:32:  "manual_*" "manual_review_scratch_*" "manual_pytest_base_*"
+scripts\cleanup\delete_pytest_tmpdirs.sh:46:  # iter 7 CLEAN-BASH-FALLBACK-2 fix: outputs/* pytest tmpdirs (parity with PowerShell allowlist)
+scripts\cleanup\delete_pytest_tmpdirs.sh:47:  "outputs/codex_tmp_pytest" "outputs/pytest_basetemp"
+scripts\cleanup\delete_pytest_tmpdirs.sh:48:  "outputs/pytest_temp" "outputs/pytest_tmp"
+scripts\cleanup\delete_pytest_tmpdirs.sh:66:  "$REPO_ROOT/pytest.ini" "$REPO_ROOT/conftest.py"
+scripts\cleanup\delete_pytest_tmpdirs.sh:90:[ "$MODE" = "--dry-run" ] && echo "DRY RUN — nothing deleted. Bash variant is dry-run only (per iter 18 CLEAN-BASH-DRYRUN-MSG-17 fix); use scripts/cleanup/delete_pytest_tmpdirs.ps1 -Mode Apply for real Apply."
+scripts\cleanup\delete_pytest_tmpdirs.ps1:1:# scripts/cleanup/delete_pytest_tmpdirs.ps1 -- Windows/PowerShell canonical
+scripts\cleanup\delete_pytest_tmpdirs.ps1:15:# scripts/cleanup/delete_pytest_tmpdirs.ps1 -- paste-runnable as one file) ===
+scripts\cleanup\delete_pytest_tmpdirs.ps1:88:    reason: 'pytest tmpdir / probe scratch (per section 3.3-section 3.5 allowlist)'
+scripts\cleanup\delete_pytest_tmpdirs.ps1:121:    reason: 'pytest tmpdir / probe scratch file (per section 3.3-section 3.5 allowlist)'
+scripts\cleanup\delete_pytest_tmpdirs.ps1:138:  '.codex_tmp', '.codex_tmp_*', '.codex_pytest_tmp',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:139:  '.tmp', '.tmp-pytest', '.tmp_pytest', '.tmp_pytest_base',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:140:  '.tmp_pytest_*', '.tmp_walkthrough', '.tmp_md3_review',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:141:  '.tmp_m_prod_1_r2_*', '.pytest_tmp', '.tmp_*',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:142:  'POLARIS.tmppytest', 'POLARIStmp_pytest_m_int_3_reviewbasetemp',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:143:  'pytest_run_*', 'py_pytest_*', 'pytest-cache-files-*',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:145:  'manual_*', 'manual_review_scratch_*', 'manual_pytest_base_*',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:159:  # iter 6 CLEAN-OUTPUTS-ALLOWLIST-2 fix: outputs/* pytest tmpdirs (paths from section 3.8)
+scripts\cleanup\delete_pytest_tmpdirs.ps1:160:  'outputs\codex_tmp_pytest', 'outputs\pytest_basetemp',
+scripts\cleanup\delete_pytest_tmpdirs.ps1:161:  'outputs\pytest_temp', 'outputs\pytest_tmp'
+scripts\cleanup\delete_pytest_tmpdirs.ps1:177:  'pytest.ini', 'conftest.py'
+.github\workflows\web_ci.yml:89:          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+.github\workflows\web_ci.yml:153:    # before they reach pytest_v6_backend or the production Dockerfile.
+.github\workflows\web_ci.yml:177:  pytest_v6_backend:
+.github\workflows\web_ci.yml:178:    name: pytest tests/v6/ (Phase 0 backend coverage)
+.github\workflows\web_ci.yml:196:      # test_otel_init.py use pytest.importorskip against dramatiq +
+.github\workflows\web_ci.yml:205:      - name: run_pytest_v6
+.github\workflows\web_ci.yml:207:          PYTHONPATH: src
+.github\workflows\web_ci.yml:209:        # markers; `--no-header` removes pytest banner from CI logs.
+.github\workflows\web_ci.yml:214:          pytest tests/v6/ \
+scripts\v28_post_manifest_pipeline.sh:27:   PYTHONPATH=src \
+scripts\v28_post_manifest_pipeline.sh:28:   python -m pytest -q tests/polaris_graph/test_m49_v28_preservation.py; then
+
+ succeeded in 7811ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 8 items
+
+tests\polaris_graph\evidence_contract\test_migration.py ........         [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 8 passed, 1 warning in 2.51s =========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/evidence_contract/migration.py:32: migration path selection is greedy and insertion-order dependent. If future registry entries branch from the same source version, the walker can take a dead-end edge and raise even when another valid path to target_version exists. Non-blocking for the current empty/linear registry, but should be fixed before supporting branching migrations."
+convergence_call: continue
+remaining_blockers_for_execution: []
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/evidence_contract/migration.py:32: migration path selection is greedy and insertion-order dependent. If future registry entries branch from the same source version, the walker can take a dead-end edge and raise even when another valid path to target_version exists. Non-blocking for the current empty/linear registry, but should be fixed before supporting branching migrations."
+convergence_call: continue
+remaining_blockers_for_execution: []
+tokens used
+29,875
